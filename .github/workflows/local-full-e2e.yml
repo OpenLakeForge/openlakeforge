@@ -3,46 +3,83 @@ name: Local full e2e (nightly and manual)
 # Fresh local end-to-end validation, nightly on the default branch and on
 # demand for any branch.
 #
-# Issue #60 scoped the full local e2e suite as a main/nightly gate. The
-# schedule below is that gate; the dispatch trigger additionally lets a
-# maintainer select any branch in the UI and verify its runtime conformance
-# from GitHub Actions instead of a local machine.
+# Issue #60 scoped the full local e2e suite as a main/nightly gate. Issue
+# #208 widened it to prove v0.3's actual product: a project revision built
+# once, activated in DEV, validated with the full assertion suite, promoted
+# unchanged to PROD, and validated there too -- the developer lifecycle
+# `docs/setup/local.md`'s "Promote a project revision between stages" section
+# documents. The schedule below is that gate; the dispatch trigger
+# additionally lets a maintainer select any branch in the UI, or a DEV-only
+# run for faster iteration, from GitHub Actions instead of a local machine.
 #
-# The job runs the supported `olf` lifecycle and e2e commands directly.
+# The job runs the supported `olf` lifecycle and e2e commands directly, and
+# reuses the kind-smoke plumbing from checks.yml (managed-toolchain
+# provisioning, `olf diagnostics collect` on failure).
 #
-# It reuses the kind-smoke plumbing from checks.yml (same managed-toolchain
-# provisioning and `olf diagnostics collect` on failure) but
-# deploys the full preset by default and runs the complete assertion suite:
-# Polaris namespaces, Dagster product pipelines, Silver and Gold tables,
-# Polaris restart recovery, Superset dashboards, OpenMetadata assets, and
-# ops-bucket artifacts -- discovered dynamically from the domain inventory.
+# 'smoke' (workflow_dispatch only) keeps the old single-stage `olf deploy`
+# shortcut for a fast inner loop. 'full' (the nightly default) drives the
+# multi-stage promotion lifecycle end to end against a DEV+PROD full-preset
+# profile: Polaris namespaces, Dagster product pipelines, Silver and Gold
+# tables, Polaris restart recovery, Superset dashboards, OpenMetadata assets,
+# ops-bucket artifacts, and cross-stage isolation -- discovered dynamically
+# from the domain inventory, run once per stage from that stage's own Bronze.
+#
+# Promoting a revision needs a real container registry: `olf project build`
+# rejects a mutable tag, and a kind-only image has no pullable digest to
+# identify an immutable revision by (see the `_DIGEST_TAG_PATTERN` gate in
+# `olf.project_revision` and docs/setup/local.md's promotion walkthrough).
+# This job pushes the nightly project-code image to this repository's own
+# GHCR namespace, under its own package name (`project-code-nightly`, never
+# `release.yml`'s `project-code`) and a fixed `nightly` tag: reusing one tag
+# bounds the *tagged* history to a single image, at the cost of leaving each
+# night's previous digest around as an untagged package version with no
+# automatic cleanup. GHCR's own retention settings are the fix for that if
+# the package grows unmanageably -- not deployment machinery, so it is left
+# to the maintainer rather than built here.
 
 on:
   workflow_dispatch:
     inputs:
       suite:
         description: >
-          Suite to run. 'full' deploys a full-preset Deployment Profile
-          (governance and analytics enabled) and runs every product pipeline
-          and assertion. 'smoke' deploys the checked-in slim profile and
-          validates one product pipeline through a queryable Gold table.
+          Suite to run. 'full' applies a DEV+PROD full-preset Deployment
+          Profile and drives the whole build-once/promote/validate lifecycle
+          (see the job's own comment above). 'smoke' deploys the checked-in
+          slim single-stage profile and validates one product pipeline
+          through a queryable Gold table.
         type: choice
         options:
           - full
           - smoke
         default: full
+      stage_scope:
+        description: >
+          'full' suite only. 'dev+prod' (default) runs the whole promotion
+          lifecycle; 'dev-only' builds and activates in DEV and runs DEV's
+          full suite, then stops -- no image push's worth of GHCR traffic or
+          PROD deploy, for a faster maintainer-triggered check.
+        type: choice
+        options:
+          - dev+prod
+          - dev-only
+        default: dev+prod
       timeout_minutes:
         description: >
-          Hard wall-clock budget for the whole job. The full preset builds the
-          project-code and Superset images and deploys OpenMetadata, so 120
-          minutes is the default; raise it if the run needs more.
+          Hard wall-clock budget for the whole job. Measured baseline for one
+          stage was 25m33s (18m15s deploy, 7m02s suite); the DEV+PROD
+          lifecycle adds a second stage's platform, one revision build/push,
+          two activations, and a second full suite -- projected at 60-90
+          minutes. 180 keeps roughly 2x headroom over that projection while
+          staying well clear of the 6-hour hard limit GitHub-hosted runners
+          enforce (a single job that cannot be split -- the kind cluster does
+          not survive a job boundary). Raise it if a real run needs more.
         type: number
-        default: 120
+        default: 180
       debug_fail_after_deploy:
         description: >
           Negative test: fail the job right after the platform is deployed to
-          prove the failure diagnostics and artifact retention work on a broken
-          deployment. Defaults to false.
+          prove the failure diagnostics and artifact retention work on a
+          broken deployment. Defaults to false.
         type: boolean
         default: false
   schedule:
@@ -51,11 +88,13 @@ on:
     # the full assertion suite, so a runtime regression that static checks
     # cannot see is dated to a single day of merges instead of surfacing at
     # release time. Every `inputs.*` below is null on this trigger and falls
-    # back to its dispatch default.
+    # back to its dispatch default -- the nightly always runs the full
+    # DEV+PROD lifecycle.
     - cron: "0 2 * * *"
 
 permissions:
   contents: read
+  packages: write
   pull-requests: write
 
 concurrency:
@@ -76,7 +115,7 @@ jobs:
   e2e:
     name: Deploy and validate local stack (${{ inputs.suite || 'full' }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || 120) }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || 180) }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -98,15 +137,37 @@ jobs:
       - name: Provision OpenLakeForge toolchain
         run: uv run --project tools/olf --locked olf toolchain install
 
-      - name: Select the full-preset Deployment Profile
+      # ---- smoke: the old single-stage fast inner loop ----
+
+      - name: Deploy the local stack (smoke, fresh foundation)
+        if: (inputs.suite || 'full') == 'smoke'
+        run: uv run --project tools/olf --locked olf deploy --provider local --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
+
+      - name: Negative-test failure injection (smoke)
+        if: (inputs.suite || 'full') == 'smoke' && inputs.debug_fail_after_deploy == 'true'
+        run: |
+          echo "::error::debug_fail_after_deploy was set -- failing after deploy" \
+            "to prove diagnostics retention on a broken deployment."
+          exit 1
+
+      - name: Run the local e2e suite (smoke)
+        if: (inputs.suite || 'full') == 'smoke'
+        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --suite smoke
+
+      # ---- full: build once, activate DEV, validate, promote to PROD, validate ----
+
+      - name: Select the DEV+PROD Deployment Profile
+        if: (inputs.suite || 'full') != 'smoke'
         # Deploy and validate must resolve one and the same profile: a v3
         # contract records the profile name the deployment resolved, and
-        # `_parse_v3` refuses a contract whose name disagrees. Both steps
-        # below therefore read the project-root `openlakeforge.yaml`, which
-        # is checked in as slim -- only the full suite needs its own, and it
-        # has to live at the project root because a profile's directory is
-        # what resolves `lakehouse_code/`.
-        if: inputs.suite != 'smoke'
+        # `_parse_v3` refuses a contract whose name disagrees. It has to live
+        # at the project root -- `deployment_context_for_profile` resolves
+        # `repo_root` as the profile's parent directory.
+        #
+        # The checked-in `openlakeforge.conformance.yaml` (#216) is
+        # deliberately not reused here: it is 'slim', and this job owes the
+        # *full* assertion suite (Superset, OpenMetadata) per stage, which
+        # only a 'full' preset deploys.
         run: |
           cat > openlakeforge.yaml <<'PROFILE'
           apiVersion: openlakeforge.io/v1alpha1
@@ -122,21 +183,94 @@ jobs:
             stages:
               dev:
                 enabled: true
+              prod:
+                enabled: ${{ (inputs.stage_scope || 'dev+prod') != 'dev-only' }}
           PROFILE
           uv run --project tools/olf --locked olf profile validate --project .
 
-      - name: Deploy the local stack (fresh foundation)
-        run: uv run --project tools/olf --locked olf deploy --provider local --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
+      - name: Apply the local platform (foundation + prefetch + platform, every enabled stage)
+        if: (inputs.suite || 'full') != 'smoke'
+        run: uv run --project tools/olf --locked olf platform apply -f openlakeforge.yaml
 
-      - name: Negative-test failure injection
-        if: inputs.debug_fail_after_deploy == 'true'
+      - name: Negative-test failure injection (full)
+        if: (inputs.suite || 'full') != 'smoke' && inputs.debug_fail_after_deploy == 'true'
         run: |
-          echo "::error::debug_fail_after_deploy was set -- failing after deploy" \
+          echo "::error::debug_fail_after_deploy was set -- failing after platform apply" \
             "to prove diagnostics retention on a broken deployment."
           exit 1
 
-      - name: Run the local e2e suite
-        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --suite ${{ inputs.suite || 'full' }}
+      - name: Log in to GHCR
+        if: (inputs.suite || 'full') != 'smoke'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the project-code image
+        # A promotable revision needs a registry digest, and local stands up
+        # no registry of its own (docs/setup/local.md, "Promote a project
+        # revision between stages"): push to this repository's own GHCR
+        # namespace instead of the unpushable
+        # ghcr.io/openlakeforge/project-code default.
+        if: (inputs.suite || 'full') != 'smoke'
+        id: image
+        env:
+          PROJECT_CODE_IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}/project-code-nightly
+          PROJECT_CODE_IMAGE_TAG: nightly
+        run: |
+          set -euo pipefail
+          image="$(uv run --project tools/olf --locked olf project image -f openlakeforge.yaml | tail -n 1)"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build the project revision
+        if: (inputs.suite || 'full') != 'smoke'
+        id: revision
+        run: |
+          set -euo pipefail
+          revision="$(uv run --project tools/olf --locked olf project build --project . --image "${{ steps.image.outputs.image }}" | tail -n 1)"
+          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+
+      - name: Activate the revision in DEV
+        if: (inputs.suite || 'full') != 'smoke'
+        run: uv run --project tools/olf --locked olf project deploy -f openlakeforge.yaml --stage dev --revision "${{ steps.revision.outputs.revision }}"
+
+      - name: Assert DEV activated the built revision
+        if: (inputs.suite || 'full') != 'smoke'
+        run: |
+          set -euo pipefail
+          recorded="$(uv run --project tools/olf --locked olf project status -f openlakeforge.yaml --stage dev --json | jq -r '.stages[0].recorded.project_revision')"
+          if [ "${recorded}" != "${{ steps.revision.outputs.revision }}" ]; then
+            echo "::error::DEV activated ${recorded}, expected ${{ steps.revision.outputs.revision }}"
+            exit 1
+          fi
+
+      - name: Run the full e2e suite against DEV
+        if: (inputs.suite || 'full') != 'smoke'
+        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
+
+      - name: Activate the same revision in PROD (promotion -- no rebuild)
+        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        run: uv run --project tools/olf --locked olf project deploy -f openlakeforge.yaml --stage prod --revision "${{ steps.revision.outputs.revision }}"
+
+      - name: Assert PROD activated the identical digest DEV did
+        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        run: |
+          set -euo pipefail
+          recorded="$(uv run --project tools/olf --locked olf project status -f openlakeforge.yaml --stage prod --json | jq -r '.stages[0].recorded.project_revision')"
+          if [ "${recorded}" != "${{ steps.revision.outputs.revision }}" ]; then
+            echo "::error::PROD activated ${recorded}, expected ${{ steps.revision.outputs.revision }} (the exact digest DEV ran, from the one build this job made)"
+            exit 1
+          fi
+
+      - name: Run the full e2e suite against PROD
+        # `run_full` (olf.e2e._runner) includes `check_stage_isolation`
+        # whenever a sibling stage namespace exists, so this run and DEV's
+        # above already assert the cross-stage negative-isolation criteria
+        # from each stage's own vantage point -- no separate isolation step
+        # is needed.
+        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 
       - name: Write run summary
         if: always()
@@ -146,6 +280,7 @@ jobs:
             echo ""
             echo "- Ref: \`${{ github.ref }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Stage scope: \`${{ (inputs.suite || 'full') == 'smoke' && 'dev' || (inputs.stage_scope || 'dev+prod') }}\`"
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -162,15 +297,44 @@ jobs:
               "Local ${{ inputs.suite || 'full' }} e2e run finished with status **${{ job.status }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))"
           fi
 
-      - name: Collect kind diagnostics
-        if: failure()
+      - name: Collect kind diagnostics (smoke)
+        if: failure() && (inputs.suite || 'full') == 'smoke'
         run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-e2e-diagnostics
 
-      - name: Upload kind diagnostics
-        if: failure()
+      - name: Upload kind diagnostics (smoke)
+        if: failure() && (inputs.suite || 'full') == 'smoke'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: kind-e2e-diagnostics-${{ github.run_id }}
           path: .tmp/kind-e2e-diagnostics
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Collect kind diagnostics (DEV)
+        # Per-stage output directories, so a reviewer can tell which stage
+        # failed without cross-referencing the job log. DEV is always
+        # collected (always enabled); PROD only when the profile enabled it,
+        # so a `dev-only` run never produces an empty, misleading `prod/`
+        # directory for a namespace that was never created. `platform apply
+        # -f`/`project deploy -f` always resolve the tool's own default
+        # cluster/kubeconfig (they take no override flags), so this must
+        # match that default rather than the job's smoke-only env above.
+        if: failure() && (inputs.suite || 'full') != 'smoke'
+        env:
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/dev --namespace olf-dev --kube-context kind-openlakeforge-local
+
+      - name: Collect kind diagnostics (PROD)
+        if: failure() && (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        env:
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/prod --namespace olf-prod --kube-context kind-openlakeforge-local
+
+      - name: Upload kind diagnostics (full)
+        if: failure() && (inputs.suite || 'full') != 'smoke'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-e2e-diagnostics-${{ github.run_id }}
+          path: .tmp/local-full-e2e-diagnostics
           if-no-files-found: error
           retention-days: 14
