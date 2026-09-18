@@ -55,9 +55,11 @@ on:
       stage_scope:
         description: >
           'full' suite only. 'dev+prod' (default) runs the whole promotion
-          lifecycle; 'dev-only' builds and activates in DEV and runs DEV's
-          full suite, then stops -- no image push's worth of GHCR traffic or
-          PROD deploy, for a faster maintainer-triggered check.
+          lifecycle; 'dev-only' still builds and pushes the project-code
+          image to GHCR (DEV's own activation needs that digest too) and
+          runs DEV's full suite, but skips the PROD activation and its full
+          suite -- for a faster maintainer-triggered check that doesn't pay
+          for promotion.
         type: choice
         options:
           - dev+prod
@@ -104,11 +106,17 @@ concurrency:
   group: local-full-e2e-${{ github.ref }}
   cancel-in-progress: false
 
+# CLUSTER_NAME/KUBE_CONTEXT/LOCAL_KUBECONFIG_PATH/KUBECONFIG are deliberately
+# NOT set here: they are smoke-only values (a run-scoped cluster,
+# `--cluster-name`'s only caller). `olf e2e run -f` gives an ambient
+# KUBECONFIG/KUBE_CONTEXT precedence over the profile it resolves
+# (`commands/e2e.py::_resolve_kubeconfig_path` -- deliberate, so an installed
+# distribution can override it), so a job-level value here would leak into
+# the full path's e2e steps and point them at a cluster `platform apply -f`
+# never created (the smoke one) instead of the one it did (the tool's own
+# `openlakeforge-local` default). Every step that needs one of these values
+# sets it itself, scoped to only the steps that share a cluster.
 env:
-  CLUSTER_NAME: openlakeforge-e2e-${{ github.run_id }}
-  KUBE_CONTEXT: kind-openlakeforge-e2e-${{ github.run_id }}
-  LOCAL_KUBECONFIG_PATH: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
-  KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
   PROJECT_CODE_IMAGE_TAG: local
 
 jobs:
@@ -141,6 +149,9 @@ jobs:
 
       - name: Deploy the local stack (smoke, fresh foundation)
         if: (inputs.suite || 'full') == 'smoke'
+        env:
+          CLUSTER_NAME: openlakeforge-e2e-${{ github.run_id }}
+          LOCAL_KUBECONFIG_PATH: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
         run: uv run --project tools/olf --locked olf deploy --provider local --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
 
       - name: Negative-test failure injection (smoke)
@@ -152,6 +163,12 @@ jobs:
 
       - name: Run the local e2e suite (smoke)
         if: (inputs.suite || 'full') == 'smoke'
+        # `olf e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
+        # profile it resolves, so these have to name the cluster the smoke
+        # deploy step above actually created.
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-e2e-${{ github.run_id }}
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
         run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --suite smoke
 
       # ---- full: build once, activate DEV, validate, promote to PROD, validate ----
@@ -246,7 +263,18 @@ jobs:
           fi
 
       - name: Run the full e2e suite against DEV
+        # `olf e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
+        # profile it resolves (commands/e2e.py::_resolve_kubeconfig_path), so
+        # this has to name the cluster `platform apply -f` actually created
+        # (its own default -- it takes no --cluster-name/--kubeconfig-path
+        # override) rather than inherit nothing and hope no smoke-scoped
+        # value is ambient. Explicit here even though the job env above no
+        # longer sets either: a step this consequential should not depend on
+        # what else in the file happens to leave unset.
         if: (inputs.suite || 'full') != 'smoke'
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
         run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
 
       - name: Activate the same revision in PROD (promotion -- no rebuild)
@@ -268,8 +296,11 @@ jobs:
         # whenever a sibling stage namespace exists, so this run and DEV's
         # above already assert the cross-stage negative-isolation criteria
         # from each stage's own vantage point -- no separate isolation step
-        # is needed.
+        # is needed. Same ambient-override reasoning as the DEV run above.
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
         run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 
       - name: Write run summary
@@ -299,7 +330,9 @@ jobs:
 
       - name: Collect kind diagnostics (smoke)
         if: failure() && (inputs.suite || 'full') == 'smoke'
-        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-e2e-diagnostics
+        env:
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
+        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-e2e-diagnostics --kube-context kind-openlakeforge-e2e-${{ github.run_id }}
 
       - name: Upload kind diagnostics (smoke)
         if: failure() && (inputs.suite || 'full') == 'smoke'
@@ -317,8 +350,9 @@ jobs:
         # so a `dev-only` run never produces an empty, misleading `prod/`
         # directory for a namespace that was never created. `platform apply
         # -f`/`project deploy -f` always resolve the tool's own default
-        # cluster/kubeconfig (they take no override flags), so this must
-        # match that default rather than the job's smoke-only env above.
+        # cluster/kubeconfig (they take no override flags), so this has to
+        # match that default explicitly -- `diagnostics collect` has no
+        # `--kubeconfig` flag of its own, only ambient `KUBECONFIG`.
         if: failure() && (inputs.suite || 'full') != 'smoke'
         env:
           KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
