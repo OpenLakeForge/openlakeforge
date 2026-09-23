@@ -79,7 +79,7 @@ resource "terraform_data" "openmetadata_release_revision" {
 
 resource "terraform_data" "openmetadata_catalog_schemas" {
   triggers_replace = [
-    var.catalog_database_name,
+    local.catalog_database_name,
     sha256(local.catalog_schema_names_json),
   ]
 }

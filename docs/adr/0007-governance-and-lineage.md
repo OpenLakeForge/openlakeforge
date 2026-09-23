@@ -22,6 +22,22 @@ assertions for it are skipped rather than failed.
 The artifacts phase seeds domains, data products, and medallion bucket
 containers over REST.
 
+### One OpenMetadata, stage-qualified service roots
+
+A deployment runs one OpenMetadata however many stages enable governance. Stage
+is carried by service identity, never by a Domain: every governed stage gets its
+own `<catalog service>.lakehouse_<stage>` database root, a `dagster_<stage>`
+pipeline service, and a `superset_<stage>` dashboard service when that stage
+also enables analytics. The bootstrap removes the services of a stage that
+stopped being governed.
+
+The Iceberg service holds one connection, so exactly one stage, the
+*canonical* stage, is crawled, and its pipeline service receives OpenLineage
+pipelines. Other governed stages are represented by what `olf openmetadata
+deploy-metadata` seeds under their own root. The local root registers every
+governed stage; the AWS and Azure roots still register one until their
+adapters follow (#131).
+
 ### Lineage is emitted natively, directly to OpenMetadata
 
 Floe and dbt-trino each emit OpenLineage events straight to OpenMetadata's
@@ -85,3 +101,7 @@ state.
 Merges the decisions previously recorded as ADR 0006 (OpenMetadata governance
 with an OpenLineage proxy), 0009 (deferring lineage, and rejecting both the proxy
 and a custom REST push), and 0023 (restoring native emission).
+
+2026-09-23 (#131): stage-qualified service roots replace the single unqualified
+`dagster` and `superset` services, and the one-governed-stage limit is lifted
+on the local root.

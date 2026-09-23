@@ -110,7 +110,8 @@
   lineage_settings="$(jq -n \
     --arg service "$catalog_service" \
     --arg trino "$trino_namespace" \
-    '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:false,eventTypeFilter:["COMPLETE"],defaultPipelineService:"dagster",namespaceToServiceMapping:{($trino):$service,($service):$service}}}')"
+    --arg pipeline_service "${lineage_pipeline_service}" \
+    '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:false,eventTypeFilter:["COMPLETE"],defaultPipelineService:$pipeline_service,namespaceToServiceMapping:{($trino):$service,($service):$service}}}')"
   lineage_code="$(curl -sS -o /tmp/om-openlineage-body -w '%%{http_code}' \
     -X PUT "$om_url/api/v1/system/settings" \
     -H "Authorization: Bearer $ADMIN_JWT" \
@@ -173,274 +174,221 @@
     exit 1
   fi
 
-  catalog_database="${catalog_database_name}"
-  catalog_database_fqn="${catalog_database_fqn}"
-  db_payload="$(jq -n \
-    --arg name "$catalog_database" \
-    --arg service "$catalog_service" \
-    '{
-      name: $name,
-      service: $service
-    }')"
-  db_code="$(curl -sS -o /tmp/om-db-body -w '%%{http_code}' \
-    -X PUT "$om_url/api/v1/databases" \
-    -H "Authorization: Bearer $ADMIN_JWT" \
-    -H "Content-Type: application/json" \
-    -d "$db_payload")"
-  case " 200 201 " in
-    *" $db_code "*) ;;
-    *)
-      echo "Failed to create or update OpenMetadata database '$catalog_database_fqn' (HTTP $db_code)" >&2
-      cat /tmp/om-db-body >&2
-      exit 1
-      ;;
-  esac
-
+  # Every governed stage gets its own `<service>.lakehouse_<stage>` database
+  # entity: `olf openmetadata deploy-metadata` seeds a stage's schemas and
+  # tables under that root (#211) and OpenMetadata rejects a schema whose
+  # database does not resolve. Only the canonical stage's catalog is crawled --
+  # the Iceberg service above holds one connection.
+  printf '%s' "${stages_json_b64}" | base64 -d >/tmp/om-stages.json
   printf '%s' "${catalog_schema_names_json_b64}" | base64 -d >/tmp/om-catalog-schemas.json
-  jq -r '.[]' /tmp/om-catalog-schemas.json | while IFS= read -r schema_name; do
-    schema_payload="$(jq -n \
-      --arg name "$schema_name" \
-      --arg database "$catalog_database_fqn" \
-      '{
-        name: $name,
-        database: $database
-      }')"
-    schema_code="$(curl -sS -o /tmp/om-schema-body -w '%%{http_code}' \
-      -X PUT "$om_url/api/v1/databaseSchemas" \
+
+  stage_field() {
+    jq -r --arg stage "$1" --arg field "$2" '.[$stage][$field] // empty' /tmp/om-stages.json
+  }
+
+  ensure_stage_database() {
+    database="$1"
+    database_fqn="$catalog_service.$database"
+    db_payload="$(jq -n --arg name "$database" --arg service "$catalog_service" '{name: $name, service: $service}')"
+    db_code="$(curl -sS -o /tmp/om-db-body -w '%%{http_code}' \
+      -X PUT "$om_url/api/v1/databases" \
       -H "Authorization: Bearer $ADMIN_JWT" \
       -H "Content-Type: application/json" \
-      -d "$schema_payload")"
+      -d "$db_payload")"
     case " 200 201 " in
-      *" $schema_code "*) ;;
+      *" $db_code "*) ;;
       *)
-        echo "Failed to create or update OpenMetadata schema '$catalog_database_fqn.$schema_name' (HTTP $schema_code)" >&2
-        cat /tmp/om-schema-body >&2
+        echo "Failed to create or update OpenMetadata database '$database_fqn' (HTTP $db_code)" >&2
+        cat /tmp/om-db-body >&2
         exit 1
         ;;
     esac
+
+    for schema_name in $(jq -r '.[]' /tmp/om-catalog-schemas.json); do
+      schema_payload="$(jq -n --arg name "$schema_name" --arg database "$database_fqn" '{name: $name, database: $database}')"
+      schema_code="$(curl -sS -o /tmp/om-schema-body -w '%%{http_code}' \
+        -X PUT "$om_url/api/v1/databaseSchemas" \
+        -H "Authorization: Bearer $ADMIN_JWT" \
+        -H "Content-Type: application/json" \
+        -d "$schema_payload")"
+      case " 200 201 " in
+        *" $schema_code "*) ;;
+        *)
+          echo "Failed to create or update OpenMetadata schema '$database_fqn.$schema_name' (HTTP $schema_code)" >&2
+          cat /tmp/om-schema-body >&2
+          exit 1
+          ;;
+      esac
+    done
+  }
+
+  # Upsert a service by name, then create its metadata ingestion pipeline once
+  # and deploy it without triggering: the Dagster connector still queries the
+  # pre-1.x `PipelineRuns` type, and Superset reports only exist after the
+  # artifact phase imports them (ADR 0007).
+  # Args: service kind (pipelineServices|dashboardServices), service payload,
+  # pipeline name, pipeline display name, source config type, service ref type.
+  register_service() {
+    kind="$1"
+    service_payload="$2"
+    pipeline_name="$3"
+    pipeline_display="$4"
+    source_type="$5"
+    service_ref_type="$6"
+    service_name="$(echo "$service_payload" | jq -r '.name')"
+
+    svc_code="$(curl -sS -o /tmp/om-stage-svc-body -w '%%{http_code}' \
+      -X PUT "$om_url/api/v1/services/$kind" \
+      -H "Authorization: Bearer $ADMIN_JWT" \
+      -H "Content-Type: application/json" \
+      -d "$service_payload")"
+    case " 200 201 " in
+      *" $svc_code "*) stage_svc_id="$(jq -r '.id // empty' /tmp/om-stage-svc-body)" ;;
+      *)
+        echo "Failed to create OpenMetadata service '$service_name' (HTTP $svc_code)" >&2
+        cat /tmp/om-stage-svc-body >&2
+        exit 1
+        ;;
+    esac
+
+    check_code="$(curl -sS -o /tmp/om-stage-pipeline-body -w '%%{http_code}' \
+      "$om_url/api/v1/services/ingestionPipelines/name/$service_name.$pipeline_name" \
+      -H "Authorization: Bearer $ADMIN_JWT")"
+    if [ "$check_code" = "200" ]; then
+      stage_pipeline_id="$(jq -r '.id // empty' /tmp/om-stage-pipeline-body)"
+    elif [ "$check_code" = "404" ]; then
+      pipeline_payload="$(jq -n \
+        --arg name "$pipeline_name" \
+        --arg display "$pipeline_display" \
+        --arg source_type "$source_type" \
+        --arg service_id "$stage_svc_id" \
+        --arg service_type "$service_ref_type" \
+        '{
+          name: $name,
+          displayName: $display,
+          pipelineType: "metadata",
+          sourceConfig: {config: ({type: $source_type} + (if $source_type == "PipelineMetadata" then {includeLineage: true} else {includeDataModels: true} end))},
+          airflowConfig: {startDate: "2025-01-01T00:00:00.000Z", retries: 1, pausePipeline: true},
+          service: {id: $service_id, type: $service_type}
+        }')"
+      create_code="$(curl -sS -o /tmp/om-stage-pipeline-body -w '%%{http_code}' \
+        -X POST "$om_url/api/v1/services/ingestionPipelines" \
+        -H "Authorization: Bearer $ADMIN_JWT" \
+        -H "Content-Type: application/json" \
+        -d "$pipeline_payload")"
+      case " 200 201 " in
+        *" $create_code "*) stage_pipeline_id="$(jq -r '.id // empty' /tmp/om-stage-pipeline-body)" ;;
+        *)
+          echo "Failed to create ingestion pipeline '$service_name.$pipeline_name' (HTTP $create_code)" >&2
+          cat /tmp/om-stage-pipeline-body >&2
+          exit 1
+          ;;
+      esac
+    else
+      echo "Failed to inspect ingestion pipeline '$service_name.$pipeline_name' (HTTP $check_code)" >&2
+      exit 1
+    fi
+
+    curl -sS -o /tmp/om-stage-deploy-body -X POST \
+      "$om_url/api/v1/services/ingestionPipelines/deploy/$stage_pipeline_id" \
+      -H "Authorization: Bearer $ADMIN_JWT" || true
+    echo "OpenMetadata service '$service_name' registered (ingestion deferred, see ADR 0007)."
+  }
+
+  # A stage that lost governance or analytics keeps its namespace, but the
+  # service registered for it would point governance at a runtime that no
+  # longer reports to it. Look up by name, delete by id, pipeline before the
+  # service that owns it -- so the common path issues no delete at all.
+  remove_service() {
+    kind="$1"
+    service_name="$2"
+    pipeline_name="$3"
+
+    stale_pipeline_code="$(curl -sS -o /tmp/om-stale-pipeline -w '%%{http_code}' \
+      "$om_url/api/v1/services/ingestionPipelines/name/$service_name.$pipeline_name" \
+      -H "Authorization: Bearer $ADMIN_JWT")"
+    if [ "$stale_pipeline_code" = "200" ]; then
+      stale_pipeline_id="$(jq -r '.id // empty' /tmp/om-stale-pipeline)"
+      delete_code="$(curl -sS -o /tmp/om-stale-delete -w '%%{http_code}' \
+        -X DELETE "$om_url/api/v1/services/ingestionPipelines/$stale_pipeline_id?hardDelete=true" \
+        -H "Authorization: Bearer $ADMIN_JWT")"
+      case " 200 404 " in
+        *" $delete_code "*) ;;
+        *)
+          echo "Failed to remove stale ingestion pipeline '$service_name.$pipeline_name' (HTTP $delete_code)" >&2
+          cat /tmp/om-stale-delete >&2
+          exit 1
+          ;;
+      esac
+    elif [ "$stale_pipeline_code" != "404" ]; then
+      echo "Failed to inspect ingestion pipeline '$service_name.$pipeline_name' (HTTP $stale_pipeline_code)" >&2
+      exit 1
+    fi
+
+    stale_svc_code="$(curl -sS -o /tmp/om-stale-svc -w '%%{http_code}' \
+      "$om_url/api/v1/services/$kind/name/$service_name" \
+      -H "Authorization: Bearer $ADMIN_JWT")"
+    if [ "$stale_svc_code" = "200" ]; then
+      stale_svc_id="$(jq -r '.id // empty' /tmp/om-stale-svc)"
+      delete_code="$(curl -sS -o /tmp/om-stale-delete -w '%%{http_code}' \
+        -X DELETE "$om_url/api/v1/services/$kind/$stale_svc_id?hardDelete=true&recursive=true" \
+        -H "Authorization: Bearer $ADMIN_JWT")"
+      case " 200 404 " in
+        *" $delete_code "*) echo "Removed stale OpenMetadata service '$service_name'." ;;
+        *)
+          echo "Failed to remove stale OpenMetadata service '$service_name' (HTTP $delete_code)" >&2
+          cat /tmp/om-stale-delete >&2
+          exit 1
+          ;;
+      esac
+    elif [ "$stale_svc_code" != "404" ]; then
+      echo "Failed to inspect OpenMetadata service '$service_name' (HTTP $stale_svc_code)" >&2
+      exit 1
+    fi
+  }
+
+  # Stage names are the closed set the profile schema allows, so iterating it
+  # also finds the services of a stage that is no longer governed. Service
+  # names follow the contract's canonical `dagster_<stage>` / `superset_<stage>`
+  # (provider_contracts.py rejects any other).
+  for stage in dev uat prod; do
+    database="$(stage_field "$stage" catalog_database_name)"
+    if [ -n "$database" ]; then
+      ensure_stage_database "$database"
+    fi
+
+    pipeline_service="$(stage_field "$stage" pipeline_service_name)"
+    if [ -n "$pipeline_service" ]; then
+      register_service pipelineServices "$(jq -n \
+        --arg name "$pipeline_service" \
+        --arg display "Dagster Orchestrator ($stage)" \
+        --arg host "$(stage_field "$stage" dagster_webserver_url)" \
+        '{name: $name, displayName: $display, serviceType: "Dagster", connection: {config: {type: "Dagster", host: $host, timeout: 1000}}}')" \
+        dagster-metadata-ingestion "Dagster Pipeline Metadata" PipelineMetadata pipelineService
+    else
+      remove_service pipelineServices "dagster_$stage" dagster-metadata-ingestion
+    fi
+
+    dashboard_service="$(stage_field "$stage" dashboard_service_name)"
+    if [ -n "$dashboard_service" ]; then
+      register_service dashboardServices "$(jq -n \
+        --arg name "$dashboard_service" \
+        --arg display "Superset Reporting ($stage)" \
+        --arg host_port "$(stage_field "$stage" superset_url)" \
+        --arg username "${superset_username}" \
+        --arg password "${superset_password}" \
+        --arg provider "${superset_auth_provider}" \
+        --arg verify_ssl "${superset_verify_ssl}" \
+        '{name: $name, displayName: $display, serviceType: "Superset", connection: {config: {type: "Superset", hostPort: $host_port, connection: {provider: $provider, username: $username, password: $password, verifySSL: $verify_ssl}}}}')" \
+        superset-metadata-ingestion "Superset Dashboard Metadata" DashboardMetadata dashboardService
+    else
+      remove_service dashboardServices "superset_$stage" superset-metadata-ingestion
+    fi
   done
 
-  # Register Dagster as a Pipeline Service and trigger metadata ingestion.
-  dagster_svc_code="$(curl -sS -o /tmp/om-dagster-svc-body -w '%%{http_code}' \
-    -X PUT "$om_url/api/v1/services/pipelineServices" \
-    -H "Authorization: Bearer $ADMIN_JWT" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"name\": \"dagster\",
-      \"displayName\": \"Dagster Orchestrator\",
-      \"serviceType\": \"Dagster\",
-      \"connection\": {
-        \"config\": {
-          \"type\": \"Dagster\",
-          \"host\": \"${dagster_webserver_url}\",
-          \"timeout\": 1000
-        }
-      }
-    }")"
-  case " 200 201 " in
-    *" $dagster_svc_code "*) dagster_svc_id="$(jq -r '.id // empty' /tmp/om-dagster-svc-body)" ;;
-    *)
-      echo "Failed to create Dagster pipeline service (HTTP $dagster_svc_code)" >&2
-      cat /tmp/om-dagster-svc-body >&2
-      exit 1
-      ;;
-  esac
-
-  dagster_pipeline_fqn="dagster.dagster-metadata-ingestion"
-  dagster_check_code="$(curl -sS -o /tmp/om-dagster-pipeline-body -w '%%{http_code}' \
-    "$om_url/api/v1/services/ingestionPipelines/name/$dagster_pipeline_fqn" \
-    -H "Authorization: Bearer $ADMIN_JWT")"
-  if [ "$dagster_check_code" = "200" ]; then
-    dagster_pipeline_id="$(jq -r '.id // empty' /tmp/om-dagster-pipeline-body)"
-  elif [ "$dagster_check_code" = "404" ]; then
-    dagster_create_code="$(curl -sS -o /tmp/om-dagster-pipeline-body -w '%%{http_code}' \
-      -X POST "$om_url/api/v1/services/ingestionPipelines" \
-      -H "Authorization: Bearer $ADMIN_JWT" \
-      -H "Content-Type: application/json" \
-      -d "{
-        \"name\": \"dagster-metadata-ingestion\",
-        \"displayName\": \"Dagster Pipeline Metadata\",
-        \"pipelineType\": \"metadata\",
-        \"sourceConfig\": {
-          \"config\": {
-            \"type\": \"PipelineMetadata\",
-            \"includeLineage\": true
-          }
-        },
-        \"airflowConfig\": {
-          \"startDate\": \"2025-01-01T00:00:00.000Z\",
-          \"retries\": 1,
-          \"pausePipeline\": true
-        },
-        \"service\": {
-          \"id\": \"$dagster_svc_id\",
-          \"type\": \"pipelineService\"
-        }
-      }")"
-    case " 200 201 " in
-      *" $dagster_create_code "*) dagster_pipeline_id="$(jq -r '.id // empty' /tmp/om-dagster-pipeline-body)" ;;
-      *)
-        echo "Failed to create Dagster ingestion pipeline (HTTP $dagster_create_code)" >&2
-        cat /tmp/om-dagster-pipeline-body >&2
-        exit 1
-        ;;
-    esac
-  else
-    echo "Failed to inspect Dagster ingestion pipeline (HTTP $dagster_check_code)" >&2
-    exit 1
-  fi
-
-  # Deploy (register) the pipeline definition but do NOT trigger it.
-  # OM 1.12.x Dagster connector uses `... on PipelineRuns` which Dagster 1.x
-  # renamed to `Runs`; the test connection step crashes before indexing starts.
-  # Trigger manually once the connector is updated (see ADR 0007).
-  curl -sS -o /tmp/om-dagster-deploy-body -X POST \
-    "$om_url/api/v1/services/ingestionPipelines/deploy/$dagster_pipeline_id" \
-    -H "Authorization: Bearer $ADMIN_JWT" || true
-  echo "Dagster pipeline service registered (ingestion deferred — see ADR 0007)."
-
-%{ if register_superset ~}
-  # Register Superset as a Dashboard Service and create metadata ingestion.
-  superset_payload="$(jq -n \
-    --arg host_port "${superset_url}" \
-    --arg username "${superset_username}" \
-    --arg password "${superset_password}" \
-    --arg provider "${superset_auth_provider}" \
-    --arg verify_ssl "${superset_verify_ssl}" \
-    '{
-      name: "superset",
-      displayName: "Superset Reporting",
-      serviceType: "Superset",
-      connection: {
-        config: {
-          type: "Superset",
-          hostPort: $host_port,
-          connection: {
-            provider: $provider,
-            username: $username,
-            password: $password,
-            verifySSL: $verify_ssl
-          }
-        }
-      }
-    }')"
-  superset_svc_code="$(curl -sS -o /tmp/om-superset-svc-body -w '%%{http_code}' \
-    -X PUT "$om_url/api/v1/services/dashboardServices" \
-    -H "Authorization: Bearer $ADMIN_JWT" \
-    -H "Content-Type: application/json" \
-    -d "$superset_payload")"
-  case " 200 201 " in
-    *" $superset_svc_code "*) superset_svc_id="$(jq -r '.id // empty' /tmp/om-superset-svc-body)" ;;
-    *)
-      echo "Failed to create Superset dashboard service (HTTP $superset_svc_code)" >&2
-      cat /tmp/om-superset-svc-body >&2
-      exit 1
-      ;;
-  esac
-
-  superset_pipeline_fqn="superset.superset-metadata-ingestion"
-  superset_check_code="$(curl -sS -o /tmp/om-superset-pipeline-body -w '%%{http_code}' \
-    "$om_url/api/v1/services/ingestionPipelines/name/$superset_pipeline_fqn" \
-    -H "Authorization: Bearer $ADMIN_JWT")"
-  if [ "$superset_check_code" = "200" ]; then
-    superset_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-pipeline-body)"
-  elif [ "$superset_check_code" = "404" ]; then
-    superset_create_code="$(curl -sS -o /tmp/om-superset-pipeline-body -w '%%{http_code}' \
-      -X POST "$om_url/api/v1/services/ingestionPipelines" \
-      -H "Authorization: Bearer $ADMIN_JWT" \
-      -H "Content-Type: application/json" \
-      -d "{
-        \"name\": \"superset-metadata-ingestion\",
-        \"displayName\": \"Superset Dashboard Metadata\",
-        \"pipelineType\": \"metadata\",
-        \"sourceConfig\": {
-          \"config\": {
-            \"type\": \"DashboardMetadata\",
-            \"includeDataModels\": true
-          }
-        },
-        \"airflowConfig\": {
-          \"startDate\": \"2025-01-01T00:00:00.000Z\",
-          \"retries\": 1,
-          \"pausePipeline\": true
-        },
-        \"service\": {
-          \"id\": \"$superset_svc_id\",
-          \"type\": \"dashboardService\"
-        }
-      }")"
-    case " 200 201 " in
-      *" $superset_create_code "*) superset_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-pipeline-body)" ;;
-      *)
-        echo "Failed to create Superset ingestion pipeline (HTTP $superset_create_code)" >&2
-        cat /tmp/om-superset-pipeline-body >&2
-        exit 1
-        ;;
-    esac
-  else
-    echo "Failed to inspect Superset ingestion pipeline (HTTP $superset_check_code)" >&2
-    exit 1
-  fi
-
-  # Deploy (register) the pipeline definition but do NOT trigger it.
-  # Superset reports are dynamic artifacts imported after Terraform by the
-  # local/CI artifact deploy phase; trigger this pipeline after report deploy.
-  curl -sS -o /tmp/om-superset-deploy-body -X POST \
-    "$om_url/api/v1/services/ingestionPipelines/deploy/$superset_pipeline_id" \
-    -H "Authorization: Bearer $ADMIN_JWT" || true
-  echo "Superset dashboard service registered (ingestion deferred — see ADR 0007)."
-%{ else ~}
-  # No analytics stage is enabled. Skipping registration is not enough when
-  # analytics was turned off rather than never enabled: Superset itself is
-  # destroyed by the same apply, and a dashboard service left registered
-  # points governance at a service that no longer exists. Reconcile by
-  # removing what a previous run registered.
-  #
-  # Each entity is looked up by name first and deleted by id, so the common
-  # path -- analytics never enabled, nothing registered -- issues no delete at
-  # all, and the pipeline goes before the service that owns it.
-  superset_stale_pipeline_code="$(curl -sS -o /tmp/om-superset-stale-pipeline -w '%%{http_code}'     "$om_url/api/v1/services/ingestionPipelines/name/superset.superset-metadata-ingestion"     -H "Authorization: Bearer $ADMIN_JWT")"
-  if [ "$superset_stale_pipeline_code" = "200" ]; then
-    superset_stale_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-stale-pipeline)"
-    if [ -n "$superset_stale_pipeline_id" ]; then
-      superset_pipeline_delete_code="$(curl -sS -o /tmp/om-superset-pipeline-delete -w '%%{http_code}'         -X DELETE "$om_url/api/v1/services/ingestionPipelines/$superset_stale_pipeline_id?hardDelete=true"         -H "Authorization: Bearer $ADMIN_JWT")"
-      case " 200 404 " in
-        *" $superset_pipeline_delete_code "*) ;;
-        *)
-          echo "Failed to remove the stale Superset ingestion pipeline (HTTP $superset_pipeline_delete_code)" >&2
-          cat /tmp/om-superset-pipeline-delete >&2
-          exit 1
-          ;;
-      esac
-    fi
-  elif [ "$superset_stale_pipeline_code" != "404" ]; then
-    echo "Failed to inspect the Superset ingestion pipeline (HTTP $superset_stale_pipeline_code)" >&2
-    exit 1
-  fi
-
-  superset_stale_svc_code="$(curl -sS -o /tmp/om-superset-stale-svc -w '%%{http_code}'     "$om_url/api/v1/services/dashboardServices/name/superset"     -H "Authorization: Bearer $ADMIN_JWT")"
-  if [ "$superset_stale_svc_code" = "200" ]; then
-    superset_stale_svc_id="$(jq -r '.id // empty' /tmp/om-superset-stale-svc)"
-    if [ -n "$superset_stale_svc_id" ]; then
-      superset_svc_delete_code="$(curl -sS -o /tmp/om-superset-svc-delete -w '%%{http_code}'         -X DELETE "$om_url/api/v1/services/dashboardServices/$superset_stale_svc_id?hardDelete=true&recursive=true"         -H "Authorization: Bearer $ADMIN_JWT")"
-      case " 200 404 " in
-        *" $superset_svc_delete_code "*)
-          echo "Removed the Superset dashboard service registered by an earlier analytics stage."
-          ;;
-        *)
-          echo "Failed to remove the stale Superset dashboard service (HTTP $superset_svc_delete_code)" >&2
-          cat /tmp/om-superset-svc-delete >&2
-          exit 1
-          ;;
-      esac
-    fi
-  elif [ "$superset_stale_svc_code" = "404" ]; then
-    echo "No analytics stage is enabled; no Superset dashboard service to register or remove."
-  else
-    echo "Failed to inspect the Superset dashboard service (HTTP $superset_stale_svc_code)" >&2
-    exit 1
-  fi
-%{ endif ~}
+  # The unqualified services every deployment registered before #131.
+  remove_service pipelineServices dagster dagster-metadata-ingestion
+  remove_service dashboardServices superset superset-metadata-ingestion
 
   # Create or reuse the Iceberg metadata ingestion pipeline.
   pipeline_fqn="$catalog_service.$catalog_service-metadata-ingestion"
