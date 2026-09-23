@@ -398,14 +398,23 @@ def test_dagster_poll_failure_names_the_failed_steps_error() -> None:
         if "logsForRun" in query:
             events = [
                 {},
-                {"stepKey": "crm_bronze_resources", "error": {"message": "AccessDenied: PutObject\n"}},
+                {
+                    "stepKey": "crm_bronze_resources",
+                    "error": {
+                        "message": 'Error occurred while executing op "crm_bronze_resources":\n',
+                        "cause": {"message": "AccessDenied: PutObject\n", "cause": None},
+                    },
+                },
             ]
             return {"data": {"logsForRun": {"events": events}}}
         return {"data": {"runOrError": {"__typename": "Run", "status": "FAILURE"}}}
 
     client = DagsterClient("http://dagster/graphql", request_json=request_json)
 
-    expected = "ended with FAILURE\n  crm_bronze_resources: AccessDenied: PutObject$"
+    expected = (
+        'ended with FAILURE\n  crm_bronze_resources: Error occurred while executing op "crm_bronze_resources":'
+        "\n    caused by: AccessDenied: PutObject$"
+    )
     with pytest.raises(ServiceClientError, match=expected):
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
 

@@ -219,7 +219,12 @@ class DagsterClient:
                 query RunFailures($runId: ID!) {
                   logsForRun(runId: $runId) {
                     ... on EventConnection {
-                      events { ... on ExecutionStepFailureEvent { stepKey error { message } } }
+                      events {
+                        ... on ExecutionStepFailureEvent {
+                          stepKey
+                          error { message cause { message cause { message cause { message } } } }
+                        }
+                      }
                     }
                   }
                 }
@@ -228,9 +233,18 @@ class DagsterClient:
             )["logsForRun"]["events"]
         except Exception:  # noqa: BLE001
             return ""
-        return "".join(
-            f"\n  {event['stepKey']}: {event['error']['message'].strip()}" for event in events if event.get("stepKey")
-        )
+        lines = []
+        for event in events:
+            if not event.get("stepKey"):
+                continue
+            # Dagster wraps a step's exception in DagsterExecutionStepExecutionError,
+            # whose own message names only the op; the reason is down the cause chain.
+            messages, error = [], event.get("error")
+            while error:
+                messages.append(error["message"].strip())
+                error = error.get("cause")
+            lines.append(f"\n  {event['stepKey']}: " + "\n    caused by: ".join(messages))
+        return "".join(lines)
 
     def discover_repository(self, job_name: str) -> tuple[str, str]:
         workspace = self.graphql(
