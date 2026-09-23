@@ -390,7 +390,12 @@
   remove_service pipelineServices dagster dagster-metadata-ingestion
   remove_service dashboardServices superset superset-metadata-ingestion
 
-  # Create or reuse the Iceberg metadata ingestion pipeline.
+  # Create or reuse the Iceberg metadata ingestion pipeline. Every governed
+  # stage's database sits under this one service, but the connection reaches
+  # only the canonical catalog: the crawl is pinned to that database and never
+  # deletes databases or schemas, so it cannot retire another stage's root.
+  # (Both are also OpenMetadata 1.12's defaults; stated so an upgrade that
+  # changes them cannot.)
   pipeline_fqn="$catalog_service.$catalog_service-metadata-ingestion"
   pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
     "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
@@ -410,7 +415,10 @@
           \"config\": {
             \"type\": \"DatabaseMetadata\",
             \"includeViews\": false,
-            \"includeTags\": false
+            \"includeTags\": false,
+            \"databaseFilterPattern\": {\"includes\": [\"^${catalog_database_name}$\"]},
+            \"markDeletedDatabases\": false,
+            \"markDeletedSchemas\": false
           }
         },
          \"airflowConfig\": {
