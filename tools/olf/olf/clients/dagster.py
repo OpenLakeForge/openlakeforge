@@ -202,11 +202,35 @@ class DagsterClient:
                 last_status = status
             if status in terminal:
                 if status != "SUCCESS":
-                    raise ServiceClientError(f"{job_name} run {run_id} ended with {status}")
+                    failures = self._step_failures(run_id)
+                    raise ServiceClientError(f"{job_name} run {run_id} ended with {status}{failures}")
                 return
             time.sleep(delay)
         detail = f": {last_error}" if last_error else ""
         raise ServiceClientError(f"{job_name} run {run_id} did not finish within {timeout_seconds} seconds{detail}")
+
+    def _step_failures(self, run_id: str) -> str:
+        """The failed steps' own errors, which otherwise live only in the event
+        log of a cluster CI has already torn down. Best effort: a failed lookup
+        must not replace the run failure being reported."""
+        try:
+            events = self.graphql(
+                """
+                query RunFailures($runId: ID!) {
+                  logsForRun(runId: $runId) {
+                    ... on EventConnection {
+                      events { ... on ExecutionStepFailureEvent { stepKey error { message } } }
+                    }
+                  }
+                }
+                """,
+                {"runId": run_id},
+            )["logsForRun"]["events"]
+        except Exception:  # noqa: BLE001
+            return ""
+        return "".join(
+            f"\n  {event['stepKey']}: {event['error']['message'].strip()}" for event in events if event.get("stepKey")
+        )
 
     def discover_repository(self, job_name: str) -> tuple[str, str]:
         workspace = self.graphql(
