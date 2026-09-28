@@ -6,7 +6,7 @@ orchestration code, report assets when present, and the project-code image
 digest. `olf project build` computes and publishes it; `olf project revision
 inspect|verify` read it back without rebuilding source. See
 [ADR 0012](../adr/0012-project-revisions-and-promotion.md) for the decision
-this implements, and [`#154`](https://github.com/malon64/openlakeforge/issues/154)
+this implements, and [`#154`](https://github.com/OpenLakeForge/openlakeforge/issues/154)
 for the issue that introduced it.
 
 This is a different object from `olf floe revision`, the v0.2 immutable

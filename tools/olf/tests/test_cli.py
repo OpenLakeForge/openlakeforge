@@ -488,7 +488,7 @@ def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
             "--project",
             str(config.repo_root()),
             "--image",
-            "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "a" * 64,
+            "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "a" * 64,
         ],
     )
 

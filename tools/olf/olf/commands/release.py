@@ -34,7 +34,7 @@ def release_manifest(
         None,
         "--image",
         help="Resolved image digest as name=repo@sha256:digest. Repeatable, e.g. "
-        "--image project-code=ghcr.io/malon64/openlakeforge/project-code@sha256:....",
+        "--image project-code=ghcr.io/openlakeforge/openlakeforge/project-code@sha256:....",
     ),
     fmt: str = typer.Option("json", "--format", help="Output format: json or yaml."),
     output: str = typer.Option("", "--output", help="Write to this path instead of stdout."),
@@ -209,7 +209,9 @@ def verify_install(
         ".tmp/release-assets", "--asset-dir", help="Directory containing downloaded, signed release assets."
     ),
     tag: str = typer.Option("", "--tag", help="Published release tag (defaults to the catalog version)."),
-    repo_slug: str = typer.Option("malon64/openlakeforge", "--repo", help="GitHub owner/repository for the release."),
+    repo_slug: str = typer.Option(
+        "OpenLakeForge/openlakeforge", "--repo", help="GitHub owner/repository for the release."
+    ),
     work_dir: str = typer.Option(".tmp/release-verify", "--work-dir", help="Clean-checkout verification workspace."),
     pull_images: bool = typer.Option(False, "--pull-images", help="Also pull authenticated published images."),
 ) -> None:

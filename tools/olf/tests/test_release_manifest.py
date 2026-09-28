@@ -60,7 +60,7 @@ def test_build_manifest_includes_catalog_and_digests(tmp_path: Path) -> None:
     manifest = _manifest.build_manifest(
         catalog,
         git_sha="deadbeef",
-        image_digests={"project-code": "ghcr.io/malon64/openlakeforge/project-code@sha256:" + "b" * 64},
+        image_digests={"project-code": "ghcr.io/openlakeforge/openlakeforge/project-code@sha256:" + "b" * 64},
     )
     assert manifest["distribution"]["version"] == "0.1.0-alpha.1"
     assert manifest["distribution"]["tag"] == "v0.1.0-alpha.1"
