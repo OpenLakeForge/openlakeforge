@@ -27,10 +27,13 @@ volume:
   dataDirs:
     - name: data1
       type: "emptyDir"
-      # The local demo uses one volume server for multiple collections
-      # (ops plus bronze/silver/gold). Keep enough writable slots available
-      # so first writes to the medallion buckets do not stall on assignment.
-      maxVolumes: 32
+      # One volume server holds every collection: ops plus bronze/silver/gold
+      # per enabled stage. A collection's first write grows 7 volumes
+      # (SeaweedFS's default growth for replication 000), and a write that
+      # finds no free slot fails as S3 InternalError. DEV+UAT+PROD is 10
+      # collections, 70 slots; 32 fit one stage and failed PROD's first
+      # Bronze write (#208). Empty volumes are sparse, so slots are cheap.
+      maxVolumes: 80
   logs:
     type: "emptyDir"
   resources:
