@@ -55,9 +55,11 @@ are `for_each` instances over the enabled stages, never copied module blocks,
 and each owns its own metadata database on the shared PostgreSQL server.
 
 Because a stage's namespace holds its services, disabling a stage is
-destructive. `olf deploy` compares the resolved topology against the root's
-applied `stage_names` output and refuses an apply that would drop a stage
-unless `--allow-stage-removal` says so.
+destructive. `olf platform apply -f` (and the deprecated `olf deploy`)
+compares the resolved topology against the root's applied `stage_names` output
+and refuses an apply that would drop a stage unless `--allow-stage-removal`
+says so. The multi-stage nightly proves both halves: the refusal, and removal
+with the opt-in.
 
 Removal deletes the stage's namespace, its services, and their credentials.
 Its databases on the shared PostgreSQL server are retained: dropping a stage's
@@ -128,6 +130,10 @@ an explicit opt-in (#133). The three phases and their ordering are unchanged.
 stage activation (#115). Platform commands are profile-only and never inspect
 project source; the legacy artifacts phase remains a single-DEV compatibility
 path.
+
+2026-09-28: `olf platform apply -f` gained `--allow-stage-removal` (#155).
+Before, the profile path ran the removal guard with no way to opt in, so a
+stage could only be removed through the deprecated `olf deploy`.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

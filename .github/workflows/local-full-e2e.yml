@@ -303,6 +303,49 @@ jobs:
           KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
         run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 
+      - name: Prove removing PROD needs the explicit destructive opt-in
+        # v0.3 release gate: disabling a stage is destructive, so an ordinary
+        # apply of a profile that drops PROD must be refused -- by the removal
+        # guard, not by some unrelated failure -- and leave PROD in place; the
+        # same apply with --allow-stage-removal must then remove it. Same
+        # deployment (metadata.name), so the guard compares against what the
+        # steps above applied.
+        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+        run: |
+          set -uo pipefail
+          cat > openlakeforge.dev-only.yaml <<'PROFILE'
+          apiVersion: openlakeforge.io/v1alpha1
+          kind: DeploymentProfile
+
+          metadata:
+            name: nightly-full
+
+          spec:
+            provider:
+              type: local
+            preset: full
+            stages:
+              dev:
+                enabled: true
+          PROFILE
+          apply="uv run --project tools/olf --locked olf platform apply -f openlakeforge.dev-only.yaml --phase platform"
+          if $apply > stage-removal-refused.log 2>&1; then
+            cat stage-removal-refused.log
+            echo "::error::an ordinary apply removed PROD without --allow-stage-removal"
+            exit 1
+          fi
+          if ! grep -q -- "Re-run with --allow-stage-removal" stage-removal-refused.log; then
+            cat stage-removal-refused.log
+            echo "::error::the apply failed, but not on the stage-removal guard"
+            exit 1
+          fi
+          kubectl --context "$KUBE_CONTEXT" get namespace olf-prod > /dev/null
+          $apply --allow-stage-removal
+          kubectl --context "$KUBE_CONTEXT" wait --for=delete namespace/olf-prod --timeout=300s
+
       - name: Write run summary
         if: always()
         run: |
