@@ -233,10 +233,11 @@ jobs:
         if: (inputs.suite || 'full') != 'smoke'
         id: image
         env:
-          PROJECT_CODE_IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}/project-code-nightly
           PROJECT_CODE_IMAGE_TAG: nightly
         run: |
           set -euo pipefail
+          # Registry names must be lowercase and the owner (OpenLakeForge) is not.
+          export PROJECT_CODE_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}/project-code-nightly"
           image="$(uv run --project tools/olf --locked olf project image -f openlakeforge.yaml | tail -n 1)"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
 

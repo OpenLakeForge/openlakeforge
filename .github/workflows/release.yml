@@ -32,9 +32,6 @@ permissions:
   id-token: write
   attestations: write
 
-env:
-  IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
-
 # A tag push and a non-dry manual dispatch can target the same immutable
 # release tag. They must not concurrently build and retag the versioned images:
 # the generated inputs can differ, leaving the mutable image tag and bundle
@@ -331,6 +328,11 @@ jobs:
             context: images/superset
             dockerfile: images/superset/Dockerfile
     steps:
+      - name: Resolve the image namespace
+        # Registry repository names must be lowercase, and the owner is not
+        # (OpenLakeForge/openlakeforge); expressions have no lower().
+        run: echo "IMAGE_NAMESPACE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "${GITHUB_ENV}"
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
