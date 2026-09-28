@@ -93,7 +93,7 @@ def trigger_log_archive_job(cfg: E2EConfig) -> None:
 
 
 def deployed_floe_manifest_revision(cfg: E2EConfig) -> str:
-    """Read the Floe revision marker baked into each running Dagster code pod."""
+    """Read the Floe revision each running Dagster code pod resolves at runtime."""
     location_names = expected_repository_location_names(cfg)
     pods = expected_user_code_pods(cfg, location_names)
     if not pods:
@@ -101,21 +101,24 @@ def deployed_floe_manifest_revision(cfg: E2EConfig) -> str:
 
     revisions: dict[str, str] = {}
     for pod in pods:
-        value = kubectl(
-            cfg,
-            [
-                "exec",
-                "-n",
-                cfg.namespace,
-                pod,
-                "--",
-                "printenv",
-                "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
-            ],
-            capture=True,
-        ).strip()
+        environ = dict(
+            line.split("=", 1)
+            for line in kubectl(cfg, ["exec", "-n", cfg.namespace, pod, "--", "env"], capture=True).splitlines()
+            if "=" in line
+        )
+        # The runtime's own precedence (libs/floe_revision.py): an activated
+        # stage's revision over the image-baked one, which `olf project image`
+        # leaves as "manual".
+        value = next(
+            (
+                environ[name].strip()
+                for name in ("OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT")
+                if environ.get(name, "").strip() not in ("", "manual")
+            ),
+            environ.get("OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT", "").strip(),
+        )
         if not value:
-            raise E2EError(f"Dagster user-code pod {pod} has no built Floe manifest revision marker.")
+            raise E2EError(f"Dagster user-code pod {pod} has no Floe manifest revision marker.")
         revisions[pod] = value
 
     unique_revisions = set(revisions.values())
@@ -144,14 +147,16 @@ def assert_ops_artifacts(
     )
     # run-artifacts, Dagster compute logs, and k8s logs are all written
     # beneath this stage's own activations/<stage> prefix (see
-    # OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI / OPENLAKEFORGE_LOG_BASE_URI) -
-    # unlike the Floe report/revision paths above, which are deliberately
-    # bucket-root.
+    # OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI / OPENLAKEFORGE_LOG_BASE_URI).
+    # Floe reports are bucket-root under `olf deploy`, whose v2 contract
+    # exports that base URI, but stage-scoped once `olf project deploy`
+    # activates a revision with the stage's own OPENLAKEFORGE_FLOE_REPORT_BASE_URI.
     activation_prefix = f"activations/{namespace.removeprefix('olf-')}"
+    for prefix in floe_prefixes:
+        require_any_s3_prefix(client, bucket, (prefix, f"{activation_prefix}/{prefix}"))
     dbt_prefixes = tuple(f"{activation_prefix}/{product.dbt_artifact_prefix}" for product in inventory.products)
     scoped_artifact_prefixes = tuple(f"{activation_prefix}/{prefix}" for prefix in ARTIFACT_PREFIXES)
     for prefix in (
-        *floe_prefixes,
         *dbt_prefixes,
         *scoped_artifact_prefixes,
         f"{activation_prefix}/logs/k8s/namespace={namespace}/",
@@ -196,6 +201,11 @@ def wait_for_bucket(client: Any, bucket: str, endpoint: str, *, attempts: int = 
 
 
 def require_s3_prefix(client: Any, bucket: str, prefix: str) -> None:
-    result = client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
-    if not result.get("Contents"):
-        raise E2EError(f"expected objects under s3://{bucket}/{prefix}")
+    require_any_s3_prefix(client, bucket, (prefix,))
+
+
+def require_any_s3_prefix(client: Any, bucket: str, prefixes: tuple[str, ...]) -> None:
+    for prefix in prefixes:
+        if client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1).get("Contents"):
+            return
+    raise E2EError("expected objects under " + " or ".join(f"s3://{bucket}/{prefix}" for prefix in prefixes))

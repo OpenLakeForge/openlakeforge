@@ -328,6 +328,16 @@ def test_expected_user_code_pods_filters_to_configured_locations(
                     },
                     {
                         "metadata": {
+                            "name": "openlakeforge-project-dagster-user-deployments-openlakeforge-dagster-jkl",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "openlakeforge-project",
+                                "deployment": "openlakeforge-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
                             "name": "other-release-user-code",
                             "labels": {
                                 "app.kubernetes.io/name": "dagster-user-deployments",
@@ -343,7 +353,8 @@ def test_expected_user_code_pods_filters_to_configured_locations(
     )
 
     assert _dagster.expected_user_code_pods(e2e_cfg(tmp_path), ["openlakeforge-dagster"]) == [
-        "dagster-dagster-user-deployments-openlakeforge-dagster-abc"
+        "dagster-dagster-user-deployments-openlakeforge-dagster-abc",
+        "openlakeforge-project-dagster-user-deployments-openlakeforge-dagster-jkl",
     ]
     assert _dagster.expected_user_code_pods(e2e_cfg(tmp_path), ["sales-dagster", "supply-chain-dagster"]) == [
         "dagster-dagster-user-deployments-sales-dagster-def",

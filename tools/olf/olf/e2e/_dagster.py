@@ -88,12 +88,16 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
         payload = json.loads(raw)
     except (E2EError, json.JSONDecodeError):
         return []
-    release_name = dagster_release_name(cfg)
+    from olf.deployment.activation import _RELEASE as ACTIVATION_RELEASE
+
+    # User code is the platform release's subchart under `olf deploy`, and its
+    # own release once `olf project deploy` activates a revision.
+    releases = {dagster_release_name(cfg), ACTIVATION_RELEASE}
     return [
         str(item.get("metadata", {}).get("name"))
         for item in payload.get("items", [])
         if item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/name") == "dagster-user-deployments"
-        and item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/instance") == release_name
+        and item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/instance") in releases
         and item.get("metadata", {}).get("labels", {}).get("deployment") in location_names
     ]
 
