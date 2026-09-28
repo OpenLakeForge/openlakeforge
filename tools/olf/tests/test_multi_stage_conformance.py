@@ -49,12 +49,12 @@ def test_conformance_profile_resolves_a_non_vacuous_local_baseline() -> None:
     enabled = tuple(stage.name for stage in topology.stages if stage.enabled)
 
     assert topology.provider == Provider.LOCAL
-    assert topology.preset == Preset.SLIM
+    # 'full', so the nightly that applies this file can run the Superset and
+    # OpenMetadata assertions in both stages (#220).
+    assert topology.preset == Preset.FULL
     assert enabled == CONFORMANCE_STAGES
     assert all(
-        not stage.capabilities.analytics and not stage.capabilities.governance
-        for stage in topology.stages
-        if stage.enabled
+        stage.capabilities.analytics and stage.capabilities.governance for stage in topology.stages if stage.enabled
     )
 
 
@@ -143,14 +143,13 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
     sibling stage -- reusing exactly the classification
     `test_provider_conformance.py` proves this shape with.
 
-    Scope, deliberately narrower than the name suggests: the *topology* comes
-    from the conformance profile, but the stage bindings come from the
-    captured `acme-data` contract, because no cluster exists here to render a
-    contract from this profile. So this proves the isolation logic over a real
-    two-stage contract; it does not prove that applying the conformance
-    profile yields isolated bindings -- the local root would derive
-    `olf-conformance-prod-bronze` where this exercises `acme-prod-bronze`.
-    Closing that gap needs a rendered contract, tracked in #220.
+    Scope: the *topology* comes from the conformance profile, but the stage
+    bindings come from the captured `acme-data` contract, because no cluster
+    exists here to render a contract from this profile. So this proves the
+    isolation logic over a real two-stage contract. That applying the
+    conformance profile yields isolated bindings is proven where a cluster
+    does exist: the multi-stage nightly applies this exact file and runs the
+    cross-stage isolation probes against the contract it renders (#220).
     """
     topology = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage=StageName.DEV.value).topology
     contract = _local_contract_for(topology)

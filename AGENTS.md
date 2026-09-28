@@ -65,7 +65,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
 | `lakehouse_code/lakehouse.yaml` | Canonical domain/product business metadata descriptor |
 | `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
-| `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155) |
+| `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
