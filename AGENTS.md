@@ -234,8 +234,12 @@ may not lower it. Raise the floor when it rises; never lower it to go green.
 gate. It runs on every pull request via `.github/workflows/checks.yml`.
 
 `main` is protected by the `main_protection` repository ruleset, so some of
-those checks are merge-blocking. Six contexts are required, and a pull request
-branch must be up to date with `main` before it merges:
+those checks are merge-blocking. Six contexts are required, and pull requests
+merge through a **merge queue**: "Merge when ready" adds a pull request to it,
+and the queue re-runs the required checks on the pull request merged with
+`main` and everything queued ahead of it, then squash-merges. A pull request
+therefore no longer needs updating from `main` by hand; `checks.yml` runs on
+`merge_group` for that reason.
 
 | Required to merge | Not required |
 | --- | --- |

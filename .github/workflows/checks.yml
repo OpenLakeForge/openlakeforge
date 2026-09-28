@@ -2,6 +2,9 @@ name: Repository checks
 
 on:
   pull_request:
+  # The merge queue re-runs the required checks on the queued merge result;
+  # without this trigger a queued pull request waits for checks that never start.
+  merge_group:
   push:
     branches:
       - main
