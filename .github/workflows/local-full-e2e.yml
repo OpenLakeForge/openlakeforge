@@ -315,7 +315,7 @@ jobs:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
         run: |
-          set -uo pipefail
+          set -euo pipefail
           sed '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml > openlakeforge.dev-only.yaml
           if grep -q '^    prod:' openlakeforge.dev-only.yaml; then
             echo "::error::could not drop the PROD stage from the applied profile"
