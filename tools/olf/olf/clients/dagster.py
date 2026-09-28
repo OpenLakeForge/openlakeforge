@@ -202,11 +202,49 @@ class DagsterClient:
                 last_status = status
             if status in terminal:
                 if status != "SUCCESS":
-                    raise ServiceClientError(f"{job_name} run {run_id} ended with {status}")
+                    failures = self._step_failures(run_id)
+                    raise ServiceClientError(f"{job_name} run {run_id} ended with {status}{failures}")
                 return
             time.sleep(delay)
         detail = f": {last_error}" if last_error else ""
         raise ServiceClientError(f"{job_name} run {run_id} did not finish within {timeout_seconds} seconds{detail}")
+
+    def _step_failures(self, run_id: str) -> str:
+        """The failed steps' own errors, which otherwise live only in the event
+        log of a cluster CI has already torn down. Best effort: a failed lookup
+        must not replace the run failure being reported."""
+        try:
+            events = self.graphql(
+                """
+                query RunFailures($runId: ID!) {
+                  logsForRun(runId: $runId) {
+                    ... on EventConnection {
+                      events {
+                        ... on ExecutionStepFailureEvent {
+                          stepKey
+                          error { message cause { message cause { message cause { message } } } }
+                        }
+                      }
+                    }
+                  }
+                }
+                """,
+                {"runId": run_id},
+            )["logsForRun"]["events"]
+        except Exception:  # noqa: BLE001
+            return ""
+        lines = []
+        for event in events:
+            if not event.get("stepKey"):
+                continue
+            # Dagster wraps a step's exception in DagsterExecutionStepExecutionError,
+            # whose own message names only the op; the reason is down the cause chain.
+            messages, error = [], event.get("error")
+            while error:
+                messages.append(error["message"].strip())
+                error = error.get("cause")
+            lines.append(f"\n  {event['stepKey']}: " + "\n    caused by: ".join(messages))
+        return "".join(lines)
 
     def discover_repository(self, job_name: str) -> tuple[str, str]:
         workspace = self.graphql(
