@@ -232,6 +232,32 @@ def _stub_runs(monkeypatch: pytest.MonkeyPatch, runs: dict[str, set[str]]) -> No
     )
 
 
+def test_bucket_listing_failure_surfaces_as_an_e2e_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _DeniedPaginator:
+        def paginate(self, **_kwargs):  # noqa: ANN202
+            raise ClientError({"Error": {"Code": "403", "Message": "denied"}}, "ListObjectsV2")
+
+    class _Client:
+        def get_paginator(self, _name: str) -> _DeniedPaginator:
+            return _DeniedPaginator()
+
+    @contextmanager
+    def _port_forward(*_args, **_kwargs):  # noqa: ANN202
+        yield 8333
+
+    monkeypatch.setattr(_isolation, "_s3_identity", lambda *_args: ("key", "secret"))
+    monkeypatch.setattr(_isolation, "_s3_client", lambda *_args, **_kwargs: _Client())
+    monkeypatch.setattr(_isolation.k8s, "port_forward", _port_forward)
+
+    with pytest.raises(E2EError, match="could not list prod's bronze bucket 'prod-bronze'"):
+        _isolation.stage_bucket_objects(
+            {"stages": {"prod": {"storage": {"bronze": {"bucket_name": "prod-bronze"}}}}},
+            "prod",
+            ("bronze",),
+            namespace="olf-system",
+        )
+
+
 def test_dagster_run_listing_failure_surfaces_as_an_e2e_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """The e2e CLI reports E2EError; a raw client error would be a traceback."""
     from olf.clients.base import ServiceClientError

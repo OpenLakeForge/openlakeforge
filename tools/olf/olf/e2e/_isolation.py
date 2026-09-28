@@ -169,6 +169,8 @@ def stage_bucket_objects(
     `layers`, listed with the platform's S3 identity (the stage identities are
     denied each other's). Also the nightly's before/after view of a promotion,
     which must leave the target stage's buckets untouched."""
+    from botocore.exceptions import BotoCoreError, ClientError
+
     identity = _s3_identity(namespace, "seaweedfs-s3-creds")
     if identity is None:
         raise E2EError(f"no-copy probe: seaweedfs-s3-creds not found in {namespace}.")
@@ -178,8 +180,11 @@ def stage_bucket_objects(
         client = _s3_client(*identity, local_port=port, region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"))
         for layer in layers:
             bucket = _stage_bucket(provider_contracts, stage, layer)
-            for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
-                objects.update({f"{bucket}/{item['Key']}": item["ETag"] for item in page.get("Contents", [])})
+            try:
+                for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+                    objects.update({f"{bucket}/{item['Key']}": item["ETag"] for item in page.get("Contents", [])})
+            except (BotoCoreError, ClientError) as exc:
+                raise E2EError(f"could not list {stage}'s {layer} bucket {bucket!r}: {exc}") from exc
     return objects
 
 
