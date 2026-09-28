@@ -436,3 +436,99 @@ dashboards:
 
     with pytest.raises(E2EError, match="lakehouse_code/dashboards/superset/rogue"):
         _assertions.discovered_dashboards(fixture_cfg)
+
+
+def _registered(*paths: str) -> OpenMetadataClient:
+    """An OpenMetadata that answers 200 for `paths` and 404 for anything else."""
+    client = OpenMetadataClient("http://openmetadata")
+
+    def request(method: str, path: str, *, ok_statuses: tuple[int, ...] = (200,), **_kwargs) -> dict[str, Any]:
+        status = 200 if path in paths else 404
+        if status not in ok_statuses:
+            raise OpenMetadataError(f"{method} {path} failed with HTTP {status}")
+        return {}
+
+    client.request = request  # type: ignore[method-assign]
+    return client
+
+
+_PROD_ROOTS = (
+    "/api/v1/databases/name/polaris.lakehouse_prod",
+    "/api/v1/services/pipelineServices/name/dagster_prod",
+    "/api/v1/services/dashboardServices/name/superset_prod",
+)
+_PROD_CONTRACT = {
+    "orchestration": {"pipeline_service_name": "dagster_prod"},
+    "reporting": {"dashboard_service_name": "superset_prod"},
+}
+
+
+def test_stage_roots_accept_a_stage_registered_under_its_own_names() -> None:
+    _assertions.assert_openmetadata_stage_roots(
+        _registered(*_PROD_ROOTS), stage="prod", stage_contract=_PROD_CONTRACT, database_fqn="polaris.lakehouse_prod"
+    )
+
+
+@pytest.mark.parametrize("missing", _PROD_ROOTS)
+def test_stage_roots_reject_a_missing_root(missing: str) -> None:
+    client = _registered(*(path for path in _PROD_ROOTS if path != missing))
+
+    with pytest.raises(E2EError, match="missing stage prod's"):
+        _assertions.assert_openmetadata_stage_roots(
+            client, stage="prod", stage_contract=_PROD_CONTRACT, database_fqn="polaris.lakehouse_prod"
+        )
+
+
+def test_stage_roots_need_no_dashboard_service_without_analytics() -> None:
+    _assertions.assert_openmetadata_stage_roots(
+        _registered(*_PROD_ROOTS[:2]),
+        stage="prod",
+        stage_contract={"orchestration": _PROD_CONTRACT["orchestration"]},
+        database_fqn="polaris.lakehouse_prod",
+    )
+
+
+def test_stage_roots_reject_a_dashboard_service_left_after_analytics_is_off() -> None:
+    with pytest.raises(E2EError, match="should not be registered still is .*superset_prod"):
+        _assertions.assert_openmetadata_stage_roots(
+            _registered(*_PROD_ROOTS),
+            stage="prod",
+            stage_contract={"orchestration": _PROD_CONTRACT["orchestration"]},
+            database_fqn="polaris.lakehouse_prod",
+        )
+
+
+def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A pre-stage (v2) contract has no stage index; its asset checks still run."""
+    from contextlib import contextmanager
+    from dataclasses import replace
+
+    from conftest import e2e_cfg
+
+    @contextmanager
+    def _port_forward(*_args, **_kwargs):  # noqa: ANN202
+        yield 18585
+
+    checked: list[str] = []
+    monkeypatch.setattr(_assertions.k8s, "port_forward", _port_forward)
+    monkeypatch.setattr(_assertions.k8s, "http_wait", lambda *_a, **_k: True)
+    monkeypatch.setattr(_assertions, "assert_openmetadata_assets", lambda *_a: checked.append("assets"))
+    monkeypatch.setattr(_assertions, "load_provider_contracts_or_raise", lambda _cfg: {"version": 2})
+    monkeypatch.setattr(
+        _assertions, "assert_openmetadata_stage_roots", lambda *_a, **_k: pytest.fail("v2 has no stage roots")
+    )
+
+    _assertions.check_openmetadata_assets(replace(e2e_cfg(tmp_path), openmetadata_local_port=18585))
+
+    assert checked == ["assets"]
+
+
+def test_stage_roots_reject_a_leftover_unqualified_service() -> None:
+    client = _registered(*_PROD_ROOTS, "/api/v1/services/pipelineServices/name/dagster")
+
+    with pytest.raises(E2EError, match="service that should not be registered still is"):
+        _assertions.assert_openmetadata_stage_roots(
+            client, stage="prod", stage_contract=_PROD_CONTRACT, database_fqn="polaris.lakehouse_prod"
+        )

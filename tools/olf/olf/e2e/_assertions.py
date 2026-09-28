@@ -10,11 +10,12 @@ from typing import Any
 import yaml
 from openlakeforge_domain import LakehouseInventory
 
-from olf import k8s, log, superset
+from olf import config, k8s, log, superset
 from olf.clients.base import ServiceClientError
 from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from olf.clients.superset import SupersetClient
-from olf.e2e._shell import E2EConfig, E2EError
+from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.e2e._trino import stage_catalog_name
 
 
 def check_superset_dashboards(cfg: E2EConfig) -> None:
@@ -108,7 +109,57 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
-        assert_openmetadata_assets(OpenMetadataClient(base_url), cfg.inventory)
+        client = OpenMetadataClient(base_url)
+        assert_openmetadata_assets(client, cfg.inventory)
+        stages = load_provider_contracts_or_raise(cfg).get("stages")
+        if not stages:
+            # A v2 (pre-stage) contract: stage-qualified roots never existed.
+            log.info("Skipping OpenMetadata stage roots: the provider contract has no stage index.")
+            return
+        stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
+        assert_openmetadata_stage_roots(
+            client,
+            stage=stage,
+            stage_contract=stages[stage],
+            database_fqn=config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", ""),
+        )
+
+
+def assert_openmetadata_stage_roots(
+    client: OpenMetadataClient, *, stage: str, stage_contract: Mapping[str, Any], database_fqn: str
+) -> None:
+    """The shared OpenMetadata represents this stage under its own roots (#131):
+    its `<catalog service>.lakehouse_<stage>` database, its `dagster_<stage>`
+    pipeline service, and its `superset_<stage>` dashboard service when the
+    stage runs analytics -- and the unqualified services every deployment
+    registered before stage qualification are gone."""
+    log.step(f"Checking OpenMetadata service roots for stage {stage}...")
+    if not database_fqn:
+        raise E2EError("OPENLAKEFORGE_CATALOG_DATABASE_FQN is unset; cannot locate this stage's database root.")
+    expected = {
+        f"/api/v1/databases/name/{database_fqn}": f"database {database_fqn}",
+        "/api/v1/services/pipelineServices/name/"
+        + (stage_contract.get("orchestration") or {}).get("pipeline_service_name", f"dagster_{stage}"): "pipeline",
+    }
+    # Absent: the unqualified services registered before stage qualification,
+    # and this stage's dashboard service when it does not run analytics (the
+    # bootstrap removes it when analytics is turned off).
+    absent = ["/api/v1/services/pipelineServices/name/dagster", "/api/v1/services/dashboardServices/name/superset"]
+    if stage_contract.get("reporting"):
+        name = stage_contract["reporting"].get("dashboard_service_name", f"superset_{stage}")
+        expected[f"/api/v1/services/dashboardServices/name/{name}"] = "dashboard"
+    else:
+        absent.append(f"/api/v1/services/dashboardServices/name/superset_{stage}")
+    for path, what in expected.items():
+        try:
+            client.request("GET", path)
+        except OpenMetadataError as exc:
+            raise E2EError(f"OpenMetadata is missing stage {stage}'s {what} root ({path}): {exc}") from exc
+    for path in absent:
+        try:
+            client.request("GET", path, ok_statuses=(404,))
+        except OpenMetadataError as exc:
+            raise E2EError(f"a service that should not be registered still is ({path}): {exc}") from exc
 
 
 def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseInventory) -> None:
