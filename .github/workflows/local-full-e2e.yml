@@ -209,6 +209,14 @@ jobs:
           mkdir -p .tmp/rendered-contract
           uv run --project tools/olf --locked python -c "import json; from olf import contracts; print(json.dumps(contracts.load_provider_contracts('infra/terraform/environments/local'), indent=2, sort_keys=True))" > .tmp/rendered-contract/provider-contracts.json
           grep -q '"stages"' .tmp/rendered-contract/provider-contracts.json
+          # A stale fixture would keep the unit conformance suite asserting
+          # bindings the root no longer renders; fail here instead. Only the
+          # full DEV+PROD profile renders what the fixture holds.
+          if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ]; then
+            python3 -c "import json, sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))" \
+              .tmp/rendered-contract/provider-contracts.json tools/olf/tests/fixtures/conformance-provider-contracts.json \
+              || { echo "::error::the rendered contract differs from tools/olf/tests/fixtures/conformance-provider-contracts.json; refresh it from this run's rendered-provider-contract artifact"; exit 1; }
+          fi
 
       - name: Upload the rendered provider contract
         if: (inputs.suite || 'full') != 'smoke'
