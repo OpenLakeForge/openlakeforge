@@ -316,21 +316,11 @@ jobs:
           KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
         run: |
           set -uo pipefail
-          cat > openlakeforge.dev-only.yaml <<'PROFILE'
-          apiVersion: openlakeforge.io/v1alpha1
-          kind: DeploymentProfile
-
-          metadata:
-            name: nightly-full
-
-          spec:
-            provider:
-              type: local
-            preset: full
-            stages:
-              dev:
-                enabled: true
-          PROFILE
+          sed '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml > openlakeforge.dev-only.yaml
+          if grep -q '^    prod:' openlakeforge.dev-only.yaml; then
+            echo "::error::could not drop the PROD stage from the applied profile"
+            exit 1
+          fi
           apply="uv run --project tools/olf --locked olf platform apply -f openlakeforge.dev-only.yaml --phase platform"
           if $apply > stage-removal-refused.log 2>&1; then
             cat stage-removal-refused.log
