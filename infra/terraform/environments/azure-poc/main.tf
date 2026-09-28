@@ -76,23 +76,12 @@ locals {
   selected_stage           = contains(keys(local.enabled_stages), "dev") ? "dev" : sort(keys(local.enabled_stages))[0]
   selected_stage_namespace = local.stage_namespaces[local.selected_stage]
 
-  # OpenMetadata registers one Superset dashboard service, so it must name a
-  # stage that actually has one -- the selected stage need not be the stage
-  # with analytics enabled. With no analytics stage at all there is nothing to
-  # register, but the payload still needs a well-formed URL.
-  # Governance is one shared service pointed at one stage's runtime, and the
-  # stage a runtime command selected need not be a stage that enabled
-  # governance. Prefer the selected stage when it qualifies, else the first
-  # stage that does, so the registered connections address an instance whose
-  # capability is actually on.
-  governance_superset_stage = local.selected_stage_analytics ? local.selected_stage : try(sort(keys(local.analytics_stages))[0], local.selected_stage)
-  governance_dagster_stage  = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
-  governance_dagster_url    = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[local.governance_dagster_stage]}:${local.orchestration_contract.http_port}"
-  governance_superset_url = try(
-    "http://${module.superset[local.governance_superset_stage].contract.service_name}.${local.stage_namespaces[local.governance_superset_stage]}:${module.superset[local.governance_superset_stage].contract.http_port}",
-    "http://superset.${local.stage_namespaces[local.governance_superset_stage]}:8088",
-  )
-  stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
+  # The one governed stage OpenMetadata registers until this adapter follows
+  # the local one to every governed stage (#131). The selected stage need not
+  # have enabled governance, so prefer it when it qualifies, else the first
+  # stage that does.
+  governance_dagster_stage = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
+  stage_service_accounts   = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
       # The Azure POC retains the same SeaweedFS-backed DEV data plane as
@@ -301,8 +290,7 @@ module "openmetadata" {
   # Empty by design: the database schemas mirror Polaris namespaces, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
-  catalog_schema_names  = []
-  catalog_database_name = local.stage_catalog_contracts[local.governance_dagster_stage].catalog_name
+  catalog_schema_names = []
   # Only governed stages: the ingestion-bot JWT is a live credential, and a
   # stage that did not enable governance should not have one sitting in its
   # namespace even though its Dagster never mounts it.
@@ -314,14 +302,16 @@ module "openmetadata" {
     for name in keys(local.enabled_stages) : local.stage_namespaces[name]
     if !contains(keys(local.governed_stages), name)
   ]
-  # OpenMetadata stores this in its Dagster pipeline-service connection, so it
-  # must name a governed stage's instance and be namespace-qualified: a bare
-  # name resolves in the shared namespace, where no Dagster runs.
-  dagster_webserver_url = local.governance_dagster_url
-  register_superset     = length(local.analytics_stages) > 0
-  # Superset is stage-scoped, so the shared governance service has to be told
-  # which stage's instance it registers as a dashboard service.
-  superset_url            = local.governance_superset_url
+  canonical_stage = local.governance_dagster_stage
+  stages = {
+    for name in [local.governance_dagster_stage] : name => {
+      catalog_database_name  = local.stage_catalog_contracts[name].catalog_name
+      pipeline_service_name  = "dagster_${name}"
+      dagster_webserver_url  = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}"
+      dashboard_service_name = contains(keys(local.analytics_stages), name) ? "superset_${name}" : null
+      superset_url           = contains(keys(local.analytics_stages), name) ? "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}" : null
+    }
+  }
   trino_lineage_namespace = "trino://${local.query_contract.service_name}.${var.shared_namespace}:${local.query_contract.http_port}"
 
   depends_on = [

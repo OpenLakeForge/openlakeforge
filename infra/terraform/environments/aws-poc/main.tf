@@ -88,13 +88,7 @@ locals {
   selected_stage           = contains(keys(local.enabled_stages), "dev") ? "dev" : sort(keys(local.enabled_stages))[0]
   selected_stage_namespace = local.stage_namespaces[local.selected_stage]
 
-  governance_superset_stage = local.selected_stage_analytics ? local.selected_stage : try(sort(keys(local.analytics_stages))[0], local.selected_stage)
-  governance_dagster_stage  = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
-  governance_dagster_url    = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[local.governance_dagster_stage]}:${local.orchestration_contract.http_port}"
-  governance_superset_url = try(
-    "http://${module.superset[local.governance_superset_stage].contract.service_name}.${local.stage_namespaces[local.governance_superset_stage]}:${module.superset[local.governance_superset_stage].contract.http_port}",
-    "http://superset.${local.stage_namespaces[local.governance_superset_stage]}:8088",
-  )
+  governance_dagster_stage = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
   # The logical Trino/dbt identity for this stage's Dagster runtime
   # (OPENLAKEFORGE_DBT_TRINO_USER, query_contract.runtime_identity_principal
   # below) - not a Kubernetes identity. Must match the Trino catalog access
@@ -598,16 +592,22 @@ module "openmetadata" {
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names    = []
-  catalog_database_name   = local.stage_catalog_contracts[local.governance_dagster_stage].catalog_name
   catalog_refresh_enabled = false
   workload_namespaces     = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
   revoked_namespaces = [
     for name in keys(local.enabled_stages) : local.stage_namespaces[name]
     if !contains(keys(local.governed_stages), name)
   ]
-  dagster_webserver_url   = local.governance_dagster_url
-  register_superset       = length(local.analytics_stages) > 0
-  superset_url            = local.governance_superset_url
+  canonical_stage = local.governance_dagster_stage
+  stages = {
+    for name in [local.governance_dagster_stage] : name => {
+      catalog_database_name  = local.stage_catalog_contracts[name].catalog_name
+      pipeline_service_name  = "dagster_${name}"
+      dagster_webserver_url  = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}"
+      dashboard_service_name = contains(keys(local.analytics_stages), name) ? "superset_${name}" : null
+      superset_url           = contains(keys(local.analytics_stages), name) ? "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}" : null
+    }
+  }
   trino_lineage_namespace = "trino://${local.query_contract.service_name}.${var.shared_namespace}:${local.query_contract.http_port}"
 
   depends_on = [

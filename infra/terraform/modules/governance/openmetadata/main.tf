@@ -11,7 +11,8 @@ locals {
   catalog_type                  = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
   catalog_service_name          = local.catalog_type == "glue" ? "aws_glue" : "polaris"
   catalog_service_display_name  = local.catalog_type == "glue" ? "AWS Glue Data Catalog" : "Polaris Iceberg Catalog"
-  catalog_database_fqn          = "${local.catalog_service_name}.${var.catalog_database_name}"
+  catalog_database_name         = var.stages[var.canonical_stage].catalog_database_name
+  catalog_database_fqn          = "${local.catalog_service_name}.${local.catalog_database_name}"
   postgresql_ssl_mode           = var.postgresql_ssl_mode != "" ? var.postgresql_ssl_mode : coalesce(try(var.postgresql_contract.ssl_mode, null), "disable")
   storage_secret_env = var.storage_contract.credentials_secret_name == null ? [] : [
     {
@@ -48,7 +49,7 @@ locals {
     catalog_service_name          = local.catalog_service_name
     catalog_service_display_name  = local.catalog_service_display_name
     catalog_uri                   = coalesce(try(var.catalog_contract.rest_uri, null), try(var.catalog_contract.glue_rest_uri, null), "")
-    catalog_warehouse             = coalesce(try(var.catalog_contract.warehouse, null), try(var.catalog_contract.glue_rest_warehouse, null), var.catalog_database_name)
+    catalog_warehouse             = coalesce(try(var.catalog_contract.warehouse, null), try(var.catalog_contract.glue_rest_warehouse, null), local.catalog_database_name)
     token_uri                     = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
     oauth_scope                   = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
     ingestion_bot_secret_name     = var.ingestion_bot_secret_name
@@ -56,12 +57,11 @@ locals {
     ingestion_bot_jwt_key         = var.ingestion_bot_jwt_key
     storage_region                = var.storage_contract.region
     storage_endpoint              = (try(var.storage_contract.virtual_host_endpoint, null) == null ? "" : try(var.storage_contract.virtual_host_endpoint, null))
-    catalog_database_name         = var.catalog_database_name
+    catalog_database_name         = local.catalog_database_name
     catalog_database_fqn          = local.catalog_database_fqn
     catalog_schema_names_json_b64 = local.catalog_schema_names_json_b64
-    dagster_webserver_url         = var.dagster_webserver_url
-    superset_url                  = var.superset_url
-    register_superset             = var.register_superset
+    stages_json_b64               = base64encode(jsonencode(var.stages))
+    lineage_pipeline_service      = var.stages[var.canonical_stage].pipeline_service_name
     superset_username             = var.superset_username
     superset_password             = var.superset_password
     superset_auth_provider        = var.superset_auth_provider

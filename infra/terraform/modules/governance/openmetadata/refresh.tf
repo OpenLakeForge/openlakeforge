@@ -47,7 +47,7 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                 token_uri                     = var.catalog_contract.token_uri
                 oauth_scope                   = var.catalog_contract.oauth_scope
                 catalog_warehouse             = var.catalog_contract.warehouse
-                catalog_database_name         = var.catalog_database_name
+                catalog_database_name         = local.catalog_database_name
                 catalog_rest_uri              = var.catalog_contract.rest_uri
                 storage_region                = var.storage_contract.region
                 storage_endpoint              = var.storage_contract.virtual_host_endpoint
