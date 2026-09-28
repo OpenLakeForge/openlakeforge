@@ -106,6 +106,30 @@ def test_platform_apply_never_routes_to_artifacts(monkeypatch: pytest.MonkeyPatc
     assert engine.deploy_calls == [DeploymentPhase.FOUNDATION, DeploymentPhase.PREFETCH, DeploymentPhase.PLATFORM]
 
 
+@pytest.mark.parametrize("flag, allowed", [([], False), (["--allow-stage-removal"], True)])
+def test_platform_apply_opts_into_stage_removal_only_when_asked(
+    monkeypatch: pytest.MonkeyPatch, flag: list[str], allowed: bool
+) -> None:
+    """The v0.3 profile path needs its own opt-in: without it the removal guard
+    refuses every apply that drops a stage, with no way to proceed."""
+    from olf.commands._shared import deployment_context_for_profile
+
+    contexts: list = []
+
+    def resolve(profile_file: str, **kwargs):  # noqa: ANN003, ANN202
+        contexts.append(deployment_context_for_profile(profile_file, **kwargs))
+        return contexts[-1]
+
+    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", resolve)
+    monkeypatch.setattr("olf.commands.platform._engine", lambda *a, **k: _FakeEngine())
+    profile = Path(__file__).resolve().parents[3] / "openlakeforge.conformance.yaml"
+
+    result = runner.invoke(app, ["platform", "apply", "-f", str(profile), *flag])
+
+    assert result.exit_code == 0, result.output
+    assert [context.allow_stage_removal for context in contexts] == [allowed]
+
+
 def test_deploy_routes_phase_flag(fake_engine: _FakeEngine) -> None:
     from olf.deployment.engine import DeploymentPhase
 

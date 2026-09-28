@@ -65,7 +65,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
 | `lakehouse_code/lakehouse.yaml` | Canonical domain/product business metadata descriptor |
 | `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
-| `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155) |
+| `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
@@ -234,8 +234,12 @@ may not lower it. Raise the floor when it rises; never lower it to go green.
 gate. It runs on every pull request via `.github/workflows/checks.yml`.
 
 `main` is protected by the `main_protection` repository ruleset, so some of
-those checks are merge-blocking. Six contexts are required, and a pull request
-branch must be up to date with `main` before it merges:
+those checks are merge-blocking. Six contexts are required, and pull requests
+merge through a **merge queue**: "Merge when ready" adds a pull request to it,
+and the queue re-runs the required checks on the pull request merged with
+`main` and everything queued ahead of it, then squash-merges. A pull request
+therefore no longer needs updating from `main` by hand; `checks.yml` runs on
+`merge_group` for that reason.
 
 | Required to merge | Not required |
 | --- | --- |
@@ -253,7 +257,7 @@ GitHub cannot attribute to its author needs one. Merges are squash or rebase
 only, and `main` rejects deletion and force-pushes.
 
 Read the live rules with
-`gh api repos/malon64/openlakeforge/rules/branches/main`.
+`gh api repos/OpenLakeForge/openlakeforge/rules/branches/main`.
 The branch-protection endpoint (`.../branches/main/protection`) returns 404
 "Branch not protected" because this is a ruleset rather than classic branch
 protection — that 404 is not evidence that `main` is unprotected.
@@ -289,5 +293,5 @@ Governance artifacts — `CONTRIBUTING`, `SECURITY`, `SUPPORT`, `GOVERNANCE`, an
 `CODEOWNERS` — do not exist yet, and there is no dependency-update automation.
 `main` itself is protected; see "Gates" for what that ruleset enforces.
 Tracked in
-[#37](https://github.com/malon64/openlakeforge/issues/37). Until they land, this
+[#37](https://github.com/OpenLakeForge/openlakeforge/issues/37). Until they land, this
 file is the contribution guide.

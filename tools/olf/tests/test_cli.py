@@ -488,7 +488,7 @@ def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
             "--project",
             str(config.repo_root()),
             "--image",
-            "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "a" * 64,
+            "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "a" * 64,
         ],
     )
 
@@ -918,7 +918,7 @@ def platform_cli(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     from olf.commands import platform as platform_module
 
     engine = _Engine()
-    monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file: SimpleNamespace())
+    monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: SimpleNamespace())
     monkeypatch.setattr(platform_module, "_engine", lambda context, *, var_file: engine)
     return engine
 

@@ -770,7 +770,7 @@ That workflow additionally needs Git and uv on `PATH`:
 Clone the repository and run commands from its root:
 
 ```bash
-git clone https://github.com/malon64/openlakeforge.git
+git clone https://github.com/OpenLakeForge/openlakeforge.git
 cd openlakeforge
 ```
 

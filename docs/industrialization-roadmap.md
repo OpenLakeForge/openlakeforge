@@ -118,30 +118,30 @@ an industrialization sequence. The changes made then were:
 Recorded from the 2026-07-16 rebalance; retained as the rationale for the
 current milestone shape.
 
-- Keep [#17](https://github.com/malon64/openlakeforge/issues/17) and
-  [#19](https://github.com/malon64/openlakeforge/issues/19) as early trust work.
-- Audit [#18](https://github.com/malon64/openlakeforge/issues/18) against
+- Keep [#17](https://github.com/OpenLakeForge/openlakeforge/issues/17) and
+  [#19](https://github.com/OpenLakeForge/openlakeforge/issues/19) as early trust work.
+- Audit [#18](https://github.com/OpenLakeForge/openlakeforge/issues/18) against
   `main`, close the completed local/Azure scope, and open a separate AWS full
   end-to-end issue for any remaining work.
 - Replace the separate access and identity phases with a secure-foundation
   milestone: secrets, private networking, TLS, ingress, and authentication ship
   together.
-- Reframe [#24](https://github.com/malon64/openlakeforge/issues/24) through
-  [#26](https://github.com/malon64/openlakeforge/issues/26) around a
+- Reframe [#24](https://github.com/OpenLakeForge/openlakeforge/issues/24) through
+  [#26](https://github.com/OpenLakeForge/openlakeforge/issues/26) around a
   provider-neutral `identity.oidc` contract. Keycloak is an optional local or
   self-hosted adapter; AWS can accept an existing enterprise issuer.
-- Keep [#21](https://github.com/malon64/openlakeforge/issues/21) through
-  [#23](https://github.com/malon64/openlakeforge/issues/23) as an operability
+- Keep [#21](https://github.com/OpenLakeForge/openlakeforge/issues/21) through
+  [#23](https://github.com/OpenLakeForge/openlakeforge/issues/23) as an operability
   milestone, with backend-neutral metrics and log-export contracts.
-- Split [#14](https://github.com/malon64/openlakeforge/issues/14) into product
+- Split [#14](https://github.com/OpenLakeForge/openlakeforge/issues/14) into product
   contract, metadata reconciliation, profiling, and governance outcomes.
-- Treat [#28](https://github.com/malon64/openlakeforge/issues/28) through
-  [#30](https://github.com/malon64/openlakeforge/issues/30) as incremental
+- Treat [#28](https://github.com/OpenLakeForge/openlakeforge/issues/28) through
+  [#30](https://github.com/OpenLakeForge/openlakeforge/issues/30) as incremental
   product features rather than prerequisites for platform safety.
-- Break [#31](https://github.com/malon64/openlakeforge/issues/31) into
+- Break [#31](https://github.com/OpenLakeForge/openlakeforge/issues/31) into
   independently verifiable security, recovery, and supply-chain work. Move
   remote state, backups, image pinning, and per-workload IAM before beta.
-- Defer [#8](https://github.com/malon64/openlakeforge/issues/8) and full Azure
+- Defer [#8](https://github.com/OpenLakeForge/openlakeforge/issues/8) and full Azure
   managed-service parity until the AWS reference profile is stable.
 
 ## Milestone 0 — Rebaseline and Govern (partially delivered)
