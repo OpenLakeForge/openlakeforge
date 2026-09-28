@@ -10,6 +10,7 @@ from _contract_conformance import (
     CAPABILITY_GATED_EXPORTS,
     MEDALLION_LAYERS,
     STAGE_BINDINGS,
+    STAGE_CREDENTIAL_BINDINGS,
     STAGE_DERIVED_EXPORTS,
     bucket,
     logical_identities,
@@ -24,21 +25,17 @@ from olf.deployment.context import DeploymentContext, Provider, stage_namespace,
 from olf.profile import DeploymentTopology, Preset, StageName, load_deployment_profile, resolve_topology
 from olf.provider_contracts import parse_provider_contracts
 
-# A real captured local DEV+PROD provider contract -- the exact payload
-# `terraform output -json provider_contracts` gives olf once the local
-# platform root is applied, per `test_provider_conformance.py`. There is no
-# way to produce one without a live kind cluster, which this slice does not
-# have (see the module docstring in that file); `deployment.profile_name` is
-# the only field rebound below, to the conformance profile actually under
-# test, because `parse_provider_contracts` requires it to match the resolved
-# topology it is handed. Every stage identity in it -- namespace, catalog,
-# buckets, principal, activation prefix -- is untouched captured output.
-_LOCAL_CONTRACT_FIXTURE = Path(__file__).parent / "fixtures" / "local-provider-contracts-v3.json"
+# The provider contract the local root rendered from openlakeforge.conformance.yaml
+# itself, captured unmodified by the multi-stage nightly that applies that file
+# (#220). Refresh it from that run's `rendered-provider-contract` artifact when
+# the root's derivation changes; the nightly's isolation probes run against the
+# live rendering, so a drifted fixture cannot hide a rendering regression.
+_LOCAL_CONTRACT_FIXTURE = Path(__file__).parent / "fixtures" / "conformance-provider-contracts.json"
 
 
 def _local_contract_for(topology: DeploymentTopology) -> dict[str, Any]:
     contract = json.loads(_LOCAL_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
-    contract["deployment"]["profile_name"] = topology.profile_name
+    assert contract["deployment"]["profile_name"] == topology.profile_name, "fixture rendered from another profile"
     return contract
 
 
@@ -143,13 +140,9 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
     sibling stage -- reusing exactly the classification
     `test_provider_conformance.py` proves this shape with.
 
-    Scope: the *topology* comes from the conformance profile, but the stage
-    bindings come from the captured `acme-data` contract, because no cluster
-    exists here to render a contract from this profile. So this proves the
-    isolation logic over a real two-stage contract. That applying the
-    conformance profile yields isolated bindings is proven where a cluster
-    does exist: the multi-stage nightly applies this exact file and runs the
-    cross-stage isolation probes against the contract it renders (#220).
+    Both the topology and the bindings come from the conformance profile: the
+    contract is the one the local root rendered from it (#220), so these are
+    the bindings applying that profile actually produces.
     """
     topology = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage=StageName.DEV.value).topology
     contract = _local_contract_for(topology)
@@ -167,7 +160,7 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
         # varying-key check below when it is missing for both stages.
         wrong = {
             key: (exports.get(key), str(expected(stage_contract)))
-            for key, expected in STAGE_BINDINGS
+            for key, expected in (*STAGE_BINDINGS, *STAGE_CREDENTIAL_BINDINGS)
             if exports.get(key) != str(expected(stage_contract))
         }
         assert not wrong, (
@@ -206,7 +199,10 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
         if len({exports.get(key) for exports in per_stage.values()}) > 1
     }
     unclassified = sorted(
-        varying - {key for key, _ in STAGE_BINDINGS} - set(ACTIVATION_URIS) - STAGE_DERIVED_EXPORTS
+        varying
+        - {key for key, _ in (*STAGE_BINDINGS, *STAGE_CREDENTIAL_BINDINGS)}
+        - set(ACTIVATION_URIS)
+        - STAGE_DERIVED_EXPORTS
         - CAPABILITY_GATED_EXPORTS
     )
     assert not unclassified, (
