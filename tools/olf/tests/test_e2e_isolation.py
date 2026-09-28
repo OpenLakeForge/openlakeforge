@@ -112,10 +112,15 @@ _STAGE_BUCKETS = {
 
 
 def _stub_files(
-    monkeypatch: pytest.MonkeyPatch, cfg, overrides: dict[str, str], sibling_objects: set[str] | None = None  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+    cfg,  # noqa: ANN001
+    overrides: dict[str, str],
+    sibling_objects: set[str] | None = None,
+    unregistered: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Answer each `<table>$files` query with one file in the stage's own bucket
-    unless overridden, and the sibling's bucket listing with `sibling_objects`."""
+    unless overridden; list the sibling's buckets as `sibling_objects` and this
+    stage's as its table files plus `unregistered` objects no table references."""
     own = {
         table: f"s3://prod-{layer}/{table.replace('.', '/')}/data/{table}-00000.parquet"
         for layer, table in _isolation._materialized_tables(cfg)
@@ -128,8 +133,11 @@ def _stub_files(
         return overrides.get(f"{schema}.{name}", own[f"{schema}.{name}"])
 
     monkeypatch.setattr(_isolation, "trino_query", _trino_query)
-    listed = {"dev-only-00000.parquet"} if sibling_objects is None else sibling_objects
-    monkeypatch.setattr(_isolation, "_bucket_object_names", lambda *_args: listed)
+    sibling_listed = {"dev-only-00000.parquet"} if sibling_objects is None else sibling_objects
+    own_listed = {path.rsplit("/", 1)[-1] for path in {**own, **overrides}.values() if path} | unregistered
+    monkeypatch.setattr(
+        _isolation, "_bucket_data_files", lambda _c, _contracts, stage: sibling_listed if stage == "dev" else own_listed
+    )
     return queried
 
 
@@ -171,6 +179,18 @@ def test_stage_data_check_rejects_sibling_files_copied_into_the_stages_own_bucke
     )
 
     with pytest.raises(E2EError, match="promotion copied data: .*written-by-dev.parquet"):
+        _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
+
+
+def test_stage_data_check_rejects_an_unregistered_copy_in_the_stages_bucket(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No table references the copy, but it sits in PROD's bucket under DEV's name."""
+    cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
+    copy = "orphaned-dev-copy.parquet"
+    _stub_files(monkeypatch, cfg, {}, sibling_objects={copy}, unregistered=frozenset({copy}))
+
+    with pytest.raises(E2EError, match=f"promotion copied data: .*{copy}"):
         _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
 
 
