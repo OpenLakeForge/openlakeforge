@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from olf import config, k8s, log
+from olf.clients.base import ServiceClientError
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise, terraform_output_json
 from olf.e2e._trino import trino_query
 
@@ -161,27 +162,34 @@ def _check_table_locations(cfg: E2EConfig, provider_contracts: dict[str, Any], s
             )
 
 
-def _bucket_data_files(cfg: E2EConfig, provider_contracts: dict[str, Any], stage: str) -> set[str]:
-    """Parquet data file names in a stage's Silver and Gold buckets, listed
-    with the platform's S3 identity: the stage identities are denied each
-    other's. Registered or not -- a copied file need not be in any snapshot."""
-    namespace = cfg.shared_namespace or "olf-system"
+def stage_bucket_objects(
+    provider_contracts: dict[str, Any], stage: str, layers: tuple[str, ...], *, namespace: str
+) -> dict[str, str]:
+    """`<bucket>/<key>` -> ETag for every object in a stage's buckets for
+    `layers`, listed with the platform's S3 identity (the stage identities are
+    denied each other's). Also the nightly's before/after view of a promotion,
+    which must leave the target stage's buckets untouched."""
     identity = _s3_identity(namespace, "seaweedfs-s3-creds")
     if identity is None:
         raise E2EError(f"no-copy probe: seaweedfs-s3-creds not found in {namespace}.")
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
-    names: set[str] = set()
+    objects: dict[str, str] = {}
     with k8s.port_forward("seaweedfs-s3", 8333, namespace, log_path=f"{log_prefix}-isolation-s3-admin.log") as port:
         client = _s3_client(*identity, local_port=port, region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"))
-        for layer in ("silver", "gold"):
+        for layer in layers:
             bucket = _stage_bucket(provider_contracts, stage, layer)
             for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
-                names.update(
-                    item["Key"].rsplit("/", 1)[-1]
-                    for item in page.get("Contents", [])
-                    if item["Key"].endswith(".parquet")
-                )
-    return names
+                objects.update({f"{bucket}/{item['Key']}": item["ETag"] for item in page.get("Contents", [])})
+    return objects
+
+
+def _bucket_data_files(cfg: E2EConfig, provider_contracts: dict[str, Any], stage: str) -> set[str]:
+    """Parquet data file names in a stage's Silver and Gold buckets, registered
+    or not -- a copied file need not be in any snapshot."""
+    objects = stage_bucket_objects(
+        provider_contracts, stage, ("silver", "gold"), namespace=cfg.shared_namespace or "olf-system"
+    )
+    return {path.rsplit("/", 1)[-1] for path in objects if path.endswith(".parquet")}
 
 
 def check_stage_data_is_its_own(
@@ -216,9 +224,12 @@ def _dagster_run_ids(service_name: str, namespace: str, log_path: str) -> set[st
     from olf.clients.dagster import DagsterClient
 
     with k8s.port_forward(service_name, 80, namespace, log_path=log_path) as local_port:
-        result = DagsterClient(f"http://127.0.0.1:{local_port}/graphql").graphql(
-            "query { runsOrError(limit: 500) { __typename ... on Runs { results { runId } } } }"
-        )["runsOrError"]
+        try:
+            result = DagsterClient(f"http://127.0.0.1:{local_port}/graphql").graphql(
+                "query { runsOrError(limit: 500) { __typename ... on Runs { results { runId } } } }"
+            )["runsOrError"]
+        except ServiceClientError as exc:
+            raise E2EError(f"could not list Dagster runs in {namespace}: {exc}") from exc
     if result.get("__typename") != "Runs":
         raise E2EError(f"could not list Dagster runs in {namespace}: {result}")
     return {run["runId"] for run in result["results"]}

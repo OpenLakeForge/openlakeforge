@@ -147,11 +147,22 @@ def test_stage_data_check_covers_every_declared_table(monkeypatch: pytest.Monkey
 
     _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
 
-    # The inventory's own counts, which the table-count assertion also relies
-    # on -- not the helper under test.
-    marts = {table for table in queried if table.split(".", 1)[0] in cfg.inventory.gold_namespace_names}
-    assert len(marts) == cfg.inventory.gold_table_count > 0
-    assert len(set(queried) - marts) == cfg.inventory.silver_table_count > 0
+    # Straight from the product descriptors -- each product's Gold tables and
+    # declared Silver inputs -- not from the helper under test.
+    declared = {
+        *(
+            f"{product.gold_namespace}.{table.name}"
+            for product in cfg.inventory.products
+            for table in product.gold_tables
+        ),
+        *(
+            f"{cfg.inventory.domain_for_product(product).silver_namespace}.{name}"
+            for product in cfg.inventory.products
+            for name in product.silver_inputs
+        ),
+    }
+    assert set(queried) == declared
+    assert len(queried) == len(declared) > 0
 
 
 def test_stage_data_check_rejects_a_table_reading_the_sibling_stages_bucket(
@@ -219,6 +230,25 @@ def _stub_runs(monkeypatch: pytest.MonkeyPatch, runs: dict[str, set[str]]) -> No
     monkeypatch.setattr(
         _isolation, "_dagster_run_ids", lambda service, _namespace, _log: runs[service.removesuffix("-webserver")]
     )
+
+
+def test_dagster_run_listing_failure_surfaces_as_an_e2e_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The e2e CLI reports E2EError; a raw client error would be a traceback."""
+    from olf.clients.base import ServiceClientError
+    from olf.clients.dagster import DagsterClient
+
+    @contextmanager
+    def _port_forward(*_args, **_kwargs):  # noqa: ANN202
+        yield 18080
+
+    def _graphql(*_args, **_kwargs):  # noqa: ANN202
+        raise ServiceClientError("HTTP 502")
+
+    monkeypatch.setattr(_isolation.k8s, "port_forward", _port_forward)
+    monkeypatch.setattr(DagsterClient, "graphql", _graphql)
+
+    with pytest.raises(E2EError, match="could not list Dagster runs in olf-prod: HTTP 502"):
+        _isolation._dagster_run_ids("dagster-dagster-webserver", "olf-prod", "/tmp/log")
 
 
 def test_dagster_isolation_accepts_disjoint_run_histories(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
