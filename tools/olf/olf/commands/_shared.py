@@ -161,6 +161,7 @@ def deployment_context_for_profile(
     cluster_name: str = "",
     kubeconfig_path: str = "",
     var_file: str = "",
+    allow_stage_removal: bool = False,
 ):  # noqa: ANN202
     """Resolve a profile file without requiring a writable data project.
 
@@ -204,6 +205,7 @@ def deployment_context_for_profile(
         # lifecycle: the platform stops owning user code so `olf project
         # deploy` can own it per stage.
         "manage_user_deployments": False,
+        "allow_stage_removal": allow_stage_removal,
     }
     if cluster_name and profile.provider.type == Provider.LOCAL:
         kwargs["cluster_name"] = cluster_name

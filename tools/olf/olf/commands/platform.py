@@ -63,12 +63,20 @@ def apply(
     profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
     phase: str = typer.Option("all", "--phase", help="all, foundation, or platform."),
     var_file: str = typer.Option("", "--var-file", help="Provider-specific Terraform tfvars override."),
+    allow_stage_removal: bool = typer.Option(
+        False,
+        "--allow-stage-removal",
+        help=(
+            "Permit an apply that removes an already-applied stage, or that replaces the pre-v0.3 shared "
+            "namespace ('lakehouse') with the current one, destroying its SeaweedFS/PostgreSQL/Polaris state."
+        ),
+    ),
 ) -> None:
     """Apply foundation, local image prefetch, and platform without project artifacts."""
     from olf.deployment.engine import DeploymentPhase
     from olf.deployment.errors import DeploymentError
 
-    context = deployment_context_for_profile(profile_file)
+    context = deployment_context_for_profile(profile_file, allow_stage_removal=allow_stage_removal)
     engine = _engine(context, var_file=var_file)
     selected = _phase(phase)
     try:
