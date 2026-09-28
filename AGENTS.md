@@ -253,7 +253,7 @@ GitHub cannot attribute to its author needs one. Merges are squash or rebase
 only, and `main` rejects deletion and force-pushes.
 
 Read the live rules with
-`gh api repos/malon64/openlakeforge/rules/branches/main`.
+`gh api repos/OpenLakeForge/openlakeforge/rules/branches/main`.
 The branch-protection endpoint (`.../branches/main/protection`) returns 404
 "Branch not protected" because this is a ruleset rather than classic branch
 protection — that 404 is not evidence that `main` is unprotected.
@@ -289,5 +289,5 @@ Governance artifacts — `CONTRIBUTING`, `SECURITY`, `SUPPORT`, `GOVERNANCE`, an
 `CODEOWNERS` — do not exist yet, and there is no dependency-update automation.
 `main` itself is protected; see "Gates" for what that ruleset enforces.
 Tracked in
-[#37](https://github.com/malon64/openlakeforge/issues/37). Until they land, this
+[#37](https://github.com/OpenLakeForge/openlakeforge/issues/37). Until they land, this
 file is the contribution guide.

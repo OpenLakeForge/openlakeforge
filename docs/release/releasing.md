@@ -107,8 +107,8 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 Every release publishes:
 
-- Two signed container images: `ghcr.io/malon64/openlakeforge/project-code`
-  and `ghcr.io/malon64/openlakeforge/superset`, tagged with the release
+- Two signed container images: `ghcr.io/openlakeforge/openlakeforge/project-code`
+  and `ghcr.io/openlakeforge/openlakeforge/superset`, tagged with the release
   version and referenced by digest.
 - `component-manifest.json` — the component catalog plus the resolved image
   digests and the git commit the release was built from.
@@ -123,13 +123,20 @@ Every release publishes:
   authenticates `checksums.txt` before it is trusted.
 - `CHANGELOG.md`.
 
+Releases up to and including `v0.2.0-alpha.1` were published before the
+repository moved to the `OpenLakeForge` organization. They are signed by the
+`malon64/openlakeforge` workflow identity and their images live under
+`ghcr.io/malon64/openlakeforge/`. Verify those with that identity and image
+path in the commands below, and pass `--repo malon64/openlakeforge` to
+`olf release verify-install`.
+
 ### Verify signatures
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp '^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
+  --certificate-identity-regexp '^https://github\.com/OpenLakeForge/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/malon64/openlakeforge/project-code@sha256:<digest>
+  ghcr.io/openlakeforge/openlakeforge/project-code@sha256:<digest>
 ```
 
 Repeat for the `superset` image. The digest comes from
@@ -141,9 +148,9 @@ a mutable tag.
 ```sh
 cosign verify-attestation \
   --type spdxjson \
-  --certificate-identity-regexp '^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
+  --certificate-identity-regexp '^https://github\.com/OpenLakeForge/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/malon64/openlakeforge/project-code@sha256:<digest>
+  ghcr.io/openlakeforge/openlakeforge/project-code@sha256:<digest>
 ```
 
 ### Verify checksums
@@ -151,7 +158,7 @@ cosign verify-attestation \
 ```sh
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
-  --certificate-identity-regexp '^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
+  --certificate-identity-regexp '^https://github\.com/OpenLakeForge/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c checksums.txt
 ```

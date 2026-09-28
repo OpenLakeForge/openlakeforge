@@ -2,7 +2,7 @@
 
 **An open-source lakehouse platform for small data teams — self-hosted, modular, and designed to run anywhere.**
 
-[![Release](https://img.shields.io/github/v/release/malon64/openlakeforge?include_prereleases)](/releases)  
+[![Release](https://img.shields.io/github/v/release/OpenLakeForge/openlakeforge?include_prereleases)](/releases)  
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](/LICENSE)  
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](/docs/industrialization-roadmap.md)
 

@@ -9,7 +9,7 @@ from olf.artifact_store import FilesystemRevisionStore
 from olf.project import ProjectSpec
 
 _DISTRIBUTION_ROOT = Path(__file__).resolve().parents[3]
-_DIGEST_IMAGE = "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "a" * 64
+_DIGEST_IMAGE = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "a" * 64
 _DISTRIBUTION_VERSION = "0.2.0-alpha.1"
 
 
@@ -73,16 +73,16 @@ def test_build_rejects_a_bare_mutable_image_tag(external_project: Path) -> None:
     with pytest.raises(project_revision.ProjectRevisionError):
         project_revision.build_project_revision(
             _spec(external_project),
-            image="ghcr.io/malon64/openlakeforge-project-code:local",
+            image="ghcr.io/openlakeforge/openlakeforge-project-code:local",
             distribution_version=_DISTRIBUTION_VERSION,
         )
 
 
 def test_build_resolves_a_mutable_tag_through_the_injected_resolver(external_project: Path) -> None:
-    resolved = "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "b" * 64
+    resolved = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "b" * 64
     manifest = project_revision.build_project_revision(
         _spec(external_project),
-        image="ghcr.io/malon64/openlakeforge-project-code:local",
+        image="ghcr.io/openlakeforge/openlakeforge-project-code:local",
         distribution_version=_DISTRIBUTION_VERSION,
         resolve_image_digest_with=lambda image: resolved,  # noqa: ARG005
     )
@@ -186,7 +186,7 @@ def test_validate_rejects_a_top_level_image_field_that_drifted_from_its_componen
     tampered = project_revision.ProjectRevisionManifest(
         project_name=manifest.project_name,
         distribution_version=manifest.distribution_version,
-        project_code_image="ghcr.io/malon64/openlakeforge-project-code@sha256:" + "9" * 64,
+        project_code_image="ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "9" * 64,
         components=manifest.components,
         revision=manifest.revision,
     )
@@ -256,14 +256,14 @@ def test_resolve_image_digest_rejects_a_local_config_id_without_a_repo_digest(
     monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
 
     with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
-        project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
+        project_revision.resolve_image_digest("ghcr.io/openlakeforge/openlakeforge-project-code:local")
 
 
 def test_validate_rejects_duplicate_component_names(external_project: Path) -> None:
     manifest = _build(external_project)
     image_component = manifest.component("image")
     assert image_component is not None
-    forged_image = "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "5" * 64
+    forged_image = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "5" * 64
     tampered = project_revision.ProjectRevisionManifest(
         project_name=manifest.project_name,
         distribution_version=manifest.distribution_version,
@@ -358,7 +358,7 @@ def test_build_still_allows_secret_and_client_secret_key_references(external_pro
 
 def test_validate_rejects_a_self_consistent_sidecar_with_a_mutable_image(external_project: Path) -> None:
     manifest = _build(external_project)
-    mutable_image = "ghcr.io/malon64/openlakeforge-project-code:latest"
+    mutable_image = "ghcr.io/openlakeforge/openlakeforge-project-code:latest"
     image_entries = dict(manifest.component("image").entries)
     image_entries["project-code"] = mutable_image
     components = tuple(
@@ -536,7 +536,7 @@ def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_rep
     from olf.tooling.process import CommandResult
 
     wrong_repo_digest = "docker.io/someone-else/project-code@sha256:" + "1" * 64
-    right_repo_digest = "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "2" * 64
+    right_repo_digest = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "2" * 64
 
     class _FakeDocker:
         def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
@@ -552,7 +552,7 @@ def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_rep
 
     monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
 
-    resolved = project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
+    resolved = project_revision.resolve_image_digest("ghcr.io/openlakeforge/openlakeforge-project-code:local")
 
     assert resolved == right_repo_digest
 
@@ -583,7 +583,7 @@ def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_re
     monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
 
     with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
-        project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
+        project_revision.resolve_image_digest("ghcr.io/openlakeforge/openlakeforge-project-code:local")
 
 
 def test_build_rejects_a_default_argument_smuggled_into_an_env_lookup(external_project: Path) -> None:

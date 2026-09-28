@@ -102,7 +102,7 @@ context (#455, consumed in Floe 0.6.11). The register remains the source for
 known limitations and the version-specific follow-up work.
 
 The operational dependency contingency is intentionally not defined by this
-page. [Issue #51](https://github.com/malon64/openlakeforge/issues/51), the
+page. [Issue #51](https://github.com/OpenLakeForge/openlakeforge/issues/51), the
 operations handbook, tracks the Floe pin, potential fork strategy, contingency
 owners and triggers, and an exit path. Until that handbook is published, this
 documentation describes the current dependency boundary rather than promising a

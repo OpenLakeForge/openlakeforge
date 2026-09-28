@@ -27,8 +27,8 @@ class _Tools:
 
 
 def test_release_identity_escapes_tag_and_repository() -> None:
-    assert release._release_identity("malon64/openlakeforge", "v0.1.0-alpha.1") == (
-        r"^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0\-alpha\.1$"
+    assert release._release_identity("OpenLakeForge/openlakeforge", "v0.1.0-alpha.1") == (
+        r"^https://github\.com/OpenLakeForge/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0\-alpha\.1$"
     )
 
 
@@ -41,7 +41,7 @@ def test_verify_release_assets_rejects_checksum_path_traversal(tmp_path: Path) -
         release._verify_release_assets(
             tmp_path,
             tag="v0.1.0-alpha.1",
-            repo_slug="malon64/openlakeforge",
+            repo_slug="OpenLakeForge/openlakeforge",
             tools=_Tools(),
         )
 
@@ -56,7 +56,7 @@ def test_verify_release_assets_checks_all_local_hashes(tmp_path: Path, monkeypat
     release._verify_release_assets(
         tmp_path,
         tag="v0.1.0-alpha.1",
-        repo_slug="malon64/openlakeforge",
+        repo_slug="OpenLakeForge/openlakeforge",
         tools=_Tools(),
     )
 
