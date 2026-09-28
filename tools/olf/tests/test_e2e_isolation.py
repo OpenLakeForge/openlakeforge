@@ -111,9 +111,15 @@ _STAGE_BUCKETS = {
 }
 
 
-def _stub_files(monkeypatch: pytest.MonkeyPatch, cfg, overrides: dict[str, str]) -> list[str]:  # noqa: ANN001
-    """Answer each `<table>$files` query with the stage's own bucket unless overridden."""
-    own = {table: f"prod-{layer}" for layer, table in _isolation._materialized_tables(cfg)}
+def _stub_files(
+    monkeypatch: pytest.MonkeyPatch, cfg, overrides: dict[str, str], sibling_objects: set[str] | None = None  # noqa: ANN001
+) -> list[str]:
+    """Answer each `<table>$files` query with one file in the stage's own bucket
+    unless overridden, and the sibling's bucket listing with `sibling_objects`."""
+    own = {
+        table: f"s3://prod-{layer}/{table.replace('.', '/')}/data/{table}-00000.parquet"
+        for layer, table in _isolation._materialized_tables(cfg)
+    }
     queried: list[str] = []
 
     def _trino_query(_cfg, sql: str) -> str:  # noqa: ANN001
@@ -122,30 +128,59 @@ def _stub_files(monkeypatch: pytest.MonkeyPatch, cfg, overrides: dict[str, str])
         return overrides.get(f"{schema}.{name}", own[f"{schema}.{name}"])
 
     monkeypatch.setattr(_isolation, "trino_query", _trino_query)
+    listed = {"dev-only-00000.parquet"} if sibling_objects is None else sibling_objects
+    monkeypatch.setattr(_isolation, "_bucket_object_names", lambda *_args: listed)
     return queried
 
 
-def test_stage_data_check_accepts_tables_backed_only_by_their_own_buckets(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_stage_data_check_covers_every_declared_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
     queried = _stub_files(monkeypatch, cfg, {})
 
-    _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod")
+    _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
 
-    assert sorted(queried) == [table for _, table in _isolation._materialized_tables(cfg)]
-    assert queried
+    # The inventory's own counts, which the table-count assertion also relies
+    # on -- not the helper under test.
+    marts = {table for table in queried if table.split(".", 1)[0] in cfg.inventory.gold_namespace_names}
+    assert len(marts) == cfg.inventory.gold_table_count > 0
+    assert len(set(queried) - marts) == cfg.inventory.silver_table_count > 0
 
 
-def test_stage_data_check_rejects_a_table_reading_the_sibling_stages_files(
+def test_stage_data_check_rejects_a_table_reading_the_sibling_stages_bucket(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
-    layer, copied = _isolation._materialized_tables(cfg)[0]
-    _stub_files(monkeypatch, cfg, {copied: f"prod-{layer}\ndev-{layer}"})
+    layer, table = _isolation._materialized_tables(cfg)[0]
+    _stub_files(monkeypatch, cfg, {table: f"s3://dev-{layer}/{table}/data/x.parquet"})
 
-    with pytest.raises(E2EError, match=f"{copied} reads data files from .*dev-{layer}"):
-        _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod")
+    with pytest.raises(E2EError, match=f"{table} reads data files from .*dev-{layer}"):
+        _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
+
+
+def test_stage_data_check_rejects_sibling_files_copied_into_the_stages_own_bucket(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Location passes -- the copy sits in PROD's bucket -- but the name is DEV's."""
+    cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
+    layer, table = _isolation._materialized_tables(cfg)[0]
+    _stub_files(
+        monkeypatch,
+        cfg,
+        {table: f"s3://prod-{layer}/{table}/data/written-by-dev.parquet"},
+        sibling_objects={"written-by-dev.parquet"},
+    )
+
+    with pytest.raises(E2EError, match="promotion copied data: .*written-by-dev.parquet"):
+        _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
+
+
+def test_stage_data_check_defers_to_a_sibling_that_has_written_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
+    _stub_files(monkeypatch, cfg, {}, sibling_objects=set())
+
+    _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
 
 
 def test_stage_data_check_rejects_a_table_with_no_data_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -154,7 +189,7 @@ def test_stage_data_check_rejects_a_table_with_no_data_files(monkeypatch: pytest
     _stub_files(monkeypatch, cfg, {empty: ""})
 
     with pytest.raises(E2EError, match="has no data files"):
-        _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod")
+        _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
 
 
 def _stub_runs(monkeypatch: pytest.MonkeyPatch, runs: dict[str, set[str]]) -> None:

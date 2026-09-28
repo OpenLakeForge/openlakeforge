@@ -139,37 +139,75 @@ def _materialized_tables(cfg: E2EConfig) -> list[tuple[str, str]]:
     return sorted(tables)
 
 
-def check_stage_data_is_its_own(cfg: E2EConfig, provider_contracts: dict[str, Any], this_stage: str) -> None:
-    """Promotion copies no data: every data file behind this stage's Silver and
-    Gold tables lives in this stage's own bucket for that layer.
-
-    A table whose snapshot referenced the sibling stage's files -- a copied
-    Iceberg metadata tree, or a catalog registration pointing across stages --
-    would read back the sibling's data while every count check passed.
-    Requiring at least one file per table is the positive control: a table
-    with no data files would satisfy "no foreign bucket" vacuously.
-    """
-    log.step(f"Checking {this_stage} tables read only {this_stage}'s own data files...")
-    catalog = f"lakehouse_{this_stage}"
+def _stage_data_files(cfg: E2EConfig, provider_contracts: dict[str, Any], stage: str) -> set[str]:
+    """The data file names behind this stage's Silver and Gold tables, after
+    requiring each table to have files and to keep them in the stage's own
+    bucket for its layer."""
+    catalog = f"lakehouse_{stage}"
+    names: set[str] = set()
     for layer, table in _materialized_tables(cfg):
-        expected = _stage_bucket(provider_contracts, this_stage, layer)
+        expected = _stage_bucket(provider_contracts, stage, layer)
         schema, name = table.split(".", 1)
-        buckets = {
+        paths = {
             line.strip()
-            for line in trino_query(
-                cfg,
-                f"SELECT DISTINCT regexp_extract(file_path, '^[a-z0-9]+://([^/]+)/', 1) "
-                f'FROM {catalog}.{schema}."{name}$files"',
-            ).splitlines()
+            for line in trino_query(cfg, f'SELECT file_path FROM {catalog}.{schema}."{name}$files"').splitlines()
             if line.strip()
         }
-        if not buckets:
+        if not paths:
             raise E2EError(f"{catalog}.{table} has no data files to attribute to a stage.")
+        buckets = {path.split("://", 1)[-1].split("/", 1)[0] for path in paths}
         if buckets != {expected}:
             raise E2EError(
-                f"{catalog}.{table} reads data files from {sorted(buckets)}; only {this_stage}'s {layer} "
+                f"{catalog}.{table} reads data files from {sorted(buckets)}; only {stage}'s {layer} "
                 f"bucket {expected!r} is allowed."
             )
+        names.update(path.rsplit("/", 1)[-1] for path in paths)
+    return names
+
+
+def _bucket_object_names(cfg: E2EConfig, provider_contracts: dict[str, Any], stage: str) -> set[str]:
+    """Object names in a stage's Silver and Gold buckets, listed with the
+    platform's S3 identity: the stage identities are denied each other's."""
+    namespace = cfg.shared_namespace or "olf-system"
+    identity = _s3_identity(namespace, "seaweedfs-s3-creds")
+    if identity is None:
+        raise E2EError(f"no-copy probe: seaweedfs-s3-creds not found in {namespace}.")
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    names: set[str] = set()
+    with k8s.port_forward("seaweedfs-s3", 8333, namespace, log_path=f"{log_prefix}-isolation-s3-admin.log") as port:
+        client = _s3_client(*identity, local_port=port, region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"))
+        for layer in ("silver", "gold"):
+            bucket = _stage_bucket(provider_contracts, stage, layer)
+            for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+                names.update(item["Key"].rsplit("/", 1)[-1] for item in page.get("Contents", []))
+    return names
+
+
+def check_stage_data_is_its_own(
+    cfg: E2EConfig, provider_contracts: dict[str, Any], this_stage: str, sibling: str
+) -> None:
+    """Promotion copies no data: this stage's Silver and Gold tables read only
+    files this stage wrote.
+
+    Location alone is not enough -- DEV files copied into PROD's bucket would
+    sit where PROD's belong. Iceberg names every data file uniquely per write
+    and a copy keeps the name, so this stage's data file names must not occur
+    among the sibling's objects. A sibling that has written nothing yet (DEV's
+    suite runs before promotion) is compared from its own suite. Requiring at
+    least one file per table is the positive control for both properties.
+    """
+    log.step(f"Checking {this_stage} tables read only files {this_stage} wrote...")
+    own = _stage_data_files(cfg, provider_contracts, this_stage)
+    sibling_objects = _bucket_object_names(cfg, provider_contracts, sibling)
+    if not sibling_objects:
+        log.info(f"{sibling} has written no Silver or Gold objects yet; its suite compares the pair.")
+        return
+    copied = own & sibling_objects
+    if copied:
+        raise E2EError(
+            f"promotion copied data: {this_stage} tables read {len(copied)} file(s) that also exist in "
+            f"{sibling}'s buckets, e.g. {sorted(copied)[:3]}."
+        )
 
 
 def _dagster_run_ids(service_name: str, namespace: str, log_path: str) -> set[str]:
@@ -268,5 +306,5 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
         client.head_bucket(Bucket=this_bucket)
         client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{this_stage}/", MaxKeys=1)
 
-    check_stage_data_is_its_own(cfg, provider_contracts, this_stage)
+    check_stage_data_is_its_own(cfg, provider_contracts, this_stage, sibling)
     check_dagster_state_isolation(cfg, this_stage, sibling)
