@@ -81,36 +81,41 @@ def test_deployed_floe_manifest_revision_reads_running_user_code_pods(
     monkeypatch.setattr(
         _artifacts,
         "kubectl",
-        lambda _cfg, args, *, capture=False: commands.append(args) or deployed_revision + "\n",
+        lambda _cfg, args, *, capture=False: (
+            commands.append(args) or f"PATH=/usr/bin\nOPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT={deployed_revision}\n"
+        ),
     )
 
     assert _artifacts.deployed_floe_manifest_revision(local_cfg) == deployed_revision
     assert commands == [
-        [
-            "exec",
-            "-n",
-            "lakehouse",
-            "dagster-dagster-user-deployments-sales-abc",
-            "--",
-            "printenv",
-            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
-        ],
-        [
-            "exec",
-            "-n",
-            "lakehouse",
-            "dagster-dagster-user-deployments-supply-chain-def",
-            "--",
-            "printenv",
-            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
-        ],
+        ["exec", "-n", "lakehouse", "dagster-dagster-user-deployments-sales-abc", "--", "env"],
+        ["exec", "-n", "lakehouse", "dagster-dagster-user-deployments-supply-chain-def", "--", "env"],
     ]
+
+
+def test_deployed_floe_manifest_revision_prefers_the_activated_revision(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`olf project image` bakes "manual"; `olf project deploy` injects the
+    stage's activated revision at runtime, and that is the one to verify."""
+    activated = "sha256:" + "c" * 64
+    monkeypatch.setattr(_artifacts, "expected_repository_location_names", lambda _cfg: ["openlakeforge-dagster"])
+    monkeypatch.setattr(_artifacts, "expected_user_code_pods", lambda _cfg, _locations: ["user-code"])
+    monkeypatch.setattr(
+        _artifacts,
+        "kubectl",
+        lambda *_args, **_kwargs: (
+            f"OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT=manual\nOPENLAKEFORGE_FLOE_MANIFEST_REVISION={activated}\n"
+        ),
+    )
+
+    assert _artifacts.deployed_floe_manifest_revision(e2e_cfg(tmp_path)) == activated
 
 
 def test_deployed_floe_manifest_revision_rejects_inconsistent_user_code_pods(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    values = iter(("sha256:" + "a" * 64, "sha256:" + "b" * 64))
+    values = iter(f"OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT=sha256:{c * 64}" for c in "ab")
     monkeypatch.setattr(_artifacts, "expected_repository_location_names", lambda _cfg: ["sales", "supply-chain"])
     monkeypatch.setattr(_artifacts, "expected_user_code_pods", lambda _cfg, _locations: ["sales", "supply-chain"])
     monkeypatch.setattr(_artifacts, "kubectl", lambda *_args, **_kwargs: next(values))
@@ -152,6 +157,7 @@ def test_assert_ops_artifacts_uses_legacy_manifests_for_supplied_local_image(mon
             checked.append((Bucket, Key))
 
     monkeypatch.setattr(_artifacts, "require_s3_prefix", lambda *_args: None)
+    monkeypatch.setattr(_artifacts, "require_any_s3_prefix", lambda *_args: None)
     monkeypatch.setattr(
         _artifacts, "assert_immutable_floe_manifests", lambda *_args: pytest.fail("must use legacy checks")
     )
@@ -173,8 +179,9 @@ def test_assert_ops_artifacts_skips_floe_report_prefix_for_a_product_less_domain
     inventory = dataclasses.replace(E2E_INVENTORY, domains=(product_less_domain, *E2E_INVENTORY.domains[1:]))
     monkeypatch.setattr(_artifacts, "assert_legacy_floe_manifests", lambda *_args: None)
     checked_prefixes: list[str] = []
+    monkeypatch.setattr(_artifacts, "require_s3_prefix", lambda *_args: None)
     monkeypatch.setattr(
-        _artifacts, "require_s3_prefix", lambda _client, _bucket, prefix: checked_prefixes.append(prefix)
+        _artifacts, "require_any_s3_prefix", lambda _client, _bucket, prefixes: checked_prefixes.append(prefixes[0])
     )
 
     _artifacts.assert_ops_artifacts(object(), "ops", "lakehouse", inventory, "manual")
@@ -183,3 +190,20 @@ def test_assert_ops_artifacts_skips_floe_report_prefix_for_a_product_less_domain
     for domain in inventory.domains:
         if domain.products:
             assert domain.artifact_prefixes.floe_report_prefix in checked_prefixes
+
+
+def test_assert_ops_artifacts_accepts_floe_reports_under_the_stage_activation_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An activated stage writes Floe reports beneath activations/<stage>/, the
+    `olf deploy` path at the bucket root; either proves Floe ran."""
+    monkeypatch.setattr(_artifacts, "assert_legacy_floe_manifests", lambda *_args: None)
+
+    class ActivatedStageBucket:
+        def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int) -> dict[str, Any]:
+            return {"Contents": [{"Key": Prefix + "x"}]} if Prefix.startswith("activations/dev/") else {}
+
+    _artifacts.assert_ops_artifacts(ActivatedStageBucket(), "ops", "olf-dev", E2E_INVENTORY, "manual")
+
+    with pytest.raises(E2EError, match=r"s3://ops/floe/reports/.* or s3://ops/activations/prod/floe/reports/"):
+        _artifacts.assert_ops_artifacts(ActivatedStageBucket(), "ops", "olf-prod", E2E_INVENTORY, "manual")

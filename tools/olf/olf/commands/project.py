@@ -129,7 +129,7 @@ def deploy(
     provider = _profile_provider(context, var_file=var_file)
     try:
         profile = load_deployment_profile(Path(profile_file))
-        with _build_store_for_project(Path(profile_file).resolve().parent, via="", output="") as store:
+        with _build_store_for_project(Path(profile_file).resolve().parent, via="", output="", stage=stage) as store:
             activation = deploy_revision(
                 provider,
                 revision=revision,
@@ -363,8 +363,13 @@ def _artifact_transport(provider: object) -> str:
 
 
 @contextmanager
-def _build_store_for_project(project_root: Path, *, via: str, output: str) -> Iterator[object]:
+def _build_store_for_project(project_root: Path, *, via: str, output: str, stage: str = "") -> Iterator[object]:
     """Open the build store under the profile contract when one is available.
+
+    `stage` must name the stage a caller goes on to activate: the contract
+    environment applied here stays in `os.environ` underneath the one
+    activation applies, and values it only defaults (the OpenMetadata catalog
+    database) would otherwise keep the default stage's.
 
     An empty `via` means "ask the provider", which is the default for every
     project command: only an explicit `--via` overrides it.
@@ -378,7 +383,7 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str) -> It
     from olf.deployment.errors import DeploymentError
     from olf.k8s import KubectlError
 
-    context = deployment_context_for_profile(str(project_root / "openlakeforge.yaml"))
+    context = deployment_context_for_profile(str(project_root / "openlakeforge.yaml"), stage=stage)
     provider = _profile_provider(context)
     contract_dir = Path(
         provider.env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)
