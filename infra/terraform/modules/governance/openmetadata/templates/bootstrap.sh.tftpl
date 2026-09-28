@@ -390,61 +390,49 @@
   remove_service pipelineServices dagster dagster-metadata-ingestion
   remove_service dashboardServices superset superset-metadata-ingestion
 
-  # Create or reuse the Iceberg metadata ingestion pipeline. Every governed
-  # stage's database sits under this one service, but the connection reaches
-  # only the canonical catalog: the crawl is pinned to that database and never
-  # deletes databases or schemas, so it cannot retire another stage's root.
-  # (Both are also OpenMetadata 1.12's defaults; stated so an upgrade that
-  # changes them cannot.)
-  pipeline_fqn="$catalog_service.$catalog_service-metadata-ingestion"
+  # Upsert the Iceberg metadata ingestion pipeline. Every governed stage's
+  # database sits under this one service, but the connection reaches only the
+  # canonical catalog: the crawl is pinned to that database and never deletes
+  # databases or schemas, so it cannot retire another stage's root. (Both are
+  # also OpenMetadata 1.12's defaults; stated so an upgrade that changes them
+  # cannot.) Upserted, never reused: a pipeline kept from an earlier apply
+  # would go on filtering for a stage that is no longer canonical.
   pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
-    "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
-    -H "Authorization: Bearer $ADMIN_JWT")"
-  if [ "$pipeline_code" = "200" ]; then
-    pipeline_resp="$(cat /tmp/om-pipeline-body)"
-  elif [ "$pipeline_code" = "404" ]; then
-    pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
-      -X POST "$om_url/api/v1/services/ingestionPipelines" \
-      -H "Authorization: Bearer $ADMIN_JWT" \
-      -H "Content-Type: application/json" \
-      -d "{
-        \"name\": \"$catalog_service-metadata-ingestion\",
-        \"displayName\": \"$catalog_display Metadata Ingestion\",
-        \"pipelineType\": \"metadata\",
-        \"sourceConfig\": {
-          \"config\": {
-            \"type\": \"DatabaseMetadata\",
-            \"includeViews\": false,
-            \"includeTags\": false,
-            \"databaseFilterPattern\": {\"includes\": [\"^${catalog_database_name}$\"]},
-            \"markDeletedDatabases\": false,
-            \"markDeletedSchemas\": false
-          }
-        },
-         \"airflowConfig\": {
-           \"startDate\": \"2025-01-01T00:00:00.000Z\",
-           \"retries\": 1,
-           \"pausePipeline\": true
-         },
-         \"service\": {
-           \"id\": \"$svc_id\",
-           \"type\": \"databaseService\"
-         }
-       }")"
-
-    case " 200 201 " in
-      *" $pipeline_code "*) pipeline_resp="$(cat /tmp/om-pipeline-body)" ;;
-      *)
-        echo "Failed to create ingestion pipeline (HTTP $pipeline_code)" >&2
-        cat /tmp/om-pipeline-body >&2
-        exit 1
-        ;;
-    esac
-  else
-    echo "Failed to inspect ingestion pipeline (HTTP $pipeline_code)" >&2
-    cat /tmp/om-pipeline-body >&2
-    exit 1
-  fi
+    -X PUT "$om_url/api/v1/services/ingestionPipelines" \
+    -H "Authorization: Bearer $ADMIN_JWT" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"name\": \"$catalog_service-metadata-ingestion\",
+      \"displayName\": \"$catalog_display Metadata Ingestion\",
+      \"pipelineType\": \"metadata\",
+      \"sourceConfig\": {
+        \"config\": {
+          \"type\": \"DatabaseMetadata\",
+          \"includeViews\": false,
+          \"includeTags\": false,
+          \"databaseFilterPattern\": {\"includes\": [\"^${catalog_database_name}$\"]},
+          \"markDeletedDatabases\": false,
+          \"markDeletedSchemas\": false
+        }
+      },
+      \"airflowConfig\": {
+        \"startDate\": \"2025-01-01T00:00:00.000Z\",
+        \"retries\": 1,
+        \"pausePipeline\": true
+      },
+      \"service\": {
+        \"id\": \"$svc_id\",
+        \"type\": \"databaseService\"
+      }
+    }")"
+  case " 200 201 " in
+    *" $pipeline_code "*) pipeline_resp="$(cat /tmp/om-pipeline-body)" ;;
+    *)
+      echo "Failed to create or update ingestion pipeline (HTTP $pipeline_code)" >&2
+      cat /tmp/om-pipeline-body >&2
+      exit 1
+      ;;
+  esac
 
   pipeline_id="$(echo "$pipeline_resp" | jq -r '.id // empty')"
 
