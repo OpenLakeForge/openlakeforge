@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from olf import config, k8s, log
-from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise, terraform_output_json
 from olf.e2e._trino import trino_query
 
 
@@ -120,6 +120,97 @@ def _bronze_bucket_for_stage(provider_contracts: dict[str, Any], stage: str) -> 
     return bucket
 
 
+def _stage_bucket(provider_contracts: dict[str, Any], stage: str, layer: str) -> str:
+    try:
+        bucket = provider_contracts["stages"][stage]["storage"][layer]["bucket_name"]
+    except (KeyError, TypeError) as exc:
+        raise E2EError(f"provider_contracts.stages.{stage}.storage.{layer}.bucket_name is required.") from exc
+    return str(bucket)
+
+
+def _materialized_tables(cfg: E2EConfig) -> list[tuple[str, str]]:
+    """(layer, schema.table) for every Silver input and Gold mart a product owns."""
+    tables = {("gold", mart) for mart in cfg.inventory.gold_mart_names}
+    for product in cfg.inventory.products:
+        namespace = cfg.inventory.domain_for_product(product).silver_namespace
+        tables.update(
+            ("silver", f"{namespace}.{table.name}") for table in cfg.inventory.resolved_silver_tables(product)
+        )
+    return sorted(tables)
+
+
+def check_stage_data_is_its_own(cfg: E2EConfig, provider_contracts: dict[str, Any], this_stage: str) -> None:
+    """Promotion copies no data: every data file behind this stage's Silver and
+    Gold tables lives in this stage's own bucket for that layer.
+
+    A table whose snapshot referenced the sibling stage's files -- a copied
+    Iceberg metadata tree, or a catalog registration pointing across stages --
+    would read back the sibling's data while every count check passed.
+    Requiring at least one file per table is the positive control: a table
+    with no data files would satisfy "no foreign bucket" vacuously.
+    """
+    log.step(f"Checking {this_stage} tables read only {this_stage}'s own data files...")
+    catalog = f"lakehouse_{this_stage}"
+    for layer, table in _materialized_tables(cfg):
+        expected = _stage_bucket(provider_contracts, this_stage, layer)
+        schema, name = table.split(".", 1)
+        buckets = {
+            line.strip()
+            for line in trino_query(
+                cfg,
+                f"SELECT DISTINCT regexp_extract(file_path, '^[a-z0-9]+://([^/]+)/', 1) "
+                f'FROM {catalog}.{schema}."{name}$files"',
+            ).splitlines()
+            if line.strip()
+        }
+        if not buckets:
+            raise E2EError(f"{catalog}.{table} has no data files to attribute to a stage.")
+        if buckets != {expected}:
+            raise E2EError(
+                f"{catalog}.{table} reads data files from {sorted(buckets)}; only {this_stage}'s {layer} "
+                f"bucket {expected!r} is allowed."
+            )
+
+
+def _dagster_run_ids(service_name: str, namespace: str, log_path: str) -> set[str]:
+    from olf.clients.dagster import DagsterClient
+
+    with k8s.port_forward(service_name, 80, namespace, log_path=log_path) as local_port:
+        result = DagsterClient(f"http://127.0.0.1:{local_port}/graphql").graphql(
+            "query { runsOrError(limit: 500) { __typename ... on Runs { results { runId } } } }"
+        )["runsOrError"]
+    if result.get("__typename") != "Runs":
+        raise E2EError(f"could not list Dagster runs in {namespace}: {result}")
+    return {run["runId"] for run in result["results"]}
+
+
+def check_dagster_state_isolation(cfg: E2EConfig, this_stage: str, sibling: str) -> None:
+    """Each stage's Dagster instance sees only its own runs.
+
+    Run IDs are UUIDs, so disjointness only means something when both sides
+    have runs: two webservers reading one shared run store would then list the
+    same runs and fail here. This stage having runs is the positive control; a
+    sibling without any yet is compared later, from its own suite.
+    """
+    log.step(f"Checking Dagster run-state isolation ({this_stage} <-> {sibling})...")
+    names = terraform_output_json(cfg.contract_terraform_dir, "dagster_webserver_service_names")
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    runs = {
+        stage: _dagster_run_ids(names[stage], f"olf-{stage}", f"{log_prefix}-isolation-dagster-{stage}.log")
+        for stage in (this_stage, sibling)
+    }
+    if not runs[this_stage]:
+        raise E2EError(f"{this_stage}'s Dagster has no runs; run-state isolation cannot be verified.")
+    if not runs[sibling]:
+        # The promotion order runs DEV's suite before PROD has run anything;
+        # the pair is compared from PROD's suite, once both have history.
+        log.info(f"{sibling}'s Dagster has no runs yet; its suite compares the pair.")
+        return
+    shared = runs[this_stage] & runs[sibling]
+    if shared:
+        raise E2EError(f"isolation breach: {this_stage} and {sibling} Dagster share runs {sorted(shared)[:5]}.")
+
+
 def check_stage_isolation(cfg: E2EConfig) -> None:
     """Prove this stage's runtime identity cannot read/write the sibling
     stage's Trino catalog, S3 buckets, or ops-bucket activation prefix -
@@ -176,3 +267,6 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
         # bucket and its own ops-bucket activation prefix.
         client.head_bucket(Bucket=this_bucket)
         client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{this_stage}/", MaxKeys=1)
+
+    check_stage_data_is_its_own(cfg, provider_contracts, this_stage)
+    check_dagster_state_isolation(cfg, this_stage, sibling)
