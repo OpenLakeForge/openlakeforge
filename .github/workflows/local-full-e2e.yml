@@ -181,33 +181,51 @@ jobs:
         # at the project root -- `deployment_context_for_profile` resolves
         # `repo_root` as the profile's parent directory.
         #
-        # The checked-in `openlakeforge.conformance.yaml` (#216) is
-        # deliberately not reused here: it is 'slim', and this job owes the
-        # *full* assertion suite (Superset, OpenMetadata) per stage, which
-        # only a 'full' preset deploys.
+        #
+        # It is the checked-in `openlakeforge.conformance.yaml`, verbatim
+        # (#220): the profile the unit conformance suite resolves is the one
+        # this job renders and applies, so a regression in rendering it fails
+        # the isolation assertions below rather than going unexercised.
+        # 'dev-only' drops its PROD stage (a missing stage is disabled).
         run: |
-          cat > openlakeforge.yaml <<'PROFILE'
-          apiVersion: openlakeforge.io/v1alpha1
-          kind: DeploymentProfile
-
-          metadata:
-            name: nightly-full
-
-          spec:
-            provider:
-              type: local
-            preset: full
-            stages:
-              dev:
-                enabled: true
-              prod:
-                enabled: ${{ (inputs.stage_scope || 'dev+prod') != 'dev-only' }}
-          PROFILE
+          cp openlakeforge.conformance.yaml openlakeforge.yaml
+          if [ "${{ inputs.stage_scope || 'dev+prod' }}" = "dev-only" ]; then
+            sed -i '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml
+          fi
           uv run --project tools/olf --locked olf profile validate --project .
+          cat openlakeforge.yaml
 
       - name: Apply the local platform (foundation + prefetch + platform, every enabled stage)
         if: (inputs.suite || 'full') != 'smoke'
         run: uv run --project tools/olf --locked olf platform apply -f openlakeforge.yaml
+
+      - name: Capture the provider contract the conformance profile rendered
+        # The unit conformance suite's fixture
+        # (tools/olf/tests/fixtures/conformance-provider-contracts.json) is
+        # this output; refresh it from this artifact when the local root's
+        # derivation changes. It carries Secret names, never credentials.
+        if: (inputs.suite || 'full') != 'smoke'
+        run: |
+          mkdir -p .tmp/rendered-contract
+          uv run --project tools/olf --locked python -c "import json; from olf import contracts; print(json.dumps(contracts.load_provider_contracts('infra/terraform/environments/local'), indent=2, sort_keys=True))" > .tmp/rendered-contract/provider-contracts.json
+          grep -q '"stages"' .tmp/rendered-contract/provider-contracts.json
+          # A stale fixture would keep the unit conformance suite asserting
+          # bindings the root no longer renders; fail here instead. Only the
+          # full DEV+PROD profile renders what the fixture holds.
+          if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ]; then
+            python3 -c "import json, sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))" \
+              .tmp/rendered-contract/provider-contracts.json tools/olf/tests/fixtures/conformance-provider-contracts.json \
+              || { echo "::error::the rendered contract differs from tools/olf/tests/fixtures/conformance-provider-contracts.json; refresh it from this run's rendered-provider-contract artifact"; exit 1; }
+          fi
+
+      - name: Upload the rendered provider contract
+        if: (inputs.suite || 'full') != 'smoke'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rendered-provider-contract-${{ github.run_id }}
+          path: .tmp/rendered-contract
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Negative-test failure injection (full)
         if: (inputs.suite || 'full') != 'smoke' && inputs.debug_fail_after_deploy == 'true'

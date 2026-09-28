@@ -1,0 +1,264 @@
+{
+  "deployment": {
+    "profile_name": "olf-conformance",
+    "provider": "local",
+    "region": null
+  },
+  "schema_version": "3.0.0",
+  "shared": {
+    "access": {
+      "implementation": "access.kubectl_port_forward",
+      "ref": "shared/access"
+    },
+    "artifact_registry": {
+      "implementation": "artifacts.local_kind_image_load",
+      "ref": "shared/artifact_registry"
+    },
+    "catalog_service": {
+      "endpoint": "http://polaris.olf-system:8181/api/catalog",
+      "implementation": "catalog.iceberg_rest.polaris",
+      "ref": "shared/catalog_service"
+    },
+    "foundation": {
+      "implementation": "foundation.kind",
+      "ref": "shared/foundation"
+    },
+    "governance_service": {
+      "endpoint": "http://openmetadata.olf-system:8585",
+      "implementation": "governance.openmetadata",
+      "ref": "shared/governance_service"
+    },
+    "identity": {
+      "implementation": "identity.local_development_credentials",
+      "ref": "shared/identity"
+    },
+    "kubernetes_platform": {
+      "implementation": "kubernetes.kind",
+      "ref": "shared/kubernetes_platform"
+    },
+    "metadata_database": {
+      "implementation": "metadata_database.postgresql.in_cluster",
+      "ref": "shared/metadata_database"
+    },
+    "observability": {
+      "implementation": "observability.object_log_archive",
+      "ref": "shared/observability"
+    },
+    "ops_storage": {
+      "access_key_id_key": "AWS_ACCESS_KEY_ID",
+      "access_mode": "remote",
+      "artifact_base_uri": "s3://openlakeforge-ops",
+      "bucket_name": "openlakeforge-ops",
+      "credentials_secret_name": "seaweedfs-s3-creds",
+      "implementation": "artifacts.s3_compatible_bucket",
+      "local_upload_access_mode": "kubectl-port-forward",
+      "ref": "shared/ops_storage",
+      "secret_access_key_key": "AWS_SECRET_ACCESS_KEY"
+    },
+    "query": {
+      "endpoint": "http://trino.olf-system:8080",
+      "implementation": "query.trino",
+      "ref": "shared/query"
+    },
+    "secrets": {
+      "implementation": "secrets.kubernetes_secret",
+      "ref": "shared/secrets"
+    }
+  },
+  "stages": {
+    "dev": {
+      "activation": {
+        "ops_storage_ref": "shared/ops_storage",
+        "prefix": "activations/dev"
+      },
+      "catalog": {
+        "catalog_name": "lakehouse_dev",
+        "catalog_namespace_model": "medallion-owner",
+        "catalog_provider": "polaris",
+        "catalog_type": "rest",
+        "deployer_client_id_key": "POLARIS_DEPLOYER_CLIENT_ID",
+        "deployer_client_secret_key": "POLARIS_DEPLOYER_CLIENT_SECRET",
+        "deployer_credentials_secret_name": "polaris-dev-deployer-creds",
+        "floe_client_id_key": "POLARIS_FLOE_CLIENT_ID",
+        "floe_client_secret_key": "POLARIS_FLOE_CLIENT_SECRET",
+        "floe_credentials_secret_name": "polaris-dev-floe-creds",
+        "implementation": "catalog.iceberg_rest.polaris",
+        "logical_name": "iceberg_catalog",
+        "oauth_scope": "PRINCIPAL_ROLE:ALL",
+        "physical_id": "lakehouse_dev",
+        "rest_uri": "http://polaris.olf-system:8181/api/catalog",
+        "runtime_profile": "polaris-rest",
+        "service_ref": "shared/catalog_service",
+        "token_uri": "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens",
+        "warehouse": "lakehouse_dev"
+      },
+      "endpoints": {
+        "catalog": "shared/catalog_service",
+        "governance": "stage/dev/endpoints/governance",
+        "orchestration": "stage/dev/endpoints/orchestration",
+        "query": "shared/query",
+        "reporting": "stage/dev/endpoints/reporting"
+      },
+      "governance": {
+        "endpoint_ref": "stage/dev/endpoints/governance",
+        "service_ref": "shared/governance_service"
+      },
+      "namespace": "olf-dev",
+      "orchestration": {
+        "code_locations": [
+          {
+            "definitions_module": "lakehouse_code.definitions",
+            "name": "openlakeforge-dagster"
+          }
+        ],
+        "endpoint_ref": "stage/dev/endpoints/orchestration",
+        "pipeline_service_name": "dagster_dev",
+        "service_ref": "stage/dev/orchestration"
+      },
+      "query": {
+        "catalog_name": "lakehouse_dev",
+        "catalog_ref": "stage/dev/catalog",
+        "endpoint": "http://trino.olf-system:8080",
+        "runtime_identity_ref": "stage/dev/runtime_identity",
+        "service_ref": "shared/query"
+      },
+      "reporting": {
+        "dashboard_service_name": "superset_dev",
+        "endpoint_ref": "stage/dev/endpoints/reporting",
+        "service_ref": "stage/dev/reporting"
+      },
+      "runtime_identity": {
+        "principal": "olf-dev-runtime",
+        "ref": "stage/dev/runtime_identity"
+      },
+      "storage": {
+        "access_key_id_key": "AWS_ACCESS_KEY_ID",
+        "bronze": {
+          "bucket_name": "lakehouse-bronze",
+          "physical_id": "lakehouse-bronze",
+          "uri": "s3://lakehouse-bronze"
+        },
+        "credentials_secret_name": "seaweedfs-dev-s3-creds",
+        "endpoint": "http://seaweedfs-s3.olf-system:8333",
+        "gold": {
+          "bucket_name": "lakehouse-gold",
+          "physical_id": "lakehouse-gold",
+          "uri": "s3://lakehouse-gold"
+        },
+        "identity_ref": "stage/dev/runtime_identity",
+        "implementation": "storage.s3_compatible.seaweedfs",
+        "path_style_access": true,
+        "protocol": "s3",
+        "provider": "local",
+        "region": "us-east-1",
+        "s3_service_name": "seaweedfs-s3",
+        "s3_service_port": 8333,
+        "secret_access_key_key": "AWS_SECRET_ACCESS_KEY",
+        "silver": {
+          "bucket_name": "lakehouse-silver",
+          "physical_id": "lakehouse-silver",
+          "uri": "s3://lakehouse-silver"
+        },
+        "ssl_mode": "disabled",
+        "virtual_host_endpoint": "http://olf-system.svc.cluster.local:8333"
+      }
+    },
+    "prod": {
+      "activation": {
+        "ops_storage_ref": "shared/ops_storage",
+        "prefix": "activations/prod"
+      },
+      "catalog": {
+        "catalog_name": "lakehouse_prod",
+        "catalog_namespace_model": "medallion-owner",
+        "catalog_provider": "polaris",
+        "catalog_type": "rest",
+        "deployer_client_id_key": "POLARIS_DEPLOYER_CLIENT_ID",
+        "deployer_client_secret_key": "POLARIS_DEPLOYER_CLIENT_SECRET",
+        "deployer_credentials_secret_name": "polaris-prod-deployer-creds",
+        "floe_client_id_key": "POLARIS_FLOE_CLIENT_ID",
+        "floe_client_secret_key": "POLARIS_FLOE_CLIENT_SECRET",
+        "floe_credentials_secret_name": "polaris-prod-floe-creds",
+        "implementation": "catalog.iceberg_rest.polaris",
+        "logical_name": "iceberg_catalog",
+        "oauth_scope": "PRINCIPAL_ROLE:ALL",
+        "physical_id": "lakehouse_prod",
+        "rest_uri": "http://polaris.olf-system:8181/api/catalog",
+        "runtime_profile": "polaris-rest",
+        "service_ref": "shared/catalog_service",
+        "token_uri": "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens",
+        "warehouse": "lakehouse_prod"
+      },
+      "endpoints": {
+        "catalog": "shared/catalog_service",
+        "governance": "stage/prod/endpoints/governance",
+        "orchestration": "stage/prod/endpoints/orchestration",
+        "query": "shared/query",
+        "reporting": "stage/prod/endpoints/reporting"
+      },
+      "governance": {
+        "endpoint_ref": "stage/prod/endpoints/governance",
+        "service_ref": "shared/governance_service"
+      },
+      "namespace": "olf-prod",
+      "orchestration": {
+        "code_locations": [
+          {
+            "definitions_module": "lakehouse_code.definitions",
+            "name": "openlakeforge-dagster"
+          }
+        ],
+        "endpoint_ref": "stage/prod/endpoints/orchestration",
+        "pipeline_service_name": "dagster_prod",
+        "service_ref": "stage/prod/orchestration"
+      },
+      "query": {
+        "catalog_name": "lakehouse_prod",
+        "catalog_ref": "stage/prod/catalog",
+        "endpoint": "http://trino.olf-system:8080",
+        "runtime_identity_ref": "stage/prod/runtime_identity",
+        "service_ref": "shared/query"
+      },
+      "reporting": {
+        "dashboard_service_name": "superset_prod",
+        "endpoint_ref": "stage/prod/endpoints/reporting",
+        "service_ref": "stage/prod/reporting"
+      },
+      "runtime_identity": {
+        "principal": "olf-prod-runtime",
+        "ref": "stage/prod/runtime_identity"
+      },
+      "storage": {
+        "access_key_id_key": "AWS_ACCESS_KEY_ID",
+        "bronze": {
+          "bucket_name": "olf-conformance-prod-bronze",
+          "physical_id": "olf-conformance-prod-bronze",
+          "uri": "s3://olf-conformance-prod-bronze"
+        },
+        "credentials_secret_name": "seaweedfs-prod-s3-creds",
+        "endpoint": "http://seaweedfs-s3.olf-system:8333",
+        "gold": {
+          "bucket_name": "olf-conformance-prod-gold",
+          "physical_id": "olf-conformance-prod-gold",
+          "uri": "s3://olf-conformance-prod-gold"
+        },
+        "identity_ref": "stage/prod/runtime_identity",
+        "implementation": "storage.s3_compatible.seaweedfs",
+        "path_style_access": true,
+        "protocol": "s3",
+        "provider": "local",
+        "region": "us-east-1",
+        "s3_service_name": "seaweedfs-s3",
+        "s3_service_port": 8333,
+        "secret_access_key_key": "AWS_SECRET_ACCESS_KEY",
+        "silver": {
+          "bucket_name": "olf-conformance-prod-silver",
+          "physical_id": "olf-conformance-prod-silver",
+          "uri": "s3://olf-conformance-prod-silver"
+        },
+        "ssl_mode": "disabled",
+        "virtual_host_endpoint": "http://olf-system.svc.cluster.local:8333"
+      }
+    }
+  }
+}

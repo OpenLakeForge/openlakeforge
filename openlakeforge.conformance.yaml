@@ -1,5 +1,9 @@
-# Slim DEV+PROD profile for local multi-stage conformance (#155).
-# Runtime orchestration and cross-stage assertions are tracked in #208.
+# Full DEV+PROD profile for local multi-stage conformance (#155). The nightly
+# (.github/workflows/local-full-e2e.yml) applies this file verbatim, so the
+# topology the unit conformance suite resolves is the one rendered and
+# verified at runtime (#220). 'full' enables analytics and governance in both
+# stages, which the Superset and OpenMetadata assertions need; it covers
+# everything a 'slim' DEV+PROD profile provisions.
 apiVersion: openlakeforge.io/v1alpha1
 kind: DeploymentProfile
 
@@ -9,7 +13,7 @@ metadata:
 spec:
   provider:
     type: local
-  preset: slim
+  preset: full
   stages:
     dev:
       enabled: true

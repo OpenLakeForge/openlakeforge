@@ -52,6 +52,22 @@ STAGE_BINDINGS: tuple[tuple[str, Any], ...] = (
     ("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", lambda stage: bucket(stage, "gold")),
 )
 
+# Credentials by Secret reference, where the provider hands a stage static
+# ones (local's SeaweedFS and Polaris principals; AWS and Azure use workload
+# identity and carry none). Another stage's Secret authenticates as that
+# stage, whatever the bindings above say.
+STAGE_CREDENTIAL_BINDINGS: tuple[tuple[str, Any], ...] = (
+    ("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", lambda stage: str(stage.storage["credentials_secret_name"])),
+    (
+        "OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME",
+        lambda stage: str(stage.catalog["deployer_credentials_secret_name"]),
+    ),
+    (
+        "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME",
+        lambda stage: str(stage.catalog["floe_credentials_secret_name"]),
+    ),
+)
+
 # Exports that must land under the stage's own activation prefix, mapped to the
 # suffix each adds. Stages share one ops bucket, so the prefix is the only
 # thing keeping one stage's manifests, logs and run artifacts out of another's.
