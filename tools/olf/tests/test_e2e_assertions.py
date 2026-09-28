@@ -488,6 +488,33 @@ def test_stage_roots_need_no_dashboard_service_without_analytics() -> None:
     )
 
 
+def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A pre-stage (v2) contract has no stage index; its asset checks still run."""
+    from contextlib import contextmanager
+    from dataclasses import replace
+
+    from conftest import e2e_cfg
+
+    @contextmanager
+    def _port_forward(*_args, **_kwargs):  # noqa: ANN202
+        yield 18585
+
+    checked: list[str] = []
+    monkeypatch.setattr(_assertions.k8s, "port_forward", _port_forward)
+    monkeypatch.setattr(_assertions.k8s, "http_wait", lambda *_a, **_k: True)
+    monkeypatch.setattr(_assertions, "assert_openmetadata_assets", lambda *_a: checked.append("assets"))
+    monkeypatch.setattr(_assertions, "load_provider_contracts_or_raise", lambda _cfg: {"version": 2})
+    monkeypatch.setattr(
+        _assertions, "assert_openmetadata_stage_roots", lambda *_a, **_k: pytest.fail("v2 has no stage roots")
+    )
+
+    _assertions.check_openmetadata_assets(replace(e2e_cfg(tmp_path), openmetadata_local_port=18585))
+
+    assert checked == ["assets"]
+
+
 def test_stage_roots_reject_a_leftover_unqualified_service() -> None:
     client = _registered(*_PROD_ROOTS, "/api/v1/services/pipelineServices/name/dagster")
 

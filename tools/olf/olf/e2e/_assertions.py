@@ -111,11 +111,16 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             raise E2EError("OpenMetadata endpoint did not become reachable.")
         client = OpenMetadataClient(base_url)
         assert_openmetadata_assets(client, cfg.inventory)
+        stages = load_provider_contracts_or_raise(cfg).get("stages")
+        if not stages:
+            # A v2 (pre-stage) contract: stage-qualified roots never existed.
+            log.info("Skipping OpenMetadata stage roots: the provider contract has no stage index.")
+            return
         stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
         assert_openmetadata_stage_roots(
             client,
             stage=stage,
-            stage_contract=load_provider_contracts_or_raise(cfg)["stages"][stage],
+            stage_contract=stages[stage],
             database_fqn=config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", ""),
         )
 
