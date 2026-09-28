@@ -488,6 +488,16 @@ def test_stage_roots_need_no_dashboard_service_without_analytics() -> None:
     )
 
 
+def test_stage_roots_reject_a_dashboard_service_left_after_analytics_is_off() -> None:
+    with pytest.raises(E2EError, match="should not be registered still is .*superset_prod"):
+        _assertions.assert_openmetadata_stage_roots(
+            _registered(*_PROD_ROOTS),
+            stage="prod",
+            stage_contract={"orchestration": _PROD_CONTRACT["orchestration"]},
+            database_fqn="polaris.lakehouse_prod",
+        )
+
+
 def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -518,7 +528,7 @@ def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
 def test_stage_roots_reject_a_leftover_unqualified_service() -> None:
     client = _registered(*_PROD_ROOTS, "/api/v1/services/pipelineServices/name/dagster")
 
-    with pytest.raises(E2EError, match="unqualified pre-stage service is still registered"):
+    with pytest.raises(E2EError, match="service that should not be registered still is"):
         _assertions.assert_openmetadata_stage_roots(
             client, stage="prod", stage_contract=_PROD_CONTRACT, database_fqn="polaris.lakehouse_prod"
         )

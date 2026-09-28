@@ -141,19 +141,25 @@ def assert_openmetadata_stage_roots(
         "/api/v1/services/pipelineServices/name/"
         + (stage_contract.get("orchestration") or {}).get("pipeline_service_name", f"dagster_{stage}"): "pipeline",
     }
+    # Absent: the unqualified services registered before stage qualification,
+    # and this stage's dashboard service when it does not run analytics (the
+    # bootstrap removes it when analytics is turned off).
+    absent = ["/api/v1/services/pipelineServices/name/dagster", "/api/v1/services/dashboardServices/name/superset"]
     if stage_contract.get("reporting"):
         name = stage_contract["reporting"].get("dashboard_service_name", f"superset_{stage}")
         expected[f"/api/v1/services/dashboardServices/name/{name}"] = "dashboard"
+    else:
+        absent.append(f"/api/v1/services/dashboardServices/name/superset_{stage}")
     for path, what in expected.items():
         try:
             client.request("GET", path)
         except OpenMetadataError as exc:
             raise E2EError(f"OpenMetadata is missing stage {stage}'s {what} root ({path}): {exc}") from exc
-    for path in ("/api/v1/services/pipelineServices/name/dagster", "/api/v1/services/dashboardServices/name/superset"):
+    for path in absent:
         try:
             client.request("GET", path, ok_statuses=(404,))
         except OpenMetadataError as exc:
-            raise E2EError(f"an unqualified pre-stage service is still registered ({path}): {exc}") from exc
+            raise E2EError(f"a service that should not be registered still is ({path}): {exc}") from exc
 
 
 def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseInventory) -> None:
