@@ -161,4 +161,7 @@ jobs:
 ```
 
 A `local` (kind) platform works the same way on the machine running the kind
-cluster, with no cloud-credentials step.
+cluster, with no cloud-credentials step. OpenLakeForge's own nightly
+(`.github/workflows/local-full-e2e.yml`) runs both actions that way, from a
+project `olf init` created with the wheel built from the same commit, reading
+the contract through `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`.
