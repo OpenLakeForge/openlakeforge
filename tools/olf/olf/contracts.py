@@ -72,7 +72,9 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
     applied yet".
     """
     base_environ = environ if environ is not None else os.environ
-    contract_file = base_environ.get(PROVIDER_CONTRACTS_FILE_ENV)
+    # Scoped provider envs drop ambient variables, so fall back to the process
+    # env: this selector is set by the CI job, never by a provider.
+    contract_file = base_environ.get(PROVIDER_CONTRACTS_FILE_ENV) or os.environ.get(PROVIDER_CONTRACTS_FILE_ENV)
     if contract_file:
         try:
             contracts = json.loads(Path(contract_file).read_text())

@@ -33,7 +33,16 @@ Each job runs outside the machine that applied the platform, so it needs:
   (see [provider contracts](../architecture/provider-contracts.md)). Re-export
   it after every `olf platform apply`.
 - **Cluster access**: a kubeconfig Secret, and `KUBE_CONTEXT` naming its context.
-- **Registry access** for the build job, to push the project-code image.
+- **Cloud credentials** on AWS or Azure (for example
+  `aws-actions/configure-aws-credentials` with `id-token: write`, or
+  `azure/login`): EKS/AKS, the registry and the ops bucket are reached with them.
+- **Registry access** for the build job, to push the project-code image to the
+  platform's registry (ECR on AWS, ACR on Azure).
+- **Foundation state, on AWS and Azure.** The contract file replaces the
+  platform contract only; `olf` still reads the foundation's Terraform outputs
+  (cluster, region, registry). Until remote state lands (#132), run these jobs
+  where that state is available, such as a self-hosted runner, or restore
+  `OLF_HOME/state` into the job.
 
 ## Example caller workflow
 
@@ -41,6 +50,10 @@ Each job runs outside the machine that applied the platform, so it needs:
 the OpenLakeForge release your `openlakeforge` package matches. PROD, and UAT
 when used, are GitHub environments with required reviewers, so a promotion
 waits for approval; that protection is CI policy, not OpenLakeForge's.
+
+**Create the `uat` and `prod` environments with required reviewers before the
+first run.** A workflow that names an environment GitHub has not seen creates
+it without protection, and would then promote to PROD without waiting.
 
 ```yaml
 name: Promote
@@ -50,9 +63,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One promotion at a time: an older run resuming after approval must not
+# overwrite a stage a newer run already promoted.
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
 permissions:
   contents: read
-  packages: write
+  id-token: write  # cloud credentials via OIDC
 
 env:
   OLF_VERSION: "0.3.0a1"
@@ -77,15 +96,15 @@ jobs:
           mkdir -p .olf ~/.kube
           printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
           printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
-      - uses: docker/login-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.OLF_AWS_REGION }}
       - id: build
         uses: OpenLakeForge/openlakeforge/.github/actions/build-revision@v0.3.0-alpha.1
         with:
-          image-repository: ghcr.io/acme/lakehouse-project-code
+          # The platform's registry: an ECR repository on AWS, ACR on Azure.
+          image-repository: ${{ vars.OLF_IMAGE_REPOSITORY }}
       - id: profile
         name: Is UAT enabled in the profile?
         run: echo "uat=$(olf profile resolve --project . --json | jq '.stages[] | select(.name == "uat") | .enabled')" >> "$GITHUB_OUTPUT"
@@ -103,6 +122,10 @@ jobs:
           mkdir -p .olf ~/.kube
           printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
           printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.OLF_AWS_REGION }}
       - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.3.0-alpha.1
         with:
           stage: dev
@@ -123,6 +146,10 @@ jobs:
           mkdir -p .olf ~/.kube
           printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
           printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.OLF_AWS_REGION }}
       - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.3.0-alpha.1
         with:
           stage: uat
@@ -144,6 +171,10 @@ jobs:
           mkdir -p .olf ~/.kube
           printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
           printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.OLF_AWS_REGION }}
       - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.3.0-alpha.1
         with:
           stage: prod

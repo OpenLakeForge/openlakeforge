@@ -278,5 +278,10 @@ def test_a_contract_file_replaces_terraform_state_and_fails_closed_when_missing(
     loaded = load_provider_contracts("/nonexistent", environ={PROVIDER_CONTRACTS_FILE_ENV: str(fixture)})
     assert loaded == json.loads(fixture.read_text())
 
+    # A provider's scoped env drops ambient variables; the CI job's selector still applies.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(PROVIDER_CONTRACTS_FILE_ENV, str(fixture))
+        assert load_provider_contracts("/nonexistent", environ={"KUBE_CONTEXT": "kind"}) == loaded
+
     with pytest.raises(ProviderContractError, match=PROVIDER_CONTRACTS_FILE_ENV):
         load_provider_contracts("/nonexistent", environ={PROVIDER_CONTRACTS_FILE_ENV: str(tmp_path / "missing.json")})
