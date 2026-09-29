@@ -566,7 +566,7 @@ def test_stage_lineage_rejects_an_edge_into_another_stage() -> None:
 
 
 def test_stage_lineage_requires_upstream_edges() -> None:
-    with pytest.raises(E2EError, match="has upstream lineage"):
+    with pytest.raises(E2EError, match="no upstream lineage"):
         _assertions.assert_openmetadata_stage_lineage(
             _lineage((), upstream=False), stage="prod", database_fqn="polaris.lakehouse_prod", tables=["g.t"]
         )

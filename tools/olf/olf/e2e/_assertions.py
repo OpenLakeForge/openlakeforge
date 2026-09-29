@@ -140,7 +140,7 @@ def assert_openmetadata_stage_lineage(
     matches by schema and table alone, which are identical in every stage."""
     log.step(f"Checking OpenMetadata lineage for stage {stage}...")
     service_prefix = database_fqn.split(".", 1)[0] + "."
-    with_upstream = []
+    missing = []
     for table in tables:
         fqn = f"{database_fqn}.{table}"
         path = f"/api/v1/lineage/table/name/{urllib.parse.quote(fqn, safe='')}?upstreamDepth=3&downstreamDepth=0"
@@ -152,10 +152,10 @@ def assert_openmetadata_stage_lineage(
         foreign = sorted(n for n in nodes if n.startswith(service_prefix) and not n.startswith(f"{database_fqn}."))
         if foreign:
             raise E2EError(f"{fqn}'s lineage reaches another stage's tables: {foreign}")
-        if lineage.get("upstreamEdges"):
-            with_upstream.append(fqn)
-    if not with_upstream:
-        raise E2EError(f"no Gold table of stage {stage} has upstream lineage in OpenMetadata")
+        if not lineage.get("upstreamEdges"):
+            missing.append(fqn)
+    if missing:
+        raise E2EError(f"stage {stage}'s Gold tables have no upstream lineage in OpenMetadata: {missing}")
 
 
 def assert_openmetadata_stage_roots(
