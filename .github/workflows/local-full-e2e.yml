@@ -118,6 +118,9 @@ concurrency:
 # sets it itself, scoped to only the steps that share a cluster.
 env:
   PROJECT_CODE_IMAGE_TAG: local
+  # The full suite's external project: created by `olf init`, outside the
+  # checkout, the way a consumer's project is (#119).
+  PROJECT_DIR: ${{ github.workspace }}/../lakehouse-project
 
 jobs:
   e2e:
@@ -172,51 +175,76 @@ jobs:
         run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --suite smoke
 
       # ---- full: build once, activate DEV, validate, promote to PROD, validate ----
+      #
+      # Driven the way a consumer drives it (#119): `olf` is the wheel built
+      # from this commit and installed outside the checkout, the project is
+      # one `olf init` created in its own directory, and the revision is built
+      # and promoted by the same composite actions a project repository's CI
+      # uses (.github/actions, docs/reference/ci-cd.md). After the platform is
+      # applied, every step reads the provider contract from the file
+      # `olf platform contract` exported, as a CI runner without the
+      # platform's Terraform state would.
 
-      - name: Select the DEV+PROD Deployment Profile
+      - name: Build and install the openlakeforge wheel
         if: (inputs.suite || 'full') != 'smoke'
-        # Deploy and validate must resolve one and the same profile: a v3
-        # contract records the profile name the deployment resolved, and
-        # `_parse_v3` refuses a contract whose name disagrees. It has to live
-        # at the project root -- `deployment_context_for_profile` resolves
-        # `repo_root` as the profile's parent directory.
-        #
-        #
-        # It is the checked-in `openlakeforge.conformance.yaml`, verbatim
-        # (#220): the profile the unit conformance suite resolves is the one
-        # this job renders and applies, so a regression in rendering it fails
-        # the isolation assertions below rather than going unexercised.
-        # 'dev-only' drops its PROD stage (a missing stage is disabled).
         run: |
-          cp openlakeforge.conformance.yaml openlakeforge.yaml
+          set -euo pipefail
+          uv build --out-dir dist/python/domain-model packages/domain-model
+          uv build --out-dir dist/python/openlakeforge tools/olf
+          wheel="$(ls dist/python/openlakeforge/openlakeforge-*.whl)"
+          version="$(basename "${wheel}" | cut -d- -f2)"
+          uv tool install --find-links dist/python/domain-model --find-links dist/python/openlakeforge \
+            "openlakeforge==${version}" --python 3.12
+          echo "$(uv tool dir --bin)" >> "${GITHUB_PATH}"
+          # An installed olf keeps its state, and the kind kubeconfig, under
+          # OLF_HOME (default ~/.openlakeforge), not in any checkout.
+          echo "OLF_KUBECONFIG=${HOME}/.openlakeforge/state/local/kubeconfig.yaml" >> "${GITHUB_ENV}"
+
+      - name: Initialise an external project with the DEV+PROD Deployment Profile
+        # The profile is the checked-in `openlakeforge.conformance.yaml`,
+        # verbatim (#220): the profile the unit conformance suite resolves is
+        # the one this job renders and applies. 'dev-only' drops its PROD
+        # stage (a missing stage is disabled).
+        if: (inputs.suite || 'full') != 'smoke'
+        run: |
+          set -euo pipefail
+          mkdir -p "${PROJECT_DIR}"
+          cd "${PROJECT_DIR}"
+          olf version --json
+          olf init
+          cp "${GITHUB_WORKSPACE}/openlakeforge.conformance.yaml" openlakeforge.yaml
           if [ "${{ inputs.stage_scope || 'dev+prod' }}" = "dev-only" ]; then
             sed -i '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml
           fi
-          uv run --project tools/olf --locked olf profile validate --project .
+          olf profile validate --project .
+          olf project validate --project . > /dev/null
           cat openlakeforge.yaml
 
       - name: Apply the local platform (foundation + prefetch + platform, every enabled stage)
         if: (inputs.suite || 'full') != 'smoke'
-        run: uv run --project tools/olf --locked olf platform apply -f openlakeforge.yaml
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: olf platform apply -f openlakeforge.yaml
 
-      - name: Capture the provider contract the conformance profile rendered
+      - name: Export the provider contract and check it against the conformance fixture
         # The unit conformance suite's fixture
         # (tools/olf/tests/fixtures/conformance-provider-contracts.json) is
-        # this output; refresh it from this artifact when the local root's
-        # derivation changes. It carries Secret names, never credentials.
+        # this output; refresh it from the rendered-provider-contract artifact
+        # when the local root's derivation changes. It carries Secret names,
+        # never credentials.
         if: (inputs.suite || 'full') != 'smoke'
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          mkdir -p .tmp/rendered-contract
-          uv run --project tools/olf --locked python -c "import json; from olf import contracts; print(json.dumps(contracts.load_provider_contracts('infra/terraform/environments/local'), indent=2, sort_keys=True))" > .tmp/rendered-contract/provider-contracts.json
-          grep -q '"stages"' .tmp/rendered-contract/provider-contracts.json
-          # A stale fixture would keep the unit conformance suite asserting
-          # bindings the root no longer renders; fail here instead. Only the
-          # full DEV+PROD profile renders what the fixture holds.
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/.tmp/rendered-contract"
+          contract="${GITHUB_WORKSPACE}/.tmp/rendered-contract/provider-contracts.json"
+          olf platform contract -f openlakeforge.yaml > "${contract}"
+          grep -q '"stages"' "${contract}"
           if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ]; then
             python3 -c "import json, sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))" \
-              .tmp/rendered-contract/provider-contracts.json tools/olf/tests/fixtures/conformance-provider-contracts.json \
+              "${contract}" "${GITHUB_WORKSPACE}/tools/olf/tests/fixtures/conformance-provider-contracts.json" \
               || { echo "::error::the rendered contract differs from tools/olf/tests/fixtures/conformance-provider-contracts.json; refresh it from this run's rendered-provider-contract artifact"; exit 1; }
           fi
+          echo "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE=${contract}" >> "${GITHUB_ENV}"
 
       - name: Upload the rendered provider contract
         if: (inputs.suite || 'full') != 'smoke'
@@ -242,90 +270,78 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push the project-code image
+      - name: Name the project-code image repository
         # A promotable revision needs a registry digest, and local stands up
         # no registry of its own (docs/setup/local.md, "Promote a project
         # revision between stages"): push to this repository's own GHCR
-        # namespace instead of the unpushable
-        # ghcr.io/openlakeforge/project-code default.
+        # namespace. Registry names must be lowercase and the owner
+        # (OpenLakeForge) is not.
         if: (inputs.suite || 'full') != 'smoke'
-        id: image
-        env:
-          PROJECT_CODE_IMAGE_TAG: nightly
-        run: |
-          set -euo pipefail
-          # Registry names must be lowercase and the owner (OpenLakeForge) is not.
-          export PROJECT_CODE_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}/project-code-nightly"
-          image="$(uv run --project tools/olf --locked olf project image -f openlakeforge.yaml | tail -n 1)"
-          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+        id: registry
+        run: echo "repository=ghcr.io/${GITHUB_REPOSITORY,,}/project-code-nightly" >> "${GITHUB_OUTPUT}"
 
       - name: Build the project revision
         if: (inputs.suite || 'full') != 'smoke'
         id: revision
-        run: |
-          set -euo pipefail
-          revision="$(uv run --project tools/olf --locked olf project build --project . --image "${{ steps.image.outputs.image }}" | tail -n 1)"
-          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+        uses: ./.github/actions/build-revision
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        with:
+          profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
+          image-repository: ${{ steps.registry.outputs.repository }}
+          image-tag: nightly
 
-      - name: Activate the revision in DEV
-        if: (inputs.suite || 'full') != 'smoke'
-        run: uv run --project tools/olf --locked olf project deploy -f openlakeforge.yaml --stage dev --revision "${{ steps.revision.outputs.revision }}"
-
-      - name: Assert DEV activated the built revision
-        if: (inputs.suite || 'full') != 'smoke'
-        run: |
-          set -euo pipefail
-          recorded="$(uv run --project tools/olf --locked olf project status -f openlakeforge.yaml --stage dev --json | jq -r '.stages[0].recorded.project_revision')"
-          if [ "${recorded}" != "${{ steps.revision.outputs.revision }}" ]; then
-            echo "::error::DEV activated ${recorded}, expected ${{ steps.revision.outputs.revision }}"
-            exit 1
-          fi
-
-      - name: Run the full e2e suite against DEV
+      - name: Activate the revision in DEV and run the full e2e suite there
         # `olf e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
         # profile it resolves (commands/e2e.py::_resolve_kubeconfig_path), so
-        # this has to name the cluster `platform apply -f` actually created
-        # (its own default -- it takes no --cluster-name/--kubeconfig-path
-        # override) rather than inherit nothing and hope no smoke-scoped
-        # value is ambient. Explicit here even though the job env above no
-        # longer sets either: a step this consequential should not depend on
-        # what else in the file happens to leave unset.
+        # these name the cluster `platform apply -f` created.
         if: (inputs.suite || 'full') != 'smoke'
+        uses: ./.github/actions/deploy-stage
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
-        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        with:
+          profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
+          stage: dev
+          revision: ${{ steps.revision.outputs.revision }}
+          e2e-env: local
+
+      # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
+      # Silver and Gold buckets are listed (key and ETag) before and after
+      # activation and must not change -- PROD computes its data later, from
+      # its own Bronze, in its own suite. Names alone could not show this for
+      # Bronze, whose keys are deterministic and loaded alike in every stage.
+      # The listing is test instrumentation, so it runs from the checkout.
+
+      - name: Snapshot PROD's lakehouse buckets before promotion
+        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        run: uv run --project tools/olf --locked python -c "import json; from olf import contracts; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contracts.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-before-promotion.json
 
       - name: Activate the same revision in PROD (promotion -- no rebuild)
-        # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
-        # Silver and Gold buckets are listed (key and ETag) before and after
-        # activation and must not change -- PROD computes its data later, from
-        # its own Bronze, in its own suite. Names alone could not show this for
-        # Bronze, whose keys are deterministic and loaded alike in every stage.
+        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        uses: ./.github/actions/deploy-stage
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        with:
+          profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
+          stage: prod
+          revision: ${{ steps.revision.outputs.revision }}
+
+      - name: Assert promotion wrote nothing to PROD's lakehouse buckets
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: |
           set -euo pipefail
-          snapshot() {
-            uv run --project tools/olf --locked python -c "import json; from olf import contracts; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contracts.load_provider_contracts('infra/terraform/environments/local'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))"
-          }
-          snapshot > prod-buckets-before-promotion.json
-          uv run --project tools/olf --locked olf project deploy -f openlakeforge.yaml --stage prod --revision "${{ steps.revision.outputs.revision }}"
-          snapshot > prod-buckets-after-promotion.json
+          uv run --project tools/olf --locked python -c "import json; from olf import contracts; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contracts.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-after-promotion.json
           if ! diff -u prod-buckets-before-promotion.json prod-buckets-after-promotion.json; then
             echo "::error::promotion wrote to PROD's lakehouse buckets (diff above); it must copy no data"
-            exit 1
-          fi
-
-      - name: Assert PROD activated the identical digest DEV did
-        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
-        run: |
-          set -euo pipefail
-          recorded="$(uv run --project tools/olf --locked olf project status -f openlakeforge.yaml --stage prod --json | jq -r '.stages[0].recorded.project_revision')"
-          if [ "${recorded}" != "${{ steps.revision.outputs.revision }}" ]; then
-            echo "::error::PROD activated ${recorded}, expected ${{ steps.revision.outputs.revision }} (the exact digest DEV ran, from the one build this job made)"
             exit 1
           fi
 
@@ -333,13 +349,13 @@ jobs:
         # `run_full` (olf.e2e._runner) includes `check_stage_isolation`
         # whenever a sibling stage namespace exists, so this run and DEV's
         # above already assert the cross-stage negative-isolation criteria
-        # from each stage's own vantage point -- no separate isolation step
-        # is needed. Same ambient-override reasoning as the DEV run above.
+        # from each stage's own vantage point.
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        working-directory: ${{ env.PROJECT_DIR }}
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
-        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        run: olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 
       - name: Prove removing PROD needs the explicit destructive opt-in
         # v0.3 release gate: disabling a stage is destructive, so an ordinary
@@ -347,11 +363,14 @@ jobs:
         # guard, not by some unrelated failure -- and leave PROD in place; the
         # same apply with --allow-stage-removal must then remove it. Same
         # deployment (metadata.name), so the guard compares against what the
-        # steps above applied.
+        # steps above applied. A platform apply reads the platform's own
+        # Terraform state, never the exported DEV+PROD contract.
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        working-directory: ${{ env.PROJECT_DIR }}
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+          OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE: ""
         run: |
           set -euo pipefail
           sed '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml > openlakeforge.dev-only.yaml
@@ -359,7 +378,7 @@ jobs:
             echo "::error::could not drop the PROD stage from the applied profile"
             exit 1
           fi
-          apply="uv run --project tools/olf --locked olf platform apply -f openlakeforge.dev-only.yaml --phase platform"
+          apply="olf platform apply -f openlakeforge.dev-only.yaml --phase platform"
           if $apply > stage-removal-refused.log 2>&1; then
             cat stage-removal-refused.log
             echo "::error::an ordinary apply removed PROD without --allow-stage-removal"
@@ -426,13 +445,13 @@ jobs:
         # `--kubeconfig` flag of its own, only ambient `KUBECONFIG`.
         if: failure() && (inputs.suite || 'full') != 'smoke'
         env:
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/dev --namespace olf-dev --kube-context kind-openlakeforge-local
 
       - name: Collect kind diagnostics (PROD)
         if: failure() && (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
         env:
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/prod --namespace olf-prod --kube-context kind-openlakeforge-local
 
       - name: Upload kind diagnostics (full)

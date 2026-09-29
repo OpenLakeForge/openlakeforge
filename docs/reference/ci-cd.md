@@ -152,4 +152,7 @@ jobs:
 
 The deploying jobs need a cluster the runner can reach, so this shape fits a
 cloud provider. A `local` (kind) cluster lives on one machine; run the same
-two actions in one job there.
+two actions in one job there. OpenLakeForge's own nightly
+(`.github/workflows/local-full-e2e.yml`) does exactly that, from a project
+`olf init` created with the wheel built from the same commit, reading the
+contract through `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`.
