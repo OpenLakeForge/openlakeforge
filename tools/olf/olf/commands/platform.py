@@ -75,7 +75,11 @@ def contract(
 
     context = deployment_context_for_profile(profile_file)
     try:
-        payload = contracts.load_provider_contracts(str(context.paths.platform_terraform_dir))
+        # The context's env locates an installed distribution's state under
+        # OLF_HOME; the process env alone reads the payload's absent state.
+        payload = contracts.load_provider_contracts(
+            str(context.paths.platform_terraform_dir), environ=context.command_env(base=os.environ)
+        )
     except ProviderContractError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     if payload is None:
