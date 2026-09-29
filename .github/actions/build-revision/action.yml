@@ -37,8 +37,12 @@ runs:
         PROJECT_CODE_IMAGE_TAG: ${{ inputs.image-tag }}
       run: |
         set -euo pipefail
+        # Run olf from the project: inside an openlakeforge checkout an
+        # installed olf uses that checkout as its distribution (ADR 0009).
+        PROFILE="$(realpath "${PROFILE}")"
+        cd "$(dirname "${PROFILE}")"
         image="$(olf project image -f "${PROFILE}" | tee /dev/stderr | tail -n 1)"
-        revision="$(olf project build --project "$(dirname "${PROFILE}")" --image "${image}" | tee /dev/stderr | tail -n 1)"
+        revision="$(olf project build --project . --image "${image}" | tee /dev/stderr | tail -n 1)"
         echo "image=${image}" >> "${GITHUB_OUTPUT}"
         echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
         echo "Built revision ${revision} from ${image}" >> "${GITHUB_STEP_SUMMARY}"
