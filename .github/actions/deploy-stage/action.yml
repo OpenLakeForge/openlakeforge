@@ -1,15 +1,16 @@
 name: Deploy an OpenLakeForge revision to a stage
 description: >
   Activate an existing project revision in one stage, without rebuilding, and
-  fail unless the stage then records exactly that revision. Only the selected
-  stage's code location changes; no data or service state is copied between
-  stages, and no schedule is started. Optionally runs the e2e suite against the
-  stage. Needs `olf` on PATH, kube access, and the platform's Terraform state
-  or OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE (see docs/reference/ci-cd.md).
-
+  fail unless the stage then records exactly that revision. Activation is
+  stage-scoped: it reconciles the stage's catalog namespaces, activates its
+  rendered Floe revision, imports its Superset reports and OpenMetadata
+  metadata when those capabilities are on, and rolls out its code location. No
+  data or service state is copied between stages, and no schedule is started.
+  Optionally runs the e2e suite against the stage. Needs `olf` on PATH and a
+  runner holding the platform's OLF_HOME (see docs/reference/ci-cd.md).
 inputs:
   profile:
-    description: Path to the project's Deployment Profile.
+    description: Path to the project's Deployment Profile, named openlakeforge.yaml.
     default: openlakeforge.yaml
   stage:
     description: Stage to activate the revision in (dev, uat or prod).
@@ -45,7 +46,7 @@ runs:
         cd "$(dirname "${PROFILE}")"
         olf project deploy -f "${PROFILE}" --stage "${STAGE}" --revision "${REVISION}"
         status="$(olf project status -f "${PROFILE}" --stage "${STAGE}" --json)"
-        recorded="$(jq -r '.stages[0].recorded.project_revision' <<< "${status}")"
+        recorded="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["stages"][0]["recorded"]["project_revision"])' <<< "${status}")"
         if [ "${recorded}" != "${REVISION}" ]; then
           echo "::error::${STAGE} records revision ${recorded}, expected ${REVISION}"
           exit 1

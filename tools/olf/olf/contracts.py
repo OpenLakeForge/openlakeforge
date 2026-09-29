@@ -44,7 +44,9 @@ PROVIDER_CONTRACT_SCHEMA_VERSION = V2_SCHEMA_VERSION
 PROVIDER_CONTRACTS_FILE_ENV = "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE"
 
 
-def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None = None) -> dict[str, Any] | None:
+def load_provider_contracts(
+    terraform_dir: str, *, environ: Mapping[str, str] | None = None, honor_contract_file: bool = True
+) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
     Returns the raw v2 or v3 payload; version dispatch belongs to
@@ -74,7 +76,9 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
     base_environ = environ if environ is not None else os.environ
     # Scoped provider envs drop ambient variables, so fall back to the process
     # env: this selector is set by the CI job, never by a provider.
-    contract_file = base_environ.get(PROVIDER_CONTRACTS_FILE_ENV) or os.environ.get(PROVIDER_CONTRACTS_FILE_ENV)
+    contract_file = honor_contract_file and (
+        base_environ.get(PROVIDER_CONTRACTS_FILE_ENV) or os.environ.get(PROVIDER_CONTRACTS_FILE_ENV)
+    )
     if contract_file:
         try:
             contracts = json.loads(Path(contract_file).read_text())
