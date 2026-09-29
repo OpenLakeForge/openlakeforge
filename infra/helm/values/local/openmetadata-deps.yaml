@@ -1,4 +1,4 @@
-# openmetadata-dependencies chart 1.12.10 — OpenSearch only.
+# openmetadata-dependencies chart 1.13.6 — OpenSearch only.
 # MySQL replaced by shared PostgreSQL cluster; Airflow replaced by K8s pipeline client.
 
 mysql:

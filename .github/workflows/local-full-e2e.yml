@@ -456,6 +456,14 @@ jobs:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/prod --namespace olf-prod --kube-context kind-openlakeforge-local
 
+      - name: Collect kind diagnostics (shared services)
+        # Polaris, Trino, OpenMetadata and their bootstrap jobs run in the
+        # shared namespace, not a stage's.
+        if: failure() && (inputs.suite || 'full') != 'smoke'
+        env:
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/shared --namespace olf-system --kube-context kind-openlakeforge-local
+
       - name: Upload kind diagnostics (full)
         if: failure() && (inputs.suite || 'full') != 'smoke'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

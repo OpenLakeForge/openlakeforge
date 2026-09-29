@@ -31,10 +31,25 @@ pipeline service, and a `superset_<stage>` dashboard service when that stage
 also enables analytics. The bootstrap removes the services of a stage that
 stopped being governed.
 
-The Iceberg service holds one connection, so exactly one stage, the
-*canonical* stage, is crawled, and its pipeline service receives OpenLineage
-pipelines. Other governed stages are represented by what `olf openmetadata
-deploy-metadata` seeds under their own root. The local root registers every
+The lakehouse database service (named `polaris`, or `aws_glue` on AWS)
+crawls through Trino: OpenMetadata 1.13 removed its Iceberg connector, and in
+Trino every stage is one catalog, `lakehouse_<stage>`, which OpenMetadata lists
+as one database. The crawl is filtered to the governed stages' catalogs, so
+every governed stage is crawled into its own root, as the read-only
+`openmetadata` Trino user. `olf openmetadata deploy-metadata` adds each stage's
+domains and descriptions under that root.
+
+Every governed stage emits its own lineage, and OpenMetadata auto-creates the
+entities it references (`autoCreateEntities: true`). OpenMetadata 1.13+
+resolves a lineage dataset by `<service>.<database>.<schema>.<table>`, so a
+stage's edges land on its own `lakehouse_<stage>` tables even though schema and
+table names are identical across stages; 1.12 matched on schema and table
+alone, and could attach one stage's lineage to another's. Each stage emits
+under its own `dagster_<stage>` namespace. OpenMetadata's lineage settings name
+one default pipeline service, the canonical stage's, so auto-created pipelines
+all live there, distinguished by that prefix (`dagster_prod-<job>`). The
+nightly asserts that each stage's Gold lineage exists and never reaches another
+stage's database. The local root registers every
 governed stage; the AWS and Azure roots still register one until their
 adapters follow (#131).
 
@@ -105,3 +120,9 @@ and a custom REST push), and 0023 (restoring native emission).
 2026-09-23 (#131): stage-qualified service roots replace the single unqualified
 `dagster` and `superset` services, and the one-governed-stage limit is lifted
 on the local root.
+
+2026-09-29 (#131): every governed stage emits lineage under its own namespace,
+OpenMetadata auto-creates lineage entities, and OpenMetadata moves to 1.13.6
+for database-qualified dataset resolution. 1.13 has no Iceberg connector, so
+the lakehouse service crawls through Trino, which also crawls every governed
+stage instead of only the canonical one.

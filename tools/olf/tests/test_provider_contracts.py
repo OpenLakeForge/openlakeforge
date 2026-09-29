@@ -167,6 +167,17 @@ def test_stage_environment_exposes_only_its_selected_stage_values() -> None:
     assert "dev" not in "\n".join(prod_exports.values())
 
 
+def test_each_governed_stage_emits_lineage_under_its_own_pipeline_service() -> None:
+    """OpenMetadata auto-creates pipelines named after the OpenLineage
+    namespace, so each stage's must be its own root (#131)."""
+    contract = _fixture("conformance-provider-contracts.json")
+    topology = _topology(contract)
+
+    for stage in ("dev", "prod"):
+        exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=stage)
+        assert exports["OPENLINEAGE_NAMESPACE"] == f"dagster_{stage}"
+
+
 @pytest.mark.parametrize(
     ("mutate", "match"),
     [
