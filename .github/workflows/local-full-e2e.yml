@@ -280,6 +280,15 @@ jobs:
         id: registry
         run: echo "repository=ghcr.io/${GITHUB_REPOSITORY,,}/project-code-nightly" >> "${GITHUB_OUTPUT}"
 
+      - name: Show the installed olf's cluster access
+        # Debug for the external-project path (#255): which kubeconfig and
+        # contexts the installed olf will use.
+        if: (inputs.suite || 'full') != 'smoke'
+        run: |
+          ls -la "$(dirname "${OLF_KUBECONFIG}")"
+          kubectl config get-contexts --kubeconfig "${OLF_KUBECONFIG}"
+          env | grep -E '^(KUBE|OLF_|OPENLAKEFORGE_)' | sort
+
       - name: Build the project revision
         if: (inputs.suite || 'full') != 'smoke'
         id: revision
