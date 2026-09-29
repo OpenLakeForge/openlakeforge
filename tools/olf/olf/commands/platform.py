@@ -83,7 +83,7 @@ def contract(
     except ProviderContractError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     if payload is None:
-        raise typer.Exit(code=fail("No applied provider contract: run `olf platform apply -f` first."))
+        raise typer.Exit(code=fail(f"No applied provider contract: run `olf platform apply -f {profile_file}` first."))
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
 

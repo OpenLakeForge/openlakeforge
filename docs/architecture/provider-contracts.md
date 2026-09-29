@@ -41,6 +41,11 @@ points every `olf` command at the copy. The contract names Secrets and their
 keys, never their values. A file that is named but missing or malformed fails
 the command rather than reading as "not applied yet".
 
+The file replaces the platform contract only. On AWS and Azure, `olf` also
+reads the foundation's Terraform outputs (cluster, region, registry), so until
+remote state lands (#132) a job there must run where the foundation state is
+available, for example a self-hosted runner or a restored `OLF_HOME/state`.
+
 ## v3 contract shape
 
 Every v3 document has these top-level fields:
