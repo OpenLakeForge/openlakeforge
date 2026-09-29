@@ -58,6 +58,39 @@ def plan(
         raise typer.Exit(code=2)
 
 
+@app.command("contract")
+def contract(
+    profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
+) -> None:
+    """Print the applied platform's provider contract as JSON.
+
+    It names Secrets and keys, never their values. A job that deploys a
+    project revision without the platform's Terraform state points
+    OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE at a copy of it (#119).
+    """
+    import json
+
+    from olf import contracts
+    from olf.provider_contracts import ProviderContractError
+
+    context = deployment_context_for_profile(profile_file)
+    try:
+        # The context's env locates an installed distribution's state under
+        # OLF_HOME; the process env alone reads the payload's absent state.
+        # Always the applied state: exporting must never echo an earlier copy
+        # the override points at (or read the file `>` is truncating).
+        payload = contracts.load_provider_contracts(
+            str(context.paths.platform_terraform_dir),
+            environ=context.command_env(base=os.environ),
+            honor_contract_file=False,
+        )
+    except ProviderContractError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    if payload is None:
+        raise typer.Exit(code=fail(f"No applied provider contract: run `olf platform apply -f {profile_file}` first."))
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
 @app.command("apply")
 def apply(
     profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),

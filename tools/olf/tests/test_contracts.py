@@ -266,3 +266,22 @@ def test_provenance_is_recorded_only_for_an_applied_contract() -> None:
 
     assert "OPENLAKEFORGE_CONTRACT_STAGE" not in exports
     assert "OPENLAKEFORGE_CONTRACT_STAGE" in unsets
+
+
+def test_a_contract_file_replaces_terraform_state_and_fails_closed_when_missing(tmp_path: Path) -> None:
+    """A CI deploy job has no platform Terraform state (#119); a file it named
+    but cannot read must never read as "not applied yet"."""
+    from olf.contracts import PROVIDER_CONTRACTS_FILE_ENV, load_provider_contracts
+    from olf.provider_contracts import ProviderContractError
+
+    fixture = FIXTURES / "conformance-provider-contracts.json"
+    loaded = load_provider_contracts("/nonexistent", environ={PROVIDER_CONTRACTS_FILE_ENV: str(fixture)})
+    assert loaded == json.loads(fixture.read_text())
+
+    # A provider's scoped env drops ambient variables; the CI job's selector still applies.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(PROVIDER_CONTRACTS_FILE_ENV, str(fixture))
+        assert load_provider_contracts("/nonexistent", environ={"KUBE_CONTEXT": "kind"}) == loaded
+
+    with pytest.raises(ProviderContractError, match=PROVIDER_CONTRACTS_FILE_ENV):
+        load_provider_contracts("/nonexistent", environ={PROVIDER_CONTRACTS_FILE_ENV: str(tmp_path / "missing.json")})

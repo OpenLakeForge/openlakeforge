@@ -33,6 +33,21 @@ provider adapter, credential, or generated endpoint.
 The static/dynamic boundary is between platform and artifacts. A code commit
 runs artifacts only; platform never waits for project artifacts.
 
+`olf` reads the contract from the platform root's Terraform output. A job that
+deploys a project revision without that state (a CI runner, say) uses a copy
+instead: `olf platform contract -f openlakeforge.yaml > contract.json` prints
+it where the platform was applied, and `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`
+points `olf project build`, `deploy` and `status` at the copy. (`olf e2e run`
+still reads the Dagster service and code-location names from the platform's
+Terraform outputs, so it needs that state.) The contract names Secrets and
+their keys, never their values. A file that is named but missing or malformed fails
+the command rather than reading as "not applied yet".
+
+The file replaces the platform contract only. On AWS and Azure, `olf` also
+reads the foundation's Terraform outputs (cluster, region, registry), so until
+remote state lands (#132) a job there must run where the foundation state is
+available, for example a self-hosted runner or a restored `OLF_HOME/state`.
+
 ## v3 contract shape
 
 Every v3 document has these top-level fields:

@@ -41,9 +41,12 @@ from olf.provider_contracts import (
 from olf.tooling.terraform import external_state_options
 
 PROVIDER_CONTRACT_SCHEMA_VERSION = V2_SCHEMA_VERSION
+PROVIDER_CONTRACTS_FILE_ENV = "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE"
 
 
-def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None = None) -> dict[str, Any] | None:
+def load_provider_contracts(
+    terraform_dir: str, *, environ: Mapping[str, str] | None = None, honor_contract_file: bool = True
+) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
     Returns the raw v2 or v3 payload; version dispatch belongs to
@@ -62,7 +65,41 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
     yet" - a caller that swallowed it would fall back to defaults (e.g.
     enabling governance/analytics for what should be a slim deployment)
     instead of failing closed.
+
+    With OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE set, the contract is read from
+    that file instead (`olf platform contract` writes it): a CI job deploying
+    a project revision to an applied platform has no access to the
+    platform's Terraform state (#119). The file was named deliberately, so a
+    missing or malformed one fails closed rather than reading as "not
+    applied yet".
     """
+    base_environ = environ if environ is not None else os.environ
+    # Scoped provider envs drop ambient variables, so fall back to the process
+    # env: this selector is set by the CI job, never by a provider.
+    contract_file = honor_contract_file and (
+        base_environ.get(PROVIDER_CONTRACTS_FILE_ENV) or os.environ.get(PROVIDER_CONTRACTS_FILE_ENV)
+    )
+    if contract_file:
+        try:
+            contracts = json.loads(Path(contract_file).read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ProviderContractError(f"{PROVIDER_CONTRACTS_FILE_ENV}={contract_file}: {exc}") from exc
+        if not isinstance(contracts, dict):
+            raise ProviderContractError(f"{PROVIDER_CONTRACTS_FILE_ENV}={contract_file}: not a JSON object")
+    else:
+        contracts = _terraform_provider_contracts(terraform_dir, environ=environ)
+        if contracts is None:
+            return None
+    schema_version = contracts.get("schema_version")
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise ProviderContractError(
+            f"provider_contracts.schema_version {schema_version!r} is unsupported; "
+            f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
+        )
+    return contracts
+
+
+def _terraform_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None) -> dict[str, Any] | None:
     from olf.deployment.errors import ExecutableNotFoundError
     from olf.tooling.resolver import build_resolver
 
@@ -101,15 +138,7 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
         contracts = json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
-    if not isinstance(contracts, dict):
-        return None
-    schema_version = contracts.get("schema_version")
-    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-        raise ProviderContractError(
-            f"provider_contracts.schema_version {schema_version!r} is unsupported; "
-            f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
-        )
-    return contracts
+    return contracts if isinstance(contracts, dict) else None
 
 
 CONTRACT_STAGE_ENV = "OPENLAKEFORGE_CONTRACT_STAGE"
