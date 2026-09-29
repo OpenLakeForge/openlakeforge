@@ -1074,12 +1074,16 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
         paths=SimpleNamespace(platform_terraform_dir=Path("/platform")), command_env=lambda base: dict(base)
     )
     monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: context)
-    monkeypatch.setattr(contracts, "load_provider_contracts", lambda terraform_dir, environ: applied)
+    monkeypatch.setattr(
+        contracts,
+        "load_provider_contracts",
+        lambda terraform_dir, environ, honor_contract_file: None if honor_contract_file else applied,
+    )
 
     result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code == 0
     assert json.loads(result.output) == applied
 
-    monkeypatch.setattr(contracts, "load_provider_contracts", lambda terraform_dir, environ: None)
+    monkeypatch.setattr(contracts, "load_provider_contracts", lambda terraform_dir, environ, honor_contract_file: None)
     assert runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0

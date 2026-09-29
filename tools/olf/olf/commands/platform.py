@@ -77,8 +77,12 @@ def contract(
     try:
         # The context's env locates an installed distribution's state under
         # OLF_HOME; the process env alone reads the payload's absent state.
+        # Always the applied state: exporting must never echo an earlier copy
+        # the override points at (or read the file `>` is truncating).
         payload = contracts.load_provider_contracts(
-            str(context.paths.platform_terraform_dir), environ=context.command_env(base=os.environ)
+            str(context.paths.platform_terraform_dir),
+            environ=context.command_env(base=os.environ),
+            honor_contract_file=False,
         )
     except ProviderContractError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
