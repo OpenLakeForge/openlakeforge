@@ -1,0 +1,44 @@
+name: Build an OpenLakeForge project revision
+description: >
+  Build and push the project-code image, then build and publish one immutable
+  project revision from it. Build once; promote the revision this outputs to
+  every stage with deploy-stage, never rebuilding. Needs `olf` on PATH, a
+  registry login, and access to the applied platform (its ops bucket holds the
+  revision): kube access plus the platform's Terraform state or
+  OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE (see docs/reference/ci-cd.md).
+
+inputs:
+  profile:
+    description: Path to the project's Deployment Profile. Its directory is the project root.
+    default: openlakeforge.yaml
+  image-repository:
+    description: Registry repository the project-code image is pushed to (lowercase).
+    required: true
+  image-tag:
+    description: Tag pushed alongside the digest. The revision records the digest, not this tag.
+    default: ${{ github.sha }}
+
+outputs:
+  image:
+    description: The pushed project-code image, pinned by digest.
+    value: ${{ steps.build.outputs.image }}
+  revision:
+    description: The immutable project revision to promote.
+    value: ${{ steps.build.outputs.revision }}
+
+runs:
+  using: composite
+  steps:
+    - id: build
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        PROJECT_CODE_IMAGE_REPOSITORY: ${{ inputs.image-repository }}
+        PROJECT_CODE_IMAGE_TAG: ${{ inputs.image-tag }}
+      run: |
+        set -euo pipefail
+        image="$(olf project image -f "${PROFILE}" | tail -n 1)"
+        revision="$(olf project build --project "$(dirname "${PROFILE}")" --image "${image}" | tail -n 1)"
+        echo "image=${image}" >> "${GITHUB_OUTPUT}"
+        echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+        echo "Built revision ${revision} from ${image}" >> "${GITHUB_STEP_SUMMARY}"
