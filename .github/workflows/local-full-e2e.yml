@@ -461,7 +461,7 @@ jobs:
         # shared namespace, not a stage's.
         if: failure() && (inputs.suite || 'full') != 'smoke'
         env:
-          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/shared --namespace olf-system --kube-context kind-openlakeforge-local
 
       - name: Upload kind diagnostics (full)
