@@ -1,5 +1,8 @@
   set -eu
 
+  # Re-crawl every governed stage's catalog through Trino, so tables created
+  # since the last crawl are catalogued. The service itself needs no refresh:
+  # the Trino connection carries no expiring credential.
   om_url="${om_url}"
   admin_email="${admin_email}"
   admin_password="${admin_password}"
@@ -15,108 +18,7 @@
     exit 1
   fi
 
-  polaris_token_code="$(curl -sS -o /tmp/polaris-token-body -w '%%{http_code}' \
-    -X POST "${token_uri}" \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=client_credentials" \
-    -d "client_id=$POLARIS_OM_CLIENT_ID" \
-    -d "client_secret=$POLARIS_OM_CLIENT_SECRET" \
-    -d "scope=${oauth_scope}")"
-  if [ "$polaris_token_code" != "200" ]; then
-    echo "Failed to obtain Polaris token for OpenMetadata (HTTP $polaris_token_code)" >&2
-    cat /tmp/polaris-token-body >&2
-    exit 1
-  fi
-
-  POLARIS_OM_TOKEN="$(jq -r '.access_token // empty' /tmp/polaris-token-body)"
-  if [ -z "$POLARIS_OM_TOKEN" ]; then
-    echo "Failed to parse Polaris token for OpenMetadata" >&2
-    cat /tmp/polaris-token-body >&2
-    exit 1
-  fi
-
-  svc_code="$(curl -sS -o /tmp/om-svc-body -w '%%{http_code}' \
-    -X PUT "$om_url/api/v1/services/databaseServices" \
-    -H "Authorization: Bearer $ADMIN_JWT" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"name\": \"polaris\",
-      \"displayName\": \"Polaris Iceberg Catalog\",
-      \"serviceType\": \"Iceberg\",
-      \"connection\": {
-        \"config\": {
-          \"type\": \"Iceberg\",
-          \"catalog\": {
-            \"name\": \"${catalog_warehouse}\",
-            \"databaseName\": \"${catalog_database_name}\",
-            \"warehouseLocation\": \"${catalog_warehouse}\",
-            \"connection\": {
-              \"uri\": \"${catalog_rest_uri}\",
-              \"token\": \"$POLARIS_OM_TOKEN\",
-              \"fileSystem\": {
-                \"type\": {
-                  \"awsAccessKeyId\": \"$AWS_ACCESS_KEY_ID\",
-                  \"awsSecretAccessKey\": \"$AWS_SECRET_ACCESS_KEY\",
-                  \"awsRegion\": \"${storage_region}\",
-                  \"endPointURL\": \"${storage_endpoint}\"
-                }
-              }
-            }
-          }
-        }
-      }
-    }")"
-  case " 200 201 " in
-    *" $svc_code "*) ;;
-    *)
-      echo "Failed to create or update OpenMetadata database service (HTTP $svc_code)" >&2
-      cat /tmp/om-svc-body >&2
-      exit 1
-      ;;
-  esac
-
-  catalog_database="${catalog_database_name}"
-  catalog_database_fqn="polaris.$catalog_database"
-  db_payload="$(jq -n \
-    --arg name "$catalog_database" \
-    --arg service "polaris" \
-    '{name: $name, service: $service}')"
-  db_code="$(curl -sS -o /tmp/om-db-body -w '%%{http_code}' \
-    -X PUT "$om_url/api/v1/databases" \
-    -H "Authorization: Bearer $ADMIN_JWT" \
-    -H "Content-Type: application/json" \
-    -d "$db_payload")"
-  case " 200 201 " in
-    *" $db_code "*) ;;
-    *)
-      echo "Failed to create or update OpenMetadata database '$catalog_database_fqn' (HTTP $db_code)" >&2
-      cat /tmp/om-db-body >&2
-      exit 1
-      ;;
-  esac
-
-  printf '%s' "${catalog_schema_names_json_b64}" | base64 -d >/tmp/om-catalog-schemas.json
-  jq -r '.[]' /tmp/om-catalog-schemas.json | while IFS= read -r schema_name; do
-    schema_payload="$(jq -n \
-      --arg name "$schema_name" \
-      --arg database "$catalog_database_fqn" \
-      '{name: $name, database: $database}')"
-    schema_code="$(curl -sS -o /tmp/om-schema-body -w '%%{http_code}' \
-      -X PUT "$om_url/api/v1/databaseSchemas" \
-      -H "Authorization: Bearer $ADMIN_JWT" \
-      -H "Content-Type: application/json" \
-      -d "$schema_payload")"
-    case " 200 201 " in
-      *" $schema_code "*) ;;
-      *)
-        echo "Failed to create or update OpenMetadata schema '$catalog_database_fqn.$schema_name' (HTTP $schema_code)" >&2
-        cat /tmp/om-schema-body >&2
-        exit 1
-        ;;
-    esac
-  done
-
-  pipeline_fqn="polaris.polaris-metadata-ingestion"
+  pipeline_fqn="${catalog_service_name}.${catalog_service_name}-metadata-ingestion"
   pipeline_resp="$(curl -sS "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
     -H "Authorization: Bearer $ADMIN_JWT")"
   pipeline_id="$(echo "$pipeline_resp" | jq -r '.id // empty')"
@@ -150,4 +52,4 @@
       ;;
   esac
 
-  echo "OpenMetadata Polaris catalog refresh triggered."
+  echo "OpenMetadata catalog refresh triggered."

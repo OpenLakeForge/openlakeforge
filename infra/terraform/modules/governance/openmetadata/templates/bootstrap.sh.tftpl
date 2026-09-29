@@ -64,38 +64,8 @@
       ;;
   esac
 
-  # OpenMetadata 1.12's Iceberg connector uses PyIceberg 0.5.1, whose
-  # client-credentials flow hardcodes an OAuth scope Polaris rejects.
-  # Mint the Polaris token here with the correct local scope and store
-  # the bearer token in the OpenMetadata service connection.
-  catalog_type="${catalog_type}"
   catalog_service="${catalog_service_name}"
   catalog_display="${catalog_service_display_name}"
-  catalog_uri="${catalog_uri}"
-  catalog_warehouse="${catalog_warehouse}"
-  catalog_token=""
-
-  if [ "$catalog_type" = "rest" ]; then
-    polaris_token_code="$(curl -sS -o /tmp/polaris-token-body -w '%%{http_code}' \
-      -X POST "${token_uri}" \
-      -H "Content-Type: application/x-www-form-urlencoded" \
-      --data-urlencode "grant_type=client_credentials" \
-      --data-urlencode "client_id=$POLARIS_OM_CLIENT_ID" \
-      --data-urlencode "client_secret=$POLARIS_OM_CLIENT_SECRET" \
-      --data-urlencode "scope=${oauth_scope}")"
-    if [ "$polaris_token_code" != "200" ]; then
-      echo "Failed to obtain Polaris token for OpenMetadata (HTTP $polaris_token_code)" >&2
-      cat /tmp/polaris-token-body >&2
-      exit 1
-    fi
-
-    catalog_token="$(jq -r '.access_token // empty' /tmp/polaris-token-body)"
-    if [ -z "$catalog_token" ]; then
-      echo "Failed to parse Polaris token for OpenMetadata" >&2
-      cat /tmp/polaris-token-body >&2
-      exit 1
-    fi
-  fi
 
   # Store bot JWT as Kubernetes Secret
   kubectl delete secret "${ingestion_bot_secret_name}" -n "$NAMESPACE" --ignore-not-found
@@ -126,36 +96,17 @@
       ;;
   esac
 
-  # Create or update the Iceberg database service in OpenMetadata.
+  # Create or update the lakehouse database service. It crawls through Trino
+  # (OpenMetadata 1.13 removed the Iceberg connector) as the `openmetadata`
+  # user, which Trino's access rules let read every stage catalog
+  # (modules/query/trino).
   svc_code="$(curl -sS -o /tmp/om-svc-body -w '%%{http_code}' \
     -X PUT "$om_url/api/v1/services/databaseServices" \
     -H "Authorization: Bearer $ADMIN_JWT" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"name\": \"$catalog_service\",
-      \"displayName\": \"$catalog_display\",
-      \"serviceType\": \"Iceberg\",
-      \"connection\": {
-        \"config\": {
-          \"type\": \"Iceberg\",
-          \"catalog\": {
-            \"name\": \"$catalog_warehouse\",
-            \"databaseName\": \"${catalog_database_name}\",
-            \"warehouseLocation\": \"$catalog_warehouse\",
-            \"connection\": {
-              \"uri\": \"$catalog_uri\",
-              \"token\": \"$catalog_token\",
-              \"fileSystem\": {
-                \"type\": {
-                  \"awsRegion\": \"${storage_region}\",
-                  \"endPointURL\": \"${storage_endpoint}\"
-                }
-              }
-            }
-          }
-        }
-      }
-    }")"
+    -d "$(jq -n --arg name "$catalog_service" --arg display "$catalog_display" --arg host "${trino_host_port}" \
+      '{name: $name, displayName: $display, serviceType: "Trino",
+        connection: {config: {type: "Trino", hostPort: $host, username: "openmetadata"}}}')")"
 
   case " 200 201 " in
     *" $svc_code "*) svc_resp="$(cat /tmp/om-svc-body)" ;;
@@ -390,13 +341,11 @@
   remove_service pipelineServices dagster dagster-metadata-ingestion
   remove_service dashboardServices superset superset-metadata-ingestion
 
-  # Upsert the Iceberg metadata ingestion pipeline. Every governed stage's
-  # database sits under this one service, but the connection reaches only the
-  # canonical catalog: the crawl is pinned to that database and never deletes
-  # databases or schemas, so it cannot retire another stage's root. (Both are
-  # also OpenMetadata 1.12's defaults; stated so an upgrade that changes them
-  # cannot.) Upserted, never reused: a pipeline kept from an earlier apply
-  # would go on filtering for a stage that is no longer canonical.
+  # Upsert the lakehouse metadata ingestion pipeline. Trino lists every
+  # catalog as a database; the filter keeps the governed stages' catalogs, so
+  # each stage is crawled into its own root. It never deletes databases or
+  # schemas, so a crawl cannot retire a root `deploy-metadata` seeded. Upserted,
+  # never reused: the filter follows the governed stages.
   pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
     -X PUT "$om_url/api/v1/services/ingestionPipelines" \
     -H "Authorization: Bearer $ADMIN_JWT" \
@@ -410,7 +359,7 @@
           \"type\": \"DatabaseMetadata\",
           \"includeViews\": false,
           \"includeTags\": false,
-          \"databaseFilterPattern\": {\"includes\": [\"^${catalog_database_name}$\"]},
+          \"databaseFilterPattern\": {\"includes\": [\"^(${governed_catalogs})$\"]},
           \"markDeletedDatabases\": false,
           \"markDeletedSchemas\": false
         }

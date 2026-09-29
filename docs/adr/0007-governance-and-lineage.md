@@ -31,9 +31,13 @@ pipeline service, and a `superset_<stage>` dashboard service when that stage
 also enables analytics. The bootstrap removes the services of a stage that
 stopped being governed.
 
-The Iceberg service holds one connection, so exactly one stage, the
-*canonical* stage, is crawled. Other governed stages are represented by what
-`olf openmetadata deploy-metadata` seeds under their own root.
+The lakehouse database service (named `polaris`, or `aws_glue` on AWS)
+crawls through Trino: OpenMetadata 1.13 removed its Iceberg connector, and in
+Trino every stage is one catalog, `lakehouse_<stage>`, which OpenMetadata lists
+as one database. The crawl is filtered to the governed stages' catalogs, so
+every governed stage is crawled into its own root, as the read-only
+`openmetadata` Trino user. `olf openmetadata deploy-metadata` adds each stage's
+domains and descriptions under that root.
 
 Every governed stage emits its own lineage, and OpenMetadata auto-creates the
 entities it references (`autoCreateEntities: true`). OpenMetadata 1.13+
@@ -119,4 +123,6 @@ on the local root.
 
 2026-09-29 (#131): every governed stage emits lineage under its own namespace,
 OpenMetadata auto-creates lineage entities, and OpenMetadata moves to 1.13.6
-for database-qualified dataset resolution.
+for database-qualified dataset resolution. 1.13 has no Iceberg connector, so
+the lakehouse service crawls through Trino, which also crawls every governed
+stage instead of only the canonical one.
