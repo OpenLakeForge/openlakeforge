@@ -37,19 +37,6 @@ resource "kubernetes_job_v1" "bootstrap" {
             }
           }
 
-          dynamic "env" {
-            for_each = local.bootstrap_secret_env
-
-            content {
-              name = env.value.name
-              value_from {
-                secret_key_ref {
-                  name = env.value.secret_name
-                  key  = env.value.key
-                }
-              }
-            }
-          }
         }
       }
     }

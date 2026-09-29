@@ -68,7 +68,8 @@ The Glue catalog contract uses `catalog_type = "glue"` and
 - dbt-trino uses the existing Trino `aws_runtime` target and the Glue Iceberg
   catalog; transformation pods do not carry direct catalog credentials.
   Glue/SigV4 Iceberg attach.
-- OpenMetadata registers a Glue-backed Iceberg service instead of Polaris OAuth.
+- OpenMetadata registers the lakehouse through Trino (service `aws_glue`), as on
+  every provider.
 
 ## Workflow
 

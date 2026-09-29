@@ -96,6 +96,15 @@ locals {
           allow   = "all"
         }
       ],
+      # OpenMetadata crawls every stage's catalog into that stage's own
+      # root through its Trino service (modules/governance/openmetadata).
+      [
+        for contract in values(local.stage_catalog_contracts) : {
+          user    = "openmetadata"
+          catalog = contract.catalog_name
+          allow   = "read-only"
+        }
+      ],
       [
         { catalog = "system", allow = "read-only" },
         { catalog = ".*", allow = "none" },

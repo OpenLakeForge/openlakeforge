@@ -124,8 +124,8 @@ def test_helm_chart_versions_from_terraform_modules_matches_real_repo() -> None:
     assert versions["trino"] == "1.42.2"
     assert versions["seaweedfs"] == "4.23.0"
     # The paired dependencies chart, from deps_chart_version in the same module.
-    assert versions["openmetadata"] == "1.12.10"
-    assert versions["openmetadata-dependencies"] == "1.12.10"
+    assert versions["openmetadata"] == "1.13.6"
+    assert versions["openmetadata-dependencies"] == "1.13.6"
 
 
 def test_helm_chart_versions_from_terraform_modules_ignores_variables_without_defaults(

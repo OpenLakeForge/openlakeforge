@@ -434,6 +434,7 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     emit("OPENLAKEFORGE_ANALYTICS_ENABLED", reporting.get("enabled", True))
     if governance_enabled:
         emit("OPENLINEAGE_URL", governance.get("endpoint"))
+        emit("OPENLINEAGE_NAMESPACE", governance.get("lineage_namespace"))
         emit(
             "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
             governance.get("ingestion_bot_secret_name"),

@@ -360,12 +360,12 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
     "openmetadata": ChartDefault(
         chart_ref="open-metadata/openmetadata",
         repository="https://helm.open-metadata.org",
-        version="1.12.10",
+        version="1.13.6",
     ),
     "openmetadata-dependencies": ChartDefault(
         chart_ref="open-metadata/openmetadata-dependencies",
         repository="https://helm.open-metadata.org",
-        version="1.12.10",
+        version="1.13.6",
     ),
     "superset": ChartDefault(
         chart_ref="superset/superset",

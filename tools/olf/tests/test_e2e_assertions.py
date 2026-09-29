@@ -532,3 +532,41 @@ def test_stage_roots_reject_a_leftover_unqualified_service() -> None:
         _assertions.assert_openmetadata_stage_roots(
             client, stage="prod", stage_contract=_PROD_CONTRACT, database_fqn="polaris.lakehouse_prod"
         )
+
+
+def _lineage(nodes: tuple[str, ...], *, upstream: bool) -> OpenMetadataClient:
+    """An OpenMetadata whose every table lineage holds `nodes`."""
+    client = OpenMetadataClient("http://openmetadata")
+
+    def request(_method: str, _path: str, **_kwargs) -> dict[str, Any]:
+        return {
+            "nodes": [{"fullyQualifiedName": fqn} for fqn in nodes],
+            "upstreamEdges": [{"fromEntity": "a", "toEntity": "b"}] if upstream else [],
+        }
+
+    client.request = request  # type: ignore[method-assign]
+    return client
+
+
+def test_stage_lineage_accepts_edges_inside_the_stage_database() -> None:
+    client = _lineage(("polaris.lakehouse_prod.sales_silver.orders", "s3_storage.bronze"), upstream=True)
+
+    _assertions.assert_openmetadata_stage_lineage(
+        client, stage="prod", database_fqn="polaris.lakehouse_prod", tables=["sales_gold.revenue"]
+    )
+
+
+def test_stage_lineage_rejects_an_edge_into_another_stage() -> None:
+    client = _lineage(("polaris.lakehouse_dev.sales_silver.orders",), upstream=True)
+
+    with pytest.raises(E2EError, match="another stage's tables"):
+        _assertions.assert_openmetadata_stage_lineage(
+            client, stage="prod", database_fqn="polaris.lakehouse_prod", tables=["sales_gold.revenue"]
+        )
+
+
+def test_stage_lineage_requires_upstream_edges() -> None:
+    with pytest.raises(E2EError, match="no upstream lineage"):
+        _assertions.assert_openmetadata_stage_lineage(
+            _lineage((), upstream=False), stage="prod", database_fqn="polaris.lakehouse_prod", tables=["g.t"]
+        )
