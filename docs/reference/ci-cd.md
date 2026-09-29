@@ -16,9 +16,11 @@ commands, and any CI can run the same ones.
 | `OpenLakeForge/openlakeforge/.github/actions/deploy-stage` | `olf project deploy --stage <s> --revision <r>`; fails unless `olf project status` then records exactly `<r>`; optionally `olf e2e run --suite full` | `status` (the `olf project status --json` document) |
 
 Behaviour is driven by the stage and revision the caller passes, never by the
-branch name. Activation changes only the selected stage's Dagster code
-location, and never starts a schedule: the recurring schedules a revision
-defines exist only in PROD and are created `STOPPED`.
+branch name. Activation is stage-scoped: it reconciles the stage's catalog
+namespaces, activates its rendered Floe revision, imports its Superset reports
+and OpenMetadata metadata when those capabilities are on, and rolls out its
+Dagster code location. It never starts a schedule: the recurring schedules a
+revision defines exist only in PROD and are created `STOPPED`.
 
 ## What a job needs
 
@@ -36,7 +38,9 @@ defines exist only in PROD and are created `STOPPED`.
   `aws-actions/configure-aws-credentials` with `id-token: write`, or
   `azure/login`): the registry and the ops bucket are reached with them.
 - **Registry access** for the build job, to push the project-code image to the
-  platform's registry (ECR on AWS, ACR on Azure).
+  platform's registry (ECR on AWS, ACR on Azure). The build job also needs a
+  working Docker CLI and daemon: `olf project image` builds and pushes with
+  them, and `olf toolchain install` does not provide them.
 
 ## Example caller workflow
 
