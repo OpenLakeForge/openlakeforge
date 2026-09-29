@@ -1,0 +1,71 @@
+name: Deploy an OpenLakeForge revision to a stage
+description: >
+  Activate an existing project revision in one stage, without rebuilding, and
+  fail unless the stage then records exactly that revision. Activation is
+  stage-scoped: it reconciles the stage's catalog namespaces, activates its
+  rendered Floe revision, imports its Superset reports and OpenMetadata
+  metadata when those capabilities are on, and rolls out its code location. No
+  data or service state is copied between stages, and no Dagster product
+  schedule is started (the stage's log-archive CronJob is housekeeping).
+  Optionally runs the e2e suite against the stage. Needs `olf` on PATH and a
+  runner holding the platform's OLF_HOME (see docs/reference/ci-cd.md).
+inputs:
+  profile:
+    description: Path to the project's Deployment Profile, named openlakeforge.yaml.
+    default: openlakeforge.yaml
+  stage:
+    description: Stage to activate the revision in (dev, uat or prod).
+    required: true
+  revision:
+    description: The revision build-revision output.
+    required: true
+  e2e-env:
+    description: >
+      When set (local, aws or azure), run `olf e2e run --suite full` against
+      the stage after activation. Empty skips validation.
+    default: ""
+
+outputs:
+  status:
+    description: "`olf project status --json` for the stage after activation."
+    value: ${{ steps.deploy.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - id: deploy
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        STAGE: ${{ inputs.stage }}
+        REVISION: ${{ inputs.revision }}
+      run: |
+        set -euo pipefail
+        # Run olf from the project: inside an openlakeforge checkout an
+        # installed olf uses that checkout as its distribution (ADR 0009).
+        PROFILE="$(realpath "${PROFILE}")"
+        cd "$(dirname "${PROFILE}")"
+        olf project deploy -f "${PROFILE}" --stage "${STAGE}" --revision "${REVISION}"
+        status="$(olf project status -f "${PROFILE}" --stage "${STAGE}" --json)"
+        recorded="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["stages"][0]["recorded"]["project_revision"])' <<< "${status}")"
+        if [ "${recorded}" != "${REVISION}" ]; then
+          echo "::error::${STAGE} records revision ${recorded}, expected ${REVISION}"
+          exit 1
+        fi
+        {
+          echo "status<<OLF_STATUS_EOF"
+          echo "${status}"
+          echo "OLF_STATUS_EOF"
+        } >> "${GITHUB_OUTPUT}"
+        echo "Activated ${REVISION} in ${STAGE}" >> "${GITHUB_STEP_SUMMARY}"
+
+    - if: inputs.e2e-env != ''
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        STAGE: ${{ inputs.stage }}
+        E2E_ENV: ${{ inputs.e2e-env }}
+      run: |
+        PROFILE="$(realpath "${PROFILE}")"
+        cd "$(dirname "${PROFILE}")"
+        olf e2e run --env "${E2E_ENV}" -f "${PROFILE}" --stage "${STAGE}" --suite full

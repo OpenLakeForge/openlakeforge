@@ -15,6 +15,7 @@ If you are discovering OpenLakeForge for the first time, start with the [root RE
 | ☁️ Deploy to Azure                    | [Azure deployment](setup/cloud-poc-setup.md#azure-aks)           |
 | 🧱 Build my first data product        | [Your first data product](getting-started/first-data-product.md) |
 | 📄 Understand `lakehouse.yaml`        | [Domain descriptor reference](reference/domain-descriptor.md)    |
+| 🔁 Promote a revision through stages in CI | [Reference CI/CD](reference/ci-cd.md)                      |
 | 🛠️ Use the `olf` CLI                 | [`olf` CLI reference](../tools/olf/README.md)                    |
 | 🏗️ Understand the architecture       | [Architecture documentation](architecture/README.md)             |
 | 🔌 Understand cloud portability       | [Provider contracts](architecture/provider-contracts.md)         |
