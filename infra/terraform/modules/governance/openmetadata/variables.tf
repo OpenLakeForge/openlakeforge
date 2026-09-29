@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "OpenMetadata Helm chart version."
   type        = string
-  default     = "1.12.10"
+  default     = "1.13.6"
 }
 
 variable "chart_package_path" {
@@ -40,7 +40,7 @@ variable "deps_values_file" {
 variable "deps_chart_version" {
   description = "openmetadata-dependencies Helm chart version. Should match chart_version."
   type        = string
-  default     = "1.12.10"
+  default     = "1.13.6"
 }
 
 variable "deps_chart_package_path" {

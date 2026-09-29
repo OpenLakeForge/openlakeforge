@@ -49,8 +49,8 @@ _POLARIS_IMAGES_FALLBACK = (
 )
 
 _OPENSEARCH_IMAGE = "opensearchproject/opensearch:2.11.0"
-_OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.12.10"
-_OPENMETADATA_INGESTION_IMAGE = "docker.getcollate.io/openmetadata/ingestion-base:1.12.10"
+_OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
+_OPENMETADATA_INGESTION_IMAGE = "docker.getcollate.io/openmetadata/ingestion-base:1.13.6"
 _POSTGRES_IMAGE = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
 _SUPERSET_DOCKERIZE_IMAGE = "apache/superset:dockerize"
 _SUPERSET_IMAGE = "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"

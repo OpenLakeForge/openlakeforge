@@ -53,8 +53,8 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | Chart | Version |
 | --- | --- |
 | dagster | 1.13.7 |
-| openmetadata | 1.12.10 |
-| openmetadata-dependencies | 1.12.10 |
+| openmetadata | 1.13.6 |
+| openmetadata-dependencies | 1.13.6 |
 | polaris | 1.4.1 |
 | seaweedfs | 4.23.0 |
 | superset | 0.15.5 |
@@ -77,7 +77,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | --- | --- |
 | dagster_control_plane | `docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee` |
 | k8s_bootstrap | `alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e` |
-| openmetadata_ingestion | `docker.getcollate.io/openmetadata/ingestion-base:1.12.10@sha256:dadd44b28cc73488a943009c22da7b3c7a9e52d2adb47e61ed2c5ba791e2a07d` |
+| openmetadata_ingestion | `docker.getcollate.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e` |
 | opensearch | `opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a` |
 | polaris | `apache/polaris:1.4.0@sha256:ef4947a3fd005ca5b2aec2bde98682a59996d38f21c16c4660fbb79e4c20b40c` |
 | polaris_admin_tool | `apache/polaris-admin-tool:1.4.0@sha256:7ef7557b528964e792caeaef3908434bd99c7d2f994caa654da1d77c6b428a80` |

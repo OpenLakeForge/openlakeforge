@@ -51,8 +51,8 @@ def test_selected_images_full_profile_includes_governance_and_analytics() -> Non
     assert images[0] == "opensearchproject/opensearch:2.11.0"
     assert images[1].startswith("apache/polaris:1.4.0@sha256:f4676e56")
     assert images[2].startswith("apache/polaris-admin-tool:1.4.0@sha256:3b13addc")
-    assert "docker.getcollate.io/openmetadata/server:1.12.10" in images
-    assert "docker.getcollate.io/openmetadata/ingestion-base:1.12.10" in images
+    assert "docker.getcollate.io/openmetadata/server:1.13.6" in images
+    assert "docker.getcollate.io/openmetadata/ingestion-base:1.13.6" in images
     assert images[-1] == "ghcr.io/malon64/floe:0.6.11"
     assert "apache/superset:dockerize" in images
     assert "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4" in images

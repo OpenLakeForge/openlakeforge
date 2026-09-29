@@ -359,7 +359,12 @@ class StageContract:
                 "endpoint": self.query["endpoint"],
                 "runtime_identity_principal": self.runtime_identity["principal"],
             },
-            "governance": {"enabled": self.governance is not None},
+            # Lineage is emitted under the stage's own pipeline-service root,
+            # so OpenMetadata's auto-created pipelines stay distinct per stage.
+            "governance": {
+                "enabled": self.governance is not None,
+                "lineage_namespace": self.orchestration.get("pipeline_service_name", f"dagster_{self.name.value}"),
+            },
             "reporting": {"enabled": self.reporting is not None},
         }
 

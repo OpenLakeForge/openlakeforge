@@ -111,7 +111,7 @@
     --arg service "$catalog_service" \
     --arg trino "$trino_namespace" \
     --arg pipeline_service "${lineage_pipeline_service}" \
-    '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:false,eventTypeFilter:["COMPLETE"],defaultPipelineService:$pipeline_service,namespaceToServiceMapping:{($trino):$service,($service):$service}}}')"
+    '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:true,eventTypeFilter:["COMPLETE"],defaultPipelineService:$pipeline_service,namespaceToServiceMapping:{($trino):$service,($service):$service}}}')"
   lineage_code="$(curl -sS -o /tmp/om-openlineage-body -w '%%{http_code}' \
     -X PUT "$om_url/api/v1/system/settings" \
     -H "Authorization: Bearer $ADMIN_JWT" \

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+import urllib.parse
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -117,12 +118,44 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             log.info("Skipping OpenMetadata stage roots: the provider contract has no stage index.")
             return
         stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
+        database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "")
         assert_openmetadata_stage_roots(
             client,
             stage=stage,
             stage_contract=stages[stage],
-            database_fqn=config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", ""),
+            database_fqn=database_fqn,
         )
+        assert_openmetadata_stage_lineage(
+            client, stage=stage, database_fqn=database_fqn, tables=cfg.inventory.gold_mart_names
+        )
+
+
+def assert_openmetadata_stage_lineage(
+    client: OpenMetadataClient, *, stage: str, database_fqn: str, tables: Iterable[str]
+) -> None:
+    """Every governed stage emits its own lineage (#131), and OpenMetadata
+    resolves each dataset by `<service>.<database>.<schema>.<table>` (1.13+).
+    So this stage's Gold tables must have upstream lineage, and none of it may
+    reach another stage's database: a dataset name that lost its database
+    matches by schema and table alone, which are identical in every stage."""
+    log.step(f"Checking OpenMetadata lineage for stage {stage}...")
+    service_prefix = database_fqn.split(".", 1)[0] + "."
+    with_upstream = []
+    for table in tables:
+        fqn = f"{database_fqn}.{table}"
+        path = f"/api/v1/lineage/table/name/{urllib.parse.quote(fqn, safe='')}?upstreamDepth=3&downstreamDepth=0"
+        try:
+            lineage = client.request("GET", path)
+        except OpenMetadataError as exc:
+            raise E2EError(f"cannot read OpenMetadata lineage for {fqn}: {exc}") from exc
+        nodes = [str(node.get("fullyQualifiedName", "")) for node in lineage.get("nodes") or ()]
+        foreign = sorted(n for n in nodes if n.startswith(service_prefix) and not n.startswith(f"{database_fqn}."))
+        if foreign:
+            raise E2EError(f"{fqn}'s lineage reaches another stage's tables: {foreign}")
+        if lineage.get("upstreamEdges"):
+            with_upstream.append(fqn)
+    if not with_upstream:
+        raise E2EError(f"no Gold table of stage {stage} has upstream lineage in OpenMetadata")
 
 
 def assert_openmetadata_stage_roots(
