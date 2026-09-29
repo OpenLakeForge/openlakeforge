@@ -297,8 +297,27 @@ jobs:
         run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
 
       - name: Activate the same revision in PROD (promotion -- no rebuild)
+        # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
+        # Silver and Gold buckets are listed (key and ETag) before and after
+        # activation and must not change -- PROD computes its data later, from
+        # its own Bronze, in its own suite. Names alone could not show this for
+        # Bronze, whose keys are deterministic and loaded alike in every stage.
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
-        run: uv run --project tools/olf --locked olf project deploy -f openlakeforge.yaml --stage prod --revision "${{ steps.revision.outputs.revision }}"
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local.yaml
+        run: |
+          set -euo pipefail
+          snapshot() {
+            uv run --project tools/olf --locked python -c "import json; from olf import contracts; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contracts.load_provider_contracts('infra/terraform/environments/local'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))"
+          }
+          snapshot > prod-buckets-before-promotion.json
+          uv run --project tools/olf --locked olf project deploy -f openlakeforge.yaml --stage prod --revision "${{ steps.revision.outputs.revision }}"
+          snapshot > prod-buckets-after-promotion.json
+          if ! diff -u prod-buckets-before-promotion.json prod-buckets-after-promotion.json; then
+            echo "::error::promotion wrote to PROD's lakehouse buckets (diff above); it must copy no data"
+            exit 1
+          fi
 
       - name: Assert PROD activated the identical digest DEV did
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
