@@ -1061,3 +1061,23 @@ def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
 
     assert result.exit_code == 2
     assert "directly under" in result.output
+
+
+def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    import json
+
+    from olf import contracts
+    from olf.commands import platform as platform_module
+
+    applied = {"schema_version": "3.0.0", "stages": {}}
+    context = SimpleNamespace(paths=SimpleNamespace(platform_terraform_dir=Path("/platform")))
+    monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: context)
+    monkeypatch.setattr(contracts, "load_provider_contracts", lambda terraform_dir: applied)
+
+    result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == applied
+
+    monkeypatch.setattr(contracts, "load_provider_contracts", lambda terraform_dir: None)
+    assert runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0
