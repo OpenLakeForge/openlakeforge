@@ -37,8 +37,10 @@ runs artifacts only; platform never waits for project artifacts.
 deploys a project revision without that state (a CI runner, say) uses a copy
 instead: `olf platform contract -f openlakeforge.yaml > contract.json` prints
 it where the platform was applied, and `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`
-points every `olf` command at the copy. The contract names Secrets and their
-keys, never their values. A file that is named but missing or malformed fails
+points `olf project build`, `deploy` and `status` at the copy. (`olf e2e run`
+still reads the Dagster service and code-location names from the platform's
+Terraform outputs, so it needs that state.) The contract names Secrets and
+their keys, never their values. A file that is named but missing or malformed fails
 the command rather than reading as "not applied yet".
 
 The file replaces the platform contract only. On AWS and Azure, `olf` also
