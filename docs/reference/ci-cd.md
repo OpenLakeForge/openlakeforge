@@ -22,34 +22,30 @@ defines exist only in PROD and are created `STOPPED`.
 
 ## What a job needs
 
-Each job runs outside the machine that applied the platform, so it needs:
-
+- **A runner holding the platform's `OLF_HOME`.** An installed `olf` keeps the
+  platform's Terraform state and its kubeconfig under `OLF_HOME` (default
+  `~/.openlakeforge`) and reads the cluster, region and registry from them.
+  Until remote state lands (#132), run these jobs on a self-hosted runner that
+  holds that directory, for example the machine that ran `olf platform apply`.
+  `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE` can stand in for the platform's
+  contract ([provider contracts](../architecture/provider-contracts.md)), but not
+  for the foundation state or the kubeconfig.
 - **`olf`**: `pip install openlakeforge==<version>`, then `olf toolchain install`
   for the pinned Terraform, Helm and kubectl.
-- **The provider contract.** On the machine that applied the platform, run
-  `olf platform contract -f openlakeforge.yaml > contract.json` and store the
-  result as a repository variable (it names Secrets and keys, never their
-  values). Jobs write it to a file and set `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`
-  (see [provider contracts](../architecture/provider-contracts.md)). Re-export
-  it after every `olf platform apply`.
-- **Cluster access**: a kubeconfig Secret, and `KUBE_CONTEXT` naming its context.
 - **Cloud credentials** on AWS or Azure (for example
   `aws-actions/configure-aws-credentials` with `id-token: write`, or
-  `azure/login`): EKS/AKS, the registry and the ops bucket are reached with them.
+  `azure/login`): the registry and the ops bucket are reached with them.
 - **Registry access** for the build job, to push the project-code image to the
   platform's registry (ECR on AWS, ACR on Azure).
-- **Foundation state, on AWS and Azure.** The contract file replaces the
-  platform contract only; `olf` still reads the foundation's Terraform outputs
-  (cluster, region, registry). Until remote state lands (#132), run these jobs
-  where that state is available, such as a self-hosted runner, or restore
-  `OLF_HOME/state` into the job.
 
 ## Example caller workflow
 
 `.github/workflows/promote.yml` in the project repository. Pin the actions to
-the OpenLakeForge release your `openlakeforge` package matches. PROD, and UAT
-when used, are GitHub environments with required reviewers, so a promotion
-waits for approval; that protection is CI policy, not OpenLakeForge's.
+the OpenLakeForge release your `openlakeforge` package matches, and every
+third-party action to a commit SHA: these jobs hold cloud credentials. PROD,
+and UAT when used, are GitHub environments with required reviewers, so a
+promotion waits for approval; that protection is CI policy, not
+OpenLakeForge's.
 
 **Create the `uat` and `prod` environments with required reviewers before the
 first run.** A workflow that names an environment GitHub has not seen creates
@@ -75,28 +71,17 @@ permissions:
 
 env:
   OLF_VERSION: "0.3.0a1"
-  KUBE_CONTEXT: ${{ vars.OLF_KUBE_CONTEXT }}
-  OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE: ${{ github.workspace }}/.olf/contract.json
-  # Read by the "Install olf" step in every job, never interpolated into a script.
-  OLF_PROVIDER_CONTRACT: ${{ vars.OLF_PROVIDER_CONTRACT }}
-  OLF_KUBECONFIG: ${{ secrets.OLF_KUBECONFIG }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, olf-platform]  # holds OLF_HOME until #132
     outputs:
       revision: ${{ steps.build.outputs.revision }}
       uat: ${{ steps.profile.outputs.uat }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Install olf
-        run: |
-          pip install "openlakeforge==${OLF_VERSION}"
-          olf toolchain install
-          mkdir -p .olf ~/.kube
-          printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
-          printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
@@ -107,22 +92,16 @@ jobs:
           image-repository: ${{ vars.OLF_IMAGE_REPOSITORY }}
       - id: profile
         name: Is UAT enabled in the profile?
-        run: echo "uat=$(olf profile resolve --project . --json | jq '.stages[] | select(.name == "uat") | .enabled')" >> "$GITHUB_OUTPUT"
+        run: echo "uat=$(olf profile resolve --project . --json | python3 -c 'import json, sys; print(str(any(s["name"] == "uat" and s["enabled"] for s in json.load(sys.stdin)["stages"])).lower())')" >> "$GITHUB_OUTPUT"
 
   dev:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, olf-platform]
     environment: dev
     steps:
-      - uses: actions/checkout@v4
-      - name: Install olf
-        run: |
-          pip install "openlakeforge==${OLF_VERSION}"
-          olf toolchain install
-          mkdir -p .olf ~/.kube
-          printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
-          printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
@@ -135,18 +114,12 @@ jobs:
   uat:
     needs: [build, dev]
     if: needs.build.outputs.uat == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, olf-platform]
     environment: uat
     steps:
-      - uses: actions/checkout@v4
-      - name: Install olf
-        run: |
-          pip install "openlakeforge==${OLF_VERSION}"
-          olf toolchain install
-          mkdir -p .olf ~/.kube
-          printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
-          printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
@@ -160,18 +133,12 @@ jobs:
     # Runs when UAT succeeded or was skipped because the profile has none.
     needs: [build, dev, uat]
     if: always() && needs.dev.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.uat.result)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, olf-platform]
     environment: prod
     steps:
-      - uses: actions/checkout@v4
-      - name: Install olf
-        run: |
-          pip install "openlakeforge==${OLF_VERSION}"
-          olf toolchain install
-          mkdir -p .olf ~/.kube
-          printf '%s' "${OLF_PROVIDER_CONTRACT}" > .olf/contract.json
-          printf '%s' "${OLF_KUBECONFIG}" > ~/.kube/config
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
@@ -181,6 +148,5 @@ jobs:
           revision: ${{ needs.build.outputs.revision }}
 ```
 
-The deploying jobs need a cluster the runner can reach, so this shape fits a
-cloud provider. A `local` (kind) cluster lives on one machine; run the same
-two actions in one job there.
+A `local` (kind) platform works the same way on the machine running the kind
+cluster, with no cloud-credentials step.

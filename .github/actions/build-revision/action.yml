@@ -3,9 +3,8 @@ description: >
   Build and push the project-code image, then build and publish one immutable
   project revision from it. Build once; promote the revision this outputs to
   every stage with deploy-stage, never rebuilding. Needs `olf` on PATH, a
-  registry login, and access to the applied platform (its ops bucket holds the
-  revision): kube access plus the platform's Terraform state or
-  OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE (see docs/reference/ci-cd.md).
+  registry login, and a runner holding the platform's OLF_HOME: the revision
+  is published to the platform's ops bucket (see docs/reference/ci-cd.md).
 
 inputs:
   profile:
