@@ -19,8 +19,9 @@ Behaviour is driven by the stage and revision the caller passes, never by the
 branch name. Activation is stage-scoped: it reconciles the stage's catalog
 namespaces, activates its rendered Floe revision, imports its Superset reports
 and OpenMetadata metadata when those capabilities are on, and rolls out its
-Dagster code location. It never starts a schedule: the recurring schedules a
-revision defines exist only in PROD and are created `STOPPED`.
+Dagster code location. It starts no Dagster product schedule: the recurring
+schedules a revision defines exist only in PROD and are created `STOPPED`. (The
+stage's log-archive CronJob is platform housekeeping, not a product schedule.)
 
 ## What a job needs
 
@@ -32,8 +33,9 @@ revision defines exist only in PROD and are created `STOPPED`.
   `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE` can stand in for the platform's
   contract ([provider contracts](../architecture/provider-contracts.md)), but not
   for the foundation state or the kubeconfig.
-- **`olf`**: `pip install openlakeforge==<version>`, then `olf toolchain install`
-  for the pinned Terraform, Helm and kubectl.
+- **`olf`**: `python3.12 -m pip install openlakeforge==<version>` (it requires
+  Python 3.12 or newer), then `olf toolchain install` for the pinned Terraform,
+  Helm and kubectl.
 - **Cloud credentials** on AWS or Azure (for example
   `aws-actions/configure-aws-credentials` with `id-token: write`, or
   `azure/login`): the registry and the ops bucket are reached with them.
@@ -84,7 +86,7 @@ jobs:
       uat: ${{ steps.profile.outputs.uat }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
@@ -96,7 +98,13 @@ jobs:
           image-repository: ${{ vars.OLF_IMAGE_REPOSITORY }}
       - id: profile
         name: Is UAT enabled in the profile?
-        run: echo "uat=$(olf profile resolve --project . --json | python3 -c 'import json, sys; print(str(any(s["name"] == "uat" and s["enabled"] for s in json.load(sys.stdin)["stages"])).lower())')" >> "$GITHUB_OUTPUT"
+        # Fail closed: an empty value would skip UAT and let PROD run.
+        run: |
+          set -euo pipefail
+          resolved="$(olf profile resolve --project . --json)"
+          uat="$(python3 -c 'import json, sys; print(str(any(s["name"] == "uat" and s["enabled"] for s in json.load(sys.stdin)["stages"])).lower())' <<< "$resolved")"
+          case "$uat" in true|false) ;; *) echo "::error::cannot tell whether UAT is enabled"; exit 1 ;; esac
+          echo "uat=$uat" >> "$GITHUB_OUTPUT"
 
   dev:
     needs: build
@@ -104,7 +112,7 @@ jobs:
     environment: dev
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
@@ -122,7 +130,7 @@ jobs:
     environment: uat
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
@@ -141,7 +149,7 @@ jobs:
     environment: prod
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}

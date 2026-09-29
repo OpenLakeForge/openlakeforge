@@ -5,7 +5,8 @@ description: >
   stage-scoped: it reconciles the stage's catalog namespaces, activates its
   rendered Floe revision, imports its Superset reports and OpenMetadata
   metadata when those capabilities are on, and rolls out its code location. No
-  data or service state is copied between stages, and no schedule is started.
+  data or service state is copied between stages, and no Dagster product
+  schedule is started (the stage's log-archive CronJob is housekeeping).
   Optionally runs the e2e suite against the stage. Needs `olf` on PATH and a
   runner holding the platform's OLF_HOME (see docs/reference/ci-cd.md).
 inputs:
