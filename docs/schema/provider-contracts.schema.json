@@ -175,7 +175,8 @@
       "required": ["service_ref", "endpoint_ref"],
       "properties": {
         "service_ref": {"$ref": "#/definitions/nonEmptyString"},
-        "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"}
+        "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "lineage": {"type": "boolean"}
       }
     },
     "orchestrationBinding": {

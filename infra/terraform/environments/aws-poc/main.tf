@@ -88,7 +88,7 @@ locals {
   selected_stage           = contains(keys(local.enabled_stages), "dev") ? "dev" : sort(keys(local.enabled_stages))[0]
   selected_stage_namespace = local.stage_namespaces[local.selected_stage]
 
-  governance_dagster_stage = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
+  governance_dagster_stage = contains(keys(local.governed_stages), "prod") ? "prod" : try(sort(keys(local.governed_stages))[0], local.selected_stage)
   # The logical Trino/dbt identity for this stage's Dagster runtime
   # (OPENLAKEFORGE_DBT_TRINO_USER, query_contract.runtime_identity_principal
   # below) - not a Kubernetes identity. Must match the Trino catalog access

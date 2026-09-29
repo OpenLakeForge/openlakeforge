@@ -77,8 +77,16 @@ def test_aws_glue_profile_requires_glue_database() -> None:
         render_profile(env)
 
 
-def test_profile_omits_openlineage_when_governance_is_disabled() -> None:
-    profile = render_profile({"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"})
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"},
+        # A governed stage that is not the lineage stage (#131).
+        {"OPENLAKEFORGE_GOVERNANCE_ENABLED": "true", "OPENLINEAGE_DISABLED": "true"},
+    ],
+)
+def test_profile_omits_openlineage_when_governance_or_lineage_is_disabled(environ: dict[str, str]) -> None:
+    profile = render_profile(environ)
 
     assert "lineage:" not in profile
     assert "OPENLINEAGE_API_KEY" not in profile

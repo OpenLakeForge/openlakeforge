@@ -500,6 +500,7 @@ locals {
           governance = {
             service_ref  = "shared/governance_service"
             endpoint_ref = "stage/${name}/endpoints/governance"
+            lineage      = name == local.governance_dagster_stage
           }
       } : {})
     }

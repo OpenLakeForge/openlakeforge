@@ -80,7 +80,7 @@ locals {
   # the local one to every governed stage (#131). The selected stage need not
   # have enabled governance, so prefer it when it qualifies, else the first
   # stage that does.
-  governance_dagster_stage = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
+  governance_dagster_stage = contains(keys(local.governed_stages), "prod") ? "prod" : try(sort(keys(local.governed_stages))[0], local.selected_stage)
   stage_service_accounts   = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {

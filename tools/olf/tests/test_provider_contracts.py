@@ -167,6 +167,24 @@ def test_stage_environment_exposes_only_its_selected_stage_values() -> None:
     assert "dev" not in "\n".join(prod_exports.values())
 
 
+def test_only_the_lineage_stage_emits_openlineage() -> None:
+    """OpenMetadata's lineage settings are global, so a second emitting stage
+    would land in the canonical stage's pipeline service (#131)."""
+    contract = _fixture("conformance-provider-contracts.json")
+    topology = _topology(contract)
+
+    dev_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="dev")
+    prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="prod")
+
+    assert dev_exports["OPENLINEAGE_DISABLED"] == "true"
+    assert dev_exports["OPENLAKEFORGE_GOVERNANCE_ENABLED"] == "true"  # still registered in OpenMetadata
+    assert "OPENLINEAGE_DISABLED" not in prod_exports
+
+    contract["stages"]["dev"]["governance"]["lineage"] = True
+    with pytest.raises(ProviderContractError, match="at most one governed stage"):
+        parse_provider_contracts(contract, topology)
+
+
 @pytest.mark.parametrize(
     ("mutate", "match"),
     [

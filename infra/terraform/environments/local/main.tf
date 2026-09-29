@@ -79,9 +79,11 @@ locals {
 
   # The canonical governance stage: the one whose catalog OpenMetadata's single
   # Iceberg connection crawls and whose pipeline service receives OpenLineage
-  # pipelines. The selected stage need not have enabled governance, so prefer
-  # it when it qualifies, else the first stage that does.
-  governance_dagster_stage = contains(keys(local.governed_stages), local.selected_stage) ? local.selected_stage : try(sort(keys(local.governed_stages))[0], local.selected_stage)
+  # pipelines, and the only stage that emits lineage (the others would land in
+  # its pipeline service, since OpenMetadata's lineage settings are global).
+  # PROD when governed, since PROD lineage is the one that must be canonical
+  # (#131), else the first governed stage.
+  governance_dagster_stage = contains(keys(local.governed_stages), "prod") ? "prod" : try(sort(keys(local.governed_stages))[0], local.selected_stage)
   stage_service_accounts   = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {

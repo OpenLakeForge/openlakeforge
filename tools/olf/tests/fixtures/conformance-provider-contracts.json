@@ -101,6 +101,7 @@
       },
       "governance": {
         "endpoint_ref": "stage/dev/endpoints/governance",
+        "lineage": false,
         "service_ref": "shared/governance_service"
       },
       "namespace": "olf-dev",
@@ -198,6 +199,7 @@
       },
       "governance": {
         "endpoint_ref": "stage/prod/endpoints/governance",
+        "lineage": true,
         "service_ref": "shared/governance_service"
       },
       "namespace": "olf-prod",

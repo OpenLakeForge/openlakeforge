@@ -31,10 +31,16 @@ pipeline service, and a `superset_<stage>` dashboard service when that stage
 also enables analytics. The bootstrap removes the services of a stage that
 stopped being governed.
 
-The Iceberg service holds one connection, so exactly one stage, the
-*canonical* stage, is crawled, and its pipeline service receives OpenLineage
-pipelines. Other governed stages are represented by what `olf openmetadata
-deploy-metadata` seeds under their own root. The local root registers every
+The Iceberg service holds one connection, and OpenMetadata's OpenLineage
+settings are global (one default pipeline service, one namespace mapping), so
+exactly one stage is *canonical*: PROD when it is governed, else the first
+governed stage. It is crawled, its pipeline service receives OpenLineage
+pipelines, and it is the only stage that emits lineage. The provider contract
+marks it with `stages.<stage>.governance.lineage: true` and rejects a second;
+every other governed stage runs with `OPENLINEAGE_DISABLED=true`, so its events
+can never land in the canonical stage's pipeline service. Those stages are
+represented by what `olf openmetadata deploy-metadata` seeds under their own
+root. The local root registers every
 governed stage; the AWS and Azure roots still register one until their
 adapters follow (#131).
 
@@ -105,3 +111,7 @@ and a custom REST push), and 0023 (restoring native emission).
 2026-09-23 (#131): stage-qualified service roots replace the single unqualified
 `dagster` and `superset` services, and the one-governed-stage limit is lifted
 on the local root.
+
+2026-09-29 (#131): the canonical stage prefers PROD, and only it emits lineage.
+Before, every governed stage emitted, and PROD's pipelines landed in DEV's
+pipeline service.

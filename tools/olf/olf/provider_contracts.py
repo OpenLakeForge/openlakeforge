@@ -359,7 +359,11 @@ class StageContract:
                 "endpoint": self.query["endpoint"],
                 "runtime_identity_principal": self.runtime_identity["principal"],
             },
-            "governance": {"enabled": self.governance is not None},
+            # Absent means no lineage: only the stage the root names emits.
+            "governance": {
+                "enabled": self.governance is not None,
+                "lineage": self.governance is not None and self.governance.get("lineage") is True,
+            },
             "reporting": {"enabled": self.reporting is not None},
         }
 
@@ -771,7 +775,10 @@ def _parse_stage(
             governance,
             where=f"stages.{name.value}.governance",
             required={"service_ref", "endpoint_ref"},
+            optional={"lineage"},
         )
+        if not isinstance(governance.get("lineage", False), bool):
+            raise ProviderContractError(f"stages.{name.value}.governance.lineage must be a boolean")
         if governance["service_ref"] not in shared_refs:
             raise ProviderContractError(f"stages.{name.value}.governance.service_ref does not resolve")
         governance_service_ref = shared.values.get("governance_service", {}).get("ref")
@@ -910,6 +917,14 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
             if endpoint in stage_endpoint_values:
                 raise ProviderContractError(f"stage endpoint {endpoint!r} is shared between stages")
             stage_endpoint_values.add(endpoint)
+    # OpenMetadata's OpenLineage settings are global: one default pipeline
+    # service and one catalog mapping. Two emitting stages would land in the
+    # same pipeline service and resolve to one stage's entities (#131).
+    lineage_stages = sorted(
+        name.value for name, stage in stages.items() if stage.governance and stage.governance.get("lineage")
+    )
+    if len(lineage_stages) > 1:
+        raise ProviderContractError(f"stages {lineage_stages!r} all emit lineage; at most one governed stage may")
     return ProviderContracts(
         schema_version=V3_SCHEMA_VERSION,
         deployment=_frozen(deployment),

@@ -451,6 +451,14 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
             "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
         ):
             env.unset(name)
+    # A governed stage that is not the lineage stage stays registered in
+    # OpenMetadata but emits no lineage (#131). OPENLINEAGE_DISABLED is the
+    # OpenLineage client's own switch (dbt-ol); floe.py honours it too. A v2
+    # contract describes one stage, which is the lineage stage.
+    if governance_enabled and not governance.get("lineage", True):
+        env.set("OPENLINEAGE_DISABLED", "true")
+    elif env.raw("OPENLINEAGE_DISABLED") is not None:
+        env.unset("OPENLINEAGE_DISABLED")
     endpoint = query.get("endpoint")
     if endpoint and endpoint.startswith("http://"):
         host_port = endpoint.removeprefix("http://").split("/", 1)[0]

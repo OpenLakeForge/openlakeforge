@@ -113,7 +113,8 @@
       },
       "governance": {
         "service_ref": "shared/governance_service",
-        "endpoint_ref": "stage/dev/endpoints/governance"
+        "endpoint_ref": "stage/dev/endpoints/governance",
+        "lineage": true
       },
       "activation": {
         "ops_storage_ref": "shared/ops_storage",
@@ -190,7 +191,8 @@
       },
       "governance": {
         "service_ref": "shared/governance_service",
-        "endpoint_ref": "stage/uat/endpoints/governance"
+        "endpoint_ref": "stage/uat/endpoints/governance",
+        "lineage": false
       },
       "activation": {
         "ops_storage_ref": "shared/ops_storage",

@@ -136,7 +136,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
 
     lineage_secret_yaml = ""
     lineage_block = ""
-    if governance_enabled:
+    if governance_enabled and env("OPENLINEAGE_DISABLED", "") != "true":
         lineage_url = env("OPENLINEAGE_URL", "http://openmetadata.olf-system:8585")
         lineage_endpoint = env("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
         lineage_namespace = env("OPENLINEAGE_NAMESPACE", "dagster")
