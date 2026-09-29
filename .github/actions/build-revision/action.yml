@@ -9,7 +9,7 @@ description: >
 
 inputs:
   profile:
-    description: Path to the project's Deployment Profile. Its directory is the project root.
+    description: Path to the project's Deployment Profile, named openlakeforge.yaml. Its directory is the project root.
     default: openlakeforge.yaml
   image-repository:
     description: Registry repository the project-code image is pushed to (lowercase).
