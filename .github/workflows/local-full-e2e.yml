@@ -140,10 +140,12 @@ jobs:
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
       - name: Cache OpenLakeForge toolchain
+        # Managed binaries only: the installed olf keeps Terraform state, with
+        # generated Secret values, under ~/.openlakeforge/state.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: ~/.openlakeforge
-          key: olf-toolchain-${{ hashFiles('release/component-catalog.yaml') }}
+          path: ~/.openlakeforge/toolchains
+          key: olf-toolchains-${{ hashFiles('release/component-catalog.yaml') }}
 
       - name: Provision OpenLakeForge toolchain
         run: uv run --project tools/olf --locked olf toolchain install
