@@ -343,9 +343,13 @@
 
   # Upsert the lakehouse metadata ingestion pipeline. Trino lists every
   # catalog as a database; the filter keeps the governed stages' catalogs, so
-  # each stage is crawled into its own root. It never deletes databases or
-  # schemas, so a crawl cannot retire a root `deploy-metadata` seeded. Upserted,
-  # never reused: the filter follows the governed stages.
+  # each stage is crawled into its own root. It never deletes databases,
+  # schemas or tables: `deploy-metadata` seeds a stage's tables at activation,
+  # before its first run materializes them in Trino, and a crawl in between
+  # must not retire those stubs. Once a stub is gone, OpenMetadata resolves
+  # that stage's lineage by schema and table alone and attaches it to another
+  # stage's table (#131). Upserted, never reused: the filter follows the
+  # governed stages.
   pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
     -X PUT "$om_url/api/v1/services/ingestionPipelines" \
     -H "Authorization: Bearer $ADMIN_JWT" \
@@ -361,7 +365,8 @@
           \"includeTags\": false,
           \"databaseFilterPattern\": {\"includes\": [\"^(${governed_catalogs})$\"]},
           \"markDeletedDatabases\": false,
-          \"markDeletedSchemas\": false
+          \"markDeletedSchemas\": false,
+          \"markDeletedTables\": false
         }
       },
       \"airflowConfig\": {
