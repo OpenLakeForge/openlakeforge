@@ -115,9 +115,9 @@ catalogs, and generated endpoints. `DeploymentTopology` carries only logical
 service identities (`catalog`, `query`, `metadata_database`, `governance` as
 shared services; `orchestration`, `reporting` per stage) — never namespaces,
 Helm releases, or endpoints. The typed provider-contract v3 resolver derives
-those from this topology (ADR 0003); #133 and #114 will make the platform root
-and provider adapters emit and provision the resolved bindings. None belongs in
-this profile.
+those from this topology (ADR 0003): every platform root emits and provisions
+the resolved stage bindings through its provider adapter (#133, #114). None
+belongs in this profile.
 
 ### The v0.2 compatibility path
 
@@ -140,9 +140,10 @@ topology free of namespaces, Helm releases, and endpoints.
 
 - `olf profile validate` and `olf profile resolve --json` expose the
   effective topology before any mutation, for both humans and CI.
-- Every later v0.3 issue (`#133`, `#114`, `#154`, `#115`, …) consumes
-  `DeploymentTopology`, not `--profile`/`--provider` flags directly, once it
-  lands.
+- The stage-aware platform, data plane, project revision and activation
+  (`#133`, `#114`, `#154`, `#115`) consume `DeploymentTopology`, not
+  `--profile`/`--provider` flags directly: `olf platform apply -f` and
+  `olf project deploy -f --stage` take the profile file.
 - Local, AWS, and Azure POC shapes are representable without credentials,
   sizing, or endpoints — those stay behind provider contracts (ADR 0003).
 
@@ -159,3 +160,7 @@ typed topology-to-provider boundary; no profile fields were added.
 resolves it, the local platform root consumes it as typed variables, and
 namespace derivation is recorded as living outside the topology. No profile
 fields were added.
+
+2026-10-01: Rewritten as current behavior for the 0.3.0-alpha.1 release: the
+roots provision the resolved bindings, and the lifecycle commands consume the
+topology. No profile fields were added.

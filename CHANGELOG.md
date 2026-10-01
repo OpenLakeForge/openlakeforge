@@ -35,9 +35,11 @@ unchanged from DEV to PROD without copying data or runtime state.
   and runtime identity, and DEV-generated configuration cannot reach PROD
   objects (or the reverse) on local, Azure and AWS (#153, #114, ADR 0003).
 - The profile-driven lifecycle: `olf platform plan|apply -f` deploys the
-  static platform for every enabled stage, and `olf project image|build|
-  deploy|status -f --stage` builds one revision and activates that exact
-  revision per stage, idempotently (#115).
+  static platform for every enabled stage; `olf project image -f` builds and
+  pushes the project-code image, `olf project build --project --image`
+  publishes one revision, `olf project deploy -f --stage --revision`
+  activates that exact revision in a stage, idempotently, and `olf project
+  status -f [--stage]` reports it (#115).
 - Isolated Dagster per stage, with recurring product schedules only in PROD
   and created stopped (#134); deterministic DEV Bronze seeded from project
   CSV fixtures (#116); stage-aware Superset report export and import, with
@@ -95,7 +97,7 @@ unchanged from DEV to PROD without copying data or runtime state.
   profile-driven command already accepts. It names the profile the deployment
   was applied from, so validation resolves the topology the v3 contract
   recorded instead of re-resolving the project root. The nightly local e2e,
-  the `local-e2e` Make delegate, and the documented local workflow now derive
+  and the documented local workflow now derive
   their topology from one profile file on both the deploy and the validate
   side; the documented `olf deploy --profile slim|full` steps drop the
   deprecated shorthand, whose `legacy` topology no profile file can name. The
@@ -109,9 +111,8 @@ unchanged from DEV to PROD without copying data or runtime state.
   chart owns (SeaweedFS' ClusterRole among them), which a new release in
   another namespace cannot adopt; the `--namespace` option now only
   overrides the stage namespace on the cloud POC roots (it is rejected for
-  local, where namespaces are derived), and
-  the `aws-poc`/`azure-poc` roots keep their single `lakehouse` namespace
-  until #114 (#133).
+  local, where namespaces are derived). The `aws-poc` and `azure-poc` roots
+  use the same `olf-system` and `olf-<stage>` namespaces (#133, #114).
 - The `azure-poc` root's PostgreSQL databases moved to the same typed
   `databases` list the local root uses. Their names, users, and Secret names
   are unchanged, but the Terraform addresses are keyed now, so an
@@ -153,23 +154,46 @@ unchanged from DEV to PROD without copying data or runtime state.
 ### Migration notes
 
 - There is no in-place upgrade from 0.2. Destroy the 0.2 deployment
-  (`olf destroy --provider local`, or the POC equivalent), then deploy with
-  the profile-driven lifecycle from the project directory:
+  (`olf destroy --provider local`, or the POC equivalent). A 0.2 project has
+  no Deployment Profile, and `olf init` refuses to run over an existing
+  `lakehouse_code/`, so add `openlakeforge.yaml` next to it by hand (drop
+  `prod` for a DEV-only deployment):
+
+  ```yaml
+  apiVersion: openlakeforge.io/v1alpha1
+  kind: DeploymentProfile
+  metadata:
+    name: my-lakehouse
+  spec:
+    provider:
+      type: local
+    preset: slim
+    stages:
+      dev:
+        enabled: true
+      prod:
+        enabled: true
+  ```
+
+  Then deploy with the profile-driven lifecycle from the project directory:
 
   ```bash
   olf platform apply -f openlakeforge.yaml
   image="$(olf project image -f openlakeforge.yaml | tail -n 1)"   # digest-pinned reference
   revision="$(olf project build --project . --image "$image" | tail -n 1)"
   olf project deploy -f openlakeforge.yaml --stage dev --revision "$revision"
-  olf project deploy -f openlakeforge.yaml --stage prod --revision "$revision"   # promotion, no rebuild
+  olf project deploy -f openlakeforge.yaml --stage prod --revision "$revision"   # promotion, if prod is enabled
   ```
 
   Set `PROJECT_CODE_IMAGE_REPOSITORY` to a registry you can push to first.
   The namespaces, Terraform addresses and OpenMetadata service type all
   changed, and OpenMetadata metadata from 0.2 is not carried over.
-- A project needs an `openlakeforge.yaml` Deployment Profile; `olf init`
-  writes one. `--profile slim|full` still works as a deprecated single-DEV
-  shorthand.
+- A project needs an `openlakeforge.yaml` Deployment Profile (`olf init`
+  writes one for a new project). `--profile slim|full` still works as a
+  deprecated single-DEV shorthand.
+- The `Makefile` is gone (#212, ADR 0008). Every former target has an `olf`
+  command: `olf deploy`/`destroy`, `olf platform apply`, `olf e2e run`,
+  `olf check all`, `olf forward`.
 - `olf revision ...` is now `olf floe revision ...`, and `olf e2e run` takes
   `-f` with the profile the platform was applied from.
 - Promotion needs a container registry: the project-code image is
