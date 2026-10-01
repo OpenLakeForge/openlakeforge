@@ -78,8 +78,10 @@ normalised to a label value), and validates it with the profile parser before
 writing anything. `--profile-only` writes only that profile, into a project
 that already has `lakehouse_code/`, and needs neither the toolchain nor Docker.
 
-It stages into a sibling directory and renames atomically, and refuses to
-overwrite either existing project path. It never installs Docker or uses Git.
+A full initialization stages into a sibling directory and renames into place,
+and refuses to overwrite either existing project path; `--profile-only` creates
+`openlakeforge.yaml` directly with an exclusive create, refusing an existing
+one. It never installs Docker or uses Git.
 Within the project directory it touches only `openlakeforge.yaml` and
 `lakehouse_code/`; the toolchain and payload verification steps write outside
 it, to the shared, immutable `OLF_HOME` (ADR 0008) — never to the project
