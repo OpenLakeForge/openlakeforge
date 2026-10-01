@@ -45,11 +45,15 @@ resolves a lineage dataset by `<service>.<database>.<schema>.<table>`, so a
 stage's edges land on its own `lakehouse_<stage>` tables even though schema and
 table names are identical across stages; 1.12 matched on schema and table
 alone, and could attach one stage's lineage to another's. Each stage emits
-under its own `dagster_<stage>` namespace. OpenMetadata's lineage settings name
-one default pipeline service, the canonical stage's, so auto-created pipelines
-all live there, distinguished by that prefix (`dagster_prod-<job>`). The
-nightly asserts that each stage's Gold lineage exists and never reaches another
-stage's database. The local root registers every
+under its own `dagster_<stage>` namespace. Exact resolution needs the stage's
+tables registered before its lineage arrives: `olf openmetadata
+deploy-metadata` seeds them at activation, and the crawl never deletes tables,
+so a crawl before the stage's first run cannot retire them (a missing table
+would fall back to the schema-and-table match). Pipeline entities are not
+created: OpenMetadata 1.13.6 fails to auto-create OpenLineage pipelines (an
+upstream bug), so the edges are recorded without a pipeline reference, and
+nothing may rely on pipeline entities. The nightly asserts that each stage's
+Gold lineage exists and never reaches another stage's database. The local root registers every
 governed stage; the AWS and Azure roots still register one until their
 adapters follow (#131).
 
@@ -126,3 +130,6 @@ OpenMetadata auto-creates lineage entities, and OpenMetadata moves to 1.13.6
 for database-qualified dataset resolution. 1.13 has no Iceberg connector, so
 the lakehouse service crawls through Trino, which also crawls every governed
 stage instead of only the canonical one.
+
+2026-10-01 (#131, #257): table stubs survive the crawl, and lineage pipeline
+entities are recorded as not created on OpenMetadata 1.13.6.
