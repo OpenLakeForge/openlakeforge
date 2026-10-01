@@ -144,6 +144,10 @@ class ProjectInitializer:
         if profile_only:
             # An existing project (a 0.2 one, say) gains only its profile: no
             # code is copied, so neither the toolchain nor Docker is needed.
+            if not (target / "lakehouse.yaml").is_file():
+                raise InitializationError(
+                    f"--profile-only needs an existing project: {target / 'lakehouse.yaml'} not found"
+                )
             self._write_profile(layout, profile_target, profile)
             return InitializationResult(
                 project_root=layout.project_root, lakehouse_root=target, empty=False, profile_only=True

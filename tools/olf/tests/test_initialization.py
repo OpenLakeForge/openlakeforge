@@ -202,6 +202,15 @@ def test_profile_only_adds_a_profile_to_an_existing_project_without_tools(tmp_pa
         _initializer(layout, manager).initialize(profile_only=True)
 
 
+def test_profile_only_refuses_a_directory_that_is_not_a_project(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+
+    with pytest.raises(InitializationError, match="needs an existing project"):
+        _initializer(layout).initialize(profile_only=True)
+
+    assert list(layout.project_root.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     ("directory", "expected"),
     [("My Lakehouse", "my-lakehouse"), ("2026_sales--data_", "sales-data"), ("___", "openlakeforge")],
