@@ -148,7 +148,7 @@ class ProjectInitializer:
                 raise InitializationError(
                     f"--profile-only needs an existing project: {target / 'lakehouse.yaml'} not found"
                 )
-            self._write_profile(layout, profile_target, profile)
+            _write_profile(profile_target, profile)
             return InitializationResult(
                 project_root=layout.project_root, lakehouse_root=target, empty=False, profile_only=True
             )
@@ -156,16 +156,6 @@ class ProjectInitializer:
         self._verify_docker(tools, env)
         self._create_project(layout, target, profile_target, profile, empty=empty)
         return InitializationResult(project_root=layout.project_root, lakehouse_root=target, empty=empty)
-
-    def _write_profile(self, layout: RuntimeLayout, profile_target: Path, profile: str) -> None:
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w", dir=layout.project_root, prefix=".olf-init-", suffix=".yaml", delete=False, encoding="utf-8"
-            ) as staged:
-                staged.write(profile)
-            os.replace(staged.name, profile_target)
-        except OSError as exc:
-            raise InitializationError(f"could not write {profile_target}: {exc}") from exc
 
     def _prepare_toolchain(self, layout: RuntimeLayout, env: Mapping[str, str]) -> Toolkit:
         mode = env.get("OLF_TOOLCHAIN_MODE", "managed")
@@ -249,6 +239,18 @@ class ProjectInitializer:
                 _widen(Path(dirpath, name), stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
             for name in filenames:
                 _widen(Path(dirpath, name), stat.S_IRUSR | stat.S_IWUSR)
+
+
+def _write_profile(profile_target: Path, profile: str) -> None:
+    """Create the profile, never overwriting one; a failed write leaves nothing."""
+    try:
+        with profile_target.open("x", encoding="utf-8") as handle:
+            handle.write(profile)
+    except FileExistsError as exc:
+        raise InitializationError(f"refusing to overwrite existing project path: {profile_target}") from exc
+    except OSError as exc:
+        profile_target.unlink(missing_ok=True)
+        raise InitializationError(f"could not write {profile_target}: {exc}") from exc
 
 
 def _widen(path: Path, bits: int) -> None:
