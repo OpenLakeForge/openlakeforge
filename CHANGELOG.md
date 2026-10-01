@@ -33,7 +33,8 @@ unchanged from DEV to PROD without copying data or runtime state.
 - Provider contract v3 and stage data-plane isolation: every stage has its
   own Bronze/Silver/Gold buckets, `lakehouse_<stage>` catalog, Trino catalog
   and runtime identity, and DEV-generated configuration cannot reach PROD
-  objects (or the reverse) on local, Azure and AWS (#153, #114, ADR 0003).
+  objects (or the reverse); verified at runtime on local and by plan on the
+  cloud roots (#153, #114, ADR 0003).
 - The profile-driven lifecycle: `olf platform plan|apply -f` deploys the
   static platform for every enabled stage; `olf project image -f` builds and
   pushes the project-code image, `olf project build --project --image`
@@ -109,10 +110,10 @@ unchanged from DEV to PROD without copying data or runtime state.
   local deployment means `olf destroy --provider local` followed by a fresh
   deploy -- destroying first is what releases the cluster-scoped objects a
   chart owns (SeaweedFS' ClusterRole among them), which a new release in
-  another namespace cannot adopt; the `--namespace` option now only
-  overrides the stage namespace on the cloud POC roots (it is rejected for
-  local, where namespaces are derived). The `aws-poc` and `azure-poc` roots
-  use the same `olf-system` and `olf-<stage>` namespaces (#133, #114).
+  another namespace cannot adopt. Namespaces are derived from the profile
+  on every provider (`--namespace` is rejected), and the `aws-poc` and
+  `azure-poc` roots use the same `olf-system` and `olf-<stage>` namespaces
+  (#133, #114).
 - The `azure-poc` root's PostgreSQL databases moved to the same typed
   `databases` list the local root uses. Their names, users, and Secret names
   are unchanged, but the Terraform addresses are keyed now, so an
@@ -175,9 +176,12 @@ unchanged from DEV to PROD without copying data or runtime state.
         enabled: true
   ```
 
-  On the AWS or Azure POC, set `provider.type` to `aws` or `azure` and add
-  its `provider.region`. Then deploy with the profile-driven lifecycle from
-  the project directory:
+  Keep the preset you deployed with: use `preset: full` if you ran 0.2 with
+  `--profile full`, or Superset and OpenMetadata are left out. On the AWS or
+  Azure POC, set `provider.type` to `aws` or `azure` and add its
+  `provider.region`; on Azure, keep your foundation tfvars available
+  (`--var-file` on `olf platform apply`, or `AZURE_TFVARS_FILE`). Then deploy
+  with the profile-driven lifecycle from the project directory:
 
   ```bash
   olf platform apply -f openlakeforge.yaml
@@ -213,6 +217,8 @@ unchanged from DEV to PROD without copying data or runtime state.
   (an upstream bug); lineage edges are still recorded.
 - Optional UAT is supported by the profile and resolves to its own
   identities, but the nightly exercises DEV and PROD only (#251).
+- The Azure and AWS roots are verified by `terraform validate`/plan only;
+  stage isolation on live AKS and EKS is still to be proven.
 - Multi-stage governance is local-only: the AWS and Azure roots accept at
   most one governed stage. AWS OpenMetadata entity resolution is still to be
   proven, as part of the AWS reference-profile beta gate.
