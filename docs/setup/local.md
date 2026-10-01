@@ -86,6 +86,11 @@ resulting project boundary with `olf project validate --project .`. Set
 `OLF_TOOLCHAIN_MODE=host` to use your own host-installed Terraform, Helm,
 kubectl, and kind instead of the managed toolchain.
 
+`olf init` writes a DEV-only Slim `openlakeforge.yaml` named after the
+project directory; `--stages dev,prod` (or `dev,uat,prod`), `--preset full`
+and `--name` choose others, and `olf init --profile-only` adds just the
+profile to an existing project, such as one created by 0.2.
+
 `olf init --empty` creates a transitional project with no source, domain, or
 product. Scaffold its first source and product before deploying:
 

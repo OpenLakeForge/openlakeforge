@@ -16,7 +16,7 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 | Command | Purpose |
 | --- | --- |
-| `olf init [--empty]` | Create a writable `lakehouse_code/` project in the current directory from the packaged demo, or an empty transitional project. |
+| `olf init [--empty] [--stages dev,prod] [--preset slim\|full] [--name N] [--profile-only]` | Create a writable `lakehouse_code/` project and its Deployment Profile in the current directory from the packaged demo, or an empty transitional project; `--profile-only` writes only `openlakeforge.yaml` into an existing project. |
 | `olf doctor --provider P [--phase PHASE]` / `olf plan --provider P [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options; provisions the managed toolchain as a side effect. |
 | `olf deploy\|destroy\|status\|forward --provider P` | Orchestrate a provider lifecycle without shell wrappers. |
 | `olf auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0008). |
