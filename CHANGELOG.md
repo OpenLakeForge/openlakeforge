@@ -46,9 +46,9 @@ unchanged from DEV to PROD without copying data or runtime state.
   report bundles carried in the immutable revision (#130).
 - One shared OpenMetadata with stage-qualified roots
   (`<service>.lakehouse_<stage>`, `dagster_<stage>`, `superset_<stage>`) and
-  stage-scoped reconciliation (#131, #211, #237). Every governed stage emits
-  its own OpenLineage under its own namespace, and its lineage resolves only
-  to its own tables (#252, #257).
+  stage-scoped reconciliation (#131, #211, #237). On the local provider every
+  governed stage emits its own OpenLineage under its own namespace, and its
+  lineage resolves only to its own tables (#252, #257).
 - `olf platform contract -f` exports the applied provider contract, and
   `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE` points `olf project build`,
   `deploy` and `status` at that copy instead of the platform's Terraform
@@ -175,7 +175,9 @@ unchanged from DEV to PROD without copying data or runtime state.
         enabled: true
   ```
 
-  Then deploy with the profile-driven lifecycle from the project directory:
+  On the AWS or Azure POC, set `provider.type` to `aws` or `azure` and add
+  its `provider.region`. Then deploy with the profile-driven lifecycle from
+  the project directory:
 
   ```bash
   olf platform apply -f openlakeforge.yaml
@@ -211,9 +213,9 @@ unchanged from DEV to PROD without copying data or runtime state.
   (an upstream bug); lineage edges are still recorded.
 - Optional UAT is supported by the profile and resolves to its own
   identities, but the nightly exercises DEV and PROD only (#251).
-- AWS OpenMetadata is not validated: the AWS root registers one governed
-  stage and its entity resolution is still to be proven, as part of the AWS
-  reference-profile beta gate.
+- Multi-stage governance is local-only: the AWS and Azure roots accept at
+  most one governed stage. AWS OpenMetadata entity resolution is still to be
+  proven, as part of the AWS reference-profile beta gate.
 - Personal workspaces and local DuckDB execution are post-beta work.
 
 ## [0.2.0-alpha.1] - 2026-08-26
