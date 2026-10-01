@@ -52,7 +52,9 @@ _EMPTY_FILES = (
 
 
 _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project deploys and their
-# capabilities. For AWS or Azure, set provider.type and provider.region.
+# capabilities. For AWS, set provider.type: aws and provider.region; for Azure,
+# set provider.type: azure (its region comes from the foundation tfvars,
+# AZURE_TFVARS_FILE).
 # Check it with: olf profile validate --project .
 """
 
