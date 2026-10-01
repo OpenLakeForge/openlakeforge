@@ -33,8 +33,8 @@ unchanged from DEV to PROD without copying data or runtime state.
 - Provider contract v3 and stage data-plane isolation: every stage has its
   own Bronze/Silver/Gold buckets, `lakehouse_<stage>` catalog, Trino catalog
   and runtime identity, and DEV-generated configuration cannot reach PROD
-  objects (or the reverse); verified at runtime on local and by plan on the
-  cloud roots (#153, #114, ADR 0003).
+  objects (or the reverse); multi-stage isolation is verified at runtime on
+  local (#153, #114, ADR 0003).
 - The profile-driven lifecycle: `olf platform plan|apply -f` deploys the
   static platform for every enabled stage; `olf project image -f` builds and
   pushes the project-code image, `olf project build --project --image`
@@ -50,6 +50,9 @@ unchanged from DEV to PROD without copying data or runtime state.
   stage-scoped reconciliation (#131, #211, #237). On the local provider every
   governed stage emits its own OpenLineage under its own namespace, and its
   lineage resolves only to its own tables (#252, #257).
+- `olf init` renders the project's Deployment Profile from `--stages`
+  (DEV by default), `--preset` and `--name`, validated before it is written,
+  and `olf init --profile-only` adds one to an existing project (#259).
 - `olf platform contract -f` exports the applied provider contract, and
   `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE` points `olf project build`,
   `deploy` and `status` at that copy instead of the platform's Terraform
@@ -155,33 +158,22 @@ unchanged from DEV to PROD without copying data or runtime state.
 ### Migration notes
 
 - There is no in-place upgrade from 0.2. Destroy the 0.2 deployment
-  (`olf destroy --provider local`, or the POC equivalent). A 0.2 project has
-  no Deployment Profile, and `olf init` refuses to run over an existing
-  `lakehouse_code/`, so add `openlakeforge.yaml` next to it by hand (drop
-  `prod` for a DEV-only deployment):
+  (`olf destroy --provider local`, or the POC equivalent), then give the
+  existing project its Deployment Profile with `olf init --profile-only`.
+  Keep the preset you deployed with (`--preset full` if you ran 0.2 with
+  `--profile full`, or Superset and OpenMetadata are left out), and choose
+  the stages:
 
-  ```yaml
-  apiVersion: openlakeforge.io/v1alpha1
-  kind: DeploymentProfile
-  metadata:
-    name: my-lakehouse
-  spec:
-    provider:
-      type: local
-    preset: slim
-    stages:
-      dev:
-        enabled: true
-      prod:
-        enabled: true
+  ```bash
+  olf init --profile-only --stages dev,prod --preset full   # or --stages dev
   ```
 
-  Keep the preset you deployed with: use `preset: full` if you ran 0.2 with
-  `--profile full`, or Superset and OpenMetadata are left out. On the AWS or
-  Azure POC, set `provider.type` to `aws` or `azure` and add its
-  `provider.region`; on Azure, keep your foundation tfvars available
-  (`--var-file` on `olf platform apply`, or `AZURE_TFVARS_FILE`). Then deploy
-  with the profile-driven lifecycle from the project directory:
+  The profile targets the local provider. On the AWS POC, set
+  `provider.type: aws` and `provider.region`; on the Azure POC, set
+  `provider.type: azure` and keep your foundation tfvars available
+  (`--var-file` on `olf platform apply`, or `AZURE_TFVARS_FILE`), which is
+  where Azure takes its region from. Then deploy with the profile-driven
+  lifecycle from the project directory:
 
   ```bash
   olf platform apply -f openlakeforge.yaml
@@ -191,12 +183,15 @@ unchanged from DEV to PROD without copying data or runtime state.
   olf project deploy -f openlakeforge.yaml --stage prod --revision "$revision"   # promotion, if prod is enabled
   ```
 
-  Set `PROJECT_CODE_IMAGE_REPOSITORY` to a registry you can push to first.
-  The namespaces, Terraform addresses and OpenMetadata service type all
-  changed, and OpenMetadata metadata from 0.2 is not carried over.
-- A project needs an `openlakeforge.yaml` Deployment Profile (`olf init`
-  writes one for a new project). `--profile slim|full` still works as a
-  deprecated single-DEV shorthand.
+  Locally, set `PROJECT_CODE_IMAGE_REPOSITORY` to a registry you can push to
+  first; the AWS and Azure POCs push to their foundation's ECR/ACR
+  repository by default. The namespaces, Terraform addresses and
+  OpenMetadata service type all changed, and OpenMetadata metadata from 0.2
+  is not carried over.
+- A project needs an `openlakeforge.yaml` Deployment Profile: `olf init`
+  writes one for a new project and `olf init --profile-only` for an existing
+  one. `--profile slim|full` still works as a deprecated single-DEV
+  shorthand.
 - The `Makefile` is gone (#212, ADR 0008). Every former target has an `olf`
   command: `olf deploy`/`destroy`, `olf platform apply`, `olf e2e run`,
   `olf check all`, `olf forward`.
@@ -217,8 +212,9 @@ unchanged from DEV to PROD without copying data or runtime state.
   (an upstream bug); lineage edges are still recorded.
 - Optional UAT is supported by the profile and resolves to its own
   identities, but the nightly exercises DEV and PROD only (#251).
-- The Azure and AWS roots are verified by `terraform validate`/plan only;
-  stage isolation on live AKS and EKS is still to be proven.
+- The Azure root is verified by `terraform validate`/plan only. The AWS root
+  has a live deploy and full e2e run behind it, but multi-stage isolation on
+  live AKS and EKS is still to be proven.
 - Multi-stage governance is local-only: the AWS and Azure roots accept at
   most one governed stage. AWS OpenMetadata entity resolution is still to be
   proven, as part of the AWS reference-profile beta gate.
