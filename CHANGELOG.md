@@ -14,8 +14,51 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.3.0-alpha.1] - 2026-10-01
+
+The deployment profiles, stages and promotion release (Milestone 3): one
+Deployment Profile describes shared DEV, optional UAT and PROD stages on one
+cluster, each stage gets its own storage, catalog, query access, Dagster and
+Superset, and one immutable project revision is built once and promoted
+unchanged from DEV to PROD without copying data or runtime state.
+
 ### Added
 
+- Deployment Profile v1: the project-root `openlakeforge.yaml` declares the
+  provider, preset, and the enabled stages with their analytics/governance
+  capabilities; `olf profile validate` and `olf profile resolve --json`
+  expose the resolved topology, and unknown fields or versions fail closed
+  (#113, ADR 0011).
+- Provider contract v3 and stage data-plane isolation: every stage has its
+  own Bronze/Silver/Gold buckets, `lakehouse_<stage>` catalog, Trino catalog
+  and runtime identity, and DEV-generated configuration cannot reach PROD
+  objects (or the reverse) on local, Azure and AWS (#153, #114, ADR 0003).
+- The profile-driven lifecycle: `olf platform plan|apply -f` deploys the
+  static platform for every enabled stage, and `olf project image|build|
+  deploy|status -f --stage` builds one revision and activates that exact
+  revision per stage, idempotently (#115).
+- Isolated Dagster per stage, with recurring product schedules only in PROD
+  and created stopped (#134); deterministic DEV Bronze seeded from project
+  CSV fixtures (#116); stage-aware Superset report export and import, with
+  report bundles carried in the immutable revision (#130).
+- One shared OpenMetadata with stage-qualified roots
+  (`<service>.lakehouse_<stage>`, `dagster_<stage>`, `superset_<stage>`) and
+  stage-scoped reconciliation (#131, #211, #237). Every governed stage emits
+  its own OpenLineage under its own namespace, and its lineage resolves only
+  to its own tables (#252, #257).
+- `olf platform contract -f` exports the applied provider contract, and
+  `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE` points `olf project build`,
+  `deploy` and `status` at that copy instead of the platform's Terraform
+  state (#253).
+- Reference CI/CD: the `build-revision` and `deploy-stage` composite actions
+  and a documented promotion workflow through DEV, optional UAT and PROD
+  (`docs/reference/ci-cd.md`) (#254, #119).
+- A multi-stage nightly conformance gate: from an `olf init` project on the
+  freshly built wheel, it applies a full DEV+PROD profile, promotes one
+  revision, and asserts cross-stage isolation, disjoint Dagster run state,
+  no data copied by promotion, stage-qualified OpenMetadata roots, per-stage
+  lineage, and that removing a stage needs `--allow-stage-removal` (#155,
+  #208, #232, #242, #244, #245, #247, #255).
 - The local platform Terraform root is stage-aware: it takes the resolved
   `DeploymentTopology` as typed inputs and provisions one shared `olf-system`
   namespace plus one `olf-<stage>` namespace, runtime service account, and
@@ -42,6 +85,11 @@ for how a release is cut and verified.
 
 ### Changed
 
+- OpenMetadata moves from 1.12.10 to 1.13.6. 1.13 removed its Iceberg
+  connector, so the lakehouse database service (still named `polaris`, or
+  `aws_glue` on AWS) is now a Trino service, crawled as a read-only
+  `openmetadata` Trino user across every governed stage's catalog; the
+  Polaris OAuth token workaround is gone (#252).
 - `olf e2e run` takes `-f/--file`, the Deployment Profile path every other
   profile-driven command already accepts. It names the profile the deployment
   was applied from, so validation resolves the topology the v3 contract
@@ -100,6 +148,36 @@ for how a release is cut and verified.
   `OPENLAKEFORGE_FLOE_MANIFEST_REVISION` over the value baked into the
   project-code image at build time, so one image digest no longer requires
   a rebuild per Floe revision (#154).
+
+### Migration notes
+
+- There is no in-place upgrade from 0.2. Destroy the 0.2 deployment
+  (`olf destroy --provider local`, or the POC equivalent), then deploy with
+  the profile-driven lifecycle: `olf platform apply -f openlakeforge.yaml`,
+  then `olf project image`, `olf project build` and `olf project deploy
+  --stage dev`. The namespaces, Terraform addresses and OpenMetadata service
+  type all changed, and OpenMetadata metadata from 0.2 is not carried over.
+- A project needs an `openlakeforge.yaml` Deployment Profile; `olf init`
+  writes one. `--profile slim|full` still works as a deprecated single-DEV
+  shorthand.
+- `olf revision ...` is now `olf floe revision ...`, and `olf e2e run` takes
+  `-f` with the profile the platform was applied from.
+- Promotion needs a container registry: the project-code image is
+  identified by a pullable digest (see `docs/setup/local.md`, "Promote a
+  project revision between stages").
+
+### Known limitations
+
+- On AWS and Azure, CI jobs still need the foundation's Terraform state;
+  the contract file covers only the platform contract until remote state
+  (#132). `olf e2e run` still reads Dagster names from the platform state,
+  and `olf project deploy` cannot yet pull a revision image from a private
+  registry (#256).
+- OpenMetadata 1.13.6 fails to auto-create OpenLineage pipeline entities
+  (an upstream bug); lineage edges are still recorded.
+- Optional UAT is supported by the profile and resolves to its own
+  identities, but the nightly exercises DEV and PROD only (#251).
+- AWS OpenMetadata registration and personal workspaces are post-beta work.
 
 ## [0.2.0-alpha.1] - 2026-08-26
 
