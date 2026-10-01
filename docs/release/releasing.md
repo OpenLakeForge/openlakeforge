@@ -186,27 +186,43 @@ signatures.
 
 ## Release evidence
 
-`v0.1.0-alpha.1` has been published. This section records what actually ran, so
-the pipeline described above is documented as exercised rather than intended.
+This section records what actually ran for each published release, so the
+pipeline described above is documented as exercised rather than intended.
+
+### `v0.3.0-alpha.1` (2026-10-01)
+
+| Item | Evidence |
+| --- | --- |
+| Dry run | Run `36884732828`, `workflow_dispatch` on `main` with `dry_run: true`, concluded `success` before the tag was pushed |
+| Release workflow | Run `36885204867`, `event=push`, `ref=v0.3.0-alpha.1` (commit `c475bcc`). Attempt 1 built, signed and attested both images but failed the two PyPI jobs with `invalid-publisher`: the trusted publishers were still registered for `malon64/openlakeforge` after the move to the `OpenLakeForge` organization. After re-registering them for `OpenLakeForge/openlakeforge` (environments `pypi-domain-model` and `pypi-openlakeforge`), attempt 2 concluded `success` |
+| Published release | `v0.3.0-alpha.1`, not a draft, marked pre-release |
+| PyPI | `openlakeforge` and `openlakeforge-domain-model` `0.3.0a1`, wheel and sdist each |
+| Release assets | `CHANGELOG.md`, `checksums.txt`, `checksums.txt.bundle`, `compatibility-matrix.md`, `component-catalog.yaml`, `component-manifest.json`, `project-code.spdx.json`, `superset.spdx.json`, and both packages' wheels and sdists |
+| Static gates | Required checks on every pull request and in the merge queue (`merge_group`) |
+| Runtime gates | The multi-stage nightly, from an `olf init` project on the built wheel, and a manual DEV+PROD review on `main` (#111) |
+
+A second `workflow_dispatch` with `dry_run: false` on the tag (run
+`36889916517`) correctly stopped at the create-only check, because the release
+already existed.
+
+### `v0.1.0-alpha.1` (2026-08-10)
 
 | Item | Evidence |
 | --- | --- |
 | Release workflow | Run `31401253176`, `event=push`, `ref=v0.1.0-alpha.1`, concluded `success` on 2026-08-10 |
 | Published release | `v0.1.0-alpha.1`, not a draft, marked pre-release, published 2026-08-10 |
 | Release assets | `CHANGELOG.md`, `checksums.txt`, `checksums.txt.bundle`, `compatibility-matrix.md`, `component-catalog.yaml`, `component-manifest.json`, `project-code.spdx.json`, `superset.spdx.json` |
-| Static gates | `olf check all` runs as a job on every pull request. `main` is unprotected, so it is not merge-blocking yet (#37) |
+| Static gates | `olf check all` ran as a job on every pull request; `main` was not yet protected (#37) |
 
 Because the tag-triggered run is the one that builds, pushes, signs, and attests
-the images, a failure in that stage would have failed the run; the successful
-conclusion above is the evidence for image publication and signing. To confirm
+the images, a failure in that stage would have failed the run; a successful
+conclusion is the evidence for image publication and signing. To confirm
 independently, run the consumer verification commands in the section above, or
-`uv run --project tools/olf --locked olf release verify-install --tag
-v0.1.0-alpha.1 --pull-images`.
+`uv run --project tools/olf --locked olf release verify-install --tag <tag>
+--pull-images`.
 
 Verification that is still outstanding, and should be recorded here when it
 runs:
 
-- An end-to-end execution of `olf release verify-install` against the published
+- An end-to-end execution of `olf release verify-install` against a published
   tag by someone other than the release author.
-- A `workflow_dispatch` dry run ahead of the next tag, to exercise the dry-run
-  path itself.
