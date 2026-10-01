@@ -70,9 +70,13 @@ and the descriptor is not.
 ### `olf init` makes a directory into a project
 
 It verifies the payload, provisions or reuses the pinned toolchain, checks
-Docker, and copies the packaged demo `lakehouse_code/` and
-`openlakeforge.yaml` into the current directory — or writes a transitional
-skeleton with the same profile under `--empty` (ADR 0005).
+Docker, and copies the packaged demo `lakehouse_code/` into the current
+directory — or writes a transitional skeleton under `--empty` (ADR 0005). It
+renders `openlakeforge.yaml` from the requested stages (`--stages`, DEV by
+default), preset (`--preset`, Slim by default) and name (the directory's,
+normalised to a label value), and validates it with the profile parser before
+writing anything. `--profile-only` writes only that profile, into a project
+that already has `lakehouse_code/`, and needs neither the toolchain nor Docker.
 
 It stages into a sibling directory and renames atomically, and refuses to
 overwrite either existing project path. It never installs Docker or uses Git.
@@ -89,8 +93,8 @@ The supported consumer path is:
 ```text
 mkdir my-lakehouse && cd my-lakehouse
 pip install openlakeforge
-olf init
-olf deploy --provider local --profile slim
+olf init                       # or: olf init --stages dev,prod
+olf platform apply -f openlakeforge.yaml
 ```
 
 No subsequent command needs `--project-root .`.
@@ -106,3 +110,8 @@ rule is recorded in ADR 0005 alongside the descriptor model it waives.
 Updated for the v0.3 external project contract: `ProjectSpec` makes the
 project/distribution split explicit, and `openlakeforge.yaml` is the required
 project-root Deployment Profile, parsed and resolved per ADR 0011.
+
+2026-10-01: `olf init` renders and validates the Deployment Profile from
+`--stages`, `--preset` and `--name` instead of copying a fixed one, and
+`--profile-only` gives an existing project its profile. The consumer path ends
+with `olf platform apply -f`.

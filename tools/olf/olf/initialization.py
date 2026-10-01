@@ -3,17 +3,28 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError, ExecutableNotFoundError
 from olf.deployment.inspection import docker_health
 from olf.distribution import DistributionError, RuntimeLayout, runtime_layout
+from olf.profile import (
+    PROFILE_API_VERSION,
+    PROFILE_KIND,
+    DeploymentProfileError,
+    Preset,
+    StageName,
+    validate_deployment_profile,
+)
 from olf.toolchain.manager import ToolchainManager
 from olf.toolchain.spec import MANAGED_TOOLS
 
@@ -40,8 +51,42 @@ _EMPTY_FILES = (
 )
 
 
+_PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project deploys and their
+# capabilities. For AWS or Azure, set provider.type and provider.region.
+# Check it with: olf profile validate --project .
+"""
+
+
 class InitializationError(RuntimeError):
     """`olf init` could not safely create a project."""
+
+
+def default_profile_name(project_root: Path) -> str:
+    """The project directory's name as a profile name, which must be a valid
+    Kubernetes label value (it labels every namespace the deployment owns)."""
+    name = re.sub(r"[^a-z0-9-]+", "-", project_root.name.lower())
+    name = re.sub(r"-{2,}", "-", name).lstrip("-0123456789")[:63].rstrip("-")
+    return name or "openlakeforge"
+
+
+def render_profile(*, name: str, stages: Sequence[StageName], preset: Preset) -> str:
+    """A local Deployment Profile enabling `stages`, validated by the same
+    parser `olf profile validate` uses before anything is written."""
+    document = {
+        "apiVersion": PROFILE_API_VERSION,
+        "kind": PROFILE_KIND,
+        "metadata": {"name": name},
+        "spec": {
+            "provider": {"type": "local"},
+            "preset": preset.value,
+            "stages": {stage.value: {"enabled": True} for stage in StageName if stage in stages},
+        },
+    }
+    try:
+        validate_deployment_profile(document)
+    except DeploymentProfileError as exc:
+        raise InitializationError(str(exc)) from exc
+    return _PROFILE_HEADER + yaml.safe_dump(document, sort_keys=False)
 
 
 @dataclass(frozen=True)
@@ -49,11 +94,12 @@ class InitializationResult:
     project_root: Path
     lakehouse_root: Path
     empty: bool
+    profile_only: bool = False
 
     @property
     def next_command(self) -> str:
         if not self.empty:
-            return "olf deploy --provider local --profile slim"
+            return "olf platform apply -f openlakeforge.yaml"
         return (
             "olf source new <source> --resource <resource>, then olf product new "
             "<domain>/<product> --input <source>/<resource> --gold-table <table>"
@@ -68,7 +114,16 @@ class ProjectInitializer:
     manager_factory: Callable[[Path], ToolchainManager] = ToolchainManager.from_catalog_path
     toolkit_factory: Callable[..., Toolkit] = Toolkit.default
 
-    def initialize(self, *, empty: bool = False, environ: Mapping[str, str] | None = None) -> InitializationResult:
+    def initialize(
+        self,
+        *,
+        empty: bool = False,
+        stages: Sequence[StageName] = (StageName.DEV,),
+        preset: Preset = Preset.SLIM,
+        name: str = "",
+        profile_only: bool = False,
+        environ: Mapping[str, str] | None = None,
+    ) -> InitializationResult:
         env = dict(environ if environ is not None else os.environ)
         try:
             layout = self.layout_resolver(env)
@@ -77,16 +132,34 @@ class ProjectInitializer:
 
         target = layout.project_root / "lakehouse_code"
         profile_target = layout.project_root / "openlakeforge.yaml"
-        for path in (profile_target, target):
+        profile = render_profile(name=name or default_profile_name(layout.project_root), stages=stages, preset=preset)
+        for path in (profile_target,) if profile_only else (profile_target, target):
             if path.exists():
                 raise InitializationError(f"refusing to overwrite existing project path: {path}")
         if not layout.project_root.is_dir():
             raise InitializationError(f"project root is not a directory: {layout.project_root}")
 
+        if profile_only:
+            # An existing project (a 0.2 one, say) gains only its profile: no
+            # code is copied, so neither the toolchain nor Docker is needed.
+            self._write_profile(layout, profile_target, profile)
+            return InitializationResult(
+                project_root=layout.project_root, lakehouse_root=target, empty=False, profile_only=True
+            )
         tools = self._prepare_toolchain(layout, env)
         self._verify_docker(tools, env)
-        self._create_project(layout, target, profile_target, empty=empty)
+        self._create_project(layout, target, profile_target, profile, empty=empty)
         return InitializationResult(project_root=layout.project_root, lakehouse_root=target, empty=empty)
+
+    def _write_profile(self, layout: RuntimeLayout, profile_target: Path, profile: str) -> None:
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", dir=layout.project_root, prefix=".olf-init-", suffix=".yaml", delete=False, encoding="utf-8"
+            ) as staged:
+                staged.write(profile)
+            os.replace(staged.name, profile_target)
+        except OSError as exc:
+            raise InitializationError(f"could not write {profile_target}: {exc}") from exc
 
     def _prepare_toolchain(self, layout: RuntimeLayout, env: Mapping[str, str]) -> Toolkit:
         mode = env.get("OLF_TOOLCHAIN_MODE", "managed")
@@ -116,7 +189,9 @@ class ProjectInitializer:
         if not health.ok:
             raise InitializationError(f"Docker engine is not reachable: {health.detail}")
 
-    def _create_project(self, layout: RuntimeLayout, target: Path, profile_target: Path, *, empty: bool) -> None:
+    def _create_project(
+        self, layout: RuntimeLayout, target: Path, profile_target: Path, profile: str, *, empty: bool
+    ) -> None:
         staging_parent = Path(tempfile.mkdtemp(prefix=".olf-init-", dir=layout.project_root))
         staging = staging_parent / "lakehouse_code"
         profile_staging = staging_parent / "openlakeforge.yaml"
@@ -128,10 +203,7 @@ class ProjectInitializer:
                 if not template.is_dir():
                     raise InitializationError(f"distribution is missing demo template: {template}")
                 shutil.copytree(template, staging, ignore=shutil.ignore_patterns("__pycache__"))
-            profile_template = layout.distribution_root / "openlakeforge.yaml"
-            if not profile_template.is_file():
-                raise InitializationError(f"distribution is missing project profile template: {profile_template}")
-            shutil.copy2(profile_template, profile_staging)
+            profile_staging.write_text(profile, encoding="utf-8")
             self._make_user_writable(staging_parent)
             if target.exists() or profile_target.exists():
                 raise InitializationError(f"refusing to overwrite an existing project path under {layout.project_root}")
@@ -177,6 +249,15 @@ def _widen(path: Path, bits: int) -> None:
     path.chmod(path.stat().st_mode | bits)
 
 
-def initialize_project(*, empty: bool = False) -> InitializationResult:
-    """Create the current directory's project with the default services."""
-    return ProjectInitializer().initialize(empty=empty)
+def initialize_project(
+    *,
+    empty: bool = False,
+    stages: Sequence[StageName] = (StageName.DEV,),
+    preset: Preset = Preset.SLIM,
+    name: str = "",
+    profile_only: bool = False,
+) -> InitializationResult:
+    """Create the current directory's project, or only its profile."""
+    return ProjectInitializer().initialize(
+        empty=empty, stages=stages, preset=preset, name=name, profile_only=profile_only
+    )

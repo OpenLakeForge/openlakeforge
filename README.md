@@ -99,6 +99,10 @@ or resolve the profile on its own with `olf profile resolve --project . --json`.
 Use `olf init --empty` to start from a
 bare project instead — it has no source or product yet, so scaffold both with
 `olf source new` and `olf product new` before deploying.
+`olf init` writes a DEV-only Slim `openlakeforge.yaml` named after the
+project directory; `--stages dev,prod` (or `dev,uat,prod`), `--preset full`
+and `--name` choose others, and `olf init --profile-only` adds just the
+profile to an existing project, such as one created by 0.2.
 
 `olf init` writes a Slim profile, so deploying needs no preset flag — the
 profile is what `olf deploy` and `olf e2e run` both resolve:
