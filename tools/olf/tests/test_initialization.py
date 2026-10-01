@@ -11,7 +11,8 @@ from typer.testing import CliRunner
 
 from olf.cli import app
 from olf.distribution import RuntimeLayout
-from olf.initialization import InitializationError, ProjectInitializer
+from olf.initialization import InitializationError, ProjectInitializer, default_profile_name
+from olf.profile import Preset, StageName, validate_deployment_profile
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError
 from olf.scaffold.product import plan_product_new
@@ -86,7 +87,7 @@ def test_default_init_copies_a_writable_demo_and_keeps_unowned_paths(tmp_path: P
 
     assert result.lakehouse_root == layout.project_root / "lakehouse_code"
     assert (layout.project_root / "openlakeforge.yaml").is_file()
-    assert result.next_command == "olf deploy --provider local --profile slim"
+    assert result.next_command == "olf platform apply -f openlakeforge.yaml"
     assert (result.lakehouse_root / "demo.txt").read_text(encoding="utf-8") == "demo\n"
     assert os.access(result.lakehouse_root / "demo.txt", os.W_OK)
     assert (layout.project_root / ".git").is_dir()
@@ -150,14 +151,72 @@ def test_init_refuses_an_existing_profile_before_provisioning_tools(tmp_path: Pa
     assert manager.calls == 0
 
 
-def test_init_cleans_staged_code_when_the_distribution_profile_is_missing(tmp_path: Path) -> None:
+def test_default_init_writes_a_dev_only_slim_profile_named_after_the_directory(tmp_path: Path) -> None:
     layout = _layout(tmp_path)
-    (layout.distribution_root / "openlakeforge.yaml").unlink()
 
-    with pytest.raises(InitializationError, match="missing project profile template"):
-        _initializer(layout).initialize()
+    _initializer(layout).initialize()
+
+    profile = validate_deployment_profile(yaml.safe_load((layout.project_root / "openlakeforge.yaml").read_text()))
+    assert profile.name == "project"
+    assert profile.preset is Preset.SLIM
+    assert {stage.name.value for stage in profile.stages if stage.enabled} == {"dev"}
+
+
+def test_init_renders_the_requested_stages_preset_and_name(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+
+    _initializer(layout).initialize(stages=(StageName.DEV, StageName.PROD), preset=Preset.FULL, name="acme-data")
+
+    profile = validate_deployment_profile(yaml.safe_load((layout.project_root / "openlakeforge.yaml").read_text()))
+    assert profile.name == "acme-data"
+    assert profile.preset is Preset.FULL
+    assert {stage.name.value for stage in profile.stages if stage.enabled} == {"dev", "prod"}
+
+
+def test_init_rejects_an_invalid_topology_before_touching_the_project(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    manager = _Manager()
+
+    with pytest.raises(InitializationError, match="dev"):
+        _initializer(layout, manager).initialize(stages=(StageName.PROD,))
+
+    assert manager.calls == 0
+    assert list(layout.project_root.iterdir()) == []
+
+
+def test_profile_only_adds_a_profile_to_an_existing_project_without_tools(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    (layout.project_root / "lakehouse_code").mkdir()
+    (layout.project_root / "lakehouse_code" / "lakehouse.yaml").write_text("mine\n", encoding="utf-8")
+    manager = _Manager()
+
+    result = _initializer(layout, manager).initialize(profile_only=True, stages=(StageName.DEV, StageName.PROD))
+
+    assert result.profile_only
+    assert manager.calls == 0
+    assert (layout.project_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8") == "mine\n"
+    profile = validate_deployment_profile(yaml.safe_load((layout.project_root / "openlakeforge.yaml").read_text()))
+    assert {stage.name.value for stage in profile.stages if stage.enabled} == {"dev", "prod"}
+
+    with pytest.raises(InitializationError, match="refusing to overwrite"):
+        _initializer(layout, manager).initialize(profile_only=True)
+
+
+def test_profile_only_refuses_a_directory_that_is_not_a_project(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+
+    with pytest.raises(InitializationError, match="needs an existing project"):
+        _initializer(layout).initialize(profile_only=True)
 
     assert list(layout.project_root.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("directory", "expected"),
+    [("My Lakehouse", "my-lakehouse"), ("2026_sales--data_", "sales-data"), ("___", "openlakeforge")],
+)
+def test_default_profile_name_is_a_valid_label(directory: str, expected: str) -> None:
+    assert default_profile_name(Path("/x") / directory) == expected
 
 
 def test_init_leaves_no_project_when_docker_is_unreachable(tmp_path: Path) -> None:
@@ -186,14 +245,15 @@ def test_init_leaves_no_project_when_docker_is_unreachable(tmp_path: Path) -> No
 def test_cli_init_renders_the_follow_up_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     result = SimpleNamespace(
         lakehouse_root=tmp_path / "lakehouse_code",
-        next_command="olf deploy --provider local --profile slim",
+        next_command="olf platform apply -f openlakeforge.yaml",
+        profile_only=False,
     )
-    monkeypatch.setattr("olf.commands.init.initialize_project", lambda *, empty: result)
+    monkeypatch.setattr("olf.commands.init.initialize_project", lambda **_kwargs: result)
 
     invocation = runner.invoke(app, ["init"])
 
     assert invocation.exit_code == 0, invocation.output
-    assert "Next: olf deploy --provider local --profile slim" in invocation.output
+    assert "Next: olf platform apply -f openlakeforge.yaml" in invocation.output
 
 
 def test_init_rejects_a_corrupt_distribution_before_touching_the_project(tmp_path: Path) -> None:
@@ -353,7 +413,7 @@ def test_cli_init_empty_prints_the_scaffold_sequence(
 
     captured: dict[str, bool] = {}
 
-    def _fake(*, empty: bool) -> InitializationResult:
+    def _fake(*, empty: bool, **_kwargs: object) -> InitializationResult:
         captured["empty"] = empty
         return InitializationResult(
             project_root=tmp_path, lakehouse_root=tmp_path / "lakehouse_code", empty=empty
@@ -370,7 +430,7 @@ def test_cli_init_empty_prints_the_scaffold_sequence(
 
 
 def test_cli_init_reports_a_failure_as_a_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fail(*, empty: bool) -> None:
+    def _fail(**_kwargs: object) -> None:
         raise InitializationError("refusing to overwrite existing project path: ./lakehouse_code")
 
     monkeypatch.setattr("olf.commands.init.initialize_project", _fail)
