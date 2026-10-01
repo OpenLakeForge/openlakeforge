@@ -18,8 +18,9 @@ for how a release is cut and verified.
 
 The deployment profiles, stages and promotion release (Milestone 3): one
 Deployment Profile describes shared DEV, optional UAT and PROD stages on one
-cluster, each stage gets its own storage, catalog, query access, Dagster and
-Superset, and one immutable project revision is built once and promoted
+cluster, each stage gets its own storage, catalog, query access and Dagster
+(and Superset when it enables analytics), and one immutable project revision
+is built once and promoted
 unchanged from DEV to PROD without copying data or runtime state.
 
 ### Added
@@ -153,10 +154,19 @@ unchanged from DEV to PROD without copying data or runtime state.
 
 - There is no in-place upgrade from 0.2. Destroy the 0.2 deployment
   (`olf destroy --provider local`, or the POC equivalent), then deploy with
-  the profile-driven lifecycle: `olf platform apply -f openlakeforge.yaml`,
-  then `olf project image`, `olf project build` and `olf project deploy
-  --stage dev`. The namespaces, Terraform addresses and OpenMetadata service
-  type all changed, and OpenMetadata metadata from 0.2 is not carried over.
+  the profile-driven lifecycle from the project directory:
+
+  ```bash
+  olf platform apply -f openlakeforge.yaml
+  image="$(olf project image -f openlakeforge.yaml | tail -n 1)"   # digest-pinned reference
+  revision="$(olf project build --project . --image "$image" | tail -n 1)"
+  olf project deploy -f openlakeforge.yaml --stage dev --revision "$revision"
+  olf project deploy -f openlakeforge.yaml --stage prod --revision "$revision"   # promotion, no rebuild
+  ```
+
+  Set `PROJECT_CODE_IMAGE_REPOSITORY` to a registry you can push to first.
+  The namespaces, Terraform addresses and OpenMetadata service type all
+  changed, and OpenMetadata metadata from 0.2 is not carried over.
 - A project needs an `openlakeforge.yaml` Deployment Profile; `olf init`
   writes one. `--profile slim|full` still works as a deprecated single-DEV
   shorthand.
@@ -177,7 +187,10 @@ unchanged from DEV to PROD without copying data or runtime state.
   (an upstream bug); lineage edges are still recorded.
 - Optional UAT is supported by the profile and resolves to its own
   identities, but the nightly exercises DEV and PROD only (#251).
-- AWS OpenMetadata registration and personal workspaces are post-beta work.
+- AWS OpenMetadata is not validated: the AWS root registers one governed
+  stage and its entity resolution is still to be proven, as part of the AWS
+  reference-profile beta gate.
+- Personal workspaces and local DuckDB execution are post-beta work.
 
 ## [0.2.0-alpha.1] - 2026-08-26
 
