@@ -210,3 +210,17 @@ runs:
   tag by someone other than the release author.
 - A `workflow_dispatch` dry run ahead of the next tag, to exercise the dry-run
   path itself.
+
+## Lifecycle stages
+
+| Stage | Intended use | Compatibility commitment |
+| --- | --- | --- |
+| Alpha | Development and product-contract validation; `v0.1.0-alpha.1` is validated on local kind only | Breaking changes allowed with migration notes |
+| Beta | Controlled AWS evaluation | Best-effort forward migration within the beta line |
+| Release candidate | Operational and upgrade qualification | No planned breaking changes before the associated stable release |
+| Stable | Supported production use within the published reference envelope | Compatible changes in minor releases; breaking changes only in major releases |
+| Deprecated | Still functional but scheduled for removal | Removal release and migration path published |
+| Unsupported | Outside the maintained version window | No fixes or compatibility guarantees |
+
+The exact stable support window should be declared before `v1.0`; until then,
+only the latest pre-release is maintained.
