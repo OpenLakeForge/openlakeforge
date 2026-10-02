@@ -225,10 +225,7 @@ def test_stage_data_check_rejects_a_table_with_no_data_files(monkeypatch: pytest
 
 def _stub_runs(monkeypatch: pytest.MonkeyPatch, runs: dict[str, set[str]]) -> None:
     monkeypatch.setattr(
-        _isolation, "terraform_output_json", lambda _dir, _name: {stage: f"{stage}-webserver" for stage in runs}
-    )
-    monkeypatch.setattr(
-        _isolation, "_dagster_run_ids", lambda service, _namespace, _log: runs[service.removesuffix("-webserver")]
+        _isolation, "_dagster_run_ids", lambda _service, namespace, _log: runs[namespace.removeprefix("olf-")]
     )
 
 
