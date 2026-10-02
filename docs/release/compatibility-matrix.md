@@ -99,4 +99,4 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 
 ## Supported upgrade paths
 
-OpenLakeForge is in the Alpha lifecycle stage (see [docs/industrialization-roadmap.md](../industrialization-roadmap.md), "Lifecycle Definitions"): breaking changes are allowed between alpha releases, with migration notes published in `CHANGELOG.md` for every tag. Until Beta, only the latest alpha tag is maintained; there is no supported upgrade path guarantee prior to `v0.1.0-alpha.1`.
+OpenLakeForge is in the Alpha lifecycle stage (see [releasing.md](releasing.md#lifecycle-stages)): breaking changes are allowed between alpha releases, with migration notes published in `CHANGELOG.md` for every tag. Until Beta, only the latest alpha tag is maintained; there is no supported upgrade path guarantee prior to `v0.1.0-alpha.1`.
