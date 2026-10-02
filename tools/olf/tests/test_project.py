@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.commands import checks
+from olf.commands.checks import _project_code
 from olf.project import ProjectSpec, validate_project
 
 runner = CliRunner()
@@ -130,15 +130,15 @@ def test_project_code_check_uses_external_code_and_distribution_dependencies(
             return self[1]
 
     calls: list[tuple[list[str], Path, dict[str, str]]] = []
-    monkeypatch.setattr(checks.sys, "version_info", _VersionInfo((3, 12, 0, "final", 0)))
-    monkeypatch.setattr(checks, "_uv_pip_install", lambda **_kwargs: None)
+    monkeypatch.setattr(_project_code.sys, "version_info", _VersionInfo((3, 12, 0, "final", 0)))
+    monkeypatch.setattr(_project_code, "_uv_pip_install", lambda **_kwargs: None)
     monkeypatch.setattr(
-        checks,
+        _project_code,
         "_run",
         lambda argv, *, cwd, env=None: calls.append((argv, cwd, env or {})),
     )
 
-    checks.project_code(str(external_project))
+    _project_code.project_code(str(external_project))
 
     distribution = Path(__file__).resolve().parents[3]
     argv, cwd, env = calls[-1]
