@@ -239,7 +239,9 @@ def status(
                     # would hide the drift status exists to surface. An
                     # unreadable contract is an answer here too, for the same
                     # reason the platform release is.
-                    raw_contract = contracts.load_provider_contracts(str(contract_dir), environ=provider.env)
+                    raw_contract = contracts.load_provider_contracts(
+                        str(contract_dir), environ=provider.env, resolver=provider.tools.resolver
+                    )
                     code_locations = (
                         stage_code_locations(raw_contract, topology=context.topology, stage=item)
                         if raw_contract is not None

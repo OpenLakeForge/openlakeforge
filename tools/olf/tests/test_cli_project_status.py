@@ -116,7 +116,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     provider = SimpleNamespace(
         context=context,
         env={"KUBE_CONTEXT": context.kube_context},
-        tools=SimpleNamespace(helm=_Helm()),
+        tools=SimpleNamespace(helm=_Helm(), resolver=None),
         config=SimpleNamespace(floe=SimpleNamespace(image="ghcr.io/malon64/floe:0.6.11", runtime="image")),
     )
 

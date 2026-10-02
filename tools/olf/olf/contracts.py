@@ -27,7 +27,7 @@ import shlex
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openlakeforge_domain import inventory_for
 
@@ -40,6 +40,9 @@ from olf.provider_contracts import (
 )
 from olf.tooling.terraform import external_state_options
 
+if TYPE_CHECKING:
+    from olf.tooling.resolver import ExecutableResolver
+
 PROVIDER_CONTRACT_SCHEMA_VERSION = V2_SCHEMA_VERSION
 PROVIDER_CONTRACTS_FILE_ENV = "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE"
 
@@ -50,6 +53,7 @@ def load_provider_contracts(
     environ: Mapping[str, str] | None = None,
     honor_contract_file: bool = True,
     strict_state: bool = False,
+    resolver: ExecutableResolver | None = None,
 ) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
@@ -81,6 +85,11 @@ def load_provider_contracts(
     found" answer: a state Terraform cannot read (corrupt, backend not
     initialised) raises instead. Pre-apply callers keep the lenient default
     because an uninitialised remote backend is exactly what they see first.
+
+    A caller that already holds a `Toolkit` passes its `resolver`, so the
+    contract read finds `terraform` exactly as the caller's own commands do.
+    Without one a resolver is built from `environ`, and a scoped `environ`
+    that omits `OLF_TOOLCHAIN_MODE` selects managed provisioning (#233).
     """
     base_environ = environ if environ is not None else os.environ
     # Scoped provider envs drop ambient variables, so fall back to the process
@@ -96,7 +105,9 @@ def load_provider_contracts(
         if not isinstance(contracts, dict):
             raise ProviderContractError(f"{PROVIDER_CONTRACTS_FILE_ENV}={contract_file}: not a JSON object")
     else:
-        contracts = _terraform_provider_contracts(terraform_dir, environ=environ, strict_state=strict_state)
+        contracts = _terraform_provider_contracts(
+            terraform_dir, environ=environ, strict_state=strict_state, resolver=resolver
+        )
         if contracts is None:
             return None
     schema_version = contracts.get("schema_version")
@@ -109,13 +120,18 @@ def load_provider_contracts(
 
 
 def _terraform_provider_contracts(
-    terraform_dir: str, *, environ: Mapping[str, str] | None, strict_state: bool = False
+    terraform_dir: str,
+    *,
+    environ: Mapping[str, str] | None,
+    strict_state: bool = False,
+    resolver: ExecutableResolver | None = None,
 ) -> dict[str, Any] | None:
     from olf.deployment.errors import ExecutableNotFoundError
     from olf.tooling.resolver import build_resolver
 
     try:
-        resolver = build_resolver(environ=environ) if environ is not None else build_resolver()
+        if resolver is None:
+            resolver = build_resolver(environ=environ) if environ is not None else build_resolver()
         terraform = str(resolver.resolve("terraform"))
     except ExecutableNotFoundError:
         return None
