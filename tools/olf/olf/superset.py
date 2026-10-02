@@ -123,8 +123,8 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     Reads `OPENLAKEFORGE_KUBE_NAMESPACE` rather than `config.namespace()`,
     whose `NAMESPACE` fallback a caller can export, and builds the Trino URI
     from the contract rather than accepting a caller-exported one. Nothing
-    derives a target from a selected-stage value -- the hazard
-    `e2e._dagster.dagster_webserver_service_name` documents.
+    derives a target from a selected-stage value, which would silently
+    target another stage's instance.
 
     Analytics is a per-stage capability (ADR 0011): the v3 stage index emits
     `stages.<name>.reporting` only for an analytics-enabled stage, which
