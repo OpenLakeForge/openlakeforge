@@ -2,7 +2,7 @@ terraform {
   # >= 1.7.0 for the `removed` block in modules/catalog/aws-glue (ADR 0002):
   # Glue database lifecycle moved to Phase 2, and `removed` is how existing
   # deployments hand those databases to olf without Terraform destroying them.
-  required_version = ">= 1.7.0"
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
