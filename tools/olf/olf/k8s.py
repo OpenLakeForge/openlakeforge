@@ -124,7 +124,7 @@ def _port_forward_failure(log_path: str, detail: str) -> KubectlError:
     return KubectlError(detail)
 
 
-def _wait_for_port_forward(process: subprocess.Popen[object], port: int, log_path: str) -> None:
+def _wait_for_port_forward(process: subprocess.Popen[bytes], port: int, log_path: str) -> None:
     """Wait until kubectl has bound the local forwarding socket."""
     deadline = time.monotonic() + PORT_FORWARD_READY_TIMEOUT_SECONDS
     while True:
