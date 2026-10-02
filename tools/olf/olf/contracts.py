@@ -45,7 +45,11 @@ PROVIDER_CONTRACTS_FILE_ENV = "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE"
 
 
 def load_provider_contracts(
-    terraform_dir: str, *, environ: Mapping[str, str] | None = None, honor_contract_file: bool = True
+    terraform_dir: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+    honor_contract_file: bool = True,
+    strict_state: bool = False,
 ) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
@@ -72,6 +76,11 @@ def load_provider_contracts(
     platform's Terraform state (#119). The file was named deliberately, so a
     missing or malformed one fails closed rather than reading as "not
     applied yet".
+
+    `strict_state` narrows "not applied" to Terraform's own "output not
+    found" answer: a state Terraform cannot read (corrupt, backend not
+    initialised) raises instead. Pre-apply callers keep the lenient default
+    because an uninitialised remote backend is exactly what they see first.
     """
     base_environ = environ if environ is not None else os.environ
     # Scoped provider envs drop ambient variables, so fall back to the process
@@ -87,7 +96,7 @@ def load_provider_contracts(
         if not isinstance(contracts, dict):
             raise ProviderContractError(f"{PROVIDER_CONTRACTS_FILE_ENV}={contract_file}: not a JSON object")
     else:
-        contracts = _terraform_provider_contracts(terraform_dir, environ=environ)
+        contracts = _terraform_provider_contracts(terraform_dir, environ=environ, strict_state=strict_state)
         if contracts is None:
             return None
     schema_version = contracts.get("schema_version")
@@ -99,7 +108,9 @@ def load_provider_contracts(
     return contracts
 
 
-def _terraform_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None) -> dict[str, Any] | None:
+def _terraform_provider_contracts(
+    terraform_dir: str, *, environ: Mapping[str, str] | None, strict_state: bool = False
+) -> dict[str, Any] | None:
     from olf.deployment.errors import ExecutableNotFoundError
     from olf.tooling.resolver import build_resolver
 
@@ -132,13 +143,27 @@ def _terraform_provider_contracts(terraform_dir: str, *, environ: Mapping[str, s
             check=True,
             env=command_env,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except OSError:
         return None
+    except subprocess.CalledProcessError as exc:
+        # Terraform answers "not found" both for a state without this output
+        # and for no state at all; anything else means it could not read one.
+        if not strict_state or 'Output "provider_contracts" not found' in (exc.stderr or ""):
+            return None
+        raise ProviderContractError(
+            f"terraform output provider_contracts failed in {terraform_dir}: {(exc.stderr or '').strip()}"
+        ) from exc
     try:
         contracts = json.loads(result.stdout)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        if strict_state:
+            raise ProviderContractError(f"terraform output provider_contracts in {terraform_dir}: {exc}") from exc
         return None
-    return contracts if isinstance(contracts, dict) else None
+    if not isinstance(contracts, dict):
+        if strict_state:
+            raise ProviderContractError(f"terraform output provider_contracts in {terraform_dir}: not a JSON object")
+        return None
+    return contracts
 
 
 CONTRACT_STAGE_ENV = "OPENLAKEFORGE_CONTRACT_STAGE"
