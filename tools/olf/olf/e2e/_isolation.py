@@ -17,7 +17,8 @@ from typing import Any
 
 from olf import config, k8s, log
 from olf.clients.base import ServiceClientError
-from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise, terraform_output_json
+from olf.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
+from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.e2e._trino import trino_query
 
 
@@ -249,10 +250,11 @@ def check_dagster_state_isolation(cfg: E2EConfig, this_stage: str, sibling: str)
     sibling without any yet is compared later, from its own suite.
     """
     log.step(f"Checking Dagster run-state isolation ({this_stage} <-> {sibling})...")
-    names = terraform_output_json(cfg.contract_terraform_dir, "dagster_webserver_service_names")
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     runs = {
-        stage: _dagster_run_ids(names[stage], f"olf-{stage}", f"{log_prefix}-isolation-dagster-{stage}.log")
+        stage: _dagster_run_ids(
+            DAGSTER_WEBSERVER_SERVICE_NAME, f"olf-{stage}", f"{log_prefix}-isolation-dagster-{stage}.log"
+        )
         for stage in (this_stage, sibling)
     }
     if not runs[this_stage]:

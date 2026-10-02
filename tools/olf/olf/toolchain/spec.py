@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 from olf.toolchain.errors import ToolchainError
 from olf.toolchain.platform import Platform
@@ -72,7 +72,7 @@ _BUILDERS: dict[str, tuple[Any, ArchiveKind, str | None]] = {
 }
 
 
-def is_valid_digest(value: object) -> bool:
+def is_valid_digest(value: object) -> TypeGuard[str]:
     """Whether `value` is a well-formed `sha256:<64 hex chars>` digest
     string - shared between catalog validation here and receipt validation
     in `manager.py`, so both reject the same malformed shapes."""
@@ -84,7 +84,7 @@ def _digest(value: object, *, tool: str, platform_key: str) -> str:
         raise ToolchainCatalogError(
             f"components.toolchain.{tool}.platforms.{platform_key} must be 'sha256:<64 hex chars>', got {value!r}"
         )
-    return value  # type: ignore[return-value]
+    return value
 
 
 def build_spec(tool: str, entry: Mapping[str, Any], *, platform: Platform) -> ToolSpec:

@@ -207,7 +207,7 @@ def test_artifacts_doctor_uses_the_configured_contract_root(tmp_path: Path, monk
     monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "olf.contracts.load_provider_contracts",
-        lambda path, *, environ=None: observed.append(path) or {"schema_version": "2.0.0"},
+        lambda path, **_kwargs: observed.append(path) or {"schema_version": "2.0.0"},
     )
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)

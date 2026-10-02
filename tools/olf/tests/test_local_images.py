@@ -63,6 +63,8 @@ class _ScriptedRunner(RecordingRunner):
         if argv[1:3] == ["get", "clusters"]:
             stdout = "openlakeforge-local\n" if self._cluster_exists else ""
             return CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+        if argv[1:3] == ["get", "nodes"]:
+            return _ok("openlakeforge-local-control-plane\nopenlakeforge-local-worker\n")
         return _ok()
 
 
@@ -117,6 +119,51 @@ def test_load_image_into_kind_loads_when_present(tmp_path: Path) -> None:
     images.load_image_into_kind("ghcr.io/openlakeforge/project-code:local", config, tools, env={})
 
     assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)
+
+
+_DIGEST = "sha256:" + "a" * 64
+
+
+@pytest.mark.parametrize(
+    ("image", "tagged", "containerd_source", "containerd_target"),
+    [
+        (
+            f"ghcr.io/acme/project-code@{_DIGEST}",
+            f"ghcr.io/acme/project-code:sha256-{'a' * 64}",
+            f"ghcr.io/acme/project-code:sha256-{'a' * 64}",
+            f"ghcr.io/acme/project-code@{_DIGEST}",
+        ),
+        (
+            f"acme/project-code:v1@{_DIGEST}",
+            f"acme/project-code:sha256-{'a' * 64}",
+            f"docker.io/acme/project-code:sha256-{'a' * 64}",
+            f"docker.io/acme/project-code@{_DIGEST}",
+        ),
+        (
+            f"project-code@{_DIGEST}",
+            f"project-code:sha256-{'a' * 64}",
+            f"docker.io/library/project-code:sha256-{'a' * 64}",
+            f"docker.io/library/project-code@{_DIGEST}",
+        ),
+    ],
+)
+def test_private_digest_image_is_resolvable_on_every_node_without_a_registry(
+    tmp_path: Path, image: str, tagged: str, containerd_source: str, containerd_target: str
+) -> None:
+    """Kubelet must find `repo@sha256:...` locally, or it pulls a private image with no credentials (#280)."""
+    config = _config(tmp_path)
+    runner = _ScriptedRunner()
+    tools = _toolkit(runner)
+
+    images.load_digest_image_into_kind(image, config, tools, env={})
+
+    argvs = [c.argv for c in runner.calls]
+    assert ["docker", "tag", image, tagged] in argvs
+    assert ["kind", "load", "docker-image", tagged, "--name", "openlakeforge-local"] in argvs
+    ctr_tag = ["ctr", "--namespace=k8s.io", "images", "tag", "--force", containerd_source, containerd_target]
+    tagged_nodes = [argv[2] for argv in argvs if argv[1] == "exec" and argv[3:] == ctr_tag]
+    assert tagged_nodes == ["openlakeforge-local-control-plane", "openlakeforge-local-worker"]
+    assert not any("pull" in argv for argv in argvs)
 
 
 def test_prepare_superset_image_skips_when_analytics_disabled(tmp_path: Path) -> None:

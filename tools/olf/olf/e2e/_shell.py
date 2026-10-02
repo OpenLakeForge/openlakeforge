@@ -7,7 +7,6 @@ acyclic.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import time
@@ -169,17 +168,6 @@ def terraform_output(terraform_dir: Path | None, name: str) -> str:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
     args, env = _terraform_output_args(terraform_dir, mode="raw", name=name)
     return _run(args, capture=True, env=env).strip()
-
-
-def terraform_output_json(terraform_dir: Path | None, name: str) -> Any:
-    if terraform_dir is None:
-        raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
-    args, env = _terraform_output_args(terraform_dir, mode="json", name=name)
-    raw = _run(args, capture=True, env=env)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise E2EError(f"Terraform output {name} was not valid JSON.") from exc
 
 
 def load_provider_contracts_or_raise(cfg: E2EConfig) -> dict[str, Any]:

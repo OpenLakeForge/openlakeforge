@@ -662,7 +662,7 @@ def test_local_image_pull_loads_the_image_into_kind(monkeypatch: pytest.MonkeyPa
     from olf.deployment.local import images as local_images
 
     loaded: list[str] = []
-    monkeypatch.setattr(local_images, "load_image_into_kind", lambda image, *a, **k: loaded.append(image))
+    monkeypatch.setattr(local_images, "load_digest_image_into_kind", lambda image, *a, **k: loaded.append(image))
     provider = _image_provider(Provider.LOCAL)
 
     activation_module._ensure_image(provider, _IMAGE, env={})
@@ -672,6 +672,29 @@ def test_local_image_pull_loads_the_image_into_kind(monkeypatch: pytest.MonkeyPa
     # Only a cloud provider pins a platform; kind runs the host's architecture.
     assert provider.tools.docker.pulls[0][1] is None
     assert provider.backend.logins == []
+
+
+def test_local_pull_of_a_private_registry_uses_the_callers_docker_logins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The scoped config holds no registry logins; a private revision is reachable only with the user's (#280)."""
+    from olf.deployment.local import images as local_images
+
+    user_config = tmp_path / "user-docker"
+    user_config.mkdir()
+    (user_config / "config.json").write_text('{"auths": {"ghcr.io": {"auth": "fixture"}}}')
+    monkeypatch.setenv("DOCKER_CONFIG", str(user_config))
+    loads: list[dict] = []
+    monkeypatch.setattr(
+        local_images, "load_digest_image_into_kind", lambda image, *a, env, **k: loads.append(dict(env))
+    )
+    provider = _image_provider(Provider.LOCAL)
+
+    activation_module._ensure_image(provider, _IMAGE, env={"DOCKER_CONFIG": "/scoped"})
+
+    assert provider.tools.docker.pulls[0][2]["DOCKER_CONFIG"] == str(user_config)
+    # Loading into kind talks only to the local daemon, so it keeps the scoped config.
+    assert loads == [{"DOCKER_CONFIG": "/scoped"}]
 
 
 def test_cloud_pull_authenticates_only_its_own_registry() -> None:

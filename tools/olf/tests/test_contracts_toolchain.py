@@ -154,3 +154,36 @@ def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.
         "provider_contracts",
     ]
     assert captured["env"] == environ
+
+
+@pytest.mark.parametrize(
+    ("stderr", "not_applied"),
+    [
+        ('Error: Output "provider_contracts" not found', True),
+        ("Error: Unsupported state file format", False),
+        ('Error: Backend initialization required, please run "terraform init"', False),
+    ],
+)
+def test_strict_state_reports_only_a_missing_output_as_not_applied(
+    monkeypatch: pytest.MonkeyPatch, stderr: str, not_applied: bool
+) -> None:
+    import subprocess
+
+    from olf.tooling.resolver import ExecutableResolver
+
+    class _Resolver(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            return Path("/usr/local/bin/terraform")
+
+    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+        raise subprocess.CalledProcessError(1, argv, output="", stderr=stderr)
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
+    monkeypatch.setattr("olf.contracts.subprocess.run", _fake_run)
+
+    assert load_provider_contracts("platform", environ={}) is None
+    if not_applied:
+        assert load_provider_contracts("platform", environ={}, strict_state=True) is None
+    else:
+        with pytest.raises(ProviderContractError, match=stderr.split(": ", 1)[1].split(",")[0]):
+            load_provider_contracts("platform", environ={}, strict_state=True)

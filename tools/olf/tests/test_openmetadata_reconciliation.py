@@ -82,8 +82,8 @@ def test_ensure_database_schema_creates_the_schema_a_table_will_reference(
     reconciler = _single_product_reconciler(tmp_path)
     calls: list[tuple[str, dict]] = []
 
-    def request(method: str, path: str, *, payload=None, **_kwargs):
-        calls.append((path, payload or {}))
+    def request(method: str, path: str, *, json_body=None, **_kwargs):
+        calls.append((path, json_body or {}))
         return {}
 
     monkeypatch.setattr(reconciler.client, "request", request)

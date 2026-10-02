@@ -88,7 +88,7 @@ The provider contract is therefore the single owner:
 `stages.<name>.orchestration.code_locations` carries `{name,
 definitions_module}` per entry, emitted by every environment root from the same
 Terraform local it passes to the Dagster module, and read back by `olf` through
-`provider_contracts.py`. Neither consumer holds its own copy.
+`olf.provider_contracts`. Neither consumer holds its own copy.
 
 ### Kubernetes run launcher
 

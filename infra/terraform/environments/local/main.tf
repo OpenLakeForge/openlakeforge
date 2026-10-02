@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.7.0"
+  required_version = ">= 1.10.0"
 
   required_providers {
     helm = {
@@ -317,7 +317,9 @@ module "openmetadata" {
       superset_url           = contains(keys(local.analytics_stages), name) ? "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}" : null
     }
   }
-  trino_lineage_namespace = "trino://${local.query_contract.service_name}.${var.shared_namespace}:${local.query_contract.http_port}"
+  # Read from module.trino, not the contract, so the bootstrap Job that runs
+  # the first catalog crawl through Trino is created only once Trino is ready.
+  trino_lineage_namespace = "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.http_port}"
 
   depends_on = [
     module.polaris,

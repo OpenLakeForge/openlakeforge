@@ -21,7 +21,7 @@ If you are discovering OpenLakeForge for the first time, start with the [root RE
 | 🔌 Understand cloud portability       | [Provider contracts](architecture/provider-contracts.md)         |
 | 🧠 Understand architectural decisions | [Architecture Decision Records](adr/README.md)                   |
 | 📦 Check supported versions           | [Compatibility matrix](release/compatibility-matrix.md)          |
-| 🗺️ See where the project is going    | [Industrialization roadmap](industrialization-roadmap.md)        |
+| 🗺️ See where the project is going    | [Milestones](https://github.com/OpenLakeForge/openlakeforge/milestones) |
 | 🤝 Contribute to OpenLakeForge        | [Contributor guide](../AGENTS.md)                                |
 
 ---
@@ -273,7 +273,7 @@ Current priorities include:
 * strengthening recovery and operational workflows
 * progressively defining stable support boundaries
 
-➡️ [Industrialization roadmap](industrialization-roadmap.md)
+➡️ [Milestones](https://github.com/OpenLakeForge/openlakeforge/milestones)
 
 ---
 

@@ -43,8 +43,8 @@ running stack are real requirements — open items are tracked as debt in
 ## Orientation — read in this order
 
 1. `README.md` — stack, deployment targets, local workflow
-2. `docs/industrialization-roadmap.md` — milestones, release gates, what is
-   delivered and what is not
+2. [GitHub milestones](https://github.com/OpenLakeForge/openlakeforge/milestones) — release scope and exit gates; the
+   roadmap plan issue (#183) sequences them
 3. `docs/architecture/overview.md` and `docs/architecture/provider-contracts.md`
 4. `docs/adr/README.md` — the decision log index; each ADR describes what
    binds today, all worth reading
@@ -172,7 +172,7 @@ this rule stops one.
 
 Split along the seams the architecture already has:
 
-1. The contract change (`contracts.tf`, `provider_contracts.py`, a schema) with
+1. The contract change (`contracts.tf`, `olf/provider_contracts/`, a schema) with
    its tests, and no adapter using it yet.
 2. One pull request per provider adapter — local, then AWS, then Azure.
 3. Docs and ADR updates land with the change that makes them true, not after.
