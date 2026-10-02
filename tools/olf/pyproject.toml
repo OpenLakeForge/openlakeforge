@@ -110,7 +110,6 @@ module = [
   "olf.e2e._health",
   "olf.e2e._layers",
   "olf.e2e._trino",
-  "olf.project_code_check",
   "olf.provider_contracts",
   "olf.provider_contracts.*",
 ]
