@@ -116,6 +116,7 @@ module = [
   "olf.openmetadata._reconciliation",
   "olf.project_code_check",
   "olf.provider_contracts",
+  "olf.provider_contracts.*",
   "olf.toolchain.manager",
 ]
 ignore_errors = true
