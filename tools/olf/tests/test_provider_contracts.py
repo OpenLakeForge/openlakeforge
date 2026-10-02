@@ -1167,3 +1167,100 @@ def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
         reporting = parsed.analytics_stages[stage].reporting
         assert reporting is not None
         assert reporting["dashboard_service_name"] == f"superset_{stage.value}"
+
+
+def _ingress_contract() -> dict:
+    """The local fixture with the access.ingress shape on shared.access.
+
+    Hand-assembled: no root emits it until the ingress adapter lands (#265).
+    """
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["shared"]["access"].update(
+        {
+            "implementation": "access.ingress",
+            "base_domain": "olf.localhost",
+            "issuer": "local-ca",
+            "tls_mode": "ingress-terminated",
+            "routes": {
+                "stage/dev/orchestration": {
+                    "url": "https://dagster.dev.olf.localhost",
+                    "enabled": True,
+                    "exposure": "user-facing",
+                },
+                "shared/query": {"url": "https://trino.olf.localhost", "enabled": False, "exposure": "user-facing"},
+                "shared/catalog_service": {
+                    "url": "https://polaris.olf.localhost",
+                    "enabled": True,
+                    "exposure": "internal",
+                },
+            },
+        }
+    )
+    return contract
+
+
+def test_access_ingress_contract_matches_the_schema_and_parses() -> None:
+    contract = _ingress_contract()
+
+    jsonschema.validate(contract, SCHEMA)
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    route = parsed.shared.values["access"]["routes"]["stage/dev/orchestration"]
+    assert route["url"] == "https://dagster.dev.olf.localhost"
+
+
+def _route(ref: str, url: str) -> dict:
+    return {ref: {"url": url, "enabled": True, "exposure": "user-facing"}}
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        # Internal endpoints cannot be published to users, by contract.
+        (
+            lambda access: access["routes"].update(_route("shared/metadata_database", "https://pg.olf.localhost")),
+            "internal endpoint",
+        ),
+        (
+            lambda access: access["routes"].update(_route("shared/ops_storage", "https://s3.olf.localhost")),
+            "internal endpoint",
+        ),
+        # A disabled capability (no reporting on this fixture) has no service to route.
+        (
+            lambda access: access["routes"].update(_route("stage/dev/reporting", "https://superset.dev.olf.localhost")),
+            "does not resolve",
+        ),
+        (
+            lambda access: access["routes"].update(_route("stage/dev/code-server", "https://code.dev.olf.localhost")),
+            "does not resolve",
+        ),
+        (lambda access: access.pop("issuer"), "declared together"),
+        (lambda access: access.__setitem__("base_domain", "olf.example.com"), "does not match the profile"),
+        (lambda access: access.__setitem__("issuer", "letsencrypt"), "must match the profile"),
+        (
+            lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
+                "url", "http://dagster.dev.olf.localhost"
+            ),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
+                "url", "https://dagster.example.com"
+            ),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://dagster.dev.olf.localhost"),
+            "already routed",
+        ),
+        (lambda access: access["routes"]["shared/query"].__setitem__("exposure", "public"), "exposure must be"),
+        (lambda access: access["routes"]["shared/query"].__setitem__("enabled", "yes"), "enabled must be"),
+    ],
+)
+def test_access_ingress_contract_fails_closed(mutate, match: str) -> None:
+    contract = _ingress_contract()
+    topology = _topology(contract)
+    mutate(contract["shared"]["access"])
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)

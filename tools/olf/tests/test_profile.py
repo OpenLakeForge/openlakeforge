@@ -7,6 +7,7 @@ import yaml
 
 from olf.deployment.context import Provider
 from olf.profile import (
+    AccessSpec,
     DeploymentProfileError,
     Preset,
     StageName,
@@ -197,3 +198,30 @@ def test_validate_deployment_profile_accepts_label_safe_names(name: str) -> None
     document["metadata"]["name"] = name
 
     assert validate_deployment_profile(document).name == name
+
+
+def test_access_defaults_to_the_local_evaluation_install_and_accepts_a_real_domain() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "local-ca")
+
+    document["spec"]["access"] = {"base_domain": "olf.example.com", "issuer": "letsencrypt"}
+    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
+        "olf.example.com", "letsencrypt"
+    )
+
+
+@pytest.mark.parametrize(
+    ("access", "match"),
+    [
+        ({"base_domain": "localhost"}, "base_domain must be"),
+        ({"base_domain": "OLF.example.com"}, "base_domain must be"),
+        ({"issuer": "Let's Encrypt"}, "issuer must match"),
+        ({"tls": "none"}, "must not contain"),
+    ],
+)
+def test_access_rejects_names_a_route_host_or_issuer_cannot_use(access: dict, match: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = access
+
+    with pytest.raises(DeploymentProfileError, match=match):
+        validate_deployment_profile(document)

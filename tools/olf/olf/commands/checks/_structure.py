@@ -45,6 +45,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/adr/0010-cloud-provider-implementations.md",
     "docs/adr/0011-deployment-profile-and-stages.md",
     "docs/adr/0012-project-revisions-and-promotion.md",
+    "docs/adr/0013-service-access-and-ingress.md",
     "infra/README.md",
     "infra/terraform/README.md",
     "infra/terraform/environments/local/contracts.tf",

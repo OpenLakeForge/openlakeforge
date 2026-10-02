@@ -164,3 +164,7 @@ fields were added.
 2026-10-01: Rewritten as current behavior for the 0.3.0-alpha.1 release: the
 roots provision the resolved bindings, and the lifecycle commands consume the
 topology. No profile fields were added.
+
+2026-10-02: Added optional `spec.access` (`base_domain`, `issuer`) for
+service access (#264). It is deployment configuration owned by ADR 0013, not a
+fifth topology concept; omitted, it defaults to the local evaluation install.

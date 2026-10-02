@@ -36,8 +36,11 @@ _IDENTIFIER_PATTERN = re.compile(_IDENTIFIER_PATTERN_SOURCE)
 
 _ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
 _METADATA_FIELDS = {"name"}
-_SPEC_FIELDS = {"provider", "preset", "stages"}
+_SPEC_FIELDS = {"provider", "preset", "stages", "access"}
 _PROVIDER_FIELDS = {"type", "region"}
+_ACCESS_FIELDS = {"base_domain", "issuer"}
+# Dot-separated DNS labels; every route host is `<service>[.<stage>].<base_domain>`.
+_BASE_DOMAIN_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
 _STAGE_FIELDS = {"enabled", "capabilities"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
 
@@ -67,6 +70,15 @@ class ProviderSpec:
 
 
 @dataclass(frozen=True)
+class AccessSpec:
+    """Where user-facing services are published (ADR 0013). The defaults are
+    the local evaluation install: `*.olf.localhost` names and a local CA."""
+
+    base_domain: str = "olf.localhost"
+    issuer: str = "local-ca"
+
+
+@dataclass(frozen=True)
 class StageCapabilities:
     analytics: bool = False
     governance: bool = False
@@ -89,6 +101,7 @@ class DeploymentProfile:
     provider: ProviderSpec
     preset: Preset
     stages: tuple[StageSpec, ...]
+    access: AccessSpec = AccessSpec()
 
     def stage(self, name: StageName) -> StageSpec | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -123,6 +136,7 @@ class DeploymentTopology:
     stages: tuple[ResolvedStage, ...]
     shared_services: tuple[str, ...] = _SHARED_SERVICES
     stage_services: tuple[str, ...] = _STAGE_SERVICES
+    access: AccessSpec = AccessSpec()
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -138,6 +152,7 @@ class DeploymentTopology:
                 "stages": [stage.as_dict() for stage in self.stages],
                 "shared_services": list(self.shared_services),
                 "stage_services": list(self.stage_services),
+                "access": {"base_domain": self.access.base_domain, "issuer": self.access.issuer},
             },
             sort_keys=True,
         )
@@ -212,6 +227,18 @@ def _validate_provider(document: object, *, source: str) -> ProviderSpec:
     return ProviderSpec(type=provider, region=region)
 
 
+def _validate_access(document: object, *, source: str) -> AccessSpec:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: spec.access must be an object")
+    _forbid_unexpected(document, _ACCESS_FIELDS, where=f"{source}: spec.access")
+    defaults = AccessSpec()
+    base_domain = document.get("base_domain", defaults.base_domain)
+    if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
+        raise DeploymentProfileError(f"{source}: spec.access.base_domain must be a lowercase DNS name with a dot")
+    issuer = _identifier(document.get("issuer", defaults.issuer), field="spec.access.issuer", source=source)
+    return AccessSpec(base_domain=base_domain, issuer=issuer)
+
+
 def validate_deployment_profile(
     document: Mapping[str, Any], *, source: str = "openlakeforge.yaml"
 ) -> DeploymentProfile:
@@ -277,7 +304,8 @@ def validate_deployment_profile(
                 "(every promotion sources from DEV)"
             )
 
-    return DeploymentProfile(name=name, provider=provider, preset=preset, stages=stages)
+    access = _validate_access(spec.get("access", {}), source=source)
+    return DeploymentProfile(name=name, provider=provider, preset=preset, stages=stages, access=access)
 
 
 def load_deployment_profile(path: str | Path) -> DeploymentProfile:
@@ -318,6 +346,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         region=profile.provider.region,
         preset=profile.preset,
         stages=tuple(resolved),
+        access=profile.access,
     )
 
 
