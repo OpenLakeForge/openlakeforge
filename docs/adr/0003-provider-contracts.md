@@ -47,7 +47,7 @@ carry local-development values today; naming the contract now is what keeps
 the eventual hardening work from being a rewrite.
 
 Every root (local, AWS, Azure) now emits v3 natively. `olf` retains the v2
-adapter (`provider_contracts._adapt_v2`) only to parse a contract from state a
+adapter (`provider_contracts/_v2.py`) only to parse a contract from state a
 pre-v3 deploy already produced; no current root's Terraform still emits that
 shape. A native v3 contract requires an explicit stage, and every root now
 names distinct storage identities and a catalog per stage (#114).

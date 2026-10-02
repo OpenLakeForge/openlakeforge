@@ -159,6 +159,7 @@ def status(
     from olf.profile import StageName
     from olf.project_activation import ProjectActivationError
     from olf.project_activation import active as active_activation
+    from olf.provider_contracts import ProviderContractError
 
     selected = (StageName(stage),) if stage else None
     initial = deployment_context_for_profile(profile_file, stage=stage or "dev")
@@ -273,7 +274,7 @@ def status(
                             },
                         }
                     )
-    except (ArtifactStoreError, ProjectActivationError) as exc:
+    except (ArtifactStoreError, ProjectActivationError, ProviderContractError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     if json_output:
         typer.echo(json.dumps({"stages": reports}, sort_keys=True))
@@ -384,6 +385,7 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str, stage
     from olf.deployment.contract_env import applied_contract_environment
     from olf.deployment.errors import DeploymentError
     from olf.k8s import KubectlError
+    from olf.provider_contracts import ProviderContractError
 
     context = deployment_context_for_profile(str(project_root / "openlakeforge.yaml"), stage=stage)
     provider = _profile_provider(context)
@@ -413,7 +415,7 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str, stage
                 )
             )
             store = stack.enter_context(_revision_store(via=via or _artifact_transport(provider), output=output))
-        except (DeploymentError, KubectlError) as exc:
+        except (DeploymentError, KubectlError, ProviderContractError) as exc:
             raise ArtifactStoreError(
                 f"could not resolve the artifact store from the {context.provider.value} platform contract: {exc}"
             ) from exc
