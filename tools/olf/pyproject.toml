@@ -95,7 +95,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
   "olf.auth",
-  "olf.clients.openmetadata",
   "olf.commands._shared",
   "olf.commands.artifacts",
   "olf.commands.diagnostics",
@@ -111,12 +110,8 @@ module = [
   "olf.e2e._health",
   "olf.e2e._layers",
   "olf.e2e._trino",
-  "olf.k8s",
-  "olf.openmetadata._orchestration",
-  "olf.openmetadata._reconciliation",
   "olf.project_code_check",
   "olf.provider_contracts",
-  "olf.toolchain.manager",
 ]
 ignore_errors = true
 
