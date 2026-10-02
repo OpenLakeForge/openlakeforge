@@ -358,18 +358,20 @@ build` and `olf report validate` both ignore it until you finish these two
 steps.
 
 1. Build the dashboard in Superset, then export it back into this directory.
-   `export-reports` defaults to the lakehouse's *first* declared dashboard,
+   `olf report export` defaults to the lakehouse's *first* declared dashboard,
    so target this one explicitly with `SUPERSET_REPORT_SOURCE_DIR` --
    otherwise it silently re-exports into an unrelated, already-checked-in
    bundle instead of this one:
 
    ```bash
    SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
-   SUPERSET_DASHBOARD_TITLE="<the title you gave it in Superset>" \\
-   uv run --project tools/olf olf superset export-reports --stage dev
+   SUPERSET_DASHBOARD="<the dashboard's slug or uuid in Superset>" \\
+   uv run --project tools/olf olf report export --stage dev
    ```
 
-   The export writes this bundle's `metadata.yaml`.
+   The export writes this bundle's `metadata.yaml`. Later re-exports find
+   the dashboard by the uuid it wrote, so they need no `SUPERSET_DASHBOARD`
+   and survive renaming the dashboard in Superset.
 
 2. Declare the dashboard by adding it to `lakehouse_code/lakehouse.yaml`'s
    `dashboards:` list:

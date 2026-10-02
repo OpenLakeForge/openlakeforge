@@ -243,7 +243,7 @@ dynamic and code-derived. `olf deploy --provider local` with no `--phase` chains
 1 → 2 → 3; phases 1 and 2 are idempotent no-ops when nothing changed. Phase 3,
 in order: load contract env → compile
 Floe manifests → build + load
-`project-code` → `olf artifacts upload-manifests` → `olf superset deploy-reports` →
+`project-code` → `olf artifacts upload-manifests` → `olf report import` →
 `olf openmetadata deploy-metadata` → `olf k8s set-project-code-image`, which patches
 the run-launcher ConfigMap, every Dagster deployment, and the log-archive CronJob to
 the new image before waiting on each rollout — not a bare `kubectl rollout restart`.

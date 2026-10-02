@@ -50,7 +50,7 @@ def test_standalone_local_contract_context_honors_custom_contract_root(monkeypat
 def test_provider_contract_environment_threads_project_root_to_build_context(monkeypatch, tmp_path) -> None:  # noqa: ANN001
     """A custom --project-root must reach `_build_context`, not just the bundled-demo default.
 
-    Standalone commands (`olf superset deploy-reports`, `olf dbt parse`, etc.)
+    Standalone commands (`olf report import`, `olf dbt parse`, etc.)
     call this helper outside the full `olf deploy` flow - without threading
     `project_root` through, they always resolve the bundled demo project
     regardless of what the user selected.
