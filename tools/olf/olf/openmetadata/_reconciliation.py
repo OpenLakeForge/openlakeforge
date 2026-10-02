@@ -135,7 +135,7 @@ class OpenMetadataReconciler:
             self.client.request(
                 "PATCH",
                 f"/api/v1/tables/{table_ref['id']}",
-                payload=[{"op": "add", "path": "/domains", "value": domains}],
+                json_body=[{"op": "add", "path": "/domains", "value": domains}],
                 content_type="application/json-patch+json",
             )
             table_ref["domains"] = domains
@@ -155,7 +155,7 @@ class OpenMetadataReconciler:
             "serviceType": "S3",
             "connection": {"config": {"type": "S3", "awsConfig": aws_config}},
         }
-        self.client.request("PUT", "/api/v1/services/storageServices", payload=payload, ok_statuses=(200, 201))
+        self.client.request("PUT", "/api/v1/services/storageServices", json_body=payload, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata storage service: {self.config.storage_service}")
 
     def ensure_container(self, name, parent_fqn, full_path, description) -> None:
@@ -174,7 +174,7 @@ class OpenMetadataReconciler:
                     f"OpenMetadata container lookup for '{parent_fqn}' did not return an id: {parent}"
                 )
             payload["parent"] = {"id": parent_id, "type": "container"}
-        self.client.request("PUT", "/api/v1/containers", payload=payload, ok_statuses=(200, 201))
+        self.client.request("PUT", "/api/v1/containers", json_body=payload, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata container: {full_path}")
 
     def ensure_database_schema(self, schema_fqn: str) -> None:
@@ -195,7 +195,7 @@ class OpenMetadataReconciler:
         self.client.request(
             "PUT",
             "/api/v1/databaseSchemas",
-            payload={"name": name, "database": database_fqn},
+            json_body={"name": name, "database": database_fqn},
             ok_statuses=(200, 201),
         )
         self._ensured_schema_fqns.add(schema_fqn)
@@ -206,5 +206,5 @@ class OpenMetadataReconciler:
         payload = {"name": name, "databaseSchema": schema_fqn, "columns": []}
         if description:
             payload["description"] = description
-        self.client.request("PUT", "/api/v1/tables", payload=payload, ok_statuses=(200, 201))
+        self.client.request("PUT", "/api/v1/tables", json_body=payload, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata table stub: {schema_fqn}.{name}")

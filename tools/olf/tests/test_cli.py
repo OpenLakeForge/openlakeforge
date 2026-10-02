@@ -1077,7 +1077,7 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
     monkeypatch.setattr(
         contracts,
         "load_provider_contracts",
-        lambda terraform_dir, environ, honor_contract_file: None if honor_contract_file else applied,
+        lambda terraform_dir, environ, honor_contract_file, **_k: None if honor_contract_file else applied,
     )
 
     result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
@@ -1085,5 +1085,47 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
     assert result.exit_code == 0
     assert json.loads(result.output) == applied
 
-    monkeypatch.setattr(contracts, "load_provider_contracts", lambda terraform_dir, environ, honor_contract_file: None)
+    monkeypatch.setattr(contracts, "load_provider_contracts", lambda *_a, **_k: None)
     assert runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0
+
+
+def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A toolchain failure or a state Terraform cannot read is a clean CLI
+    error naming the cause, not a traceback and not "run apply first"."""
+    import subprocess
+
+    from olf.commands import platform as platform_module
+    from olf.deployment.errors import ToolchainError
+    from olf.tooling.resolver import ExecutableResolver
+
+    context = SimpleNamespace(
+        paths=SimpleNamespace(platform_terraform_dir=tmp_path), command_env=lambda base: dict(base)
+    )
+    monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: context)
+
+    class _Broken(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            raise ToolchainError(tool, reason="digest mismatch")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Broken())
+    result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "digest mismatch" in result.output
+
+    class _Terraform(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            return Path("/usr/local/bin/terraform")
+
+    def _corrupt_state(argv, **_kwargs):  # noqa: ANN001, ANN202
+        raise subprocess.CalledProcessError(1, argv, output="", stderr="Error: Unsupported state file format")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Terraform())
+    monkeypatch.setattr("olf.contracts.subprocess.run", _corrupt_state)
+    result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "Unsupported state file format" in result.output
+    assert "platform apply" not in result.output

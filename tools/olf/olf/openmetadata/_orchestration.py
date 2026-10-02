@@ -160,21 +160,22 @@ class OpenMetadataDeployer:
             yield {"type": "table", "fqn": fqn}
 
         for asset in product.get("assets", []):
+            asset_fqn: str | None
             if isinstance(asset, str):
-                fqn = asset
+                asset_fqn = asset
             elif isinstance(asset, dict):
-                fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
+                asset_fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
             else:
-                fqn = None
+                asset_fqn = None
             resolved = self.asset_with_provider_fqn(product, asset)
             if isinstance(resolved, dict):
-                fqn = resolved.get("fqn")
+                asset_fqn = resolved.get("fqn")
             else:
-                fqn = self.provider_asset_fqn(product, fqn)
-            if fqn and fqn in seen:
+                asset_fqn = self.provider_asset_fqn(product, asset_fqn)
+            if asset_fqn and asset_fqn in seen:
                 continue
-            if fqn:
-                seen.add(fqn)
+            if asset_fqn:
+                seen.add(asset_fqn)
             yield resolved
 
     def storage_bucket_specs(self):
@@ -403,12 +404,12 @@ class OpenMetadataDeployer:
         missing_assets = []
         for _, domain in domain_specs:
             domain_body = domain_payload(domain)
-            self.client.request("PUT", "/api/v1/domains", payload=domain_body, ok_statuses=(200, 201))
+            self.client.request("PUT", "/api/v1/domains", json_body=domain_body, ok_statuses=(200, 201))
             print(f"Upserted OpenMetadata domain: {domain_body['name']}")
 
             for product in product_entries(domain):
                 product_body = product_payload(product)
-                self.client.request("PUT", "/api/v1/dataProducts", payload=product_body, ok_statuses=(200, 201))
+                self.client.request("PUT", "/api/v1/dataProducts", json_body=product_body, ok_statuses=(200, 201))
                 print(f"Upserted OpenMetadata data product: {product_body['name']}")
                 domain_refs = [self.resolve_domain_ref(domain_name) for domain_name in product_body["domains"]]
 
@@ -426,7 +427,7 @@ class OpenMetadataDeployer:
                     self.client.request(
                         "PUT",
                         f"/api/v1/dataProducts/{product_name}/assets/add",
-                        payload={"assets": [self._data_product_asset_ref(ref) for ref in refs], "dryRun": False},
+                        json_body={"assets": [self._data_product_asset_ref(ref) for ref in refs], "dryRun": False},
                         ok_statuses=(200, 201),
                     )
                     print(f"Attached {len(refs)} OpenMetadata asset(s) to data product: {product_body['name']}")

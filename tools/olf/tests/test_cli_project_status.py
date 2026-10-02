@@ -116,7 +116,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     provider = SimpleNamespace(
         context=context,
         env={"KUBE_CONTEXT": context.kube_context},
-        tools=SimpleNamespace(helm=_Helm()),
+        tools=SimpleNamespace(helm=_Helm(), resolver=None),
         config=SimpleNamespace(floe=SimpleNamespace(image="ghcr.io/malon64/floe:0.6.11", runtime="image")),
     )
 
@@ -173,3 +173,18 @@ def test_status_reports_drift_when_a_contracted_location_is_missing(stage) -> No
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["stages"][0]["state"] == "drifted"
+
+
+def test_status_fails_cleanly_on_an_unreadable_contract(stage, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    from olf.provider_contracts import ProviderContractError
+
+    def _unreadable(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise ProviderContractError("OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE=/gone.json: No such file")
+
+    monkeypatch.setattr(contracts, "load_provider_contracts", _unreadable)
+
+    result = runner.invoke(app, ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev"])
+
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "/gone.json" in result.output

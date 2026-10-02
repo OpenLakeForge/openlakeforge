@@ -153,8 +153,7 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append("")
     lines.append(
         "OpenLakeForge is in the Alpha lifecycle stage (see "
-        "[docs/industrialization-roadmap.md](../industrialization-roadmap.md), "
-        '"Lifecycle Definitions"): breaking changes are allowed between alpha '
+        "[releasing.md](releasing.md#lifecycle-stages)): breaking changes are allowed between alpha "
         "releases, with migration notes published in `CHANGELOG.md` for every "
         "tag. Until Beta, only the latest alpha tag is maintained; there is no "
         "supported upgrade path guarantee prior to `v0.1.0-alpha.1`."

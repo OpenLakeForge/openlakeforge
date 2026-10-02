@@ -490,3 +490,18 @@ def test_doctor_keeps_an_explicit_docker_host_override(tmp_path: Path) -> None:
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
     assert resolved == [], "an explicit DOCKER_HOST must not be overridden by context detection"
+
+
+def test_doctor_reads_contracts_through_the_toolkit_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scoped `environ` lacks OLF_TOOLCHAIN_MODE, so a resolver rebuilt from
+    it selects managed provisioning and reaches the network (#233)."""
+
+    def _no_rebuild(**_kwargs: object) -> None:
+        raise AssertionError("doctor must not build a second resolver")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _no_rebuild)
+    provider = CloudProvider.create(_config(tmp_path), AwsBackend(), toolkit=_toolkit(), environ={})
+
+    report = provider.doctor(DeploymentPhase.ALL)
+
+    assert any(item.name == "aws platform provider contracts" for item in report.items)

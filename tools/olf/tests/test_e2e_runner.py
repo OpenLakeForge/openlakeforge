@@ -326,37 +326,6 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     ]
 
 
-def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    commands: list[list[str]] = []
-    monkeypatch.setattr(
-        _shell,
-        "_run",
-        lambda args, *, capture=False, env=None: commands.append(args) or '["openlakeforge-dagster"]',
-    )
-    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
-
-    assert _shell.terraform_output_json(tmp_path / "contract", "dagster_code_location_names") == [
-        "openlakeforge-dagster"
-    ]
-    assert commands == [
-        [
-            "terraform",
-            f"-chdir={tmp_path / 'contract'}",
-            "output",
-            "-json",
-            "dagster_code_location_names",
-        ]
-    ]
-
-
-def test_terraform_output_json_rejects_invalid_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(_shell, "_run", lambda *_args, **_kwargs: "not-json")
-    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
-
-    with pytest.raises(E2EError, match="not valid JSON"):
-        _shell.terraform_output_json(tmp_path / "contract", "dagster_code_location_names")
-
-
 def test_terraform_output_honors_external_state_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

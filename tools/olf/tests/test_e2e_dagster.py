@@ -8,6 +8,7 @@ from conftest import E2E_INVENTORY, e2e_cfg
 from olf.clients import dagster as dagster_client_module
 from olf.clients.base import ServiceClientError
 from olf.clients.dagster import DagsterClient, DagsterTransientError
+from olf.contracts import CONTRACT_STAGE_ENV, PROVIDER_CONTRACTS_FILE_ENV
 from olf.e2e import _dagster
 from olf.e2e._shell import E2EConfig, E2EError
 
@@ -218,78 +219,42 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
     )
 
 
-def test_expected_repository_location_names_reads_terraform_configuration(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(
-        _dagster,
-        "terraform_output_json",
-        lambda _dir, name: ["openlakeforge-dagster"] if name == "dagster_code_location_names" else None,
-    )
-
-    assert _dagster.expected_repository_location_names(e2e_cfg(tmp_path)) == ["openlakeforge-dagster"]
-
-
-def test_expected_repository_location_names_accepts_split_configuration(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    location_names = ["domain-a", "domain-b"]
-    monkeypatch.setattr(_dagster, "terraform_output_json", lambda _dir, _name: location_names)
-
-    assert _dagster.expected_repository_location_names(e2e_cfg(tmp_path)) == location_names
+def _contract_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, stage: str) -> None:
+    """Point e2e at an exported contract file only: no Terraform directory exists."""
+    contract = json.loads((Path(__file__).parent / "fixtures" / "local-provider-contracts-v3.json").read_text())
+    contract["stages"]["prod"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales"},
+        {"name": "supply-chain", "definitions_module": "lakehouse_code.supply_chain"},
+    ]
+    path = tmp_path / "provider-contracts.json"
+    path.write_text(json.dumps(contract))
+    monkeypatch.setenv(PROVIDER_CONTRACTS_FILE_ENV, str(path))
+    monkeypatch.setenv(CONTRACT_STAGE_ENV, stage)
 
 
 @pytest.mark.parametrize(
-    "location_names",
-    [[], ["openlakeforge-dagster", 1], ["location-a", "location-a"], "openlakeforge-dagster"],
+    ("stage", "expected"), [("dev", ["openlakeforge-dagster"]), ("prod", ["sales", "supply-chain"])]
 )
-def test_expected_repository_location_names_rejects_invalid_terraform_output(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, location_names: object
+def test_expected_repository_location_names_reads_the_stage_from_the_contract_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, expected: list[str]
 ) -> None:
-    monkeypatch.setattr(_dagster, "terraform_output_json", lambda _dir, _name: location_names)
+    _contract_file(tmp_path, monkeypatch, stage=stage)
 
-    with pytest.raises(E2EError, match="non-empty list"):
+    assert _dagster.expected_repository_location_names(e2e_cfg(tmp_path)) == expected
+
+
+def test_expected_repository_location_names_rejects_a_stage_the_contract_lacks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _contract_file(tmp_path, monkeypatch, stage="uat")
+
+    with pytest.raises(E2EError, match="stages.uat.orchestration.code_locations"):
         _dagster.expected_repository_location_names(e2e_cfg(tmp_path))
-
-
-def test_dagster_webserver_service_name_selects_the_stage_under_test(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Each stage has its own namespace but the same Dagster release name.
-
-    The stage-keyed output still matters: it keeps an E2E run from using the
-    Terraform root's selected-stage output when `--stage` names another one.
-    """
-    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_prod")
-    monkeypatch.setattr(
-        _dagster,
-        "terraform_output_json",
-        lambda _dir, _name: {"dev": "dagster-dagster-webserver", "prod": "dagster-dagster-webserver"},
-    )
-
-    assert _dagster.dagster_webserver_service_name(e2e_cfg(tmp_path)) == "dagster-dagster-webserver"
-    assert _dagster.dagster_release_name(e2e_cfg(tmp_path)) == "dagster"
-
-
-def test_dagster_webserver_service_name_rejects_a_stage_missing_from_the_output(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_uat")
-    monkeypatch.setattr(
-        _dagster, "terraform_output_json", lambda _dir, _name: {"dev": "dagster-dev-dagster-webserver"}
-    )
-
-    with pytest.raises(E2EError, match="no entry for stage 'uat'"):
-        _dagster.dagster_webserver_service_name(e2e_cfg(tmp_path))
 
 
 def test_expected_user_code_pods_filters_to_configured_locations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_dev")
-    monkeypatch.setattr(
-        _dagster, "terraform_output_json", lambda _dir, _name: {"dev": "dagster-dagster-webserver"}
-    )
     monkeypatch.setattr(
         _dagster,
         "kubectl",
@@ -516,10 +481,6 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(_dagster, "DagsterClient", Client)
     monkeypatch.setattr(_dagster, "expected_repository_location_names", lambda _cfg: ["openlakeforge-dagster"])
-    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_dev")
-    monkeypatch.setattr(
-        _dagster, "terraform_output_json", lambda _dir, _name: {"dev": "dagster-dagster-webserver"}
-    )
     monkeypatch.setattr(_dagster.k8s, "http_wait", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         _dagster.k8s,

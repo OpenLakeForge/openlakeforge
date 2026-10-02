@@ -35,7 +35,7 @@ class JsonHttpClient:
         method: str,
         path: str,
         *,
-        json_body: Mapping[str, Any] | None = None,
+        json_body: Mapping[str, Any] | list[Any] | None = None,
         params: Mapping[str, Any] | None = None,
         ok_statuses: tuple[int, ...] = (200,),
         content_type: str = "application/json",
