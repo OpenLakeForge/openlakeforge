@@ -112,6 +112,7 @@ module = [
   "olf.e2e._trino",
   "olf.project_code_check",
   "olf.provider_contracts",
+  "olf.provider_contracts.*",
 ]
 ignore_errors = true
 

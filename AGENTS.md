@@ -172,7 +172,7 @@ this rule stops one.
 
 Split along the seams the architecture already has:
 
-1. The contract change (`contracts.tf`, `provider_contracts.py`, a schema) with
+1. The contract change (`contracts.tf`, `olf/provider_contracts/`, a schema) with
    its tests, and no adapter using it yet.
 2. One pull request per provider adapter — local, then AWS, then Azure.
 3. Docs and ADR updates land with the change that makes them true, not after.

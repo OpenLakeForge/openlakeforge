@@ -76,3 +76,46 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
 
     assert result.exit_code == 0, result.output
     assert seen == [contract["stages"]["prod"]["catalog"]["catalog_name"]]
+
+
+@pytest.mark.parametrize("command", ["build", "deploy"])
+@pytest.mark.parametrize("content", [None, "{not json"])
+def test_an_unreadable_contract_file_fails_cleanly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str, content: str | None
+) -> None:
+    """A named contract file that is missing or malformed fails closed, but as
+    a CLI error naming the variable rather than a ProviderContractError traceback."""
+    topology = _topology(_contract())
+    profile = tmp_path / "openlakeforge.yaml"
+    profile.write_text("placeholder: resolved by the stubbed context\n")
+    contract_file = tmp_path / "contract.json"
+    if content is not None:
+        contract_file.write_text(content)
+    monkeypatch.setenv(contracts.PROVIDER_CONTRACTS_FILE_ENV, str(contract_file))
+
+    def context_for(_profile_file: str, *, stage: str = "", **_kwargs: object) -> DeploymentContext:
+        return DeploymentContext.local(
+            repo_root=tmp_path, topology=topology, stage=stage or "dev", work_root=tmp_path / "work"
+        )
+
+    monkeypatch.setattr(project_cmd, "deployment_context_for_profile", context_for)
+    monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
+    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path: SimpleNamespace(name="test"))
+    monkeypatch.setattr(
+        "olf.project_revision.build_project_revision", lambda *_a, **_k: SimpleNamespace(revision="r")
+    )
+    monkeypatch.setattr(
+        "olf.commands._project.writable_project_layout",
+        lambda _project: SimpleNamespace(project_root=tmp_path, distribution_root=tmp_path, distribution_version="0"),
+    )
+    args = (
+        ["project", "deploy", "-f", str(profile), "--stage", "dev", "--revision", "r"]
+        if command == "deploy"
+        else ["project", "build", "--project", str(tmp_path), "--image", "img"]
+    )
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert contracts.PROVIDER_CONTRACTS_FILE_ENV in result.output

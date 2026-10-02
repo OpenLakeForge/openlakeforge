@@ -20,7 +20,7 @@ Generated from `release/component-catalog.yaml`. Every version below is the exac
 
 | Component | Required version |
 | --- | --- |
-| Terraform | >= 1.7.0 |
+| Terraform | >= 1.10.0 |
 
 ## Terraform providers
 
@@ -69,7 +69,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | helm | 3.18.6 |
 | kind | 0.32.0 |
 | kubectl | 1.31.4 |
-| terraform | 1.8.5 |
+| terraform | 1.16.4 |
 
 ## Container images
 
