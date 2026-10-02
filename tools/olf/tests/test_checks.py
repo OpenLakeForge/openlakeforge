@@ -6,7 +6,7 @@ import pytest
 import typer
 
 from olf import dashboard_checks
-from olf.commands import checks
+from olf.commands.checks import _infra, _project_code, _shared, _structure
 
 
 def test_dashboard_validation_accepts_the_repository_assets() -> None:
@@ -49,7 +49,7 @@ spec:
               mountPath: /app/openlakeforge/reports
 """
 
-    checks._validate_superset_render(rendered)
+    _infra._validate_superset_render(rendered)
 
 
 def test_superset_render_rejects_reports_pvc() -> None:
@@ -60,26 +60,26 @@ metadata:
 """
 
     with pytest.raises(typer.Exit):
-        checks._validate_superset_render(rendered)
+        _infra._validate_superset_render(rendered)
 
 
 def test_project_code_cache_digest_includes_source_paths_and_contents(tmp_path: Path) -> None:
     source = tmp_path / "domain" / "model.py"
     source.parent.mkdir()
     source.write_text("value = 1\n")
-    first = checks._source_tree_digest(source.parent)
+    first = _project_code._source_tree_digest(source.parent)
     source.write_text("value = 2\n")
 
-    assert checks._source_tree_digest(source.parent) != first
+    assert _project_code._source_tree_digest(source.parent) != first
 
 
 def test_project_code_rejects_unsupported_python_before_building_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(checks.sys, "version_info", (3, 13, 0, "final", 0))
+    monkeypatch.setattr(_project_code.sys, "version_info", (3, 13, 0, "final", 0))
 
     with pytest.raises(typer.Exit):
-        checks.project_code(str(tmp_path))
+        _project_code.project_code(str(tmp_path))
 
 
 def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
@@ -96,12 +96,12 @@ def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
         "packages/domain-model/openlakeforge_domain/inventory.py",
     }
 
-    assert required <= set(checks.REQUIRED_PATHS)
-    assert not any(path.startswith("scripts/") or path.endswith(".sh") for path in checks.REQUIRED_PATHS)
+    assert required <= set(_structure.REQUIRED_PATHS)
+    assert not any(path.startswith("scripts/") or path.endswith(".sh") for path in _structure.REQUIRED_PATHS)
 
 
 def test_missing_required_paths_reports_removed_skeleton_entries(tmp_path: Path) -> None:
-    for path in checks.REQUIRED_PATHS:
+    for path in _structure.REQUIRED_PATHS:
         candidate = tmp_path / path
         candidate.parent.mkdir(parents=True, exist_ok=True)
         candidate.write_text("required\n")
@@ -109,14 +109,14 @@ def test_missing_required_paths_reports_removed_skeleton_entries(tmp_path: Path)
     for path in removed:
         (tmp_path / path).unlink()
 
-    assert set(checks._missing_required_paths(tmp_path)) == removed
+    assert set(_structure._missing_required_paths(tmp_path)) == removed
 
 
 def test_distribution_root_for_prefers_a_complete_separate_checkout(tmp_path: Path) -> None:
     other_checkout = tmp_path / "other-checkout"
     (other_checkout / "infra" / "terraform").mkdir(parents=True)
 
-    assert checks._distribution_root_for(other_checkout) == other_checkout
+    assert _shared._distribution_root_for(other_checkout) == other_checkout
 
 
 def test_distribution_root_for_falls_back_to_the_runtime_payload_for_a_project_only_root(
@@ -125,7 +125,7 @@ def test_distribution_root_for_falls_back_to_the_runtime_payload_for_a_project_o
     project_root = tmp_path / "installed-project"
     (project_root / "lakehouse_code").mkdir(parents=True)
 
-    assert checks._distribution_root_for(project_root) != project_root
+    assert _shared._distribution_root_for(project_root) != project_root
 
 
 def test_release_publication_guard_requires_the_olf_workflow_command(tmp_path: Path) -> None:
@@ -146,7 +146,7 @@ jobs:
 """
     )
 
-    assert checks._release_publication_guard_errors(tmp_path) == []
+    assert _structure._release_publication_guard_errors(tmp_path) == []
 
 
 def test_release_publication_guard_rejects_an_unchecked_shell_step(tmp_path: Path) -> None:
@@ -165,6 +165,6 @@ jobs:
 """
     )
 
-    assert checks._release_publication_guard_errors(tmp_path) == [
+    assert _structure._release_publication_guard_errors(tmp_path) == [
         "release workflow green-main guard must delegate repository and SHA validation to olf"
     ]

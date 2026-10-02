@@ -71,6 +71,7 @@ def contract(
     import json
 
     from olf import contracts
+    from olf.deployment.errors import DeploymentError
     from olf.provider_contracts import ProviderContractError
 
     context = deployment_context_for_profile(profile_file)
@@ -83,8 +84,9 @@ def contract(
             str(context.paths.platform_terraform_dir),
             environ=context.command_env(base=os.environ),
             honor_contract_file=False,
+            strict_state=True,
         )
-    except ProviderContractError as exc:
+    except (DeploymentError, ProviderContractError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     if payload is None:
         raise typer.Exit(code=fail(f"No applied provider contract: run `olf platform apply -f {profile_file}` first."))

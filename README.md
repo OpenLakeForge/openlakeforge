@@ -4,7 +4,7 @@
 
 [![Release](https://img.shields.io/github/v/release/OpenLakeForge/openlakeforge?include_prereleases)](/releases)  
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](/LICENSE)  
-[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](/docs/industrialization-roadmap.md)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](/docs/release/releasing.md#lifecycle-stages)
 
 Modern data platforms are powerful, but building one often means assembling and operating a growing collection of infrastructure, orchestration, storage, catalog, governance and analytics tools.
 
@@ -289,7 +289,7 @@ Going deeper:
 - ☁️ [AWS & Azure deployment](/docs/setup/cloud-poc-setup.md)
 - 🧠 [Architecture Decision Records](/docs/adr/README.md)
 - 📦 [Release compatibility](/docs/release/compatibility-matrix.md)
-- 🗺️ [Project roadmap](/docs/industrialization-roadmap.md) 
+- 🗺️ [Project roadmap](https://github.com/OpenLakeForge/openlakeforge/milestones)
 - 📝 [Changelog](/CHANGELOG.md)
     
 
@@ -301,7 +301,7 @@ The current focus is making the platform easier for small teams to install and e
 
 Local, AWS and Azure environments exercise the same OpenLakeForge platform. Their validation and support maturity differ, and the project is progressively turning those tested environments into stable distribution targets.
 
-Follow the [industrialization roadmap](/docs/industrialization-roadmap.md) for the current direction.
+Follow the [milestones](https://github.com/OpenLakeForge/openlakeforge/milestones) for the current direction.
 
 ## Contributing
 

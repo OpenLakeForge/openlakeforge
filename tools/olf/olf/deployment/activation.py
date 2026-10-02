@@ -411,9 +411,9 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
         platform = provider.config.images.image_platform
     provider.tools.docker.pull(image, platform=platform, env=pull_env)
     if is_local_provider(provider):
-        from olf.deployment.local.images import load_image_into_kind
+        from olf.deployment.local.images import load_digest_image_into_kind
 
-        load_image_into_kind(image, provider.config, provider.tools, env=env)
+        load_digest_image_into_kind(image, provider.config, provider.tools, env=env)
 
 
 def read_platform_globals(

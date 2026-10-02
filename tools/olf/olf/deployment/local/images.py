@@ -74,6 +74,44 @@ def load_image_into_kind(image: str, config: LocalDeploymentConfig, tools: Toolk
     log.step(f"Loaded {image}")
 
 
+def _containerd_name(reference: str) -> str:
+    """The fully qualified name containerd and the CRI record for a Docker reference."""
+    head, _, rest = reference.partition("/")
+    if not rest:
+        return f"docker.io/library/{reference}"
+    if head == "docker.io" and "/" not in rest:
+        return f"docker.io/library/{rest}"
+    if "." in head or ":" in head or head == "localhost":
+        return reference
+    return f"docker.io/{reference}"
+
+
+def load_digest_image_into_kind(
+    image: str, config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]
+) -> None:
+    """Load a digest-pinned image so kubelet finds it under that digest reference.
+
+    `docker save` of a `repo@sha256:...` reference writes no name, and the
+    manifest it writes is not the registry's, so after a plain `kind load` the
+    node holds the layers but nothing called `repo@sha256:...`. Kubelet then
+    pulls from the registry with no credentials: a public image hides this,
+    a private one fails `unauthorized` (#280). Loading under a tag and naming
+    the result after the digest in each node's containerd closes that gap
+    without handing registry credentials to the cluster.
+    """
+    repository, digest = image.split("@", 1)
+    prefix, _, name = repository.rpartition("/")
+    repository = f"{prefix}/{name.split(':', 1)[0]}" if prefix else name.split(":", 1)[0]
+    tagged = f"{repository}:{digest.replace(':', '-')}"
+    tools.docker.tag(image, tagged, env=env)
+    load_image_into_kind(tagged, config, tools, env=env)
+    source, target = _containerd_name(tagged), _containerd_name(f"{repository}@{digest}")
+    for node in tools.kind.get_nodes(config.cluster.name, env=env):
+        tools.docker.exec_(
+            node, ["ctr", "--namespace=k8s.io", "images", "tag", "--force", source, target], env=env
+        )
+
+
 def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
     if not config.features.analytics_enabled:
         return

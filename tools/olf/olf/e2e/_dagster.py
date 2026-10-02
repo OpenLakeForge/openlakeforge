@@ -11,17 +11,23 @@ from openlakeforge_domain import Product
 from olf import k8s, log
 from olf.clients.base import ServiceClientError
 from olf.clients.dagster import DagsterClient, DagsterHTTPError, DagsterTransientError  # noqa: F401 - re-exported
+from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._health import _bounded_pod_diagnostics
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, terraform_output_json
-from olf.e2e._trino import stage_catalog_name
+from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
+# No root overrides modules/orchestration/dagster's `release_name`: each stage
+# runs its own "dagster" release, and its namespace is what tells them apart.
+# The contract carries no service name, and reading one from Terraform output
+# would tie e2e to platform state a contract-file run does not have (#278).
+DAGSTER_RELEASE_NAME = "dagster"
+DAGSTER_WEBSERVER_SERVICE_NAME = f"{DAGSTER_RELEASE_NAME}-dagster-webserver"
 
 
 def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] | None = None) -> None:
     log.step("Launching and polling Dagster product jobs...")
     assert cfg.dagster_local_port is not None
-    webserver_service_name = dagster_webserver_service_name(cfg)
+    webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
     with k8s.port_forward(
         webserver_service_name,
@@ -54,33 +60,6 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
                 raise E2EError(str(exc)) from exc
 
 
-def dagster_webserver_service_name(cfg: E2EConfig) -> str:
-    """This run's own stage's Dagster webserver service name.
-
-    `dagster_webserver_service_names` is stage-indexed (one Terraform root
-    provisions every enabled stage's own Dagster release) - reading a single
-    "selected stage" value here would silently target the wrong stage's
-    service whenever `cfg` isn't that Terraform-side default (e.g. a
-    `--stage prod` run against a dev+prod deployment).
-    """
-    names = terraform_output_json(cfg.contract_terraform_dir, "dagster_webserver_service_names")
-    stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
-    if not isinstance(names, dict) or stage not in names:
-        raise E2EError(f"Terraform output dagster_webserver_service_names has no entry for stage {stage!r}.")
-    return names[stage]
-
-
-def dagster_release_name(cfg: E2EConfig) -> str:
-    """This stage's Dagster Helm release name (`app.kubernetes.io/instance`).
-
-    Derived from the webserver service name Terraform already outputs
-    (`{release_name}-dagster-webserver`, modules/orchestration/dagster)
-    rather than assumed as the bare "dagster" every root defaults to - a
-    stage's own namespace, not its release name, is what disambiguates it.
-    """
-    return dagster_webserver_service_name(cfg).removesuffix("-dagster-webserver")
-
-
 def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> list[str]:
     """Discover configured user-code deployments for bounded failure diagnostics."""
     try:
@@ -92,7 +71,7 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
 
     # User code is the platform release's subchart under `olf deploy`, and its
     # own release once `olf project deploy` activates a revision.
-    releases = {dagster_release_name(cfg), ACTIVATION_RELEASE}
+    releases = {DAGSTER_RELEASE_NAME, ACTIVATION_RELEASE}
     return [
         str(item.get("metadata", {}).get("name"))
         for item in payload.get("items", [])
@@ -103,13 +82,15 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
 
 
 def expected_repository_location_names(cfg: E2EConfig) -> list[str]:
-    """Read Dagster locations from the deployed environment contract."""
-    location_names = terraform_output_json(cfg.contract_terraform_dir, "dagster_code_location_names")
-    if (
-        not isinstance(location_names, list)
-        or not location_names
-        or any(not isinstance(location_name, str) or not location_name for location_name in location_names)
-        or len(set(location_names)) != len(location_names)
-    ):
-        raise E2EError("Terraform output dagster_code_location_names must be a non-empty list of unique names.")
-    return location_names
+    """This run's stage's Dagster code locations, from its v3 contract entry.
+
+    `applied_contract_environment` has already validated the contract and
+    recorded the stage it served, so this reads the same document the
+    contract file or Terraform output supplied.
+    """
+    stage = os.environ.get(CONTRACT_STAGE_ENV, "")
+    stages = load_provider_contracts_or_raise(cfg).get("stages") or {}
+    code_locations = (stages.get(stage) or {}).get("orchestration", {}).get("code_locations")
+    if not code_locations:
+        raise E2EError(f"provider_contracts.stages.{stage}.orchestration.code_locations is required.")
+    return [location["name"] for location in code_locations]

@@ -2,9 +2,9 @@
 
 All notable changes to OpenLakeForge are documented here. This project is in
 the **Alpha** lifecycle stage (see
-[docs/industrialization-roadmap.md](docs/industrialization-roadmap.md),
-"Lifecycle Definitions"): breaking changes are allowed between alpha
-releases, with migration notes recorded below for every tag. Until Beta,
+[docs/release/releasing.md](docs/release/releasing.md#lifecycle-stages)):
+breaking changes are allowed between alpha releases, with migration notes
+recorded below for every tag. Until Beta,
 only the latest alpha tag is maintained.
 
 Release tags are create-only semantic versions (`release_tag_policy:
@@ -346,8 +346,9 @@ from. Consumers adopting this alpha should:
 2. Follow [docs/release/releasing.md](docs/release/releasing.md) to verify
    signatures and checksums before deploying.
 3. Expect breaking changes in the next alpha; this stage carries no forward
-   compatibility guarantee (see "Lifecycle Definitions" in
-   `docs/industrialization-roadmap.md`).
+   compatibility guarantee (see "Lifecycle stages" in
+   `docs/release/releasing.md`, formerly "Lifecycle Definitions" in the
+   since-removed `docs/industrialization-roadmap.md`).
 
 ### Known limitations
 

@@ -186,10 +186,26 @@ signatures.
 
 ## Release evidence
 
-This section records what actually ran for each published release, so the
+This section records what actually ran for the releases listed below, so the
 pipeline described above is documented as exercised rather than intended.
+Evidence for `v0.2.0-alpha.1` was not recorded when it was published.
 
-### `v0.3.0-alpha.1` (2026-10-01)
+Because the tag-triggered run is the one that builds, pushes, signs, and attests
+the images, a failure in that stage would have failed the run; a successful
+conclusion is the evidence for image publication and signing. To confirm
+independently, run the consumer verification commands in the section above, or
+`uv run --project tools/olf --locked olf release verify-install --tag "$TAG"
+--pull-images` with `TAG` set to the release tag.
+
+Verification that is still outstanding, and should be recorded here when it
+runs:
+
+- An end-to-end execution of `olf release verify-install` against a published
+  tag by someone other than the release author.
+
+### Per-release evidence
+
+#### `v0.3.0-alpha.1` (2026-10-01)
 
 | Item | Evidence |
 | --- | --- |
@@ -205,7 +221,7 @@ A second `workflow_dispatch` with `dry_run: false` on the tag (run
 `36889916517`) correctly stopped at the create-only check, because the release
 already existed.
 
-### `v0.1.0-alpha.1` (2026-08-10)
+#### `v0.1.0-alpha.1` (2026-08-10)
 
 | Item | Evidence |
 | --- | --- |
@@ -214,15 +230,16 @@ already existed.
 | Release assets | `CHANGELOG.md`, `checksums.txt`, `checksums.txt.bundle`, `compatibility-matrix.md`, `component-catalog.yaml`, `component-manifest.json`, `project-code.spdx.json`, `superset.spdx.json` |
 | Static gates | `olf check all` ran as a job on every pull request; `main` was not yet protected (#37) |
 
-Because the tag-triggered run is the one that builds, pushes, signs, and attests
-the images, a failure in that stage would have failed the run; a successful
-conclusion is the evidence for image publication and signing. To confirm
-independently, run the consumer verification commands in the section above, or
-`uv run --project tools/olf --locked olf release verify-install --tag <tag>
---pull-images`.
+## Lifecycle stages
 
-Verification that is still outstanding, and should be recorded here when it
-runs:
+| Stage | Intended use | Compatibility commitment |
+| --- | --- | --- |
+| Alpha | Development and product-contract validation; `v0.1.0-alpha.1` is validated on local kind only | Breaking changes allowed with migration notes |
+| Beta | Controlled AWS evaluation | Best-effort forward migration within the beta line |
+| Release candidate | Operational and upgrade qualification | No planned breaking changes before the associated stable release |
+| Stable | Supported production use within the published reference envelope | Compatible changes in minor releases; breaking changes only in major releases |
+| Deprecated | Still functional but scheduled for removal | Removal release and migration path published |
+| Unsupported | Outside the maintained version window | No fixes or compatibility guarantees |
 
-- An end-to-end execution of `olf release verify-install` against a published
-  tag by someone other than the release author.
+The exact stable support window should be declared before `v1.0`; until then,
+only the latest pre-release is maintained.
