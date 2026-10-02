@@ -55,9 +55,12 @@ with app.app_context():
     ImportAssetsCommand(contents).run()
 """
 
-# In-pod exporter. argv: <remote_bundle> <username> <dashboard_title> <bundle_root>.
+# In-pod exporter. argv: <remote_bundle> <username> <dashboard uuid or slug> <bundle_root>.
+# Selected by uuid or slug rather than title, so renaming a dashboard in DEV
+# does not break its re-export.
 _EXPORT_SCRIPT = """
 import sys
+from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
@@ -67,7 +70,7 @@ from superset.app import create_app
 
 bundle_path = sys.argv[1]
 username = sys.argv[2]
-dashboard_title = sys.argv[3]
+dashboard_ref = sys.argv[3]
 bundle_root = sys.argv[4]
 
 app = create_app()
@@ -82,14 +85,13 @@ with app.app_context():
         raise SystemExit(f"Superset user '{username}' does not exist")
     g.user = user
 
-    dashboard_ids = [
-        dashboard_id
-        for (dashboard_id,) in db.session.query(Dashboard.id)
-        .filter(Dashboard.dashboard_title == dashboard_title)
-        .all()
-    ]
+    try:
+        selector = Dashboard.uuid == UUID(dashboard_ref)
+    except ValueError:
+        selector = Dashboard.slug == dashboard_ref
+    dashboard_ids = [dashboard_id for (dashboard_id,) in db.session.query(Dashboard.id).filter(selector).all()]
     if not dashboard_ids:
-        raise SystemExit(f"Superset dashboard '{dashboard_title}' does not exist")
+        raise SystemExit(f"Superset dashboard with uuid or slug '{dashboard_ref}' does not exist")
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
         for file_name, file_content in ExportDashboardsCommand(dashboard_ids).run():
@@ -632,7 +634,7 @@ def export_report(
     work_dir: Path,
     reports_mount_path: str,
     admin_username: str,
-    dashboard_title: str,
+    dashboard: str,
 ) -> None:
     identity = bundle_identity(report_source_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -643,8 +645,8 @@ def export_report(
     k8s.wait_for_rollout("deployment/superset", namespace)
     pod = _running_superset_pod(namespace)
 
-    log.step(f"Exporting '{dashboard_title}' from Superset")
-    _exec_pod_python(pod, namespace, _EXPORT_SCRIPT, [remote_bundle, admin_username, dashboard_title, identity.root])
+    log.step(f"Exporting dashboard '{dashboard}' from Superset")
+    _exec_pod_python(pod, namespace, _EXPORT_SCRIPT, [remote_bundle, admin_username, dashboard, identity.root])
 
     with local_bundle.open("wb") as out:
         subprocess.run(

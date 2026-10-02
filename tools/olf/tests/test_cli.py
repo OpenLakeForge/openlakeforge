@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 import olf
@@ -70,7 +71,7 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
     )
     monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: calls.append("reports"))
 
-    result = runner.invoke(app, ["superset", "deploy-reports", "--provider", "aws"])
+    result = runner.invoke(app, ["report", "import", "--provider", "aws"])
 
     assert result.exit_code == 0
     assert options["provider"] == "aws"
@@ -85,7 +86,7 @@ def test_superset_deploy_reports_threads_a_custom_project_root(monkeypatch: pyte
     )
     monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
 
-    result = runner.invoke(app, ["superset", "deploy-reports", "--project-root", "/srv/my-project"])
+    result = runner.invoke(app, ["report", "import", "--project-root", "/srv/my-project"])
 
     assert result.exit_code == 0
     assert options["project_root"] == "/srv/my-project"
@@ -105,8 +106,8 @@ def test_superset_report_commands_hydrate_the_named_stage(monkeypatch: pytest.Mo
     monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
     monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
 
-    deployed = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
-    exported = runner.invoke(app, ["superset", "export-reports", "--stage", "uat"])
+    deployed = runner.invoke(app, ["report", "import", "--stage", "prod"])
+    exported = runner.invoke(app, ["report", "export", "--stage", "uat"])
 
     assert (deployed.exit_code, exported.exit_code) == (0, 0)
     assert [entry["stage"] for entry in options] == ["prod", "uat"]
@@ -124,8 +125,8 @@ def test_superset_export_reports_requires_an_explicit_stage(monkeypatch: pytest.
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
 
-    missing = runner.invoke(app, ["superset", "export-reports"])
-    supplied = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    missing = runner.invoke(app, ["report", "export"])
+    supplied = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     # 2 is click's usage error: the argument parser refused the call.
     assert missing.exit_code == 2
@@ -140,7 +141,7 @@ def test_superset_deploy_reports_fails_closed_for_a_stage_without_analytics(
     _hydrate_stage_contract(monkeypatch, "prod")
     monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
 
-    result = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
+    result = runner.invoke(app, ["report", "import", "--stage", "prod"])
 
     assert result.exit_code == 1
     assert "analytics disabled" in result.output
@@ -503,7 +504,6 @@ def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypa
 
     inventory = inventory_for(config.repo_root())
     default_dashboard = inventory.dashboards[0]
-    default_product = next(product for product in inventory.products if product.id == default_dashboard.products[0])
     calls: list[dict] = []
     monkeypatch.setattr(
         "olf.superset.export_report",
@@ -512,18 +512,20 @@ def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypa
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == default_dashboard.report_source_dir
     assert calls[0]["bundle_name"] == default_dashboard.superset_export_bundle_name
-    assert calls[0]["dashboard_title"] == default_product.display_name
+    (dashboard_file,) = (config.repo_root() / default_dashboard.report_source_dir / "dashboards").glob("*.yaml")
+    assert calls[0]["dashboard"] == yaml.safe_load(dashboard_file.read_text())["uuid"]
 
 
-def test_superset_export_reports_dashboard_title_prefers_the_bundles_own_title(
+def test_superset_export_reports_selects_the_bundles_dashboard_by_uuid_not_title(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The bundle's own dashboard_title must win over displayName when they differ."""
+    """Renaming the dashboard in Superset must not break re-export: the
+    checked-in uuid identifies it, whatever its title or displayName say."""
     lakehouse_dir = tmp_path / "lakehouse_code"
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
@@ -576,7 +578,9 @@ dashboards:
     dashboards_dir = lakehouse_dir / "dashboards" / "superset" / "orders" / "dashboards"
     dashboards_dir.mkdir(parents=True)
     (dashboards_dir / "Live_1.yaml").write_text(
-        "dashboard_title: The Actual Live Dashboard Title\nslug: sales-orders-live\n", encoding="utf-8"
+        "dashboard_title: The Actual Live Dashboard Title\nslug: sales-orders-live\n"
+        "uuid: 0b5f2f0e-6a43-4d8e-9a59-7c2d0f4a1e11\n",
+        encoding="utf-8",
     )
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -585,10 +589,10 @@ dashboards:
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 0
-    assert calls[0]["dashboard_title"] == "The Actual Live Dashboard Title"
+    assert calls[0]["dashboard"] == "0b5f2f0e-6a43-4d8e-9a59-7c2d0f4a1e11"
 
 
 def _seed_project_with_no_declared_dashboards(tmp_path: Path, *, bundle_dir_name: str) -> Path:
@@ -657,7 +661,7 @@ def test_superset_export_reports_refuses_with_no_declared_dashboard_and_no_targe
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
     assert "declares no dashboard to export" in result.output
@@ -673,7 +677,7 @@ def test_superset_export_reports_refuses_a_target_that_is_not_an_existing_direct
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
     assert "does not exist" in result.output
@@ -693,15 +697,49 @@ def test_superset_export_reports_exports_an_undeclared_target_named_explicitly(
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    # A draft has no exported dashboard to take an identity from, so the
+    # operator names it; nothing is guessed from a title.
+    monkeypatch.delenv("SUPERSET_DASHBOARD", raising=False)
+    unnamed = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    monkeypatch.setenv("SUPERSET_DASHBOARD", "sales-orders")
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
+    assert unnamed.exit_code == 2
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == "lakehouse_code/dashboards/superset/orders"
     assert calls[0]["bundle_name"] == "orders_superset_assets_export.zip"
-    # No bundle title checked in yet, and nothing declares this bundle as any
-    # particular product's dashboard, so the fallback is its own directory
-    # name rather than a guessed product match.
-    assert calls[0]["dashboard_title"] == "orders"
+    assert calls[0]["dashboard"] == "sales-orders"
+
+
+def test_superset_export_reports_refuses_the_retired_title_selector(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Silently ignoring a title the operator set could export a different
+    dashboard than the one they named."""
+    monkeypatch.setenv("SUPERSET_DASHBOARD_TITLE", "Sales Order Revenue")
+    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
+
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+
+    assert result.exit_code == 2
+
+
+def test_superset_report_aliases_still_work_and_warn(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: list[dict] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.append(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+
+    deployed = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
+    exported = runner.invoke(app, ["superset", "export-reports", "--stage", "uat"])
+
+    assert (deployed.exit_code, exported.exit_code) == (0, 0)
+    assert [entry["stage"] for entry in options] == ["prod", "uat"]
+    assert "use `olf report import`" in deployed.output
+    assert "use `olf report export`" in exported.output
 
 
 def test_superset_export_reports_refuses_an_absolute_target_outside_the_project(
@@ -719,7 +757,7 @@ def test_superset_export_reports_refuses_an_absolute_target_outside_the_project(
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     # Message not asserted: rich wraps typer's usage error at 80 columns when
     # stdout isn't a terminal, which splits this phrase across lines on CI
@@ -740,7 +778,7 @@ def test_superset_export_reports_refuses_a_target_that_escapes_the_report_tree(
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
 
@@ -760,7 +798,7 @@ def test_superset_export_reports_refuses_an_out_of_tree_override_with_declared_d
     _hydrate_stage_contract(monkeypatch)
     assert config.repo_root()  # sanity: the reference project (3 declared dashboards) resolves
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
 
@@ -782,7 +820,7 @@ def test_superset_export_reports_accepts_a_legitimate_override_with_declared_das
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == other_dashboard.report_source_dir
@@ -1057,7 +1095,7 @@ def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
     assert "directly under" in result.output

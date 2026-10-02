@@ -853,7 +853,7 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     readme = (dashboard_dir / "README.md").read_text(encoding="utf-8")
     assert "SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/order_summary" in readme
     assert "dashboards:" in readme and "order_summary" in readme
-    # #229: `export-reports` accepts an explicit, existing SUPERSET_REPORT_SOURCE_DIR
+    # #229: `olf report export` accepts an explicit, existing SUPERSET_REPORT_SOURCE_DIR
     # even with zero declared dashboards, so the README no longer needs a
     # declare-before-export ordering workaround for a project's first dashboard.
     assert "do step 2 before step 1" not in readme

@@ -1,8 +1,10 @@
-"""Superset report deploy/export helpers."""
+"""Superset report import/export/validate commands."""
 
 from __future__ import annotations
 
+import functools
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,7 +17,7 @@ from olf.commands._shared import fail
 if TYPE_CHECKING:
     from olf.superset import StageReportTarget
 
-app = typer.Typer(help="Superset report deploy/export helpers.")
+app = typer.Typer(help="Deprecated aliases of the `olf report` commands.")
 report_app = typer.Typer(help="Source-controlled Superset report bundles.")
 
 _REPORT_BUNDLE_ROOT = "lakehouse_code/dashboards/superset"
@@ -79,8 +81,8 @@ def report_validate(
     typer.echo(f"{len(selected)} report bundle(s) are promotable.")
 
 
-@app.command("deploy-reports")
-def superset_deploy_reports(
+@report_app.command("import")
+def report_import(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
@@ -133,8 +135,8 @@ def deploy_superset_reports(stage: str = "") -> None:
     )
 
 
-@app.command("export-reports")
-def superset_export_reports(
+@report_app.command("export")
+def report_export(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
@@ -179,12 +181,9 @@ def export_superset_reports(stage: str = "") -> None:
         _validate_report_target_dir(project.root, override)
     if inventory.dashboards:
         # Unchanged from before #229: the first declared dashboard is always
-        # the title/bundle-name source, even when an override targets a
-        # different (declared or undeclared) bundle.
+        # the bundle-name source, even when an override targets a different
+        # (declared or undeclared) bundle.
         default_dashboard = inventory.dashboards[0]
-        default_product = next(
-            product for product in inventory.products if product.id == default_dashboard.products[0]
-        )
         report_source_dir = override or default_dashboard.report_source_dir
     elif override:
         # Nothing declared yet (e.g. a scaffolded --with-report draft, #205):
@@ -194,26 +193,30 @@ def export_superset_reports(stage: str = "") -> None:
             raise typer.BadParameter(f"SUPERSET_REPORT_SOURCE_DIR {override!r} does not exist")
         report_source_dir = override
         default_dashboard = Dashboard(name=Path(override).name, products=())
-        default_product = None
     else:
         raise typer.BadParameter(
             "lakehouse.yaml declares no dashboard to export; "
             "set SUPERSET_REPORT_SOURCE_DIR to target an undeclared bundle"
         )
 
-    def _default_dashboard_title() -> str:
-        # Dashboard identity can differ from product metadata (see
-        # e2e.discovered_dashboards) — prefer the checked-in bundle's own
-        # title so a re-export finds the same dashboard it last exported.
-        # Falls back to displayName only when no bundle exists yet to read,
-        # and to the bundle's directory name when nothing is declared enough
-        # to resolve a product either.
+    if os.environ.get("SUPERSET_DASHBOARD_TITLE"):
+        raise typer.BadParameter(
+            "SUPERSET_DASHBOARD_TITLE is no longer read: export selects the dashboard by stable identity. "
+            "Set SUPERSET_DASHBOARD to its uuid or slug instead."
+        )
+
+    def _default_dashboard() -> str:
+        # The checked-in bundle's own uuid, which survives a rename in Superset.
         for dashboard_file in superset.discover_dashboard_files(project.root / report_source_dir):
             document = yaml.safe_load(dashboard_file.read_text())
-            title = document.get("dashboard_title") if isinstance(document, dict) else None
-            if title:
-                return title
-        return default_product.display_name if default_product else default_dashboard.name
+            if isinstance(document, dict) and document.get("uuid"):
+                return str(document["uuid"])
+        # A draft bundle has nothing to read yet, and guessing from a title
+        # or name would be the rename-fragile lookup this replaces.
+        raise typer.BadParameter(
+            f"{report_source_dir} has no exported dashboard to identify; "
+            "set SUPERSET_DASHBOARD to the uuid or slug of the dashboard in Superset"
+        )
 
     log.step(f"Exporting Superset reports from stage '{target.stage}' (namespace {target.namespace})")
     superset.export_report(
@@ -226,8 +229,27 @@ def export_superset_reports(stage: str = "") -> None:
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         reports_mount_path=config.env("SUPERSET_REPORTS_MOUNT_PATH", superset.REPORTS_MOUNT_PATH_DEFAULT),
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
-        dashboard_title=config.env("SUPERSET_DASHBOARD_TITLE", _default_dashboard_title()),
+        dashboard=os.environ.get("SUPERSET_DASHBOARD") or _default_dashboard(),
     )
+
+
+def _deprecated_alias(command: Callable[..., None], replacement: str) -> Callable[..., None]:
+    # functools.wraps exposes the command's signature, so Typer builds the
+    # alias with the same options.
+    @functools.wraps(command)
+    def alias(**kwargs: object) -> None:
+        log.warn(f"this command is deprecated; use `{replacement}` instead.")
+        command(**kwargs)
+
+    return alias
+
+
+app.command("deploy-reports", help="Deprecated alias of `olf report import`.")(
+    _deprecated_alias(report_import, "olf report import")
+)
+app.command("export-reports", help="Deprecated alias of `olf report export`.")(
+    _deprecated_alias(report_export, "olf report export")
+)
 
 
 def _report_target(stage: str) -> StageReportTarget:
