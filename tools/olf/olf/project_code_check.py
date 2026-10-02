@@ -14,7 +14,39 @@ from collections import Counter
 from hashlib import sha256
 from importlib import import_module
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    from openlakeforge_domain import LakehouseInventory, Product
+
+
+# Dagster, Floe and the project's `libs` package are untyped or not importable
+# from the CLI package, so these protocols name the surface this check relies on.
+class _Job(Protocol):
+    run_config: Mapping[str, Any]
+
+
+class _Schedule(Protocol):
+    name: str
+    job_name: str
+    cron_schedule: str | Sequence[str]
+    default_status: object
+
+
+class _ProductDagsterLibrary(Protocol):
+    """The `libs.product_dagster` members this check calls or patches."""
+
+    ProductDefinitionSpec: Callable[..., object]
+    DomainDefinitionSpec: Callable[..., object]
+    ArtifactRevisionError: type[Exception]
+    read_text_uri: Callable[[str], str]
+
+    def build_stage_schedules(self, spec: object, *, stage: str | None = None) -> Sequence[_Schedule]: ...
+    def _aggregate_revision(self, entries: dict[str, str]) -> str: ...
+    def _remote_manifest_uri(self, spec: object) -> str | None: ...
+    def _manifest_path_for_dagster(self, spec: object) -> str: ...
 
 
 def _fail(message: str) -> NoReturn:
@@ -30,7 +62,7 @@ def _asset_keys(definitions: object) -> list[tuple[str, ...]]:
     ]
 
 
-def _product_inputs(product: object) -> tuple[str, ...]:
+def _product_inputs(product: Product) -> tuple[str, ...]:
     module = import_module(f"lakehouse_code.pipelines.dagster.{product.id}")
     name = f"{product.id.upper()}_SILVER_INPUTS"
     values = getattr(module, name, getattr(module, f"{product.id.upper()}_ENTITIES", None))
@@ -44,9 +76,11 @@ def validate(root: Path) -> None:
     from dagster import Definitions
     from dagster._core.workspace.autodiscovery import loadable_targets_from_python_module
     from floe_dagster.manifest import load_manifest
-    from lakehouse_code.definitions import defs as merged_defs
-    from libs import product_dagster as product_dagster_lib
     from openlakeforge_domain import load_lakehouse_inventory
+
+    # Imported by name so mypy does not follow into the user project's tree.
+    merged_defs = import_module("lakehouse_code.definitions").defs
+    product_dagster_lib = cast(_ProductDagsterLibrary, import_module("libs.product_dagster"))
 
     if os.environ.get("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", "").lower() != "remote":
         _fail("project-code check must load definitions in remote Floe manifest mode")
@@ -124,7 +158,7 @@ def validate(root: Path) -> None:
     merged_defs.get_repository_def().load_all_definitions()
 
 
-def _verify_bronze_subsetability(inventory: object, definitions: object) -> None:
+def _verify_bronze_subsetability(inventory: LakehouseInventory, definitions: object) -> None:
     """Require each shared Bronze source multi-asset to support product subsets."""
     source_names = {source.name for source in inventory.sources}
     source_assets = [
@@ -146,7 +180,7 @@ def _verify_bronze_subsetability(inventory: object, definitions: object) -> None
             )
 
 
-def _verify_sequential_floe_orchestration(product: object, manifest: object, job: object) -> None:
+def _verify_sequential_floe_orchestration(product: Product, manifest: object, job: _Job) -> None:
     """Require sequential Floe manifests and the corresponding serialized Dagster run config."""
     orchestration = getattr(getattr(manifest, "execution", None), "orchestration", None)
     if getattr(orchestration, "strategy", None) != "sequential":
@@ -159,7 +193,7 @@ def _verify_sequential_floe_orchestration(product: object, manifest: object, job
         _fail(f"{product.job_name} did not inherit Floe orchestration concurrency")
 
 
-def _verify_stage_schedules(inventory: object, library: object) -> None:
+def _verify_stage_schedules(inventory: LakehouseInventory, library: _ProductDagsterLibrary) -> None:
     """Require the daily scaffold to exist only where a stage asks for it, and never to start itself.
 
     Every stage runs the same immutable revision, so this is the only thing
@@ -189,13 +223,15 @@ def _verify_stage_schedules(inventory: object, library: object) -> None:
         _verify_daily_cron(schedule)
 
 
-def _verify_daily_cron(schedule: object) -> None:
+def _verify_daily_cron(schedule: _Schedule) -> None:
     fields = str(schedule.cron_schedule).split()
     if len(fields) != 5 or fields[2:] != ["*", "*", "*"] or not all(field.isdigit() for field in fields[:2]):
         _fail(f"{schedule.name} must run once a day; got {schedule.cron_schedule!r}")
 
 
-def _verify_immutable_manifest_replay(root: Path, product: object, library: object, load_manifest: object) -> None:
+def _verify_immutable_manifest_replay(
+    root: Path, product: Product, library: _ProductDagsterLibrary, load_manifest: Callable[[str], object]
+) -> None:
     """Exercise the revision sidecar/digest guard used by cloud manifest replay."""
     domain = product.domain_name
     manifest_path = root / f"lakehouse_code/silver/{domain}/contracts/floe/manifests/{domain}.manifest.json"
@@ -223,6 +259,8 @@ def _verify_immutable_manifest_replay(root: Path, product: object, library: obje
         })
         spec = library.DomainDefinitionSpec(domain=domain, tables=())
         revision_uri = library._remote_manifest_uri(spec)
+        if revision_uri is None:
+            _fail(f"no immutable Floe manifest URI resolved for domain {domain}")
         sidecar_uri = revision_uri.rsplit("/floe/manifests/", 1)[0] + "/REVISION.json"
         sidecar = json.dumps({"revision": revision, "entries": entries})
         library.read_text_uri = lambda uri: sidecar if uri == sidecar_uri else json.dumps(payload)
@@ -244,7 +282,7 @@ def _verify_immutable_manifest_replay(root: Path, product: object, library: obje
                 os.environ[key] = value
 
 
-def _verify_shared_assets(inventory: object, asset_keys: list[tuple[str, ...]]) -> None:
+def _verify_shared_assets(inventory: LakehouseInventory, asset_keys: list[tuple[str, ...]]) -> None:
     counts = Counter(
         (item.source, item.name)
         for product in inventory.products
