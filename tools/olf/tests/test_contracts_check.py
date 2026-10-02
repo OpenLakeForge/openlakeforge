@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from olf import contracts_check
+from olf.contracts_check import _hcl
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -259,7 +260,7 @@ def test_hcl_structured_contracts_passes_against_real_repo() -> None:
 
 
 def test_installed_contract_environ_returns_none_for_a_source_checkout() -> None:
-    assert contracts_check._installed_contract_environ("local") is None
+    assert _hcl._installed_contract_environ("local") is None
 
 
 def test_installed_contract_environ_sets_state_and_data_roots_for_an_installed_layout(
@@ -281,7 +282,7 @@ def test_installed_contract_environ_sets_state_and_data_roots_for_an_installed_l
     )
     monkeypatch.setattr("olf.distribution.runtime_layout", lambda *a, **k: layout)
 
-    environ = contracts_check._installed_contract_environ("local")
+    environ = _hcl._installed_contract_environ("local")
 
     assert environ is not None
     assert environ["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(resolved / "state" / "local")
@@ -299,7 +300,7 @@ def test_hcl_phase_two_invariants_passes_when_applied_state_is_clean(tmp_path: P
     def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_database_fqn": "polaris.lakehouse_dev"}}
 
-    monkeypatch.setattr(contracts_check.contracts_module, "load_provider_contracts", fake_load)
+    monkeypatch.setattr(_hcl.contracts_module, "load_provider_contracts", fake_load)
 
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 
@@ -311,7 +312,7 @@ def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Pat
     def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_namespaces": ["silver", "gold"]}}
 
-    monkeypatch.setattr(contracts_check.contracts_module, "load_provider_contracts", fake_load)
+    monkeypatch.setattr(_hcl.contracts_module, "load_provider_contracts", fake_load)
 
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 
