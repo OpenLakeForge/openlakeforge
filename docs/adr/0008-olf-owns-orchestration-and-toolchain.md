@@ -54,7 +54,7 @@ Helm, kubectl, and kind under `OLF_HOME` (default `~/.openlakeforge`), at the
 exact versions `release/component-catalog.yaml` pins.
 
 This follows from the pins being immutable at all: a catalog that pins Terraform
-1.8.5 while the user's `PATH` supplies 1.5 is a pin in name only.
+1.16.4 while the user's `PATH` supplies 1.5 is a pin in name only.
 
 `OLF_TOOLCHAIN_MODE=host` resolves from `PATH` instead, for users who need to
 supply their own binaries.

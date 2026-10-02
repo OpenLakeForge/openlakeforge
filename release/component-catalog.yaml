@@ -8,7 +8,7 @@ distribution:
   development_tags: mutable
 components:
   terraform:
-    required_version: ">= 1.7.0"
+    required_version: ">= 1.10.0"
     providers:
       hashicorp/aws: 6.62.0
       hashicorp/azurerm: 4.77.0
@@ -18,12 +18,12 @@ components:
       hashicorp/tls: 4.3.0
   toolchain:
     terraform:
-      version: "1.8.5"
+      version: "1.16.4"
       platforms:
-        darwin-amd64: sha256:051c702e156a4d1a1c628783cf2ca0e1db8cca7b4c0f1686ea623558ed5560f9
-        darwin-arm64: sha256:627c5005ab4a2bee36316f4967a41f16d55f79ea737f78b6bb34325c728c73e1
-        linux-amd64: sha256:bb1ee3e8314da76658002e2e584f2d8854b6def50b7f124e27b957a42ddacfea
-        linux-arm64: sha256:17b3a243ea24003a58ab324c197da8609fccae136bcb8a424bf61ec475b3a203
+        darwin-amd64: sha256:2ee4b62064086e4b24b0d6cf2e61718fbaf0556feba990f708a5e32557554b3b
+        darwin-arm64: sha256:42cfdf97ad722f79085fe2279b06d4b8680172de3534b22eeddd9a0fbbe7b8f1
+        linux-amd64: sha256:dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
+        linux-arm64: sha256:8263f301cb1a24489a4adeed147bf28504053f77237b3ea97a0ef2972659de30
     helm:
       version: "3.18.6"
       platforms:
