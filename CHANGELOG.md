@@ -346,8 +346,9 @@ from. Consumers adopting this alpha should:
 2. Follow [docs/release/releasing.md](docs/release/releasing.md) to verify
    signatures and checksums before deploying.
 3. Expect breaking changes in the next alpha; this stage carries no forward
-   compatibility guarantee (see "Lifecycle Definitions" in
-   `docs/industrialization-roadmap.md`).
+   compatibility guarantee (see "Lifecycle stages" in
+   `docs/release/releasing.md`, formerly "Lifecycle Definitions" in the
+   since-removed `docs/industrialization-roadmap.md`).
 
 ### Known limitations
 
