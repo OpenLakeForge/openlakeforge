@@ -4,6 +4,8 @@ import json
 import os
 import stat
 import tempfile
+import time
+import webbrowser
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,13 +77,13 @@ def test_aws_login_opens_only_the_aws_provided_url_and_saves_private_state(
     opened: list[str] = []
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     monkeypatch.setattr(
-        auth.boto3,
+        boto3,
         "Session",
         lambda *_a, **_k: SimpleNamespace(
             client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
         ),
     )
-    monkeypatch.setattr(auth.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
 
     state = auth.login_aws(start_url="https://portal.awsapps.com/start", sso_region="eu-west-1")
 
@@ -97,7 +99,7 @@ def test_aws_login_without_browser_prints_only_aws_device_details(
 ) -> None:
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     monkeypatch.setattr(
-        auth.boto3,
+        boto3,
         "Session",
         lambda *_a, **_k: SimpleNamespace(
             client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
@@ -122,13 +124,13 @@ def test_aws_device_polling_retries_pending_and_slowdown(monkeypatch: pytest.Mon
     )
     pauses: list[int] = []
     monkeypatch.setattr(
-        auth.boto3,
+        boto3,
         "Session",
         lambda *_a, **_k: SimpleNamespace(
             client=lambda service, **_kwargs: oidc if service == "sso-oidc" else _Sso()
         ),
     )
-    monkeypatch.setattr(auth.time, "sleep", pauses.append)
+    monkeypatch.setattr(time, "sleep", pauses.append)
 
     auth.login_aws(start_url="https://portal.awsapps.com/start", sso_region="eu-west-1", open_browser=False)
 
@@ -139,7 +141,7 @@ def test_aws_device_polling_reports_denial(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     oidc = _PollingOidc([_Oidc.exceptions.AccessDeniedException()])
     monkeypatch.setattr(
-        auth.boto3,
+        boto3,
         "Session",
         lambda *_a, **_k: SimpleNamespace(
             client=lambda service, **_kwargs: oidc if service == "sso-oidc" else _Sso()
@@ -216,7 +218,7 @@ def test_aws_session_does_not_force_a_profile_when_automation_credentials_are_pr
     """
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
-        auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object()
+        boto3, "Session", lambda **kwargs: calls.append(kwargs) or object()
     )
 
     auth.aws_session({"AWS_ACCESS_KEY_ID": "automation", "AWS_PROFILE": "company-sso"}, region="eu-west-1")
@@ -229,9 +231,9 @@ def test_explicit_aws_profile_takes_precedence_over_saved_olf_sso(
 ) -> None:
     env = {"OLF_HOME": str(tmp_path), "AWS_PROFILE": "company-sso"}
     auth.save_state("aws", {"source": "olf-sso", "access_token": "access"}, env)
-    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: False)
+    monkeypatch.setattr(auth.aws, "_aws_instance_profile_available", lambda: False)
     calls: list[dict[str, object]] = []
-    monkeypatch.setattr(auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
+    monkeypatch.setattr(boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
 
     auth.aws_session(env, region="eu-west-1")
 
@@ -246,7 +248,7 @@ def test_olf_generated_credential_process_profile_remains_managed(tmp_path: Path
         "AWS_CONFIG_FILE": str(tmp_path / "auth" / "aws-terraform-config"),
     }
 
-    assert not auth._uses_external_aws_profile(env)  # noqa: SLF001
+    assert not auth.aws._uses_external_aws_profile(env)  # noqa: SLF001
 
 
 def test_credential_selection_environment_excludes_unrelated_values() -> None:
@@ -389,7 +391,7 @@ def test_aws_process_credentials_carries_the_real_sso_expiration(
             "account_id": "123",
             "role_name": "Administrator",
             "access_token": "access",
-            "access_expires_at": auth._expires_at(3600),
+            "access_expires_at": auth.state._expires_at(3600),
         },
         env,
     )
@@ -408,7 +410,7 @@ def test_aws_process_credentials_carries_the_real_sso_expiration(
         },
     )()
     monkeypatch.setattr(
-        auth.boto3, "Session", lambda *_a, **_k: SimpleNamespace(client=lambda _service, **_kwargs: sso)
+        boto3, "Session", lambda *_a, **_k: SimpleNamespace(client=lambda _service, **_kwargs: sso)
     )
 
     credentials = auth.aws_process_credentials(env)
@@ -436,12 +438,12 @@ def test_aws_process_credentials_falls_back_to_a_short_ttl_without_sso_state(
         },
     )()
     session = type("Session", (), {"get_credentials": lambda self: credentials_obj})()
-    monkeypatch.setattr(auth, "aws_session", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(auth.aws, "aws_session", lambda *_args, **_kwargs: session)
 
     credentials = auth.aws_process_credentials(env)
 
     assert credentials["AccessKeyId"] == "AKIA"
-    assert credentials["Expiration"] > auth._expires_at(0)
+    assert credentials["Expiration"] > auth.state._expires_at(0)
 
 
 def test_azure_bridge_tolerates_azurerm_option_flags_on_account_commands(
@@ -521,7 +523,7 @@ def test_aws_login_rejects_a_role_the_session_does_not_offer(
     """
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     monkeypatch.setattr(
-        auth.boto3,
+        boto3,
         "Session",
         lambda *_a, **_k: SimpleNamespace(
             client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
@@ -544,7 +546,7 @@ def test_aws_login_accepts_an_offered_role_without_prompting(
 ) -> None:
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     monkeypatch.setattr(
-        auth.boto3,
+        boto3,
         "Session",
         lambda *_a, **_k: SimpleNamespace(
             client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
@@ -575,9 +577,9 @@ def test_aws_instance_profile_takes_precedence_over_a_saved_browser_session(
     """
     env = {"OLF_HOME": str(tmp_path)}
     auth.save_state("aws", {"source": "profile", "profile": "stale-dev-profile"}, env)
-    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: True)
+    monkeypatch.setattr(auth.aws, "_aws_instance_profile_available", lambda: True)
     calls: list[dict[str, object]] = []
-    monkeypatch.setattr(auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
+    monkeypatch.setattr(boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
 
     auth.aws_session(env)
 
@@ -589,9 +591,9 @@ def test_aws_saved_session_wins_when_no_instance_profile_is_present(
 ) -> None:
     env = {"OLF_HOME": str(tmp_path)}
     auth.save_state("aws", {"source": "profile", "profile": "my-profile"}, env)
-    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: False)
+    monkeypatch.setattr(auth.aws, "_aws_instance_profile_available", lambda: False)
     calls: list[dict[str, object]] = []
-    monkeypatch.setattr(auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
+    monkeypatch.setattr(boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
 
     auth.aws_session(env)
 
@@ -603,7 +605,7 @@ def test_terraform_auth_environment_defers_to_an_aws_instance_profile(
 ) -> None:
     env = {"OLF_HOME": str(tmp_path)}
     auth.save_state("aws", {"source": "olf-sso", "access_token": "access"}, env)
-    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: True)
+    monkeypatch.setattr(auth.aws, "_aws_instance_profile_available", lambda: True)
 
     assert auth.terraform_auth_environment("aws", env) == {}
 
@@ -617,7 +619,7 @@ def test_azure_managed_identity_takes_precedence_over_a_saved_browser_session(
     """
     env = {"OLF_HOME": str(tmp_path)}
     auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"}, env)
-    monkeypatch.setattr(auth, "_azure_managed_identity_available", lambda: True)
+    monkeypatch.setattr(auth.azure, "_azure_managed_identity_available", lambda: True)
 
     credential = auth.azure_credential(env)
 
@@ -637,7 +639,7 @@ def test_user_assigned_azure_managed_identity_takes_precedence_over_saved_browse
     credential = auth.azure_credential(env)
 
     assert type(credential).__name__ == "ManagedIdentityCredential"
-    assert auth._uses_azure_automation(env)  # noqa: SLF001
+    assert auth.azure._uses_azure_automation(env)  # noqa: SLF001
     assert auth.terraform_auth_environment("azure", env) == {}
 
 
@@ -652,7 +654,7 @@ def test_terraform_auth_environment_defers_to_an_azure_managed_identity(
 ) -> None:
     env = {"OLF_HOME": str(tmp_path)}
     auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"}, env)
-    monkeypatch.setattr(auth, "_azure_managed_identity_available", lambda: True)
+    monkeypatch.setattr(auth.azure, "_azure_managed_identity_available", lambda: True)
 
     assert auth.terraform_auth_environment("azure", env) == {}
 
@@ -665,7 +667,7 @@ def test_aws_instance_profile_probe_is_bounded_and_offline_safe() -> None:
     import time
 
     start = time.monotonic()
-    available = auth._aws_instance_profile_available()  # noqa: SLF001
+    available = auth.aws._aws_instance_profile_available()  # noqa: SLF001
     elapsed = time.monotonic() - start
 
     assert available is False
@@ -704,7 +706,7 @@ def test_sso_client_survives_a_config_file_set_after_an_earlier_bare_boto3_call(
     monkeypatch.setenv("AWS_PROFILE", "openlakeforge")
     monkeypatch.setenv("AWS_CONFIG_FILE", config_path)
 
-    client = auth._sso_client("sso", region="eu-west-1")  # noqa: SLF001 - regression coverage for the fix itself.
+    client = auth.aws._sso_client("sso", region="eu-west-1")  # noqa: SLF001 - regression coverage for the fix itself.
 
     assert client is not None
 
@@ -718,7 +720,7 @@ def test_azure_arm_client_secret_automation_is_detected_and_translated() -> None
     """
     env = {"ARM_CLIENT_ID": "client-id", "ARM_TENANT_ID": "tenant-id", "ARM_CLIENT_SECRET": "secret"}
 
-    assert auth._uses_azure_automation(env)  # noqa: SLF001
+    assert auth.azure._uses_azure_automation(env)  # noqa: SLF001
     credential = auth.azure_credential(env)
 
     assert type(credential).__name__ == "ClientSecretCredential"
@@ -765,8 +767,8 @@ def test_azure_arm_oidc_token_file_automation_reads_the_file(tmp_path: Path) -> 
 
 
 def test_azure_arm_automation_requires_both_client_id_and_tenant_id() -> None:
-    assert not auth._uses_azure_automation({"ARM_CLIENT_SECRET": "secret"})  # noqa: SLF001
-    assert not auth._uses_azure_automation({"ARM_CLIENT_ID": "client-id"})  # noqa: SLF001
+    assert not auth.azure._uses_azure_automation({"ARM_CLIENT_SECRET": "secret"})  # noqa: SLF001
+    assert not auth.azure._uses_azure_automation({"ARM_CLIENT_ID": "client-id"})  # noqa: SLF001
 
 
 def test_azure_browser_login_rejects_an_inaccessible_subscription_id(monkeypatch: pytest.MonkeyPatch) -> None:

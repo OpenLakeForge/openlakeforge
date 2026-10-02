@@ -94,7 +94,8 @@ ignore_missing_imports = true
 # all. Tracked in `docs/technical-debt.md`.
 [[tool.mypy.overrides]]
 module = [
-  "olf.auth",
+  "olf.auth.aws",
+  "olf.auth.azure",
   "olf.clients.openmetadata",
   "olf.commands._shared",
   "olf.commands.artifacts",
