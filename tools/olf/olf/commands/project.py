@@ -6,11 +6,15 @@ import json
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
 from olf.commands._shared import deployment_context_for_profile, fail
 from olf.project import ProjectSpec, validate_project
+
+if TYPE_CHECKING:
+    from olf.artifact_store import RevisionStore
 
 _LOCAL_TRANSPORT = "port-forward"
 
@@ -343,7 +347,7 @@ def revision_verify(
 
 
 @contextmanager
-def _revision_store(*, via: str, output: str) -> Iterator[object]:
+def _revision_store(*, via: str, output: str) -> Iterator[RevisionStore]:
     from olf.artifact_store import FilesystemRevisionStore, S3RevisionStore, artifact_bucket, artifact_storage_client
 
     if output:
@@ -366,7 +370,7 @@ def _artifact_transport(provider: object) -> str:
 
 
 @contextmanager
-def _build_store_for_project(project_root: Path, *, via: str, output: str, stage: str = "") -> Iterator[object]:
+def _build_store_for_project(project_root: Path, *, via: str, output: str, stage: str = "") -> Iterator[RevisionStore]:
     """Open the build store under the profile contract when one is available.
 
     `stage` must name the stage a caller goes on to activate: the contract

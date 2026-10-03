@@ -33,7 +33,7 @@ def configured_layers(cfg: E2EConfig) -> dict[Layer, bool]:
             "governance": "governance" in stage,
             "analytics": "reporting" in stage,
         }
-    layers = {
+    layers: dict[Layer, dict] = {
         "governance": provider_contracts.get("governance") or {},
         "analytics": provider_contracts.get("reporting") or {},
     }

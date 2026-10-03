@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import typer
@@ -104,12 +105,6 @@ def collect(
     for item in pods.splitlines():
         if item.startswith("pod/"):
             pod = item.removeprefix("pod/")
-            _capture(
-                tools,
-                output_dir,
-                f"{pod}.log",
-                lambda pod=pod: command(
-                    "kubectl", *context, "logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"
-                ),
-            )
+            logs = ["logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"]
+            _capture(tools, output_dir, f"{pod}.log", partial(command, "kubectl", *context, *logs))
     typer.echo(f"Diagnostics written to {output_dir}")

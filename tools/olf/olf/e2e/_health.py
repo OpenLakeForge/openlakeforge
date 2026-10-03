@@ -107,9 +107,9 @@ def check_pods_ready(cfg: E2EConfig) -> None:
             log.warn(message)
         if new_warnings:
             warning_job_names = [message.split(":", 1)[0] for message in new_warnings]
-            diagnostics = _bounded_job_diagnostics(cfg, warning_job_names, job_namespaces)
-            if diagnostics:
-                log.warn(f"non-blocking Job diagnostics:\n{diagnostics}")
+            warning_diagnostics = _bounded_job_diagnostics(cfg, warning_job_names, job_namespaces)
+            if warning_diagnostics:
+                log.warn(f"non-blocking Job diagnostics:\n{warning_diagnostics}")
         if not service_bad and not job_bad:
             return
         time.sleep(READINESS_DELAY_SECONDS)

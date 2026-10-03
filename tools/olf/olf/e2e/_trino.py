@@ -72,7 +72,7 @@ def check_catalog_namespaces(cfg: E2EConfig) -> None:
         raise E2EError("Polaris is missing descriptor-derived namespaces: " + ", ".join(missing))
 
 
-def _schema_in_list(schema_names: frozenset[str]) -> str:
+def _schema_in_list(schema_names: set[str]) -> str:
     return ", ".join(f"'{name}'" for name in sorted(schema_names))
 
 
