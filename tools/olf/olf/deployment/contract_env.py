@@ -77,8 +77,8 @@ def applied_contract_environment(
     try:
         yield dict(os.environ)
     finally:
-        for name, value in previous.items():
-            if value is None:
+        for name, prior in previous.items():
+            if prior is None:
                 os.environ.pop(name, None)
             else:
-                os.environ[name] = value
+                os.environ[name] = prior

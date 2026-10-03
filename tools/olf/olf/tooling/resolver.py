@@ -15,9 +15,12 @@ import os
 import shutil
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
+
+if TYPE_CHECKING:
+    from olf.toolchain.manager import ToolchainManager
 
 
 class ExecutableResolver(Protocol):
@@ -61,7 +64,7 @@ class ManagedExecutableResolver:
 
     def __init__(
         self,
-        manager: object,
+        manager: ToolchainManager,
         *,
         fallback: ExecutableResolver,
         overrides: Mapping[str, Path] | None = None,
@@ -80,7 +83,7 @@ class ManagedExecutableResolver:
         if tool not in MANAGED_TOOLS:
             return self.fallback.resolve(tool)
         try:
-            return self.manager.resolve(tool)  # type: ignore[attr-defined]
+            return self.manager.resolve(tool)
         except ExecutableNotFoundError:
             raise
         except Exception as exc:  # noqa: BLE001 - every toolchain failure funnels through one typed error

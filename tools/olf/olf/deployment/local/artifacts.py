@@ -76,8 +76,7 @@ def applied_contract_environment(
 
 
 def artifacts_deploy(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    contract_kwargs = {"environ": env} if env else {}
-    with applied_contract_environment(config, **contract_kwargs) as contract_environ:
+    with applied_contract_environment(config, environ=env or None) as contract_environ:
         log.step("Reconciling Polaris namespaces from the domain descriptors...")
         sync_catalog_namespaces()
 

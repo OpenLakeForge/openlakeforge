@@ -58,13 +58,16 @@ class CatalogChart:
             raise ValueError(f"chart {name!r} is not declared in {catalog_path}") from exc
         if not isinstance(value, dict):
             raise ValueError(f"chart {name!r} in {catalog_path} must be a mapping")
-        fields = {field: value.get(field) for field in ("repository", "reference", "version", "sha256")}
-        if not all(isinstance(item, str) and item for item in fields.values()):
-            raise ValueError(f"chart {name!r} in {catalog_path} has incomplete immutable metadata")
+        fields: dict[str, str] = {}
+        for field in ("repository", "reference", "version", "sha256"):
+            item = value.get(field)
+            if not isinstance(item, str) or not item:
+                raise ValueError(f"chart {name!r} in {catalog_path} has incomplete immutable metadata")
+            fields[field] = item
         digest = fields["sha256"]
         if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
             raise ValueError(f"chart {name!r} in {catalog_path} has an invalid SHA-256")
-        return cls(name=name, **fields)  # type: ignore[arg-type]
+        return cls(name=name, **fields)
 
     def request(self, *, cache_root: Path, variant: str | None = None) -> ChartRequest:
         """`variant` disambiguates a chart's cached package name when the

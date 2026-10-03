@@ -94,13 +94,7 @@ ignore_missing_imports = true
 # all. Tracked in `docs/technical-debt.md`.
 [[tool.mypy.overrides]]
 module = [
-  "olf.deployment.charts",
-  "olf.deployment.cloud.aws",
-  "olf.deployment.cloud.azure",
   "olf.deployment.context",
-  "olf.deployment.contract_env",
-  "olf.deployment.inspection",
-  "olf.deployment.local.artifacts",
   "olf.deployment.portforward",
   "olf.provider_contracts",
   "olf.provider_contracts.*",
