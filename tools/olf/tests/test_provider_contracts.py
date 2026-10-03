@@ -1248,7 +1248,7 @@ def _route(ref: str, url: str) -> dict:
             "must be https",
         ),
         (
-            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://dagster.dev.olf.localhost"),
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://polaris.olf.localhost"),
             "already routed",
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("exposure", "public"), "exposure must be"),
@@ -1267,8 +1267,23 @@ def _route(ref: str, url: str) -> dict:
             "must be https",
         ),
         (
-            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://DAGSTER.dev.olf.localhost"),
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://POLARIS.olf.localhost"),
             "already routed",
+        ),
+        # A stage route carries its own stage label; a shared route carries none.
+        (
+            lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
+                "url", "https://dagster.prod.olf.localhost"
+            ),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["stage/dev/orchestration"].__setitem__("url", "https://dagster.olf.localhost"),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://trino.dev.olf.localhost"),
+            "must be https",
         ),
         (
             lambda access: access["routes"]["shared/query"].__setitem__("url", "https://bad_host.olf.localhost"),
