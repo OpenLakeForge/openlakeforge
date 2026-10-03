@@ -45,6 +45,8 @@
         "tls_mode": ["base_domain"],
         "routes": ["base_domain"]
       },
+      "if": {"properties": {"implementation": {"const": "access.ingress"}}},
+      "then": {"required": ["base_domain", "issuer", "tls_mode", "routes"]},
       "properties": {
         "ref": {"$ref": "#/definitions/nonEmptyString"},
         "implementation": {"$ref": "#/definitions/nonEmptyString"},

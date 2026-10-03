@@ -909,9 +909,7 @@ def test_two_governed_stages_each_expose_their_own_deterministic_service_roots()
         ("reporting", "dashboard_service_name", "superset-dev", "dashboard_service_name must be canonical"),
     ],
 )
-def test_governed_stage_service_root_names_must_be_canonical(
-    field: str, path: str, bad_value: str, match: str
-) -> None:
+def test_governed_stage_service_root_names_must_be_canonical(field: str, path: str, bad_value: str, match: str) -> None:
     """A stage-qualified service root that drifts from lakehouse_<stage>'s own
     naming convention would register an OpenMetadata service under a name a
     future bootstrap does not expect, silently orphaning it from the stage it
@@ -1254,6 +1252,30 @@ def _route(ref: str, url: str) -> dict:
             "already routed",
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("exposure", "public"), "exposure must be"),
+        (
+            lambda access: [access.pop(field) for field in ("base_domain", "issuer", "tls_mode", "routes")],
+            "access.ingress requires",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://DAGSTER.dev.olf.localhost:443"),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__(
+                "url", "https://dagster.dev.olf.localhost/trino"
+            ),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://DAGSTER.dev.olf.localhost"),
+            "already routed",
+        ),
+        (
+            lambda access: access["routes"].update(
+                {"shared/secrets": {"url": "https://vault.olf.localhost", "enabled": True, "exposure": "internal"}}
+            ),
+            "does not resolve",
+        ),
         (lambda access: access["routes"]["shared/query"].__setitem__("enabled", "yes"), "enabled must be"),
     ],
 )

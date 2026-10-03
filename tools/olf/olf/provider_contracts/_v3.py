@@ -43,11 +43,16 @@ _ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
 # no ref at all, so no route can name them.
 _USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_service", "query", "identity"})
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
+# Shared bindings that are platform plumbing rather than network services, so
+# an ingress has no backend to send a route to.
+_NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
 
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
     present = _ACCESS_INGRESS_FIELDS & set(access)
     if not present:
+        if access["implementation"] == "access.ingress":
+            raise ProviderContractError(f"shared.access access.ingress requires {sorted(_ACCESS_INGRESS_FIELDS)!r}")
         return
     if present != _ACCESS_INGRESS_FIELDS:
         raise ProviderContractError(
@@ -62,7 +67,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
     if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
         raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
     _string(access["tls_mode"], where="shared.access.tls_mode")
-    urls: set[str] = set()
+    hosts: set[str] = set()
     for ref, route in _mapping(access["routes"], where="shared.access.routes").items():
         where = f"shared.access.routes[{ref!r}]"
         document = _fields(route, where=where, required={"url", "enabled", "exposure"})
@@ -75,12 +80,20 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         if not isinstance(document["enabled"], bool):
             raise ProviderContractError(f"{where}.enabled must be a boolean")
         url = _absolute_http_uri(document["url"], where=f"{where}.url")
-        host = urlsplit(url).hostname or ""
-        if not url.startswith("https://") or not host.endswith(f".{base_domain}"):
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        # One host per service: a path or port would let two services share a host.
+        if (
+            parts.scheme != "https"
+            or parts.port
+            or parts.path not in ("", "/")
+            or parts.query
+            or not host.endswith(f".{base_domain.lower()}")
+        ):
             raise ProviderContractError(f"{where}.url must be https://<host>.{base_domain}")
-        if url in urls:
-            raise ProviderContractError(f"{where}.url {url!r} is already routed to another service")
-        urls.add(url)
+        if host in hosts:
+            raise ProviderContractError(f"{where}.url host {host!r} is already routed to another service")
+        hosts.add(host)
 
 
 def _parse_shared(value: object) -> SharedPlatformContract:
@@ -582,7 +595,7 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
             if endpoint in stage_endpoint_values:
                 raise ProviderContractError(f"stage endpoint {endpoint!r} is shared between stages")
             stage_endpoint_values.add(endpoint)
-    service_refs = {binding["ref"] for binding in shared.values.values()}
+    service_refs = {binding["ref"] for name, binding in shared.values.items() if name not in _NON_SERVICE_BINDINGS}
     for stage in stages.values():
         service_refs.add(stage.orchestration["service_ref"])
         if stage.reporting is not None:
