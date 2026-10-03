@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -129,7 +130,7 @@ def deployment_context(
         raise typer.Exit(code=fail(str(exc))) from exc
 
     topology = resolve_topology(layout.project_root, provider=resolved_provider, preset=profile)
-    kwargs: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "repo_root": layout.project_root,
         "distribution_root": layout.distribution_root,
         "state_root": None if layout.is_source else layout.state_root,
@@ -186,13 +187,14 @@ def deployment_context_for_profile(
         selected_stage = StageName(stage) if stage else StageName.DEV
     except ValueError as exc:
         raise typer.Exit(code=fail(f"unknown --stage: {stage!r} (expected dev, uat, or prod)")) from exc
-    if topology.stage(selected_stage) is None or not topology.stage(selected_stage).enabled:
+    resolved_stage = topology.stage(selected_stage)
+    if resolved_stage is None or not resolved_stage.enabled:
         raise typer.Exit(code=fail(f"stage {selected_stage.value!r} is not enabled by {path}."))
     try:
         layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(path.parent)})
     except DistributionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    kwargs: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "repo_root": path.parent,
         "distribution_root": layout.distribution_root,
         "state_root": None if layout.is_source else layout.state_root,

@@ -132,6 +132,7 @@ def login_azure(
 
     env = environ or os.environ
     options = _azure_cache_persistence_options()
+    credential: DeviceCodeCredential | InteractiveBrowserCredential
     if device_code:
         credential = DeviceCodeCredential(tenant_id=tenant_id, cache_persistence_options=options)
     else:
@@ -219,7 +220,7 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
         )
     source = state.get("source")
     if source == "azure-cli":
-        return AzureCliCredential(tenant_id=state.get("tenant_id") or None)
+        return AzureCliCredential(tenant_id=state.get("tenant_id") or "")
     if source == "olf-browser":
         record = AuthenticationRecord.deserialize(str(state["authentication_record"]))
         return InteractiveBrowserCredential(
@@ -285,7 +286,7 @@ def adopt_azure_cli(
     from azure.identity import AzureCliCredential
     from azure.mgmt.resource.subscriptions import SubscriptionClient
 
-    credential = AzureCliCredential(tenant_id=tenant_id)
+    credential = AzureCliCredential(tenant_id=tenant_id or "")
     subscriptions = list(SubscriptionClient(credential).subscriptions.list())
     item = _resolve_subscription(subscription_id, subscriptions, choose)
     state = {

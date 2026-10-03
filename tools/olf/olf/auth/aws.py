@@ -8,7 +8,7 @@ import time
 import webbrowser
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import boto3
 from botocore import UNSIGNED
@@ -58,12 +58,15 @@ def _aws_instance_profile_available() -> bool:
     from botocore.utils import InstanceMetadataFetcher
 
     try:
-        return bool(InstanceMetadataFetcher(timeout=0.1, num_attempts=1).retrieve_iam_role_credentials())
+        # botocore-stubs types `timeout` as int, but botocore hands it to urllib3,
+        # which takes seconds as a float; rounding up to 1 would be the stall above.
+        fetcher = InstanceMetadataFetcher(timeout=0.1, num_attempts=1)  # type: ignore[arg-type]
+        return bool(fetcher.retrieve_iam_role_credentials())
     except Exception:
         return False
 
 
-def _sso_client(service: str, *, region: str) -> Any:
+def _sso_client(service: Literal["sso", "sso-oidc"], *, region: str) -> Any:
     """Create an IAM Identity Center client without resolving AWS profiles.
 
     Both SSO APIs use the bearer token supplied in their request, not SigV4.

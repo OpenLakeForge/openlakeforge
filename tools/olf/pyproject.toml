@@ -94,12 +94,6 @@ ignore_missing_imports = true
 # all. Tracked in `docs/technical-debt.md`.
 [[tool.mypy.overrides]]
 module = [
-  "olf.auth.aws",
-  "olf.auth.azure",
-  "olf.commands._shared",
-  "olf.commands.artifacts",
-  "olf.commands.diagnostics",
-  "olf.commands.project",
   "olf.deployment.charts",
   "olf.deployment.cloud.aws",
   "olf.deployment.cloud.azure",
@@ -108,9 +102,6 @@ module = [
   "olf.deployment.inspection",
   "olf.deployment.local.artifacts",
   "olf.deployment.portforward",
-  "olf.e2e._health",
-  "olf.e2e._layers",
-  "olf.e2e._trino",
   "olf.provider_contracts",
   "olf.provider_contracts.*",
 ]

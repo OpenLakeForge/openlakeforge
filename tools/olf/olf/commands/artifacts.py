@@ -93,8 +93,8 @@ def upload_manifests(
             root = Path(manifest_root) if manifest_root else project.root / ".tmp/floe-runtime/aws/manifests"
             uploads = s3.discover_runtime_manifests(root)
         if not uploads:
-            root = runtime_root or manifest_root or str(project.root / ".tmp/floe-runtime/aws/manifests")
-            raise typer.Exit(code=fail(f"no rendered Floe artifacts found under {root}."))
+            searched = runtime_root or manifest_root or str(project.root / ".tmp/floe-runtime/aws/manifests")
+            raise typer.Exit(code=fail(f"no rendered Floe artifacts found under {searched}."))
         s3.upload_direct(bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"))
     elif via == "port-forward":
         if runtime_root:
