@@ -1271,6 +1271,14 @@ def _route(ref: str, url: str) -> dict:
             "already routed",
         ),
         (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://bad_host.olf.localhost"),
+            "must be https",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://a..olf.localhost"),
+            "must be https",
+        ),
+        (
             lambda access: access["routes"].update(
                 {"shared/secrets": {"url": "https://vault.olf.localhost", "enabled": True, "exposure": "internal"}}
             ),

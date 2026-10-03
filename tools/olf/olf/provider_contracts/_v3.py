@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from olf.deployment.context import Provider
-from olf.profile import DeploymentTopology, StageName
+from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, StageName
 from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
 from olf.provider_contracts._validation import (
     _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER,
@@ -88,6 +88,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
             or parts.port
             or parts.path not in ("", "/")
             or parts.query
+            or not _BASE_DOMAIN_PATTERN.fullmatch(host)
             or not host.endswith(f".{base_domain.lower()}")
         ):
             raise ProviderContractError(f"{where}.url must be https://<host>.{base_domain}")
