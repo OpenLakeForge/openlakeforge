@@ -170,6 +170,35 @@ variable "superset_chart_package_path" {
   default     = null
 }
 
+variable "traefik_chart_package_path" {
+  description = "Optional local Traefik Helm chart package used by local-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "cert_manager_chart_package_path" {
+  description = "Optional local cert-manager Helm chart package used by local-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "access_base_domain" {
+  description = "Deployment Profile spec.access.base_domain (ADR 0013): the domain every route host sits under."
+  type        = string
+  default     = "olf.localhost"
+}
+
+variable "access_issuer" {
+  description = "Deployment Profile spec.access.issuer (ADR 0013)."
+  type        = string
+  default     = "local-ca"
+
+  validation {
+    condition     = var.access_issuer == "local-ca"
+    error_message = "The local provider ships only the local-ca issuer; set spec.access.issuer to local-ca."
+  }
+}
+
 variable "manage_user_deployments" {
   description = "Whether Terraform owns the Dagster user-code deployments. `olf deploy` (deprecated, single stage) leaves this true; `olf platform apply` sets it false so `olf project deploy` owns the openlakeforge-project release instead."
   type        = bool

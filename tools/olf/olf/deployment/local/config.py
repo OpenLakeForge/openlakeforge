@@ -100,7 +100,7 @@ class ImageSettings:
         )
 
 
-_ALWAYS_CHARTS = ("trino", "dagster", "seaweedfs", "polaris")
+_ALWAYS_CHARTS = ("trino", "dagster", "seaweedfs", "polaris", "traefik", "cert-manager")
 _GOVERNANCE_CHARTS = ("openmetadata", "openmetadata-dependencies")
 _ANALYTICS_CHARTS = ("superset",)
 _ALL_CHARTS = _ALWAYS_CHARTS + _GOVERNANCE_CHARTS + _ANALYTICS_CHARTS

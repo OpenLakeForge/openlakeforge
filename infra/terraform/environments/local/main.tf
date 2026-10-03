@@ -216,6 +216,23 @@ module "seaweedfs" {
   ]
 }
 
+module "cert_manager" {
+  source = "../../modules/access/cert-manager"
+
+  namespace          = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
+  chart_package_path = var.cert_manager_chart_package_path
+  base_domain        = var.access_base_domain
+}
+
+module "traefik" {
+  source = "../../modules/access/traefik"
+
+  namespace          = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file   = "${path.root}/../../../helm/values/local/traefik.yaml"
+  chart_package_path = var.traefik_chart_package_path
+}
+
 module "polaris" {
   source = "../../modules/catalog/polaris"
 

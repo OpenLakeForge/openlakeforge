@@ -54,6 +54,8 @@ def test_full_profile_defaults(tmp_path: Path) -> None:
         "openmetadata",
         "openmetadata-dependencies",
         "superset",
+        "traefik",
+        "cert-manager",
     }
     assert config.terraform.var_file is None
     assert config.terraform.apply_retry.max_attempts == 4

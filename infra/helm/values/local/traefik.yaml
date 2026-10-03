@@ -1,0 +1,41 @@
+# Traefik ingress for the local kind cluster (ADR 0013).
+image:
+  registry: docker.io
+  repository: traefik
+  tag: "v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0"
+
+# kind publishes the control-plane node's 80/443 on the host
+# (infra/kind/local/kind-cluster.yaml); Traefik takes them as hostPorts there.
+nodeSelector:
+  ingress-ready: "true"
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+ports:
+  web:
+    hostPort: 80
+  websecure:
+    hostPort: 443
+
+# A LoadBalancer Service never gets an address on kind, and the release waits
+# for one.
+service:
+  spec:
+    type: ClusterIP
+
+# Two pods cannot hold the same hostPort on one node, so a surge rollout would
+# never become ready.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi

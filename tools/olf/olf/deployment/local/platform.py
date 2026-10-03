@@ -79,6 +79,8 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "superset_image_repository": images.superset_repository,
         "superset_image_tag": images.superset_tag,
         "superset_image_pull_policy": images.superset_pull_policy,
+        "access_base_domain": config.context.topology.access.base_domain,
+        "access_issuer": config.context.topology.access.issuer,
     } | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
     }
@@ -375,6 +377,19 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
         _apply_once,
         policy=config.terraform.apply_retry,
         retry_if=_retry_if_logging("Terraform apply", config.terraform.apply_retry),
+    )
+
+    # Neither Helm nor Terraform waits on a Certificate's status, so a local CA
+    # that cannot sign would otherwise surface only when the first route fails.
+    log.step("Waiting for the local CA to issue its probe certificate...")
+    tools.kubectl.wait(
+        "certificate/local-ca-probe",
+        for_condition="condition=Ready",
+        namespace=config.context.shared_namespace,
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        timeout="180s",
+        env=env,
     )
 
     log.step("Static OpenLakeForge local platform is applied.")

@@ -82,6 +82,16 @@ components:
         reference: superset/superset
         version: 0.15.5
         sha256: 423ad23f40b03a8753c8b7c1d9ad1231267962d014de6c176b01a1ce255ea312
+      traefik:
+        repository: https://traefik.github.io/charts
+        reference: traefik/traefik
+        version: 41.6.1
+        sha256: 1e65d46bae0ba0baef460a1d82686b50f156372865a3d7d8a85b51c3855b2ef9
+      cert-manager:
+        repository: https://charts.jetstack.io
+        reference: jetstack/cert-manager
+        version: v1.21.2
+        sha256: 73a56e1728edd6c99f1f31082618c3259d279a76b7ebd3d4bdc5475c2442d34a
   python:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock
@@ -99,6 +109,12 @@ components:
     polaris_admin_tool: apache/polaris-admin-tool:1.4.0@sha256:7ef7557b528964e792caeaef3908434bd99c7d2f994caa654da1d77c6b428a80
     trino: trinodb/trino:480@sha256:1565e8cac299a32dd9177a4da2d748da4ceb9f1560a9c409d1d18fd72ea5253e
     openmetadata_ingestion: docker.getcollate.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e
+    traefik: docker.io/traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    cert_manager_controller: quay.io/jetstack/cert-manager-controller:v1.21.2@sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8
+    cert_manager_webhook: quay.io/jetstack/cert-manager-webhook:v1.21.2@sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae
+    cert_manager_cainjector: quay.io/jetstack/cert-manager-cainjector:v1.21.2@sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562
+    cert_manager_acmesolver: quay.io/jetstack/cert-manager-acmesolver:v1.21.2@sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
+    cert_manager_startupapicheck: quay.io/jetstack/cert-manager-startupapicheck:v1.21.2@sha256:46e75b6866359ffb5d82624f41e3ed1c70b2994982702ced547ce5edb418a8f5
   actions:
     actions/checkout: 34e114876b0b11c390a56381ad16ebd13914f8d5
     actions/setup-python: a26af69be951a213d495a4c3e4e4022e16d87065

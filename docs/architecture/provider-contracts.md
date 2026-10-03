@@ -88,8 +88,9 @@ platform apply, across the lifecycle boundary ADR 0002 draws.
 
 ### `shared.access`
 
-Today every root emits `{ref, implementation: "access.kubectl_port_forward"}`.
-The ingress shape (ADR 0013) adds four fields, all present or all absent:
+The AWS and Azure roots emit `{ref, implementation: "access.kubectl_port_forward"}`.
+The local root emits the ingress shape (ADR 0013), whose four extra fields are
+all present or all absent:
 
 ```json
 "access": {
@@ -111,6 +112,7 @@ The ingress shape (ADR 0013) adds four fields, all present or all absent:
 | a route key is an existing shared or enabled-stage service ref | a disabled capability exposes no route |
 | `user-facing` only for orchestration, reporting, governance, query, identity | databases, storage admin, catalog, registry stay internal; code servers have no ref |
 | `url` is `https://<host>.<base_domain>`, unique across routes | one host, one service |
+| `tls_mode` is `ingress-terminated` | the only mode an adapter implements |
 
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
