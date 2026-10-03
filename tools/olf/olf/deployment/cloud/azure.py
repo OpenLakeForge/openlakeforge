@@ -105,7 +105,7 @@ class AzureBackend:
 
     def cluster_reachable(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> bool:
         return tools.azure.aks_show(
-            facts.cluster_name, resource_group=facts.azure_resource_group, env=env, check=False
+            facts.cluster_name, resource_group=_resource_group(facts), env=env, check=False
         ).ok
 
     def update_kubeconfig(
@@ -113,7 +113,7 @@ class AzureBackend:
     ) -> None:
         tools.azure.aks_get_credentials(
             facts.cluster_name,
-            resource_group=facts.azure_resource_group,
+            resource_group=_resource_group(facts),
             kubeconfig_path=kubeconfig_path,
             overwrite=True,
             env=env,
@@ -213,3 +213,13 @@ class AzureBackend:
             environ=environ,
             env=env,
         )
+
+
+def _resource_group(facts: FoundationFacts) -> str:
+    # `FoundationFacts` is shared by every cloud backend, so the field is
+    # optional; Azure facts resolved by `resolve_foundation_facts` always set it.
+    if not facts.azure_resource_group:
+        raise DeploymentPreconditionError(
+            "Azure foundation facts carry no resource group; re-run the foundation apply"
+        )
+    return facts.azure_resource_group

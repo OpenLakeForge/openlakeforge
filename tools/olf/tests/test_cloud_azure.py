@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -304,6 +305,14 @@ def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_regi
     backend.registry_login(tools, facts_without_registry, repository="otheracr.azurecr.io/shared/project-code", env={})
 
     assert azure.calls[0][1] == ("otheracr",)
+
+
+def test_cluster_reachable_refuses_facts_without_a_resource_group() -> None:
+    tools = _toolkit(RecordingRunner(_ok()))
+    object.__setattr__(tools, "azure", _Azure())
+
+    with pytest.raises(DeploymentPreconditionError, match="resource group"):
+        AzureBackend().cluster_reachable(tools, replace(_FACTS, azure_resource_group=None), env={})
 
 
 def test_cluster_reachable_uses_aks_show(tmp_path: Path) -> None:  # noqa: ARG001

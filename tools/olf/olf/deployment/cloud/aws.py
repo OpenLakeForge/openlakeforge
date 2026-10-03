@@ -115,14 +115,14 @@ class AwsBackend:
         )
 
     def cluster_reachable(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> bool:
-        return tools.aws.eks_describe_cluster(facts.cluster_name, region=facts.aws_region, env=env, check=False).ok
+        return tools.aws.eks_describe_cluster(facts.cluster_name, region=_region(facts), env=env, check=False).ok
 
     def update_kubeconfig(
         self, tools: Toolkit, facts: FoundationFacts, *, kubeconfig_path: Path, env: Mapping[str, str]
     ) -> None:
         tools.aws.eks_update_kubeconfig(
             facts.cluster_name,
-            region=facts.aws_region,
+            region=_region(facts),
             kubeconfig_path=kubeconfig_path,
             alias=facts.cluster_name,
             env=env,
@@ -132,7 +132,7 @@ class AwsBackend:
         self, tools: Toolkit, facts: FoundationFacts, *, repository: str, env: Mapping[str, str]
     ) -> None:
         registry = repository.split("/", 1)[0]
-        password = tools.aws.ecr_get_login_password(region=facts.aws_region, env=env)
+        password = tools.aws.ecr_get_login_password(region=_region(facts), env=env)
         tools.docker.login(registry, username="AWS", password=password, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
@@ -192,3 +192,11 @@ class AwsBackend:
     ) -> list[Path]:
         log.step("Using the AWS Glue Floe profile strategy (one rendered profile per product).")
         return generate_aws_manifests(config.floe, tools, repo_root=repo_root, environ=environ, env=env)
+
+
+def _region(facts: FoundationFacts) -> str:
+    # `FoundationFacts` is shared by every cloud backend, so the field is
+    # optional; AWS facts resolved by `resolve_foundation_facts` always set it.
+    if not facts.aws_region:
+        raise DeploymentPreconditionError("AWS foundation facts carry no aws_region; re-run the foundation apply")
+    return facts.aws_region

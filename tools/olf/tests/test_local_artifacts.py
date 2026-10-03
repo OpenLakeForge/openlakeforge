@@ -141,7 +141,7 @@ def _fake_contextmanager(on_enter):  # noqa: ANN001, ANN202
     from contextlib import contextmanager
 
     @contextmanager
-    def _cm(config):  # noqa: ANN001
+    def _cm(config, *, environ=None):  # noqa: ANN001, ARG001
         on_enter()
         yield dict(os.environ)
 
