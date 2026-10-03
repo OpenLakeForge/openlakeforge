@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -240,6 +241,16 @@ def test_update_kubeconfig_uses_eks_update_kubeconfig_with_alias(tmp_path: Path)
             },
         )
     ]
+
+
+def test_update_kubeconfig_refuses_facts_without_a_region(tmp_path: Path) -> None:
+    tools = _toolkit(RecordingRunner(_ok()))
+    object.__setattr__(tools, "aws", _Aws())
+
+    with pytest.raises(DeploymentPreconditionError, match="aws_region"):
+        AwsBackend().update_kubeconfig(
+            tools, replace(_FACTS, aws_region=None), kubeconfig_path=tmp_path / "kc.yaml", env={}
+        )
 
 
 def test_registry_login_uses_ecr_password_via_docker_login(tmp_path: Path) -> None:
