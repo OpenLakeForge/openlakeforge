@@ -267,6 +267,26 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         repository_key_path=("redis", "image", "repository"),
         tag_key_path=("redis", "image", "tag"),
     ),
+    "traefik": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/traefik.yaml",),
+        registry_key_path=("image", "registry"),
+        repository_key_path=("image", "repository"),
+        tag_key_path=("image", "tag"),
+    ),
+    **{
+        f"cert_manager_{component}": _ImageDeploymentSource(
+            paths=("infra/helm/values/local/cert-manager.yaml",),
+            repository_key_path=(*prefix, "image", "repository"),
+            tag_key_path=(*prefix, "image", "tag"),
+        )
+        for component, prefix in (
+            ("controller", ()),
+            ("webhook", ("webhook",)),
+            ("cainjector", ("cainjector",)),
+            ("acmesolver", ("acmesolver",)),
+            ("startupapicheck", ("startupapicheck",)),
+        )
+    },
 }
 _BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
 

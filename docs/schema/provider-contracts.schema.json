@@ -52,7 +52,7 @@
         "implementation": {"$ref": "#/definitions/nonEmptyString"},
         "base_domain": {"$ref": "#/definitions/nonEmptyString"},
         "issuer": {"$ref": "#/definitions/nonEmptyString"},
-        "tls_mode": {"$ref": "#/definitions/nonEmptyString"},
+        "tls_mode": {"enum": ["ingress-terminated"]},
         "routes": {
           "type": "object",
           "additionalProperties": {

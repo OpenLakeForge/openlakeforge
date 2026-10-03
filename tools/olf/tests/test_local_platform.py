@@ -136,6 +136,10 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "openmetadata_chart_package_path",
         "openmetadata_deps_chart_package_path",
         "superset_chart_package_path",
+        "traefik_chart_package_path",
+        "cert_manager_chart_package_path",
+        "access_base_domain",
+        "access_issuer",
     }
 
 
@@ -171,7 +175,14 @@ def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_p
 
     variables = platform.platform_apply_variables(config)
 
-    assert [setting.name for setting in config.charts.values()] == ["trino", "dagster", "seaweedfs", "polaris"]
+    assert [setting.name for setting in config.charts.values()] == [
+        "trino",
+        "dagster",
+        "seaweedfs",
+        "polaris",
+        "traefik",
+        "cert-manager",
+    ]
     assert "openmetadata_chart_package_path" not in variables
     assert "openmetadata_deps_chart_package_path" not in variables
     assert "superset_chart_package_path" not in variables
@@ -325,6 +336,8 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path) -> None:
 
     apply_calls = [c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv]
     assert len(apply_calls) == 1
+    # The apply is not done until the local CA has actually signed a certificate.
+    assert any("wait" in c.argv and "certificate/local-ca-probe" in c.argv for c in runner.calls)
 
 
 def test_platform_up_recovers_from_drifted_state(tmp_path: Path) -> None:

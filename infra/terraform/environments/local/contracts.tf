@@ -343,15 +343,18 @@ locals {
   }
 
   access_contract = {
-    provider              = local.local_provider_name
-    implementation        = "access.kubectl_port_forward"
-    adapter               = "access.kubectl_port_forward"
-    ingress_mode          = "port-forward"
-    internal_access_mode  = "cluster-dns"
-    external_access_mode  = "localhost-port-forward"
-    tls_mode              = "none-development"
-    local_only            = true
-    future_adapter_shapes = ["access.ingress", "access.load_balancer", "access.private_dns"]
+    provider             = local.local_provider_name
+    implementation       = "access.ingress"
+    adapter              = "access.traefik_cert_manager"
+    ingress_class_name   = module.traefik.ingress_class_name
+    cluster_issuer_name  = module.cert_manager.cluster_issuer_name
+    base_domain          = var.access_base_domain
+    issuer               = var.access_issuer
+    tls_mode             = "ingress-terminated"
+    internal_access_mode = "cluster-dns"
+    # Service routes arrive with #266; until then users still port-forward.
+    routes     = {}
+    local_only = true
   }
 
   observability_contract = {
@@ -406,9 +409,16 @@ locals {
         access_key_id_key       = local.artifact_bucket_contract.access_key_id_key
         secret_access_key_key   = local.artifact_bucket_contract.secret_access_key_key
       }
-      secrets       = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
-      identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation }
-      access        = { ref = "shared/access", implementation = local.access_contract.implementation }
+      secrets  = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
+      identity = { ref = "shared/identity", implementation = local.identity_contract.implementation }
+      access = {
+        ref            = "shared/access"
+        implementation = local.access_contract.implementation
+        base_domain    = local.access_contract.base_domain
+        issuer         = local.access_contract.issuer
+        tls_mode       = local.access_contract.tls_mode
+        routes         = local.access_contract.routes
+      }
       observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
       }, local.governance_enabled ? {
       # OpenMetadata is one shared instance across every governed stage, so
