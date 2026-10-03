@@ -35,6 +35,39 @@
         "local_upload_access_mode": {"$ref": "#/definitions/nonEmptyString"}
       }
     },
+    "accessBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "implementation"],
+      "dependentRequired": {
+        "base_domain": ["issuer", "tls_mode", "routes"],
+        "issuer": ["base_domain"],
+        "tls_mode": ["base_domain"],
+        "routes": ["base_domain"]
+      },
+      "if": {"properties": {"implementation": {"const": "access.ingress"}}},
+      "then": {"required": ["base_domain", "issuer", "tls_mode", "routes"]},
+      "properties": {
+        "ref": {"$ref": "#/definitions/nonEmptyString"},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "base_domain": {"$ref": "#/definitions/nonEmptyString"},
+        "issuer": {"$ref": "#/definitions/nonEmptyString"},
+        "tls_mode": {"$ref": "#/definitions/nonEmptyString"},
+        "routes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["url", "enabled", "exposure"],
+            "properties": {
+              "url": {"type": "string", "pattern": "^https://"},
+              "enabled": {"type": "boolean"},
+              "exposure": {"enum": ["user-facing", "internal"]}
+            }
+          }
+        }
+      }
+    },
     "deployment": {
       "type": "object",
       "additionalProperties": false,
@@ -69,7 +102,7 @@
         "ops_storage": {"$ref": "#/definitions/binding"},
         "secrets": {"$ref": "#/definitions/binding"},
         "identity": {"$ref": "#/definitions/binding"},
-        "access": {"$ref": "#/definitions/binding"},
+        "access": {"$ref": "#/definitions/accessBinding"},
         "observability": {"$ref": "#/definitions/binding"},
         "catalog_service": {"$ref": "#/definitions/binding"},
         "governance_service": {"$ref": "#/definitions/binding"}

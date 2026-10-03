@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import urlsplit
 
 from olf.deployment.context import Provider
-from olf.profile import DeploymentTopology, StageName
+from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, StageName
 from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
 from olf.provider_contracts._validation import (
     _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER,
@@ -33,6 +34,73 @@ from olf.provider_contracts._validation import (
     _tcp_port,
 )
 
+# The ingress shape of shared.access (ADR 0013). All four or none: a
+# port-forward contract carries none of them.
+_ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
+# Services a route may publish to users, by the last segment of their contract
+# ref. Everything else (metadata database, ops storage, catalog service,
+# registry, ...) can only be routed as internal, and Dagster code servers have
+# no ref at all, so no route can name them.
+_USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_service", "query", "identity"})
+_ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
+# Shared bindings that are platform plumbing rather than network services, so
+# an ingress has no backend to send a route to.
+_NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
+
+
+def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
+    present = _ACCESS_INGRESS_FIELDS & set(access)
+    if not present:
+        if access["implementation"] == "access.ingress":
+            raise ProviderContractError(f"shared.access access.ingress requires {sorted(_ACCESS_INGRESS_FIELDS)!r}")
+        return
+    if present != _ACCESS_INGRESS_FIELDS:
+        raise ProviderContractError(
+            "shared.access ingress fields must be declared together; "
+            f"missing {sorted(_ACCESS_INGRESS_FIELDS - present)!r}"
+        )
+    base_domain = _string(access["base_domain"], where="shared.access.base_domain")
+    if base_domain != topology.access.base_domain:
+        raise ProviderContractError(
+            f"shared.access.base_domain {base_domain!r} does not match the profile's {topology.access.base_domain!r}"
+        )
+    if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
+        raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
+    _string(access["tls_mode"], where="shared.access.tls_mode")
+    hosts: set[str] = set()
+    for ref, route in _mapping(access["routes"], where="shared.access.routes").items():
+        where = f"shared.access.routes[{ref!r}]"
+        document = _fields(route, where=where, required={"url", "enabled", "exposure"})
+        if ref not in service_refs:
+            raise ProviderContractError(f"{where} does not resolve to an enabled service")
+        if document["exposure"] not in _ROUTE_EXPOSURES:
+            raise ProviderContractError(f"{where}.exposure must be one of {sorted(_ROUTE_EXPOSURES)!r}")
+        if document["exposure"] == "user-facing" and ref.rsplit("/", 1)[-1] not in _USER_FACING_SERVICES:
+            raise ProviderContractError(f"{where} is an internal endpoint and cannot be user-facing")
+        if not isinstance(document["enabled"], bool):
+            raise ProviderContractError(f"{where}.enabled must be a boolean")
+        url = _absolute_http_uri(document["url"], where=f"{where}.url")
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        # One host per service: a path or port would let two services share a host.
+        if (
+            parts.scheme != "https"
+            or parts.port
+            or parts.path not in ("", "/")
+            or parts.query
+            or not _BASE_DOMAIN_PATTERN.fullmatch(host)
+        ):
+            raise ProviderContractError(f"{where}.url must be https://<host>.{base_domain}")
+        # ADR 0013: a stage route carries its own stage label, a shared route none,
+        # so a DEV backend can never answer on a PROD or shared hostname.
+        scope = f"{ref.split('/')[1]}." if ref.startswith("stage/") else ""
+        suffix = f".{scope}{base_domain}".lower()
+        if not host.endswith(suffix) or "." in host[: -len(suffix)]:
+            raise ProviderContractError(f"{where}.url must be https://<service>{suffix}")
+        if host in hosts:
+            raise ProviderContractError(f"{where}.url host {host!r} is already routed to another service")
+        hosts.add(host)
+
 
 def _parse_shared(value: object) -> SharedPlatformContract:
     required = {
@@ -55,7 +123,8 @@ def _parse_shared(value: object) -> SharedPlatformContract:
             binding,
             where=f"shared.{name}",
             required={"ref", "implementation"},
-            optional={
+            optional=(_ACCESS_INGRESS_FIELDS if name == "access" else set())
+            | {
                 "endpoint",
                 "bucket_name",
                 "artifact_base_uri",
@@ -532,6 +601,12 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
             if endpoint in stage_endpoint_values:
                 raise ProviderContractError(f"stage endpoint {endpoint!r} is shared between stages")
             stage_endpoint_values.add(endpoint)
+    service_refs = {binding["ref"] for name, binding in shared.values.items() if name not in _NON_SERVICE_BINDINGS}
+    for stage in stages.values():
+        service_refs.add(stage.orchestration["service_ref"])
+        if stage.reporting is not None:
+            service_refs.add(stage.reporting["service_ref"])
+    _parse_access_ingress(shared.values["access"], service_refs=service_refs, topology=topology)
     return ProviderContracts(
         schema_version=V3_SCHEMA_VERSION,
         deployment=_frozen(deployment),

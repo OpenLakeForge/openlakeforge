@@ -31,6 +31,22 @@
           }
         },
         "preset": {"enum": ["slim", "full"]},
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_domain": {
+              "type": "string",
+              "default": "olf.localhost",
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+            },
+            "issuer": {
+              "type": "string",
+              "default": "local-ca",
+              "pattern": "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"
+            }
+          }
+        },
         "stages": {
           "type": "object",
           "additionalProperties": false,

@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-These twelve records describe the decisions that shape OpenLakeForge **today**.
+These thirteen records describe the decisions that shape OpenLakeForge **today**.
 Each is binding: if the code disagrees with one, either the code is wrong or the
 ADR is, and one of them gets fixed.
 
@@ -28,6 +28,7 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0010](0010-cloud-provider-implementations.md) | **Cloud provider implementations** — AWS replaces contract implementations (S3, RDS, Glue, Pod Identity), Azure relocates hosting (AKS/ACR); both POC maturity |
 | [0011](0011-deployment-profile-and-stages.md) | **Deployment Profile v1** — provider, stage, and preset are separate typed concepts; `openlakeforge.yaml` resolves to one effective `DeploymentTopology` before any Terraform, Helm, or Kubernetes object exists |
 | [0012](0012-project-revisions-and-promotion.md) | **Project revisions** — a build-once, content-addressed `ProjectRevision` covering descriptors, Floe contracts, dbt, Dagster, reports, and the project-code image digest; excludes deployment intent and every stage-rendered artifact |
+| [0013](0013-service-access-and-ingress.md) | **Service access** — one ingress everywhere, configured by `access.base_domain` + `access.issuer`; stage-derived HTTPS routes in `shared.access`; internal endpoints cannot be user-facing; port-forward only as a dev fallback |
 
 ## Related
 

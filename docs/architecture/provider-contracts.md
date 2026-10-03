@@ -86,6 +86,32 @@ the single merged location ADR 0006 documents, which is what such a platform's
 Dagster release is running; requiring it would make a code commit demand a
 platform apply, across the lifecycle boundary ADR 0002 draws.
 
+### `shared.access`
+
+Today every root emits `{ref, implementation: "access.kubectl_port_forward"}`.
+The ingress shape (ADR 0013) adds four fields, all present or all absent:
+
+```json
+"access": {
+  "ref": "shared/access",
+  "implementation": "access.ingress",
+  "base_domain": "olf.localhost",
+  "issuer": "local-ca",
+  "tls_mode": "ingress-terminated",
+  "routes": {
+    "stage/dev/orchestration": {"url": "https://dagster.dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
+    "shared/catalog_service": {"url": "https://polaris.olf.localhost", "enabled": true, "exposure": "internal"}
+  }
+}
+```
+
+| Rule | Why |
+| --- | --- |
+| `base_domain` and `issuer` equal the profile's `spec.access` | contract and profile cannot diverge |
+| a route key is an existing shared or enabled-stage service ref | a disabled capability exposes no route |
+| `user-facing` only for orchestration, reporting, governance, query, identity | databases, storage admin, catalog, registry stay internal; code servers have no ref |
+| `url` is `https://<host>.<base_domain>`, unique across routes | one host, one service |
+
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
 workflow, which belong to #154 and #115.
