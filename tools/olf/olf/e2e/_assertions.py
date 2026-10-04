@@ -11,10 +11,11 @@ from typing import Any
 import yaml
 from openlakeforge_domain import LakehouseInventory
 
-from olf import config, k8s, log, superset
+from olf import access, config, k8s, log, superset
 from olf.clients.base import ServiceClientError
 from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from olf.clients.superset import SupersetClient
+from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.e2e._trino import stage_catalog_name
 
@@ -23,15 +24,15 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
     log.step("Checking Superset report imports...")
     assert cfg.superset_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
-    with k8s.port_forward(
-        "superset",
-        8088,
-        cfg.namespace,
+    with access.service_url(
+        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting",
+        service="superset",
+        remote_port=8088,
+        namespace=cfg.namespace,
         local_port=cfg.superset_local_port,
         log_path=log_path,
         kube_context=cfg.kube_context,
-    ):
-        base_url = f"http://127.0.0.1:{cfg.superset_local_port}"
+    ) as base_url:
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
         try:
@@ -99,15 +100,15 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
     log.step("Checking OpenMetadata domains and data products...")
     assert cfg.openmetadata_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-openmetadata-port-forward.log"
-    with k8s.port_forward(
-        "openmetadata",
-        8585,
-        cfg.platform_namespace,
+    with access.service_url(
+        "shared/governance_service",
+        service="openmetadata",
+        remote_port=8585,
+        namespace=cfg.platform_namespace,
         local_port=cfg.openmetadata_local_port,
         log_path=log_path,
         kube_context=cfg.kube_context,
-    ):
-        base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
+    ) as base_url:
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
         client = OpenMetadataClient(base_url)

@@ -850,16 +850,11 @@ No Terraform product registration is required.
 
 # 16. Run the pipeline
 
-Start port forwarding if it is not already running:
-
-```bash
-olf forward --provider local --profile slim
-```
-
-Open:
+Open Dagster (run `olf access trust` once first if your browser warns about
+the certificate):
 
 ```text
-http://localhost:3000
+https://dagster.dev.olf.localhost
 ```
 
 In Dagster, look for:

@@ -18,7 +18,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
-from olf import config, k8s, layers, log
+from olf import access, config, k8s, layers, log
 from olf.clients.superset import SupersetClient
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.profile import StageName
@@ -200,10 +200,15 @@ def superset_base_url(namespace: str) -> Iterator[str]:
     """Yield the base URL of this namespace's Superset API for the block."""
     log.step("Waiting for Superset web deployment...")
     k8s.wait_for_rollout("deployment/superset", namespace)
-    # #267 replaces this port-forward with the stage's ingress URL.
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
-    with k8s.port_forward("superset", 8088, namespace, log_path=f"{log_prefix}-superset-port-forward.log") as port:
-        yield f"http://127.0.0.1:{port}"
+    with access.service_url(
+        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting",
+        service="superset",
+        remote_port=8088,
+        namespace=namespace,
+        log_path=f"{log_prefix}-superset-port-forward.log",
+    ) as url:
+        yield url
 
 
 def discover_report_dirs(repo_root: Path) -> list[str]:

@@ -134,8 +134,15 @@ class LocalProvider:
         artifacts.artifacts_deploy(self.config, self.tools, env=self.env)
 
     def status(self) -> StatusReport:
+        from olf.access import contract_access
+        from olf.contracts import ProviderContractError
         from olf.deployment.status import collect_status
 
+        try:
+            urls = contract_access(self._contracts()).get("routes")
+        except ProviderContractError as exc:
+            log.warn(f"no service URLs: {exc}")
+            urls = None
         return collect_status(
             self.tools.kubectl,
             namespaces=(
@@ -145,7 +152,23 @@ class LocalProvider:
             context=self.config.kube_context,
             kubeconfig=self.config.paths.kubeconfig_path,
             env=self.env,
+            urls=urls,
         )
+
+    def _contract_dir(self) -> Path:
+        return Path(
+            self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)
+        ).resolve()
+
+    def _contracts(self) -> dict | None:
+        from olf.contracts import load_provider_contracts
+
+        # environ=self._environ (not bare os.environ): an installed
+        # distribution's platform state lives under OLF_HOME, not next to
+        # the contract dir - without the scoped environ here, `terraform
+        # output` reads the read-only payload's absent default state and
+        # this always reports "unavailable".
+        return load_provider_contracts(str(self._contract_dir()), environ=self._environ, resolver=self.tools.resolver)
 
     def forward(self) -> None:
         from olf.deployment.local import forward as forward_module
@@ -219,20 +242,11 @@ class LocalProvider:
                 )
             )
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
-            from olf.contracts import ProviderContractError, load_provider_contracts
+            from olf.contracts import ProviderContractError
 
-            contract_dir = Path(
-                self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)
-            ).resolve()
+            contract_dir = self._contract_dir()
             try:
-                # environ=self._environ (not bare os.environ): an installed
-                # distribution's platform state lives under OLF_HOME, not
-                # next to contract_dir - without the scoped environ here,
-                # `terraform output` reads the read-only payload's absent
-                # default state and this always reports "unavailable".
-                provider_contracts = load_provider_contracts(
-                    str(contract_dir), environ=self._environ, resolver=self.tools.resolver
-                )
+                provider_contracts = self._contracts()
             except ProviderContractError as exc:
                 items.append(DoctorItem("local platform provider contracts", False, str(exc)))
             else:

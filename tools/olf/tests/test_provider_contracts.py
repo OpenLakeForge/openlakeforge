@@ -167,6 +167,20 @@ def test_stage_environment_exposes_only_its_selected_stage_values() -> None:
     assert "dev" not in "\n".join(prod_exports.values())
 
 
+def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology(contract), stage="prod")
+
+    assert json.loads(exports["OPENLAKEFORGE_ACCESS_JSON"]) == {
+        "issuer": "local-ca",
+        "routes": {
+            "shared/query": "https://trino.olf.localhost",
+            "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
+        },
+    }
+
+
 def test_each_governed_stage_emits_lineage_under_its_own_pipeline_service() -> None:
     """OpenMetadata auto-creates pipelines named after the OpenLineage
     namespace, so each stage's must be its own root (#131)."""

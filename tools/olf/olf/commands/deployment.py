@@ -9,6 +9,7 @@ lifecycle logic.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -216,8 +217,9 @@ def status(
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
+    json_output: bool = typer.Option(False, "--json", help="Emit service URLs and resource status as JSON."),
 ) -> None:
-    """Print pod/service/PVC status for the deployed namespace."""
+    """Print service URLs and pod/service/PVC status for the deployed namespaces."""
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
@@ -234,7 +236,7 @@ def status(
         report = engine.status()
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    typer.echo(report.render())
+    typer.echo(json.dumps(report.as_dict(), indent=2) if json_output else report.render())
 
 
 def forward(

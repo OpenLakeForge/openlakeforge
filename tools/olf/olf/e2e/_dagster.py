@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 from openlakeforge_domain import Product
 
-from olf import k8s, log
+from olf import access, k8s, log
 from olf.clients.base import ServiceClientError
 from olf.clients.dagster import DagsterClient, DagsterHTTPError, DagsterTransientError  # noqa: F401 - re-exported
 from olf.contracts import CONTRACT_STAGE_ENV
@@ -29,15 +29,15 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
     assert cfg.dagster_local_port is not None
     webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
-    with k8s.port_forward(
-        webserver_service_name,
-        80,
-        cfg.namespace,
+    with access.service_url(
+        f"stage/{os.environ.get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
+        service=webserver_service_name,
+        remote_port=80,
+        namespace=cfg.namespace,
         local_port=cfg.dagster_local_port,
         log_path=log_path,
         kube_context=cfg.kube_context,
-    ):
-        base_url = f"http://127.0.0.1:{cfg.dagster_local_port}"
+    ) as base_url:
         if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):
             raise E2EError("Dagster endpoint did not become reachable.")
         location_names = expected_repository_location_names(cfg)

@@ -206,24 +206,80 @@ A successful end-to-end run is the best way to confirm that your installation is
 
 # Access OpenLakeForge
 
-OpenLakeForge services are not exposed outside Kubernetes by default.
-
-Start local port forwarding with:
+The local stack publishes its user-facing services through one ingress
+(Traefik on `127.0.0.1:80/443`, ADR 0013) at stable HTTPS URLs under
+`spec.access.base_domain`, `olf.localhost` by default. `olf status` lists them:
 
 ```bash
-olf forward --provider local
+olf status --provider local          # a "URLs" section, keyed by contract ref
+olf status --provider local --json   # {"urls": {...}, "sections": {...}}
 ```
 
-Keep this command running in its terminal.
+v0.4 is private evaluation infrastructure: these URLs carry no
+authentication of their own. Authentication arrives in v0.5
+([#176](https://github.com/OpenLakeForge/openlakeforge/issues/176)); do not
+expose them beyond your workstation.
 
-Press `Ctrl+C` when you want to stop the port forwards.
+## Trust the local CA once
+
+cert-manager signs every route from a local CA that `olf deploy` creates once;
+a re-deploy keeps it. Export it and print the trust commands for your machine:
+
+```bash
+olf access trust
+```
+
+It writes `openlakeforge-local-ca.crt` under the work directory (`.tmp/` in a
+source checkout; `--output` to choose) and prints the commands below for the
+detected system. Each needs your own privileges, so `olf` prints rather than
+runs them.
+
+| System | Store | Command |
+| --- | --- | --- |
+| Linux (Debian/Ubuntu) | system | `sudo cp <crt> /usr/local/share/ca-certificates/openlakeforge-local-ca.crt && sudo update-ca-certificates` |
+| Linux (Fedora/RHEL) | system | `sudo cp <crt> /etc/pki/ca-trust/source/anchors/openlakeforge-local-ca.crt && sudo update-ca-trust` |
+| Linux | Chrome/Chromium (NSS) | `certutil -d sql:$HOME/.pki/nssdb -A -t C,, -n "OpenLakeForge local CA" -i <crt>` |
+| macOS | System keychain | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <crt>` |
+| WSL2 | Windows (current user) | `powershell.exe -NoProfile -Command "Import-Certificate -FilePath '$(wslpath -w <crt>)' -CertStoreLocation Cert:\CurrentUser\Root"` |
+
+Firefox keeps its own store: Settings > Privacy & Security > View
+Certificates > Authorities > Import.
+
+On WSL2 the browser runs on Windows, so the CA must go into the Windows store;
+trusting it inside the Linux distribution only covers tools run there.
+
+`olf` itself needs none of this: its clients read the CA from the cluster and
+verify against it.
+
+## Name resolution
+
+Browsers resolve every `*.localhost` name to loopback (RFC 6761), so no
+`/etc/hosts` entry is needed. Command-line resolvers often do not (glibc
+without systemd-resolved, macOS); `olf`'s own clients pin `*.localhost` to
+`127.0.0.1` themselves. For `curl`, pass `--resolve`:
+
+```bash
+curl --resolve dagster.dev.olf.localhost:443:127.0.0.1 https://dagster.dev.olf.localhost/server_info
+```
+
+## Port-forward fallback
+
+`olf forward --provider local` still starts `kubectl port-forward`s to fixed
+localhost ports, and is the only way to reach the services that have no
+route (Polaris, SeaweedFS). `olf`'s own clients use the ingress; set
+`OLF_PORT_FORWARD=1` to make them port-forward instead, for example while
+debugging the ingress:
+
+```bash
+OLF_PORT_FORWARD=1 olf e2e run --env local
+```
 
 ## Core services
 
 ### Dagster
 
 ```text
-http://localhost:3000
+https://dagster.dev.olf.localhost
 ```
 
 Dagster is the main interface for inspecting and running OpenLakeForge data pipelines.
@@ -239,12 +295,14 @@ From the Dagster UI you can:
 ### Trino
 
 ```text
-http://localhost:8080
+https://trino.olf.localhost
 ```
 
 Trino is the query engine used by OpenLakeForge and by dbt to build Gold models.
 
 ### Apache Polaris
+
+Through `olf forward` only:
 
 ```text
 http://localhost:8181
@@ -254,7 +312,7 @@ Polaris provides the local Iceberg catalog.
 
 ### SeaweedFS
 
-Local object storage is provided by SeaweedFS.
+Local object storage is provided by SeaweedFS, through `olf forward` only.
 
 | Interface | Address                 |
 | --------- | ----------------------- |
@@ -292,18 +350,12 @@ so they cannot disagree:
 olf e2e run --env local --suite full
 ```
 
-And start the port forwards:
-
-```bash
-olf forward --provider local
-```
-
 The additional services are then available at:
 
-| Service      | URL                     | Development credentials           |
-| ------------ | ----------------------- | --------------------------------- |
-| OpenMetadata | `http://localhost:8585` | `admin@open-metadata.org / admin` |
-| Superset     | `http://localhost:8088` | `admin / admin`                   |
+| Service      | URL                                  | Development credentials           |
+| ------------ | ------------------------------------ | --------------------------------- |
+| OpenMetadata | `https://openmetadata.olf.localhost` | `admin@open-metadata.org / admin` |
+| Superset     | `https://superset.dev.olf.localhost` | `admin / admin`                   |
 
 These credentials are intended for the local development environment only.
 

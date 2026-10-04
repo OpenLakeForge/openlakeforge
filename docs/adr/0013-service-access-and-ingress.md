@@ -41,6 +41,12 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    catalog service, and the registry may only be `internal`; Dagster code
    servers have no ref and cannot be routed at all.
 5. **Port-forward is an explicit development fallback**, not an access path.
+   `olf`'s own clients (`olf.access.service_url`) use a stage's route when
+   its contract has one, and port-forward only when it has none (the AWS and
+   Azure contracts today) or `OLF_PORT_FORWARD` is set. They resolve
+   `*.localhost` to `127.0.0.1` in-process and, for the `local-ca` issuer,
+   verify against the CA read from the cluster — no `/etc/hosts` edit and no
+   disabled verification. Users trust that CA once with `olf access trust`.
 6. **Local adapter: Traefik terminates TLS, cert-manager issues.** On kind,
    Traefik binds host ports 80/443 on `127.0.0.1` through the control-plane
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
@@ -79,4 +85,6 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
 New record (#264). No prior ADR covered service access. #265 added the local
 Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.
-#266 added the local routes and wildcard certificates.
+#266 added the local routes and wildcard certificates. #267 moved `olf`'s
+clients onto the routes, added `olf access trust`, and lists the URLs in
+`olf status`.

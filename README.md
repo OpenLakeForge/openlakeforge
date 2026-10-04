@@ -142,17 +142,23 @@ Run the included data products end-to-end:
 olf e2e run --env local --suite full
 ```
 
-Start local port forwarding:
+Trust the local CA once (prints the commands for your system, including
+WSL2's Windows store), then open Dagster:
 
 ```bash
-olf forward --provider local
+olf access trust
+olf status --provider local   # lists every service URL
 ```
-
-Dagster is then available at:
 
 ```text
-http://localhost:3000
+https://dagster.dev.olf.localhost
 ```
+
+Browsers resolve `*.localhost` to your machine; no `/etc/hosts` edit is
+needed. v0.4 serves these URLs without authentication, for private
+evaluation only — authentication arrives in v0.5. `olf forward --provider
+local` remains as a port-forward fallback. See
+[Access OpenLakeForge](docs/setup/local.md#access-openlakeforge).
 
 From there you can inspect the asset graph and launch the example pipelines.
 
@@ -165,7 +171,6 @@ so the deployment and its validation cannot name different topologies:
 ```bash
 olf deploy --provider local
 olf e2e run --env local --suite full
-olf forward --provider local
 ```
 
 ### Slim or Full?

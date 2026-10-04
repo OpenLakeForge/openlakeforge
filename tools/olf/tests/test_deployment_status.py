@@ -6,7 +6,7 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.status import collect_status
+from olf.deployment.status import StatusReport, StatusSection, collect_status
 from olf.tooling.kubectl import Kubectl
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
@@ -77,3 +77,16 @@ def test_collect_status_raises_when_a_query_fails() -> None:
     # Stops at the first failure, matching the old Make target's per-line
     # fail-fast behavior -- PVCs is never queried.
     assert not any("pvc" in call.argv for call in runner.calls)
+
+
+def test_report_leads_with_the_contract_urls_and_serializes_them() -> None:
+    report = StatusReport(
+        sections=(StatusSection(title="Pods (olf-dev)", output="dagster Running"),),
+        urls={"stage/dev/orchestration": "https://dagster.dev.olf.localhost"},
+    )
+
+    assert report.render().startswith("=== URLs ===\nstage/dev/orchestration: https://dagster.dev.olf.localhost\n\n")
+    assert report.as_dict() == {
+        "urls": {"stage/dev/orchestration": "https://dagster.dev.olf.localhost"},
+        "sections": {"Pods (olf-dev)": "dagster Running"},
+    }
