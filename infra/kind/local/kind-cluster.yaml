@@ -3,5 +3,19 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: openlakeforge-local
 nodes:
   - role: control-plane
+    # Traefik pins itself to this label and binds 80/443 as hostPorts
+    # (infra/helm/values/local/traefik.yaml). Loopback only: the local
+    # ingress is not meant to be reachable from the LAN.
+    labels:
+      ingress-ready: "true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        listenAddress: "127.0.0.1"
+        protocol: TCP
   - role: worker
   - role: worker

@@ -1,0 +1,51 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.issuerName }}-selfsigned
+spec:
+  selfSigned: {}
+---
+# The root users trust (#267). cert-manager re-issues it only when this spec
+# changes or it nears expiry, and never rotates its key, so re-running
+# `olf deploy` keeps the same CA.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.issuerName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  isCA: true
+  commonName: OpenLakeForge local CA
+  secretName: {{ .Values.issuerName }}
+  duration: 87600h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never
+  issuerRef:
+    name: {{ .Values.issuerName }}-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.issuerName }}
+spec:
+  ca:
+    secretName: {{ .Values.issuerName }}
+---
+# Proves the issuer signs leaf certificates; `olf deploy` waits for it.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.issuerName }}-probe
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Values.issuerName }}-probe
+  dnsNames:
+    - probe.{{ .Values.baseDomain }}
+  issuerRef:
+    name: {{ .Values.issuerName }}
+    kind: ClusterIssuer
+    group: cert-manager.io

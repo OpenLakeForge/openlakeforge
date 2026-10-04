@@ -1170,7 +1170,8 @@ def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
 def _ingress_contract() -> dict:
     """The local fixture with the access.ingress shape on shared.access.
 
-    Hand-assembled: no root emits it until the ingress adapter lands (#265).
+    Hand-assembled with routes; the local root emits this shape with none
+    until #266 adds them.
     """
     contract = _fixture("local-provider-contracts-v3.json")
     contract["shared"]["access"].update(
@@ -1300,6 +1301,8 @@ def _route(ref: str, url: str) -> dict:
             "does not resolve",
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("enabled", "yes"), "enabled must be"),
+        (lambda access: access.__setitem__("tls_mode", "passthrough"), "tls_mode must be one of"),
+        (lambda access: access.__setitem__("tls_mode", ["ingress-terminated"]), "tls_mode"),
     ],
 )
 def test_access_ingress_contract_fails_closed(mutate, match: str) -> None:

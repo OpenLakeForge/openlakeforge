@@ -42,6 +42,8 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         ("trino", "trino/trino", "1.42.2", "infra/helm/values/local/trino.yaml"),
         ("dagster", "dagster/dagster", "1.13.7", "infra/helm/values/local/dagster.yaml"),
         ("superset", "superset/superset", "0.15.5", "infra/helm/values/local/superset.yaml"),
+        ("traefik", "traefik/traefik", "41.6.1", "infra/helm/values/local/traefik.yaml"),
+        ("cert-manager", "jetstack/cert-manager", "v1.21.2", "infra/helm/values/local/cert-manager.yaml"),
     )
     repos = (
         ("seaweedfs", "https://seaweedfs.github.io/seaweedfs/helm"),
@@ -49,6 +51,8 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         ("trino", "https://trinodb.github.io/charts"),
         ("dagster", "https://dagster-io.github.io/helm"),
         ("superset", "http://apache.github.io/superset/"),
+        ("traefik", "https://traefik.github.io/charts"),
+        ("jetstack", "https://charts.jetstack.io"),
     )
     for name, url in repos:
         tools.helm.repo_add(name, url, env=env)

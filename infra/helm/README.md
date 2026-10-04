@@ -15,7 +15,9 @@ infra/helm/
         ├── polaris.yaml
         ├── trino.yaml
         ├── superset.yaml
-        └── dagster.yaml
+        ├── dagster.yaml
+        ├── traefik.yaml
+        └── cert-manager.yaml
 ```
 
 ## Local charts
@@ -30,6 +32,10 @@ infra/helm/
   Chart source: http://apache.github.io/superset/
 - **Dagster** (`dagster/dagster`)
   Chart source: https://dagster-io.github.io/helm
+- **Traefik** (`traefik/traefik`)
+  Chart source: https://traefik.github.io/charts
+- **cert-manager** (`jetstack/cert-manager`)
+  Chart source: https://charts.jetstack.io
 
 ## Workflow
 

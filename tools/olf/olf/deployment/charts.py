@@ -375,6 +375,16 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
         repository="https://apache.github.io/superset/",
         version="0.15.5",
     ),
+    "traefik": ChartDefault(
+        chart_ref="traefik/traefik",
+        repository="https://traefik.github.io/charts",
+        version="41.6.1",
+    ),
+    "cert-manager": ChartDefault(
+        chart_ref="jetstack/cert-manager",
+        repository="https://charts.jetstack.io",
+        version="v1.21.2",
+    ),
 }
 
 
@@ -390,6 +400,8 @@ TERRAFORM_VARIABLE_KEY: Mapping[str, str] = {
     "openmetadata": "openmetadata_chart_package_path",
     "openmetadata-dependencies": "openmetadata_deps_chart_package_path",
     "superset": "superset_chart_package_path",
+    "traefik": "traefik_chart_package_path",
+    "cert-manager": "cert_manager_chart_package_path",
 }
 """Maps a catalog chart name to the Terraform variable each environment root
 declares for it. `openmetadata-dependencies` breaks the `<name>_chart_package_path`

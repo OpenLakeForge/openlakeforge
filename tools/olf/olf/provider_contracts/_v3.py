@@ -43,6 +43,9 @@ _ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
 # no ref at all, so no route can name them.
 _USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_service", "query", "identity"})
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
+# The ingress terminates TLS with a certificate from the issuer; the only mode
+# the local Traefik/cert-manager adapter implements.
+_TLS_MODES = frozenset({"ingress-terminated"})
 # Shared bindings that are platform plumbing rather than network services, so
 # an ingress has no backend to send a route to.
 _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
@@ -66,7 +69,8 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         )
     if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
         raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
-    _string(access["tls_mode"], where="shared.access.tls_mode")
+    if _string(access["tls_mode"], where="shared.access.tls_mode") not in _TLS_MODES:
+        raise ProviderContractError(f"shared.access.tls_mode must be one of {sorted(_TLS_MODES)!r}")
     hosts: set[str] = set()
     for ref, route in _mapping(access["routes"], where="shared.access.routes").items():
         where = f"shared.access.routes[{ref!r}]"
