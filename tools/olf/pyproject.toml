@@ -96,8 +96,6 @@ ignore_missing_imports = true
 module = [
   "olf.deployment.context",
   "olf.deployment.portforward",
-  "olf.provider_contracts",
-  "olf.provider_contracts.*",
 ]
 ignore_errors = true
 

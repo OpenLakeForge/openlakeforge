@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
@@ -49,7 +49,7 @@ def _fields(
     *,
     where: str,
     required: set[str],
-    optional: set[str] = frozenset(),
+    optional: Set[str] = frozenset(),
 ) -> Mapping[str, Any]:
     document = _mapping(value, where=where)
     missing = required - set(document)
