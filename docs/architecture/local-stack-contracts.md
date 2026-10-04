@@ -140,9 +140,8 @@ http://superset.olf-<stage>:8088
 Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
 for local cache and worker support. Report assets are not seeded by
 Terraform bootstrap. They are source-controlled under
-`lakehouse_code/dashboards/superset/<dashboard>/`, copied into the
-Superset ephemeral staging volume at `/app/openlakeforge/reports`, and imported by the
-local/CD report deployment step.
+`lakehouse_code/dashboards/superset/<dashboard>/` and imported through the
+Superset REST API by the local/CD report deployment step.
 
 OpenMetadata receives the Superset service connection during governance
 bootstrap, but reports appear in OpenMetadata only after the Superset dashboard

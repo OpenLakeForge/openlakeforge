@@ -75,12 +75,6 @@ variable "http_port" {
   default     = 8088
 }
 
-variable "reports_mount_path" {
-  description = "Path where dynamic Superset report bundles are mounted in Superset pods."
-  type        = string
-  default     = "/app/openlakeforge/reports"
-}
-
 variable "postgresql_contract" {
   description = "Metadata PostgreSQL contract consumed by Superset."
   type = object({
