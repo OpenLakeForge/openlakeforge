@@ -43,21 +43,6 @@ output "metadata_database_contract" {
   value       = local.metadata_database_contract
 }
 
-output "dagster_webserver_service_names" {
-  description = "Dagster webserver service name for every enabled stage, keyed by stage name."
-  value       = { for name, mod in module.dagster : name => mod.webserver_service_name }
-}
-
-output "dagster_code_location_name" {
-  description = "First Dagster code location name. Kept for compatibility with older scripts."
-  value       = module.dagster[local.selected_stage].code_location_name
-}
-
-output "dagster_code_location_names" {
-  description = "Dagster code location names."
-  value       = module.dagster[local.selected_stage].code_location_names
-}
-
 output "superset_contract" {
   description = "Non-secret Superset reporting contract."
   value       = local.reporting_contract
