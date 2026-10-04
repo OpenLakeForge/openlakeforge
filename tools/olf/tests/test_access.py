@@ -26,7 +26,13 @@ def forwarded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         yield 18088
 
     monkeypatch.setattr(access.k8s, "port_forward", _port_forward)
-    monkeypatch.setattr(access.k8s, "secret_value", lambda *_a, **_k: "LOCAL-CA-PEM\n")
+    # The self-signed root's Secret exists only in the shared namespace, where
+    # cert-manager keeps ClusterIssuer secrets, and tls.crt/tls.key are the keys
+    # cert-manager guarantees. Any other namespace or key raises KeyError.
+    secrets = {("local-ca", "olf-system"): {"tls\\.crt": "LOCAL-CA-PEM\n", "tls\\.key": "KEY"}}
+    monkeypatch.setattr(
+        access.k8s, "secret_value", lambda name, key, namespace, **_k: secrets[(name, namespace)][key]
+    )
     # service_url pins resolution process-wide; monkeypatch restores the original.
     monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
     monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
@@ -36,7 +42,14 @@ def forwarded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _reach(ref: str = "stage/dev/reporting"):  # noqa: ANN202
-    return access.service_url(ref, service="superset", remote_port=8088, namespace="olf-dev", log_path="/dev/null")
+    return access.service_url(
+        ref,
+        service="superset",
+        remote_port=8088,
+        namespace="olf-dev",
+        log_path="/dev/null",
+        shared_namespace="olf-system",
+    )
 
 
 def test_ingress_route_is_used_and_verified_against_the_local_ca(
@@ -89,3 +102,13 @@ def test_trust_steps_name_the_store_the_browser_reads() -> None:
     assert "Cert:\\CurrentUser\\Root" in trust_steps(cert, platform="linux", wsl=True)
     linux = trust_steps(cert, platform="linux", wsl=False)
     assert "update-ca-certificates" in linux and "certutil" in linux
+
+
+def test_trust_steps_quote_the_certificate_path() -> None:
+    cert = Path("/home/a user/openlakeforge-local-ca.crt")
+
+    for platform, wsl in (("darwin", False), ("linux", False), ("linux", True)):
+        steps = trust_steps(cert, platform=platform, wsl=wsl)
+        assert "/home/a user/" not in steps.replace("'/home/a user/openlakeforge-local-ca.crt'", "")
+    assert "$(wslpath -w '/home/a user/openlakeforge-local-ca.crt')" in trust_steps(cert, platform="linux", wsl=True)
+    assert "-CertStoreLocation 'Cert:\\CurrentUser\\Root'" in trust_steps(cert, platform="linux", wsl=True)

@@ -31,6 +31,7 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         namespace=cfg.namespace,
         local_port=cfg.superset_local_port,
         log_path=log_path,
+        shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
     ) as base_url:
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
@@ -107,6 +108,7 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         namespace=cfg.platform_namespace,
         local_port=cfg.openmetadata_local_port,
         log_path=log_path,
+        shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
     ) as base_url:
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):

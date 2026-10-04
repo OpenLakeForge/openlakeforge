@@ -56,7 +56,12 @@ def deploy_openmetadata_metadata() -> None:
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     log_path = f"{log_prefix}-openmetadata-port-forward.log"
     with access.service_url(
-        "shared/governance_service", service=service, remote_port=remote_port, namespace=namespace, log_path=log_path
+        "shared/governance_service",
+        service=service,
+        remote_port=remote_port,
+        namespace=namespace,
+        log_path=log_path,
+        shared_namespace=namespace,
     ) as base_url:
         try:
             cfg = om.OpenMetadataConfig.from_environment(

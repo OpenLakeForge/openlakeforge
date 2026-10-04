@@ -207,6 +207,7 @@ def superset_base_url(namespace: str) -> Iterator[str]:
         remote_port=8088,
         namespace=namespace,
         log_path=f"{log_prefix}-superset-port-forward.log",
+        shared_namespace=config.shared_namespace(),
     ) as url:
         yield url
 

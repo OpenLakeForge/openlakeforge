@@ -36,6 +36,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
         namespace=cfg.namespace,
         local_port=cfg.dagster_local_port,
         log_path=log_path,
+        shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
     ) as base_url:
         if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):

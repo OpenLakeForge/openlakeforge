@@ -240,7 +240,7 @@ runs them.
 | Linux (Fedora/RHEL) | system | `sudo cp <crt> /etc/pki/ca-trust/source/anchors/openlakeforge-local-ca.crt && sudo update-ca-trust` |
 | Linux | Chrome/Chromium (NSS) | `certutil -d sql:$HOME/.pki/nssdb -A -t C,, -n "OpenLakeForge local CA" -i <crt>` |
 | macOS | System keychain | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <crt>` |
-| WSL2 | Windows (current user) | `powershell.exe -NoProfile -Command "Import-Certificate -FilePath '$(wslpath -w <crt>)' -CertStoreLocation Cert:\CurrentUser\Root"` |
+| WSL2 | Windows (current user) | `powershell.exe -NoProfile -Command "Import-Certificate -FilePath '$(wslpath -w <crt>)' -CertStoreLocation 'Cert:\CurrentUser\Root'"` |
 
 Firefox keeps its own store: Settings > Privacy & Security > View
 Certificates > Authorities > Import.
