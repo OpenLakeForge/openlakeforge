@@ -1,18 +1,15 @@
 """Superset report bundle build, import, and export.
 
-Replaces scripts/local/artifacts/superset-reports-deploy.sh and
-superset-reports-export.sh. Bundle building and unpacking are pure local
-operations; the import and export commands run inside the Superset pod (they
-need Superset's own interpreter and database), so those bodies stay as scripts
-executed through `kubectl exec`.
+Bundle building and unpacking are pure local operations; import and export
+go through the Superset REST API (`olf.clients.superset`).
 """
 
 from __future__ import annotations
 
+import contextlib
 import re
 import shutil
-import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -21,88 +18,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
-from olf import k8s, layers, log
+from olf import config, k8s, layers, log
+from olf.clients.superset import SupersetClient
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.profile import StageName
-
-REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
-
-# In-pod importer. Runs in the Superset interpreter; argv: <remote_bundle> <username>.
-_IMPORT_SCRIPT = """
-import sys
-from zipfile import ZipFile
-
-from flask import g
-
-from superset.app import create_app
-
-bundle_path = sys.argv[1]
-username = sys.argv[2]
-
-app = create_app()
-with app.app_context():
-    from superset import security_manager
-    from superset.commands.importers.v1.assets import ImportAssetsCommand
-    from superset.commands.importers.v1.utils import get_contents_from_bundle
-
-    user = security_manager.find_user(username=username)
-    if user is None:
-        raise SystemExit(f"Superset user '{username}' does not exist")
-
-    g.user = user
-    with ZipFile(bundle_path) as bundle:
-        contents = get_contents_from_bundle(bundle)
-    ImportAssetsCommand(contents).run()
-"""
-
-# In-pod exporter. argv: <remote_bundle> <username> <dashboard uuid or slug> <bundle_root>.
-# Selected by uuid or slug rather than title, so renaming a dashboard in DEV
-# does not break its re-export.
-_EXPORT_SCRIPT = """
-import sys
-from uuid import UUID
-from zipfile import ZIP_DEFLATED, ZipFile
-
-import yaml
-from flask import g
-
-from superset.app import create_app
-
-bundle_path = sys.argv[1]
-username = sys.argv[2]
-dashboard_ref = sys.argv[3]
-bundle_root = sys.argv[4]
-
-app = create_app()
-with app.app_context():
-    from superset import security_manager
-    from superset.commands.dashboard.export import ExportDashboardsCommand
-    from superset.extensions import db
-    from superset.models.dashboard import Dashboard
-
-    user = security_manager.find_user(username=username)
-    if user is None:
-        raise SystemExit(f"Superset user '{username}' does not exist")
-    g.user = user
-
-    try:
-        selector = Dashboard.uuid == UUID(dashboard_ref)
-    except ValueError:
-        selector = Dashboard.slug == dashboard_ref
-    dashboard_ids = [dashboard_id for (dashboard_id,) in db.session.query(Dashboard.id).filter(selector).all()]
-    if not dashboard_ids:
-        raise SystemExit(f"Superset dashboard with uuid or slug '{dashboard_ref}' does not exist")
-
-    with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
-        for file_name, file_content in ExportDashboardsCommand(dashboard_ids).run():
-            content = file_content()
-            if file_name == "metadata.yaml":
-                metadata = yaml.safe_load(content)
-                metadata["type"] = "assets"
-                content = yaml.safe_dump(metadata, sort_keys=False)
-            with bundle.open(f"{bundle_root}/{file_name}", "w") as fp:
-                fp.write(content.encode())
-"""
 
 
 class ReportStageError(RuntimeError):
@@ -276,24 +195,15 @@ def unpack_export_bundle(bundle_path: Path, target_dir: Path) -> None:
             destination.write_bytes(bundle.read(member))
 
 
-def _running_superset_pod(namespace: str) -> str:
-    raw = k8s._kubectl(  # noqa: SLF001 - internal helper reuse
-        [
-            "get",
-            "pods",
-            "-n",
-            namespace,
-            "-l",
-            "app=superset,release=superset",
-            "-o",
-            'jsonpath={range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\\n"}{end}',
-        ],
-        capture=True,
-    )
-    pod = next((line for line in raw.splitlines() if line), "")
-    if not pod:
-        raise RuntimeError("could not find a running Superset web pod.")
-    return pod
+@contextlib.contextmanager
+def superset_base_url(namespace: str) -> Iterator[str]:
+    """Yield the base URL of this namespace's Superset API for the block."""
+    log.step("Waiting for Superset web deployment...")
+    k8s.wait_for_rollout("deployment/superset", namespace)
+    # #267 replaces this port-forward with the stage's ingress URL.
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    with k8s.port_forward("superset", 8088, namespace, log_path=f"{log_prefix}-superset-port-forward.log") as port:
+        yield f"http://127.0.0.1:{port}"
 
 
 def discover_report_dirs(repo_root: Path) -> list[str]:
@@ -420,11 +330,10 @@ def report_bundle_errors(
     metadata_path = bundle_dir / "metadata.yaml"
     if not metadata_path.is_file():
         return [f"{report_dir}/metadata.yaml: missing"]
-    # `_IMPORT_SCRIPT` runs `ImportAssetsCommand`, which is what `type:
-    # assets` selects -- a dashboard-type export imports through a different
-    # command and would fail in the pod rather than here. `_EXPORT_SCRIPT`
-    # rewrites the type for exactly that reason, so a bundle that lost it was
-    # hand-edited.
+    # Import goes through `/api/v1/assets/import/`, which accepts only `type:
+    # assets` -- a dashboard-type export would be refused by the API rather
+    # than here. `export_report` rewrites the type for exactly that reason, so
+    # a bundle that lost it was hand-edited.
     try:
         metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -538,19 +447,6 @@ def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list
     ]
 
 
-def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> None:
-    quoted = " ".join(f"'{arg}'" for arg in args)
-    command = f". /app/pythonpath/superset_bootstrap.sh; python - {quoted}"
-    subprocess.run(
-        k8s._resolved_kubectl_argv(  # noqa: SLF001 - internal helper reuse
-            ["exec", "-i", pod, "-c", "superset", "-n", namespace, "--", "/bin/sh", "-ec", command]
-        ),
-        input=script,
-        text=True,
-        check=True,
-    )
-
-
 def deploy_reports(
     repo_root: Path,
     namespace: str,
@@ -559,8 +455,8 @@ def deploy_reports(
     report_source_dir: str | None,
     declared_report_dirs: Sequence[str] | None = None,
     work_dir: Path,
-    reports_mount_path: str,
     admin_username: str,
+    admin_password: str,
     schema_prefix: str = "",
 ) -> None:
     # Computed before touching the cluster: a declared-but-unmounted bundle
@@ -570,7 +466,7 @@ def deploy_reports(
     # is missing -- i.e. none are declared at all (#228's scaffolded-but-
     # undeclared draft, or any project that simply has no dashboards yet).
     # That is a legitimate state, not a misconfiguration: importing nothing
-    # is the correct outcome, not an error to wait for a live Superset pod
+    # is the correct outcome, not an error to wait for a live Superset
     # just to report.
     report_dirs = (
         [report_source_dir]
@@ -583,46 +479,22 @@ def deploy_reports(
         log.step("No Superset report bundles are declared; nothing to import.")
         return
 
-    log.step("Waiting for Superset web deployment...")
-    k8s.wait_for_rollout("deployment/superset", namespace)
-    pod = _running_superset_pod(namespace)
-
     work_dir.mkdir(parents=True, exist_ok=True)
-    for report_dir in report_dirs:
-        source_dir = repo_root / report_dir
-        if not (source_dir / "metadata.yaml").is_file():
-            raise RuntimeError(f"missing Superset report metadata at {report_dir}/metadata.yaml")
+    with superset_base_url(namespace) as base_url:
+        client = SupersetClient(base_url, username=admin_username, password=admin_password)
+        client.login()
+        for report_dir in report_dirs:
+            source_dir = repo_root / report_dir
+            if not (source_dir / "metadata.yaml").is_file():
+                raise RuntimeError(f"missing Superset report metadata at {report_dir}/metadata.yaml")
 
-        identity = bundle_identity(report_dir)
-        bundle_path = work_dir / identity.name
-        remote_bundle = f"{reports_mount_path}/{identity.name}"
-        build_report_bundle(source_dir, bundle_path, identity.root, sqlalchemy_uri, schema_prefix=schema_prefix)
+            identity = bundle_identity(report_dir)
+            bundle_path = work_dir / identity.name
+            build_report_bundle(source_dir, bundle_path, identity.root, sqlalchemy_uri, schema_prefix=schema_prefix)
 
-        log.step(f"Copying {bundle_path} to {pod}:{remote_bundle}")
-        with bundle_path.open("rb") as body:
-            subprocess.run(
-                k8s._resolved_kubectl_argv(  # noqa: SLF001 - internal helper reuse
-                    [
-                        "exec",
-                        "-i",
-                        pod,
-                        "-c",
-                        "superset",
-                        "-n",
-                        namespace,
-                        "--",
-                        "/bin/sh",
-                        "-ec",
-                        f"mkdir -p '{reports_mount_path}' && cat > '{remote_bundle}'",
-                    ]
-                ),
-                stdin=body,
-                check=True,
-            )
-
-        log.step(f"Importing Superset report assets from {remote_bundle}")
-        _exec_pod_python(pod, namespace, _IMPORT_SCRIPT, [remote_bundle, admin_username])
-        log.info(f"Deployed Superset report assets from {report_dir}")
+            log.step(f"Importing Superset report assets from {bundle_path}")
+            client.import_assets(bundle_path)
+            log.info(f"Deployed Superset report assets from {report_dir}")
 
 
 def export_report(
@@ -632,30 +504,25 @@ def export_report(
     report_source_dir: str,
     bundle_name: str,
     work_dir: Path,
-    reports_mount_path: str,
     admin_username: str,
+    admin_password: str,
     dashboard: str,
 ) -> None:
-    identity = bundle_identity(report_source_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     local_bundle = work_dir / bundle_name
-    remote_bundle = f"{reports_mount_path}/{bundle_name}"
 
-    log.step("Waiting for Superset web deployment...")
-    k8s.wait_for_rollout("deployment/superset", namespace)
-    pod = _running_superset_pod(namespace)
+    with superset_base_url(namespace) as base_url:
+        client = SupersetClient(base_url, username=admin_username, password=admin_password)
+        client.login()
+        log.step(f"Exporting dashboard '{dashboard}' from Superset")
+        local_bundle.write_bytes(client.export_dashboard(dashboard))
 
-    log.step(f"Exporting dashboard '{dashboard}' from Superset")
-    _exec_pod_python(pod, namespace, _EXPORT_SCRIPT, [remote_bundle, admin_username, dashboard, identity.root])
-
-    with local_bundle.open("wb") as out:
-        subprocess.run(
-            k8s._resolved_kubectl_argv(  # noqa: SLF001 - internal helper reuse
-                ["exec", pod, "-c", "superset", "-n", namespace, "--", "cat", remote_bundle]
-            ),
-            stdout=out,
-            check=True,
-        )
-
-    unpack_export_bundle(local_bundle, repo_root / report_source_dir)
+    target_dir = repo_root / report_source_dir
+    unpack_export_bundle(local_bundle, target_dir)
+    # A dashboard export declares `type: Dashboard`; the bundle is imported as
+    # assets (see `report_bundle_errors`).
+    metadata_path = target_dir / "metadata.yaml"
+    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    metadata["type"] = "assets"
+    metadata_path.write_text(yaml.safe_dump(metadata, sort_keys=False), encoding="utf-8")
     log.info(f"Exported Superset report assets to {report_source_dir}")

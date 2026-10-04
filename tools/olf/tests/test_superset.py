@@ -1,9 +1,13 @@
+import contextlib
+import io
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 import yaml
+from conftest import FakeSuperset
 
 from olf import k8s, superset
 from olf.contracts import build_contract_env
@@ -119,9 +123,9 @@ def test_deploy_reports_with_no_declared_dashboards_imports_nothing(
     undeclared, so a Full profile's first artifacts deploy runs with zero
     declared dashboards. That is a legitimate 'nothing to import' state, not
     a misconfiguration -- deploying must succeed, and without ever waiting
-    for the Superset pod that has nothing to receive."""
+    for the Superset that has nothing to receive."""
     monkeypatch.setattr(k8s, "wait_for_rollout", _fail_if_called)
-    monkeypatch.setattr(superset, "_running_superset_pod", _fail_if_called)
+    monkeypatch.setattr(superset, "superset_base_url", _fail_if_called)
 
     superset.deploy_reports(
         tmp_path,
@@ -130,7 +134,7 @@ def test_deploy_reports_with_no_declared_dashboards_imports_nothing(
         report_source_dir=None,
         declared_report_dirs=(),
         work_dir=tmp_path / "work",
-        reports_mount_path=superset.REPORTS_MOUNT_PATH_DEFAULT,
+        admin_password="admin",
         admin_username="admin",
     )
 
@@ -144,7 +148,7 @@ def test_deploy_reports_still_fails_for_a_declared_but_missing_bundle(
     fail loudly (and, since it's a descriptor problem, before ever touching
     the cluster)."""
     monkeypatch.setattr(k8s, "wait_for_rollout", _fail_if_called)
-    monkeypatch.setattr(superset, "_running_superset_pod", _fail_if_called)
+    monkeypatch.setattr(superset, "superset_base_url", _fail_if_called)
 
     with pytest.raises(RuntimeError, match="declared but not mounted"):
         superset.deploy_reports(
@@ -154,54 +158,75 @@ def test_deploy_reports_still_fails_for_a_declared_but_missing_bundle(
             report_source_dir=None,
             declared_report_dirs=("lakehouse_code/dashboards/superset/missing",),
             work_dir=tmp_path / "work",
-            reports_mount_path=superset.REPORTS_MOUNT_PATH_DEFAULT,
+            admin_password="admin",
             admin_username="admin",
         )
 
 
-def test_deploy_reports_imports_a_declared_bundle_exactly_as_before(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def _serve(monkeypatch: pytest.MonkeyPatch, server: FakeSuperset) -> None:
+    @contextlib.contextmanager
+    def base_url(_namespace: str) -> Iterator[str]:
+        yield server.url
+
+    monkeypatch.setattr(superset, "superset_base_url", base_url)
+
+
+def test_deploy_reports_imports_each_declared_bundle_through_the_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_superset: FakeSuperset
 ) -> None:
-    """The empty-registry skip must not touch the path that has something to
-    import: with a declared, mounted bundle, deploy_reports still waits for
-    Superset, finds the pod, and copies/imports the bundle."""
     _write_report_bundle(tmp_path)
-    calls: list[str] = []
-
-    def fake_wait(*_args: object, **_kwargs: object) -> None:
-        calls.append("wait")
-
-    def fake_pod(*_args: object, **_kwargs: object) -> str:
-        calls.append("pod")
-        return "superset-pod-0"
-
-    def fake_run(argv: list[str], **_kwargs: object) -> object:  # noqa: ANN001
-        calls.append("exec")
-
-        class _Result:
-            returncode = 0
-
-        return _Result()
-
-    monkeypatch.setattr(k8s, "wait_for_rollout", fake_wait)
-    monkeypatch.setattr(superset, "_running_superset_pod", fake_pod)
-    monkeypatch.setattr(superset.subprocess, "run", fake_run)
-    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "/managed/bin/kubectl")
-    monkeypatch.setenv("KUBE_CONTEXT", "kind-openlakeforge-local")
+    _serve(monkeypatch, fake_superset)
 
     superset.deploy_reports(
         tmp_path,
         "openlakeforge-dev",
-        "trino://superset@trino:8080/iceberg",
+        "trino://olf-dev@trino:8080/lakehouse_dev",
         report_source_dir=None,
         declared_report_dirs=(_REPORT_DIR,),
         work_dir=tmp_path / "work",
-        reports_mount_path=superset.REPORTS_MOUNT_PATH_DEFAULT,
         admin_username="admin",
+        admin_password="secret",
     )
 
-    assert calls[:2] == ["wait", "pod"]
-    assert "exec" in calls
+    (imported,) = fake_superset.imported
+    with ZipFile(io.BytesIO(imported)) as bundle:
+        root = superset.bundle_identity(_REPORT_DIR).root
+        assert yaml.safe_load(bundle.read(f"{root}/metadata.yaml"))["type"] == "assets"
+        database = yaml.safe_load(bundle.read(f"{root}/databases/trino.yaml"))
+    assert database["sqlalchemy_uri"] == "trino://olf-dev@trino:8080/lakehouse_dev"
+
+
+def test_export_report_writes_the_dashboard_back_as_an_assets_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_superset: FakeSuperset
+) -> None:
+    """The dashboard was renamed in DEV; the export still finds it by uuid
+    and replaces the checked-in assets with what Superset returns."""
+    target = _write_report_bundle(tmp_path)
+    export = io.BytesIO()
+    with ZipFile(export, "w") as bundle:
+        bundle.writestr("dashboard_export_20261004T000000/metadata.yaml", "version: 1.0.0\ntype: Dashboard\n")
+        bundle.writestr(
+            "dashboard_export_20261004T000000/dashboards/Renamed_9.yaml",
+            f"dashboard_title: Renamed\nuuid: {_DASHBOARD_UUID}\n",
+        )
+    fake_superset.dashboards[_DASHBOARD_UUID] = 9
+    fake_superset.exports[9] = export.getvalue()
+    _serve(monkeypatch, fake_superset)
+
+    superset.export_report(
+        tmp_path,
+        "openlakeforge-dev",
+        report_source_dir=_REPORT_DIR,
+        bundle_name="demo.zip",
+        work_dir=tmp_path / "work",
+        admin_username="admin",
+        admin_password="secret",
+        dashboard=_DASHBOARD_UUID,
+    )
+
+    assert yaml.safe_load((target / "metadata.yaml").read_text()) == {"version": "1.0.0", "type": "assets"}
+    assert [path.name for path in (target / "dashboards").iterdir()] == ["Renamed_9.yaml"]
+    assert not (target / "charts").exists()
 
 
 @pytest.mark.parametrize(
@@ -320,31 +345,6 @@ def test_unpack_export_bundle_replaces_managed_assets(tmp_path: Path) -> None:
     assert (target / "metadata.yaml").read_text() == "type: assets\n"
     assert (target / "dashboards" / "d.yaml").exists()
     assert not (target / "dashboards" / "stale.yaml").exists()
-
-
-def test_exec_pod_python_resolves_kubectl_through_the_managed_toolchain(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`_exec_pod_python` (and the other kubectl exec/copy call sites in
-    this module) must resolve the executable the same way `k8s._kubectl`
-    does - a bare `["kubectl", ...]` argv would fail on a clean machine
-    with no host kubectl, even though the managed toolchain provisioned
-    one (#127)."""
-    calls: list[list[str]] = []
-
-    def fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-
-        return _Result()
-
-    monkeypatch.setattr(superset.subprocess, "run", fake_run)
-    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "/managed/bin/kubectl")
-    monkeypatch.setenv("KUBE_CONTEXT", "kind-openlakeforge-local")
-
-    superset._exec_pod_python("superset-pod", "lakehouse", "print('hi')", [])
-
-    assert calls[0][0] == "/managed/bin/kubectl"
 
 
 def test_a_stage_without_an_applied_contract_is_refused() -> None:
