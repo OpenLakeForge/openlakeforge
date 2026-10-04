@@ -1167,45 +1167,21 @@ def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
         assert reporting["dashboard_service_name"] == f"superset_{stage.value}"
 
 
-def _ingress_contract() -> dict:
-    """The local fixture with the access.ingress shape on shared.access.
-
-    Hand-assembled with routes; the local root emits this shape with none
-    until #266 adds them.
-    """
+def test_local_access_routes_only_enabled_user_facing_services() -> None:
+    """The captured local contract routes each stage's Dagster and the shared
+    Trino, and nothing internal or disabled (no reporting, no governance)."""
     contract = _fixture("local-provider-contracts-v3.json")
-    contract["shared"]["access"].update(
-        {
-            "implementation": "access.ingress",
-            "base_domain": "olf.localhost",
-            "issuer": "local-ca",
-            "tls_mode": "ingress-terminated",
-            "routes": {
-                "stage/dev/orchestration": {
-                    "url": "https://dagster.dev.olf.localhost",
-                    "enabled": True,
-                    "exposure": "user-facing",
-                },
-                "shared/query": {"url": "https://trino.olf.localhost", "enabled": False, "exposure": "user-facing"},
-                "shared/catalog_service": {
-                    "url": "https://polaris.olf.localhost",
-                    "enabled": True,
-                    "exposure": "internal",
-                },
-            },
-        }
-    )
-    return contract
-
-
-def test_access_ingress_contract_matches_the_schema_and_parses() -> None:
-    contract = _ingress_contract()
 
     jsonschema.validate(contract, SCHEMA)
     parsed = parse_provider_contracts(contract, _topology(contract))
 
-    route = parsed.shared.values["access"]["routes"]["stage/dev/orchestration"]
-    assert route["url"] == "https://dagster.dev.olf.localhost"
+    routes = parsed.shared.values["access"]["routes"]
+    assert {ref: route["url"] for ref, route in routes.items()} == {
+        "shared/query": "https://trino.olf.localhost",
+        "stage/dev/orchestration": "https://dagster.dev.olf.localhost",
+        "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
+    }
+    assert {route["exposure"] for route in routes.values()} == {"user-facing"}
 
 
 def _route(ref: str, url: str) -> dict:
@@ -1249,7 +1225,15 @@ def _route(ref: str, url: str) -> dict:
             "must be https",
         ),
         (
-            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://polaris.olf.localhost"),
+            lambda access: access["routes"].update(
+                {
+                    "shared/catalog_service": {
+                        "url": "https://trino.olf.localhost",
+                        "enabled": True,
+                        "exposure": "internal",
+                    }
+                }
+            ),
             "already routed",
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("exposure", "public"), "exposure must be"),
@@ -1268,7 +1252,15 @@ def _route(ref: str, url: str) -> dict:
             "must be https",
         ),
         (
-            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://POLARIS.olf.localhost"),
+            lambda access: access["routes"].update(
+                {
+                    "shared/catalog_service": {
+                        "url": "https://TRINO.olf.localhost",
+                        "enabled": True,
+                        "exposure": "internal",
+                    }
+                }
+            ),
             "already routed",
         ),
         # A stage route carries its own stage label; a shared route carries none.
@@ -1279,7 +1271,9 @@ def _route(ref: str, url: str) -> dict:
             "must be https",
         ),
         (
-            lambda access: access["routes"]["stage/dev/orchestration"].__setitem__("url", "https://dagster.olf.localhost"),
+            lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
+                "url", "https://dagster.olf.localhost"
+            ),
             "must be https",
         ),
         (
@@ -1306,7 +1300,7 @@ def _route(ref: str, url: str) -> dict:
     ],
 )
 def test_access_ingress_contract_fails_closed(mutate, match: str) -> None:
-    contract = _ingress_contract()
+    contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
     mutate(contract["shared"]["access"])
 
