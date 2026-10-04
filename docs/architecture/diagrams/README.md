@@ -30,12 +30,14 @@ complement the product chart in
 > Purple splits three ways by **what creates the Job**, which is also how chart 1 groups
 > them. *Per pipeline run*: Dagster's `K8sRunLauncher` creates the run pod, which creates
 > one Floe runner per entity — both TTL-collected within the hour, so the pipeline scales
-> to zero between runs. *Bootstrap*: four Terraform `kubernetes_job_v1` resource blocks
-> plus two Helm hooks (Superset's init, cert-manager's startup API check) — the SeaweedFS
-> block uses `for_each` over four bucket names, so it alone creates four Jobs, for nine
-> Jobs total, one shot per platform apply; the Helm hooks are deleted on success and the
-> rest persist until the next apply. *Scheduled*:
-> two `kubernetes_cron_job_v1`
+> to zero between runs. *Bootstrap*: for one full stage, six Terraform
+> `kubernetes_job_v1` resource blocks (two Polaris, two OpenMetadata, PostgreSQL,
+> SeaweedFS) plus two Helm hooks (Superset's init, cert-manager's startup API check) —
+> the SeaweedFS block uses `for_each` over four bucket names, so it alone creates four
+> Jobs, for eleven Jobs total. Terraform's Jobs and Superset's hook run per platform
+> apply; cert-manager's hook is `post-install` only, so it runs on the first apply. The
+> Helm hooks are deleted on success and the rest persist until the next apply.
+> *Scheduled*: two `kubernetes_cron_job_v1`
 > resources on the cluster clock (log-archive every 15 min keeping 1 succeeded / 3 failed,
 > OM catalog refresh hourly keeping 3 / 3), plus OpenMetadata's ingestion pipelines, which
 > its own scheduler creates — not Terraform, and not Dagster.
@@ -51,22 +53,26 @@ Nineteen pods run at steady state: Dagster runs three (webserver, daemon, and th
 `openlakeforge-dagster` code server loading `lakehouse_code.definitions`), SeaweedFS runs four
 (three StatefulSets and an S3-gateway Deployment), Superset runs three, OpenMetadata
 runs two, and PostgreSQL, Polaris, and Trino run one each. Trino is deliberately
-coordinator-only. The ingress adds four single-replica Deployments in `olf-system`:
-Traefik plus the cert-manager controller, cainjector, and webhook. Both are installed;
-the per-service routes through them are still pending (#266).
+coordinator-only. The ingress adds four single-replica Deployments in
+`olf-system`: Traefik plus the cert-manager controller, cainjector, and webhook.
+Both are installed; the per-service routes through them are still pending (#266).
 
 The purple band underneath is everything that is *not* in that 19, split by what creates
 it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: six grouped
-categories — Polaris, SeaweedFS (one Job per bucket, four buckets), PostgreSQL,
-OpenMetadata, Superset's Helm hook, and cert-manager's startup API check hook — nine
-one-shot Jobs in total, firing once per the platform apply (phase 2). **Scheduled**: the two CronJobs on the cluster clock
-(log archive every 15 minutes, OpenMetadata catalog refresh hourly).
+categories — Polaris (metastore bootstrap and principal bootstrap), SeaweedFS (one Job
+per bucket, four buckets), PostgreSQL, OpenMetadata (bootstrap and credential
+replication to the governed stage), Superset's Helm hook, and cert-manager's startup
+API check hook — eleven one-shot Jobs for one full stage, firing once per platform
+apply (phase 2), except cert-manager's check, which runs only on first install.
+**Scheduled**: the two CronJobs on the cluster clock (log archive every 15 minutes,
+OpenMetadata catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
-<sub>`infra/helm/values/local/*.yaml` · orchestration/dagster + storage/postgresql + governance/openmetadata + access/{traefik,cert-manager} Terraform modules</sub>
+<sub>`infra/helm/values/local/*.yaml` · orchestration/dagster + storage/postgresql +
+governance/openmetadata + access/{traefik,cert-manager} Terraform modules</sub>
 
 ## Chart 2 — Namespace Runtime Topology
 
