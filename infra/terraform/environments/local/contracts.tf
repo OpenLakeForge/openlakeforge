@@ -342,6 +342,49 @@ locals {
     future_adapter_shapes = ["identity.oidc", "identity.aws_iam_pod_identity"]
   }
 
+  # ADR 0013: user-facing services only, keyed by contract ref. A stage route
+  # carries its stage label, a shared one none. Disabled capabilities are
+  # absent because their module instances are; storage admin, databases and
+  # code servers are never listed.
+  access_routes = merge(
+    {
+      for name in keys(local.enabled_stages) : "stage/${name}/orchestration" => {
+        host         = "dagster.${name}.${var.access_base_domain}"
+        tls_host     = "*.${name}.${var.access_base_domain}"
+        namespace    = module.dagster[name].namespace
+        service_name = module.dagster[name].webserver_service_name
+        service_port = module.dagster[name].webserver_port
+      }
+    },
+    {
+      for name in keys(local.analytics_stages) : "stage/${name}/reporting" => {
+        host         = "superset.${name}.${var.access_base_domain}"
+        tls_host     = "*.${name}.${var.access_base_domain}"
+        namespace    = module.superset[name].namespace
+        service_name = module.superset[name].service_name
+        service_port = module.superset[name].http_port
+      }
+    },
+    {
+      "shared/query" = {
+        host         = "trino.${var.access_base_domain}"
+        tls_host     = "*.${var.access_base_domain}"
+        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+        service_name = module.trino.service_name
+        service_port = module.trino.http_port
+      }
+    },
+    local.governance_enabled ? {
+      "shared/governance_service" = {
+        host         = "openmetadata.${var.access_base_domain}"
+        tls_host     = "*.${var.access_base_domain}"
+        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+        service_name = module.openmetadata[0].contract.service_name
+        service_port = module.openmetadata[0].contract.http_port
+      }
+    } : {},
+  )
+
   access_contract = {
     provider             = local.local_provider_name
     implementation       = "access.ingress"
@@ -352,8 +395,9 @@ locals {
     issuer               = var.access_issuer
     tls_mode             = "ingress-terminated"
     internal_access_mode = "cluster-dns"
-    # Service routes arrive with #266; until then users still port-forward.
-    routes     = {}
+    routes = {
+      for ref, route in local.access_routes : ref => { url = "https://${route.host}", enabled = true, exposure = "user-facing" }
+    }
     local_only = true
   }
 

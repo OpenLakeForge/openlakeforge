@@ -6,6 +6,11 @@ image:
 server:
   workers: 0
 
+# Traefik terminates TLS for https://trino.<base_domain> and adds X-Forwarded-*
+# headers, which Trino rejects unless told to process them.
+additionalConfigProperties:
+  - http-server.process-forwarded=true
+
 coordinator:
   deployment:
     # Kind shares the Docker VM with provider image builds. Avoid running two

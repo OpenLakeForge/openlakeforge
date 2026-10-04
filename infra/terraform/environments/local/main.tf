@@ -228,9 +228,11 @@ module "cert_manager" {
 module "traefik" {
   source = "../../modules/access/traefik"
 
-  namespace          = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file   = "${path.root}/../../../helm/values/local/traefik.yaml"
-  chart_package_path = var.traefik_chart_package_path
+  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file    = "${path.root}/../../../helm/values/local/traefik.yaml"
+  chart_package_path  = var.traefik_chart_package_path
+  routes              = local.access_routes
+  cluster_issuer_name = module.cert_manager.cluster_issuer_name
 }
 
 module "polaris" {

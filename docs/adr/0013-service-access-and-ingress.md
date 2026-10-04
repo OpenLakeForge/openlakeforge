@@ -3,7 +3,8 @@
 ## Status
 
 Binding. The local root runs the ingress adapter and emits `access.ingress`
-with no routes yet (#266 adds them); the AWS and Azure roots still emit
+with routes for Dagster and Superset per stage, Trino, and OpenMetadata when
+governance is enabled; the AWS and Azure roots still emit
 `access.kubectl_port_forward`.
 
 ## Context
@@ -45,7 +46,12 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
    self-signed once and never rotated by a re-deploy; `olf deploy` waits for
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
-   the only value the contract accepts.
+   the only value the contract accepts. Each namespace gets one standard
+   `Ingress` holding its routes and one wildcard certificate
+   (`*.<stage>.<base_domain>`, or `*.<base_domain>` for shared services),
+   issued by cert-manager's ingress-shim. A standard `Ingress` needs no CRD
+   at plan time, and #176 attaches auth middleware to it by annotation
+   without changing hosts.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
@@ -73,3 +79,4 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
 New record (#264). No prior ADR covered service access. #265 added the local
 Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.
+#266 added the local routes and wildcard certificates.

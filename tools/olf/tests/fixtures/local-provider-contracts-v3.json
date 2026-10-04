@@ -11,7 +11,11 @@
     "ops_storage": {"ref": "shared/ops_storage", "implementation": "artifacts.local_kind_and_s3", "bucket_name": "openlakeforge-ops", "artifact_base_uri": "s3://openlakeforge-ops", "access_mode": "remote", "local_upload_access_mode": "kubectl-port-forward"},
     "secrets": {"ref": "shared/secrets", "implementation": "secrets.kubernetes_secret"},
     "identity": {"ref": "shared/identity", "implementation": "identity.local_development_credentials"},
-    "access": {"ref": "shared/access", "implementation": "access.kubectl_port_forward"},
+    "access": {"ref": "shared/access", "implementation": "access.ingress", "base_domain": "olf.localhost", "issuer": "local-ca", "tls_mode": "ingress-terminated", "routes": {
+      "shared/query": {"url": "https://trino.olf.localhost", "enabled": true, "exposure": "user-facing"},
+      "stage/dev/orchestration": {"url": "https://dagster.dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
+      "stage/prod/orchestration": {"url": "https://dagster.prod.olf.localhost", "enabled": true, "exposure": "user-facing"}
+    }},
     "observability": {"ref": "shared/observability", "implementation": "observability.object_log_archive"}
   },
   "stages": {

@@ -31,3 +31,19 @@ variable "base_values_file" {
   description = "Path to the non-secret base Helm values file."
   type        = string
 }
+
+variable "routes" {
+  description = "User-facing routes keyed by contract ref: the host, the wildcard tls_host covering it, and the backend Service in its namespace."
+  type = map(object({
+    host         = string
+    tls_host     = string
+    namespace    = string
+    service_name = string
+    service_port = number
+  }))
+}
+
+variable "cluster_issuer_name" {
+  description = "cert-manager ClusterIssuer that signs each namespace's wildcard route certificate."
+  type        = string
+}
