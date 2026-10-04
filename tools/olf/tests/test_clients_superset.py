@@ -1,59 +1,68 @@
-import pytest
+from pathlib import Path
 
+import pytest
+from conftest import FakeSuperset
+
+from olf.clients.base import ServiceClientError
 from olf.clients.superset import SupersetClient
 
-
-class _FakeResponse:
-    def __init__(self, json_body: dict, status_code: int = 200) -> None:
-        self._json_body = json_body
-        self.status_code = status_code
-
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
-
-    def json(self) -> dict:
-        return self._json_body
+DASHBOARD_UUID = "6f1c1d3e-8f0a-4c1e-9a77-2a8a3c3b5f10"
 
 
-def test_dashboards_logs_in_then_lists(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict] = []
-
-    def fake_post(url, json=None, headers=None, timeout=None):
-        calls.append({"url": url, "json": json, "headers": headers})
-        return _FakeResponse({"access_token": "tok-123"})
-
-    def fake_get(url, params=None, headers=None, timeout=None):
-        calls.append({"url": url, "params": params, "headers": headers})
-        return _FakeResponse({"result": [{"slug": "a", "dashboard_title": "A"}]})
-
-    monkeypatch.setattr("requests.post", fake_post)
-    monkeypatch.setattr("requests.get", fake_get)
-
-    client = SupersetClient("http://superset:8088")
-    dashboards = client.dashboards()
-
-    assert dashboards == [{"slug": "a", "dashboard_title": "A"}]
-    assert calls[0]["url"] == "http://superset:8088/api/v1/security/login"
-    assert calls[0]["json"] == {"username": "admin", "password": "admin", "provider": "db", "refresh": True}
-    assert calls[1]["url"] == "http://superset:8088/api/v1/dashboard/"
-    assert calls[1]["headers"]["Authorization"] == "Bearer tok-123"
+def _client(server: FakeSuperset) -> SupersetClient:
+    return SupersetClient(server.url, username="admin", password="secret")
 
 
-def test_login_retries_until_it_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    attempts = {"n": 0}
+def test_dashboards_logs_in_then_lists(fake_superset: FakeSuperset) -> None:
+    fake_superset.dashboards["orders"] = 7
 
-    def fake_post(url, json=None, headers=None, timeout=None):
-        attempts["n"] += 1
-        if attempts["n"] < 3:
-            return _FakeResponse({}, status_code=500)
-        return _FakeResponse({"access_token": "tok-456"})
+    assert _client(fake_superset).dashboards() == [{"id": 7, "slug": "orders"}]
 
-    monkeypatch.setattr("requests.post", fake_post)
+
+def test_login_waits_out_a_superset_that_is_still_starting(
+    fake_superset: FakeSuperset, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    fake_superset.login_failures = 2
 
-    client = SupersetClient("http://superset:8088")
-    token = client._login()
+    client = _client(fake_superset)
+    client.login()
 
-    assert token == "tok-456"
-    assert attempts["n"] == 3
+    assert client.token == "fake-token"
+    assert fake_superset.login_attempts == 3
+
+
+def test_login_does_not_retry_rejected_credentials(fake_superset: FakeSuperset) -> None:
+    with pytest.raises(ServiceClientError, match="HTTP 401"):
+        SupersetClient(fake_superset.url, username="admin", password="wrong").login()
+
+    assert fake_superset.login_attempts == 1
+
+
+@pytest.mark.parametrize("dashboard", [DASHBOARD_UUID, "orders"])
+def test_export_dashboard_selects_by_uuid_or_slug(fake_superset: FakeSuperset, dashboard: str) -> None:
+    fake_superset.dashboards.update({DASHBOARD_UUID: 3, "orders": 3})
+    fake_superset.exports[3] = b"PK-zip-bytes"
+    client = _client(fake_superset)
+    client.login()
+
+    assert client.export_dashboard(dashboard) == b"PK-zip-bytes"
+
+
+def test_export_dashboard_reports_an_unknown_dashboard(fake_superset: FakeSuperset) -> None:
+    client = _client(fake_superset)
+    client.login()
+
+    with pytest.raises(ServiceClientError, match="HTTP 404"):
+        client.export_dashboard("renamed-away")
+
+
+def test_import_assets_uploads_the_bundle_with_the_csrf_token(fake_superset: FakeSuperset, tmp_path: Path) -> None:
+    bundle = tmp_path / "orders_superset_bundle.zip"
+    bundle.write_bytes(b"PK-bundle-bytes")
+    client = _client(fake_superset)
+    client.login()
+
+    client.import_assets(bundle)
+
+    assert fake_superset.imported == [b"PK-bundle-bytes"]

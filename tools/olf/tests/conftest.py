@@ -7,7 +7,14 @@ live here once rather than duplicated per file.
 
 from __future__ import annotations
 
+import email.policy
+import json
 import shutil
+import threading
+import urllib.parse
+from collections.abc import Iterator
+from email.parser import BytesParser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -162,3 +169,105 @@ def write_dashboard_fixture(repo_root: Path, report_source_dir: str, file_name: 
     dashboards_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
     (dashboards_dir / file_name).write_text(f"dashboard_title: {title}\nslug: {slug}\n", encoding="utf-8")
+
+
+class FakeSuperset(ThreadingHTTPServer):
+    """A Superset stand-in serving the REST endpoints olf uses, with their auth rules.
+
+    Login takes `admin`/`secret`. Every other endpoint needs the bearer token,
+    and the import additionally needs the CSRF token in `X-CSRFToken` plus the
+    session cookie `csrf_token/` set, as Flask-WTF enforces.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _FakeSupersetHandler)
+        self.url = f"http://127.0.0.1:{self.server_address[1]}"
+        self.login_failures = 0
+        self.login_attempts = 0
+        self.dashboards: dict[str, int] = {}  # uuid or slug -> id
+        self.exports: dict[int, bytes] = {}  # id -> export zip
+        self.imported: list[bytes] = []
+
+
+class _FakeSupersetHandler(BaseHTTPRequestHandler):
+    server: FakeSuperset
+
+    def log_message(self, *_args: object) -> None:
+        pass
+
+    def _reply(self, status: int, body: object, headers: dict[str, str] | None = None) -> None:
+        payload = body if isinstance(body, bytes) else json.dumps(body).encode()
+        self.send_response(status)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _authorized(self) -> bool:
+        return self.headers.get("Authorization") == "Bearer fake-token"
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/api/v1/security/login":
+            self.server.login_attempts += 1
+            if self.server.login_failures:
+                self.server.login_failures -= 1
+                return self._reply(503, {"message": "starting"})
+            credentials = json.loads(body)
+            if (credentials["username"], credentials["password"]) != ("admin", "secret"):
+                return self._reply(401, {"message": "Not authorized"})
+            return self._reply(200, {"access_token": "fake-token"})
+        if self.path == "/api/v1/assets/import/":
+            if not self._authorized():
+                return self._reply(401, {"msg": "Missing Authorization Header"})
+            if self.headers.get("X-CSRFToken") != "csrf-1" or "session=csrf-session" not in self.headers.get(
+                "Cookie", ""
+            ):
+                return self._reply(400, {"errors": "The CSRF token is missing."})
+            message = BytesParser(policy=email.policy.default).parsebytes(
+                f"Content-Type: {self.headers['Content-Type']}\r\n\r\n".encode() + body
+            )
+            bundles = [
+                part
+                for part in message.iter_parts()
+                if part.get_param("name", header="content-disposition") == "bundle"
+            ]
+            if not bundles:
+                return self._reply(400, {"message": "Request is not valid"})
+            self.server.imported.append(bundles[0].get_payload(decode=True))
+            return self._reply(200, {"message": "OK"})
+        self._reply(404, {"message": "Not found"})
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        url = urllib.parse.urlsplit(self.path)
+        if not self._authorized():
+            return self._reply(401, {"msg": "Missing Authorization Header"})
+        if url.path == "/api/v1/security/csrf_token/":
+            return self._reply(200, {"result": "csrf-1"}, {"Set-Cookie": "session=csrf-session; Path=/"})
+        if url.path == "/api/v1/dashboard/export/":
+            (query,) = urllib.parse.parse_qs(url.query)["q"]
+            dashboard_id = int(query.removeprefix("!(").removesuffix(")"))
+            if dashboard_id not in self.server.exports:
+                return self._reply(404, {"message": "Not found"})
+            return self._reply(200, self.server.exports[dashboard_id], {"Content-Type": "application/zip"})
+        if url.path == "/api/v1/dashboard/":
+            return self._reply(200, {"result": [{"id": i, "slug": ref} for ref, i in self.server.dashboards.items()]})
+        if url.path.startswith("/api/v1/dashboard/"):
+            ref = urllib.parse.unquote(url.path.removeprefix("/api/v1/dashboard/"))
+            if ref not in self.server.dashboards:
+                return self._reply(404, {"message": "Not found"})
+            return self._reply(200, {"id": self.server.dashboards[ref], "result": {"id": self.server.dashboards[ref]}})
+        self._reply(404, {"message": "Not found"})
+
+
+@pytest.fixture
+def fake_superset() -> Iterator[FakeSuperset]:
+    server = FakeSuperset()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
