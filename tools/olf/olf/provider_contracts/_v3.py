@@ -546,7 +546,7 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
     physical_storage: set[str] = set()
     storage_bucket_names: set[str] = set()
     storage_uris: set[str] = set()
-    catalog_ids: set[str] = set()
+    catalog_ids: set[tuple[str, str]] = set()
     principals: set[str] = set()
     stage_endpoint_values: set[str] = set()
     namespaces: set[str] = set()
