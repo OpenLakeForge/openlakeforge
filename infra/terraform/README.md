@@ -78,7 +78,7 @@ owns:
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
 - Dagster webserver, daemon, domain product code servers, and Kubernetes run launcher
-- Superset webserver, worker, ephemeral report staging volume, and local report deploy path
+- Superset webserver and worker
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 - SeaweedFS S3, Filer, and Master services for local object storage and inspection
 
