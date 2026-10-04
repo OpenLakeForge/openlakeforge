@@ -1302,6 +1302,7 @@ def _route(ref: str, url: str) -> dict:
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("enabled", "yes"), "enabled must be"),
         (lambda access: access.__setitem__("tls_mode", "passthrough"), "tls_mode must be one of"),
+        (lambda access: access.__setitem__("tls_mode", ["ingress-terminated"]), "tls_mode"),
     ],
 )
 def test_access_ingress_contract_fails_closed(mutate, match: str) -> None:

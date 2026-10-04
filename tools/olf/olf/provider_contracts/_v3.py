@@ -69,7 +69,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         )
     if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
         raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
-    if access["tls_mode"] not in _TLS_MODES:
+    if _string(access["tls_mode"], where="shared.access.tls_mode") not in _TLS_MODES:
         raise ProviderContractError(f"shared.access.tls_mode must be one of {sorted(_TLS_MODES)!r}")
     hosts: set[str] = set()
     for ref, route in _mapping(access["routes"], where="shared.access.routes").items():
