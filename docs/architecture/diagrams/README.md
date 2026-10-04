@@ -216,8 +216,9 @@ different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-gl
 `catalog_type` is the one field consumers branch on: `rest` selects the Polaris runtime
 profile, `glue` the native Glue profile. Naming stays stable across Glue's two-level
 model, so SQL and dbt models are unchanged. Not implemented (declared future adapters):
-Keycloak, Vault/External Secrets, Traefik + cert-manager, Athena, Lake Formation, remote
-Terraform state. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
+Keycloak, Vault/External Secrets, Athena, Lake Formation, remote Terraform state.
+Traefik + cert-manager run on the local profile only (ADR 0013); AWS and Azure
+still use port-forward. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
 [ADR 0007](../../adr/0007-governance-and-lineage.md) covers the full history:
