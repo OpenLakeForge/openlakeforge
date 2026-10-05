@@ -428,6 +428,8 @@ jobs:
         with:
           name: local-e2e-evidence-${{ github.run_id }}
           path: ${{ env.PROJECT_DIR }}/.tmp/e2e-evidence
+          # Every evidence file sits under the hidden .tmp directory.
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
 

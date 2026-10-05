@@ -40,9 +40,11 @@ def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
         ["rollout", "status", TRAEFIK_DEPLOYMENT, "-n", cfg.platform_namespace, f"--timeout={DRILL_TIMEOUT_SECONDS}s"],
     )
     with _route(cfg) as url:
-        if not k8s.http_wait(url, attempts=DRILL_TIMEOUT_SECONDS // 2, delay=2):
-            raise E2EError(f"{url} did not answer after Traefik restarted.")
-    _retain(cfg, "traefik-restart", {"route": url, "recovered_after_seconds": round(time.monotonic() - started, 1)})
+        recovered = k8s.http_wait(url, attempts=DRILL_TIMEOUT_SECONDS // 2, delay=2)
+    elapsed = round(time.monotonic() - started, 1)
+    _retain(cfg, "traefik-restart", {"route": url, "recovered": recovered, "elapsed_seconds": elapsed})
+    if not recovered:
+        raise E2EError(f"{url} did not answer within {elapsed}s of Traefik restarting.")
 
 
 def check_certificate_renewal(cfg: E2EConfig) -> None:
@@ -65,11 +67,19 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
             "message": "olf e2e certificate renewal drill",
             "lastTransitionTime": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
+        # Conditions are keyed by type, so a left-over Issuing (say, False
+        # after a failed issuance) is replaced rather than duplicated.
+        current = kubectl(
+            cfg,
+            ["get", "certificate", ROUTES_CERTIFICATE, "-n", cfg.namespace, "-o", "jsonpath={.status.conditions}"],
+            capture=True,
+        )
+        conditions = [c for c in json.loads(current or "[]") if c.get("type") != "Issuing"] + [issuing]
         kubectl(
             cfg,
             [
                 "patch", "certificate", ROUTES_CERTIFICATE, "-n", cfg.namespace, "--subresource=status",
-                "--type=json", "-p", json.dumps([{"op": "add", "path": "/status/conditions/-", "value": issuing}]),
+                "--type=json", "-p", json.dumps([{"op": "add", "path": "/status/conditions", "value": conditions}]),
             ],
         )
         serial, handshakes, failures = before, 0, []
