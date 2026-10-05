@@ -79,7 +79,8 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
 - Mapping 80/443 changed the kind cluster shape: an existing local cluster
   must be recreated (`olf destroy` then `olf deploy`), and those host ports
-  must be free.
+  must be free; `olf deploy` checks both ports and the issuer before it
+  creates the cluster.
 
 ## History
 
@@ -87,4 +88,5 @@ New record (#264). No prior ADR covered service access. #265 added the local
 Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.
 #266 added the local routes and wildcard certificates. #267 moved `olf`'s
 clients onto the routes, added `olf access trust`, and lists the URLs in
-`olf status`.
+`olf status`. #268 added the deploy preflight, the not-Ready Certificate
+section in `olf status`, and the e2e Traefik restart and renewal drills.

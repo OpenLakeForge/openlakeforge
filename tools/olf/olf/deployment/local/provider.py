@@ -153,6 +153,7 @@ class LocalProvider:
             kubeconfig=self.config.paths.kubeconfig_path,
             env=self.env,
             urls=urls,
+            certificates=True,
         )
 
     def _contract_dir(self) -> Path:

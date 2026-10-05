@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+import socket
 from pathlib import Path
 
 import pytest
@@ -10,10 +12,20 @@ from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local import foundation
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.profile import AccessSpec
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
+_REAL_LISTENING = foundation._listening
+
+
+@pytest.fixture(autouse=True)
+def _host_ports_free(monkeypatch: pytest.MonkeyPatch) -> set[int]:
+    """Host ports 80/443 as these tests see them, independent of what this machine runs."""
+    busy: set[int] = set()
+    monkeypatch.setattr(foundation, "_listening", lambda port: port in busy)
+    return busy
 
 
 def _config(tmp_path: Path) -> LocalDeploymentConfig:
@@ -305,3 +317,51 @@ def test_foundation_down_force_skips_namespace_discovery_entirely(tmp_path: Path
     foundation.foundation_down(config, tools, env={}, force=True)
 
     assert any(c.argv[2:3] == ["destroy"] for c in runner.calls if c.argv[0] == "terraform")
+
+
+def test_foundation_up_rejects_an_issuer_the_local_provider_does_not_ship(tmp_path: Path) -> None:
+    default = DeploymentContext.local(repo_root=tmp_path).topology
+    context = DeploymentContext.local(
+        repo_root=tmp_path, topology=dataclasses.replace(default, access=AccessSpec(issuer="letsencrypt"))
+    )
+    config = LocalDeploymentConfig.from_environment({}, context=context)
+    runner = RecordingRunner(_ok())
+
+    with pytest.raises(DeploymentPreconditionError, match="ships only the 'local-ca' issuer"):
+        foundation.foundation_up(config, _toolkit_with_runner(runner), env={})
+
+    assert not any(c.argv[0] == "terraform" for c in runner.calls)
+
+
+def test_foundation_up_names_a_taken_ingress_port_before_kind_runs(tmp_path: Path, _host_ports_free: set[int]) -> None:
+    _host_ports_free.add(443)
+    runner = _ScriptedRunner(rules=[(lambda argv: argv[:2] == ["kind", "get"], _ok("other-cluster\n"))], default=_ok())
+
+    with pytest.raises(DeploymentPreconditionError, match=r"127\.0\.0\.1:443 already in use"):
+        foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
+
+    assert not any(c.argv[0] == "terraform" for c in runner.calls)
+
+
+def test_foundation_up_accepts_ports_held_by_its_own_cluster(tmp_path: Path, _host_ports_free: set[int]) -> None:
+    _host_ports_free.update({80, 443})
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: argv[:2] == ["kind", "get"], _ok("openlakeforge-local\n")),
+            (lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n")),
+        ],
+        default=_ok(),
+    )
+
+    foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
+
+    assert any(c.argv[2:3] == ["apply"] for c in runner.calls if c.argv[0] == "terraform")
+
+
+def test_listening_detects_a_bound_loopback_port() -> None:
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+        assert _REAL_LISTENING(port)
+    assert not _REAL_LISTENING(port)

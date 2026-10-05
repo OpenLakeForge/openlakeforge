@@ -215,6 +215,19 @@ olf status --provider local          # a "URLs" section, keyed by contract ref
 olf status --provider local --json   # {"urls": {...}, "sections": {...}}
 ```
 
+Its "Certificates not Ready" section names every cert-manager Certificate
+whose `Ready` condition is not `True`, with that condition's reason and
+message; `none` means every route certificate is issued and current.
+
+`olf deploy` checks the ingress's needs before it creates the kind cluster:
+`spec.access.issuer` must be `local-ca`, the only issuer the local provider
+ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
+
+The full local e2e suite restarts Traefik and forces a renewal of the
+stage's route certificate, then requires the route to answer again and the
+served certificate's serial to change with no failed TLS handshake. Each
+drill writes its observations to `.tmp/e2e-evidence/` in the project.
+
 v0.4 is private evaluation infrastructure: these URLs carry no
 authentication of their own. Authentication arrives in v0.5
 ([#176](https://github.com/OpenLakeForge/openlakeforge/issues/176)); do not

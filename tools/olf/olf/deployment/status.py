@@ -6,6 +6,7 @@ provider-neutral so #125 can reuse it verbatim for AWS/Azure.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +52,7 @@ def collect_status(
     env: Mapping[str, str] | None = None,
     resources: Sequence[tuple[str, str]] = DEFAULT_RESOURCES,
     urls: Mapping[str, str] | None = None,
+    certificates: bool = False,
 ) -> StatusReport:
     """Report one section per resource kind and namespace.
 
@@ -73,4 +75,45 @@ def collect_status(
                 raise DeploymentPreconditionError(f"failed to query {title} in namespace '{namespace}': {detail}")
             output = result.stdout.strip() or result.stderr.strip()
             sections.append(StatusSection(title=f"{title} ({namespace})", output=output))
+    if certificates:
+        sections.append(_certificate_section(kubectl, namespaces, context=context, kubeconfig=kubeconfig, env=env))
     return StatusReport(sections=tuple(sections), urls=urls or {})
+
+
+def _certificate_section(
+    kubectl: Kubectl,
+    namespaces: Sequence[str],
+    *,
+    context: str,
+    kubeconfig: Path,
+    env: Mapping[str, str] | None,
+) -> StatusSection:
+    """cert-manager Certificates that are not Ready, with their Ready condition's reason (#268).
+
+    A failed renewal keeps the old certificate served until it expires, so
+    nothing else in the report would show it.
+    """
+    title = "Certificates not Ready"
+    result = kubectl.get(
+        "certificates.cert-manager.io",
+        output="json",
+        extra_args=("--all-namespaces",),
+        context=context,
+        kubeconfig=kubeconfig,
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        # A foundation-only cluster has no cert-manager CRDs yet.
+        return StatusSection(title=title, output=f"unavailable: {result.stderr.strip()}")
+    problems = []
+    for certificate in json.loads(result.stdout)["items"]:
+        metadata = certificate["metadata"]
+        if metadata["namespace"] not in namespaces:
+            continue
+        conditions = certificate.get("status", {}).get("conditions", [])
+        ready: dict[str, str] = next((condition for condition in conditions if condition["type"] == "Ready"), {})
+        if ready.get("status") != "True":
+            reason = ready.get("reason", "NoReadyCondition")
+            problems.append(f"{metadata['namespace']}/{metadata['name']}: {reason}: {ready.get('message', '')}")
+    return StatusSection(title=title, output="\n".join(problems) or "none")
