@@ -14,6 +14,111 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.4.0-alpha.1] - 2026-10-05
+
+The secure service access release (Milestone 4), local and on-premises
+only. Enabled user-facing services are reached at stable HTTPS URLs through
+one ingress with a local certificate authority, without port-forwarding. A
+real installation sets its own base domain. Authentication arrives in
+v0.5-alpha: v0.4 is private evaluation infrastructure, not a shared
+production release. The AWS secure reference moved to v0.6-beta.
+
+### Added
+
+- The `access.ingress` provider contract: `shared.access` carries the base
+  domain, the certificate issuer, the TLS mode and one route per enabled
+  user-facing service. Internal endpoints and disabled capabilities cannot be
+  routed, and each route is bound to its own stage label (#264, #308,
+  ADR 0013). The Deployment Profile gains `spec.access.base_domain` (default
+  `olf.localhost`) and `spec.access.issuer` (default `local-ca`).
+- The local ingress adapter: Traefik and cert-manager in `olf-system`, a
+  stable `local-ca` ClusterIssuer that survives re-deploys, and kind host
+  ports 80/443 on `127.0.0.1`. `olf deploy` waits for a probe certificate, so
+  a broken CA fails the deploy (#265, #310).
+- Stage routes: `https://dagster.<stage>.<base_domain>` and
+  `https://superset.<stage>.<base_domain>` per stage,
+  `https://trino.<base_domain>`, and `https://openmetadata.<base_domain>`
+  when governance is enabled, with one wildcard certificate per stage
+  (#266, #314).
+- `olf access trust` exports the local CA and prints the trust steps for
+  Linux, macOS and the Windows store under WSL2. `olf status` lists the
+  resolved URLs and any certificate that is not Ready. olf's own clients
+  reach services through the ingress with the local CA and pinned loopback
+  resolution: no `/etc/hosts` edits, no disabled verification (#267, #318,
+  #268, #322).
+- Ingress preflight: a local deploy stops before Terraform runs if the
+  issuer is unsupported or `127.0.0.1:80/443` is taken. The full local e2e
+  adds a Traefik restart drill and a certificate renewal drill, and the
+  nightly uploads their evidence (#268, #322).
+- `olf report export` / `olf report import`, next to `olf report validate`:
+  dashboards are exported by uuid or slug, so renaming one no longer breaks
+  re-export, and import/export go through the Superset REST API instead of
+  `kubectl exec` (#281, #282, #303, #315).
+
+### Changed
+
+- Terraform toolchain 1.8.5 → 1.16.4; roots require `>= 1.10.0` (#269, #296).
+- mypy now checks every module of `tools/olf`; the exemption baseline is gone
+  (#189, #286–#291, #301–#311, #321).
+- `provider_contracts`, `commands/checks`, `auth` and `contracts_check` are
+  split into packages along their existing boundaries, with no behaviour
+  change (#191, #293, #294, #302, #305).
+- The roadmap document is removed: GitHub milestones are the plan, and the
+  lifecycle stages moved to `docs/release/releasing.md` (#292).
+- Dependencies: pyjwt 2.15.0 (#261), urllib3 2.8.0 (#260).
+
+### Fixed
+
+- `olf project deploy` can pull revision images from private registries:
+  digest-pinned images are now resolvable inside kind nodes (#280, #300).
+- OpenMetadata's first catalog crawl waits for Trino on a fresh apply
+  (#277, #297).
+- `olf e2e run` works from the exported contract file without platform
+  Terraform state, and reads Dagster code locations for the stage under test
+  (#278, #295).
+- `olf platform contract` and the project commands exit with a clean message
+  instead of a traceback on contract and toolchain errors (#279, #299).
+- The doctor commands no longer provision a managed toolchain behind the
+  host-mode setting, which made `test_cloud_provider` flaky (#233, #298).
+- The nightly uploads the rendered provider contract even when it differs
+  from the conformance fixture, and the fixture now matches the ingress
+  contract (#341).
+
+### Migration notes
+
+- Recreate the local cluster: the new port mappings apply only to a new kind
+  cluster. Run `olf destroy --provider local`, then `olf deploy`. Host ports
+  80 and 443 on `127.0.0.1` must be free.
+- After the first apply with Terraform 1.16.4, local state can no longer be
+  read by Terraform 1.8.5.
+- `olf superset deploy-reports` and `olf superset export-reports` are
+  deprecated aliases of `olf report import` and `olf report export`.
+  `SUPERSET_DASHBOARD_TITLE` now fails with a pointer to
+  `SUPERSET_DASHBOARD=<uuid or slug>`, which a draft bundle's first export
+  requires. `SUPERSET_REPORTS_MOUNT_PATH` is gone, and report import/export
+  read `SUPERSET_ADMIN_PASSWORD` (default `admin`, matching the Terraform
+  default).
+- Removed: the Terraform outputs `dagster_webserver_service_names`,
+  `dagster_code_location_name` and `dagster_code_location_names` (#313,
+  #316), the Superset `superset-reports` volume, and `reports_mount_path`
+  from the analytics contract (#319, #320).
+- Port-forwarding is a development fallback: set `OLF_PORT_FORWARD=1`.
+- After `olf access trust`, trust the exported CA once in your browser's
+  store. Under WSL2 that is the Windows store.
+
+### Known limitations
+
+- No authentication or authorization: anyone who can reach the ingress can
+  use Dagster, Superset and Trino. Keep v0.4 on loopback or a private
+  network. Login arrives in v0.5-alpha (#176).
+- Local and on-premises only. AWS and Azure keep port-forward access; the
+  AWS secure reference is v0.6-beta (#274). Only the `local-ca` issuer is
+  supported, so there are no public or ACME certificates yet.
+- Plain HTTP on port 80 returns 404 rather than redirecting to HTTPS.
+- On WSL2 with `networkingMode=Mirrored`, Docker's userland proxy can hang
+  connections to ports published on `127.0.0.1`. Setting
+  `"userland-proxy": false` in Docker's `daemon.json` fixes it.
+
 ## [0.3.0-alpha.1] - 2026-10-01
 
 The deployment profiles, stages and promotion release (Milestone 3): one

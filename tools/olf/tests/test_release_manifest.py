@@ -35,7 +35,7 @@ def _write_catalog(tmp_path: Path, **overrides) -> Path:
 
 def test_load_catalog_reads_real_repo_catalog() -> None:
     catalog = _manifest.load_catalog(ROOT / "release/component-catalog.yaml")
-    assert _manifest.catalog_version(catalog) == "0.3.0-alpha.1"
+    assert _manifest.catalog_version(catalog) == "0.4.0-alpha.1"
 
 
 def test_load_catalog_rejects_missing_file(tmp_path: Path) -> None:
