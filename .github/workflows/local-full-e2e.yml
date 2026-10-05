@@ -249,7 +249,9 @@ jobs:
           echo "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE=${contract}" >> "${GITHUB_ENV}"
 
       - name: Upload the rendered provider contract
-        if: (inputs.suite || 'full') != 'smoke'
+        # always(): a contract that differs from the fixture is exactly when
+        # this artifact is needed to refresh it.
+        if: always() && (inputs.suite || 'full') != 'smoke'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: rendered-provider-contract-${{ github.run_id }}
