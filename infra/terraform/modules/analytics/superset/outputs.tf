@@ -6,9 +6,8 @@ output "namespace" {
 output "contract" {
   description = "Superset reporting contract consumed by local scripts and future modules."
   value = {
-    service_name       = var.release_name
-    http_port          = var.http_port
-    reports_mount_path = var.reports_mount_path
+    service_name = var.release_name
+    http_port    = var.http_port
   }
 
   depends_on = [

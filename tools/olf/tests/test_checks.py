@@ -6,7 +6,7 @@ import pytest
 import typer
 
 from olf import dashboard_checks
-from olf.commands.checks import _infra, _project_code, _shared, _structure
+from olf.commands.checks import _project_code, _shared, _structure
 
 
 def test_dashboard_validation_accepts_the_repository_assets() -> None:
@@ -29,38 +29,6 @@ def test_dashboard_validation_rejects_unknown_dataset_column(tmp_path: Path) -> 
     errors = dashboard_checks.validate_superset_assets(tmp_path)
 
     assert any("missing_column" in error for error in errors)
-
-
-def test_superset_render_requires_ephemeral_reports_volume_and_mount() -> None:
-    rendered = """\
-apiVersion: apps/v1
-kind: Deployment
-spec:
-  template:
-    spec:
-      volumes:
-        - name: superset-reports
-          emptyDir:
-            sizeLimit: 1Gi
-      containers:
-        - name: superset
-          volumeMounts:
-            - name: superset-reports
-              mountPath: /app/openlakeforge/reports
-"""
-
-    _infra._validate_superset_render(rendered)
-
-
-def test_superset_render_rejects_reports_pvc() -> None:
-    rendered = """\
-kind: PersistentVolumeClaim
-metadata:
-  name: superset-reports
-"""
-
-    with pytest.raises(typer.Exit):
-        _infra._validate_superset_render(rendered)
 
 
 def test_project_code_cache_digest_includes_source_paths_and_contents(tmp_path: Path) -> None:
