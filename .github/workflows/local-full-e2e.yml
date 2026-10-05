@@ -422,6 +422,14 @@ jobs:
               "Local ${{ inputs.suite || 'full' }} e2e run finished with status **${{ job.status }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))"
           fi
 
+      - name: Stage ingress drill evidence for upload
+        # upload-artifact rejects paths containing '..', and PROJECT_DIR sits
+        # beside the workspace, so copy the evidence into it first.
+        if: always() && (inputs.suite || 'full') != 'smoke'
+        run: |
+          mkdir -p .tmp/e2e-evidence
+          cp -R "${PROJECT_DIR}/.tmp/e2e-evidence/." .tmp/e2e-evidence/ 2>/dev/null || true
+
       - name: Upload ingress drill evidence
         # Written by the full suite's Traefik restart and certificate renewal
         # drills (#268), pass or fail.
@@ -429,7 +437,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: local-e2e-evidence-${{ github.run_id }}
-          path: ${{ env.PROJECT_DIR }}/.tmp/e2e-evidence
+          path: .tmp/e2e-evidence
           # Every evidence file sits under the hidden .tmp directory.
           include-hidden-files: true
           if-no-files-found: warn
