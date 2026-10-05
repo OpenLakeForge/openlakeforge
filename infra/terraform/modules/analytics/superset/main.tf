@@ -83,22 +83,6 @@ resource "helm_release" "superset" {
       extraSecretEnv = {
         SUPERSET_SECRET_KEY = random_password.secret_key.result
       }
-
-      extraVolumes = [
-        {
-          name = "superset-reports"
-          emptyDir = {
-            sizeLimit = "1Gi"
-          }
-        },
-      ]
-
-      extraVolumeMounts = [
-        {
-          name      = "superset-reports"
-          mountPath = var.reports_mount_path
-        },
-      ]
     }),
   ]
 }
