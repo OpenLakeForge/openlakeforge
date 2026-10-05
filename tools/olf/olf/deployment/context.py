@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -216,12 +216,14 @@ class DeploymentContext:
     @classmethod
     def for_provider(cls, provider: Provider | str, *, repo_root: Path, **kwargs: object) -> DeploymentContext:
         resolved = Provider(provider)
-        factory = {
+        # The three factories take different keyword sets, so the forwarded
+        # `**kwargs` can only be checked at call time.
+        factories: dict[Provider, Callable[..., DeploymentContext]] = {
             Provider.LOCAL: cls.local,
             Provider.AWS: cls.aws,
             Provider.AZURE: cls.azure,
-        }[resolved]
-        return factory(repo_root=repo_root, **kwargs)  # type: ignore[arg-type]
+        }
+        return factories[resolved](repo_root=repo_root, **kwargs)
 
     @classmethod
     def local(

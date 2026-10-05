@@ -68,9 +68,8 @@ python_version = "3.12"
 files = ["olf"]
 # Deliberately not `strict`. The gate's job on a 25k-line codebase that has
 # never been type-checked is to stop new type errors, not to relitigate every
-# existing one. Tighten by moving modules off `_BASELINE` below, not by
-# flipping strict here -- that would make every module fail at once and the
-# gate would be turned off within a week.
+# existing one. Every `olf` module is checked; adding an `ignore_errors`
+# override needs a reason in the pull request body.
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unreachable = true
@@ -85,19 +84,6 @@ module = [
   "libs.*",
 ]
 ignore_missing_imports = true
-
-# _BASELINE -- the modules that already had type errors when the gate was
-# introduced (26 modules, 135 errors, 2026-09-04). Every other module is
-# checked and
-# must stay clean. This list only ever shrinks: adding a module to it needs a
-# reason in the pull request body, and removing one needs no justification at
-# all. Tracked in `docs/technical-debt.md`.
-[[tool.mypy.overrides]]
-module = [
-  "olf.deployment.context",
-  "olf.deployment.portforward",
-]
-ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

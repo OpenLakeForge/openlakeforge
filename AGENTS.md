@@ -221,14 +221,16 @@ are written against. Coverage also needs `--cov-config` because it will not
 otherwise find its settings — without the flag it silently measures line
 coverage only and enforces no threshold at all.
 
-**Type checking** is a ratchet, not a wall. 121 of 147 modules are checked; the
-26 that had pre-existing errors are listed under `[[tool.mypy.overrides]]` in
-`tools/olf/pyproject.toml`. Removing a module from that list needs no
-justification. Adding one needs a reason in the pull request body — and is
+**Type checking** covers every module in `tools/olf/olf`; none is exempt, and
+the gate stays strict -- a new type error anywhere fails it (mypy's own
+`strict` flag is deliberately off; the config comment says why). Fix the
+error rather than silencing it: no blanket `# type: ignore`, and a narrow one
+carries a comment saying why. Adding an `ignore_errors` override in
+`tools/olf/pyproject.toml` needs a reason in the pull request body — and is
 almost always the wrong answer to a new type error.
 
-**Coverage** is a floor at 81% branch coverage, for the same reason: a change
-may not lower it. Raise the floor when it rises; never lower it to go green.
+**Coverage** is a ratchet: a floor at 81% branch coverage that a change may
+not lower. Raise the floor when it rises; never lower it to go green.
 
 `olf check all` runs the check targets above plus the release-readiness
 gate. It runs on every pull request via `.github/workflows/checks.yml`.
