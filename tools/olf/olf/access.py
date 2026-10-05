@@ -16,6 +16,7 @@ from collections.abc import Iterator, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests.utils
 
@@ -103,15 +104,19 @@ def service_url(
             yield f"http://127.0.0.1:{port}"
         return
     socket.getaddrinfo = _pinned_getaddrinfo
-    if access.get("issuer") != LOCAL_CA_ISSUER:
-        yield url
-        return
-    previous = os.environ.get("REQUESTS_CA_BUNDLE")
-    os.environ["REQUESTS_CA_BUNDLE"] = _ca_bundle(shared_namespace, kube_context)
+    # requests picks a proxy from the hostname before resolving it, so an
+    # HTTPS_PROXY would carry the request away from the pinned loopback.
+    host = urlsplit(url).hostname or ""
+    overrides = {name: ",".join(filter(None, [host, os.environ.get(name)])) for name in ("NO_PROXY", "no_proxy")}
+    if access.get("issuer") == LOCAL_CA_ISSUER:
+        overrides["REQUESTS_CA_BUNDLE"] = _ca_bundle(shared_namespace, kube_context)
+    previous = {name: os.environ.get(name) for name in overrides}
+    os.environ.update(overrides)
     try:
         yield url
     finally:
-        if previous is None:
-            os.environ.pop("REQUESTS_CA_BUNDLE", None)
-        else:
-            os.environ["REQUESTS_CA_BUNDLE"] = previous
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value

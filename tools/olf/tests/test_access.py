@@ -7,6 +7,7 @@ import socket
 from pathlib import Path
 
 import pytest
+import requests.utils
 
 from olf import access
 from olf.commands.access import trust_steps
@@ -30,9 +31,7 @@ def forwarded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     # cert-manager keeps ClusterIssuer secrets, and tls.crt/tls.key are the keys
     # cert-manager guarantees. Any other namespace or key raises KeyError.
     secrets = {("local-ca", "olf-system"): {"tls\\.crt": "LOCAL-CA-PEM\n", "tls\\.key": "KEY"}}
-    monkeypatch.setattr(
-        access.k8s, "secret_value", lambda name, key, namespace, **_k: secrets[(name, namespace)][key]
-    )
+    monkeypatch.setattr(access.k8s, "secret_value", lambda name, key, namespace, **_k: secrets[(name, namespace)][key])
     # service_url pins resolution process-wide; monkeypatch restores the original.
     monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
     monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
@@ -112,3 +111,19 @@ def test_trust_steps_quote_the_certificate_path() -> None:
         assert "/home/a user/" not in steps.replace("'/home/a user/openlakeforge-local-ca.crt'", "")
     assert "$(wslpath -w '/home/a user/openlakeforge-local-ca.crt')" in trust_steps(cert, platform="linux", wsl=True)
     assert "-CertStoreLocation 'Cert:\\CurrentUser\\Root'" in trust_steps(cert, platform="linux", wsl=True)
+
+
+def test_a_configured_proxy_is_bypassed_for_the_pinned_route(
+    monkeypatch: pytest.MonkeyPatch, forwarded: list[str]
+) -> None:
+    monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp:3128")
+    monkeypatch.setenv("NO_PROXY", "internal.corp")
+    monkeypatch.delenv("no_proxy", raising=False)
+
+    with _reach() as url:
+        bypassed = requests.utils.should_bypass_proxies(url, no_proxy=None)
+
+    assert bypassed
+    assert os.environ["NO_PROXY"] == "internal.corp"
+    assert "no_proxy" not in os.environ
