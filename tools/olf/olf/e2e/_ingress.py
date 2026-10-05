@@ -17,7 +17,9 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from olf import access, config, k8s, log
+import requests
+
+from olf import access, config, log
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 from olf.e2e._shell import E2EConfig, E2EError, kubectl
@@ -40,11 +42,24 @@ def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
         ["rollout", "status", TRAEFIK_DEPLOYMENT, "-n", cfg.platform_namespace, f"--timeout={DRILL_TIMEOUT_SECONDS}s"],
     )
     with _route(cfg) as url:
-        recovered = k8s.http_wait(url, attempts=DRILL_TIMEOUT_SECONDS // 2, delay=2)
+        recovered = _dagster_answers(url, attempts=DRILL_TIMEOUT_SECONDS // 2, delay=2)
     elapsed = round(time.monotonic() - started, 1)
     _retain(cfg, "traefik-restart", {"route": url, "recovered": recovered, "elapsed_seconds": elapsed})
     if not recovered:
         raise E2EError(f"{url} did not answer within {elapsed}s of Traefik restarting.")
+
+
+def _dagster_answers(url: str, *, attempts: int, delay: float) -> bool:
+    # Traefik answers 404/503 itself while it has no backend for the host, so
+    # any HTTP status is not recovery: only Dagster's own endpoint returning 200.
+    for _ in range(attempts):
+        try:
+            if requests.get(f"{url}/server_info", timeout=5).status_code == 200:
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(delay)
+    return False
 
 
 def check_certificate_renewal(cfg: E2EConfig) -> None:

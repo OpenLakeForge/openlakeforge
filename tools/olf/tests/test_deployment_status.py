@@ -147,3 +147,11 @@ def test_certificate_section_reports_a_cluster_without_cert_manager() -> None:
     failed = CommandResult(argv=(), returncode=1, stdout="", stderr="no matches for kind\n", duration_seconds=0.0)
 
     assert _certificate_report(failed).sections[-1].output == "unavailable: no matches for kind"
+
+
+def test_certificate_section_does_not_call_a_missing_route_certificate_healthy() -> None:
+    stdout = json.dumps({"items": []})
+
+    report = _certificate_report(CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0))
+
+    assert report.sections[-1].output == "no Certificates found in the platform namespaces"

@@ -4,6 +4,7 @@ import contextlib
 import json
 import ssl
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import e2e_cfg
@@ -92,7 +93,9 @@ def test_restart_drill_keeps_its_evidence_when_the_route_does_not_recover(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _drill(monkeypatch, [])
-    monkeypatch.setattr(_ingress.k8s, "http_wait", lambda _url, **_kwargs: False)
+    # Traefik itself answers 404 while it has no backend: that is not recovery.
+    monkeypatch.setattr(_ingress.requests, "get", lambda _url, **_kwargs: SimpleNamespace(status_code=404))
+    monkeypatch.setattr(_ingress.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(E2EError, match="did not answer"):
         _ingress.check_traefik_restart_recovery(e2e_cfg(tmp_path))

@@ -107,13 +107,18 @@ def _certificate_section(
         # A foundation-only cluster has no cert-manager CRDs yet.
         return StatusSection(title=title, output=f"unavailable: {result.stderr.strip()}")
     problems = []
+    owned = 0
     for certificate in json.loads(result.stdout)["items"]:
         metadata = certificate["metadata"]
         if metadata["namespace"] not in namespaces:
             continue
+        owned += 1
         conditions = certificate.get("status", {}).get("conditions", [])
         ready: dict[str, str] = next((condition for condition in conditions if condition["type"] == "Ready"), {})
         if ready.get("status") != "True":
             reason = ready.get("reason", "NoReadyCondition")
             problems.append(f"{metadata['namespace']}/{metadata['name']}: {reason}: {ready.get('message', '')}")
+    if not owned:
+        # ingress-shim never created them, or they were deleted: not healthy.
+        return StatusSection(title=title, output="no Certificates found in the platform namespaces")
     return StatusSection(title=title, output="\n".join(problems) or "none")
