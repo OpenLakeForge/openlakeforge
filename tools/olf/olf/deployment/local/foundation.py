@@ -9,9 +9,11 @@ directly.
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Mapping
 
 from olf import log
+from olf.access import LOCAL_CA_ISSUER
 from olf.deployment import kube_ops
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
@@ -52,6 +54,7 @@ def foundation_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
     config.context.prepare_directories()
 
     _require_docker_reachable(tools, env=env)
+    _require_ingress_preconditions(config, tools, env=env)
 
     log.step("Initializing Terraform local kind foundation...")
     tools.terraform.init(foundation_dir, env=env)
@@ -89,6 +92,37 @@ def _require_docker_reachable(tools: Toolkit, *, env: Mapping[str, str]) -> None
             "Compare this against 'docker context show' on this host, or set DOCKER_HOST "
             "explicitly to override endpoint resolution."
         ) from exc
+
+
+def _require_ingress_preconditions(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """Fail before kind runs on what the ingress needs (ADR 0013, #268).
+
+    The profile already validated `base_domain`'s syntax. The issuer is checked
+    by the platform root's variable validation too, but only after a cluster
+    exists; and a taken host port surfaces as an opaque docker error from deep
+    inside kind's create.
+    """
+    issuer = config.context.topology.access.issuer
+    if issuer != LOCAL_CA_ISSUER:
+        raise DeploymentPreconditionError(
+            f"spec.access.issuer is {issuer!r}, but the local provider ships only the {LOCAL_CA_ISSUER!r} issuer. "
+            f"Set spec.access.issuer to {LOCAL_CA_ISSUER} (ACME issuers arrive with #274)."
+        )
+    busy = [port for port in (80, 443) if _listening(port)]
+    if busy and config.cluster.name not in tools.kind.get_clusters(env=env):
+        ports = " and ".join(f"127.0.0.1:{port}" for port in busy)
+        raise DeploymentPreconditionError(
+            f"{ports} already in use; the local ingress publishes host ports 80 and 443 through kind. "
+            f"Stop whatever listens there ('lsof -nP -iTCP:{busy[0]} -sTCP:LISTEN' shows it), then re-run."
+        )
+
+
+def _listening(port: int) -> bool:
+    # A connect, not a bind: binding below 1024 needs root, which kind's
+    # docker has and olf does not.
+    with socket.socket() as probe:
+        probe.settimeout(1)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
 def foundation_down(

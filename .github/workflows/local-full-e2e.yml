@@ -420,6 +420,19 @@ jobs:
               "Local ${{ inputs.suite || 'full' }} e2e run finished with status **${{ job.status }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))"
           fi
 
+      - name: Upload ingress drill evidence
+        # Written by the full suite's Traefik restart and certificate renewal
+        # drills (#268), pass or fail.
+        if: always() && (inputs.suite || 'full') != 'smoke'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-e2e-evidence-${{ github.run_id }}
+          path: ${{ env.PROJECT_DIR }}/.tmp/e2e-evidence
+          # Every evidence file sits under the hidden .tmp directory.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Collect kind diagnostics (smoke)
         if: failure() && (inputs.suite || 'full') == 'smoke'
         env:

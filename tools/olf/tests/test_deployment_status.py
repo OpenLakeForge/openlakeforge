@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -90,3 +91,67 @@ def test_report_leads_with_the_contract_urls_and_serializes_them() -> None:
         "urls": {"stage/dev/orchestration": "https://dagster.dev.olf.localhost"},
         "sections": {"Pods (olf-dev)": "dagster Running"},
     }
+
+
+class _CertificatesRunner(RecordingRunner):
+    """Answers the certificates query with `result`, everything else with "ok"."""
+
+    def __init__(self, result: CommandResult) -> None:
+        super().__init__()
+        self._result = result
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+        if "certificates.cert-manager.io" in argv:
+            return self._result
+        return CommandResult(argv=(), returncode=0, stdout="ok", stderr="", duration_seconds=0.0)
+
+
+def _certificate_report(result: CommandResult) -> StatusReport:
+    return collect_status(
+        Kubectl(_CertificatesRunner(result), PathExecutableResolver(overrides={"kubectl": Path("kubectl")})),
+        namespaces=("olf-system", "olf-dev", "olf-prod"),
+        context="kind-openlakeforge-local",
+        kubeconfig=Path("/repo/.tmp/kubeconfigs/local.yaml"),
+        certificates=True,
+    )
+
+
+def test_certificate_section_lists_owned_certificates_that_are_not_ready() -> None:
+    def _certificate(namespace: str, name: str, *conditions: dict[str, str]) -> dict[str, object]:
+        return {"metadata": {"namespace": namespace, "name": name}, "status": {"conditions": list(conditions)}}
+
+    certificates = [
+        _certificate("olf-system", "local-ca-probe", {"type": "Ready", "status": "True"}),
+        _certificate(
+            "olf-dev",
+            "openlakeforge-routes-tls",
+            {"type": "Ready", "status": "False", "reason": "Failed", "message": "issuer local-ca not ready"},
+        ),
+        _certificate("olf-prod", "openlakeforge-routes-tls"),
+        _certificate("elsewhere", "theirs", {"type": "Ready", "status": "False", "reason": "Failed"}),
+    ]
+    stdout = json.dumps({"items": certificates})
+
+    report = _certificate_report(CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0))
+
+    assert report.sections[-1] == StatusSection(
+        title="Certificates not Ready",
+        output="olf-dev/openlakeforge-routes-tls: Failed: issuer local-ca not ready\n"
+        "olf-prod/openlakeforge-routes-tls: NoReadyCondition: ",
+    )
+
+
+def test_certificate_section_reports_a_cluster_without_cert_manager() -> None:
+    failed = CommandResult(argv=(), returncode=1, stdout="", stderr="no matches for kind\n", duration_seconds=0.0)
+
+    assert _certificate_report(failed).sections[-1].output == "unavailable: no matches for kind"
+
+
+def test_certificate_section_does_not_call_a_missing_route_certificate_healthy() -> None:
+    stdout = json.dumps({"items": []})
+
+    report = _certificate_report(CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0))
+
+    assert report.sections[-1].output == "no Certificates found in the platform namespaces"
