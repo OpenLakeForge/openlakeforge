@@ -40,7 +40,7 @@ def openmetadata_deploy_metadata(
 
 def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
-    from olf import k8s
+    from olf import access, k8s
     from olf import openmetadata as om
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
@@ -55,11 +55,18 @@ def deploy_openmetadata_metadata() -> None:
 
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     log_path = f"{log_prefix}-openmetadata-port-forward.log"
-    with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
+    with access.service_url(
+        "shared/governance_service",
+        service=service,
+        remote_port=remote_port,
+        namespace=namespace,
+        log_path=log_path,
+        shared_namespace=namespace,
+    ) as base_url:
         try:
             cfg = om.OpenMetadataConfig.from_environment(
                 os.environ,
-                base_url=f"http://127.0.0.1:{local_port}",
+                base_url=base_url,
                 admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
                 admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
                 metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),

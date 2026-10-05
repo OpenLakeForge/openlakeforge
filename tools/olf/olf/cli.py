@@ -12,6 +12,7 @@ import typer
 
 import olf
 from olf.commands import (
+    access,
     artifacts,
     auth,
     catalog,
@@ -47,6 +48,7 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 
+app.add_typer(access.app, name="access")
 app.add_typer(contracts.app, name="contracts")
 app.add_typer(checks.app, name="check")
 app.add_typer(dbt.app, name="dbt")

@@ -364,16 +364,17 @@ def wait_for_rollout(kind_name: str, namespace: str, timeout: str = "300s") -> N
 
 
 def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
-    """Poll an HTTP endpoint until it answers 2xx/3xx/4xx (i.e. reachable)."""
-    import urllib.error
-    import urllib.request
+    """Poll an HTTP endpoint until it answers at all (any status means reachable).
+
+    Through `requests`, so an ingress URL is verified against the bundle
+    `olf.access.service_url` selects.
+    """
+    import requests
 
     for _ in range(attempts):
         try:
-            with urllib.request.urlopen(url, timeout=2):  # noqa: S310 - localhost port-forward
-                return True
-        except urllib.error.HTTPError:
+            requests.get(url, timeout=2)
             return True
-        except (urllib.error.URLError, OSError):
+        except requests.RequestException:
             time.sleep(delay)
     return False
