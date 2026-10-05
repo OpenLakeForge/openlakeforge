@@ -151,15 +151,14 @@ class PortForwardSupervisor:
         env: Mapping[str, str] | None = None,
         wait: Callable[[], None] | None = None,
     ) -> None:
-        installed: list[tuple[int, object]] = []
+        installed = [(sig, signal.getsignal(sig)) for sig in (signal.SIGINT, signal.SIGTERM)]
 
         def _handle_signal(signum, frame):  # noqa: ANN001, ARG001
             self.stop_all()
             raise SystemExit(0)
 
         try:
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                installed.append((sig, signal.getsignal(sig)))
+            for sig, _previous in installed:
                 signal.signal(sig, _handle_signal)
 
             for target in spec.targets:
