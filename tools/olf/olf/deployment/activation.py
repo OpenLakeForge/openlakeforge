@@ -106,10 +106,10 @@ def _plain(value: Any) -> Any:
 
 
 def _selected_stage(  # noqa: ANN001
-    raw_contract: Mapping[str, Any], *, topology, stage: StageName
+    raw_contract: Mapping[str, Any], *, topology, stage: StageName, distribution_root: Path | None = None
 ) -> tuple[Mapping[str, Any], StageContract]:
     """The stage's parsed bindings, refusing a platform activation cannot serve."""
-    parsed = parse_provider_contracts(raw_contract, topology)
+    parsed = parse_provider_contracts(raw_contract, topology, distribution_root=distribution_root)
     if parsed.compatibility_v2 or parsed.schema_version != "3.0.0":
         raise ActivationError(
             "olf project deploy requires a native provider-contract v3 platform; v2 is DEV compatibility only."
@@ -143,11 +143,12 @@ def _binding_digest(deployment: Mapping[str, Any], selected: StageContract) -> s
 
 
 def stage_code_locations(
-    raw_contract: Mapping[str, Any], *, topology, stage: StageName  # noqa: ANN001
+    raw_contract: Mapping[str, Any], *, topology, stage: StageName, distribution_root: Path | None = None  # noqa: ANN001
 ) -> tuple[CodeLocation, ...]:
     """The stage's contracted code locations, for callers comparing a release
     against the set it is supposed to be running."""
-    return tuple(_selected_stage(raw_contract, topology=topology, stage=stage)[1].code_locations)
+    selected = _selected_stage(raw_contract, topology=topology, stage=stage, distribution_root=distribution_root)
+    return tuple(selected[1].code_locations)
 
 
 def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
@@ -627,7 +628,12 @@ def deploy_revision(
     if raw_contract is None:
         raise ActivationError(f"provider contracts are unavailable from {contract_dir}; run olf platform apply first.")
     try:
-        deployment, selected = _selected_stage(raw_contract, topology=context.topology, stage=context.stage)
+        deployment, selected = _selected_stage(
+            raw_contract,
+            topology=context.topology,
+            stage=context.stage,
+            distribution_root=context.paths.distribution_root,
+        )
         binding = _binding_digest(deployment, selected)
         code_locations = selected.code_locations
         manifest = verify(

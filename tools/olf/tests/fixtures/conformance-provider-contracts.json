@@ -65,7 +65,37 @@
     },
     "identity": {
       "implementation": "identity.local_development_credentials",
-      "ref": "shared/identity"
+      "ref": "shared/identity",
+      "roles": {
+        "grants": {
+          "governance_service": {
+            "analyst": "read",
+            "data-engineer": "write",
+            "platform-admin": "Admin",
+            "viewer": "read"
+          },
+          "orchestration": {
+            "data-engineer": "full",
+            "platform-admin": "full"
+          },
+          "query": {
+            "data-engineer": "yes",
+            "platform-admin": "yes"
+          },
+          "reporting": {
+            "analyst": "Gamma",
+            "data-engineer": "Alpha",
+            "platform-admin": "Admin",
+            "viewer": "read-only"
+          }
+        },
+        "precedence": [
+          "platform-admin",
+          "data-engineer",
+          "analyst",
+          "viewer"
+        ]
+      }
     },
     "kubernetes_platform": {
       "implementation": "kubernetes.kind",

@@ -1,0 +1,33 @@
+# Canonical OpenLakeForge role model (ADR 0014). Product-level and fixed for
+# v0.5-alpha: every provider renders this file into shared.identity.roles and
+# `olf` rejects a contract that differs from it.
+#
+# precedence: highest role first.
+# grants: route service name (last segment of the route's contract ref) ->
+#   role -> the in-service role that grant maps to. A role with no entry for a
+#   service is denied at the perimeter. A grant applies on every enabled stage.
+#   Grants are monotonic: a role holding a service's grant implies every role
+#   above it holds one too, so "union of held roles" equals "highest role".
+precedence:
+  - platform-admin
+  - data-engineer
+  - analyst
+  - viewer
+
+grants:
+  orchestration: # Dagster: no in-service authorization, the perimeter is the control
+    platform-admin: full
+    data-engineer: full
+  reporting: # Superset
+    platform-admin: Admin
+    data-engineer: Alpha
+    analyst: Gamma
+    viewer: read-only
+  governance_service: # OpenMetadata
+    platform-admin: Admin
+    data-engineer: write
+    analyst: read
+    viewer: read
+  query: # Trino UI
+    platform-admin: "yes"
+    data-engineer: "yes"

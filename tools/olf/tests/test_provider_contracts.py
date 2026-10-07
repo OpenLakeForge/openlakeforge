@@ -1320,3 +1320,58 @@ def test_access_ingress_contract_fails_closed(mutate, match: str) -> None:
 
     with pytest.raises(ProviderContractError, match=match):
         parse_provider_contracts(contract, topology)
+
+
+def _drop_identity_roles(contract: dict) -> None:
+    del contract["shared"]["identity"]["roles"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (_drop_identity_roles, "missing required field 'roles'"),
+        (
+            lambda contract: contract["shared"]["identity"]["roles"]["grants"]["query"].__setitem__("guest", "yes"),
+            "unknown role 'guest'",
+        ),
+        (
+            lambda contract: contract["shared"]["identity"]["roles"]["grants"].__setitem__("portal", {"viewer": "x"}),
+            "unknown service 'portal'",
+        ),
+        (
+            # analyst holds a grant its superior data-engineer lacks.
+            lambda contract: contract["shared"]["identity"]["roles"]["grants"].__setitem__(
+                "query", {"platform-admin": "yes", "analyst": "yes"}
+            ),
+            "query is not monotonic",
+        ),
+        (
+            lambda contract: contract["shared"]["identity"]["roles"]["grants"]["reporting"].__setitem__(
+                "analyst", "Admin"
+            ),
+            "differs from release/identity-roles.yaml",
+        ),
+        (
+            lambda contract: contract["shared"]["identity"]["roles"]["precedence"].append("auditor"),
+            "differs from release/identity-roles.yaml",
+        ),
+    ],
+)
+def test_identity_roles_fail_closed_unless_they_equal_the_release_role_model(mutate, match: str) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    mutate(contract)
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
+def test_identity_roles_fail_closed_when_the_release_role_model_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(tmp_path))
+
+    with pytest.raises(ProviderContractError, match="cannot read the canonical role model"):
+        parse_provider_contracts(contract, topology)

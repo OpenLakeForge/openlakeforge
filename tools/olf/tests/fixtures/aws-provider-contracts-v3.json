@@ -42,7 +42,8 @@
     },
     "identity": {
       "ref": "shared/identity",
-      "implementation": "identity.aws_pod_identity"
+      "implementation": "identity.aws_pod_identity",
+      "roles": {"precedence": ["platform-admin", "data-engineer", "analyst", "viewer"], "grants": {"orchestration": {"platform-admin": "full", "data-engineer": "full"}, "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"}, "governance_service": {"platform-admin": "Admin", "data-engineer": "write", "analyst": "read", "viewer": "read"}, "query": {"platform-admin": "yes", "data-engineer": "yes"}}}
     },
     "access": {
       "ref": "shared/access",

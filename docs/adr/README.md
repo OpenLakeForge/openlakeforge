@@ -29,6 +29,7 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0011](0011-deployment-profile-and-stages.md) | **Deployment Profile v1** — provider, stage, and preset are separate typed concepts; `openlakeforge.yaml` resolves to one effective `DeploymentTopology` before any Terraform, Helm, or Kubernetes object exists |
 | [0012](0012-project-revisions-and-promotion.md) | **Project revisions** — a build-once, content-addressed `ProjectRevision` covering descriptors, Floe contracts, dbt, Dagster, reports, and the project-code image digest; excludes deployment intent and every stage-rendered artifact |
 | [0013](0013-service-access-and-ingress.md) | **Service access** — one ingress everywhere, configured by `access.base_domain` + `access.issuer`; stage-derived HTTPS routes in `shared.access`; internal endpoints cannot be user-facing; port-forward only as a dev fallback |
+| [0014](0014-identity-and-authorization.md) | **Identity and authorization** — four seams (role model, issuer, perimeter, admin), each with its own adapter; canonical roles are the only vocabulary and provider mappings are keyed by them; the fixed role model is built, the rest is decided direction; OpenLakeForge roles are never cloud IAM |
 
 ## Related
 

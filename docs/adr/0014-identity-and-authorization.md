@@ -1,0 +1,137 @@
+# ADR 0014: Identity and authorization — canonical roles, per-seam adapters
+
+## Status
+
+Partly binding. **Binding today:** the canonical role model (seam 1) —
+`release/identity-roles.yaml`, rendered into `shared.identity.roles` by all
+three roots and validated by `olf` (#175). **Decided, not built:** seams 2–4
+below. No identity provider is deployed, nothing enforces a grant, and every
+root still emits its existing `identity` implementation
+(`identity.local_development_credentials`, `identity.aws_pod_identity`,
+`identity.azure_workload_identity_ready`). Rows marked "not built" are the
+direction #24, #176, and #331 implement; they are not a description of the
+code.
+
+## Context
+
+v0.5-alpha is the first release in which a person logs in and their role
+decides which services they reach. Until #175 that model lived nowhere:
+baseline roles were a bullet inside the Keycloak issue (#24), which would have
+made the authorization model an adapter detail and broken ADR 0003 — consumers
+depend on capability contracts, never on the implementation behind them.
+
+## Decision
+
+### One principle
+
+Canonical OpenLakeForge roles are the only vocabulary. Every provider-specific
+thing is a mapping **keyed by** a canonical role, never the reverse. Four seams
+each have their own adapter and none leaks into another:
+
+| Seam | Contract location | Local / on-prem adapter | Later adapters |
+| --- | --- | --- | --- |
+| 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
+| 2. Issuer: who you are, which roles you hold (**not built**, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
+| 3. Perimeter: enforce route grants before the service (**not built**, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
+| 4. Admin: write user and role assignment (**not built**, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
+
+### Seam 1 — the role model (built)
+
+`release/identity-roles.yaml` is product-level and fixed for v0.5-alpha, like
+the component catalog; it is not deployment-configurable. Terraform reads it
+with `yamldecode(file(...))` in each root's `contracts.tf`; `olf` reads the
+same file to validate the contract.
+
+| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) |
+| --- | --- | --- | --- | --- |
+| `platform-admin` | Admin | Admin | full | yes |
+| `data-engineer` | Alpha | write | full | yes |
+| `analyst` | Gamma | read | — | — |
+| `viewer` | read-only | read | — | — |
+
+Rules that bind:
+
+| Rule | Consequence |
+| --- | --- |
+| Grants are keyed by the service name the access routes already use: the last segment of a route's contract ref | the perimeter derives authorization mechanically: route ref, to service, to allowed roles |
+| A grant's value is the in-service role it maps to | one table answers both "may an analyst open Dagster" and "what Superset role does an analyst get" |
+| No entry means the perimeter denies | Dagster OSS has no authorization of its own; the denied route is the control |
+| Grants are **monotonic**: a role may hold a service's grant only if every higher-precedence role does | the union of held roles equals the highest held role, so the perimeter and every service agree without precedence code |
+| Multi-role = union | a user holding several roles gets the highest one's reach |
+| No recognised role = deny | the user is authenticated but denied everywhere, with a "no OpenLakeForge role assigned — ask a platform-admin" response rather than a broken page |
+| A grant applies to the service on **every enabled stage** | stage-scoped human roles are deferred |
+| Matrix is fixed for v0.5-alpha | configurable authorization is more to build, test, and document, and can follow once the fixed model is proven |
+| `identity` carries no grant | the login surface is never behind the perimeter |
+| Grafana has no column | #210 adds the row when Grafana is integrated |
+
+`olf` fails closed when `shared.identity.roles` is absent, names a role
+outside `precedence`, names a service no route can publish, is not monotonic,
+or differs in any way from `release/identity-roles.yaml` (read from the
+distribution root, so an installed payload ships it). The published schema
+`docs/schema/provider-contracts.schema.json` covers the shape.
+
+### Boundary: OpenLakeForge roles versus cloud IAM
+
+| | OpenLakeForge roles | Cloud IAM (AWS IAM, Azure managed identity) |
+| --- | --- | --- |
+| Governs | which platform services a **human** may use | what a **workload** (pod) may call in a cloud API |
+| Defined by | this ADR | the provider roots (#178, #45) |
+| Portable | identical on local, on-prem, AWS, Azure | provider-specific by nature |
+
+End-user roles are never expressed in cloud IAM; that would make the product
+non-portable. If per-user data access later binds canonical roles to cloud
+principals (an `analyst` mapped to an IAM role with Lake Formation grants,
+#179), that is a fifth mapping keyed by canonical role, added then. Nothing
+here forecloses it and nothing here builds it.
+
+### Seam 2 — issuer (decided, not built; #24 then #331)
+
+`shared.identity` with `implementation: identity.oidc` carries the issuer URL,
+the claim that holds roles, a `role_mapping` from canonical role to issuer
+claim values, and client IDs with Secret references. Nothing in the
+consumer-facing fields is Keycloak-specific. Keycloak: groups named exactly as
+the canonical roles. Entra ID: group object IDs. Cognito: `cognito:groups` as
+the claim. A contract fixture for an external issuer will prove that.
+Final field names are fixed in #24's contract change. The Deployment Profile
+gains `spec.identity` (`issuer: keycloak | external`).
+
+Realm-as-code uses a `keycloak-config-cli` Job, not the Terraform Keycloak
+provider: that provider must reach Keycloak at plan time, so it would be
+configured from a resource created in the same apply. User records never live
+in Terraform; groups, clients, and the realm only. #24 must also verify two
+known risks before building on them: `*.localhost` resolves to a pod's own
+loopback, so back-channel token and JWKS calls need in-cluster resolution of
+`*.<base_domain>` plus the local CA, and the token `iss` must equal the
+browser-facing URL; and single sign-on across hosts needs a cookie on
+`.<base_domain>` that a browser must actually accept.
+
+### Seam 3 — perimeter (decided, not built; #176)
+
+oauth2-proxy behind Traefik `forwardAuth`; each route's allowed roles come
+from seam 1 translated through `role_mapping`. Traefik attaches middleware per
+`Ingress` and ADR 0013 renders one `Ingress` per namespace, so routes with
+different grants need separate `Ingress` objects; #176 rewrites ADR 0013
+accordingly. The identity route (`auth.<base_domain>`) is never behind the
+perimeter.
+
+### Seam 4 — admin (decided, not built; #331)
+
+Assigning roles is an optional capability of the issuer. Where it is absent,
+`olf users` only reads.
+
+## Consequences
+
+- The `identity` binding of every v3 contract gains a required `roles`
+  object, so a contract emitted before this change no longer parses. The
+  providers' `implementation` strings are unchanged.
+- The role model is a release artifact: changing a grant changes
+  `release/identity-roles.yaml`, and every root picks it up on the next
+  apply. `olf` rejects a platform whose contract was rendered from a
+  different file.
+- The provider-binding digest recorded at activation covers `shared.identity`,
+  so the first activation after upgrading reads as a binding change.
+
+## History
+
+New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
+#176, and #331, which rewrite this ADR as they land.

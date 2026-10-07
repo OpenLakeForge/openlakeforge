@@ -77,7 +77,11 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     topology = _topology(contract)
     locations = contract["stages"]["dev"]["orchestration"]["code_locations"]
     context = DeploymentContext.local(
-        repo_root=tmp_path, topology=topology, stage="dev", work_root=tmp_path / "work"
+        repo_root=tmp_path,
+        distribution_root=Path(__file__).resolve().parents[3],
+        topology=topology,
+        stage="dev",
+        work_root=tmp_path / "work",
     )
     activation = ProjectActivation(
         deployment_profile="acceptance",

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
+import yaml
+
+from olf import config
 from olf.deployment.context import Provider
 from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, StageName
 from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
@@ -49,6 +53,52 @@ _TLS_MODES = frozenset({"ingress-terminated"})
 # Shared bindings that are platform plumbing rather than network services, so
 # an ingress has no backend to send a route to.
 _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
+
+# The role model's grants are keyed by route service name, so only services a
+# route can publish to users can carry one; identity is the login surface and
+# is never behind the perimeter.
+_GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity"}
+IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
+
+
+def _identity_roles(value: object, *, where: str) -> Mapping[str, Any]:
+    document = _fields(value, where=where, required={"precedence", "grants"})
+    precedence = document["precedence"]
+    if not isinstance(precedence, list) or not precedence or len(set(precedence)) != len(precedence):
+        raise ProviderContractError(f"{where}.precedence must be a non-empty list of unique role names")
+    for role in precedence:
+        _string(role, where=f"{where}.precedence entry")
+    for service, by_role in _mapping(document["grants"], where=f"{where}.grants").items():
+        if service not in _GRANTABLE_SERVICES:
+            raise ProviderContractError(f"{where}.grants names unknown service {service!r}")
+        grants = _mapping(by_role, where=f"{where}.grants.{service}")
+        for role, in_service_role in grants.items():
+            if role not in precedence:
+                raise ProviderContractError(f"{where}.grants.{service} names unknown role {role!r}")
+            _string(in_service_role, where=f"{where}.grants.{service}.{role}")
+        # The held roles must be a prefix of the precedence order, which is
+        # what makes "union of held roles" the same as "highest held role".
+        held = [role in grants for role in precedence]
+        if held != sorted(held, reverse=True):
+            raise ProviderContractError(
+                f"{where}.grants.{service} is not monotonic: a role may only hold a grant "
+                "if every higher-precedence role holds one"
+            )
+    return document
+
+
+def _check_identity_roles(value: object, distribution_root: Path | None) -> None:
+    where = "shared.identity.roles"
+    roles = _identity_roles(value, where=where)
+    # An installed project's process environment does not name its payload
+    # root, so callers that know it pass it; the environment is the fallback.
+    path = (distribution_root or config.distribution_root()) / IDENTITY_ROLES_PATH
+    try:
+        canonical = _identity_roles(yaml.safe_load(path.read_text(encoding="utf-8")), where=IDENTITY_ROLES_PATH)
+    except (OSError, yaml.YAMLError) as exc:
+        raise ProviderContractError(f"cannot read the canonical role model {path}: {exc}") from exc
+    if roles != canonical:
+        raise ProviderContractError(f"{where} differs from {IDENTITY_ROLES_PATH}; the role model is fixed per release")
 
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
@@ -106,7 +156,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         hosts.add(host)
 
 
-def _parse_shared(value: object) -> SharedPlatformContract:
+def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatformContract:
     required = {
         "foundation",
         "kubernetes_platform",
@@ -128,6 +178,7 @@ def _parse_shared(value: object) -> SharedPlatformContract:
             where=f"shared.{name}",
             required={"ref", "implementation"},
             optional=(_ACCESS_INGRESS_FIELDS if name == "access" else set())
+            | ({"roles"} if name == "identity" else set())
             | {
                 "endpoint",
                 "bucket_name",
@@ -147,6 +198,9 @@ def _parse_shared(value: object) -> SharedPlatformContract:
         _reference(parsed[name]["ref"], where=f"shared.{name}.ref", allowed=("shared/",))
         if parsed[name]["ref"] != f"shared/{name}":
             raise ProviderContractError(f"shared.{name}.ref must be 'shared/{name}'")
+    if "roles" not in parsed["identity"]:
+        raise ProviderContractError("shared.identity is missing required field 'roles'")
+    _check_identity_roles(parsed["identity"]["roles"], distribution_root)
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")
@@ -501,7 +555,9 @@ def _parse_stage(
     )
 
 
-def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -> ProviderContracts:
+def _parse_v3(
+    payload: Mapping[str, Any], topology: DeploymentTopology | None, distribution_root: Path | None = None
+) -> ProviderContracts:
     if topology is None:
         raise ProviderContractError("native provider-contract v3 requires a resolved DeploymentTopology")
     document = _fields(
@@ -534,7 +590,7 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
         raise ProviderContractError(
             f"deployment.region {deployment['region']!r} does not match DeploymentTopology.region {topology.region!r}"
         )
-    shared = _parse_shared(document["shared"])
+    shared = _parse_shared(document["shared"], distribution_root)
     stages_document = _mapping(document["stages"], where="stages")
     expected_names = {stage.name.value for stage in topology.stages if stage.enabled}
     actual_names = set(stages_document)
