@@ -175,7 +175,10 @@ workload-identity reference; it never supplies credentials.
 AWS fixture contracts against the published v3 JSON Schema and the typed
 parser on every test run (`olf check contracts` covers the Terraform HCL
 surface and rendered profile/Floe output; it does not re-run the fixture
-suite). The parser rejects unknown fields and versions, missing or extra
+suite). Contracts carry Secret names and keys, never values: `olf check
+contracts` rejects a sensitive root output or one that unwraps a secret, and a
+secret-named field holding a value in an applied contract, and the fixture suite
+applies the same field rule to every fixture (#181). The parser rejects unknown fields and versions, missing or extra
 topology stages, incomplete capability bindings, cross-stage storage/catalog
 endpoint/identity references, duplicate stage storage/catalog/identity values,
 unknown or mismatched catalog type/provider pairs, and provider/region/topology
