@@ -65,7 +65,9 @@ production release. The AWS secure reference moved to v0.6-beta.
   change (#191, #293, #294, #302, #305).
 - The roadmap document is removed: GitHub milestones are the plan, and the
   lifecycle stages moved to `docs/release/releasing.md` (#292).
-- Dependencies: pyjwt 2.15.0 (#261), urllib3 2.8.0 (#260).
+- Dependencies: pyjwt 2.15.0 (#261) and urllib3 2.8.0 (#260), which close the
+  16 open Dependabot security alerts on `tools/olf/uv.lock` (1 critical,
+  7 high).
 
 ### Fixed
 
