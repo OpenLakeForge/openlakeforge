@@ -175,14 +175,18 @@ workload-identity reference; it never supplies credentials.
 AWS fixture contracts against the published v3 JSON Schema and the typed
 parser on every test run (`olf check contracts` covers the Terraform HCL
 surface and rendered profile/Floe output; it does not re-run the fixture
-suite). Contracts carry Secret names and keys, never values: `olf check
-contracts` rejects a sensitive root output or one that unwraps a secret, and a
-secret-named field holding a value in an applied contract, and the fixture suite
-applies the same field rule to every fixture (#181). The parser rejects unknown fields and versions, missing or extra
+suite). The parser rejects unknown fields and versions, missing or extra
 topology stages, incomplete capability bindings, cross-stage storage/catalog
 endpoint/identity references, duplicate stage storage/catalog/identity values,
 unknown or mismatched catalog type/provider pairs, and provider/region/topology
 mismatches.
+
+Contracts carry Secret names and keys, never values (#181). `olf check
+contracts` rejects, without needing applied state, a sensitive or unwrapped
+output in any root `.tf` file and a secret-named field in a root's
+`contracts.tf` that holds a literal value or reads a generated password. It
+applies the same field rule to an applied contract, and the fixture suite
+applies it to every fixture.
 
 The v2 adapter is intentionally temporary. It lifts a flat deployed contract
 to one DEV stage without changing current v0.2 environment output. A v3

@@ -216,6 +216,28 @@ def test_hcl_structured_contracts_rejects_secret_valued_root_outputs(tmp_path: P
     assert "'unwrapped' exposes a secret value" in result.detail
 
 
+def test_hcl_structured_contracts_rejects_secret_values_in_the_contract_surface(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "invalid_secret_literal_contract.tf")
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "secret_access_key looks like" in result.detail
+    assert "root_client_secret looks like" in result.detail
+    assert "secret_access_key_key" not in result.detail
+
+
+def test_hcl_structured_contracts_rejects_a_secret_output_in_any_root_file(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    extra = repo_root / "infra/terraform/environments/local/extra.tf"
+    extra.write_text('output "leak" {\n  value     = module.seaweedfs.s3_secret_key\n  sensitive = true\n}\n')
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "local/extra.tf: output 'leak' is sensitive" in result.detail
+
+
 def test_secret_value_fields_flags_values_but_not_references() -> None:
     contract = {
         "ok": {"credentials_secret_name": "s", "secret_access_key_key": "K", "token_uri": "http://x", "secrets": {}},

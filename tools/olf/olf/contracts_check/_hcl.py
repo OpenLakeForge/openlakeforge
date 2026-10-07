@@ -116,6 +116,8 @@ _SECRET_KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)+")
 
 
 def _is_reference(key: str, value: str) -> bool:
+    if value.startswith("${"):  # unevaluated HCL in contracts.tf: only a generated value is a leak
+        return not any(marker in value for marker in ("random_password", ".result", "nonsensitive("))
     if key.endswith("_key"):
         return _SECRET_KEY_NAME.fullmatch(value) is not None
     return key.endswith(_REFERENCE_KEY_SUFFIXES)
@@ -138,19 +140,19 @@ def secret_value_fields(node: Any, path: str = "") -> list[str]:
     return found
 
 
-def _root_output_errors(env: str, outputs_path: Path) -> list[str]:
+def _root_output_errors(env: str, tf_path: Path) -> list[str]:
     """A root output must not be sensitive (sensitive means it carries a
     value), unwrap one with `nonsensitive()`, or read a generated password."""
     errors: list[str] = []
-    for block in _parse_hcl(outputs_path).get("output", []):
+    for block in _parse_hcl(tf_path).get("output", []):
         for output_name, body in block.items():
             value = str(body.get("value", ""))
             if body.get("sensitive") in (True, "true"):
                 errors.append(
-                    f"{env}/outputs.tf: output {output_name!r} is sensitive; roots expose Secret references only"
+                    f"{env}/{tf_path.name}: output {output_name!r} is sensitive; roots expose Secret references only"
                 )
             if "nonsensitive(" in value or "random_password" in value:
-                errors.append(f"{env}/outputs.tf: output {output_name!r} exposes a secret value")
+                errors.append(f"{env}/{tf_path.name}: output {output_name!r} exposes a secret value")
     return errors
 
 
@@ -211,11 +213,15 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
                         f"`olf catalog sync-namespaces`, not declared in Terraform)"
                     )
 
-        outputs_path = contracts_path.with_name("outputs.tf")
-        if outputs_path.is_file():
-            errors.extend(_root_output_errors(env, outputs_path))
-        else:
-            errors.append(f"{env}: missing outputs.tf at {outputs_path}")
+        # Terraform loads output blocks from every .tf file in the root.
+        for tf_path in sorted(contracts_path.parent.glob("*.tf")):
+            errors.extend(_root_output_errors(env, tf_path))
+        errors.extend(
+            f"{env}/contracts.tf: local {local_name!r} field {field} looks like a secret value; "
+            "carry a Secret name/key reference instead"
+            for local_name, value in locals_map.items()
+            for field in secret_value_fields(value)
+        )
 
         main_path = repo_root / "infra/terraform/environments" / env / "main.tf"
         if not main_path.is_file():
