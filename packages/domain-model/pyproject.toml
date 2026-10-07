@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openlakeforge-domain-model"
-version = "0.3.0a1"
+version = "0.4.0a1"
 description = "Canonical provider-neutral domain model for OpenLakeForge"
 requires-python = ">=3.12"
 dependencies = ["PyYAML>=6.0,<7"]

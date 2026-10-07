@@ -84,11 +84,11 @@ user code:
 mkdir my-lakehouse
 cd my-lakehouse
 
-pip install "openlakeforge==0.3.0a1"
+pip install "openlakeforge==0.4.0a1"
 olf init
 ```
 
-`uv tool install "openlakeforge==0.3.0a1" --python 3.12` works too, but `uv`
+`uv tool install "openlakeforge==0.4.0a1" --python 3.12` works too, but `uv`
 is not a prerequisite.
 
 `olf init` verifies the packaged platform payload, provisions or reuses the

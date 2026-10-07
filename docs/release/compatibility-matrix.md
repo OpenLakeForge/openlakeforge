@@ -12,7 +12,7 @@ what a tagged release publishes as of the last catalog update.
 regenerate it whenever release/component-catalog.yaml changes.
 -->
 
-# OpenLakeForge 0.3.0-alpha.1 compatibility matrix
+# OpenLakeForge 0.4.0-alpha.1 compatibility matrix
 
 Generated from `release/component-catalog.yaml`. Every version below is the exact input pinned for this release; see [docs/release/component-catalog.md](component-catalog.md) for the update process.
 

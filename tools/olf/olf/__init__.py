@@ -9,4 +9,4 @@ try:
 except PackageNotFoundError:
     # Editable/source execution before package metadata exists. The release
     # command validates this fallback against release/component-catalog.yaml.
-    __version__ = "0.3.0a1"
+    __version__ = "0.4.0a1"
