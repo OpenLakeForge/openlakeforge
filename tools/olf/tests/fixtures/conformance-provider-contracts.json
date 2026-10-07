@@ -7,8 +7,43 @@
   "schema_version": "3.0.0",
   "shared": {
     "access": {
-      "implementation": "access.kubectl_port_forward",
-      "ref": "shared/access"
+      "base_domain": "olf.localhost",
+      "implementation": "access.ingress",
+      "issuer": "local-ca",
+      "ref": "shared/access",
+      "routes": {
+        "shared/governance_service": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://openmetadata.olf.localhost"
+        },
+        "shared/query": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://trino.olf.localhost"
+        },
+        "stage/dev/orchestration": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://dagster.dev.olf.localhost"
+        },
+        "stage/dev/reporting": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://superset.dev.olf.localhost"
+        },
+        "stage/prod/orchestration": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://dagster.prod.olf.localhost"
+        },
+        "stage/prod/reporting": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://superset.prod.olf.localhost"
+        }
+      },
+      "tls_mode": "ingress-terminated"
     },
     "artifact_registry": {
       "implementation": "artifacts.local_kind_image_load",
