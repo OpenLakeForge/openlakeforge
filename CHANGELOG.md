@@ -14,7 +14,7 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-## [0.4.0-alpha.1] - 2026-10-05
+## [0.4.0-alpha.1] - 2026-10-07
 
 The secure service access release (Milestone 4), local and on-premises
 only. Enabled user-facing services are reached at stable HTTPS URLs through
