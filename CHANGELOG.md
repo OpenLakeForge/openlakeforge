@@ -16,10 +16,12 @@ for how a release is cut and verified.
 
 ## [0.4.0-alpha.1] - 2026-10-07
 
-The secure service access release (Milestone 4), local and on-premises
-only. Enabled user-facing services are reached at stable HTTPS URLs through
-one ingress with a local certificate authority, without port-forwarding. A
-real installation sets its own base domain. Authentication arrives in
+The secure service access release (Milestone 4), on the local workstation.
+Enabled user-facing services are reached at stable HTTPS URLs through one
+ingress with a local certificate authority, without port-forwarding. The
+ingress listens on `127.0.0.1` only; `spec.access.base_domain` changes the
+host names, but serving a private network or another machine needs a
+non-loopback adapter, which does not exist yet. Authentication arrives in
 v0.5-alpha: v0.4 is private evaluation infrastructure, not a shared
 production release. The AWS secure reference moved to v0.6-beta.
 
@@ -113,7 +115,7 @@ production release. The AWS secure reference moved to v0.6-beta.
 - No authentication or authorization: anyone who can reach the ingress can
   use Dagster, Superset and Trino. Keep v0.4 on loopback or a private
   network. Login arrives in v0.5-alpha (#176).
-- Local and on-premises only. AWS and Azure keep port-forward access; the
+- Workstation-local only. AWS and Azure keep port-forward access; the
   AWS secure reference is v0.6-beta (#274). Only the `local-ca` issuer is
   supported, so there are no public or ACME certificates yet.
 - Plain HTTP on port 80 returns 404 rather than redirecting to HTTPS.
