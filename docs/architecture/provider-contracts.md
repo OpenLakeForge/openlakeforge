@@ -181,6 +181,13 @@ endpoint/identity references, duplicate stage storage/catalog/identity values,
 unknown or mismatched catalog type/provider pairs, and provider/region/topology
 mismatches.
 
+Contracts carry Secret names and keys, never values (#181). `olf check
+contracts` rejects, without needing applied state, a sensitive or unwrapped
+output in any root `.tf` file and a secret-named field in a root's
+`contracts.tf` that holds a literal value or reads a generated password. It
+applies the same field rule to an applied contract, and the fixture suite
+applies it to every fixture.
+
 The v2 adapter is intentionally temporary. It lifts a flat deployed contract
 to one DEV stage without changing current v0.2 environment output. A v3
 contract is not permitted to choose DEV implicitly: callers must select the

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,58 @@ _FORBIDDEN_PHASE_TWO_FIELDS = (
 )
 
 
+# #181: roots and the provider contract carry Secret *references* (name/key),
+# never values. A key that names a secret but is not a reference is a value.
+_SECRET_KEY = re.compile(r"secret|password|token|credential", re.IGNORECASE)
+_REFERENCE_KEY_SUFFIXES = ("_name", "_ref", "_uri", "_url", "_mode")
+# `*_key` fields name a key inside a Secret (`AWS_SECRET_ACCESS_KEY`,
+# `client-secret`), but `secret_access_key` would be the value itself, so the
+# suffix alone is not enough. ponytail: shape heuristic; a generated value that
+# is all-caps snake or lower-kebab would pass, tighten if one ever does.
+_SECRET_KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)+")
+
+
+def _is_reference(key: str, value: str) -> bool:
+    if value.startswith("${"):  # unevaluated HCL in contracts.tf: only a generated value is a leak
+        return not any(marker in value for marker in ("random_password", ".result", "nonsensitive("))
+    if key.endswith("_key"):
+        return _SECRET_KEY_NAME.fullmatch(value) is not None
+    return key.endswith(_REFERENCE_KEY_SUFFIXES)
+
+
+def secret_value_fields(node: Any, path: str = "") -> list[str]:
+    """Paths of string fields in a rendered contract that look like secret
+    values: a secret-ish key that is not a `*_name`/`*_key`/... reference."""
+    found: list[str] = []
+    if isinstance(node, dict):
+        for key, child in node.items():
+            where = f"{path}.{key}" if path else str(key)
+            if isinstance(child, str) and child and _SECRET_KEY.search(key) and not _is_reference(key, child):
+                found.append(where)
+            else:
+                found.extend(secret_value_fields(child, where))
+    elif isinstance(node, list):
+        for index, child in enumerate(node):
+            found.extend(secret_value_fields(child, f"{path}[{index}]"))
+    return found
+
+
+def _root_output_errors(env: str, tf_path: Path) -> list[str]:
+    """A root output must not be sensitive (sensitive means it carries a
+    value), unwrap one with `nonsensitive()`, or read a generated password."""
+    errors: list[str] = []
+    for block in _parse_hcl(tf_path).get("output", []):
+        for output_name, body in block.items():
+            value = str(body.get("value", ""))
+            if body.get("sensitive") in (True, "true"):
+                errors.append(
+                    f"{env}/{tf_path.name}: output {output_name!r} is sensitive; roots expose Secret references only"
+                )
+            if "nonsensitive(" in value or "random_password" in value:
+                errors.append(f"{env}/{tf_path.name}: output {output_name!r} exposes a secret value")
+    return errors
+
+
 def _parse_hcl(path: Path) -> dict[str, Any]:
     return hcl2.loads(path.read_text(encoding="utf-8"))
 
@@ -159,6 +212,16 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
                         f"{forbidden_field!r} (ADR 0002: namespaces/schemas are reconciled by "
                         f"`olf catalog sync-namespaces`, not declared in Terraform)"
                     )
+
+        # Terraform loads output blocks from every .tf file in the root.
+        for tf_path in sorted(contracts_path.parent.glob("*.tf")):
+            errors.extend(_root_output_errors(env, tf_path))
+        errors.extend(
+            f"{env}/contracts.tf: local {local_name!r} field {field} looks like a secret value; "
+            "carry a Secret name/key reference instead"
+            for local_name, value in locals_map.items()
+            for field in secret_value_fields(value)
+        )
 
         main_path = repo_root / "infra/terraform/environments" / env / "main.tf"
         if not main_path.is_file():
@@ -282,6 +345,10 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
             {stage_name: stage.get("catalog") for stage_name, stage in stages.items()}
             if isinstance(stages, dict)
             else {"": contracts.get("catalog")}
+        )
+        errors.extend(
+            f"{env}: applied provider_contracts.{field} looks like a secret value; carry a Secret name/key instead"
+            for field in secret_value_fields(contracts)
         )
         for stage_name, catalog in catalogs.items():
             if not isinstance(catalog, dict):

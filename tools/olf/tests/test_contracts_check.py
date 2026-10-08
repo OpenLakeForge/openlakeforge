@@ -141,7 +141,10 @@ def test_descriptor_schema_conformance_passes_against_real_repo() -> None:
 
 
 def _repo_with_local_contracts(
-    tmp_path: Path, contracts_tf_fixture: str, main_tf_fixture: str = "valid_main.tf"
+    tmp_path: Path,
+    contracts_tf_fixture: str,
+    main_tf_fixture: str = "valid_main.tf",
+    outputs_tf_fixture: str | None = None,
 ) -> Path:
     """A synthetic repo root where `local`'s contracts.tf/main.tf come from a
     fixture under test, while azure-poc/aws-poc and the aws-glue module are
@@ -153,11 +156,18 @@ def _repo_with_local_contracts(
         env_dir.mkdir(parents=True)
         shutil.copy(ROOT / "infra/terraform/environments" / env / "contracts.tf", env_dir / "contracts.tf")
         shutil.copy(ROOT / "infra/terraform/environments" / env / "main.tf", env_dir / "main.tf")
+        shutil.copy(ROOT / "infra/terraform/environments" / env / "outputs.tf", env_dir / "outputs.tf")
 
     local_dir = tmp_path / "infra/terraform/environments/local"
     local_dir.mkdir(parents=True)
     (local_dir / "contracts.tf").write_text((hcl_fixtures / contracts_tf_fixture).read_text())
     (local_dir / "main.tf").write_text((hcl_fixtures / main_tf_fixture).read_text())
+    outputs_source = (
+        hcl_fixtures / outputs_tf_fixture
+        if outputs_tf_fixture
+        else ROOT / "infra/terraform/environments/local/outputs.tf"
+    )
+    (local_dir / "outputs.tf").write_text(outputs_source.read_text())
 
     glue_dir = tmp_path / "infra/terraform/modules/catalog/aws-glue"
     glue_dir.mkdir(parents=True)
@@ -192,6 +202,67 @@ def test_hcl_structured_contracts_rejects_missing_check_block(tmp_path: Path) ->
 
     assert not result.ok
     assert "local_contract_adapters_are_explicit" in result.detail
+
+
+def test_hcl_structured_contracts_rejects_secret_valued_root_outputs(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(
+        tmp_path, "valid_local_contracts.tf", outputs_tf_fixture="invalid_secret_outputs.tf"
+    )
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "'s3_secret_key' is sensitive" in result.detail
+    assert "'unwrapped' exposes a secret value" in result.detail
+
+
+def test_hcl_structured_contracts_rejects_secret_values_in_the_contract_surface(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "invalid_secret_literal_contract.tf")
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "secret_access_key looks like" in result.detail
+    assert "root_client_secret looks like" in result.detail
+    assert "secret_access_key_key" not in result.detail
+
+
+def test_hcl_structured_contracts_rejects_a_secret_output_in_any_root_file(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    extra = repo_root / "infra/terraform/environments/local/extra.tf"
+    extra.write_text('output "leak" {\n  value     = module.seaweedfs.s3_secret_key\n  sensitive = true\n}\n')
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "local/extra.tf: output 'leak' is sensitive" in result.detail
+
+
+def test_secret_value_fields_flags_values_but_not_references() -> None:
+    contract = {
+        "ok": {"credentials_secret_name": "s", "secret_access_key_key": "K", "token_uri": "http://x", "secrets": {}},
+        "bad": [{"root_client_secret": "hunter2"}, {"password": "x"}],
+    }
+
+    assert _hcl.secret_value_fields(contract) == ["bad[0].root_client_secret", "bad[1].password"]
+
+
+@pytest.mark.parametrize("fixture", sorted(FIXTURES.glob("*provider-contracts*.json")), ids=lambda p: p.name)
+def test_provider_contract_fixtures_carry_no_secret_values(fixture: Path) -> None:
+    assert _hcl.secret_value_fields(json.loads(fixture.read_text())) == []
+
+
+def test_hcl_phase_two_invariants_rejects_secret_valued_contract_field(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        _hcl.contracts_module,
+        "load_provider_contracts",
+        lambda terraform_dir, *, environ=None: {"catalog": {}, "storage": {"secret_access_key": "hunter2"}},
+    )
+
+    result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
+
+    assert not result.ok
+    assert "storage.secret_access_key" in result.detail
 
 
 @pytest.mark.parametrize("env", ["azure-poc", "aws-poc"])
