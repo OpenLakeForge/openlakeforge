@@ -136,7 +136,8 @@
         "access": {"$ref": "#/definitions/accessBinding"},
         "observability": {"$ref": "#/definitions/binding"},
         "catalog_service": {"$ref": "#/definitions/binding"},
-        "governance_service": {"$ref": "#/definitions/binding"}
+        "governance_service": {"$ref": "#/definitions/binding"},
+        "portal": {"$ref": "#/definitions/binding"}
       }
     },
     "layerStorage": {

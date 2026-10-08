@@ -22,13 +22,14 @@ import requests
 from olf import access, config, log
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
-from olf.e2e._shell import E2EConfig, E2EError, kubectl
+from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 TRAEFIK_DEPLOYMENT = "deploy/traefik"
 # cert-manager's ingress-shim names the Certificate after the Ingress's TLS
 # secret (modules/access/traefik).
 ROUTES_CERTIFICATE = "openlakeforge-routes-tls"
 DRILL_TIMEOUT_SECONDS = 180
+PORTAL_REF = "shared/portal"
 
 
 def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
@@ -47,6 +48,32 @@ def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
     _retain(cfg, "traefik-restart", {"route": url, "recovered": recovered, "elapsed_seconds": elapsed})
     if not recovered:
         raise E2EError(f"{url} did not answer within {elapsed}s of Traefik restarting.")
+
+
+def check_portal_lists_routes(cfg: E2EConfig) -> None:
+    """The landing page at the base domain links every enabled user-facing route and nothing else."""
+    log.step("Checking the landing page lists the user-facing routes...")
+    routes = load_provider_contracts_or_raise(cfg)["shared"]["access"]["routes"]
+    with access.service_url(
+        PORTAL_REF,
+        service="portal",
+        remote_port=8080,
+        namespace=cfg.platform_namespace,
+        log_path=f"/tmp/openlakeforge-{cfg.env}-portal-port-forward.log",
+        shared_namespace=cfg.platform_namespace,
+        kube_context=cfg.kube_context,
+    ) as url:
+        response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    assert_portal_lists_routes(response.text, routes)
+
+
+def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
+    others = {ref: route for ref, route in routes.items() if ref != PORTAL_REF}
+    listed = {ref for ref, route in others.items() if f'href="{route["url"]}"' in page}
+    wanted = {ref for ref, route in others.items() if route["enabled"] and route["exposure"] == "user-facing"}
+    if listed != wanted:
+        raise E2EError(f"Landing page links {sorted(listed)}, expected {sorted(wanted)}.")
 
 
 def _dagster_answers(url: str, *, attempts: int, delay: float) -> bool:

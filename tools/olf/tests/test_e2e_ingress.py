@@ -102,3 +102,19 @@ def test_restart_drill_keeps_its_evidence_when_the_route_does_not_recover(
 
     evidence = json.loads((tmp_path / ".tmp/e2e-evidence/traefik-restart-lakehouse.json").read_text())
     assert evidence["recovered"] is False
+
+
+def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
+    routes = {
+        "shared/portal": {"url": "https://olf.localhost", "enabled": True, "exposure": "user-facing"},
+        "shared/query": {"url": "https://trino.olf.localhost", "enabled": True, "exposure": "user-facing"},
+        "shared/catalog_service": {"url": "https://polaris.olf.localhost", "enabled": True, "exposure": "internal"},
+        "stage/dev/reporting": {"url": "https://bi.dev.olf.localhost", "enabled": False, "exposure": "user-facing"},
+    }
+    _ingress.assert_portal_lists_routes('<a href="https://trino.olf.localhost">query</a>', routes)
+    with pytest.raises(E2EError, match="expected"):
+        _ingress.assert_portal_lists_routes("<html></html>", routes)
+    with pytest.raises(E2EError, match="catalog_service"):
+        _ingress.assert_portal_lists_routes(
+            '<a href="https://trino.olf.localhost">q</a><a href="https://polaris.olf.localhost">p</a>', routes
+        )

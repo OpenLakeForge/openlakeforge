@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Chart 1 — Cluster Pod Census. Verified via `helm template` with the
-project's own values files: 19 pods at rest (13 Deployments, 6 StatefulSets)."""
+project's own values files: 20 pods at rest (14 Deployments, 6 StatefulSets)."""
 from pathlib import Path
 from k8ssvg import Chart
 
@@ -45,20 +45,21 @@ c.box(790, ROW2, 168, 180, "Trino — 1", color="platform", fill="#FFFFFF")
 c.icon(874, ROW2 + IY1, "deploy", "coordinator", label2="workers: 0 · 2G heap")
 
 c.badge(978, ROW2, 164, 380,
-        ["19 pods", "at steady state", "", "13 Deployments", "6 StatefulSets"],
+        ["20 pods", "at steady state", "", "14 Deployments", "6 StatefulSets"],
         color="control")
 
-# --- Ingress row: olf-system only; service routes are pending (#266) ---
-c.box(52, ROW_ING, 906, 180, "Ingress — 4 pods · olf-system", color="platform", fill="#FFFFFF")
-ING = [52 + 906 * (i + 0.5) / 4 for i in range(4)]
+# --- Ingress row: olf-system only; routes are Ingress objects ---
+c.box(52, ROW_ING, 906, 180, "Ingress — 5 pods · olf-system", color="platform", fill="#FFFFFF")
+ING = [52 + 906 * (i + 0.5) / 5 for i in range(5)]
 c.icon(ING[0], ROW_ING + IY1, "deploy", "traefik", label2="hostPort 80/443")
 c.icon(ING[1], ROW_ING + IY1, "deploy", "cert-manager", label2="controller · local CA")
 c.icon(ING[2], ROW_ING + IY1, "deploy", "cainjector", label2="cert-manager")
 c.icon(ING[3], ROW_ING + IY1, "deploy", "webhook", label2="cert-manager")
+c.icon(ING[4], ROW_ING + IY1, "deploy", "portal", label2="landing page")
 
 # --- Row 3: ephemeral, grouped by what creates each Job ---
 c.box(52, ROW3, 1090, 360,
-      "Ephemeral workloads — created on demand, never part of the 19",
+      "Ephemeral workloads — created on demand, never part of the 20",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 
 # each sub-box spaces its own icons evenly, so a label never hangs off the group
