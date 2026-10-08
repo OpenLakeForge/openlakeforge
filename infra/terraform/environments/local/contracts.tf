@@ -334,15 +334,51 @@ locals {
   # ADR 0014: the product-level role model, identical on every provider.
   identity_roles = yamldecode(file("${path.root}/../../../../release/identity-roles.yaml"))
 
+  identity_keycloak = var.identity_issuer == "keycloak"
+
+  # Where each consumer's client may send the browser back. The perimeter
+  # fronts every user-facing route (#176), so it may return to all of them.
+  identity_consumer_redirects = {
+    superset     = [for name in keys(local.analytics_stages) : "https://superset.${name}.${var.access_base_domain}/*"]
+    openmetadata = local.governance_enabled ? ["https://openmetadata.${var.access_base_domain}/*"] : []
+    trino        = ["https://trino.${var.access_base_domain}/*"]
+  }
+  identity_client_redirects = {
+    for name in ["perimeter", "superset", "openmetadata", "trino"] : name => {
+      redirect_uris = name == "perimeter" ? concat(
+        [for stage in keys(local.enabled_stages) : "https://dagster.${stage}.${var.access_base_domain}/oauth2/callback"],
+        [for uri in flatten(values(local.identity_consumer_redirects)) : replace(uri, "/*", "/oauth2/callback")],
+      ) : local.identity_consumer_redirects[name]
+    }
+  }
+
+  # Consumer-facing identity.oidc fields (ADR 0014). With an external issuer
+  # the operator provisions the client Secrets, named by consumer like the
+  # adapter's own, and the clients keep the consumer names as ids.
+  identity_oidc = try(module.keycloak[0].contract, local.identity_oidc_external)
+  identity_oidc_external = {
+    issuer_url   = try(var.identity_external.issuer_url, null)
+    role_claim   = try(var.identity_external.role_claim, null)
+    role_mapping = try(var.identity_external.role_mapping, null)
+    clients = {
+      for name in keys(local.identity_client_redirects) : name => {
+        client_id  = name
+        secret_ref = { name = "oidc-client-${name}", key = "client-secret" }
+      }
+    }
+    adapter      = "external"
+    capabilities = { admin_api = false }
+  }
+
   identity_contract = {
     provider              = local.local_provider_name
-    implementation        = "identity.local_development_credentials"
-    adapter               = "identity.local_development_credentials"
-    auth_mode             = "basic-local"
-    oidc_enabled          = false
+    implementation        = "identity.oidc"
+    adapter               = local.identity_keycloak ? "identity.keycloak" : "identity.external_oidc"
+    auth_mode             = "oidc"
+    oidc_enabled          = true
     workload_identity     = "kubernetes-service-account"
     local_only            = true
-    future_adapter_shapes = ["identity.oidc", "identity.aws_iam_pod_identity"]
+    future_adapter_shapes = ["identity.aws_iam_pod_identity"]
   }
 
   # ADR 0013: user-facing services only, keyed by contract ref. A stage route
@@ -377,6 +413,16 @@ locals {
         service_port = module.trino.http_port
       }
     },
+    local.identity_keycloak ? {
+      # The login surface: never granted a role and never behind the perimeter.
+      "shared/identity" = {
+        host         = "auth.${var.access_base_domain}"
+        tls_host     = "*.${var.access_base_domain}"
+        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+        service_name = module.keycloak[0].service_name
+        service_port = module.keycloak[0].http_port
+      }
+    } : {},
     local.governance_enabled ? {
       "shared/governance_service" = {
         host         = "openmetadata.${var.access_base_domain}"
@@ -456,8 +502,11 @@ locals {
         access_key_id_key       = local.artifact_bucket_contract.access_key_id_key
         secret_access_key_key   = local.artifact_bucket_contract.secret_access_key_key
       }
-      secrets  = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
-      identity = { ref = "shared/identity", implementation = local.identity_contract.implementation, roles = local.identity_roles }
+      secrets = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
+      identity = merge(
+        { ref = "shared/identity", implementation = local.identity_contract.implementation, roles = local.identity_roles },
+        local.identity_oidc,
+      )
       access = {
         ref            = "shared/access"
         implementation = local.access_contract.implementation

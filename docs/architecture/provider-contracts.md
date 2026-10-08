@@ -124,7 +124,7 @@ identical on every provider because each root renders it with
 ```json
 "identity": {
   "ref": "shared/identity",
-  "implementation": "identity.local_development_credentials",
+  "implementation": "identity.oidc",
   "roles": {
     "precedence": ["platform-admin", "data-engineer", "analyst", "viewer"],
     "grants": {
@@ -173,8 +173,12 @@ reference:
 | `role_mapping` keys are canonical roles; each value is a non-empty list of claim values | an unknown role fails closed; the claim values are the issuer's vocabulary (Keycloak group names, Cognito groups, Entra object IDs) |
 | each client is `client_id` plus `secret_ref{name,key}` | a literal secret is an unsupported field; the #181 secret-value check also covers it |
 
-The `identity.oidc` contract is parsed and schema-checked here; no root emits
-it yet (the Keycloak adapter, #24 part b). The optional `admin` block (seam 4)
+The `identity.oidc` contract is parsed and schema-checked here. The local root
+emits it (adapter `keycloak`, `provider: {realm}`, `role_claim: groups`, the
+default `role_mapping` of each role to its same-named group); the AWS and Azure
+roots do not yet. With `spec.identity.issuer: external` the local root emits
+the profile's issuer fields and names the client Secrets
+`oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The optional `admin` block (seam 4)
 is not in the schema until #331. The perimeter fields are #176.
 
 Ops artifacts are shared storage with a stage-specific activation prefix,

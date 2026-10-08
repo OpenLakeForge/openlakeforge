@@ -7,6 +7,7 @@ semantics of the shell script.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -59,6 +60,25 @@ def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return _topology_variables(config.context)
 
 
+def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """`spec.identity` as the local root's inputs. An `external` issuer carries
+    its claim mapping with it; `keycloak` needs only the choice, because the
+    adapter derives the rest from the canonical roles."""
+    identity = config.context.topology.identity
+    variables = {"identity_issuer": identity.issuer}
+    if identity.issuer == "external":
+        variables["identity_external"] = json.dumps(
+            {
+                "issuer_url": identity.issuer_url,
+                "role_claim": identity.role_claim,
+                "role_mapping": {role: list(values) for role, values in (identity.role_mapping or {}).items()},
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    return variables
+
+
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
     return topology_variables(config) | {
@@ -81,7 +101,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "superset_image_pull_policy": images.superset_pull_policy,
         "access_base_domain": config.context.topology.access.base_domain,
         "access_issuer": config.context.topology.access.issuer,
-    } | cached_chart_variables(config) | {
+    } | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
     }
 

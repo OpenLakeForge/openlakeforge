@@ -3,8 +3,8 @@
 ## Status
 
 Binding. The local root runs the ingress adapter and emits `access.ingress`
-with routes for Dagster and Superset per stage, Trino, and OpenMetadata when
-governance is enabled; the AWS and Azure roots still emit
+with routes for Dagster and Superset per stage, Trino, OpenMetadata when
+governance is enabled, and `auth.<base_domain>` for the identity provider; the AWS and Azure roots still emit
 `access.kubectl_port_forward`.
 
 ## Context
@@ -90,3 +90,5 @@ Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.
 clients onto the routes, added `olf access trust`, and lists the URLs in
 `olf status`. #268 added the deploy preflight, the not-Ready Certificate
 section in `olf status`, and the e2e Traefik restart and renewal drills.
+#24 added the `shared/identity` route (`auth.<base_domain>`, Keycloak) to the
+local routes; it is never behind the perimeter (ADR 0014).
