@@ -8,6 +8,7 @@ import jsonschema
 import pytest
 
 from olf.contracts import build_contract_env
+from olf.contracts_check import _hcl
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 
@@ -1379,3 +1380,49 @@ def test_identity_roles_fail_closed_when_the_release_role_model_is_missing(
 
     with pytest.raises(ProviderContractError, match="cannot read the canonical role model"):
         parse_provider_contracts(contract, topology)
+
+
+def _oidc_contract(name: str) -> dict:
+    contract = _fixture("local-provider-contracts-v3.json")
+    identity = contract["shared"]["identity"]
+    identity.update(json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text()))
+    return contract
+
+
+@pytest.mark.parametrize("name", ["keycloak", "cognito"])
+def test_identity_oidc_accepts_keycloak_and_a_non_keycloak_issuer(name: str) -> None:
+    contract = _oidc_contract(name)
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    # Conformance: both issuers satisfy the same consumer-facing surface.
+    identity = parsed.shared.values["identity"]
+    assert {"issuer_url", "role_claim", "role_mapping", "clients"} <= set(identity)
+    assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "trino"}
+    assert identity["role_claim"] == ("groups" if name == "keycloak" else "cognito:groups")
+    assert _hcl.secret_value_fields(contract) == []
+    jsonschema.validate(contract, SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (lambda i: i["capabilities"].__setitem__("sso", True), "capabilities.sso"),
+        (lambda i: i.__setitem__("provider", "x"), "provider must be an object"),
+        (lambda i: i["role_mapping"].__setitem__("guest", ["x"]), "unknown role 'guest'"),
+        (lambda i: i["role_mapping"].__setitem__("viewer", []), "non-empty list"),
+        (lambda i: i.__setitem__("role_mapping", {}), "at least one canonical role"),
+        (lambda i: i["clients"].pop("trino"), "missing required fields"),
+        (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
+        (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
+        (lambda i: i["clients"]["trino"]["secret_ref"].pop("key"), "missing required fields"),
+        (lambda i: i.__setitem__("issuer_url", "http://auth.example.com"), "must be https"),
+        (lambda i: i.pop("role_claim"), "identity.oidc requires"),
+        (lambda i: i.__setitem__("implementation", "identity.local_development_credentials"), "require implementation"),
+    ],
+)
+def test_identity_oidc_fails_closed(mutate, match: str) -> None:
+    contract = _oidc_contract("cognito")
+    mutate(contract["shared"]["identity"])
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, _topology(contract))

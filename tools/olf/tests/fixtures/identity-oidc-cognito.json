@@ -1,0 +1,58 @@
+{
+  "implementation": "identity.oidc",
+  "issuer_url": "https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_Example",
+  "role_claim": "cognito:groups",
+  "role_mapping": {
+    "platform-admin": [
+      "olf-admins"
+    ],
+    "data-engineer": [
+      "olf-engineers",
+      "olf-data-ops"
+    ],
+    "analyst": [
+      "olf-analysts"
+    ],
+    "viewer": [
+      "olf-viewers"
+    ]
+  },
+  "clients": {
+    "perimeter": {
+      "client_id": "olf-perimeter",
+      "secret_ref": {
+        "name": "oidc-perimeter-client",
+        "key": "client-secret"
+      }
+    },
+    "superset": {
+      "client_id": "olf-superset",
+      "secret_ref": {
+        "name": "oidc-superset-client",
+        "key": "client-secret"
+      }
+    },
+    "openmetadata": {
+      "client_id": "olf-openmetadata",
+      "secret_ref": {
+        "name": "oidc-openmetadata-client",
+        "key": "client-secret"
+      }
+    },
+    "trino": {
+      "client_id": "olf-trino",
+      "secret_ref": {
+        "name": "oidc-trino-client",
+        "key": "client-secret"
+      }
+    }
+  },
+  "adapter": "external",
+  "capabilities": {
+    "admin_api": false,
+    "logout_endpoint": false
+  },
+  "provider": {
+    "user_pool_id": "eu-west-1_Example"
+  }
+}

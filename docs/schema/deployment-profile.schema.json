@@ -47,6 +47,27 @@
             }
           }
         },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "issuer": {"enum": ["keycloak", "external"], "default": "keycloak"},
+            "issuer_url": {"type": "string", "pattern": "^https://"},
+            "role_claim": {"type": "string", "minLength": 1},
+            "role_mapping": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {"enum": ["platform-admin", "data-engineer", "analyst", "viewer"]},
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          },
+          "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
+          "then": {"required": ["issuer_url", "role_claim", "role_mapping"]}
+        },
         "stages": {
           "type": "object",
           "additionalProperties": false,

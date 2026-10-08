@@ -103,6 +103,63 @@ def _check_identity_roles(value: object, distribution_root: Path | None) -> None
         raise ProviderContractError(f"{where} differs from {IDENTITY_ROLES_PATH}; the role model is fixed per release")
 
 
+_OIDC_IMPLEMENTATION = "identity.oidc"
+_OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
+# Optional: `adapter` is provenance only, `provider` is an opaque block for the
+# adapter's own data (consumers never read it), `capabilities` declares what
+# this issuer lacks so consumers degrade (no admin API: `olf users` read-only).
+_OIDC_OPTIONAL = {"adapter", "provider", "capabilities"}
+_OIDC_CAPABILITIES = frozenset({"admin_api", "groups_in_token", "logout_endpoint"})
+_OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
+
+
+def _check_identity_oidc(identity: Mapping[str, Any]) -> None:
+    """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
+    a canonical role or a consumer, never by an issuer product; credentials are
+    Secret references only."""
+    where = "shared.identity"
+    present = _OIDC_FIELDS & set(identity)
+    if identity["implementation"] != _OIDC_IMPLEMENTATION:
+        present = present | (_OIDC_OPTIONAL & set(identity))
+        if present:
+            raise ProviderContractError(f"{where} fields {sorted(present)!r} require implementation identity.oidc")
+        return
+    if present != _OIDC_FIELDS:
+        raise ProviderContractError(f"{where} identity.oidc requires {sorted(_OIDC_FIELDS - present)!r}")
+    if "adapter" in identity:
+        _string(identity["adapter"], where=f"{where}.adapter")
+    if "provider" in identity:
+        _mapping(identity["provider"], where=f"{where}.provider")
+    for capability, enabled in _mapping(identity.get("capabilities", {}), where=f"{where}.capabilities").items():
+        if capability not in _OIDC_CAPABILITIES or not isinstance(enabled, bool):
+            raise ProviderContractError(
+                f"{where}.capabilities.{capability} must be a boolean named one of {sorted(_OIDC_CAPABILITIES)!r}"
+            )
+    issuer_url = _absolute_http_uri(identity["issuer_url"], where=f"{where}.issuer_url")
+    if not issuer_url.startswith("https://"):
+        raise ProviderContractError(f"{where}.issuer_url must be https")
+    _string(identity["role_claim"], where=f"{where}.role_claim")
+    roles = identity["roles"]["precedence"]
+    mapping = _mapping(identity["role_mapping"], where=f"{where}.role_mapping")
+    if not mapping:
+        raise ProviderContractError(f"{where}.role_mapping must map at least one canonical role")
+    for role, values in mapping.items():
+        if role not in roles:
+            raise ProviderContractError(f"{where}.role_mapping names unknown role {role!r}")
+        if not isinstance(values, list) or not values or len(set(map(str, values))) != len(values):
+            raise ProviderContractError(f"{where}.role_mapping.{role} must be a non-empty list of unique claim values")
+        for value in values:
+            _string(value, where=f"{where}.role_mapping.{role} entry")
+    clients = _fields(identity["clients"], where=f"{where}.clients", required=set(_OIDC_CLIENTS))
+    for name, client in clients.items():
+        client_where = f"{where}.clients.{name}"
+        document = _fields(client, where=client_where, required={"client_id", "secret_ref"})
+        _string(document["client_id"], where=f"{client_where}.client_id")
+        secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
+        for field in ("name", "key"):
+            _string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")
+
+
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
     present = _ACCESS_INGRESS_FIELDS & set(access)
     if not present:
@@ -180,7 +237,7 @@ def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatfo
             where=f"shared.{name}",
             required={"ref", "implementation"},
             optional=(_ACCESS_INGRESS_FIELDS if name == "access" else set())
-            | ({"roles"} if name == "identity" else set())
+            | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
                 "endpoint",
                 "bucket_name",
@@ -203,6 +260,7 @@ def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatfo
     if "roles" not in parsed["identity"]:
         raise ProviderContractError("shared.identity is missing required field 'roles'")
     _check_identity_roles(parsed["identity"]["roles"], distribution_root)
+    _check_identity_oidc(parsed["identity"])
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")

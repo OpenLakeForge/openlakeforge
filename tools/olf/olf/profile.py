@@ -21,6 +21,7 @@ from typing import Any
 
 import yaml
 
+from olf import config
 from olf.deployment.context import Provider
 
 PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
@@ -36,9 +37,11 @@ _IDENTIFIER_PATTERN = re.compile(_IDENTIFIER_PATTERN_SOURCE)
 
 _ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
 _METADATA_FIELDS = {"name"}
-_SPEC_FIELDS = {"provider", "preset", "stages", "access"}
+_SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
+_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping"}
+_IDENTITY_ISSUERS = ("keycloak", "external")
 # Dot-separated DNS labels; every route host is `<service>[.<stage>].<base_domain>`.
 _BASE_DOMAIN_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
 _STAGE_FIELDS = {"enabled", "capabilities"}
@@ -79,6 +82,19 @@ class AccessSpec:
 
 
 @dataclass(frozen=True)
+class IdentitySpec:
+    """Which OIDC issuer signs people in (ADR 0014 seam 2). `keycloak` is the
+    on-prem default OpenLakeForge deploys; `external` points at an existing
+    issuer and must say how its claims map to canonical roles. Credentials never
+    appear here: client secrets are Secret references in the provider contract."""
+
+    issuer: str = "keycloak"
+    issuer_url: str | None = None
+    role_claim: str | None = None
+    role_mapping: Mapping[str, tuple[str, ...]] | None = None
+
+
+@dataclass(frozen=True)
 class StageCapabilities:
     analytics: bool = False
     governance: bool = False
@@ -102,6 +118,7 @@ class DeploymentProfile:
     preset: Preset
     stages: tuple[StageSpec, ...]
     access: AccessSpec = AccessSpec()
+    identity: IdentitySpec = IdentitySpec()
 
     def stage(self, name: StageName) -> StageSpec | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -239,6 +256,40 @@ def _validate_access(document: object, *, source: str) -> AccessSpec:
     return AccessSpec(base_domain=base_domain, issuer=issuer)
 
 
+def _validate_identity(document: object, *, source: str) -> IdentitySpec:
+    where = f"{source}: spec.identity"
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{where} must be an object")
+    _forbid_unexpected(document, _IDENTITY_FIELDS, where=where)
+    issuer = document.get("issuer", "keycloak")
+    if issuer not in _IDENTITY_ISSUERS:
+        raise DeploymentProfileError(f"{where}.issuer must be one of {list(_IDENTITY_ISSUERS)!r}")
+    if issuer == "external":
+        missing = sorted({"issuer_url", "role_claim", "role_mapping"} - set(document))
+        if missing:
+            raise DeploymentProfileError(f"{where}: issuer 'external' requires {missing!r}")
+    issuer_url = document.get("issuer_url")
+    if issuer_url is not None and (not isinstance(issuer_url, str) or not issuer_url.startswith("https://")):
+        raise DeploymentProfileError(f"{where}.issuer_url must be an https URL")
+    role_claim = document.get("role_claim")
+    if role_claim is not None and (not isinstance(role_claim, str) or not role_claim):
+        raise DeploymentProfileError(f"{where}.role_claim must be a non-empty string")
+    mapping = None
+    if "role_mapping" in document:
+        raw = document["role_mapping"]
+        if not isinstance(raw, Mapping) or not raw:
+            raise DeploymentProfileError(f"{where}.role_mapping must be a non-empty object")
+        # Fail closed on a role the product does not define (release/identity-roles.yaml).
+        roles = yaml.safe_load((config.distribution_root() / "release/identity-roles.yaml").read_text("utf-8"))
+        for role, values in raw.items():
+            if role not in roles["precedence"]:
+                raise DeploymentProfileError(f"{where}.role_mapping names unknown role {role!r}")
+            if not isinstance(values, list) or not values or not all(isinstance(v, str) and v for v in values):
+                raise DeploymentProfileError(f"{where}.role_mapping.{role} must be a non-empty list of strings")
+        mapping = {role: tuple(values) for role, values in raw.items()}
+    return IdentitySpec(issuer=issuer, issuer_url=issuer_url, role_claim=role_claim, role_mapping=mapping)
+
+
 def validate_deployment_profile(
     document: Mapping[str, Any], *, source: str = "openlakeforge.yaml"
 ) -> DeploymentProfile:
@@ -305,7 +356,10 @@ def validate_deployment_profile(
             )
 
     access = _validate_access(spec.get("access", {}), source=source)
-    return DeploymentProfile(name=name, provider=provider, preset=preset, stages=stages, access=access)
+    identity = _validate_identity(spec.get("identity", {}), source=source)
+    return DeploymentProfile(
+        name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity
+    )
 
 
 def load_deployment_profile(path: str | Path) -> DeploymentProfile:

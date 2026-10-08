@@ -4,8 +4,9 @@
 
 Partly binding. **Binding today:** the canonical role model (seam 1) —
 `release/identity-roles.yaml`, rendered into `shared.identity.roles` by all
-three roots and validated by `olf` (#175). **Decided, not built:** seams 2–4
-below. No identity provider is deployed, nothing enforces a grant, and every
+three roots and validated by `olf` (#175) — and the `identity.oidc` contract
+shape (seam 2), parsed and schema-checked but not yet emitted by any root
+(#24). **Decided, not built:** the adapter, and seams 3–4 below. No identity provider is deployed, nothing enforces a grant, and every
 root still emits its existing `identity` implementation
 (`identity.local_development_credentials`, `identity.aws_pod_identity`,
 `identity.azure_workload_identity_ready`). Rows marked "not built" are the
@@ -31,7 +32,7 @@ each have their own adapter and none leaks into another:
 | Seam | Contract location | Local / on-prem adapter | Later adapters |
 | --- | --- | --- | --- |
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
-| 2. Issuer: who you are, which roles you hold (**not built**, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
+| 2. Issuer: who you are, which roles you hold (**contract built**, adapter not built, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
 | 3. Perimeter: enforce route grants before the service (**not built**, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
 | 4. Admin: write user and role assignment (**not built**, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
@@ -84,20 +85,56 @@ principals (an `analyst` mapped to an IAM role with Lake Formation grants,
 #179), that is a fifth mapping keyed by canonical role, added then. Nothing
 here forecloses it and nothing here builds it.
 
-### Seam 2 — issuer (decided, not built; #24 then #331)
+### Seam 2 — issuer (contract built; adapter #24 part b, then #331)
 
-`shared.identity` with `implementation: identity.oidc` carries the issuer URL,
-the claim that holds roles, a `role_mapping` from canonical role to issuer
-claim values, and client IDs with Secret references. Nothing in the
-consumer-facing fields is Keycloak-specific. Keycloak: groups named exactly as
-the canonical roles. Entra ID: group object IDs. Cognito: `cognito:groups` as
-the claim. A contract fixture for an external issuer will prove that.
-Final field names are fixed in #24's contract change. The Deployment Profile
-gains `spec.identity` (`issuer: keycloak | external`).
+`shared.identity` with `implementation: identity.oidc` carries, beside
+`roles`:
+
+| Field | Meaning |
+| --- | --- |
+| `issuer_url` | https issuer; the token `iss` must equal it |
+| `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
+| `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
+| `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}` |
+
+Nothing in these fields is Keycloak-specific. Keycloak: groups named exactly
+as the canonical roles. Entra ID: group object IDs. Cognito: `cognito:groups`
+as the claim. The test fixtures include a Cognito-style issuer to prove an
+external issuer satisfies the contract unchanged. A secret value in a client
+is rejected by the parser and by the #181 secret-value check; credentials
+reach pods only through `secretKeyRef`/`envFrom`.
+
+Optional, so an issuer that lacks something says so and consumers degrade
+rather than break: `adapter` (provenance only, e.g. `keycloak`, `external`),
+`provider` (an opaque object for the adapter's own data, such as a realm or
+user pool id; consumers never read it, and it still passes the secret-value
+check), and `capabilities` (`admin_api`, `groups_in_token`, `logout_endpoint`,
+each boolean; absent means not declared, and no `admin_api` means `olf users`
+is read-only and points at the issuer console).
+
+**Adding a cloud adapter (Cognito or IAM Identity Center, Entra ID, GCP,
+generic OIDC) is a checklist, not a schema change:**
+
+1. Emit `implementation: identity.oidc` with the adapter in `adapter`.
+2. Provide `issuer_url`, `role_claim`, and `role_mapping` keyed by canonical
+   role, in the issuer's own claim values.
+3. Provide all four `clients` with `client_id` and `secret_ref{name,key}`;
+   secret values never enter Terraform outputs or state.
+4. Declare `capabilities` honestly; implement `admin_api` only if the issuer
+   has an admin surface (#331).
+5. Add a perimeter adapter only if the cloud has its own (#176, #180).
+6. Add a fixture beside `identity-oidc-keycloak.json`; the conformance test
+   runs every fixture through the same consumer-facing validation.
+
+The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
+(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`;
+`external` requires all three. `bootstrap_admins` (#331) and the optional
+`shared.identity.admin` block (seam 4) are deferred to #331.
 
 Realm-as-code uses a `keycloak-config-cli` Job, not the Terraform Keycloak
-provider: that provider must reach Keycloak at plan time, so it would be
-configured from a resource created in the same apply. User records never live
+provider (decided in #24; the issue text preferred Terraform): that provider
+must reach Keycloak at plan time, so it would be configured from a resource
+created in the same apply. User records never live
 in Terraform; groups, clients, and the realm only. #24 must also verify two
 known risks before building on them: `*.localhost` resolves to a pod's own
 loopback, so back-channel token and JWKS calls need in-cluster resolution of
@@ -135,3 +172,7 @@ Assigning roles is an optional capability of the issuer. Where it is absent,
 
 New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
 #176, and #331, which rewrite this ADR as they land.
+
+Seam 2 contract (#24 part a): `identity.oidc` fields fixed and validated in
+`olf` and the schema; profile `spec.identity` added; realm-as-code decided as
+a `keycloak-config-cli` Job. The Keycloak adapter is #24 part b.

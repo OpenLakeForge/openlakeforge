@@ -145,8 +145,37 @@ file.)
 | every `grants` key is a service a route can publish (`orchestration`, `reporting`, `governance_service`, `query`) | the perimeter resolves route ref, to service, to roles |
 | grants are monotonic across `precedence` | multi-role union equals the highest role |
 
-This contract carries roles only; issuer, perimeter, and admin fields are
-decided in ADR 0014 and not yet emitted.
+With `implementation: identity.oidc` (ADR 0014 seam 2, #24) the binding also
+carries the issuer. No field is issuer-specific; everything is keyed by a
+canonical role or a consumer, and a credential is only ever a Secret
+reference:
+
+```json
+"identity": {
+  "ref": "shared/identity",
+  "implementation": "identity.oidc",
+  "roles": {"...": "as above"},
+  "issuer_url": "https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_Example",
+  "role_claim": "cognito:groups",
+  "role_mapping": {"platform-admin": ["olf-admins"], "viewer": ["olf-viewers"]},
+  "clients": {
+    "perimeter": {"client_id": "olf-perimeter", "secret_ref": {"name": "oidc-perimeter-client", "key": "client-secret"}}
+  }
+}
+```
+
+(`clients` must name all of `perimeter`, `superset`, `openmetadata`, `trino`.)
+
+| Rule | Why |
+| --- | --- |
+| the four issuer fields appear together, only with `identity.oidc` | other implementations stay unchanged |
+| `issuer_url` is https | tokens and redirects must not cross plaintext |
+| `role_mapping` keys are canonical roles; each value is a non-empty list of claim values | an unknown role fails closed; the claim values are the issuer's vocabulary (Keycloak group names, Cognito groups, Entra object IDs) |
+| each client is `client_id` plus `secret_ref{name,key}` | a literal secret is an unsupported field; the #181 secret-value check also covers it |
+
+The `identity.oidc` contract is parsed and schema-checked here; no root emits
+it yet (the Keycloak adapter, #24 part b). The optional `admin` block (seam 4)
+is not in the schema until #331. The perimeter fields are #176.
 
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
