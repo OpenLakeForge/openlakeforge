@@ -37,6 +37,8 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
     profile.write_text("placeholder: resolved by the stubbed context\n")
     # The contract environment is derived from the project's own descriptors.
     (tmp_path / "lakehouse_code").symlink_to(Path(__file__).resolve().parents[3] / "lakehouse_code")
+    # The contract parser reads the distribution's role model from the same root.
+    (tmp_path / "release").symlink_to(Path(__file__).resolve().parents[3] / "release")
     monkeypatch.delenv("OPENMETADATA_CATALOG_DATABASE", raising=False)
 
     def context_for(_profile_file: str, *, stage: str = "", **_kwargs: object) -> DeploymentContext:

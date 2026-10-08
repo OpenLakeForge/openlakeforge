@@ -10,7 +10,7 @@
     "artifact_registry": {"ref": "shared/artifact_registry", "implementation": "artifacts.azure_acr"},
     "ops_storage": {"ref": "shared/ops_storage", "implementation": "artifacts.azure_acr_and_s3_compatible_bucket", "bucket_name": "acme-ops", "artifact_base_uri": "s3://acme-ops"},
     "secrets": {"ref": "shared/secrets", "implementation": "secrets.kubernetes_secret_on_aks"},
-    "identity": {"ref": "shared/identity", "implementation": "identity.azure_workload_identity_ready"},
+    "identity": {"ref": "shared/identity", "implementation": "identity.azure_workload_identity_ready", "roles": {"precedence": ["platform-admin", "data-engineer", "analyst", "viewer"], "grants": {"orchestration": {"platform-admin": "full", "data-engineer": "full"}, "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"}, "governance_service": {"platform-admin": "Admin", "data-engineer": "write", "analyst": "read", "viewer": "read"}, "query": {"platform-admin": "yes", "data-engineer": "yes"}}}},
     "access": {"ref": "shared/access", "implementation": "access.kubectl_port_forward"},
     "observability": {"ref": "shared/observability", "implementation": "observability.object_log_archive_on_aks"}
   },

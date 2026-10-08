@@ -37,7 +37,7 @@ _PAYLOAD_ROOTS = (
     "docs/schema",
     "lakehouse_code",
 )
-_PAYLOAD_FILES = ("openlakeforge.yaml", "release/component-catalog.yaml")
+_PAYLOAD_FILES = ("openlakeforge.yaml", "release/component-catalog.yaml", "release/identity-roles.yaml")
 _EXCLUDED_PARTS = frozenset({".terraform", ".tmp", "__pycache__", ".pytest_cache", ".venv", "dist", "build"})
 _CATALOG_VERSION = re.compile(r"^distribution:\s*$.*?^\s+version:\s*['\"]?([^'\"\s#]+)", re.MULTILINE | re.DOTALL)
 _ALPHA_VERSION = re.compile(r"^(\d+\.\d+\.\d+)-alpha\.(\d+)$")

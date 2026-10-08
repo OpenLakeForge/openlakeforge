@@ -94,7 +94,8 @@ class _Helm:
 class _Provider:
     def __init__(self, context: DeploymentContext, helm: _Helm) -> None:
         self.context = context
-        self.env: dict[str, str] = {}
+        # As DeploymentContext.environment() does for a real provider.
+        self.env: dict[str, str] = {"OLF_DISTRIBUTION_ROOT": str(context.paths.distribution_root)}
         self.tools = SimpleNamespace(helm=helm)
         self.config = SimpleNamespace(
             charts={"dagster": SimpleNamespace(package_path=Path("unused.tgz"))},
@@ -151,7 +152,11 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     def deploy(stage: str):  # noqa: ANN202
         context = DeploymentContext.local(
-            repo_root=external_project, topology=topology, stage=stage, work_root=tmp_path / "work"
+            repo_root=external_project,
+            distribution_root=ROOT,
+            topology=topology,
+            stage=stage,
+            work_root=tmp_path / "work",
         )
         context.paths.work_root.mkdir(parents=True, exist_ok=True)
         provider = _Provider(context, helm)
@@ -262,7 +267,11 @@ def _build_report_harness(
 
     def deploy(stage: str):  # noqa: ANN202
         context = DeploymentContext.local(
-            repo_root=external_project, topology=topology, stage=stage, work_root=tmp_path / "work"
+            repo_root=external_project,
+            distribution_root=ROOT,
+            topology=topology,
+            stage=stage,
+            work_root=tmp_path / "work",
         )
         context.paths.work_root.mkdir(parents=True, exist_ok=True)
         provider = _Provider(context, helm)

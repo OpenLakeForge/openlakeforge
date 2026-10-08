@@ -247,7 +247,12 @@ def status(
                         str(contract_dir), environ=provider.env, resolver=provider.tools.resolver
                     )
                     code_locations = (
-                        stage_code_locations(raw_contract, topology=context.topology, stage=item)
+                        stage_code_locations(
+                            raw_contract,
+                            topology=context.topology,
+                            stage=item,
+                            distribution_root=context.paths.distribution_root,
+                        )
                         if raw_contract is not None
                         else ()
                     )

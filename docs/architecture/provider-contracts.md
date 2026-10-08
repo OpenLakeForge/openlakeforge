@@ -114,6 +114,40 @@ all present or all absent:
 | `url` is `https://<host>.<base_domain>`, unique across routes | one host, one service |
 | `tls_mode` is `ingress-terminated` | the only mode an adapter implements |
 
+### `shared.identity`
+
+Every root emits `{ref, implementation, roles}`. `implementation` is whatever
+the provider already used; `roles` is the canonical role model (ADR 0014),
+identical on every provider because each root renders it with
+`yamldecode(file("<repo>/release/identity-roles.yaml"))`:
+
+```json
+"identity": {
+  "ref": "shared/identity",
+  "implementation": "identity.local_development_credentials",
+  "roles": {
+    "precedence": ["platform-admin", "data-engineer", "analyst", "viewer"],
+    "grants": {
+      "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"},
+      "query": {"platform-admin": "yes", "data-engineer": "yes"}
+    }
+  }
+}
+```
+
+(`grants` is abbreviated here; the full matrix is in the ADR and the release
+file.)
+
+| Rule | Why |
+| --- | --- |
+| `roles` is present and equals `release/identity-roles.yaml` | one source for the matrix; a contract rendered from another file is rejected |
+| every role named in `grants` is in `precedence` | the role vocabulary is closed |
+| every `grants` key is a service a route can publish (`orchestration`, `reporting`, `governance_service`, `query`) | the perimeter resolves route ref, to service, to roles |
+| grants are monotonic across `precedence` | multi-role union equals the highest role |
+
+This contract carries roles only; issuer, perimeter, and admin fields are
+decided in ADR 0014 and not yet emitted.
+
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
 workflow, which belong to #154 and #115.

@@ -330,6 +330,9 @@ locals {
     future_adapter_shapes = ["secrets.aws_secrets_manager_external_secrets"]
   }
 
+  # ADR 0014: the product-level role model, identical on every provider.
+  identity_roles = yamldecode(file("${path.root}/../../../../release/identity-roles.yaml"))
+
   identity_contract = {
     provider          = local.aws_provider_name
     implementation    = "identity.aws_pod_identity"
@@ -403,7 +406,7 @@ locals {
         secret_access_key_key   = local.artifact_bucket_contract.secret_access_key_key
       }
       secrets       = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
-      identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation }
+      identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation, roles = local.identity_roles }
       access        = { ref = "shared/access", implementation = local.access_contract.implementation }
       observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
       }, local.governance_enabled ? {

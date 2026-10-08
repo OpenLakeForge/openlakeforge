@@ -562,7 +562,10 @@ def build_contract_env(
         env.unset(ACCESS_ENV)
     native_v3 = False
     if contracts is not None:
-        parsed = parse_provider_contracts(contracts, topology)
+        # `base` carries the provider's OLF_DISTRIBUTION_ROOT, which the
+        # process environment does not for an installed payload.
+        dist = base.get("OLF_DISTRIBUTION_ROOT")
+        parsed = parse_provider_contracts(contracts, topology, distribution_root=Path(dist) if dist else None)
         native_v3 = not parsed.compatibility_v2
         if parsed.compatibility_v2 and stage is not None and StageName(stage) != StageName.DEV:
             # The v2 payload carries one stage's bindings with no stage index,

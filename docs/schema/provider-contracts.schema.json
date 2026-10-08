@@ -35,6 +35,37 @@
         "local_upload_access_mode": {"$ref": "#/definitions/nonEmptyString"}
       }
     },
+    "identityBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "implementation", "roles"],
+      "properties": {
+        "ref": {"$ref": "#/definitions/nonEmptyString"},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["precedence", "grants"],
+          "properties": {
+            "precedence": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "#/definitions/nonEmptyString"}
+            },
+            "grants": {
+              "type": "object",
+              "propertyNames": {"enum": ["orchestration", "reporting", "governance_service", "query"]},
+              "additionalProperties": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {"$ref": "#/definitions/nonEmptyString"}
+              }
+            }
+          }
+        }
+      }
+    },
     "accessBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -101,7 +132,7 @@
         "artifact_registry": {"$ref": "#/definitions/binding"},
         "ops_storage": {"$ref": "#/definitions/binding"},
         "secrets": {"$ref": "#/definitions/binding"},
-        "identity": {"$ref": "#/definitions/binding"},
+        "identity": {"$ref": "#/definitions/identityBinding"},
         "access": {"$ref": "#/definitions/accessBinding"},
         "observability": {"$ref": "#/definitions/binding"},
         "catalog_service": {"$ref": "#/definitions/binding"},
