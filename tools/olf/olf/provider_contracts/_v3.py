@@ -64,10 +64,12 @@ IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 def _identity_roles(value: object, *, where: str) -> Mapping[str, Any]:
     document = _fields(value, where=where, required={"precedence", "grants"})
     precedence = document["precedence"]
-    if not isinstance(precedence, list) or not precedence or len(set(precedence)) != len(precedence):
+    if not isinstance(precedence, list) or not precedence:
         raise ProviderContractError(f"{where}.precedence must be a non-empty list of unique role names")
     for role in precedence:
         _string(role, where=f"{where}.precedence entry")
+    if len(set(precedence)) != len(precedence):
+        raise ProviderContractError(f"{where}.precedence must be a non-empty list of unique role names")
     for service, by_role in _mapping(document["grants"], where=f"{where}.grants").items():
         if service not in _GRANTABLE_SERVICES:
             raise ProviderContractError(f"{where}.grants names unknown service {service!r}")

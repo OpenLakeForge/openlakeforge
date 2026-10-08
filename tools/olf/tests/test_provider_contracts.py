@@ -1352,6 +1352,10 @@ def _drop_identity_roles(contract: dict) -> None:
             "differs from release/identity-roles.yaml",
         ),
         (
+            lambda contract: contract["shared"]["identity"]["roles"]["precedence"].append(["viewer"]),
+            "precedence entry must be a non-empty string",
+        ),
+        (
             lambda contract: contract["shared"]["identity"]["roles"]["precedence"].append("auditor"),
             "differs from release/identity-roles.yaml",
         ),
