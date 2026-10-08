@@ -248,6 +248,9 @@ def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
         ({"issuer_url": "http://x.example.com"}, "https URL"),
         ({"role_mapping": {"guest": ["g"]}}, "unknown role 'guest'"),
         ({"role_mapping": {"viewer": []}}, "non-empty list"),
+        ({"role_mapping": {"viewer": ["g", "g"]}}, "must not repeat"),
+        ({"issuer_url": "https://"}, "absolute"),
+        ({"issuer_url": "https://u:p@example.com"}, "credentials"),
         ({"client_secret": "x"}, "must not contain"),
     ],
 )
@@ -257,3 +260,15 @@ def test_identity_fails_closed(identity: dict, match: str) -> None:
 
     with pytest.raises(DeploymentProfileError, match=match):
         validate_deployment_profile(document)
+
+
+def test_identity_survives_topology_resolution() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    profile = validate_deployment_profile(document)
+    assert resolve_topology(profile).identity == profile.identity

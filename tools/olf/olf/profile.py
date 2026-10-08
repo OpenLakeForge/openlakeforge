@@ -154,6 +154,7 @@ class DeploymentTopology:
     shared_services: tuple[str, ...] = _SHARED_SERVICES
     stage_services: tuple[str, ...] = _STAGE_SERVICES
     access: AccessSpec = AccessSpec()
+    identity: IdentitySpec = IdentitySpec()
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -269,8 +270,16 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
         if missing:
             raise DeploymentProfileError(f"{where}: issuer 'external' requires {missing!r}")
     issuer_url = document.get("issuer_url")
-    if issuer_url is not None and (not isinstance(issuer_url, str) or not issuer_url.startswith("https://")):
-        raise DeploymentProfileError(f"{where}.issuer_url must be an https URL")
+    if issuer_url is not None:
+        # Lazy: provider_contracts imports this module (cycle).
+        from olf.provider_contracts._validation import ProviderContractError, _absolute_http_uri
+
+        if not isinstance(issuer_url, str) or not issuer_url.startswith("https://"):
+            raise DeploymentProfileError(f"{where}.issuer_url must be an https URL")
+        try:
+            _absolute_http_uri(issuer_url, where=f"{where}.issuer_url")
+        except ProviderContractError as exc:
+            raise DeploymentProfileError(str(exc)) from exc
     role_claim = document.get("role_claim")
     if role_claim is not None and (not isinstance(role_claim, str) or not role_claim):
         raise DeploymentProfileError(f"{where}.role_claim must be a non-empty string")
@@ -286,6 +295,8 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
                 raise DeploymentProfileError(f"{where}.role_mapping names unknown role {role!r}")
             if not isinstance(values, list) or not values or not all(isinstance(v, str) and v for v in values):
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must be a non-empty list of strings")
+            if len(set(values)) != len(values):
+                raise DeploymentProfileError(f"{where}.role_mapping.{role} must not repeat a claim value")
         mapping = {role: tuple(values) for role, values in raw.items()}
     return IdentitySpec(issuer=issuer, issuer_url=issuer_url, role_claim=role_claim, role_mapping=mapping)
 
@@ -401,6 +412,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         preset=profile.preset,
         stages=tuple(resolved),
         access=profile.access,
+        identity=profile.identity,
     )
 
 

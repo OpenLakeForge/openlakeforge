@@ -119,7 +119,7 @@ generic OIDC) is a checklist, not a schema change:**
 2. Provide `issuer_url`, `role_claim`, and `role_mapping` keyed by canonical
    role, in the issuer's own claim values.
 3. Provide all four `clients` with `client_id` and `secret_ref{name,key}`;
-   secret values never enter Terraform outputs or state.
+   secret values never enter Terraform outputs, the provider contract, logs or CI. Secrets the adapter generates (`random_password`, Kubernetes Secret values) do live in Terraform state, next to the kubeconfig; see `docs/technical-debt.md`.
 4. Declare `capabilities` honestly; implement `admin_api` only if the issuer
    has an admin surface (#331).
 5. Add a perimeter adapter only if the cloud has its own (#176, #180).
