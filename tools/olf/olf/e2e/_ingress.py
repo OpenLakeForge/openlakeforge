@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import socket
 import ssl
 import time
@@ -70,8 +71,8 @@ def check_portal_lists_routes(cfg: E2EConfig) -> None:
 
 def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
     others = {ref: route for ref, route in routes.items() if ref != PORTAL_REF}
-    listed = {ref for ref, route in others.items() if f'href="{route["url"]}"' in page}
-    wanted = {ref for ref, route in others.items() if route["enabled"] and route["exposure"] == "user-facing"}
+    listed = set(re.findall(r'href="([^"]*)"', page))
+    wanted = {route["url"] for route in others.values() if route["enabled"] and route["exposure"] == "user-facing"}
     if listed != wanted:
         raise E2EError(f"Landing page links {sorted(listed)}, expected {sorted(wanted)}.")
 

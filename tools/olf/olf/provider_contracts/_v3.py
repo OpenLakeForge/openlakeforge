@@ -58,8 +58,9 @@ _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets
 
 # The role model's grants are keyed by route service name, so only services a
 # route can publish to users can carry one; identity is the login surface and
-# is never behind the perimeter.
-_GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity"}
+# is never behind the perimeter, and the portal is the post-login landing page
+# every authenticated user reaches, so it is never role-gated either.
+_GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity", "portal"}
 IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 
 

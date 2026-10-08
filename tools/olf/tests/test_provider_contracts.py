@@ -1346,8 +1346,8 @@ def _drop_identity_roles(contract: dict) -> None:
             "unknown role 'guest'",
         ),
         (
-            lambda contract: contract["shared"]["identity"]["roles"]["grants"].__setitem__("identity", {"viewer": "x"}),
-            "unknown service 'identity'",
+            lambda contract: contract["shared"]["identity"]["roles"]["grants"].__setitem__("portal", {"viewer": "x"}),
+            "unknown service 'portal'",
         ),
         (
             # analyst holds a grant its superior data-engineer lacks.

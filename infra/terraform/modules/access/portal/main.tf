@@ -57,6 +57,10 @@ resource "kubernetes_deployment_v1" "portal" {
     template {
       metadata {
         labels = local.labels
+        # A changed page rolls the pod; projected ConfigMaps refresh lazily.
+        annotations = {
+          "openlakeforge.io/site-checksum" = sha256(local.index_html)
+        }
       }
 
       spec {

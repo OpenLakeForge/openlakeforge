@@ -114,7 +114,11 @@ def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
     _ingress.assert_portal_lists_routes('<a href="https://trino.olf.localhost">query</a>', routes)
     with pytest.raises(E2EError, match="expected"):
         _ingress.assert_portal_lists_routes("<html></html>", routes)
-    with pytest.raises(E2EError, match="catalog_service"):
+    with pytest.raises(E2EError, match="polaris"):
         _ingress.assert_portal_lists_routes(
             '<a href="https://trino.olf.localhost">q</a><a href="https://polaris.olf.localhost">p</a>', routes
+        )
+    with pytest.raises(E2EError, match="evil"):
+        _ingress.assert_portal_lists_routes(
+            '<a href="https://trino.olf.localhost">q</a><a href="https://evil.example">x</a>', routes
         )
