@@ -169,12 +169,13 @@ reference:
 | Rule | Why |
 | --- | --- |
 | the four issuer fields appear together, only with `identity.oidc` | other implementations stay unchanged |
-| `issuer_url` is https | tokens and redirects must not cross plaintext |
+| `issuer_url` is https with a host and no userinfo, query or fragment (the schema only checks `^https://`; the Python check is the authority) | tokens and redirects must not cross plaintext |
+| `adapter` is `keycloak` when the profile selects keycloak | provenance for consumers, but the validator needs it to correlate the profile with its binding; external profiles omit it |
 | `role_mapping` keys are canonical roles; each value is a non-empty list of claim values | an unknown role fails closed; the claim values are the issuer's vocabulary (Keycloak group names, Cognito groups, Entra object IDs) |
 | each client is `client_id` plus `secret_ref{name,key}` | a literal secret is an unsupported field; the #181 secret-value check also covers it |
 
 The `identity.oidc` contract is parsed and schema-checked here. The local root
-emits it (adapter `keycloak`, `provider: {realm}`, `role_claim: groups`, the
+emits it (adapter `keycloak`, `role_claim: groups`, the
 default `role_mapping` of each role to its same-named group); the AWS and Azure
 roots do not yet. With `spec.identity.issuer: external` the local root emits
 the profile's issuer fields and names the client Secrets

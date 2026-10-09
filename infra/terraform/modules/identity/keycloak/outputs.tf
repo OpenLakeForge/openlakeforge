@@ -28,8 +28,7 @@ output "contract" {
         secret_ref = { name = kubernetes_secret_v1.client[name].metadata[0].name, key = "client-secret" }
       }
     }
-    adapter  = "keycloak"
-    provider = { realm = var.realm_name }
+    adapter = "keycloak"
     # admin_api becomes true when `olf users` lands (#331).
     capabilities = { admin_api = false, groups_in_token = true, logout_endpoint = true }
   }

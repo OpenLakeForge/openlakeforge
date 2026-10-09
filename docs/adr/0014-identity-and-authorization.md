@@ -105,12 +105,16 @@ is rejected by the parser and by the #181 secret-value check; credentials
 reach pods only through `secretKeyRef`/`envFrom`.
 
 Optional, so an issuer that lacks something says so and consumers degrade
-rather than break: `adapter` (provenance only, e.g. `keycloak`, `external`),
-`provider` (an opaque object for the adapter's own data, such as a realm or
-user pool id; consumers never read it, and it still passes the secret-value
-check), and `capabilities` (`admin_api`, `groups_in_token`, `logout_endpoint`,
-each boolean; absent means not declared, and no `admin_api` means `olf users`
-is read-only and points at the issuer console).
+rather than break: `adapter` (provenance only for consumers, e.g. `keycloak`;
+the validator requires `adapter: "keycloak"` when the profile selects keycloak,
+the default, to correlate that profile with its binding; external profiles
+need none) and `capabilities` (`admin_api`, `groups_in_token`,
+`logout_endpoint`, each boolean; absent means not declared, and no `admin_api`
+means `olf users` is read-only and points at the issuer console).
+
+The contract carries no free-form block: the only credential-shaped data is a
+`secret_ref{name,key}`. If a cloud adapter later needs adapter-specific data,
+it adds a typed field then.
 
 **Adding a cloud adapter (Cognito or IAM Identity Center, Entra ID, GCP,
 generic OIDC) is a checklist, not a schema change:**
@@ -119,7 +123,10 @@ generic OIDC) is a checklist, not a schema change:**
 2. Provide `issuer_url`, `role_claim`, and `role_mapping` keyed by canonical
    role, in the issuer's own claim values.
 3. Provide all four `clients` with `client_id` and `secret_ref{name,key}`;
-   secret values never enter Terraform outputs, the provider contract, logs or CI. Secrets the adapter generates (`random_password`, Kubernetes Secret values) do live in Terraform state, next to the kubeconfig; see `docs/technical-debt.md`.
+   secret values never enter Terraform outputs, the provider contract, logs
+   or CI. Secrets the adapter generates (`random_password`, Kubernetes Secret
+   values) do live in Terraform state, next to the kubeconfig; see
+   `docs/technical-debt.md`.
 4. Declare `capabilities` honestly; implement `admin_api` only if the issuer
    has an admin surface (#331).
 5. Add a perimeter adapter only if the cloud has its own (#176, #180).
