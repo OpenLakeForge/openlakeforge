@@ -52,7 +52,7 @@
           "additionalProperties": false,
           "properties": {
             "issuer": {"enum": ["keycloak", "external"], "default": "keycloak"},
-            "issuer_url": {"type": "string", "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$"},
+            "issuer_url": {"type": "string", "pattern": "^https://", "description": "Loose check; the olf Python validator (_oidc_issuer_url) is the authority."},
             "role_claim": {"type": "string", "minLength": 1},
             "client_ids": {
               "type": "object",

@@ -142,10 +142,15 @@ def _check_glue_catalog_id(value: object, *, where: str) -> None:
 
 
 def _oidc_issuer_url(value: object, *, where: str) -> str:
-    """OIDC Discovery issuer identifier: https, no query or fragment."""
+    """The one authority for OIDC issuer URLs (the schemas only check `^https://`):
+    https, a host, a valid port, no userinfo, query, fragment, whitespace or
+    control characters. `_absolute_http_uri` covers host, port and userinfo."""
     uri = _absolute_http_uri(value, where=where)
-    if not uri.startswith("https://") or "?" in uri or "#" in uri:
-        raise ProviderContractError(f"{where} must be an https URL with no query or fragment")
+    parts = urlsplit(uri)
+    if parts.scheme != "https" or not parts.hostname or "?" in uri or "#" in uri:
+        raise ProviderContractError(f"{where} must be an https URL with a host and no query or fragment")
+    if re.search(r"[\s\x00-\x1f\x7f]", uri):
+        raise ProviderContractError(f"{where} must not contain whitespace or control characters")
     return uri
 
 

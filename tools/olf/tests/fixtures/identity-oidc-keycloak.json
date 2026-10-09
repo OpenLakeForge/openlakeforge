@@ -51,8 +51,5 @@
     "admin_api": true,
     "groups_in_token": true,
     "logout_endpoint": true
-  },
-  "provider": {
-    "realm": "openlakeforge"
   }
 }
