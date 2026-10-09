@@ -1,15 +1,15 @@
 # Rotating an identity client secret
 
 Each OIDC client of the local Keycloak adapter (`perimeter`, `superset`,
-`openmetadata`, `trino`) authenticates to the issuer with a secret that
-Terraform generates into a Kubernetes Secret (ADR 0014). This procedure
-replaces one of them. It applies to the local and on-premises Keycloak
-adapter; with `spec.identity.issuer: external` the issuer and the Secrets
-belong to the operator, who rotates them in the issuer and in the Secrets
-named by the contract (`oidc-client-<consumer>`, key `client-secret`).
-
-Terraform state holds the generated values next to the Secrets (see
-`docs/technical-debt.md`), so rotation also replaces the copy in state.
+`openmetadata`, `trino`) authenticates to the issuer with a secret that an
+in-cluster bootstrap Job creates once, only if the Secret is missing (ADR 0014,
+[`identity-credentials.md`](../architecture/identity-credentials.md)). Terraform
+never holds the value: it knows the Secret name and key, and the consumers read
+the value from the Secret at runtime. A redeploy reuses the Secrets; it is not a
+rotation. This procedure replaces one. It applies to the local and on-premises
+Keycloak adapter; with `spec.identity.issuer: external` the issuer and the
+Secrets belong to the operator, who rotates them in the issuer and in the
+Secrets named by the contract (`oidc-client-<consumer>`, key `client-secret`).
 
 ## When
 
@@ -20,29 +20,28 @@ until it restarts.
 
 ## Procedure
 
-1. Name the client. The Terraform address is
-   `module.keycloak[0].random_password.client["<consumer>"]`.
-
-2. Keep the value being retired, to test it afterwards:
+1. Keep the value being retired, to test it afterwards:
 
    ```bash
    OLD=$(kubectl -n olf-system get secret keycloak-client-perimeter -o jsonpath='{.data.client-secret}' | base64 -d)
    ```
 
-3. Re-run the platform phase with that resource replaced. Terraform reads
-   extra arguments from `TF_CLI_ARGS_apply`; the escaped quotes are needed
-   because Terraform splits the value like a shell:
+2. Delete the Secret. The bootstrap Job never overwrites an existing one:
 
    ```bash
-   TF_CLI_ARGS_apply='-replace=module.keycloak[0].random_password.client[\"perimeter\"]' \
-     uv run --project tools/olf --locked olf deploy --provider local --phase platform
+   kubectl -n olf-system delete secret keycloak-client-perimeter
    ```
 
-   The apply replaces the password, writes the new value to
-   `keycloak-client-<consumer>`, and replaces the realm Job
-   (`keycloak-realm-<revision>`), whose changed Secret value makes
-   `keycloak-config-cli` update the client in Keycloak. Other clients keep
-   their secrets.
+3. Re-run the platform phase with the bootstrap Job replaced. The Job
+   (`keycloak-credentials-<revision>`) recreates every missing Secret and
+   leaves the others alone; replacing it also replaces the realm Job
+   (`keycloak-realm-<revision>`), so `keycloak-config-cli` pushes the new value
+   into the client. Terraform reads extra arguments from `TF_CLI_ARGS_apply`:
+
+   ```bash
+   TF_CLI_ARGS_apply='-replace=module.keycloak[0].kubernetes_job_v1.credentials' \
+     uv run --project tools/olf --locked olf deploy --provider local --phase platform
+   ```
 
 4. Restart every workload that reads the Secret, so it loads the new value.
    Environment variables from a Secret are read at container start.
@@ -66,48 +65,50 @@ until it restarts.
    (Use the issuer URL and client id from the identity contract; `olf e2e run
    --env local` also asserts that each Secret authenticates its client.)
 
+## Failure recovery
+
+- The bootstrap Job fails with `Secret <name> exists without key <key>` when
+  something else created that Secret. It changes nothing; fix or delete the
+  Secret and re-run step 3.
+- An interrupted bootstrap is safe to re-run: each Secret is created in one
+  call, so no half-written Secret exists, and Secrets already created are kept.
+- If the apply stops after step 3 recreated the Secret but before the realm Job
+  ran, Keycloak still holds the old value. Re-run step 3; the realm Job applies
+  the Secret.
+
 ## Exercise
 
-Performed on the local stack (kind, Keycloak 26.6.4) while closing #24:
+Performed on the local stack (kind, Keycloak 26.6.4) while landing the
+bootstrap Job, for the `perimeter` client, following steps 2, 3 and 5:
 
 | Step | Observed |
 | --- | --- |
-| Before: the `perimeter` Secret value at the token endpoint | `invalid_grant` (accepted) |
-| `TF_CLI_ARGS_apply=... olf deploy --provider local --phase platform` | `Apply complete! Resources: 2 added, 1 changed, 2 destroyed`; the realm Job was replaced (`keycloak-realm-064161993b` to `keycloak-realm-7512c40f03`) |
-| After: the old value | `unauthorized_client` (refused) |
+| Delete `keycloak-client-perimeter`, then `TF_CLI_ARGS_apply='-replace=module.keycloak[0].kubernetes_job_v1.credentials' olf deploy --provider local --phase platform` | `Apply complete! Resources: 2 added, 0 changed, 2 destroyed` (the bootstrap Job and the realm Job); the Job log shows `Created Secret keycloak-client-perimeter` and `exists; keeping it` for the other four |
+| After: the old value at the token endpoint | `unauthorized_client` (refused) |
 | After: the Secret's new value | `invalid_grant` (accepted) |
-| After: `superset` and `trino` with their unchanged Secrets | `invalid_grant` (still accepted) |
+| A foreign `keycloak-client-trino` Secret without `client-secret` | The Job fails with `exists without key client-secret; refusing to modify it` and leaves the Secret as it was |
+| `keycloak-admin-creds` deleted while Keycloak is deployed | The Job fails with the pointer to the admin recovery and creates nothing |
+| `olf e2e run --env local` after the drill | Passes, including each client's Secret authenticating it |
+
+Step 4 (restarting consumers) was not exercised: no consumer is wired yet.
 
 ## The bootstrap admin
 
-`keycloak-admin-creds` is used by Keycloak on its first start against an empty
-database and by the realm Job. Its value is the Terraform-owned
-`random_password.keycloak_admin` (in the local root, so it survives switching
-`spec.identity.issuer` and back); Keycloak ignores a changed Secret once the
-admin exists. Never patch the Secret by hand: the next apply restores the state
-value. To rotate, let Terraform pick the value and make Keycloak follow:
+`keycloak-admin-creds` (keys `username`, `password`) is created by the same Job
+and survives switching `spec.identity.issuer` to `external` and back. Keycloak
+reads it on its first start against an empty database and ignores a changed
+Secret once the admin exists; the realm Job authenticates with it on every run.
+Deleting the Secret and re-running the Job is therefore not a rotation: while
+the Keycloak Deployment exists the Job refuses to create a new value, because
+it would not match the stored admin. To rotate it (unverified):
 
-1. Record the current password first; after the apply the Secret holds the
-   new value and Keycloak still expects the old one, so without this copy you
-   cannot sign in to change it:
-
-   ```bash
-   kubectl -n olf-system get secret keycloak-admin-creds -o jsonpath='{.data.password}' | base64 -d
-   ```
-
-2. Replace it on its own, not together with a client rotation (that would
-   rerun the realm Job before Keycloak knows the new password; the Job fails
-   until step 3 is done, which is expected):
+1. Sign in to the Keycloak console as `admin` and set a new password (master
+   realm, Users, admin, Credentials).
+2. Update the Secret to that value, then re-run the platform phase so the realm
+   Job proves it authenticates:
 
    ```bash
-   TF_CLI_ARGS_apply='-replace=random_password.keycloak_admin' \
-     uv run --project tools/olf --locked olf deploy --provider local --phase platform
+   kubectl -n olf-system create secret generic keycloak-admin-creds \
+     --from-literal=username=admin --from-literal=password='<new>' \
+     --dry-run=client -o yaml | kubectl -n olf-system apply -f -
    ```
-
-3. Sign in to the Keycloak console as `admin` with the password recorded in
-   step 1 and set the new Secret value (`kubectl -n olf-system get secret
-   keycloak-admin-creds -o jsonpath='{.data.password}' | base64 -d`) as the
-   `admin` password (master realm, Users, admin, Credentials).
-
-4. Confirm: re-run the platform phase; the realm Job authenticates with the new
-   value and the apply completes.

@@ -21,6 +21,12 @@ variable "config_cli_image" {
   default     = "adorsys/keycloak-config-cli:6.5.1-26.5.5@sha256:0955d98c8a341898b7aa177477edf8a1e90569ae50bbe7598141c1270b773274"
 }
 
+variable "bootstrap_job_image" {
+  description = "Image of the Job that creates the identity Secrets when missing, pinned by digest (release/component-catalog.yaml)."
+  type        = string
+  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+}
+
 variable "hostname" {
   description = "Browser-facing host of the issuer (auth.<base_domain>). Keycloak pins every URL it emits, including the token `iss`, to https://<hostname>."
   type        = string
@@ -67,10 +73,4 @@ variable "database_key" {
   description = "Key of Keycloak's entry in postgresql_contract.databases."
   type        = string
   default     = "keycloak"
-}
-
-variable "admin_password" {
-  description = "Bootstrap admin password. Owned by the caller so it outlives this module being disabled: Keycloak's database persists, and a regenerated value would no longer match its existing admin."
-  type        = string
-  sensitive   = true
 }

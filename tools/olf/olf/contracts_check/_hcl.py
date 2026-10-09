@@ -156,6 +156,28 @@ def _root_output_errors(env: str, tf_path: Path) -> list[str]:
     return errors
 
 
+def _identity_module_errors(repo_root: Path) -> list[str]:
+    """#181: an identity module never generates or reads a credential. An
+    in-cluster Job creates the Secret; Terraform only names it. A `random_*`
+    resource, a Terraform-written Secret or a read of one puts the value in
+    state."""
+    errors: list[str] = []
+    for tf_path in sorted((repo_root / "infra/terraform/modules/identity").rglob("*.tf")):
+        where = tf_path.relative_to(repo_root).as_posix()
+        document = _parse_hcl(tf_path)
+        for kind, banned in (("resource", ("random_", "kubernetes_secret")), ("data", ("kubernetes_secret",))):
+            for block in document.get(kind, []):
+                errors.extend(
+                    f"{where}: {kind} {resource_type}.{name} handles a credential value; create the Secret "
+                    "in a bootstrap Job and reference it by name"
+                    for resource_type, instances in block.items()
+                    if resource_type.startswith(banned)
+                    for name in instances
+                )
+        errors.extend(_root_output_errors(where, tf_path))
+    return errors
+
+
 def _parse_hcl(path: Path) -> dict[str, Any]:
     return hcl2.loads(path.read_text(encoding="utf-8"))
 
@@ -222,6 +244,9 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
             for local_name, value in locals_map.items()
             for field in secret_value_fields(value)
         )
+
+        if env == _ENVIRONMENT_ROOTS[0]:
+            errors.extend(_identity_module_errors(repo_root))
 
         main_path = repo_root / "infra/terraform/environments" / env / "main.tf"
         if not main_path.is_file():
