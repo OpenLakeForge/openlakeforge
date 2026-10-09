@@ -258,6 +258,26 @@ resource "random_password" "keycloak_admin" {
   special = false
 }
 
+# Pods reach https://<service>.<base_domain> through Traefik and trust the
+# local CA, so a back-channel call sees the same URL (and token `iss`) as a
+# browser. ADR 0013.
+module "in_cluster_resolution" {
+  source = "../../modules/access/in-cluster-resolution"
+
+  namespace        = kubernetes_namespace_v1.shared.metadata[0].name
+  base_domain      = var.access_base_domain
+  trust_namespaces = values(local.stage_namespaces)
+  trust_namespace_uids = concat(
+    [kubernetes_namespace_v1.shared.metadata[0].uid],
+    [for ns in kubernetes_namespace_v1.stage : ns.metadata[0].uid],
+  )
+
+  depends_on = [
+    module.cert_manager,
+    module.traefik,
+  ]
+}
+
 # ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
 # profile and the operator supplies the client Secrets it references.
 module "keycloak" {

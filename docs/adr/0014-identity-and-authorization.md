@@ -162,12 +162,18 @@ The adapter declares `capabilities` `groups_in_token` and `logout_endpoint`
 true and `admin_api` false until `olf users` exists (#331). The consumers are
 wired by #25, #26 and #176; none is yet.
 
+Rotating a client secret is a Terraform replace of its `random_password`
+followed by the realm Job re-running; the runbook, with the exercise that
+closed the #181 rotation criterion, is `docs/setup/identity-secret-rotation.md`.
+
 Realm-as-code and user records: groups, clients and the realm only. Two
-local-cluster risks were checked rather than assumed. `*.localhost` resolves
-to a pod's own loopback, so back-channel token and JWKS calls need in-cluster
-resolution of `*.<base_domain>` plus the local CA, which is not built yet
-(the Keycloak adapter does not need it: its Job calls Keycloak by Service
-name, and no consumer is wired). Single sign-on across hosts needs a cookie
+local-cluster risks were checked rather than assumed. `*.localhost` is
+loopback for some clients, so back-channel token and JWKS calls need the pod
+to reach Traefik at `*.<base_domain>` and trust the local CA; the local root
+does both (ADR 0013, decision 7), and `olf e2e run` fetches the discovery
+document from a pod and compares `iss`. curl is such a client: it resolves
+`*.localhost` to loopback itself without asking DNS, while getaddrinfo-based
+clients get the Traefik address from cluster DNS. Single sign-on across hosts needs a cookie
 on `.<base_domain>`: curl (libpsl) and headless Chromium both accepted a
 `Domain=.olf.localhost` cookie and sent it to a sibling host, and both
 rejected `Domain=.localhost`. Firefox and Safari were not tested.

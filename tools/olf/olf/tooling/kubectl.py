@@ -122,6 +122,23 @@ class Kubectl:
         args.extend(extra_args)
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
 
+    def patch(
+        self,
+        resource: str,
+        name: str,
+        patch: str,
+        *,
+        namespace: str | None = None,
+        context: str | None = None,
+        kubeconfig: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        """JSON merge patch."""
+        args = ["patch", resource, name, "--type", "merge", "-p", patch]
+        if namespace is not None:
+            args += ["-n", namespace]
+        return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
+
     def rollout_status(
         self,
         resource: str,

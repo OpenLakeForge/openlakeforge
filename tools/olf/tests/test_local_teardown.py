@@ -184,6 +184,33 @@ def test_platform_down_deletes_every_namespace_the_deployment_owns(tmp_path: Pat
     assert deleted == ["olf-system", "olf-dev"]
 
 
+def test_platform_down_restores_the_stock_corefile(tmp_path: Path) -> None:
+    """The in-cluster resolution module owns the Corefile key and deletes it on
+    destroy; the foundation outlives a platform-only teardown and needs DNS."""
+    runner = _TeardownScriptedRunner()
+
+    teardown.platform_down(_config(tmp_path), _toolkit(runner), env={})
+
+    patches = [c.argv for c in runner.calls if "patch" in c.argv]
+    assert len(patches) == 1 and "coredns" in patches[0] and "rewrite" not in patches[0][-1]
+
+
+def test_platform_down_restores_the_corefile_when_destroy_fails_partway(tmp_path: Path) -> None:
+    class _DestroyFails(_TeardownScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            result = super().run(command, **kwargs)
+            if self.calls[-1].argv[0] == "terraform" and "destroy" in self.calls[-1].argv:
+                raise RuntimeError("destroy failed")
+            return result
+
+    runner = _DestroyFails()
+
+    with pytest.raises(RuntimeError, match="destroy failed"):
+        teardown.platform_down(_config(tmp_path), _toolkit(runner), env={})
+
+    assert any("patch" in c.argv and "coredns" in c.argv for c in runner.calls)
+
+
 def test_platform_down_also_removes_a_stage_the_profile_no_longer_enables(tmp_path: Path) -> None:
     """Drift recovery tears down what is in the cluster, not only what the
     current topology names: a stage deployed and since disabled has no state

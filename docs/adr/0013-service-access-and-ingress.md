@@ -72,6 +72,16 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    unauthenticated request to login, and the portal sits behind it like
    every other route.
 
+8. **Pods reach the same URLs.** A service that validates a token calls the
+   issuer's public URL from inside the cluster, and `*.localhost` must not
+   resolve to the pod's own loopback there. The local root adds a CoreDNS
+   `rewrite` sending `<base_domain>` and every name under it to the Traefik
+   Service, and publishes the local CA root as ConfigMap `olf-local-ca`
+   (key `ca.crt`) in `olf-system` and every stage namespace for pods to
+   mount. The URL, certificate and token `iss` are then the same as in a
+   browser. The rewrite replaces the cluster's `Corefile` key, so it is
+   removed with the cluster.
+
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
 ## Consequences
@@ -105,6 +115,7 @@ clients onto the routes, added `olf access trust`, and lists the URLs in
 `olf status`. #268 added the deploy preflight, the not-Ready Certificate
 section in `olf status`, and the e2e Traefik restart and renewal drills.
 #24 added the `shared/identity` route (`auth.<base_domain>`, Keycloak) to the
-local routes; it is never behind the perimeter (ADR 0014).
+local routes; it is never behind the perimeter (ADR 0014). Decision 8 (in-cluster
+resolution of the routes and the CA ConfigMap) was added with it.
 #330 added the portal (decisions 2, 3, 4, 6 and 7): the apex route, its
 certificate name, and the landing page.
