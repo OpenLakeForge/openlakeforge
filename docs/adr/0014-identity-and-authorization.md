@@ -62,7 +62,7 @@ Rules that bind:
 | No recognised role = deny | the user is authenticated but denied everywhere, with a "no OpenLakeForge role assigned — ask a platform-admin" response rather than a broken page |
 | A grant applies to the service on **every enabled stage** | stage-scoped human roles are deferred |
 | Matrix is fixed for v0.5-alpha | configurable authorization is more to build, test, and document, and can follow once the fixed model is proven |
-| `identity` carries no grant | the login surface is never behind the perimeter |
+| `identity` and `portal` carry no grant | the login surface is never behind the perimeter, and the portal is the landing page every authenticated user reaches |
 | Grafana has no column | #210 adds the row when Grafana is integrated |
 
 `olf` fails closed when `shared.identity.roles` is absent, names a role

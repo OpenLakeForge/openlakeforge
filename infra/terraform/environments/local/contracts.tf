@@ -385,7 +385,7 @@ locals {
   # carries its stage label, a shared one none. Disabled capabilities are
   # absent because their module instances are; storage admin, databases and
   # code servers are never listed.
-  access_routes = merge(
+  service_routes = merge(
     {
       for name in keys(local.enabled_stages) : "stage/${name}/orchestration" => {
         host         = "dagster.${name}.${var.access_base_domain}"
@@ -433,6 +433,26 @@ locals {
       }
     } : {},
   )
+
+  # The landing page lists every route above and is itself one. The shared
+  # wildcard does not cover the apex, so its certificate names it explicitly.
+  portal_links = {
+    for ref, route in local.service_routes : ref => {
+      stage = startswith(ref, "stage/") ? split("/", ref)[1] : "shared"
+      name  = element(split("/", ref), length(split("/", ref)) - 1)
+      url   = "https://${route.host}"
+    }
+  }
+
+  access_routes = merge(local.service_routes, {
+    "shared/portal" = {
+      host         = var.access_base_domain
+      tls_host     = var.access_base_domain
+      namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+      service_name = module.portal.service_name
+      service_port = module.portal.service_port
+    }
+  })
 
   access_contract = {
     provider             = local.local_provider_name
@@ -507,6 +527,7 @@ locals {
         { ref = "shared/identity", implementation = local.identity_contract.implementation, roles = local.identity_roles },
         local.identity_oidc,
       )
+      portal = { ref = "shared/portal", implementation = "portal.static_page" }
       access = {
         ref            = "shared/access"
         implementation = local.access_contract.implementation

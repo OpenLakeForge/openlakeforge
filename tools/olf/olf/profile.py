@@ -262,7 +262,7 @@ def _validate_access(document: object, *, source: str) -> AccessSpec:
     return AccessSpec(base_domain=base_domain, issuer=issuer)
 
 
-def _validate_identity(document: object, *, source: str) -> IdentitySpec:
+def _validate_identity(document: object, *, source: str, distribution_root: Path | None = None) -> IdentitySpec:
     where = f"{source}: spec.identity"
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{where} must be an object")
@@ -292,7 +292,11 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
         if not isinstance(raw, Mapping) or not raw:
             raise DeploymentProfileError(f"{where}.role_mapping must be a non-empty object")
         # Fail closed on a role the product does not define (release/identity-roles.yaml).
-        roles = yaml.safe_load((config.distribution_root() / "release/identity-roles.yaml").read_text("utf-8"))
+        roles_file = (distribution_root or config.distribution_root()) / "release/identity-roles.yaml"
+        try:
+            roles = yaml.safe_load(roles_file.read_text("utf-8"))
+        except OSError as exc:
+            raise DeploymentProfileError(f"{where}.role_mapping: cannot read {roles_file}: {exc.strerror}") from exc
         for role, values in raw.items():
             if role not in roles["precedence"]:
                 raise DeploymentProfileError(f"{where}.role_mapping names unknown role {role!r}")
@@ -300,6 +304,9 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must be a non-empty list of strings")
             if len(set(values)) != len(values):
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must not repeat a claim value")
+        claims = [v for values in raw.values() for v in values]
+        if len(set(claims)) != len(claims):
+            raise DeploymentProfileError(f"{where}.role_mapping must not map one claim value to more than one role")
         mapping = MappingProxyType({role: tuple(values) for role, values in raw.items()})
     client_ids = document.get("client_ids")
     if "client_ids" in document:
@@ -317,7 +324,7 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
 
 
 def validate_deployment_profile(
-    document: Mapping[str, Any], *, source: str = "openlakeforge.yaml"
+    document: Mapping[str, Any], *, source: str = "openlakeforge.yaml", distribution_root: Path | None = None
 ) -> DeploymentProfile:
     """Validate a v1alpha1 Deployment Profile envelope and build its typed
     model. Every rejection is fail-closed: unknown fields at any level,
@@ -382,20 +389,20 @@ def validate_deployment_profile(
             )
 
     access = _validate_access(spec.get("access", {}), source=source)
-    identity = _validate_identity(spec.get("identity", {}), source=source)
+    identity = _validate_identity(spec.get("identity", {}), source=source, distribution_root=distribution_root)
     return DeploymentProfile(
         name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity
     )
 
 
-def load_deployment_profile(path: str | Path) -> DeploymentProfile:
+def load_deployment_profile(path: str | Path, *, distribution_root: Path | None = None) -> DeploymentProfile:
     """Load and validate the v1alpha1 Deployment Profile at ``path``."""
     source = str(path)
     with Path(path).open(encoding="utf-8") as handle:
         document = yaml.safe_load(handle)
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: profile must contain a YAML object")
-    return validate_deployment_profile(document, source=source)
+    return validate_deployment_profile(document, source=source, distribution_root=distribution_root)
 
 
 def _preset_defaults(preset: Preset) -> StageCapabilities:

@@ -132,7 +132,7 @@ def deploy(
     context = deployment_context_for_profile(profile_file, stage=stage, var_file=var_file)
     provider = _profile_provider(context, var_file=var_file)
     try:
-        profile = load_deployment_profile(Path(profile_file))
+        profile = load_deployment_profile(Path(profile_file), distribution_root=context.paths.distribution_root)
         with _build_store_for_project(Path(profile_file).resolve().parent, via="", output="", stage=stage) as store:
             activation = deploy_revision(
                 provider,
