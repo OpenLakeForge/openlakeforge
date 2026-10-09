@@ -342,3 +342,19 @@ def test_external_identity_roles_come_from_the_given_distribution_root(
     }
     profile = validate_deployment_profile(document, distribution_root=dist)
     assert profile.identity.role_mapping == {"viewer": ("v",)}
+
+
+def test_a_missing_role_file_is_a_profile_error(tmp_path: Path) -> None:
+    from olf.profile import DeploymentProfileError, _validate_identity
+
+    with pytest.raises(DeploymentProfileError, match="role_mapping: cannot read"):
+        _validate_identity(
+            {
+                "issuer": "external",
+                "issuer_url": "https://idp.example.com",
+                "role_claim": "groups",
+                "role_mapping": {"viewer": ["g"]},
+            },
+            source="p",
+            distribution_root=tmp_path,
+        )

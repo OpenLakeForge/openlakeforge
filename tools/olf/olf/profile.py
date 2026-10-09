@@ -291,7 +291,10 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
             raise DeploymentProfileError(f"{where}.role_mapping must be a non-empty object")
         # Fail closed on a role the product does not define (release/identity-roles.yaml).
         roles_file = (distribution_root or config.distribution_root()) / "release/identity-roles.yaml"
-        roles = yaml.safe_load(roles_file.read_text("utf-8"))
+        try:
+            roles = yaml.safe_load(roles_file.read_text("utf-8"))
+        except OSError as exc:
+            raise DeploymentProfileError(f"{where}.role_mapping: cannot read {roles_file}: {exc.strerror}") from exc
         for role, values in raw.items():
             if role not in roles["precedence"]:
                 raise DeploymentProfileError(f"{where}.role_mapping names unknown role {role!r}")
