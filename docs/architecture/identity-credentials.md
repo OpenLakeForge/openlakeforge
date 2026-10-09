@@ -105,4 +105,6 @@ Terraform-generated Secrets and a later redeploy left all five Secrets
 unchanged (uid, resourceVersion and data hash), no Secret value is in Terraform
 state or the realm ConfigMap, and the rotation drill, the missing-key and the
 missing-admin failures behave as the tables above say. Not exercised: the
-operator-provided Secret rows (SMTP, upstream SSO), which nothing consumes yet.
+upstream SSO row, which nothing consumes yet. The SMTP row is consumed by the
+realm Job; what was and was not run for it is in
+[`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-smtp-login).
