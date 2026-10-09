@@ -95,7 +95,7 @@ def check_discovery_from_pod(cfg: E2EConfig, identity: dict[str, Any]) -> None:
     # getaddrinfo-based clients (Python, Java) need no such help.
     script = (
         f'ip="$(getent hosts {host} | cut -d" " -f1)" && '
-        f'curl -sS --fail --cacert /ca/ca.crt --resolve {host}:443:"$ip" {url}'
+        f'curl -sS --fail --max-time 20 --cacert /ca/ca.crt --resolve {host}:443:"$ip" {url}'
     )
     spec = {
         "containers": [

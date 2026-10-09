@@ -30,3 +30,9 @@ variable "bootstrap_job_image" {
   type        = string
   default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
 }
+
+variable "trust_namespace_uids" {
+  description = "UIDs of the namespaces in trust_namespaces. A namespace deleted and recreated under the same name changes its UID, which reruns the CA publishing Job into it."
+  type        = list(string)
+  default     = []
+}

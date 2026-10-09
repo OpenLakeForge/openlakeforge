@@ -260,6 +260,10 @@ module "in_cluster_resolution" {
   namespace        = kubernetes_namespace_v1.shared.metadata[0].name
   base_domain      = var.access_base_domain
   trust_namespaces = values(local.stage_namespaces)
+  trust_namespace_uids = concat(
+    [kubernetes_namespace_v1.shared.metadata[0].uid],
+    [for ns in kubernetes_namespace_v1.stage : ns.metadata[0].uid],
+  )
 
   depends_on = [
     module.cert_manager,

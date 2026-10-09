@@ -66,6 +66,21 @@ Performed on the local stack (kind, Keycloak 26.6.4) while closing #24:
 ## The bootstrap admin
 
 `keycloak-admin-creds` is used by Keycloak on its first start against an empty
-database. Replacing its `random_password` updates the Secret and the realm
-Job's login but does not change an admin that already exists; change the admin
-password in the Keycloak console first, then update the Secret to match.
+database and by the realm Job. Its value is the Terraform-owned
+`random_password.keycloak_admin` (in the local root, so it survives switching
+`spec.identity.issuer` and back); Keycloak ignores a changed Secret once the
+admin exists. Never patch the Secret by hand: the next apply restores the state
+value. To rotate, let Terraform pick the value and make Keycloak follow:
+
+1. Replace it on its own, not together with a client rotation (that would
+   rerun the realm Job before Keycloak knows the new password):
+
+   ```bash
+   TF_CLI_ARGS_apply='-replace=random_password.keycloak_admin' \
+     uv run --project tools/olf --locked olf deploy --provider local --phase platform
+   ```
+
+2. Read the new value (`kubectl -n olf-system get secret keycloak-admin-creds
+   -o jsonpath='{.data.password}' | base64 -d`) and set it as the `admin`
+   password in the Keycloak console (master realm, Users, admin, Credentials).
+   The next realm Job authenticates with it.

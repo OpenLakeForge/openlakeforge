@@ -16,7 +16,7 @@ locals {
   ingress_fqdn      = "${var.ingress_service_name}.${var.namespace}.svc.cluster.local."
   escaped_domain    = replace(var.base_domain, ".", "\\.")
   trust_namespaces  = distinct(concat([var.namespace], var.trust_namespaces))
-  publish_revision  = substr(sha256(join(",", concat(local.trust_namespaces, [var.ca_secret_name, local.ca_configmap_name]))), 0, 10)
+  publish_revision  = substr(sha256(join(",", concat(local.trust_namespaces, var.trust_namespace_uids, [var.ca_secret_name, local.ca_configmap_name]))), 0, 10)
 }
 
 # `*.localhost` resolves to a pod's own loopback, so a pod that calls
@@ -25,9 +25,8 @@ locals {
 # Traefik Service, so the URL, its certificate and the token `iss` are the
 # ones a browser sees. Everything else keeps the stock kubeadm Corefile.
 #
-# ponytail: owns the whole Corefile key and removes it on destroy; fine while
-# `olf destroy` deletes the cluster with it, revisit before a platform-only
-# teardown is supported on a cluster that outlives it.
+# Owns the whole Corefile key and removes it on destroy; platform teardown
+# (deployment/local/teardown.py) restores the stock Corefile afterwards.
 resource "kubernetes_config_map_v1_data" "corefile" {
   metadata {
     name      = "coredns"
@@ -42,7 +41,10 @@ resource "kubernetes_config_map_v1_data" "corefile" {
              lameduck 5s
           }
           ready
-          rewrite name regex (.+\.)?${local.escaped_domain}\.$ ${local.ingress_fqdn}
+          rewrite stop {
+             name regex ^(.+\.)?${local.escaped_domain}\.$ ${local.ingress_fqdn}
+             answer auto
+          }
           kubernetes cluster.local in-addr.arpa ip6.arpa {
              pods insecure
              fallthrough in-addr.arpa ip6.arpa
