@@ -1,4 +1,5 @@
 """Identity checks (#24): the issuer answers and puts the canonical role in the token.
+Email delivery is in `_identity_mail`.
 
 The role check drives the real browser flow against the real `perimeter`
 client, so it exercises the client's secret and group mapper rather than a
@@ -24,6 +25,7 @@ import yaml
 
 from olf import access, config, k8s, log
 from olf.contracts import CONTRACT_STAGE_ENV
+from olf.e2e._identity_mail import check_email_delivery, check_realm_mail_matches_contract
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 KEYCLOAK_SERVICE = "keycloak"
@@ -55,6 +57,13 @@ def check_identity(cfg: E2EConfig) -> None:
         redirect_uri = f"{_stage_route(cfg, stage)}/oauth2/callback"
         check_client_secret_is_enforced(cfg, identity, redirect_uri)
         check_role_claims(cfg, identity, base_url, redirect_uri)
+        with _admin_session(cfg, base_url) as admin:
+            check_realm_mail_matches_contract(identity, admin, f"{base_url}/admin/realms/{_realm(identity)}")
+            check_email_delivery(cfg, admin, base_url)
+
+
+def _realm(identity: dict[str, Any]) -> str:
+    return str(identity["issuer_url"].rsplit("/", 1)[1])
 
 
 def _stage_route(cfg: E2EConfig, stage: str) -> str:
@@ -238,7 +247,7 @@ def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, r
     a user in no group gets none."""
     log.step("Checking each canonical role reaches the ID token...")
     claim = identity["role_claim"]
-    realm_admin = f"{base_url}/admin/realms/{identity['issuer_url'].rsplit('/', 1)[1]}"
+    realm_admin = f"{base_url}/admin/realms/{_realm(identity)}"
     secret = _client_secret(cfg, identity, "perimeter")
     suffix = secrets.token_hex(3)
     created: list[str] = []
