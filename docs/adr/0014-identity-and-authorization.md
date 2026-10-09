@@ -183,9 +183,10 @@ Assigning roles is an optional capability of the issuer. Where it is absent,
 
 - The `identity` binding of every v3 contract gains a required `roles`
   object, so a contract emitted before this change no longer parses. The AWS and Azure
-  `implementation` strings are unchanged; the local root's moves from
-  `identity.local_development_credentials` to `identity.oidc` (#24), so a
-  contract rendered by an earlier local root no longer parses either.
+  `implementation` strings are unchanged. The local root's moves from
+  `identity.local_development_credentials` to `identity.oidc` (#24): the
+  validator still accepts a legacy-implementation contract that carries `roles`,
+  but the local root no longer emits one.
 - The role model is a release artifact: changing a grant changes
   `release/identity-roles.yaml`, and every root picks it up on the next
   apply. `olf` rejects a platform whose contract was rendered from a
