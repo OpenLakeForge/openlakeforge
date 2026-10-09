@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+# Pods cannot read a Secret from another namespace, and the root is public, so
+# it is published as a ConfigMap each caller of a routed https URL can mount.
+attempt=0
+until crt="$(kubectl get secret "$CA_SECRET" -n "$NAMESPACE" -o go-template='{{index .data "tls.crt" | base64decode}}' 2>/dev/null)" && [ -n "$crt" ]; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 60 ]; then
+    echo "Secret '$CA_SECRET' in '$NAMESPACE' has no tls.crt." >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+for target in $TRUST_NAMESPACES; do
+  kubectl create configmap "$CA_CONFIGMAP" -n "$target" --from-literal=ca.crt="$crt" \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
