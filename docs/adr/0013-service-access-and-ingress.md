@@ -4,7 +4,7 @@
 
 Binding. The local root runs the ingress adapter and emits `access.ingress`
 with routes for Dagster and Superset per stage, Trino, OpenMetadata when
-governance is enabled, and `auth.<base_domain>` for the identity provider; the AWS and Azure roots still emit
+governance is enabled, the portal landing page at the base domain, and `auth.<base_domain>` for the identity provider; the AWS and Azure roots still emit
 `access.kubectl_port_forward`.
 
 ## Context
@@ -27,16 +27,18 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
 
    The defaults need neither a purchased domain nor a public server.
 2. **Routes are stage-derived:** `https://<service>.<stage>.<base_domain>`;
-   a shared service (OpenMetadata, Trino) drops the stage label.
+   a shared service (OpenMetadata, Trino) drops the stage label. The one
+   exception is the portal (decision 7), which is the apex,
+   `https://<base_domain>`.
 3. **The provider contract carries the routes.** `shared.access` gains
    `base_domain`, `issuer`, `tls_mode`, and `routes` — declared together or
    not at all, so a port-forward contract still parses. `routes` is keyed by
    the service's existing contract ref (`stage/dev/orchestration`,
-   `shared/governance_service`, ...), so a route for a disabled capability
+   `shared/governance_service`, `shared/portal`, ...), so a route for a disabled capability
    or an unknown service does not resolve and is rejected. Consumers read
    URLs from the contract, never from fixed ports.
 4. **Internal endpoints cannot be user-facing.** Only orchestration,
-   reporting, governance, query, and identity may be routed with
+   reporting, governance, query, identity, and portal may be routed with
    `exposure: user-facing`. Databases, object-store administration, the
    catalog service, and the registry may only be `internal`; Dagster code
    servers have no ref and cannot be routed at all.
@@ -55,11 +57,22 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    the only value the contract accepts. Each namespace gets one standard
    `Ingress` holding its routes and one wildcard certificate
    (`*.<stage>.<base_domain>`, or `*.<base_domain>` for shared services),
-   issued by cert-manager's ingress-shim. A standard `Ingress` needs no CRD
-   at plan time, and #176 attaches auth middleware to it by annotation
-   without changing hosts.
+   issued by cert-manager's ingress-shim. The shared namespace's certificate
+   also names the bare `<base_domain>`, because a wildcard does not match the
+   apex. A standard `Ingress` needs no CRD at plan time, and #176 attaches
+   auth middleware to it by annotation without changing hosts.
+7. **The portal is a static page at the base domain.** It lists every route
+   of `shared.access.routes` that is enabled and `user-facing`, grouped by
+   stage. Terraform renders the HTML from the same route data that feeds
+   the contract and stores it in a ConfigMap, so the page cannot list a
+   service the contract does not route. A pinned BusyBox `httpd` serves it
+   from the `olf-system` namespace in the platform phase: the route set is
+   static infrastructure (ADR 0002). Links are not filtered by role;
+   the perimeter (#176) will deny what a role cannot open and send an
+   unauthenticated request to login, and the portal sits behind it like
+   every other route.
 
-7. **Pods reach the same URLs.** A service that validates a token calls the
+8. **Pods reach the same URLs.** A service that validates a token calls the
    issuer's public URL from inside the cluster, and `*.localhost` must not
    resolve to the pod's own loopback there. The local root adds a CoreDNS
    `rewrite` sending `<base_domain>` and every name under it to the Traefik
@@ -78,7 +91,7 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 - Changing `base_domain` changes every user-facing URL; it is deployment
   configuration, not product intent, and stays out of `lakehouse.yaml`.
 
-- The ingress adds four pods to the local footprint, all in `olf-system`:
+- The ingress and portal add five pods to the local footprint, all in `olf-system`:
 
   | Pod | CPU request | Memory request / limit |
   | --- | --- | --- |
@@ -86,6 +99,7 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   | cert-manager controller | 10m | 64Mi / 256Mi |
   | cert-manager cainjector | 10m | 64Mi / 256Mi |
   | cert-manager webhook | 10m | 32Mi / 128Mi |
+  | Portal (BusyBox httpd) | 5m | 8Mi / 32Mi |
 
 - Mapping 80/443 changed the kind cluster shape: an existing local cluster
   must be recreated (`olf destroy` then `olf deploy`), and those host ports
@@ -101,5 +115,7 @@ clients onto the routes, added `olf access trust`, and lists the URLs in
 `olf status`. #268 added the deploy preflight, the not-Ready Certificate
 section in `olf status`, and the e2e Traefik restart and renewal drills.
 #24 added the `shared/identity` route (`auth.<base_domain>`, Keycloak) to the
-local routes; it is never behind the perimeter (ADR 0014). Decision 7 (in-cluster
+local routes; it is never behind the perimeter (ADR 0014). Decision 8 (in-cluster
 resolution of the routes and the CA ConfigMap) was added with it.
+#330 added the portal (decisions 2, 3, 4, 6 and 7): the apex route, its
+certificate name, and the landing page.

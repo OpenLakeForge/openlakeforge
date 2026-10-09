@@ -177,6 +177,7 @@ def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
     assert json.loads(exports["OPENLAKEFORGE_ACCESS_JSON"]) == {
         "issuer": "local-ca",
         "routes": {
+            "shared/portal": "https://olf.localhost",
             "shared/query": "https://trino.olf.localhost",
             "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
         },
@@ -1184,8 +1185,8 @@ def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
 
 
 def test_local_access_routes_only_enabled_user_facing_services() -> None:
-    """The captured local contract routes each stage's Dagster and the shared
-    Trino, and nothing internal or disabled (no reporting, no governance)."""
+    """The captured local contract routes each stage's Dagster, the shared
+    Trino and the apex portal, and nothing internal or disabled (no reporting, no governance)."""
     contract = _fixture("local-provider-contracts-v3.json")
 
     jsonschema.validate(contract, SCHEMA)
@@ -1193,6 +1194,7 @@ def test_local_access_routes_only_enabled_user_facing_services() -> None:
 
     routes = parsed.shared.values["access"]["routes"]
     assert {ref: route["url"] for ref, route in routes.items()} == {
+        "shared/portal": "https://olf.localhost",
         "shared/query": "https://trino.olf.localhost",
         "stage/dev/orchestration": "https://dagster.dev.olf.localhost",
         "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
@@ -1309,6 +1311,15 @@ def _route(ref: str, url: str) -> dict:
                 {"shared/secrets": {"url": "https://vault.olf.localhost", "enabled": True, "exposure": "internal"}}
             ),
             "does not resolve",
+        ),
+        # The portal is the apex route; every other shared route sits under it.
+        (
+            lambda access: access["routes"]["shared/portal"].__setitem__("url", "https://portal.olf.localhost"),
+            "must be https://olf.localhost",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://olf.localhost"),
+            "must be https://<service>",
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("enabled", "yes"), "enabled must be"),
         (lambda access: access.__setitem__("tls_mode", "passthrough"), "tls_mode must be one of"),
@@ -1452,6 +1463,11 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
         (lambda i: i["role_mapping"].__setitem__("guest", ["x"]), "unknown role 'guest'"),
         (lambda i: i["role_mapping"].__setitem__("viewer", []), "non-empty list"),
         (lambda i: i.__setitem__("role_mapping", {}), "at least one canonical role"),
+        (
+            lambda i: i.__setitem__("role_mapping", {"viewer": ["g"], "platform-admin": ["g"]}),
+            "more than one role",
+        ),
+        (lambda i: i.__setitem__("issuer_url", "https://idp.example/[realm]"), "outside the host"),
         (lambda i: i["clients"].pop("trino"), "missing required fields"),
         (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
         (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
@@ -1495,6 +1511,22 @@ def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
     contract = _oidc_contract("keycloak")
     contract["shared"]["identity"]["issuer_url"] = issuer_url
     with pytest.raises(ProviderContractError, match="whitespace or control"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize("issuer_url", ["https://idp.example/<a>", 'https://idp.example/"', "https://idp.example/a\\b", "https://idp.example/%ZZ"])
+def test_issuer_url_rejects_non_uri_characters(issuer_url: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = issuer_url
+    with pytest.raises(ProviderContractError, match="RFC 3986"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_secret_ref_name_rejects_label_over_63() -> None:
+    contract = _oidc_contract("keycloak")
+    client = next(iter(contract["shared"]["identity"]["clients"].values()))
+    client["secret_ref"]["name"] = "a" * 64 + ".b"
+    with pytest.raises(ProviderContractError, match="valid Kubernetes Secret name"):
         parse_provider_contracts(contract, _topology(contract))
 
 

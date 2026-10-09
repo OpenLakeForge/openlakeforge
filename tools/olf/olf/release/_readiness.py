@@ -280,6 +280,13 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         repository_key_path=("redis", "image", "repository"),
         tag_key_path=("redis", "image", "tag"),
     ),
+    "portal_static_server": _ImageDeploymentSource(
+        paths=("infra/terraform/modules/access/portal/variables.tf",),
+        full_ref_pattern=re.compile(
+            r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"',
+            re.DOTALL,
+        ),
+    ),
     "traefik": _ImageDeploymentSource(
         paths=("infra/helm/values/local/traefik.yaml",),
         registry_key_path=("image", "registry"),

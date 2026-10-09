@@ -11,7 +11,9 @@
     "ops_storage": {"ref": "shared/ops_storage", "implementation": "artifacts.local_kind_and_s3", "bucket_name": "openlakeforge-ops", "artifact_base_uri": "s3://openlakeforge-ops", "access_mode": "remote", "local_upload_access_mode": "kubectl-port-forward"},
     "secrets": {"ref": "shared/secrets", "implementation": "secrets.kubernetes_secret"},
     "identity": {"ref": "shared/identity", "implementation": "identity.local_development_credentials", "roles": {"precedence": ["platform-admin", "data-engineer", "analyst", "viewer"], "grants": {"orchestration": {"platform-admin": "full", "data-engineer": "full"}, "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"}, "governance_service": {"platform-admin": "Admin", "data-engineer": "write", "analyst": "read", "viewer": "read"}, "query": {"platform-admin": "yes", "data-engineer": "yes"}}}},
+    "portal": {"ref": "shared/portal", "implementation": "portal.static_page"},
     "access": {"ref": "shared/access", "implementation": "access.ingress", "base_domain": "olf.localhost", "issuer": "local-ca", "tls_mode": "ingress-terminated", "routes": {
+      "shared/portal": {"url": "https://olf.localhost", "enabled": true, "exposure": "user-facing"},
       "shared/query": {"url": "https://trino.olf.localhost", "enabled": true, "exposure": "user-facing"},
       "stage/dev/orchestration": {"url": "https://dagster.dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
       "stage/prod/orchestration": {"url": "https://dagster.prod.olf.localhost", "enabled": true, "exposure": "user-facing"}

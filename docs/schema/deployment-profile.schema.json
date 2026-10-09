@@ -73,7 +73,8 @@
             }
           },
           "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
-          "then": {"required": ["issuer_url", "role_claim", "role_mapping"]}
+          "then": {"required": ["issuer_url", "role_claim", "role_mapping"]},
+          "else": {"not": {"required": ["client_ids"]}}
         },
         "stages": {
           "type": "object",

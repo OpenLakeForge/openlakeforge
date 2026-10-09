@@ -101,6 +101,7 @@ all present or all absent:
   "tls_mode": "ingress-terminated",
   "routes": {
     "stage/dev/orchestration": {"url": "https://dagster.dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
+    "shared/portal": {"url": "https://olf.localhost", "enabled": true, "exposure": "user-facing"},
     "shared/catalog_service": {"url": "https://polaris.olf.localhost", "enabled": true, "exposure": "internal"}
   }
 }
@@ -110,8 +111,8 @@ all present or all absent:
 | --- | --- |
 | `base_domain` and `issuer` equal the profile's `spec.access` | contract and profile cannot diverge |
 | a route key is an existing shared or enabled-stage service ref | a disabled capability exposes no route |
-| `user-facing` only for orchestration, reporting, governance, query, identity | databases, storage admin, catalog, registry stay internal; code servers have no ref |
-| `url` is `https://<host>.<base_domain>`, unique across routes | one host, one service |
+| `user-facing` only for orchestration, reporting, governance, query, identity, portal | databases, storage admin, catalog, registry stay internal; code servers have no ref |
+| `url` is `https://<host>.<base_domain>`, unique across routes; the portal's is `https://<base_domain>` | one host, one service |
 | `tls_mode` is `ingress-terminated` | the only mode an adapter implements |
 
 ### `shared.identity`
@@ -181,6 +182,10 @@ roots do not yet. With `spec.identity.issuer: external` the local root emits
 the profile's issuer fields and names the client Secrets
 `oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The optional `admin` block (seam 4)
 is not in the schema until #331. The perimeter fields are #176.
+
+The local root also emits an optional `shared.portal` binding
+(`{ref: "shared/portal", implementation: "portal.static_page"}`), which is what
+the `shared/portal` route resolves to.
 
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
