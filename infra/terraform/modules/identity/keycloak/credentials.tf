@@ -44,7 +44,8 @@ resource "kubernetes_service_account_v1" "credentials" {
 }
 
 # `create` cannot be limited by resourceNames, so it covers every Secret in the
-# namespace (inventoried in docs/architecture/identity-credentials.md).
+# namespace (inventoried in docs/architecture/identity-credentials.md); reading
+# is limited to the Secrets this Job owns.
 resource "kubernetes_role_v1" "credentials" {
   metadata {
     name      = "${var.release_name}-credentials"
@@ -54,7 +55,13 @@ resource "kubernetes_role_v1" "credentials" {
   rule {
     api_groups = [""]
     resources  = ["secrets"]
-    verbs      = ["get", "create"]
+    verbs      = ["create"]
+  }
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = concat([local.admin_secret_name], values(local.client_secret_name))
+    verbs          = ["get"]
   }
   rule {
     api_groups = ["apps"]
