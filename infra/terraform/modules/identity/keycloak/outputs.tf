@@ -10,7 +10,7 @@ output "http_port" {
 
 output "admin_secret_name" {
   description = "Secret holding the bootstrap admin username and password."
-  value       = kubernetes_secret_v1.admin.metadata[0].name
+  value       = local.admin_secret_name
 }
 
 # The identity.oidc fields of the provider contract (ADR 0014). References
@@ -25,7 +25,7 @@ output "contract" {
     clients = {
       for name in keys(var.clients) : name => {
         client_id  = name
-        secret_ref = { name = kubernetes_secret_v1.client[name].metadata[0].name, key = "client-secret" }
+        secret_ref = { name = local.client_secret_name[name], key = "client-secret" }
       }
     }
     adapter = "keycloak"
