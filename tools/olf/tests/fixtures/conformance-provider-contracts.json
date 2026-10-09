@@ -17,6 +17,11 @@
           "exposure": "user-facing",
           "url": "https://openmetadata.olf.localhost"
         },
+        "shared/portal": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://olf.localhost"
+        },
         "shared/query": {
           "enabled": true,
           "exposure": "user-facing",
@@ -119,6 +124,10 @@
       "local_upload_access_mode": "kubectl-port-forward",
       "ref": "shared/ops_storage",
       "secret_access_key_key": "AWS_SECRET_ACCESS_KEY"
+    },
+    "portal": {
+      "implementation": "portal.static_page",
+      "ref": "shared/portal"
     },
     "query": {
       "endpoint": "http://trino.olf-system:8080",

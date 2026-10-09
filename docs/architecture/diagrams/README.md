@@ -12,16 +12,16 @@ complement the product chart in
 [../../assets/openlakeforge_v1.png](../../assets/openlakeforge_v1.png), which shows
 *what* the platform does; these show *how*.
 
-| **19** | **1+N** | **3** | **0** |
+| **20** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — 13 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per entity | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — 14 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per entity | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
 | Signal | Means |
 | --- | --- |
 | Blue heptagon icon | Kubernetes workload — the badge names the kind (`deploy`, `sts`, `svc`, `secret`) |
-| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — created by something other than a Deployment, and never counted in the 19 |
+| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — created by something other than a Deployment, and never counted in the 20 |
 | Green box | Long-lived service, grouped by Helm release |
 | Blue box / badge | Control plane — Terraform, contracts, `olf` |
 | Cylinder | Bucket or datastore; bronze / grey / amber follow the medallion layers |
@@ -49,15 +49,15 @@ complement the product chart in
 *Every pod across the deployment's namespaces, grouped by service — verified with `helm template` against
 this repo's own values.*
 
-Nineteen pods run at steady state: Dagster runs three (webserver, daemon, and the merged
+Twenty pods run at steady state: Dagster runs three (webserver, daemon, and the merged
 `openlakeforge-dagster` code server loading `lakehouse_code.definitions`), SeaweedFS runs four
 (three StatefulSets and an S3-gateway Deployment), Superset runs three, OpenMetadata
 runs two, and PostgreSQL, Polaris, and Trino run one each. Trino is deliberately
-coordinator-only. The ingress adds four single-replica Deployments in
-`olf-system`: Traefik plus the cert-manager controller, cainjector, and webhook.
-Both are installed; the per-service routes through them are still pending (#266).
+coordinator-only. The ingress adds five single-replica Deployments in
+`olf-system`: Traefik, the cert-manager controller, cainjector, and webhook,
+and the portal, a static server for the landing page at the base domain.
 
-The purple band underneath is everything that is *not* in that 19, split by what creates
+The purple band underneath is everything that is *not* in that 20, split by what creates
 it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: six grouped
@@ -72,7 +72,7 @@ OpenMetadata catalog refresh hourly).
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
 <sub>`infra/helm/values/local/*.yaml` · orchestration/dagster + storage/postgresql +
-governance/openmetadata + access/{traefik,cert-manager} Terraform modules</sub>
+governance/openmetadata + access/{traefik,cert-manager,portal} Terraform modules</sub>
 
 ## Chart 2 — Namespace Runtime Topology
 

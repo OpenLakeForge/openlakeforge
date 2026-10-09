@@ -175,6 +175,7 @@ def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
     assert json.loads(exports["OPENLAKEFORGE_ACCESS_JSON"]) == {
         "issuer": "local-ca",
         "routes": {
+            "shared/portal": "https://olf.localhost",
             "shared/query": "https://trino.olf.localhost",
             "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
         },
@@ -1182,8 +1183,8 @@ def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
 
 
 def test_local_access_routes_only_enabled_user_facing_services() -> None:
-    """The captured local contract routes each stage's Dagster and the shared
-    Trino, and nothing internal or disabled (no reporting, no governance)."""
+    """The captured local contract routes each stage's Dagster, the shared
+    Trino and the apex portal, and nothing internal or disabled (no reporting, no governance)."""
     contract = _fixture("local-provider-contracts-v3.json")
 
     jsonschema.validate(contract, SCHEMA)
@@ -1191,6 +1192,7 @@ def test_local_access_routes_only_enabled_user_facing_services() -> None:
 
     routes = parsed.shared.values["access"]["routes"]
     assert {ref: route["url"] for ref, route in routes.items()} == {
+        "shared/portal": "https://olf.localhost",
         "shared/query": "https://trino.olf.localhost",
         "stage/dev/orchestration": "https://dagster.dev.olf.localhost",
         "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
@@ -1307,6 +1309,15 @@ def _route(ref: str, url: str) -> dict:
                 {"shared/secrets": {"url": "https://vault.olf.localhost", "enabled": True, "exposure": "internal"}}
             ),
             "does not resolve",
+        ),
+        # The portal is the apex route; every other shared route sits under it.
+        (
+            lambda access: access["routes"]["shared/portal"].__setitem__("url", "https://portal.olf.localhost"),
+            "must be https://olf.localhost",
+        ),
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://olf.localhost"),
+            "must be https://<service>",
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("enabled", "yes"), "enabled must be"),
         (lambda access: access.__setitem__("tls_mode", "passthrough"), "tls_mode must be one of"),

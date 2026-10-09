@@ -225,6 +225,13 @@ module "cert_manager" {
   base_domain        = var.access_base_domain
 }
 
+module "portal" {
+  source = "../../modules/access/portal"
+
+  namespace = kubernetes_namespace_v1.shared.metadata[0].name
+  links     = local.portal_links
+}
+
 module "traefik" {
   source = "../../modules/access/traefik"
 

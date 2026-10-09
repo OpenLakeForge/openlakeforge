@@ -45,7 +45,9 @@ _ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
 # ref. Everything else (metadata database, ops storage, catalog service,
 # registry, ...) can only be routed as internal, and Dagster code servers have
 # no ref at all, so no route can name them.
-_USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_service", "query", "identity"})
+_USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_service", "query", "identity", "portal"})
+# The landing page is the one route on the apex: https://<base_domain>.
+_PORTAL_REF = "shared/portal"
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
 # The ingress terminates TLS with a certificate from the issuer; the only mode
 # the local Traefik/cert-manager adapter implements.
@@ -56,8 +58,9 @@ _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets
 
 # The role model's grants are keyed by route service name, so only services a
 # route can publish to users can carry one; identity is the login surface and
-# is never behind the perimeter.
-_GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity"}
+# is never behind the perimeter, and the portal is the post-login landing page
+# every authenticated user reaches, so it is never role-gated either.
+_GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity", "portal"}
 IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 
 
@@ -151,7 +154,10 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         # so a DEV backend can never answer on a PROD or shared hostname.
         scope = f"{ref.split('/')[1]}." if ref.startswith("stage/") else ""
         suffix = f".{scope}{base_domain}".lower()
-        if not host.endswith(suffix) or "." in host[: -len(suffix)]:
+        if ref == _PORTAL_REF:
+            if host != base_domain.lower():
+                raise ProviderContractError(f"{where}.url must be https://{base_domain}")
+        elif not host.endswith(suffix) or "." in host[: -len(suffix)]:
             raise ProviderContractError(f"{where}.url must be https://<service>{suffix}")
         if host in hosts:
             raise ProviderContractError(f"{where}.url host {host!r} is already routed to another service")
@@ -171,7 +177,7 @@ def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatfo
         "access",
         "observability",
     }
-    optional = {"catalog_service", "governance_service"}
+    optional = {"catalog_service", "governance_service", "portal"}
     document = _fields(value, where="shared", required=required, optional=optional)
     parsed: dict[str, Mapping[str, Any]] = {}
     for name, binding in document.items():
