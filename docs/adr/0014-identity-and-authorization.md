@@ -4,14 +4,14 @@
 
 Partly binding. **Binding today:** the canonical role model (seam 1) —
 `release/identity-roles.yaml`, rendered into `shared.identity.roles` by all
-three roots and validated by `olf` (#175) — and the `identity.oidc` contract
-shape (seam 2), parsed and schema-checked but not yet emitted by any root
-(#24). **Decided, not built:** the adapter, and seams 3–4 below. No identity
-provider is deployed, nothing enforces a grant, and every root still emits its
-existing `identity` implementation (`identity.local_development_credentials`, `identity.aws_pod_identity`,
-`identity.azure_workload_identity_ready`). Rows marked "not built" are the
-direction #24, #176, and #331 implement; they are not a description of the
-code.
+three roots and validated by `olf` (#175); the `identity.oidc` contract shape
+(seam 2); and the local Keycloak adapter, which the local root deploys by
+default and which emits `identity.oidc` (#24). The AWS and Azure roots still
+emit their existing `identity` implementations
+(`identity.aws_pod_identity`, `identity.azure_workload_identity_ready`).
+**Decided, not built:** seams 3–4 below. Nothing enforces a grant yet. Rows
+marked "not built" are the direction #176 and #331 implement; they are not a
+description of the code.
 
 ## Context
 
@@ -32,7 +32,7 @@ each have their own adapter and none leaks into another:
 | Seam | Contract location | Local / on-prem adapter | Later adapters |
 | --- | --- | --- | --- |
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
-| 2. Issuer: who you are, which roles you hold (**contract built**, adapter not built, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
+| 2. Issuer: who you are, which roles you hold (**built** for local, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
 | 3. Perimeter: enforce route grants before the service (**not built**, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
 | 4. Admin: write user and role assignment (**not built**, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
@@ -85,7 +85,7 @@ principals (an `analyst` mapped to an IAM role with Lake Formation grants,
 #179), that is a fifth mapping keyed by canonical role, added then. Nothing
 here forecloses it and nothing here builds it.
 
-### Seam 2 — issuer (contract built; adapter #24 part b, then #331)
+### Seam 2 — issuer (built for local; admin surface #331)
 
 `shared.identity` with `implementation: identity.oidc` carries, beside
 `roles`:
@@ -134,20 +134,43 @@ generic OIDC) is a checklist, not a schema change:**
    runs every fixture through the same consumer-facing validation.
 
 The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
-(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`;
+(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (external only: issuer-assigned
+client ids by consumer, default the consumer name);
 `external` requires all three. `bootstrap_admins` (#331) and the optional
 `shared.identity.admin` block (seam 4) are deferred to #331.
 
-Realm-as-code uses a `keycloak-config-cli` Job, not the Terraform Keycloak
-provider (decided in #24; the issue text preferred Terraform): that provider
-must reach Keycloak at plan time, so it would be configured from a resource
-created in the same apply. User records never live
-in Terraform; groups, clients, and the realm only. #24 must also verify two
-known risks before building on them: `*.localhost` resolves to a pod's own
-loopback, so back-channel token and JWKS calls need in-cluster resolution of
-`*.<base_domain>` plus the local CA, and the token `iss` must equal the
-browser-facing URL; and single sign-on across hosts needs a cookie on
-`.<base_domain>` that a browser must actually accept.
+### The local Keycloak adapter
+
+`modules/identity/keycloak` runs one Keycloak (digest-pinned in
+`release/component-catalog.yaml`) in the shared namespace, on its own
+`keycloak` database in the platform PostgreSQL. `spec.identity.issuer:
+external` deploys none of it: the contract comes from the profile, and the
+operator provides the four client Secrets under the names the contract
+references (`oidc-client-<consumer>`, key `client-secret`).
+
+| Piece | How |
+| --- | --- |
+| Realm as code | a `keycloak-config-cli` Job applies one realm file; the Terraform Keycloak provider is not used, because it must reach Keycloak at plan time and would be configured from a resource created in the same apply |
+| Roles | one Keycloak group per canonical role, named exactly as the role, so the default `role_mapping` is the role to its same-named group; a group mapper emits them in `role_claim` (`groups`) |
+| Clients | `perimeter`, `superset`, `openmetadata`, `trino`; confidential, authorization-code only, redirect URIs limited to the routes of the service they front |
+| Secrets | `random_password` into a Kubernetes Secret per client (`keycloak-client-<consumer>`, key `client-secret`); the Job reads them through `secretKeyRef` and `$(env:...)` substitution, so no value is in the realm file, the Job spec or the contract |
+| Users | never in Terraform or the realm file; created in Keycloak's admin console, so onboarding needs no apply. The bootstrap admin is in Secret `keycloak-admin-creds` |
+| Route | `https://auth.<base_domain>`, the `shared/identity` route; never granted a role and never behind the perimeter |
+| Issuer | Keycloak pins every URL, `iss` included, to `https://auth.<base_domain>` whatever address a caller used |
+
+The adapter declares `capabilities` `groups_in_token` and `logout_endpoint`
+true and `admin_api` false until `olf users` exists (#331). The consumers are
+wired by #25, #26 and #176; none is yet.
+
+Realm-as-code and user records: groups, clients and the realm only. Two
+local-cluster risks were checked rather than assumed. `*.localhost` resolves
+to a pod's own loopback, so back-channel token and JWKS calls need in-cluster
+resolution of `*.<base_domain>` plus the local CA, which is not built yet
+(the Keycloak adapter does not need it: its Job calls Keycloak by Service
+name, and no consumer is wired). Single sign-on across hosts needs a cookie
+on `.<base_domain>`: curl (libpsl) and headless Chromium both accepted a
+`Domain=.olf.localhost` cookie and sent it to a sibling host, and both
+rejected `Domain=.localhost`. Firefox and Safari were not tested.
 
 ### Seam 3 — perimeter (decided, not built; #176)
 
@@ -166,12 +189,26 @@ Assigning roles is an optional capability of the issuer. Where it is absent,
 ## Consequences
 
 - The `identity` binding of every v3 contract gains a required `roles`
-  object, so a contract emitted before this change no longer parses. The
-  providers' `implementation` strings are unchanged.
+  object, so a contract emitted before this change no longer parses. The AWS and Azure
+  `implementation` strings are unchanged. The local root's moves from
+  `identity.local_development_credentials` to `identity.oidc` (#24): the
+  validator still accepts a legacy-implementation contract that carries `roles`,
+  but the local root no longer emits one.
 - The role model is a release artifact: changing a grant changes
   `release/identity-roles.yaml`, and every root picks it up on the next
   apply. `olf` rejects a platform whose contract was rendered from a
   different file.
+- The local Keycloak adds one always-on pod to `olf-system` (input to the #171
+  fixed-cost budget), measured on a fresh kind deploy with the realm applied:
+
+  | Item | Value |
+  | --- | --- |
+  | CPU request | 200m |
+  | Memory request / limit | 768Mi / 1Gi |
+  | Resident memory (cgroup `memory.current`, idle) | about 640 MiB; `memory.peak` reached the 1Gi limit while `start` ran its build step, so the limit is not safe to lower |
+  | PostgreSQL load | the `keycloak` database, 13 MB, 2 connections; no new server |
+  | Realm Job | runs on a change of realm or client secrets, 50m / 256Mi request, exits in seconds |
+
 - The provider-binding digest recorded at activation covers `shared.identity`,
   so the first activation after upgrading reads as a binding change.
 
@@ -183,3 +220,7 @@ New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
 Seam 2 contract (#24 part a): `identity.oidc` fields fixed and validated in
 `olf` and the schema; profile `spec.identity` added; realm-as-code decided as
 a `keycloak-config-cli` Job. The Keycloak adapter is #24 part b.
+
+Keycloak adapter (#24 part b): the local root deploys Keycloak, applies the
+realm with `keycloak-config-cli`, routes `auth.<base_domain>` and emits
+`identity.oidc`; `spec.identity.issuer: external` skips the deployment.

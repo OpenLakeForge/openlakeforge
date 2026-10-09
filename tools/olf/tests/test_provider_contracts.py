@@ -1414,6 +1414,7 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
         "issuer_url": shared["issuer_url"],
         "role_claim": shared["role_claim"],
         "role_mapping": shared["role_mapping"],
+        "client_ids": {n: c["client_id"] for n, c in shared["clients"].items()},
     }
     parsed = parse_provider_contracts(contract, _topology(contract, external))
 
@@ -1434,6 +1435,7 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
         "issuer_url": shared["issuer_url"],
         "role_claim": shared["role_claim"],
         "role_mapping": {role: list(values) for role, values in shared["role_mapping"].items()},
+        "client_ids": {n: c["client_id"] for n, c in shared["clients"].items()},
     }
     parse_provider_contracts(contract, _topology(contract, external))
 
@@ -1444,6 +1446,10 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
     ):
         with pytest.raises(ProviderContractError, match="must match the profile's external"):
             parse_provider_contracts(contract, _topology(contract, {**external, field: other}))
+
+    ids = external["client_ids"]
+    with pytest.raises(ProviderContractError, match="client_id must match"):
+        parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": {**ids, "trino": "stale"}}))
 
     local = _fixture("local-provider-contracts-v3.json")
     with pytest.raises(ProviderContractError, match="external spec.identity"):

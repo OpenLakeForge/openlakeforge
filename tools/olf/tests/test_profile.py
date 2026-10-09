@@ -292,6 +292,29 @@ def test_identity_survives_topology_resolution() -> None:
     assert resolve_topology(profile).identity == profile.identity
 
 
+def test_identity_client_ids_are_validated() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    base = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "g",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    document["spec"]["identity"] = base | {"client_ids": {"trino": "0oa1"}}
+    assert validate_deployment_profile(document).identity.client_ids == {"trino": "0oa1"}
+    for bad in ({"nope": "x"}, {"trino": ""}, {}):
+        document["spec"]["identity"] = base | {"client_ids": bad}
+        with pytest.raises(DeploymentProfileError):
+            validate_deployment_profile(document)
+
+
+def test_identity_client_ids_require_external_issuer() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {"client_ids": {"trino": "0oa1"}}
+    with pytest.raises(DeploymentProfileError, match="client_ids requires issuer 'external'"):
+        validate_deployment_profile(document)
+
+
 def test_render_json_carries_identity() -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["identity"] = {

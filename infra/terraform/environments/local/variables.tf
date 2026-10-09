@@ -204,3 +204,25 @@ variable "manage_user_deployments" {
   type        = bool
   default     = true
 }
+
+variable "identity_issuer" {
+  description = "Deployment Profile spec.identity.issuer (ADR 0014): `keycloak` deploys the adapter, `external` takes the contract from identity_external."
+  type        = string
+  default     = "keycloak"
+
+  validation {
+    condition     = contains(["keycloak", "external"], var.identity_issuer)
+    error_message = "spec.identity.issuer must be keycloak or external."
+  }
+}
+
+variable "identity_external" {
+  description = "Deployment Profile spec.identity issuer_url, role_claim, role_mapping and optional client_ids (issuer-assigned, by consumer) for an existing issuer. Required when identity_issuer is external."
+  type = object({
+    issuer_url   = string
+    role_claim   = string
+    role_mapping = map(list(string))
+    client_ids   = optional(map(string), {})
+  })
+  default = null
+}

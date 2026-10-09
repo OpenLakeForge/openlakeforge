@@ -207,6 +207,18 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             re.DOTALL,
         ),
     ),
+    "keycloak": _ImageDeploymentSource(
+        paths=("infra/terraform/modules/identity/keycloak/variables.tf",),
+        full_ref_pattern=re.compile(
+            r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
+        ),
+    ),
+    "keycloak_config_cli": _ImageDeploymentSource(
+        paths=("infra/terraform/modules/identity/keycloak/variables.tf",),
+        full_ref_pattern=re.compile(
+            r'variable\s+"config_cli_image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
+        ),
+    ),
     "dagster_control_plane": _ImageDeploymentSource(
         paths=("infra/helm/values/local/dagster.yaml",),
         image_key_paths=(("dagsterWebserver", "image"), ("dagsterDaemon", "image")),

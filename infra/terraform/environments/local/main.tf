@@ -132,6 +132,15 @@ locals {
         namespaces              = [var.shared_namespace]
       }
     } : {},
+    local.identity_keycloak ? {
+      keycloak = {
+        key                     = "keycloak"
+        db_name                 = "keycloak"
+        db_user                 = "keycloak"
+        credentials_secret_name = "postgresql-keycloak-creds"
+        namespaces              = [var.shared_namespace]
+      }
+    } : {},
   )
   polaris_bootstrap_hash = sha256(join("", [
     for f in sort(fileset("${path.root}/../../modules/catalog/polaris", "**/*.{tf,tftpl}")) :
@@ -240,6 +249,31 @@ module "traefik" {
   chart_package_path  = var.traefik_chart_package_path
   routes              = local.access_routes
   cluster_issuer_name = module.cert_manager.cluster_issuer_name
+}
+
+# Outside the counted module: the keycloak database survives `external` and back
+# again, and a regenerated password would not match its existing admin.
+resource "random_password" "keycloak_admin" {
+  length  = 32
+  special = false
+}
+
+# ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
+# profile and the operator supplies the client Secrets it references.
+module "keycloak" {
+  source = "../../modules/identity/keycloak"
+  count  = local.identity_keycloak ? 1 : 0
+
+  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
+  hostname            = "auth.${var.access_base_domain}"
+  admin_password      = random_password.keycloak_admin.result
+  roles               = local.identity_roles.precedence
+  clients             = local.identity_client_redirects
+  postgresql_contract = module.postgresql.contract
+
+  depends_on = [
+    module.postgresql,
+  ]
 }
 
 module "polaris" {

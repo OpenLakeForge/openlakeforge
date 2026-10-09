@@ -140,6 +140,38 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "cert_manager_chart_package_path",
         "access_base_domain",
         "access_issuer",
+        "identity_issuer",
+    }
+
+
+def test_the_default_identity_issuer_deploys_keycloak_and_passes_no_claim_mapping(tmp_path: Path) -> None:
+    variables = platform.platform_apply_variables(_config(tmp_path))
+
+    assert variables["identity_issuer"] == "keycloak"
+    assert "identity_external" not in variables
+
+
+def test_an_external_issuer_carries_its_claim_mapping_into_the_root(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.profile import IdentitySpec
+
+    external = IdentitySpec(
+        issuer="external",
+        issuer_url="https://idp.example.com/realms/acme",
+        role_claim="roles",
+        role_mapping={"platform-admin": ("olf-admins",), "viewer": ("olf-viewers",)},
+    )
+    topology = replace(_topology(), identity=external)
+
+    variables = platform.platform_apply_variables(_config(tmp_path, topology=topology))
+
+    assert variables["identity_issuer"] == "external"
+    assert json.loads(variables["identity_external"]) == {
+        "issuer_url": "https://idp.example.com/realms/acme",
+        "role_claim": "roles",
+        "role_mapping": {"platform-admin": ["olf-admins"], "viewer": ["olf-viewers"]},
+        "client_ids": {},
     }
 
 

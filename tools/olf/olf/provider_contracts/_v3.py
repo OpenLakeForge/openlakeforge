@@ -181,6 +181,11 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         raise ProviderContractError(
             f"{where} issuer_url, role_claim and role_mapping must match the profile's external spec.identity"
         )
+    if selected.issuer == "external":
+        # The profile names only the ids the issuer assigned; the rest are the consumer names.
+        for name, client in clients.items():
+            if client["client_id"] != (selected.client_ids or {}).get(name, name):
+                raise ProviderContractError(f"{where}.clients.{name}.client_id must match the profile's client_ids")
 
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
