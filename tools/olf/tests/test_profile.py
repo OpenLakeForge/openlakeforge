@@ -301,3 +301,21 @@ def test_render_json_carries_identity() -> None:
     rendered = json.loads(resolve_topology(validate_deployment_profile(document)).render_json())
     assert rendered["identity"]["issuer_url"] == "https://login.example.com/"
     assert rendered["identity"]["role_mapping"] == {"viewer": ["v"]}
+
+
+def test_external_identity_is_immutable_and_rejects_a_malformed_authority() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    profile = validate_deployment_profile(document)
+    with pytest.raises(TypeError):
+        profile.identity.role_mapping["admin"] = ("x",)  # type: ignore[index]
+    assert profile.identity.role_mapping == {"viewer": ("v",)}
+
+    document["spec"]["identity"]["issuer_url"] = "https://[bad]/"
+    with pytest.raises(DeploymentProfileError):
+        validate_deployment_profile(document)

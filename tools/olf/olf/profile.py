@@ -14,9 +14,10 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import yaml
@@ -171,9 +172,10 @@ class DeploymentTopology:
                 "shared_services": list(self.shared_services),
                 "stage_services": list(self.stage_services),
                 "access": {"base_domain": self.access.base_domain, "issuer": self.access.issuer},
-                "identity": asdict(self.identity),
+                "identity": vars(self.identity),
             },
             sort_keys=True,
+            default=dict,  # IdentitySpec.role_mapping is a read-only MappingProxyType
         )
 
 
@@ -296,7 +298,7 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must be a non-empty list of strings")
             if len(set(values)) != len(values):
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must not repeat a claim value")
-        mapping = {role: tuple(values) for role, values in raw.items()}
+        mapping = MappingProxyType({role: tuple(values) for role, values in raw.items()})
     return IdentitySpec(issuer=issuer, issuer_url=issuer_url, role_claim=role_claim, role_mapping=mapping)
 
 

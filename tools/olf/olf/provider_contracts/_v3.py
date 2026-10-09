@@ -114,6 +114,26 @@ _OIDC_CAPABILITIES = frozenset({"admin_api", "groups_in_token", "logout_endpoint
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
 
 
+def _secret_values(node: Any, path: str = "", secretish: bool = False) -> list[str]:
+    """Paths of non-reference strings under a secret-named key at any depth, so
+    `{"credentials": {"value": "x"}}` is caught where the flat gate is not."""
+    from olf.contracts_check._hcl import _SECRET_KEY, _is_reference  # lazy: contracts_check imports contracts
+
+    if isinstance(node, str):
+        key = path.rsplit(".", 1)[-1].split("[")[0]
+        return [path] if secretish and node and not _is_reference(key, node) else []
+    items = node.items() if isinstance(node, dict) else enumerate(node) if isinstance(node, list) else ()
+    return [
+        f
+        for k, v in items
+        for f in _secret_values(
+            v,
+            f"{path}.{k}" if isinstance(k, str) else f"{path}[{k}]",
+            secretish or bool(isinstance(k, str) and _SECRET_KEY.search(k)),
+        )
+    ]
+
+
 def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) -> None:
     """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
     a canonical role or a consumer, never by an issuer product; credentials are
@@ -133,6 +153,8 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         _string(identity["adapter"], where=f"{where}.adapter")
     if "provider" in identity:
         _mapping(identity["provider"], where=f"{where}.provider")
+        if leaked := _secret_values(identity["provider"]):
+            raise ProviderContractError(f"{where}.provider must not carry credentials; found {leaked!r}")
     for capability, enabled in _mapping(identity.get("capabilities", {}), where=f"{where}.capabilities").items():
         if capability not in _OIDC_CAPABILITIES or not isinstance(enabled, bool):
             raise ProviderContractError(
@@ -159,6 +181,8 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
         for field in ("name", "key"):
             _string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")
+    if selected.issuer == "keycloak" and identity.get("adapter") != "keycloak":
+        raise ProviderContractError(f"{where} must come from the keycloak adapter when spec.identity is keycloak")
     if selected.issuer == "external":
         deployed = (identity["issuer_url"], identity["role_claim"], {r: tuple(v) for r, v in mapping.items()})
         if deployed != (selected.issuer_url, selected.role_claim, selected.role_mapping):

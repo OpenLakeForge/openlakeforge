@@ -161,7 +161,10 @@ def _absolute_http_uri(value: object, *, where: str) -> str:
     ProviderContractError.
     """
     uri = _string(value, where=where)
-    parts = urlsplit(uri)
+    try:
+        parts = urlsplit(uri)
+    except ValueError as exc:  # e.g. an unbalanced IPv6 bracket in the authority
+        raise ProviderContractError(f"{where} is not a valid URI: {exc}") from exc
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise ProviderContractError(f"{where} must be an absolute http:// or https:// URI")
     if parts.username is not None or parts.password is not None:

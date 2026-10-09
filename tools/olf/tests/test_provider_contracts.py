@@ -1396,7 +1396,15 @@ _OIDC_FIXTURES = sorted(p.stem.removeprefix("identity-oidc-") for p in FIXTURES.
 @pytest.mark.parametrize("name", _OIDC_FIXTURES)
 def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     contract = _oidc_contract(name)
-    parsed = parse_provider_contracts(contract, _topology(contract))
+    shared = contract["shared"]["identity"]
+    # Keycloak is the default issuer; any other adapter needs an external spec.
+    external = None if name == "keycloak" else {
+        "issuer": "external",
+        "issuer_url": shared["issuer_url"],
+        "role_claim": shared["role_claim"],
+        "role_mapping": shared["role_mapping"],
+    }
+    parsed = parse_provider_contracts(contract, _topology(contract, external))
 
     # Conformance: every issuer satisfies the same consumer-facing surface.
     identity = parsed.shared.values["identity"]
@@ -1451,10 +1459,45 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
     ],
 )
 def test_identity_oidc_fails_closed(mutate, match: str) -> None:
-    contract = _oidc_contract("cognito")
+    contract = _oidc_contract("keycloak")
     mutate(contract["shared"]["identity"])
 
     with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_identity_oidc_external_binding_is_rejected_for_default_keycloak() -> None:
+    contract = _oidc_contract("cognito")
+    with pytest.raises(ProviderContractError, match="keycloak adapter"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [
+        {"password": "hunter2"},
+        {"credentials": {"value": "hunter2"}},
+        {"nested": [{"client_secret": "hunter2"}]},
+        {"auth": {"token": ["hunter2"]}},
+    ],
+)
+def test_identity_oidc_provider_block_rejects_credentials(provider: dict) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["provider"] = provider
+    with pytest.raises(ProviderContractError, match="must not carry credentials"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_identity_oidc_provider_block_allows_secret_references() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["provider"] = {"credentials": {"secret_name": "kc", "key_ref": "x"}}
+    parse_provider_contracts(contract, _topology(contract))
+
+
+def test_malformed_issuer_authority_is_a_contract_error() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = "https://[bad]/"
+    with pytest.raises(ProviderContractError, match="not a valid URI"):
         parse_provider_contracts(contract, _topology(contract))
 
 
