@@ -159,7 +159,8 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
         for field, valid in (("name", _DNS_SUBDOMAIN), ("key", _SECRET_DATA_KEY)):
             ref = _string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")
-            if len(ref) > 253 or not valid.fullmatch(ref) or ref in (".", ".."):
+            long_label = field == "name" and any(len(label) > 63 for label in ref.split("."))
+            if len(ref) > 253 or not valid.fullmatch(ref) or ref in (".", "..") or long_label:
                 raise ProviderContractError(
                     f"{client_where}.secret_ref.{field} is not a valid Kubernetes Secret {field}"
                 )

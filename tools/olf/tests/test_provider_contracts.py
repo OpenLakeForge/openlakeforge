@@ -1492,6 +1492,22 @@ def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
         parse_provider_contracts(contract, _topology(contract))
 
 
+@pytest.mark.parametrize("issuer_url", ["https://idp.example/<a>", 'https://idp.example/"', "https://idp.example/a\\b", "https://idp.example/%ZZ"])
+def test_issuer_url_rejects_non_uri_characters(issuer_url: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = issuer_url
+    with pytest.raises(ProviderContractError, match="RFC 3986"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_secret_ref_name_rejects_label_over_63() -> None:
+    contract = _oidc_contract("keycloak")
+    client = next(iter(contract["shared"]["identity"]["clients"].values()))
+    client["secret_ref"]["name"] = "a" * 64 + ".b"
+    with pytest.raises(ProviderContractError, match="valid Kubernetes Secret name"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

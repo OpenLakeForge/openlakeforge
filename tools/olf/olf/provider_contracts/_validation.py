@@ -141,6 +141,9 @@ def _check_glue_catalog_id(value: object, *, where: str) -> None:
         raise ProviderContractError(f"{where} must be '<12-digit-account-id>[:<catalog-name>]'")
 
 
+_URI_INVALID = re.compile(r"[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]|%(?![0-9A-Fa-f]{2})")
+
+
 def _oidc_issuer_url(value: object, *, where: str) -> str:
     """The one authority for OIDC issuer URLs (the schemas only check `^https://`):
     https, a host, a valid port, no userinfo, query, fragment, whitespace or
@@ -151,6 +154,8 @@ def _oidc_issuer_url(value: object, *, where: str) -> str:
         raise ProviderContractError(f"{where} must be an https URL with a host and no query or fragment")
     if re.search(r"[\s\x00-\x1f\x7f]", uri):
         raise ProviderContractError(f"{where} must not contain whitespace or control characters")
+    if _URI_INVALID.search(uri):
+        raise ProviderContractError(f"{where} must only contain RFC 3986 URI characters and valid percent escapes")
     return uri
 
 
