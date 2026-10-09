@@ -381,3 +381,72 @@ def test_a_missing_role_file_is_a_profile_error(tmp_path: Path) -> None:
             source="p",
             distribution_root=tmp_path,
         )
+
+
+_SMTP = {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com"}
+_SMTP_AUTH = _SMTP | {"auth": True, "credentials_secret_ref": {"name": "smtp-creds"}}
+
+
+def _smtp_profile(smtp: dict, **identity: object) -> dict:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {"smtp": smtp, **identity}
+    return document
+
+
+def test_smtp_defaults_to_starttls_without_auth_and_references_its_secret_by_name_only() -> None:
+    smtp = validate_deployment_profile(_smtp_profile(_SMTP)).identity.smtp
+    assert (smtp.security, smtp.auth, smtp.credentials_secret_ref) == ("starttls", False, None)
+
+    smtp = validate_deployment_profile(_smtp_profile(_SMTP_AUTH | {"from_name": "OLF"})).identity.smtp
+    ref = smtp.credentials_secret_ref
+    assert (ref.name, ref.username_key, ref.password_key) == ("smtp-creds", "username", "password")
+
+
+@pytest.mark.parametrize(
+    ("smtp", "match"),
+    [
+        ({"host": "smtp.example.com", "port": 587}, "missing required field"),
+        (_SMTP | {"host": "smtp.example.com:587"}, "host"),
+        (_SMTP | {"host": "smtp://x"}, "host"),
+        (_SMTP | {"port": 0}, "port"),
+        (_SMTP | {"port": 65536}, "port"),
+        (_SMTP | {"port": "587"}, "port"),
+        (_SMTP | {"port": True}, "port"),
+        (_SMTP | {"from_address": "not-an-address"}, "from_address"),
+        (_SMTP | {"from_name": ""}, "from_name"),
+        (_SMTP | {"security": "tls"}, "security"),
+        (_SMTP | {"auth": "yes"}, "auth must be a boolean"),
+        (_SMTP | {"auth": True}, "auth true requires credentials_secret_ref"),
+        (_SMTP | {"credentials_secret_ref": {"name": "smtp-creds"}}, "requires auth true"),
+        (_SMTP_AUTH | {"security": "none"}, "unencrypted"),
+        (_SMTP_AUTH | {"credentials_secret_ref": {"name": "Not_DNS"}}, "not a valid Kubernetes Secret name"),
+        (_SMTP_AUTH | {"credentials_secret_ref": {"name": "s", "password_key": "a/b"}}, "Secret key"),
+        (_SMTP_AUTH | {"credentials_secret_ref": {"name": "s", "password": "hunter2"}}, "must not contain"),
+        (_SMTP | {"password": "hunter2"}, "must not contain"),
+    ],
+)
+def test_smtp_fails_closed(smtp: dict, match: str) -> None:
+    with pytest.raises(DeploymentProfileError, match=match):
+        validate_deployment_profile(_smtp_profile(smtp))
+
+
+def test_smtp_requires_the_keycloak_issuer_because_an_external_issuer_sends_its_own_mail() -> None:
+    external = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    with pytest.raises(DeploymentProfileError, match="smtp requires issuer 'keycloak'"):
+        validate_deployment_profile(_smtp_profile(_SMTP, **external))
+
+
+def test_render_json_carries_smtp_settings_and_secret_reference_but_no_credentials() -> None:
+    topology = resolve_topology(validate_deployment_profile(_smtp_profile(_SMTP_AUTH)))
+    smtp = json.loads(topology.render_json())["identity"]["smtp"]
+    assert smtp["host"] == "smtp.example.com"
+    assert smtp["credentials_secret_ref"] == {
+        "name": "smtp-creds",
+        "username_key": "username",
+        "password_key": "password",
+    }

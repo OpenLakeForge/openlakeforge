@@ -291,6 +291,7 @@ module "keycloak" {
   hostname            = "auth.${var.access_base_domain}"
   roles               = local.identity_roles.precedence
   clients             = local.identity_client_redirects
+  smtp                = var.identity_smtp
   postgresql_contract = module.postgresql.contract
 
   depends_on = [

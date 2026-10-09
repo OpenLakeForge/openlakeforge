@@ -44,7 +44,7 @@ are discarded.
 | A client Secret is deleted | When the bootstrap Job is next replaced it regenerates it and the realm Job overwrites the client's secret in Keycloak. This is a rotation of that client: consumers restart, and the Job logs that it regenerated. |
 | `keycloak-admin-creds` is deleted, Keycloak's database still has the admin | A new value would not match the stored admin, and Keycloak ignores the Secret once the admin exists. The bootstrap does not regenerate it silently (it refuses while the Keycloak Deployment exists); it fails with a pointer to the admin recovery in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md). |
 | A Secret exists but lacks the expected key | Fail with the Secret and key named; never patch a foreign Secret. |
-| Operator-provided Secret (SMTP, upstream SSO, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. |
+| Operator-provided Secret (SMTP, upstream SSO, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. SMTP is enforced today by `olf deploy` before the platform apply; the SSO and external-client Secrets are not yet. |
 
 ### Interrupted bootstrap
 
@@ -67,7 +67,7 @@ Both create the Secret in-cluster and Terraform never reads it.
 | Keycloak admin (exists) | First start on an empty database; realm Job; e2e admin API | Bootstrap Job, 32 random alphanumeric characters | `keycloak-admin-creds`, keys `username`, `password` | Keycloak, `keycloak-config-cli` Job, `olf e2e` | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-bootstrap-admin); lost Secret: see recovery above | No |
 | OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists) | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `keycloak-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Realm Job today; oauth2-proxy (#176), Superset and OpenMetadata (#25), Trino UI (#26) when wired | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md) | No |
 | Perimeter cookie secret (planned) | Signs and encrypts oauth2-proxy session cookies | Bootstrap Job, 32 random bytes | Name fixed by #176 | oauth2-proxy | Delete, re-run bootstrap, restart the proxy; signs out every user once | No |
-| SMTP credentials (planned, optional) | Invitation and password-recovery email | Operator | Profile carries a reference only; value in an operator-created Secret | Keycloak realm (email settings) | Operator edits the Secret, re-runs the realm Job | No |
+| SMTP credentials (exists, optional) | Invitation and password-recovery email through the operator's mail relay | Operator | `spec.identity.smtp.credentials_secret_ref`: name, `username_key` (default `username`), `password_key` (default `password`); value in an operator-created Secret in `olf-system` ([how](../setup/identity-secret-rotation.md#the-smtp-login)) | Realm Job, through `secretKeyRef` and `$(env:SMTP_USERNAME)`/`$(env:SMTP_PASSWORD)` substitution into the realm's `smtpServer` | Edit the Secret, delete the realm Job so the next apply recreates it (step not yet exercised on a cluster) | No |
 | Upstream SSO client credentials (planned, optional) | Keycloak brokering to a company IdP | Operator, issued by the upstream IdP | Same: reference in the profile, value in an operator-created Secret | Keycloak identity-provider config | Rotated at the upstream IdP, then the Secret and realm Job | No |
 | `olf-users` admin service-account client (planned, #331) | `olf users` writes users and role assignments | Bootstrap Job; client limited to user and group management in the `openlakeforge` realm | Name fixed by #331 | `olf users`, which reads it through kubectl RBAC | Delete, re-run bootstrap; the realm Job updates the client | No |
 | Trino workload credential (planned, #26) | Authenticate Superset, dbt and OpenMetadata to Trino | Undecided in #26. Today Trino has no authentication | None | Superset, dbt, OpenMetadata | Not defined until #26 chooses the mechanism | Not decided |
@@ -105,4 +105,6 @@ Terraform-generated Secrets and a later redeploy left all five Secrets
 unchanged (uid, resourceVersion and data hash), no Secret value is in Terraform
 state or the realm ConfigMap, and the rotation drill, the missing-key and the
 missing-admin failures behave as the tables above say. Not exercised: the
-operator-provided Secret rows (SMTP, upstream SSO), which nothing consumes yet.
+upstream SSO row, which nothing consumes yet. The SMTP row is consumed by the
+realm Job; what was and was not run for it is in
+[`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-smtp-login).

@@ -226,3 +226,21 @@ variable "identity_external" {
   })
   default = null
 }
+
+variable "identity_smtp" {
+  description = "Deployment Profile spec.identity.smtp (ADR 0014): outbound mail for the Keycloak adapter. Non-secret settings plus a Secret reference; the login itself never passes through Terraform."
+  type = object({
+    host         = string
+    port         = number
+    from_address = string
+    from_name    = optional(string)
+    security     = string
+    auth         = bool
+    credentials_secret_ref = optional(object({
+      name         = string
+      username_key = string
+      password_key = string
+    }))
+  })
+  default = null
+}

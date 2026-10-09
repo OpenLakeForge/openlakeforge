@@ -109,8 +109,13 @@ rather than break: `adapter` (provenance only for consumers, e.g. `keycloak`;
 the validator requires `adapter: "keycloak"` when the profile selects keycloak,
 the default, to correlate that profile with its binding; external profiles
 need none) and `capabilities` (`admin_api`, `groups_in_token`,
-`logout_endpoint`, each boolean; absent means not declared, and no `admin_api`
-means `olf users` is read-only and points at the issuer console).
+`logout_endpoint`, `email_delivery`, each boolean; absent means not declared,
+and no `admin_api` means `olf users` is read-only and points at the issuer
+console). `email_delivery` says the issuer can send account-setup and recovery
+mail, so #331 can fail an invitation early with "no mail configured" instead of
+after the account exists. It carries no host or credential, and for the
+keycloak adapter `olf` requires it to be true exactly when the profile sets
+`spec.identity.smtp`.
 
 The contract carries no free-form block: the only credential-shaped data is a
 `secret_ref{name,key}`. If a cloud adapter later needs adapter-specific data,
@@ -138,6 +143,19 @@ client ids by consumer, default the consumer name);
 `external` requires all three. `bootstrap_admins` (#331) and the optional
 `shared.identity.admin` block (seam 4) are deferred to #331.
 
+`spec.identity.smtp` (keycloak only; an external issuer sends its own mail)
+configures outbound mail. Settings are non-secret: `host`, `port`,
+`from_address`, optional `from_name`, `security` (`none`, `starttls` default,
+`ssl`) and `auth` (default false). With `auth: true`, `credentials_secret_ref`
+`{name, username_key, password_key}` (keys default `username`/`password`)
+names a Secret the operator creates in the shared namespace; the profile
+never carries the login. Validation rejects a missing or out-of-range port, a
+malformed host or sender, `auth` without a reference (and a reference without
+`auth`), and `auth` over `security: none`, which would send the login in the
+clear. `olf deploy` refuses to start the platform phase until the Secret and
+both keys exist, naming the `kubectl create secret` command shape; it reads key
+names, never values.
+
 ### The local Keycloak adapter
 
 `modules/identity/keycloak` runs one Keycloak (digest-pinned in
@@ -153,12 +171,14 @@ references (`oidc-client-<consumer>`, key `client-secret`).
 | Roles | one Keycloak group per canonical role, named exactly as the role, so the default `role_mapping` is the role to its same-named group; a group mapper emits them in `role_claim` (`groups`) |
 | Clients | `perimeter`, `superset`, `openmetadata`, `trino`; confidential, authorization-code only, redirect URIs limited to the routes of the service they front |
 | Secrets | an in-cluster bootstrap Job creates a Kubernetes Secret per client (`keycloak-client-<consumer>`, key `client-secret`) only if it is missing; Terraform knows the names only. The realm Job reads them through `secretKeyRef` and `$(env:...)` substitution, so no value is in the realm file, the Job spec or the contract |
+| Mail | `smtpServer` in the realm file from the non-secret profile fields. The login reaches the realm Job only as `SMTP_USERNAME`/`SMTP_PASSWORD` from `secretKeyRef`, substituted by `keycloak-config-cli` like a client secret, so it is in no ConfigMap, Terraform variable, output or state. `verifyEmail` and `resetPasswordAllowed` are true only when SMTP is configured: a reset link that cannot be mailed is a dead end. Self-registration stays off |
 | Users | never in Terraform or the realm file; created in Keycloak's admin console, so onboarding needs no apply. The bootstrap admin is in Secret `keycloak-admin-creds` |
 | Route | `https://auth.<base_domain>`, the `shared/identity` route; never granted a role and never behind the perimeter |
 | Issuer | Keycloak pins every URL, `iss` included, to `https://auth.<base_domain>` whatever address a caller used |
 
 The adapter declares `capabilities` `groups_in_token` and `logout_endpoint`
-true and `admin_api` false until `olf users` exists (#331). The consumers are
+true, `email_delivery` true when SMTP is configured, and `admin_api` false
+until `olf users` exists (#331). The consumers are
 wired by #25, #26 and #176; none is yet.
 
 Rotating a client secret is deleting its Secret and replacing the bootstrap
@@ -249,3 +269,10 @@ the session and recovery policy, and the caller inventory are recorded in
 Identity credentials (#181): the Keycloak admin password and the four OIDC
 client secrets are created by an in-cluster bootstrap Job only if missing, not
 by `random_password`, so Terraform state no longer holds them.
+
+Outbound SMTP (#24): `spec.identity.smtp`, the `email_delivery` capability, the
+realm `smtpServer` and the deploy-time Secret check are built. The shared
+namespace is created by the platform apply, so on a first deploy the Secret
+cannot exist before it: deploy once without `smtp`, create the Secret, then add
+`smtp` and re-run the platform phase. Delivery against a test mail sink is
+checked separately; this ADR does not claim a configured relay was tested.

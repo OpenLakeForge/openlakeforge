@@ -112,3 +112,58 @@ it would not match the stored admin. To rotate it (unverified):
      --from-literal=username=admin --from-literal=password='<new>' \
      --dry-run=client -o yaml | kubectl -n olf-system apply -f -
    ```
+
+## The SMTP login
+
+Mail for account setup and password reset is optional. Without
+`spec.identity.smtp` the realm offers neither password reset nor email
+verification. With it, the profile holds the relay's address and the *name* of
+a Secret; the username and password stay in that Secret and are never in the
+profile, Terraform variables, outputs or state:
+
+```yaml
+spec:
+  identity:
+    smtp:
+      host: smtp.example.com
+      port: 587
+      from_address: noreply@example.com
+      from_name: OpenLakeForge      # optional
+      security: starttls            # none | starttls (default) | ssl
+      auth: true                    # default false; true needs the reference below
+      credentials_secret_ref:
+        name: smtp-credentials      # keys default to username / password
+```
+
+The Secret lives in the shared namespace (`olf-system`), which the platform
+apply creates, so on a first deploy run the platform phase once without `smtp`,
+then:
+
+```bash
+read -rp 'SMTP username: ' SMTP_USERNAME; read -rsp 'SMTP password: ' SMTP_PASSWORD; echo
+kubectl -n olf-system create secret generic smtp-credentials \
+  --from-literal=username="$SMTP_USERNAME" --from-literal=password="$SMTP_PASSWORD"
+unset SMTP_USERNAME SMTP_PASSWORD
+```
+
+Add the `smtp` block and run `olf deploy --provider local --phase platform`.
+`olf deploy` stops before the apply, naming this command shape, if the Secret
+or either key is missing. It reads key names only.
+
+To change the login, recreate the Secret, then delete the realm Job so the next
+platform apply recreates it and `keycloak-config-cli` pushes the new value
+(Terraform does not hash the Secret, so it would not re-run the Job on its own):
+
+```bash
+kubectl -n olf-system delete job -l app.kubernetes.io/name=keycloak
+```
+
+Not yet exercised on a cluster: this rotation step, and the `olf deploy`
+Secret check against a live cluster (it is covered by unit tests only). What
+was run: the module's rendered realm file, applied with the pinned
+`keycloak-config-cli` to the pinned Keycloak 26.6.4 on a Docker network with a
+Mailpit sink, produced the `smtpServer` with the username from the environment
+and a masked password, and Keycloak's `execute-actions-email` delivered through
+it with that login (Mailpit recorded the SMTP username). Removing `smtp` from
+the profile emptied `smtpServer` and turned `resetPasswordAllowed` and
+`verifyEmail` off.

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -13,7 +12,14 @@ import yaml
 
 from olf import config
 from olf.deployment.context import Provider
-from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, IdentitySpec, StageName
+from olf.profile import (
+    _BASE_DOMAIN_PATTERN,
+    DeploymentTopology,
+    IdentitySpec,
+    StageName,
+    is_secret_key,
+    is_secret_name,
+)
 from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
 from olf.provider_contracts._validation import (
     _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER,
@@ -113,9 +119,9 @@ _OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
 # Optional: `adapter` is provenance only, `capabilities` declares what this
 # issuer lacks so consumers degrade (no admin API: `olf users` read-only).
 _OIDC_OPTIONAL = {"adapter", "capabilities"}
-_OIDC_CAPABILITIES = frozenset({"admin_api", "groups_in_token", "logout_endpoint"})
-_DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
-_SECRET_DATA_KEY = re.compile(r"[-._a-zA-Z0-9]+")
+# email_delivery: the issuer can send account-setup and recovery mail (#331 reports
+# a delivery failure distinctly, and an issuer without it is not asked to send).
+_OIDC_CAPABILITIES = frozenset({"admin_api", "email_delivery", "groups_in_token", "logout_endpoint"})
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
 
 
@@ -141,6 +147,12 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
             raise ProviderContractError(
                 f"{where}.capabilities.{capability} must be a boolean named one of {sorted(_OIDC_CAPABILITIES)!r}"
             )
+    if selected.issuer == "keycloak" and identity.get("capabilities", {}).get("email_delivery", False) != (
+        selected.smtp is not None
+    ):
+        raise ProviderContractError(
+            f"{where}.capabilities.email_delivery must be true exactly when spec.identity.smtp is set"
+        )
     _oidc_issuer_url(identity["issuer_url"], where=f"{where}.issuer_url")
     _string(identity["role_claim"], where=f"{where}.role_claim")
     roles = identity["roles"]["precedence"]
@@ -163,10 +175,8 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         document = _fields(client, where=client_where, required={"client_id", "secret_ref"})
         _string(document["client_id"], where=f"{client_where}.client_id")
         secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
-        for field, valid in (("name", _DNS_SUBDOMAIN), ("key", _SECRET_DATA_KEY)):
-            ref = _string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")
-            long_label = field == "name" and any(len(label) > 63 for label in ref.split("."))
-            if len(ref) > 253 or not valid.fullmatch(ref) or ref in (".", "..") or long_label:
+        for field, valid in (("name", is_secret_name), ("key", is_secret_key)):
+            if not valid(_string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")):
                 raise ProviderContractError(
                     f"{client_where}.secret_ref.{field} is not a valid Kubernetes Secret {field}"
                 )
