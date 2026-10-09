@@ -12,7 +12,7 @@ import yaml
 
 from olf import config
 from olf.deployment.context import Provider
-from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, StageName
+from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, IdentitySpec, StageName
 from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
 from olf.provider_contracts._validation import (
     _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER,
@@ -114,12 +114,14 @@ _OIDC_CAPABILITIES = frozenset({"admin_api", "groups_in_token", "logout_endpoint
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
 
 
-def _check_identity_oidc(identity: Mapping[str, Any]) -> None:
+def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) -> None:
     """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
     a canonical role or a consumer, never by an issuer product; credentials are
     Secret references only."""
     where = "shared.identity"
     present = _OIDC_FIELDS & set(identity)
+    if selected.issuer == "external" and identity["implementation"] != _OIDC_IMPLEMENTATION:
+        raise ProviderContractError(f"{where} must use implementation identity.oidc for an external spec.identity")
     if identity["implementation"] != _OIDC_IMPLEMENTATION:
         present = present | (_OIDC_OPTIONAL & set(identity))
         if present:
@@ -157,6 +159,12 @@ def _check_identity_oidc(identity: Mapping[str, Any]) -> None:
         secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
         for field in ("name", "key"):
             _string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")
+    if selected.issuer == "external":
+        deployed = (identity["issuer_url"], identity["role_claim"], {r: tuple(v) for r, v in mapping.items()})
+        if deployed != (selected.issuer_url, selected.role_claim, selected.role_mapping):
+            raise ProviderContractError(
+                f"{where} issuer_url, role_claim and role_mapping must match the profile's external spec.identity"
+            )
 
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
@@ -214,7 +222,9 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         hosts.add(host)
 
 
-def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatformContract:
+def _parse_shared(
+    value: object, distribution_root: Path | None, topology: DeploymentTopology
+) -> SharedPlatformContract:
     required = {
         "foundation",
         "kubernetes_platform",
@@ -259,7 +269,7 @@ def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatfo
     if "roles" not in parsed["identity"]:
         raise ProviderContractError("shared.identity is missing required field 'roles'")
     _check_identity_roles(parsed["identity"]["roles"], distribution_root)
-    _check_identity_oidc(parsed["identity"])
+    _check_identity_oidc(parsed["identity"], topology.identity)
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")
@@ -649,7 +659,7 @@ def _parse_v3(
         raise ProviderContractError(
             f"deployment.region {deployment['region']!r} does not match DeploymentTopology.region {topology.region!r}"
         )
-    shared = _parse_shared(document["shared"], distribution_root)
+    shared = _parse_shared(document["shared"], distribution_root, topology)
     stages_document = _mapping(document["stages"], where="stages")
     expected_names = {stage.name.value for stage in topology.stages if stage.enabled}
     actual_names = set(stages_document)

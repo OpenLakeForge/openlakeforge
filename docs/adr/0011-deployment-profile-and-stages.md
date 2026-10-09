@@ -74,7 +74,8 @@ spec:
 ```
 
 `tools/olf/olf/profile.py` models this as frozen typed value objects
-(`DeploymentProfile`, `ProviderSpec`, `StageSpec`, `StageCapabilities`) and
+(`DeploymentProfile`, `ProviderSpec`, `StageSpec`, `StageCapabilities`, plus `AccessSpec` and `IdentitySpec` for the optional
+`spec.access` and `spec.identity`) and
 resolves it into a separately typed `DeploymentTopology`. The desired and
 resolved shapes are never the same object: `DeploymentProfile` is what the
 user wrote, `DeploymentTopology` is the one effective, fully-defaulted result.
@@ -168,3 +169,8 @@ topology. No profile fields were added.
 2026-10-02: Added optional `spec.access` (`base_domain`, `issuer`) for
 service access (#264). It is deployment configuration owned by ADR 0013, not a
 fifth topology concept; omitted, it defaults to the local evaluation install.
+
+2026-10-09: Added optional `spec.identity` (`issuer`, and for an external
+issuer `issuer_url`, `role_claim`, `role_mapping`) selecting the OIDC issuer.
+The seam is owned by ADR 0014; the resolved topology carries it and the
+provider contract must match it.

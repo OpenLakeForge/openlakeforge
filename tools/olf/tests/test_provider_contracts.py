@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from pathlib import Path
 
 import jsonschema
@@ -74,7 +73,7 @@ def _synthetic_multi_capability_contract() -> dict:
     return base
 
 
-def _topology(contract: dict):
+def _topology(contract: dict, identity: dict | None = None):
     stages = {
         name: {
             "enabled": True,
@@ -99,6 +98,7 @@ def _topology(contract: dict):
                     },
                     "preset": "slim",
                     "stages": stages,
+                    **({"identity": identity} if identity else {}),
                 },
             }
         )
@@ -1390,18 +1390,45 @@ def _oidc_contract(name: str) -> dict:
     return contract
 
 
-@pytest.mark.parametrize("name", ["keycloak", "cognito"])
-def test_identity_oidc_accepts_keycloak_and_a_non_keycloak_issuer(name: str) -> None:
+_OIDC_FIXTURES = sorted(p.stem.removeprefix("identity-oidc-") for p in FIXTURES.glob("identity-oidc-*.json"))
+
+
+@pytest.mark.parametrize("name", _OIDC_FIXTURES)
+def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     contract = _oidc_contract(name)
     parsed = parse_provider_contracts(contract, _topology(contract))
 
-    # Conformance: both issuers satisfy the same consumer-facing surface.
+    # Conformance: every issuer satisfies the same consumer-facing surface.
     identity = parsed.shared.values["identity"]
     assert {"issuer_url", "role_claim", "role_mapping", "clients"} <= set(identity)
     assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "trino"}
-    assert identity["role_claim"] == ("groups" if name == "keycloak" else "cognito:groups")
+    assert identity["role_claim"] == json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text())["role_claim"]
     assert _hcl.secret_value_fields(contract) == []
     jsonschema.validate(contract, SCHEMA)
+
+
+def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
+    contract = _oidc_contract("cognito")
+    shared = contract["shared"]["identity"]
+    external = {
+        "issuer": "external",
+        "issuer_url": shared["issuer_url"],
+        "role_claim": shared["role_claim"],
+        "role_mapping": {role: list(values) for role, values in shared["role_mapping"].items()},
+    }
+    parse_provider_contracts(contract, _topology(contract, external))
+
+    for field, other in (
+        ("issuer_url", "https://other.example.com/t"),
+        ("role_claim", "other"),
+        ("role_mapping", {"viewer": ["x"]}),
+    ):
+        with pytest.raises(ProviderContractError, match="must match the profile's external"):
+            parse_provider_contracts(contract, _topology(contract, {**external, field: other}))
+
+    local = _fixture("local-provider-contracts-v3.json")
+    with pytest.raises(ProviderContractError, match="external spec.identity"):
+        parse_provider_contracts(local, _topology(local, external))
 
 
 @pytest.mark.parametrize(
@@ -1431,11 +1458,48 @@ def test_identity_oidc_fails_closed(mutate, match: str) -> None:
         parse_provider_contracts(contract, _topology(contract))
 
 
-@pytest.mark.parametrize("schema_file", ["provider-contracts", "deployment-profile"])
-@pytest.mark.parametrize("suffix", ["?realm=x", "#f"])
-def test_schemas_reject_issuer_url_query_and_fragment(schema_file: str, suffix: str) -> None:
-    text = (REPO_ROOT / f"docs/schema/{schema_file}.schema.json").read_text()
-    pattern = re.search(r'"issuer_url": \{"type": "string", "pattern": "([^"]+)"', text)
-    assert pattern
-    assert re.search(pattern.group(1), "https://idp.example/t")
-    assert not re.search(pattern.group(1), "https://idp.example/t" + suffix)
+_BAD_ISSUERS = [
+    "http://idp.example/t",
+    "https://idp.example/t?realm=x",
+    "https://idp.example/t#f",
+    "https:///tenant",
+    "https://user:pass@example.com",
+]
+
+
+@pytest.mark.parametrize("issuer_url", _BAD_ISSUERS)
+def test_schemas_reject_malformed_issuer_urls(issuer_url: str) -> None:
+    contract = _oidc_contract("cognito")
+    contract["shared"]["identity"]["issuer_url"] = issuer_url
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(contract, SCHEMA)
+
+    profile = {
+        "apiVersion": "openlakeforge.io/v1alpha1",
+        "kind": "DeploymentProfile",
+        "metadata": {"name": "p"},
+        "spec": {
+            "provider": {"type": "local"},
+            "preset": "slim",
+            "stages": {"dev": {"enabled": True}},
+            "identity": {
+                "issuer": "external",
+                "issuer_url": issuer_url,
+                "role_claim": "groups",
+                "role_mapping": {"viewer": ["v"]},
+            },
+        },
+    }
+    profile_schema = json.loads((REPO_ROOT / "docs/schema/deployment-profile.schema.json").read_text())
+    jsonschema.validate(
+        {
+            **profile,
+            "spec": {
+                **profile["spec"],
+                "identity": {**profile["spec"]["identity"], "issuer_url": "https://idp.example/t"},
+            },
+        },
+        profile_schema,
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(profile, profile_schema)
