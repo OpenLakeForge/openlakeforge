@@ -107,36 +107,13 @@ def _check_identity_roles(value: object, distribution_root: Path | None) -> None
 
 _OIDC_IMPLEMENTATION = "identity.oidc"
 _OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
-# Optional: `adapter` is provenance only, `provider` is an opaque block for the
-# adapter's own data (consumers never read it), `capabilities` declares what
-# this issuer lacks so consumers degrade (no admin API: `olf users` read-only).
-_OIDC_OPTIONAL = {"adapter", "provider", "capabilities"}
+# Optional: `adapter` is provenance only, `capabilities` declares what this
+# issuer lacks so consumers degrade (no admin API: `olf users` read-only).
+_OIDC_OPTIONAL = {"adapter", "capabilities"}
 _OIDC_CAPABILITIES = frozenset({"admin_api", "groups_in_token", "logout_endpoint"})
 _DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
 _SECRET_DATA_KEY = re.compile(r"[-._a-zA-Z0-9]+")
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
-
-
-def _secret_values(node: Any, path: str = "", secretish: bool = False) -> list[str]:
-    """Paths of non-reference strings under a secret-named key at any depth, so
-    `{"credentials": {"value": "x"}}` is caught where the flat gate is not."""
-    from olf.contracts_check._hcl import _SECRET_KEY, _is_reference  # lazy: contracts_check imports contracts
-
-    if isinstance(node, bool | int | float):  # a number or bool under a secret key is a value, never a reference
-        return [path] if secretish else []
-    if isinstance(node, str):
-        key = path.rsplit(".", 1)[-1].split("[")[0]
-        return [path] if secretish and node and not _is_reference(key, node) else []
-    items = node.items() if isinstance(node, dict) else enumerate(node) if isinstance(node, list) else ()
-    return [
-        f
-        for k, v in items
-        for f in _secret_values(
-            v,
-            f"{path}.{k}" if isinstance(k, str) else f"{path}[{k}]",
-            secretish or bool(isinstance(k, str) and _SECRET_KEY.search(k)),
-        )
-    ]
 
 
 def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) -> None:
@@ -156,10 +133,6 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         raise ProviderContractError(f"{where} identity.oidc requires {sorted(_OIDC_FIELDS - present)!r}")
     if "adapter" in identity:
         _string(identity["adapter"], where=f"{where}.adapter")
-    if "provider" in identity:
-        _mapping(identity["provider"], where=f"{where}.provider")
-        if leaked := _secret_values(identity["provider"]):
-            raise ProviderContractError(f"{where}.provider must not carry credentials; found {leaked!r}")
     for capability, enabled in _mapping(identity.get("capabilities", {}), where=f"{where}.capabilities").items():
         if capability not in _OIDC_CAPABILITIES or not isinstance(enabled, bool):
             raise ProviderContractError(

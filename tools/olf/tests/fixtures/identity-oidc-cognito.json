@@ -51,8 +51,5 @@
   "capabilities": {
     "admin_api": false,
     "logout_endpoint": false
-  },
-  "provider": {
-    "user_pool_id": "eu-west-1_Example"
   }
 }
