@@ -81,11 +81,6 @@ locals {
   ])), 0, 10)
 }
 
-resource "random_password" "admin" {
-  length  = 32
-  special = false
-}
-
 # Used by Keycloak's first start on an empty database and by the realm Job.
 # Rotating it later does not change an admin that already exists.
 resource "kubernetes_secret_v1" "admin" {
@@ -96,7 +91,7 @@ resource "kubernetes_secret_v1" "admin" {
   }
   data = {
     username = "admin"
-    password = random_password.admin.result
+    password = var.admin_password
   }
   type = "Opaque"
 }

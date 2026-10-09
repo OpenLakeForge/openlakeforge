@@ -354,7 +354,8 @@ locals {
 
   # Consumer-facing identity.oidc fields (ADR 0014). With an external issuer
   # the operator provisions the client Secrets, named by consumer like the
-  # adapter's own, and the clients keep the consumer names as ids.
+  # adapter's own; client ids default to the consumer names unless the issuer
+  # assigned its own (client_ids).
   identity_oidc = try(module.keycloak[0].contract, local.identity_oidc_external)
   identity_oidc_external = {
     issuer_url   = try(var.identity_external.issuer_url, null)
@@ -362,7 +363,7 @@ locals {
     role_mapping = try(var.identity_external.role_mapping, null)
     clients = {
       for name in keys(local.identity_client_redirects) : name => {
-        client_id  = name
+        client_id  = try(var.identity_external.client_ids[name], name)
         secret_ref = { name = "oidc-client-${name}", key = "client-secret" }
       }
     }

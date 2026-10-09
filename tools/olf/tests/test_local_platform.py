@@ -171,6 +171,7 @@ def test_an_external_issuer_carries_its_claim_mapping_into_the_root(tmp_path: Pa
         "issuer_url": "https://idp.example.com/realms/acme",
         "role_claim": "roles",
         "role_mapping": {"platform-admin": ["olf-admins"], "viewer": ["olf-viewers"]},
+        "client_ids": {},
     }
 
 

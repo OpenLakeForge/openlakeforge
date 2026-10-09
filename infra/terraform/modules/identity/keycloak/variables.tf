@@ -68,3 +68,9 @@ variable "database_key" {
   type        = string
   default     = "keycloak"
 }
+
+variable "admin_password" {
+  description = "Bootstrap admin password. Owned by the caller so it outlives this module being disabled: Keycloak's database persists, and a regenerated value would no longer match its existing admin."
+  type        = string
+  sensitive   = true
+}

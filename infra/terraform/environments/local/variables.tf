@@ -217,11 +217,12 @@ variable "identity_issuer" {
 }
 
 variable "identity_external" {
-  description = "Deployment Profile spec.identity issuer_url, role_claim and role_mapping for an existing issuer. Required when identity_issuer is external."
+  description = "Deployment Profile spec.identity issuer_url, role_claim, role_mapping and optional client_ids (issuer-assigned, by consumer) for an existing issuer. Required when identity_issuer is external."
   type = object({
     issuer_url   = string
     role_claim   = string
     role_mapping = map(list(string))
+    client_ids   = optional(map(string), {})
   })
   default = null
 }

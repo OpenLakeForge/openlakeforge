@@ -41,7 +41,7 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
-_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping"}
+_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids"}
 _IDENTITY_ISSUERS = ("keycloak", "external")
 # Dot-separated DNS labels; every route host is `<service>[.<stage>].<base_domain>`.
 _BASE_DOMAIN_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
@@ -93,6 +93,8 @@ class IdentitySpec:
     issuer_url: str | None = None
     role_claim: str | None = None
     role_mapping: Mapping[str, tuple[str, ...]] | None = None
+    # Issuer-assigned client ids (Cognito, Entra), by consumer; absent = the consumer name.
+    client_ids: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -299,7 +301,17 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
             if len(set(values)) != len(values):
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must not repeat a claim value")
         mapping = MappingProxyType({role: tuple(values) for role, values in raw.items()})
-    return IdentitySpec(issuer=issuer, issuer_url=issuer_url, role_claim=role_claim, role_mapping=mapping)
+    client_ids = document.get("client_ids")
+    if "client_ids" in document:
+        consumers = {"perimeter", "superset", "openmetadata", "trino"}
+        if not isinstance(client_ids, Mapping) or not client_ids or set(client_ids) - consumers:
+            raise DeploymentProfileError(f"{where}.client_ids must be a non-empty object keyed by {sorted(consumers)}")
+        if not all(isinstance(v, str) and v for v in client_ids.values()):
+            raise DeploymentProfileError(f"{where}.client_ids values must be non-empty strings")
+        client_ids = MappingProxyType(dict(client_ids))
+    return IdentitySpec(
+        issuer=issuer, issuer_url=issuer_url, role_claim=role_claim, role_mapping=mapping, client_ids=client_ids
+    )
 
 
 def validate_deployment_profile(

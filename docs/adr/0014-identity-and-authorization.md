@@ -127,7 +127,8 @@ generic OIDC) is a checklist, not a schema change:**
    runs every fixture through the same consumer-facing validation.
 
 The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
-(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`;
+(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (issuer-assigned
+client ids by consumer, default the consumer name);
 `external` requires all three. `bootstrap_admins` (#331) and the optional
 `shared.identity.admin` block (seam 4) are deferred to #331.
 
@@ -181,8 +182,10 @@ Assigning roles is an optional capability of the issuer. Where it is absent,
 ## Consequences
 
 - The `identity` binding of every v3 contract gains a required `roles`
-  object, so a contract emitted before this change no longer parses. The
-  providers' `implementation` strings are unchanged.
+  object, so a contract emitted before this change no longer parses. The AWS and Azure
+  `implementation` strings are unchanged; the local root's moves from
+  `identity.local_development_credentials` to `identity.oidc` (#24), so a
+  contract rendered by an earlier local root no longer parses either.
 - The role model is a release artifact: changing a grant changes
   `release/identity-roles.yaml`, and every root picks it up on the next
   apply. `olf` rejects a platform whose contract was rendered from a

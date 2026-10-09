@@ -244,6 +244,13 @@ module "traefik" {
   cluster_issuer_name = module.cert_manager.cluster_issuer_name
 }
 
+# Outside the counted module: the keycloak database survives `external` and back
+# again, and a regenerated password would not match its existing admin.
+resource "random_password" "keycloak_admin" {
+  length  = 32
+  special = false
+}
+
 # ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
 # profile and the operator supplies the client Secrets it references.
 module "keycloak" {
@@ -252,6 +259,7 @@ module "keycloak" {
 
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   hostname            = "auth.${var.access_base_domain}"
+  admin_password      = random_password.keycloak_admin.result
   roles               = local.identity_roles.precedence
   clients             = local.identity_client_redirects
   postgresql_contract = module.postgresql.contract

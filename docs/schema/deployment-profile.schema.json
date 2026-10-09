@@ -54,6 +54,12 @@
             "issuer": {"enum": ["keycloak", "external"], "default": "keycloak"},
             "issuer_url": {"type": "string", "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$"},
             "role_claim": {"type": "string", "minLength": 1},
+            "client_ids": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {"enum": ["perimeter", "superset", "openmetadata", "trino"]},
+              "additionalProperties": {"type": "string", "minLength": 1}
+            },
             "role_mapping": {
               "type": "object",
               "minProperties": 1,
