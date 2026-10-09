@@ -30,6 +30,7 @@ from olf.provider_contracts._validation import (
     _frozen,
     _http_host_port_uri,
     _mapping,
+    _oidc_issuer_url,
     _reference,
     _s3_uri_bucket,
     _same_origin,
@@ -135,9 +136,7 @@ def _check_identity_oidc(identity: Mapping[str, Any]) -> None:
             raise ProviderContractError(
                 f"{where}.capabilities.{capability} must be a boolean named one of {sorted(_OIDC_CAPABILITIES)!r}"
             )
-    issuer_url = _absolute_http_uri(identity["issuer_url"], where=f"{where}.issuer_url")
-    if not issuer_url.startswith("https://"):
-        raise ProviderContractError(f"{where}.issuer_url must be https")
+    _oidc_issuer_url(identity["issuer_url"], where=f"{where}.issuer_url")
     _string(identity["role_claim"], where=f"{where}.role_claim")
     roles = identity["roles"]["precedence"]
     mapping = _mapping(identity["role_mapping"], where=f"{where}.role_mapping")

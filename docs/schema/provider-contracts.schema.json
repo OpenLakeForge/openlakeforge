@@ -77,7 +77,7 @@
             "logout_endpoint": {"type": "boolean"}
           }
         },
-        "issuer_url": {"type": "string", "pattern": "^https://"},
+        "issuer_url": {"type": "string", "pattern": "^https://[^?#]+$"},
         "role_claim": {"$ref": "#/definitions/nonEmptyString"},
         "role_mapping": {
           "type": "object",

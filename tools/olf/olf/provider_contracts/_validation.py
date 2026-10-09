@@ -141,6 +141,14 @@ def _check_glue_catalog_id(value: object, *, where: str) -> None:
         raise ProviderContractError(f"{where} must be '<12-digit-account-id>[:<catalog-name>]'")
 
 
+def _oidc_issuer_url(value: object, *, where: str) -> str:
+    """OIDC Discovery issuer identifier: https, no query or fragment."""
+    uri = _absolute_http_uri(value, where=where)
+    if not uri.startswith("https://") or "?" in uri or "#" in uri:
+        raise ProviderContractError(f"{where} must be an https URL with no query or fragment")
+    return uri
+
+
 def _absolute_http_uri(value: object, *, where: str) -> str:
     """A URI with a real scheme and authority, fit to compare by origin.
 

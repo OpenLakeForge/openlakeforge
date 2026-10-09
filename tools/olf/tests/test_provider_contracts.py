@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import jsonschema
@@ -1415,7 +1416,9 @@ def test_identity_oidc_accepts_keycloak_and_a_non_keycloak_issuer(name: str) -> 
         (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
         (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
         (lambda i: i["clients"]["trino"]["secret_ref"].pop("key"), "missing required fields"),
-        (lambda i: i.__setitem__("issuer_url", "http://auth.example.com"), "must be https"),
+        (lambda i: i.__setitem__("issuer_url", "http://auth.example.com"), "an https URL"),
+        (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t?realm=x"), "no query or fragment"),
+        (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t#f"), "no query or fragment"),
         (lambda i: i.pop("role_claim"), "identity.oidc requires"),
         (lambda i: i.__setitem__("implementation", "identity.local_development_credentials"), "require implementation"),
     ],
@@ -1426,3 +1429,13 @@ def test_identity_oidc_fails_closed(mutate, match: str) -> None:
 
     with pytest.raises(ProviderContractError, match=match):
         parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize("schema_file", ["provider-contracts", "deployment-profile"])
+@pytest.mark.parametrize("suffix", ["?realm=x", "#f"])
+def test_schemas_reject_issuer_url_query_and_fragment(schema_file: str, suffix: str) -> None:
+    text = (REPO_ROOT / f"docs/schema/{schema_file}.schema.json").read_text()
+    pattern = re.search(r'"issuer_url": \{"type": "string", "pattern": "([^"]+)"', text)
+    assert pattern
+    assert re.search(pattern.group(1), "https://idp.example/t")
+    assert not re.search(pattern.group(1), "https://idp.example/t" + suffix)

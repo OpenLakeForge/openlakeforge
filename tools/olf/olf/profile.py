@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -171,6 +171,7 @@ class DeploymentTopology:
                 "shared_services": list(self.shared_services),
                 "stage_services": list(self.stage_services),
                 "access": {"base_domain": self.access.base_domain, "issuer": self.access.issuer},
+                "identity": asdict(self.identity),
             },
             sort_keys=True,
         )
@@ -270,18 +271,16 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
         if missing:
             raise DeploymentProfileError(f"{where}: issuer 'external' requires {missing!r}")
     issuer_url = document.get("issuer_url")
-    if issuer_url is not None:
+    if "issuer_url" in document:  # by key: an explicit null is invalid, not omitted
         # Lazy: provider_contracts imports this module (cycle).
-        from olf.provider_contracts._validation import ProviderContractError, _absolute_http_uri
+        from olf.provider_contracts._validation import ProviderContractError, _oidc_issuer_url
 
-        if not isinstance(issuer_url, str) or not issuer_url.startswith("https://"):
-            raise DeploymentProfileError(f"{where}.issuer_url must be an https URL")
         try:
-            _absolute_http_uri(issuer_url, where=f"{where}.issuer_url")
+            _oidc_issuer_url(issuer_url, where=f"{where}.issuer_url")
         except ProviderContractError as exc:
             raise DeploymentProfileError(str(exc)) from exc
     role_claim = document.get("role_claim")
-    if role_claim is not None and (not isinstance(role_claim, str) or not role_claim):
+    if "role_claim" in document and (not isinstance(role_claim, str) or not role_claim):
         raise DeploymentProfileError(f"{where}.role_claim must be a non-empty string")
     mapping = None
     if "role_mapping" in document:

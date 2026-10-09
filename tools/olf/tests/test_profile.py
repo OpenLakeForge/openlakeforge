@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -250,6 +251,21 @@ def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
         ({"role_mapping": {"viewer": []}}, "non-empty list"),
         ({"role_mapping": {"viewer": ["g", "g"]}}, "must not repeat"),
         ({"issuer_url": "https://"}, "absolute"),
+        ({"issuer_url": "https://idp.example/t?realm=x"}, "no query or fragment"),
+        ({"issuer_url": "https://idp.example/t#f"}, "no query or fragment"),
+        (
+            {"issuer": "external", "issuer_url": None, "role_claim": "g", "role_mapping": {"viewer": ["v"]}},
+            "issuer_url",
+        ),
+        (
+            {
+                "issuer": "external",
+                "issuer_url": "https://i.example",
+                "role_claim": None,
+                "role_mapping": {"viewer": ["v"]},
+            },
+            "role_claim",
+        ),
         ({"issuer_url": "https://u:p@example.com"}, "credentials"),
         ({"client_secret": "x"}, "must not contain"),
     ],
@@ -272,3 +288,16 @@ def test_identity_survives_topology_resolution() -> None:
     }
     profile = validate_deployment_profile(document)
     assert resolve_topology(profile).identity == profile.identity
+
+
+def test_render_json_carries_identity() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    rendered = json.loads(resolve_topology(validate_deployment_profile(document)).render_json())
+    assert rendered["identity"]["issuer_url"] == "https://login.example.com/"
+    assert rendered["identity"]["role_mapping"] == {"viewer": ["v"]}
