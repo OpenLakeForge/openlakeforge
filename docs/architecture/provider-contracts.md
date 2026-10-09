@@ -175,7 +175,7 @@ reference:
 | each client is `client_id` plus `secret_ref{name,key}` | a literal secret is an unsupported field; the #181 secret-value check also covers it |
 
 The `identity.oidc` contract is parsed and schema-checked here. The local root
-emits it (adapter `keycloak`, `provider: {realm}`, `role_claim: groups`, the
+emits it (adapter `keycloak`, `role_claim: groups`, the
 default `role_mapping` of each role to its same-named group); the AWS and Azure
 roots do not yet. With `spec.identity.issuer: external` the local root emits
 the profile's issuer fields and names the client Secrets
