@@ -18,6 +18,10 @@ This directory contains the repo-local architecture source of truth for OpenLake
 - `local-stack-contracts.md` describes the Terraform-managed local service interfaces.
 - `provider-contracts.md` describes the provider-neutral contract boundary that
   keeps the local implementation cloud-ready.
+- `identity-credentials.md`, `identity-sessions-and-recovery.md` and
+  `identity-callers.md` are the identity policy gates (ADR 0014): credential
+  inventory, session policy with administrator recovery, and the caller
+  inventory.
 - `../technical-debt.md` tracks known weaknesses, mitigations, and fix paths.
 - `../testing/floe-openlineage-capture-test-plan.md` describes the capture-based
   validation path for Floe OpenLineage events.
