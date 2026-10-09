@@ -306,6 +306,13 @@ def test_identity_client_ids_are_validated() -> None:
             validate_deployment_profile(document)
 
 
+def test_identity_client_ids_require_external_issuer() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {"client_ids": {"trino": "0oa1"}}
+    with pytest.raises(DeploymentProfileError, match="client_ids requires issuer 'external'"):
+        validate_deployment_profile(document)
+
+
 def test_render_json_carries_identity() -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["identity"] = {

@@ -367,7 +367,6 @@ locals {
         secret_ref = { name = "oidc-client-${name}", key = "client-secret" }
       }
     }
-    adapter      = "external"
     capabilities = { admin_api = false }
   }
 

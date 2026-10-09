@@ -134,7 +134,7 @@ generic OIDC) is a checklist, not a schema change:**
    runs every fixture through the same consumer-facing validation.
 
 The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
-(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (issuer-assigned
+(default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (external only: issuer-assigned
 client ids by consumer, default the consumer name);
 `external` requires all three. `bootstrap_admins` (#331) and the optional
 `shared.identity.admin` block (seam 4) are deferred to #331.

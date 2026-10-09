@@ -303,6 +303,8 @@ def _validate_identity(document: object, *, source: str) -> IdentitySpec:
         mapping = MappingProxyType({role: tuple(values) for role, values in raw.items()})
     client_ids = document.get("client_ids")
     if "client_ids" in document:
+        if issuer != "external":
+            raise DeploymentProfileError(f"{where}.client_ids requires issuer 'external' (keycloak names its clients)")
         consumers = {"perimeter", "superset", "openmetadata", "trino"}
         if not isinstance(client_ids, Mapping) or not client_ids or set(client_ids) - consumers:
             raise DeploymentProfileError(f"{where}.client_ids must be a non-empty object keyed by {sorted(consumers)}")
