@@ -71,7 +71,7 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
     monkeypatch.setattr(project_cmd, "_revision_store", store)
     monkeypatch.setattr(contracts, "load_provider_contracts", lambda *_a, **_k: contract)
-    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path: SimpleNamespace(name="test"))
+    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: SimpleNamespace(name="test"))
     monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
 
     result = runner.invoke(app, ["project", "deploy", "-f", str(profile), "--stage", "prod", "--revision", "r"])
@@ -102,7 +102,7 @@ def test_an_unreadable_contract_file_fails_cleanly(
 
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", context_for)
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
-    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path: SimpleNamespace(name="test"))
+    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: SimpleNamespace(name="test"))
     monkeypatch.setattr(
         "olf.project_revision.build_project_revision", lambda *_a, **_k: SimpleNamespace(revision="r")
     )
@@ -121,3 +121,44 @@ def test_an_unreadable_contract_file_fails_cleanly(
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)
     assert contracts.PROVIDER_CONTRACTS_FILE_ENV in result.output
+
+
+def test_deploy_reads_the_role_model_from_the_resolved_distribution_not_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An installed CLI keeps `release/` in its packaged distribution; the
+    profile reload must use that root, not the (unrelated) working directory."""
+    dist = tmp_path / "dist"
+    (dist / "release").mkdir(parents=True)
+    (dist / "release/identity-roles.yaml").write_text("precedence: [viewer]\n")
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(cwd))  # ambient fallback has no release/ at all
+    profile = tmp_path / "openlakeforge.yaml"
+    profile.write_text(
+        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: t}\n"
+        "spec:\n  provider: {type: local}\n  preset: full\n  stages: {dev: {enabled: true}}\n"
+        "  identity:\n    issuer: external\n    issuer_url: https://idp.example.com\n"
+        "    role_claim: groups\n    role_mapping: {viewer: [g]}\n"
+    )
+    seen: list[str] = []
+
+    @contextmanager
+    def store(*_args: object, **_kwargs: object):  # noqa: ANN202
+        yield object()
+
+    def deploy_revision(_provider: object, *, profile_name: str, **_kwargs: object) -> SimpleNamespace:
+        seen.append(profile_name)
+        return SimpleNamespace(activation_revision="sha256:x")
+
+    context = SimpleNamespace(paths=SimpleNamespace(distribution_root=dist))
+    monkeypatch.setattr(project_cmd, "deployment_context_for_profile", lambda *_a, **_k: context)
+    monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
+    monkeypatch.setattr(project_cmd, "_build_store_for_project", store)
+    monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
+
+    result = runner.invoke(app, ["project", "deploy", "-f", str(profile), "--stage", "dev", "--revision", "r"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == ["t"]

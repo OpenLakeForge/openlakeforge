@@ -53,7 +53,10 @@ def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa
     if not profile_path.is_file():
         return legacy_single_stage_topology(provider=provider, preset=Preset.FULL)
     try:
-        profile = load_deployment_profile(profile_path)
+        from olf.distribution import runtime_layout
+
+        layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(project_root)})
+        profile = load_deployment_profile(profile_path, distribution_root=layout.distribution_root)
     except (DeploymentProfileError, OSError) as exc:
         raise typer.Exit(code=fail(f"{profile_path}: {exc}")) from exc
     if profile.provider.type != provider:
@@ -179,7 +182,11 @@ def deployment_context_for_profile(
 
     path = Path(profile_file).resolve()
     try:
-        profile = load_deployment_profile(path)
+        layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(path.parent)})
+    except DistributionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    try:
+        profile = load_deployment_profile(path, distribution_root=layout.distribution_root)
         topology = resolve_topology(profile)
     except (DeploymentProfileError, OSError) as exc:
         raise typer.Exit(code=fail(f"{path}: {exc}")) from exc
@@ -190,10 +197,6 @@ def deployment_context_for_profile(
     resolved_stage = topology.stage(selected_stage)
     if resolved_stage is None or not resolved_stage.enabled:
         raise typer.Exit(code=fail(f"stage {selected_stage.value!r} is not enabled by {path}."))
-    try:
-        layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(path.parent)})
-    except DistributionError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc
     kwargs: dict[str, Any] = {
         "repo_root": path.parent,
         "distribution_root": layout.distribution_root,

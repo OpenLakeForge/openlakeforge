@@ -1,0 +1,55 @@
+{
+  "implementation": "identity.oidc",
+  "issuer_url": "https://auth.olf.localhost/realms/openlakeforge",
+  "role_claim": "groups",
+  "role_mapping": {
+    "platform-admin": [
+      "platform-admin"
+    ],
+    "data-engineer": [
+      "data-engineer"
+    ],
+    "analyst": [
+      "analyst"
+    ],
+    "viewer": [
+      "viewer"
+    ]
+  },
+  "clients": {
+    "perimeter": {
+      "client_id": "olf-perimeter",
+      "secret_ref": {
+        "name": "oidc-perimeter-client",
+        "key": "client-secret"
+      }
+    },
+    "superset": {
+      "client_id": "olf-superset",
+      "secret_ref": {
+        "name": "oidc-superset-client",
+        "key": "client-secret"
+      }
+    },
+    "openmetadata": {
+      "client_id": "olf-openmetadata",
+      "secret_ref": {
+        "name": "oidc-openmetadata-client",
+        "key": "client-secret"
+      }
+    },
+    "trino": {
+      "client_id": "olf-trino",
+      "secret_ref": {
+        "name": "oidc-trino-client",
+        "key": "client-secret"
+      }
+    }
+  },
+  "adapter": "keycloak",
+  "capabilities": {
+    "admin_api": true,
+    "groups_in_token": true,
+    "logout_endpoint": true
+  }
+}

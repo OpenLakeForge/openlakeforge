@@ -8,6 +8,7 @@ import jsonschema
 import pytest
 
 from olf.contracts import build_contract_env
+from olf.contracts_check import _hcl
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 
@@ -72,7 +73,7 @@ def _synthetic_multi_capability_contract() -> dict:
     return base
 
 
-def _topology(contract: dict):
+def _topology(contract: dict, identity: dict | None = None):
     stages = {
         name: {
             "enabled": True,
@@ -97,6 +98,7 @@ def _topology(contract: dict):
                     },
                     "preset": "slim",
                     "stages": stages,
+                    **({"identity": identity} if identity else {}),
                 },
             }
         )
@@ -1390,3 +1392,168 @@ def test_identity_roles_fail_closed_when_the_release_role_model_is_missing(
 
     with pytest.raises(ProviderContractError, match="cannot read the canonical role model"):
         parse_provider_contracts(contract, topology)
+
+
+def _oidc_contract(name: str) -> dict:
+    contract = _fixture("local-provider-contracts-v3.json")
+    identity = contract["shared"]["identity"]
+    identity.update(json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text()))
+    return contract
+
+
+_OIDC_FIXTURES = sorted(p.stem.removeprefix("identity-oidc-") for p in FIXTURES.glob("identity-oidc-*.json"))
+
+
+@pytest.mark.parametrize("name", _OIDC_FIXTURES)
+def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
+    contract = _oidc_contract(name)
+    shared = contract["shared"]["identity"]
+    # Keycloak is the default issuer; any other adapter needs an external spec.
+    external = None if name == "keycloak" else {
+        "issuer": "external",
+        "issuer_url": shared["issuer_url"],
+        "role_claim": shared["role_claim"],
+        "role_mapping": shared["role_mapping"],
+    }
+    parsed = parse_provider_contracts(contract, _topology(contract, external))
+
+    # Conformance: every issuer satisfies the same consumer-facing surface.
+    identity = parsed.shared.values["identity"]
+    assert {"issuer_url", "role_claim", "role_mapping", "clients"} <= set(identity)
+    assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "trino"}
+    assert identity["role_claim"] == json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text())["role_claim"]
+    assert _hcl.secret_value_fields(contract) == []
+    jsonschema.validate(contract, SCHEMA)
+
+
+def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
+    contract = _oidc_contract("cognito")
+    shared = contract["shared"]["identity"]
+    external = {
+        "issuer": "external",
+        "issuer_url": shared["issuer_url"],
+        "role_claim": shared["role_claim"],
+        "role_mapping": {role: list(values) for role, values in shared["role_mapping"].items()},
+    }
+    parse_provider_contracts(contract, _topology(contract, external))
+
+    for field, other in (
+        ("issuer_url", "https://other.example.com/t"),
+        ("role_claim", "other"),
+        ("role_mapping", {"viewer": ["x"]}),
+    ):
+        with pytest.raises(ProviderContractError, match="must match the profile's external"):
+            parse_provider_contracts(contract, _topology(contract, {**external, field: other}))
+
+    local = _fixture("local-provider-contracts-v3.json")
+    with pytest.raises(ProviderContractError, match="external spec.identity"):
+        parse_provider_contracts(local, _topology(local, external))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (lambda i: i["capabilities"].__setitem__("sso", True), "capabilities.sso"),
+        (lambda i: i["role_mapping"].__setitem__("guest", ["x"]), "unknown role 'guest'"),
+        (lambda i: i["role_mapping"].__setitem__("viewer", []), "non-empty list"),
+        (lambda i: i.__setitem__("role_mapping", {}), "at least one canonical role"),
+        (
+            lambda i: i.__setitem__("role_mapping", {"viewer": ["g"], "platform-admin": ["g"]}),
+            "more than one role",
+        ),
+        (lambda i: i.__setitem__("issuer_url", "https://idp.example/[realm]"), "outside the host"),
+        (lambda i: i["clients"].pop("trino"), "missing required fields"),
+        (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
+        (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
+        (lambda i: i["clients"]["trino"]["secret_ref"].pop("key"), "missing required fields"),
+        (lambda i: i.__setitem__("issuer_url", "http://auth.example.com"), "an https URL"),
+        (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t?realm=x"), "no query or fragment"),
+        (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t#f"), "no query or fragment"),
+        (lambda i: i.pop("role_claim"), "identity.oidc requires"),
+        (lambda i: i.__setitem__("implementation", "identity.local_development_credentials"), "require implementation"),
+    ],
+)
+def test_identity_oidc_fails_closed(mutate, match: str) -> None:
+    contract = _oidc_contract("keycloak")
+    mutate(contract["shared"]["identity"])
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_identity_oidc_external_binding_is_rejected_for_default_keycloak() -> None:
+    contract = _oidc_contract("cognito")
+    with pytest.raises(ProviderContractError, match="keycloak adapter"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_identity_oidc_keycloak_profile_compares_only_supplied_fields() -> None:
+    contract = _oidc_contract("keycloak")
+    shared = contract["shared"]["identity"]
+    parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak"}))
+    parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "issuer_url": shared["issuer_url"]}))
+    with pytest.raises(ProviderContractError, match="must match the profile's"):
+        parse_provider_contracts(
+            contract, _topology(contract, {"issuer": "keycloak", "issuer_url": "https://other.example.com/t"})
+        )
+    with pytest.raises(ProviderContractError, match="must match the profile's"):
+        parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "role_claim": "other"}))
+
+
+@pytest.mark.parametrize("issuer_url", ["https://idp.example/a b", "https://idp.example/a\tb", "https://idp.example/a\x00b"])
+def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = issuer_url
+    with pytest.raises(ProviderContractError, match="whitespace or control"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize("issuer_url", ["https://idp.example/<a>", 'https://idp.example/"', "https://idp.example/a\\b", "https://idp.example/%ZZ"])
+def test_issuer_url_rejects_non_uri_characters(issuer_url: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = issuer_url
+    with pytest.raises(ProviderContractError, match="RFC 3986"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_secret_ref_name_rejects_label_over_63() -> None:
+    contract = _oidc_contract("keycloak")
+    client = next(iter(contract["shared"]["identity"]["clients"].values()))
+    client["secret_ref"]["name"] = "a" * 64 + ".b"
+    with pytest.raises(ProviderContractError, match="valid Kubernetes Secret name"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "Bad_Name"),
+        ("name", "-lead"),
+        ("name", "a" * 254),
+        ("key", "has space"),
+        ("key", ".."),
+        ("key", "."),
+        ("key", "k" * 254),
+    ],
+)
+def test_identity_oidc_secret_ref_must_be_kubernetes_valid(field: str, value: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["clients"]["trino"]["secret_ref"][field] = value
+    with pytest.raises(ProviderContractError, match="valid Kubernetes Secret"):
+        parse_provider_contracts(contract, _topology(contract))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(contract, SCHEMA)
+
+
+def test_malformed_issuer_authority_is_a_contract_error() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = "https://[bad]/"
+    with pytest.raises(ProviderContractError, match="not a valid URI"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_issuer_url_requires_a_host() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = "https://:443/"
+    with pytest.raises(ProviderContractError, match="with a host"):
+        parse_provider_contracts(contract, _topology(contract))

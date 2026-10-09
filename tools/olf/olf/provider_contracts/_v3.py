@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -12,7 +13,7 @@ import yaml
 
 from olf import config
 from olf.deployment.context import Provider
-from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, StageName
+from olf.profile import _BASE_DOMAIN_PATTERN, DeploymentTopology, IdentitySpec, StageName
 from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
 from olf.provider_contracts._validation import (
     _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER,
@@ -30,6 +31,7 @@ from olf.provider_contracts._validation import (
     _frozen,
     _http_host_port_uri,
     _mapping,
+    _oidc_issuer_url,
     _reference,
     _s3_uri_bucket,
     _same_origin,
@@ -106,6 +108,81 @@ def _check_identity_roles(value: object, distribution_root: Path | None) -> None
         raise ProviderContractError(f"{where} differs from {IDENTITY_ROLES_PATH}; the role model is fixed per release")
 
 
+_OIDC_IMPLEMENTATION = "identity.oidc"
+_OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
+# Optional: `adapter` is provenance only, `capabilities` declares what this
+# issuer lacks so consumers degrade (no admin API: `olf users` read-only).
+_OIDC_OPTIONAL = {"adapter", "capabilities"}
+_OIDC_CAPABILITIES = frozenset({"admin_api", "groups_in_token", "logout_endpoint"})
+_DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
+_SECRET_DATA_KEY = re.compile(r"[-._a-zA-Z0-9]+")
+_OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
+
+
+def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) -> None:
+    """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
+    a canonical role or a consumer, never by an issuer product; credentials are
+    Secret references only."""
+    where = "shared.identity"
+    present = _OIDC_FIELDS & set(identity)
+    if selected.issuer == "external" and identity["implementation"] != _OIDC_IMPLEMENTATION:
+        raise ProviderContractError(f"{where} must use implementation identity.oidc for an external spec.identity")
+    if identity["implementation"] != _OIDC_IMPLEMENTATION:
+        present = present | (_OIDC_OPTIONAL & set(identity))
+        if present:
+            raise ProviderContractError(f"{where} fields {sorted(present)!r} require implementation identity.oidc")
+        return
+    if present != _OIDC_FIELDS:
+        raise ProviderContractError(f"{where} identity.oidc requires {sorted(_OIDC_FIELDS - present)!r}")
+    if "adapter" in identity:
+        _string(identity["adapter"], where=f"{where}.adapter")
+    for capability, enabled in _mapping(identity.get("capabilities", {}), where=f"{where}.capabilities").items():
+        if capability not in _OIDC_CAPABILITIES or not isinstance(enabled, bool):
+            raise ProviderContractError(
+                f"{where}.capabilities.{capability} must be a boolean named one of {sorted(_OIDC_CAPABILITIES)!r}"
+            )
+    _oidc_issuer_url(identity["issuer_url"], where=f"{where}.issuer_url")
+    _string(identity["role_claim"], where=f"{where}.role_claim")
+    roles = identity["roles"]["precedence"]
+    mapping = _mapping(identity["role_mapping"], where=f"{where}.role_mapping")
+    if not mapping:
+        raise ProviderContractError(f"{where}.role_mapping must map at least one canonical role")
+    for role, values in mapping.items():
+        if role not in roles:
+            raise ProviderContractError(f"{where}.role_mapping names unknown role {role!r}")
+        if not isinstance(values, list) or not values or len(set(map(str, values))) != len(values):
+            raise ProviderContractError(f"{where}.role_mapping.{role} must be a non-empty list of unique claim values")
+        for value in values:
+            _string(value, where=f"{where}.role_mapping.{role} entry")
+    claims = [v for values in mapping.values() for v in values]
+    if len(set(claims)) != len(claims):
+        raise ProviderContractError(f"{where}.role_mapping must not map one claim value to more than one role")
+    clients = _fields(identity["clients"], where=f"{where}.clients", required=set(_OIDC_CLIENTS))
+    for name, client in clients.items():
+        client_where = f"{where}.clients.{name}"
+        document = _fields(client, where=client_where, required={"client_id", "secret_ref"})
+        _string(document["client_id"], where=f"{client_where}.client_id")
+        secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
+        for field, valid in (("name", _DNS_SUBDOMAIN), ("key", _SECRET_DATA_KEY)):
+            ref = _string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")
+            long_label = field == "name" and any(len(label) > 63 for label in ref.split("."))
+            if len(ref) > 253 or not valid.fullmatch(ref) or ref in (".", "..") or long_label:
+                raise ProviderContractError(
+                    f"{client_where}.secret_ref.{field} is not a valid Kubernetes Secret {field}"
+                )
+    if selected.issuer == "keycloak" and identity.get("adapter") != "keycloak":
+        raise ProviderContractError(f"{where} must come from the keycloak adapter when spec.identity is keycloak")
+    deployed = (identity["issuer_url"], identity["role_claim"], {r: tuple(v) for r, v in mapping.items()})
+    declared = (selected.issuer_url, selected.role_claim, selected.role_mapping)
+    # keycloak compares only the fields the profile supplied; external compares all
+    if any(
+        (selected.issuer == "external" or d is not None) and d != c for c, d in zip(deployed, declared, strict=True)
+    ):
+        raise ProviderContractError(
+            f"{where} issuer_url, role_claim and role_mapping must match the profile's external spec.identity"
+        )
+
+
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
     present = _ACCESS_INGRESS_FIELDS & set(access)
     if not present:
@@ -164,7 +241,9 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         hosts.add(host)
 
 
-def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatformContract:
+def _parse_shared(
+    value: object, distribution_root: Path | None, topology: DeploymentTopology
+) -> SharedPlatformContract:
     required = {
         "foundation",
         "kubernetes_platform",
@@ -186,7 +265,7 @@ def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatfo
             where=f"shared.{name}",
             required={"ref", "implementation"},
             optional=(_ACCESS_INGRESS_FIELDS if name == "access" else set())
-            | ({"roles"} if name == "identity" else set())
+            | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
                 "endpoint",
                 "bucket_name",
@@ -209,6 +288,7 @@ def _parse_shared(value: object, distribution_root: Path | None) -> SharedPlatfo
     if "roles" not in parsed["identity"]:
         raise ProviderContractError("shared.identity is missing required field 'roles'")
     _check_identity_roles(parsed["identity"]["roles"], distribution_root)
+    _check_identity_oidc(parsed["identity"], topology.identity)
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")
@@ -598,7 +678,7 @@ def _parse_v3(
         raise ProviderContractError(
             f"deployment.region {deployment['region']!r} does not match DeploymentTopology.region {topology.region!r}"
         )
-    shared = _parse_shared(document["shared"], distribution_root)
+    shared = _parse_shared(document["shared"], distribution_root, topology)
     stages_document = _mapping(document["stages"], where="stages")
     expected_names = {stage.name.value for stage in topology.stages if stage.enabled}
     actual_names = set(stages_document)

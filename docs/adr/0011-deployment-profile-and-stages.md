@@ -74,7 +74,9 @@ spec:
 ```
 
 `tools/olf/olf/profile.py` models this as frozen typed value objects
-(`DeploymentProfile`, `ProviderSpec`, `StageSpec`, `StageCapabilities`) and
+(`DeploymentProfile`, `ProviderSpec`, `StageSpec`, `StageCapabilities`, plus
+`AccessSpec` and `IdentitySpec` for the optional `spec.access` and
+`spec.identity`) and
 resolves it into a separately typed `DeploymentTopology`. The desired and
 resolved shapes are never the same object: `DeploymentProfile` is what the
 user wrote, `DeploymentTopology` is the one effective, fully-defaulted result.
@@ -114,10 +116,13 @@ modules or backends, IAM policies, credentials, images, PVCs, buckets,
 catalogs, and generated endpoints. `DeploymentTopology` carries only logical
 service identities (`catalog`, `query`, `metadata_database`, `governance` as
 shared services; `orchestration`, `reporting` per stage) — never namespaces,
-Helm releases, or endpoints. The typed provider-contract v3 resolver derives
-those from this topology (ADR 0003): every platform root emits and provisions
-the resolved stage bindings through its provider adapter (#133, #114). None
-belongs in this profile.
+Helm releases, or endpoints. The one exception is `identity` (`issuer_url`,
+`role_claim`, `role_mapping`): an external issuer's URL and claim vocabulary
+are user-owned facts that no provider can generate, and the provider contract
+must be checked against them (ADR 0014). It is never a credential. The typed
+provider-contract v3 resolver derives those from this topology (ADR 0003):
+every platform root emits and provisions the resolved stage bindings through
+its provider adapter (#133, #114). None belongs in this profile.
 
 ### The v0.2 compatibility path
 
@@ -168,3 +173,8 @@ topology. No profile fields were added.
 2026-10-02: Added optional `spec.access` (`base_domain`, `issuer`) for
 service access (#264). It is deployment configuration owned by ADR 0013, not a
 fifth topology concept; omitted, it defaults to the local evaluation install.
+
+2026-10-09: Added optional `spec.identity` (`issuer`, and for an external
+issuer `issuer_url`, `role_claim`, `role_mapping`) selecting the OIDC issuer.
+The seam is owned by ADR 0014; the resolved topology carries it and the
+provider contract must match it.

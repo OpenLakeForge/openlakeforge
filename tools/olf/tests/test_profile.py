@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -225,3 +226,135 @@ def test_access_rejects_names_a_route_host_or_issuer_cannot_use(access: dict, ma
 
     with pytest.raises(DeploymentProfileError, match=match):
         validate_deployment_profile(document)
+
+
+def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    assert validate_deployment_profile(document).identity.issuer == "keycloak"
+
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "cognito:groups",
+        "role_mapping": {"platform-admin": ["olf-admins"]},
+    }
+    assert validate_deployment_profile(document).identity.role_mapping == {"platform-admin": ("olf-admins",)}
+
+
+@pytest.mark.parametrize(
+    ("identity", "match"),
+    [
+        ({"issuer": "okta"}, "issuer must be one of"),
+        ({"issuer": "external"}, "requires"),
+        ({"issuer_url": "http://x.example.com"}, "https URL"),
+        ({"role_mapping": {"guest": ["g"]}}, "unknown role 'guest'"),
+        ({"role_mapping": {"viewer": []}}, "non-empty list"),
+        ({"role_mapping": {"viewer": ["g", "g"]}}, "must not repeat"),
+        ({"role_mapping": {"viewer": ["g"], "platform-admin": ["g"]}}, "more than one role"),
+        ({"issuer_url": "https://idp.example/[realm]"}, "outside the host"),
+        ({"issuer_url": "https://"}, "absolute"),
+        ({"issuer_url": "https://idp.example/t?realm=x"}, "no query or fragment"),
+        ({"issuer_url": "https://idp.example/t#f"}, "no query or fragment"),
+        (
+            {"issuer": "external", "issuer_url": None, "role_claim": "g", "role_mapping": {"viewer": ["v"]}},
+            "issuer_url",
+        ),
+        (
+            {
+                "issuer": "external",
+                "issuer_url": "https://i.example",
+                "role_claim": None,
+                "role_mapping": {"viewer": ["v"]},
+            },
+            "role_claim",
+        ),
+        ({"issuer_url": "https://u:p@example.com"}, "credentials"),
+        ({"client_secret": "x"}, "must not contain"),
+    ],
+)
+def test_identity_fails_closed(identity: dict, match: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = identity
+
+    with pytest.raises(DeploymentProfileError, match=match):
+        validate_deployment_profile(document)
+
+
+def test_identity_survives_topology_resolution() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    profile = validate_deployment_profile(document)
+    assert resolve_topology(profile).identity == profile.identity
+
+
+def test_render_json_carries_identity() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    rendered = json.loads(resolve_topology(validate_deployment_profile(document)).render_json())
+    assert rendered["identity"]["issuer_url"] == "https://login.example.com/"
+    assert rendered["identity"]["role_mapping"] == {"viewer": ["v"]}
+
+
+def test_external_identity_is_immutable_and_rejects_a_malformed_authority() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    profile = validate_deployment_profile(document)
+    with pytest.raises(TypeError):
+        profile.identity.role_mapping["admin"] = ("x",)  # type: ignore[index]
+    assert profile.identity.role_mapping == {"viewer": ("v",)}
+
+    document["spec"]["identity"]["issuer_url"] = "https://[bad]/"
+    with pytest.raises(DeploymentProfileError):
+        validate_deployment_profile(document)
+
+
+def test_external_identity_roles_come_from_the_given_distribution_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist = tmp_path / "dist"
+    (dist / "release").mkdir(parents=True)
+    (dist / "release/identity-roles.yaml").write_text("precedence: [viewer]\n", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://[::1]:8443/realms/x",
+        "role_claim": "g",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    profile = validate_deployment_profile(document, distribution_root=dist)
+    assert profile.identity.role_mapping == {"viewer": ("v",)}
+
+
+def test_a_missing_role_file_is_a_profile_error(tmp_path: Path) -> None:
+    from olf.profile import DeploymentProfileError, _validate_identity
+
+    with pytest.raises(DeploymentProfileError, match="role_mapping: cannot read"):
+        _validate_identity(
+            {
+                "issuer": "external",
+                "issuer_url": "https://idp.example.com",
+                "role_claim": "groups",
+                "role_mapping": {"viewer": ["g"]},
+            },
+            source="p",
+            distribution_root=tmp_path,
+        )
