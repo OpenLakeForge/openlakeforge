@@ -52,7 +52,7 @@
           "additionalProperties": false,
           "properties": {
             "issuer": {"enum": ["keycloak", "external"], "default": "keycloak"},
-            "issuer_url": {"type": "string", "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$"},
+            "issuer_url": {"type": "string", "pattern": "^https://[^/?#@\\s<>\"\\\\^`{|}]+(/[^?#\\s<>\"\\\\^`{|}]*)?$"},
             "role_claim": {"type": "string", "minLength": 1},
             "role_mapping": {
               "type": "object",

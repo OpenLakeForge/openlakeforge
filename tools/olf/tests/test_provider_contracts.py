@@ -1479,6 +1479,9 @@ def test_identity_oidc_external_binding_is_rejected_for_default_keycloak() -> No
         {"credentials": {"value": "hunter2"}},
         {"nested": [{"client_secret": "hunter2"}]},
         {"auth": {"token": ["hunter2"]}},
+        {"password": 12345},
+        {"credentials": {"enabled": True}},
+        {"tokens": [1.5]},
     ],
 )
 def test_identity_oidc_provider_block_rejects_credentials(provider: dict) -> None:
@@ -1486,6 +1489,50 @@ def test_identity_oidc_provider_block_rejects_credentials(provider: dict) -> Non
     contract["shared"]["identity"]["provider"] = provider
     with pytest.raises(ProviderContractError, match="must not carry credentials"):
         parse_provider_contracts(contract, _topology(contract))
+
+
+def test_identity_oidc_keycloak_profile_compares_only_supplied_fields() -> None:
+    contract = _oidc_contract("keycloak")
+    shared = contract["shared"]["identity"]
+    parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak"}))
+    parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "issuer_url": shared["issuer_url"]}))
+    with pytest.raises(ProviderContractError, match="must match the profile's"):
+        parse_provider_contracts(
+            contract, _topology(contract, {"issuer": "keycloak", "issuer_url": "https://other.example.com/t"})
+        )
+    with pytest.raises(ProviderContractError, match="must match the profile's"):
+        parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "role_claim": "other"}))
+
+
+@pytest.mark.parametrize("issuer_url", ["https://idp.example/a b", "https://idp.example/a\tb", "https://idp.exa mple"])
+def test_issuer_url_rejects_whitespace_like_the_schema(issuer_url: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = issuer_url
+    with pytest.raises(ProviderContractError, match="invalid in a URI"):
+        parse_provider_contracts(contract, _topology(contract))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(contract, SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "Bad_Name"),
+        ("name", "-lead"),
+        ("name", "a" * 254),
+        ("key", "has space"),
+        ("key", ".."),
+        ("key", "."),
+        ("key", "k" * 254),
+    ],
+)
+def test_identity_oidc_secret_ref_must_be_kubernetes_valid(field: str, value: str) -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["clients"]["trino"]["secret_ref"][field] = value
+    with pytest.raises(ProviderContractError, match="valid Kubernetes Secret"):
+        parse_provider_contracts(contract, _topology(contract))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(contract, SCHEMA)
 
 
 def test_identity_oidc_provider_block_allows_secret_references() -> None:

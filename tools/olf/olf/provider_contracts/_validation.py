@@ -144,6 +144,8 @@ def _check_glue_catalog_id(value: object, *, where: str) -> None:
 def _oidc_issuer_url(value: object, *, where: str) -> str:
     """OIDC Discovery issuer identifier: https, no query or fragment."""
     uri = _absolute_http_uri(value, where=where)
+    if re.search(r"[\s\x7f<>\"\\^`{|}]", uri):  # mirrors the schema pattern
+        raise ProviderContractError(f"{where} contains characters invalid in a URI")
     if not uri.startswith("https://") or "?" in uri or "#" in uri:
         raise ProviderContractError(f"{where} must be an https URL with no query or fragment")
     return uri
