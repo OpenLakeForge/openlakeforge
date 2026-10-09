@@ -56,7 +56,11 @@ def run_contracts_check(
 
     report = ContractsCheckReport()
     report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
-    report.results.append(_check_deployment_profile_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(
+        _check_deployment_profile_schema_conformance(
+            root, schema_root=dist_root / "docs" / "schema", distribution_root=dist_root
+        )
+    )
     report.results.append(_check_hcl_structured_contracts(dist_root))
     report.results.append(_check_hcl_phase_two_invariants(dist_root))
     report.results.append(_check_floe_rendered_profile())

@@ -17,7 +17,7 @@ def _load(project: str) -> DeploymentProfile:
 
     layout = runtime_layout()
     spec = ProjectSpec(root=Path(project), distribution_root=layout.distribution_root)
-    return load_deployment_profile(spec.profile_path)
+    return load_deployment_profile(spec.profile_path, distribution_root=spec.distribution_root)
 
 
 @app.command("validate")

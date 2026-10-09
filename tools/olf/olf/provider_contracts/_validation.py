@@ -152,6 +152,8 @@ def _oidc_issuer_url(value: object, *, where: str) -> str:
     parts = urlsplit(uri)
     if parts.scheme != "https" or not parts.hostname or "?" in uri or "#" in uri:
         raise ProviderContractError(f"{where} must be an https URL with a host and no query or fragment")
+    if "[" in parts.path or "]" in parts.path:
+        raise ProviderContractError(f"{where} must not contain '[' or ']' outside the host")
     if re.search(r"[\s\x00-\x1f\x7f]", uri):
         raise ProviderContractError(f"{where} must not contain whitespace or control characters")
     if _URI_INVALID.search(uri):

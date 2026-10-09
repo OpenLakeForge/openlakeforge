@@ -151,6 +151,9 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
             raise ProviderContractError(f"{where}.role_mapping.{role} must be a non-empty list of unique claim values")
         for value in values:
             _string(value, where=f"{where}.role_mapping.{role} entry")
+    claims = [v for values in mapping.values() for v in values]
+    if len(set(claims)) != len(claims):
+        raise ProviderContractError(f"{where}.role_mapping must not map one claim value to more than one role")
     clients = _fields(identity["clients"], where=f"{where}.clients", required=set(_OIDC_CLIENTS))
     for name, client in clients.items():
         client_where = f"{where}.clients.{name}"

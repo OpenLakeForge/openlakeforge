@@ -1446,6 +1446,11 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
         (lambda i: i["role_mapping"].__setitem__("guest", ["x"]), "unknown role 'guest'"),
         (lambda i: i["role_mapping"].__setitem__("viewer", []), "non-empty list"),
         (lambda i: i.__setitem__("role_mapping", {}), "at least one canonical role"),
+        (
+            lambda i: i.__setitem__("role_mapping", {"viewer": ["g"], "platform-admin": ["g"]}),
+            "more than one role",
+        ),
+        (lambda i: i.__setitem__("issuer_url", "https://idp.example/[realm]"), "outside the host"),
         (lambda i: i["clients"].pop("trino"), "missing required fields"),
         (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
         (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),

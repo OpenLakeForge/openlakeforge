@@ -149,7 +149,7 @@ def _profile_check(project: ProjectSpec) -> ProjectCheck:
     from olf.profile import DeploymentProfileError, load_deployment_profile
 
     try:
-        load_deployment_profile(project.profile_path)
+        load_deployment_profile(project.profile_path, distribution_root=project.distribution_root)
     except (DeploymentProfileError, OSError) as exc:
         return ProjectCheck("profile", False, str(exc))
     return ProjectCheck("profile", True, "deployment profile validated")

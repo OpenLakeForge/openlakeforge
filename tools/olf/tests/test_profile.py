@@ -250,6 +250,8 @@ def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
         ({"role_mapping": {"guest": ["g"]}}, "unknown role 'guest'"),
         ({"role_mapping": {"viewer": []}}, "non-empty list"),
         ({"role_mapping": {"viewer": ["g", "g"]}}, "must not repeat"),
+        ({"role_mapping": {"viewer": ["g"], "platform-admin": ["g"]}}, "more than one role"),
+        ({"issuer_url": "https://idp.example/[realm]"}, "outside the host"),
         ({"issuer_url": "https://"}, "absolute"),
         ({"issuer_url": "https://idp.example/t?realm=x"}, "no query or fragment"),
         ({"issuer_url": "https://idp.example/t#f"}, "no query or fragment"),
@@ -319,3 +321,24 @@ def test_external_identity_is_immutable_and_rejects_a_malformed_authority() -> N
     document["spec"]["identity"]["issuer_url"] = "https://[bad]/"
     with pytest.raises(DeploymentProfileError):
         validate_deployment_profile(document)
+
+
+def test_external_identity_roles_come_from_the_given_distribution_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist = tmp_path / "dist"
+    (dist / "release").mkdir(parents=True)
+    (dist / "release/identity-roles.yaml").write_text("precedence: [viewer]\n", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://[::1]:8443/realms/x",
+        "role_claim": "g",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    profile = validate_deployment_profile(document, distribution_root=dist)
+    assert profile.identity.role_mapping == {"viewer": ("v",)}

@@ -108,7 +108,11 @@ def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path |
 
 
 def profile_schema_errors(
-    repo_root: Path, *, schema_root: Path | None = None, profile_path: Path | None = None
+    repo_root: Path,
+    *,
+    schema_root: Path | None = None,
+    profile_path: Path | None = None,
+    distribution_root: Path | None = None,
 ) -> list[str]:
     """Validate a Deployment Profile with the canonical model and JSON Schema.
 
@@ -129,7 +133,7 @@ def profile_schema_errors(
 
     errors: list[str] = []
     try:
-        load_deployment_profile(profile_path)
+        load_deployment_profile(profile_path, distribution_root=distribution_root)
     except DeploymentProfileError as exc:
         errors.append(f"{label}: canonical model rejected profile: {exc}")
 
@@ -148,11 +152,13 @@ def profile_schema_errors(
     return errors
 
 
-def _check_deployment_profile_schema_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
+def _check_deployment_profile_schema_conformance(
+    repo_root: Path, *, schema_root: Path | None = None, distribution_root: Path | None = None
+) -> CheckResult:
     """The project-root `openlakeforge.yaml` must load via the canonical
     `olf.profile` model and conform to its versioned JSON Schema."""
     name = "deployment_profile_schema_conformance"
-    errors = profile_schema_errors(repo_root, schema_root=schema_root)
+    errors = profile_schema_errors(repo_root, schema_root=schema_root, distribution_root=distribution_root)
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail="deployment profile validated")
