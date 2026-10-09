@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -41,8 +41,18 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
-_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids"}
+_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp"}
 _IDENTITY_ISSUERS = ("keycloak", "external")
+_SMTP_FIELDS = {"host", "port", "from_address", "from_name", "security", "auth", "credentials_secret_ref"}
+_SMTP_SECURITY = ("none", "starttls", "ssl")
+_SMTP_SECRET_REF_FIELDS = {"name", "username_key", "password_key"}
+_HOST_LABEL = r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_HOSTNAME_PATTERN = re.compile(rf"{_HOST_LABEL}(\.{_HOST_LABEL})*")
+_EMAIL_PATTERN = re.compile(r"[^@\s<>,;\"]+@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")
+# Kubernetes Secret metadata.name is a DNS subdomain (labels of at most 63
+# characters) and a data key is `[-._a-zA-Z0-9]+`, both at most 253 characters.
+_DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
+_SECRET_DATA_KEY = re.compile(r"[-._a-zA-Z0-9]+")
 # Dot-separated DNS labels; every route host is `<service>[.<stage>].<base_domain>`.
 _BASE_DOMAIN_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
 _STAGE_FIELDS = {"enabled", "capabilities"}
@@ -82,6 +92,48 @@ class AccessSpec:
     issuer: str = "local-ca"
 
 
+def is_secret_name(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) <= 253
+        and _DNS_SUBDOMAIN.fullmatch(value) is not None
+        and all(len(label) <= 63 for label in value.split("."))
+    )
+
+
+def is_secret_key(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) <= 253
+        and _SECRET_DATA_KEY.fullmatch(value) is not None
+        and value not in (".", "..")
+    )
+
+
+@dataclass(frozen=True)
+class SmtpCredentialsRef:
+    """Where the operator put the SMTP login: a Secret in the shared namespace,
+    created out-of-band. The profile names it and never carries a value."""
+
+    name: str
+    username_key: str = "username"
+    password_key: str = "password"
+
+
+@dataclass(frozen=True)
+class SmtpSpec:
+    """Outbound mail for the issuer (invitations, password recovery). Everything
+    here is non-secret except through `credentials_secret_ref`."""
+
+    host: str
+    port: int
+    from_address: str
+    from_name: str | None = None
+    security: str = "starttls"
+    auth: bool = False
+    credentials_secret_ref: SmtpCredentialsRef | None = None
+
+
 @dataclass(frozen=True)
 class IdentitySpec:
     """Which OIDC issuer signs people in (ADR 0014 seam 2). `keycloak` is the
@@ -95,6 +147,8 @@ class IdentitySpec:
     role_mapping: Mapping[str, tuple[str, ...]] | None = None
     # Issuer-assigned client ids (Cognito, Entra), by consumer; absent = the consumer name.
     client_ids: Mapping[str, str] | None = None
+    # Only for the issuer OpenLakeForge deploys; an external issuer sends its own mail.
+    smtp: SmtpSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -177,8 +231,13 @@ class DeploymentTopology:
                 "identity": vars(self.identity),
             },
             sort_keys=True,
-            default=dict,  # IdentitySpec.role_mapping is a read-only MappingProxyType
+            default=_json_default,
         )
+
+
+def _json_default(value: Any) -> Any:
+    # IdentitySpec.role_mapping is a read-only MappingProxyType; smtp is a dataclass.
+    return asdict(value) if is_dataclass(value) and not isinstance(value, type) else dict(value)
 
 
 def _identifier(value: object, *, field: str, source: str) -> str:
@@ -262,6 +321,61 @@ def _validate_access(document: object, *, source: str) -> AccessSpec:
     return AccessSpec(base_domain=base_domain, issuer=issuer)
 
 
+def _validate_smtp(document: object, *, where: str) -> SmtpSpec:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{where} must be an object")
+    _forbid_unexpected(document, _SMTP_FIELDS, where=where)
+    missing = sorted({"host", "port", "from_address"} - set(document))
+    if missing:
+        raise DeploymentProfileError(f"{where}: missing required field(s) {missing!r}")
+    host, port, from_address = document["host"], document["port"], document["from_address"]
+    if not isinstance(host, str) or len(host) > 253 or not _HOSTNAME_PATTERN.fullmatch(host):
+        raise DeploymentProfileError(f"{where}.host must be a host name or IP address without scheme or port")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        raise DeploymentProfileError(f"{where}.port must be an integer from 1 to 65535")
+    if not isinstance(from_address, str) or not _EMAIL_PATTERN.fullmatch(from_address):
+        raise DeploymentProfileError(f"{where}.from_address must be an email address such as noreply@example.com")
+    from_name = document.get("from_name")
+    if "from_name" in document and (
+        not isinstance(from_name, str) or not from_name.strip() or len(from_name) > 100 or not from_name.isprintable()
+    ):
+        raise DeploymentProfileError(f"{where}.from_name must be a printable string of at most 100 characters")
+    security = document.get("security", "starttls")
+    if security not in _SMTP_SECURITY:
+        raise DeploymentProfileError(f"{where}.security must be one of {list(_SMTP_SECURITY)!r}")
+    auth = _bool(document.get("auth", False), field="auth", source=where)
+    ref = None
+    if auth:
+        if "credentials_secret_ref" not in document:
+            raise DeploymentProfileError(f"{where}: auth true requires credentials_secret_ref")
+        if security == "none":
+            raise DeploymentProfileError(f"{where}: auth true with security 'none' would send the login unencrypted")
+        raw = document["credentials_secret_ref"]
+        if not isinstance(raw, Mapping):
+            raise DeploymentProfileError(f"{where}.credentials_secret_ref must be an object")
+        _forbid_unexpected(raw, _SMTP_SECRET_REF_FIELDS, where=f"{where}.credentials_secret_ref")
+        if "name" not in raw:
+            raise DeploymentProfileError(f"{where}.credentials_secret_ref: missing required field 'name'")
+        ref = SmtpCredentialsRef(**raw)
+        checks = (("name", is_secret_name), ("username_key", is_secret_key), ("password_key", is_secret_key))
+        for field, valid in checks:
+            if not valid(getattr(ref, field)):
+                raise DeploymentProfileError(
+                    f"{where}.credentials_secret_ref.{field} is not a valid Kubernetes Secret {field.split('_')[-1]}"
+                )
+    elif "credentials_secret_ref" in document:
+        raise DeploymentProfileError(f"{where}.credentials_secret_ref requires auth true")
+    return SmtpSpec(
+        host=host,
+        port=port,
+        from_address=from_address,
+        from_name=from_name,
+        security=security,
+        auth=auth,
+        credentials_secret_ref=ref,
+    )
+
+
 def _validate_identity(document: object, *, source: str, distribution_root: Path | None = None) -> IdentitySpec:
     where = f"{source}: spec.identity"
     if not isinstance(document, Mapping):
@@ -318,8 +432,20 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         if not all(isinstance(v, str) and v for v in client_ids.values()):
             raise DeploymentProfileError(f"{where}.client_ids values must be non-empty strings")
         client_ids = MappingProxyType(dict(client_ids))
+    smtp = None
+    if "smtp" in document:
+        if issuer != "keycloak":
+            raise DeploymentProfileError(
+                f"{where}.smtp requires issuer 'keycloak' (an external issuer sends its own mail)"
+            )
+        smtp = _validate_smtp(document["smtp"], where=f"{where}.smtp")
     return IdentitySpec(
-        issuer=issuer, issuer_url=issuer_url, role_claim=role_claim, role_mapping=mapping, client_ids=client_ids
+        issuer=issuer,
+        issuer_url=issuer_url,
+        role_claim=role_claim,
+        role_mapping=mapping,
+        client_ids=client_ids,
+        smtp=smtp,
     )
 
 

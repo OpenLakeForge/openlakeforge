@@ -60,6 +60,33 @@
               "propertyNames": {"enum": ["perimeter", "superset", "openmetadata", "trino"]},
               "additionalProperties": {"type": "string", "minLength": 1}
             },
+            "smtp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["host", "port", "from_address"],
+              "description": "Outbound mail for the Keycloak issuer. Non-secret settings only; the login is a Secret reference (docs/setup/identity-secret-rotation.md).",
+              "properties": {
+                "host": {"type": "string", "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$", "maxLength": 253},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                "from_address": {"type": "string", "pattern": "^[^@\\s<>,;\"]+@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"},
+                "from_name": {"type": "string", "minLength": 1, "maxLength": 100},
+                "security": {"enum": ["none", "starttls", "ssl"], "default": "starttls"},
+                "auth": {"type": "boolean", "default": false},
+                "credentials_secret_ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name"],
+                  "properties": {
+                    "name": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+                    "username_key": {"type": "string", "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$", "default": "username"},
+                    "password_key": {"type": "string", "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$", "default": "password"}
+                  }
+                }
+              },
+              "if": {"properties": {"auth": {"const": true}}, "required": ["auth"]},
+              "then": {"required": ["credentials_secret_ref"], "properties": {"security": {"enum": ["starttls", "ssl"]}}},
+              "else": {"not": {"required": ["credentials_secret_ref"]}}
+            },
             "role_mapping": {
               "type": "object",
               "minProperties": 1,
@@ -74,7 +101,7 @@
           },
           "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
           "then": {"required": ["issuer_url", "role_claim", "role_mapping"]},
-          "else": {"not": {"required": ["client_ids"]}}
+          "else": {"not": {"anyOf": [{"required": ["client_ids"]}, {"required": ["smtp"]}]}}
         },
         "stages": {
           "type": "object",

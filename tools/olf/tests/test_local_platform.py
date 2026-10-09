@@ -540,3 +540,77 @@ def test_a_stage_named_by_both_signals_is_reported_once(tmp_path: Path) -> None:
     assert platform.deployed_stages_the_topology_dropped(
         config, tools, kube_context=config.kube_context, env={}
     ) == ("prod",)
+
+
+_SMTP_ARGS = {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com", "from_name": None}
+
+
+def _smtp_config(tmp_path: Path, *, auth: bool = True):  # noqa: ANN202
+    from dataclasses import replace
+
+    from olf.profile import IdentitySpec, SmtpCredentialsRef, SmtpSpec
+
+    ref = SmtpCredentialsRef(name="smtp-creds") if auth else None
+    smtp = SmtpSpec(**_SMTP_ARGS, security="starttls", auth=auth, credentials_secret_ref=ref)
+    return _config(tmp_path, topology=replace(_topology(), identity=IdentitySpec(smtp=smtp)))
+
+
+def test_smtp_reaches_the_root_as_settings_and_a_secret_reference_only(tmp_path: Path) -> None:
+    variables = platform.platform_apply_variables(_smtp_config(tmp_path))
+
+    assert json.loads(variables["identity_smtp"]) == _SMTP_ARGS | {
+        "security": "starttls",
+        "auth": True,
+        "credentials_secret_ref": {"name": "smtp-creds", "username_key": "username", "password_key": "password"},
+    }
+    assert "identity_smtp" not in platform.platform_apply_variables(_config(tmp_path))
+
+
+class _SecretRunner(RecordingRunner):
+    def __init__(self, *, namespace: bool = True, keys: str | None = "username\npassword\n") -> None:
+        super().__init__()
+        self._namespace, self._keys = namespace, keys
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+        if "namespace" in argv:
+            return _ok() if self._namespace else _fail()
+        if "secret" in argv:
+            return _ok(self._keys) if self._keys is not None else _fail()
+        return _ok()
+
+
+def _require_smtp(tmp_path: Path, runner: RecordingRunner, **kwargs) -> None:  # noqa: ANN003
+    platform.require_smtp_credentials(_smtp_config(tmp_path, **kwargs), _toolkit(runner), env={})
+
+
+def test_smtp_credentials_present_with_both_keys_pass_and_only_key_names_are_read(tmp_path: Path) -> None:
+    runner = _SecretRunner()
+    _require_smtp(tmp_path, runner)
+
+    read = next(c.argv for c in runner.calls if "secret" in c.argv)
+    assert "go-template" in " ".join(read) and "jsonpath" not in " ".join(read) and "yaml" not in read
+
+
+def test_smtp_without_auth_needs_no_secret(tmp_path: Path) -> None:
+    runner = _SecretRunner(namespace=False)
+    _require_smtp(tmp_path, runner, auth=False)
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    ("runner", "match"),
+    [
+        (_SecretRunner(keys=None), "could not read it"),
+        (_SecretRunner(keys="username\n"), r"lacks key\(s\) \['password'\]"),
+        (_SecretRunner(namespace=False), "does not exist yet"),
+    ],
+)
+def test_missing_smtp_credentials_fail_before_deploy_with_the_create_command_shape(
+    tmp_path: Path, runner: RecordingRunner, match: str
+) -> None:
+    with pytest.raises(DeploymentPreconditionError, match=match) as error:
+        _require_smtp(tmp_path, runner)
+
+    assert 'create secret generic smtp-creds --from-literal=username="$SMTP_USERNAME"' in str(error.value)

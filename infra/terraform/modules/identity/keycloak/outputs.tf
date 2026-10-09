@@ -30,7 +30,7 @@ output "contract" {
     }
     adapter = "keycloak"
     # admin_api becomes true when `olf users` lands (#331).
-    capabilities = { admin_api = false, groups_in_token = true, logout_endpoint = true }
+    capabilities = { admin_api = false, email_delivery = var.smtp != null, groups_in_token = true, logout_endpoint = true }
   }
 
   depends_on = [kubernetes_job_v1.realm]

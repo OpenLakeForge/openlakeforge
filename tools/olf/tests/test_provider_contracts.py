@@ -1563,3 +1563,16 @@ def test_issuer_url_requires_a_host() -> None:
     contract["shared"]["identity"]["issuer_url"] = "https://:443/"
     with pytest.raises(ProviderContractError, match="with a host"):
         parse_provider_contracts(contract, _topology(contract))
+
+
+def test_identity_oidc_email_delivery_is_declared_exactly_when_the_profile_configures_smtp() -> None:
+    smtp = {"smtp": {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com"}}
+    configured = _oidc_contract("keycloak")
+    configured["shared"]["identity"]["capabilities"]["email_delivery"] = True
+    parse_provider_contracts(configured, _topology(configured, smtp))
+    jsonschema.validate(configured, SCHEMA)
+
+    with pytest.raises(ProviderContractError, match="email_delivery must be true exactly when"):
+        parse_provider_contracts(configured, _topology(configured))
+    with pytest.raises(ProviderContractError, match="email_delivery must be true exactly when"):
+        parse_provider_contracts(_oidc_contract("keycloak"), _topology(configured, smtp))

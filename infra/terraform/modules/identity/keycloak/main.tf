@@ -28,6 +28,24 @@ locals {
   # appears in the ConfigMap, the Job spec, or a log line.
   client_secret_env = { for name in keys(var.clients) : name => "CLIENT_SECRET_${upper(name)}" }
 
+  # Mail is all-or-nothing: a realm that offers password reset or email
+  # verification without a mail server is a dead end for the user. The SMTP
+  # login, like a client secret, is only ever a `$(env:...)` placeholder here.
+  smtp_enabled = var.smtp != null
+  smtp_auth    = local.smtp_enabled && try(var.smtp.auth, false)
+  smtp_server = local.smtp_enabled ? merge(
+    {
+      host     = var.smtp.host
+      port     = tostring(var.smtp.port)
+      from     = var.smtp.from_address
+      ssl      = tostring(var.smtp.security == "ssl")
+      starttls = tostring(var.smtp.security == "starttls")
+      auth     = tostring(local.smtp_auth)
+    },
+    var.smtp.from_name == null ? {} : { fromDisplayName = var.smtp.from_name },
+    local.smtp_auth ? { user = "$(env:SMTP_USERNAME)", password = "$(env:SMTP_PASSWORD)" } : {},
+  ) : {}
+
   # Realm as code (ADR 0014): groups named exactly as the canonical roles and
   # the OIDC clients; never user records, so adding a user needs no apply. The
   # group mapper is what emits the role claim the contract declares.
@@ -37,10 +55,12 @@ locals {
     enabled               = true
     sslRequired           = "external"
     registrationAllowed   = false
-    resetPasswordAllowed  = true
+    resetPasswordAllowed  = local.smtp_enabled
+    verifyEmail           = local.smtp_enabled
     loginWithEmailAllowed = true
     bruteForceProtected   = true
     groups                = [for role in var.roles : { name = role }]
+    smtpServer            = local.smtp_server
     clients = [
       for name, client in var.clients : {
         clientId                  = name
@@ -335,6 +355,21 @@ resource "kubernetes_job_v1" "realm" {
           env {
             name  = "IMPORT_VARSUBSTITUTION_ENABLED"
             value = "true"
+          }
+          dynamic "env" {
+            for_each = local.smtp_auth ? {
+              SMTP_USERNAME = var.smtp.credentials_secret_ref.username_key
+              SMTP_PASSWORD = var.smtp.credentials_secret_ref.password_key
+            } : {}
+            content {
+              name = env.key
+              value_from {
+                secret_key_ref {
+                  name = var.smtp.credentials_secret_ref.name
+                  key  = env.value
+                }
+              }
+            }
           }
           dynamic "env" {
             for_each = local.client_secret_env

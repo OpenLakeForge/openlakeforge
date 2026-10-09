@@ -74,3 +74,21 @@ variable "admin_password" {
   type        = string
   sensitive   = true
 }
+
+variable "smtp" {
+  description = "Outbound mail for the realm. Non-secret settings only: when `auth` is true, `credentials_secret_ref` names an operator-created Secret in the module namespace that the realm Job reads through secretKeyRef. Null leaves the realm without mail, and then without password reset and email verification."
+  type = object({
+    host         = string
+    port         = number
+    from_address = string
+    from_name    = optional(string)
+    security     = string
+    auth         = bool
+    credentials_secret_ref = optional(object({
+      name         = string
+      username_key = string
+      password_key = string
+    }))
+  })
+  default = null
+}

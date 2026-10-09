@@ -72,6 +72,7 @@
           "additionalProperties": false,
           "properties": {
             "admin_api": {"type": "boolean"},
+            "email_delivery": {"type": "boolean"},
             "groups_in_token": {"type": "boolean"},
             "logout_endpoint": {"type": "boolean"}
           }

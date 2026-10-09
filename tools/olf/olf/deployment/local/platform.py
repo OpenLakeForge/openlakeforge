@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import asdict
 from pathlib import Path
 
 from olf import log
@@ -77,7 +78,55 @@ def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
             sort_keys=True,
             separators=(",", ":"),
         )
+    if identity.smtp is not None:
+        # asdict already nests the reference; None when the endpoint takes no login.
+        variables["identity_smtp"] = json.dumps(asdict(identity.smtp), sort_keys=True, separators=(",", ":"))
     return variables
+
+
+def require_smtp_credentials(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """The SMTP login is a Secret the operator creates before the deploy: the realm
+    Job reads it through `secretKeyRef` and would otherwise sit in
+    CreateContainerConfigError until its ten-minute timeout. Only key names are read."""
+    smtp = config.context.topology.identity.smtp
+    if smtp is None or smtp.credentials_secret_ref is None:
+        return
+    ref, namespace = smtp.credentials_secret_ref, config.context.shared_namespace
+    command = (
+        f"kubectl -n {namespace} create secret generic {ref.name} "
+        f'--from-literal={ref.username_key}="$SMTP_USERNAME" --from-literal={ref.password_key}="$SMTP_PASSWORD"'
+    )
+    if not kube_ops.namespace_exists(
+        tools.kubectl, namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
+    ):
+        raise DeploymentPreconditionError(
+            f"spec.identity.smtp needs Secret '{ref.name}' in namespace '{namespace}', which does not exist yet. "
+            "Deploy once without spec.identity.smtp, create the Secret (set SMTP_USERNAME and SMTP_PASSWORD in "
+            f"your shell first): {command}; then add smtp to the profile and re-run the deploy."
+        )
+    result = tools.kubectl.get(
+        "secret",
+        name=ref.name,
+        namespace=namespace,
+        output=r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}',
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        raise DeploymentPreconditionError(
+            f"spec.identity.smtp needs Secret '{ref.name}' in namespace '{namespace}' and kubectl could not read "
+            f"it: {result.stderr.strip() or 'non-zero status'}. Create it (set SMTP_USERNAME and SMTP_PASSWORD in "
+            f"your shell first): {command}"
+        )
+    missing = {ref.username_key, ref.password_key} - set(result.stdout.split())
+    if missing:
+        raise DeploymentPreconditionError(
+            f"Secret '{ref.name}' in namespace '{namespace}' lacks key(s) {sorted(missing)}; "
+            "spec.identity.smtp.credentials_secret_ref names them. Recreate it with the command shape above "
+            f"(kubectl delete secret {ref.name} first): {command}"
+        )
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -343,6 +392,8 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
             f"Kubernetes context '{config.kube_context}' is not reachable. "
             "Run the foundation phase before applying the local platform."
         ) from exc
+
+    require_smtp_credentials(config, tools, env=env)
 
     if config.platform_features.analytics_enabled:
         from olf.deployment.local import images
