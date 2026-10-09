@@ -618,3 +618,30 @@ def test_deployment_profile_schema_root_resolves_schemas_outside_the_project(tmp
     assert (
         contracts_check.profile_schema_errors(project, schema_root=distribution / "docs" / "schema") == []
     )
+
+
+def test_hcl_structured_contracts_rejects_credential_handling_in_an_identity_module(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    module = repo_root / "infra/terraform/modules/identity/keycloak"
+    module.mkdir(parents=True)
+    (module / "main.tf").write_text(
+        'resource "random_password" "admin" {\n  length = 32\n}\n'
+        'resource "kubernetes_secret_v1" "admin" {\n  data = {}\n}\n'
+        'data "kubernetes_secret_v1" "admin" {\n  metadata {\n    name = "admin"\n  }\n}\n'
+        'output "leak" {\n  value     = "x"\n  sensitive = true\n}\n'
+    )
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    for expected in (
+        "resource random_password.admin",
+        "resource kubernetes_secret_v1.admin",
+        "data kubernetes_secret_v1.admin",
+        "output 'leak' is sensitive",
+    ):
+        assert expected in result.detail
+
+
+def test_hcl_structured_contracts_accepts_the_real_identity_modules() -> None:
+    assert _hcl._identity_module_errors(ROOT) == []

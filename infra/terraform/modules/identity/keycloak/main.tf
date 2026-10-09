@@ -3,9 +3,6 @@ terraform {
     kubernetes = {
       source = "hashicorp/kubernetes"
     }
-    random = {
-      source = "hashicorp/random"
-    }
   }
 }
 
@@ -93,50 +90,10 @@ locals {
   }
   realm_json = jsonencode(local.realm)
 
-  # A new Job runs when the realm file changes or any client secret is
-  # rotated. The digest of a 32-character random secret does not reveal it.
-  apply_revision = substr(sha256(join(",", [
-    sha256(local.realm_json),
-    nonsensitive(sha256(join(",", [for name in sort(keys(var.clients)) : random_password.client[name].result]))),
-  ])), 0, 10)
-}
-
-# Used by Keycloak's first start on an empty database and by the realm Job.
-# Rotating it later does not change an admin that already exists.
-resource "kubernetes_secret_v1" "admin" {
-  metadata {
-    name      = "${var.release_name}-admin-creds"
-    namespace = var.namespace
-    labels    = local.labels
-  }
-  data = {
-    username = "admin"
-    password = var.admin_password
-  }
-  type = "Opaque"
-}
-
-resource "random_password" "client" {
-  for_each = var.clients
-
-  length  = 32
-  special = false
-}
-
-# Secrets are named by the consumer, not by Keycloak, so the same references
-# work for any issuer: `keycloak-client-<consumer>` / `client-secret`.
-resource "kubernetes_secret_v1" "client" {
-  for_each = var.clients
-
-  metadata {
-    name      = "${var.release_name}-client-${each.key}"
-    namespace = var.namespace
-    labels    = local.labels
-  }
-  data = {
-    "client-secret" = random_password.client[each.key].result
-  }
-  type = "Opaque"
+  # A new Job runs when the realm file changes; replacing the credentials Job
+  # (a rotation) re-runs it through replace_triggered_by. Hashing Secret values
+  # here would make Terraform read them.
+  apply_revision = substr(sha256(local.realm_json), 0, 10)
 }
 
 resource "kubernetes_service_v1" "keycloak" {
@@ -220,7 +177,7 @@ resource "kubernetes_deployment_v1" "keycloak" {
             name = "KC_BOOTSTRAP_ADMIN_USERNAME"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin.metadata[0].name
+                name = local.admin_secret_name
                 key  = "username"
               }
             }
@@ -229,7 +186,7 @@ resource "kubernetes_deployment_v1" "keycloak" {
             name = "KC_BOOTSTRAP_ADMIN_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin.metadata[0].name
+                name = local.admin_secret_name
                 key  = "password"
               }
             }
@@ -277,6 +234,10 @@ resource "kubernetes_deployment_v1" "keycloak" {
     create = "10m"
     update = "10m"
   }
+
+  # Keycloak and the realm Job read the Secrets by name, so Terraform sees no
+  # edge to the Job that creates them.
+  depends_on = [kubernetes_job_v1.credentials]
 }
 
 resource "kubernetes_config_map_v1" "realm" {
@@ -326,7 +287,7 @@ resource "kubernetes_job_v1" "realm" {
             name = "KEYCLOAK_USER"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin.metadata[0].name
+                name = local.admin_secret_name
                 key  = "username"
               }
             }
@@ -335,7 +296,7 @@ resource "kubernetes_job_v1" "realm" {
             name = "KEYCLOAK_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin.metadata[0].name
+                name = local.admin_secret_name
                 key  = "password"
               }
             }
@@ -377,7 +338,7 @@ resource "kubernetes_job_v1" "realm" {
               name = env.value
               value_from {
                 secret_key_ref {
-                  name = kubernetes_secret_v1.client[env.key].metadata[0].name
+                  name = local.client_secret_name[env.key]
                   key  = "client-secret"
                 }
               }
@@ -419,4 +380,8 @@ resource "kubernetes_job_v1" "realm" {
   }
 
   depends_on = [kubernetes_deployment_v1.keycloak]
+
+  lifecycle {
+    replace_triggered_by = [kubernetes_job_v1.credentials]
+  }
 }

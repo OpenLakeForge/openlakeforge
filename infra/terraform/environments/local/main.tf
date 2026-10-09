@@ -251,11 +251,14 @@ module "traefik" {
   cluster_issuer_name = module.cert_manager.cluster_issuer_name
 }
 
-# Outside the counted module: the keycloak database survives `external` and back
-# again, and a regenerated password would not match its existing admin.
-resource "random_password" "keycloak_admin" {
-  length  = 32
-  special = false
+# The admin Secret is created by the keycloak module's credentials Job and
+# outlives it, so the password survives `external` and back again. Existing
+# clusters keep their Secret: state forgets it, nothing deletes it.
+removed {
+  from = random_password.keycloak_admin
+  lifecycle {
+    destroy = false
+  }
 }
 
 # Pods reach https://<service>.<base_domain> through Traefik and trust the
@@ -286,7 +289,6 @@ module "keycloak" {
 
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   hostname            = "auth.${var.access_base_domain}"
-  admin_password      = random_password.keycloak_admin.result
   roles               = local.identity_roles.precedence
   clients             = local.identity_client_redirects
   smtp                = var.identity_smtp

@@ -25,7 +25,12 @@ from olf.tooling.kubectl import KubeContextUnreachableError
 
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
 _SHARED_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
-_POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-", "keycloak-realm-")
+_POLARIS_JOB_PREFIXES = (
+    "polaris-bootstrap-",
+    "polaris-metastore-bootstrap-",
+    "keycloak-credentials-",
+    "keycloak-realm-",
+)
 # Every root's shared-services namespace was named "lakehouse" and addressed
 # as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.
 _LEGACY_SHARED_NAMESPACE = "lakehouse"

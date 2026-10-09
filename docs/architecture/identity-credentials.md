@@ -7,37 +7,42 @@ stay the storage mechanism; Vault, External Secrets Operator and managed
 backends are deferred. Scope is local: no AWS account or remote state is
 needed, and cloud rows stay contract-shaped only (ADR 0014).
 
-Status words: **exists** means the row was read from the tree at the commit
-this file landed on; **planned** is a decision for a later change, not code.
+Status words: **exists** means the row is implemented in the tree; **planned**
+is a decision for a later change, not code.
 
-## Target: generate outside Terraform
+## Generate outside Terraform
 
-Today Terraform generates the identity credentials with `random_password`, so
-their plaintext is in Terraform state beside the Secret it fills. Marking a
-value sensitive hides it from output; it does not keep it out of state.
+Marking a Terraform value sensitive hides it from output; it does not keep it
+out of state. The Keycloak module therefore has no `random_password` and no
+Terraform-managed Secret: an idempotent in-cluster bootstrap Job
+(`keycloak-credentials-<revision>`, `modules/identity/keycloak/credentials.tf`)
+creates each identity Secret **only if it is missing**. Terraform handles
+references (`secret_ref{name,key}`, `secretKeyRef`) and never creates, reads or
+hashes the value. `olf check contracts` fails if an identity module declares a
+`random_*` resource, a Secret resource or a Secret data source, or has a
+sensitive or unwrapped output.
 
-The decided target, built by a follow-up change and not by this one: an
-idempotent in-cluster bootstrap Job creates each identity Secret **only if it
-is missing**. Terraform then handles references (`secret_ref{name,key}`,
-`secretKeyRef`) and never creates, reads or hashes the value. Rows marked
-*migrating in follow-up* move to this; their "Terraform observes" column is
-then "no".
+Clusters deployed before this change hold Secrets Terraform generated.
+`removed { lifecycle { destroy = false } }` blocks make state forget them
+without deleting them, and the Job keeps an existing Secret, so the upgrade
+rotates nothing. Their old values remain in earlier state files until those
+are discarded.
 
 | Rule | Behaviour |
 | --- | --- |
 | Reuse | An existing Secret with the expected key is kept. Redeploy is not rotation. |
-| Commit point | `kubectl create secret` is the only write and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold. |
-| Direction | The Secret is the source of truth; the realm Job pushes it into Keycloak (it already reads client secrets through `secretKeyRef`). Nothing is read back out of Keycloak. |
-| Change detection | The realm Job must re-run without Terraform hashing Secret values (today `apply_revision` does); the follow-up picks the trigger. |
-| Rotation | Explicit: delete the Secret, re-run the bootstrap, restart consumers. The runbook is updated by the follow-up. |
-| Job RBAC | `get`/`create` on Secrets in its own namespace only. `create` cannot be limited by `resourceNames`; #46 inventories this exception. |
+| Commit point | `kubectl create secret` is the only write, one API call per Secret, and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold and no partial Secret exists. |
+| Direction | The Secret is the source of truth; the realm Job pushes it into Keycloak (it reads client secrets through `secretKeyRef`). Nothing is read back out of Keycloak. |
+| Change detection | Replacing the bootstrap Job replaces the realm Job (`replace_triggered_by`), so the realm re-applies without Terraform hashing a Secret value. |
+| Rotation | Explicit: delete the Secret, replace the bootstrap Job, restart consumers ([runbook](../setup/identity-secret-rotation.md)). |
+| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception); `get` only on the five Secrets it owns. |
 
 ### Missing-secret recovery
 
 | Situation | Behaviour |
 | --- | --- |
-| A client Secret is deleted | The bootstrap regenerates it and the realm Job overwrites the client's secret in Keycloak. This is a rotation of that client: consumers restart, and the Job logs that it regenerated. |
-| `keycloak-admin-creds` is deleted, Keycloak's database still has the admin | A new value would not match the stored admin, and Keycloak ignores the Secret once the admin exists. The bootstrap does not regenerate it silently; it fails with a pointer to the admin recovery in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md). |
+| A client Secret is deleted | When the bootstrap Job is next replaced it regenerates it and the realm Job overwrites the client's secret in Keycloak. This is a rotation of that client: consumers restart, and the Job logs that it regenerated. |
+| `keycloak-admin-creds` is deleted, Keycloak's database still has the admin | A new value would not match the stored admin, and Keycloak ignores the Secret once the admin exists. The bootstrap does not regenerate it silently (it refuses while the Keycloak Deployment exists); it fails with a pointer to the admin recovery in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md). |
 | A Secret exists but lacks the expected key | Fail with the Secret and key named; never patch a foreign Secret. |
 | Operator-provided Secret (SMTP, upstream SSO, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. SMTP is enforced today by `olf deploy` before the platform apply; the SSO and external-client Secrets are not yet. |
 
@@ -59,8 +64,8 @@ Both create the Secret in-cluster and Terraform never reads it.
 
 | Credential | Purpose | Generator | Secret reference | Consumer | Rotation / recovery (owner: platform operator) | Terraform observes value |
 | --- | --- | --- | --- | --- | --- | --- |
-| Keycloak admin (exists, *migrating in follow-up*) | First start on an empty database; realm Job; e2e admin API | `random_password.keycloak_admin`, local root | `keycloak-admin-creds`, keys `username`, `password` | Keycloak, `keycloak-config-cli` Job, `olf e2e` | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-bootstrap-admin); lost Secret: see recovery above | **Yes**, plaintext in state |
-| OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists, *migrating in follow-up*) | Client authentication to the token endpoint | `random_password.client[<consumer>]`, Keycloak module | `keycloak-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Realm Job today; oauth2-proxy (#176), Superset and OpenMetadata (#25), Trino UI (#26) when wired | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md), exercised in #24 | **Yes**, plaintext in state |
+| Keycloak admin (exists) | First start on an empty database; realm Job; e2e admin API | Bootstrap Job, 32 random alphanumeric characters | `keycloak-admin-creds`, keys `username`, `password` | Keycloak, `keycloak-config-cli` Job, `olf e2e` | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-bootstrap-admin); lost Secret: see recovery above | No |
+| OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists) | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `keycloak-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Realm Job today; oauth2-proxy (#176), Superset and OpenMetadata (#25), Trino UI (#26) when wired | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md) | No |
 | Perimeter cookie secret (planned) | Signs and encrypts oauth2-proxy session cookies | Bootstrap Job, 32 random bytes | Name fixed by #176 | oauth2-proxy | Delete, re-run bootstrap, restart the proxy; signs out every user once | No |
 | SMTP credentials (exists, optional) | Invitation and password-recovery email through the operator's mail relay | Operator | `spec.identity.smtp.credentials_secret_ref`: name, `username_key` (default `username`), `password_key` (default `password`); value in an operator-created Secret in `olf-system` ([how](../setup/identity-secret-rotation.md#the-smtp-login)) | Realm Job, through `secretKeyRef` and `$(env:SMTP_USERNAME)`/`$(env:SMTP_PASSWORD)` substitution into the realm's `smtpServer` | Edit the Secret, delete the realm Job so the next apply recreates it (step not yet exercised on a cluster) | No |
 | Upstream SSO client credentials (planned, optional) | Keycloak brokering to a company IdP | Operator, issued by the upstream IdP | Same: reference in the profile, value in an operator-created Secret | Keycloak identity-provider config | Rotated at the upstream IdP, then the Secret and realm Job | No |
@@ -94,8 +99,10 @@ re-runs it was not verified here.
 
 ## Not claimed
 
-Nothing in this file is exercised by this change. The rotation drill for the
-current Terraform-generated clients is recorded in
-[`identity-secret-rotation.md`](../setup/identity-secret-rotation.md); the
-bootstrap Job, its recovery behaviour and a rotation drill against it are
-acceptance criteria of the follow-up and of #181.
+The bootstrap Job's unit-level guard is the `olf check contracts` rule above.
+Verified on the local kind stack when the Job landed: an upgrade from
+Terraform-generated Secrets and a later redeploy left all five Secrets
+unchanged (uid, resourceVersion and data hash), no Secret value is in Terraform
+state or the realm ConfigMap, and the rotation drill, the missing-key and the
+missing-admin failures behave as the tables above say. Not exercised: the
+operator-provided Secret rows (SMTP, upstream SSO), which nothing consumes yet.
