@@ -118,23 +118,25 @@ def platform_down(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
 
     log.step("Destroying Terraform local stack...")
     tools.terraform.init(platform_dir, env=env)
-    tools.terraform.destroy(
-        platform_dir,
-        var_files=platform_var_files(config),
-        variables=platform_destroy_variables(config),
-        env=env,
-    )
-
-    log.step("Restoring the stock CoreDNS Corefile...")
-    tools.kubectl.patch(
-        "configmap",
-        "coredns",
-        json.dumps({"data": {"Corefile": _STOCK_COREFILE}}),
-        namespace="kube-system",
-        context=config.kube_context,
-        kubeconfig=config.paths.kubeconfig_path,
-        env=env,
-    )
+    try:
+        tools.terraform.destroy(
+            platform_dir,
+            var_files=platform_var_files(config),
+            variables=platform_destroy_variables(config),
+            env=env,
+        )
+    finally:
+        # Even a partial destroy may have deleted the module's Corefile key.
+        log.step("Restoring the stock CoreDNS Corefile...")
+        tools.kubectl.patch(
+            "configmap",
+            "coredns",
+            json.dumps({"data": {"Corefile": _STOCK_COREFILE}}),
+            namespace="kube-system",
+            context=config.kube_context,
+            kubeconfig=config.paths.kubeconfig_path,
+            env=env,
+        )
 
     log.step("Removing legacy unmanaged Helm releases if present...")
     cleanup_legacy_helm_releases(config, tools, env=env)

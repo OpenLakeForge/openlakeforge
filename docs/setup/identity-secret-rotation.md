@@ -23,7 +23,13 @@ until it restarts.
 1. Name the client. The Terraform address is
    `module.keycloak[0].random_password.client["<consumer>"]`.
 
-2. Re-run the platform phase with that resource replaced. Terraform reads
+2. Keep the value being retired, to test it afterwards:
+
+   ```bash
+   OLD=$(kubectl -n olf-system get secret keycloak-client-perimeter -o jsonpath='{.data.client-secret}' | base64 -d)
+   ```
+
+3. Re-run the platform phase with that resource replaced. Terraform reads
    extra arguments from `TF_CLI_ARGS_apply`; the escaped quotes are needed
    because Terraform splits the value like a shell:
 
@@ -38,18 +44,27 @@ until it restarts.
    `keycloak-config-cli` update the client in Keycloak. Other clients keep
    their secrets.
 
-3. Restart every workload that reads the Secret, so it loads the new value.
+4. Restart every workload that reads the Secret, so it loads the new value.
    Environment variables from a Secret are read at container start.
    Services that consume the clients (#25, #26, #176) are not wired yet; when
    they are, list their restart here.
 
-4. Confirm. The old value must be refused and the new one accepted. The token
+5. Confirm. The old value must be refused and the new one accepted. The token
    endpoint answers `unauthorized_client` for a wrong secret and
-   `invalid_grant` for a right secret with a bad code, so no login is needed:
+   `invalid_grant` for a right secret with a bad code, so no login is needed.
+   Test the retired value itself, then the new one:
 
    ```bash
-   olf e2e run --env local   # "identity issuer and role claims" asserts the Secret authenticates each client
+   NEW=$(kubectl -n olf-system get secret keycloak-client-perimeter -o jsonpath='{.data.client-secret}' | base64 -d)
+   for s in "$OLD" "$NEW"; do
+     curl -sk -d grant_type=authorization_code -d code=invalid -d client_id=perimeter \
+       -d redirect_uri=https://app.olf.localhost/oauth2/callback --data-urlencode "client_secret=$s" \
+       https://auth.olf.localhost/realms/openlakeforge/protocol/openid-connect/token; echo
+   done   # first: unauthorized_client, second: invalid_grant
    ```
+
+   (Use the issuer URL and client id from the identity contract; `olf e2e run
+   --env local` also asserts that each Secret authenticates its client.)
 
 ## Exercise
 
@@ -72,15 +87,27 @@ database and by the realm Job. Its value is the Terraform-owned
 admin exists. Never patch the Secret by hand: the next apply restores the state
 value. To rotate, let Terraform pick the value and make Keycloak follow:
 
-1. Replace it on its own, not together with a client rotation (that would
-   rerun the realm Job before Keycloak knows the new password):
+1. Record the current password first; after the apply the Secret holds the
+   new value and Keycloak still expects the old one, so without this copy you
+   cannot sign in to change it:
+
+   ```bash
+   kubectl -n olf-system get secret keycloak-admin-creds -o jsonpath='{.data.password}' | base64 -d
+   ```
+
+2. Replace it on its own, not together with a client rotation (that would
+   rerun the realm Job before Keycloak knows the new password; the Job fails
+   until step 3 is done, which is expected):
 
    ```bash
    TF_CLI_ARGS_apply='-replace=random_password.keycloak_admin' \
      uv run --project tools/olf --locked olf deploy --provider local --phase platform
    ```
 
-2. Read the new value (`kubectl -n olf-system get secret keycloak-admin-creds
-   -o jsonpath='{.data.password}' | base64 -d`) and set it as the `admin`
-   password in the Keycloak console (master realm, Users, admin, Credentials).
-   The next realm Job authenticates with it.
+3. Sign in to the Keycloak console as `admin` with the password recorded in
+   step 1 and set the new Secret value (`kubectl -n olf-system get secret
+   keycloak-admin-creds -o jsonpath='{.data.password}' | base64 -d`) as the
+   `admin` password (master realm, Users, admin, Credentials).
+
+4. Confirm: re-run the platform phase; the realm Job authenticates with the new
+   value and the apply completes.

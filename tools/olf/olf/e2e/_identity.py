@@ -238,7 +238,7 @@ def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, r
     a user in no group gets none."""
     log.step("Checking each canonical role reaches the ID token...")
     claim = identity["role_claim"]
-    realm_admin = f"{base_url}/admin/realms/{identity['provider']['realm']}"
+    realm_admin = f"{base_url}/admin/realms/{identity['issuer_url'].rsplit('/', 1)[1]}"
     secret = _client_secret(cfg, identity, "perimeter")
     suffix = secrets.token_hex(3)
     created: list[str] = []
@@ -247,7 +247,7 @@ def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, r
             for role in [*identity["role_mapping"], None]:
                 name = f"olf-e2e-{role or 'no-role'}-{suffix}"
                 password = secrets.token_urlsafe(24)
-                _admin(
+                created_user = _admin(
                     admin,
                     "POST",
                     f"{realm_admin}/users",
@@ -261,9 +261,8 @@ def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, r
                         "credentials": [{"type": "password", "value": password, "temporary": False}],
                     },
                 )
-                user_id = _admin(
-                    admin, "GET", f"{realm_admin}/users", params={"username": name, "exact": "true"}
-                ).json()[0]["id"]
+                # Register for cleanup from the POST's Location before anything else can fail.
+                user_id = created_user.headers["Location"].rsplit("/", 1)[1]
                 created.append(user_id)
                 if role is not None:
                     group = identity["role_mapping"][role][0]
