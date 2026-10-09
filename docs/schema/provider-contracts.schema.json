@@ -66,7 +66,7 @@
       "properties": {
         "ref": {"$ref": "#/definitions/nonEmptyString"},
         "implementation": {"$ref": "#/definitions/nonEmptyString"},
-        "adapter": {"$ref": "#/definitions/nonEmptyString"},
+        "adapter": {"$ref": "#/definitions/nonEmptyString", "description": "Provenance only for consumers; the validator requires \"keycloak\" when the profile selects keycloak (the default) to correlate profile and binding. External profiles do not need it."},
         "provider": {"type": "object"},
         "capabilities": {
           "type": "object",
@@ -77,7 +77,7 @@
             "logout_endpoint": {"type": "boolean"}
           }
         },
-        "issuer_url": {"type": "string", "pattern": "^https://[^/?#@\\s<>\"\\\\^`{|}]+(/[^?#\\s<>\"\\\\^`{|}]*)?$"},
+        "issuer_url": {"type": "string", "pattern": "^https://(?:\\[[0-9A-Fa-f:.]+\\]|[^/?#@:\\s<>\"\\\\^`{|}\\[\\]]+)(?::[0-9]*)?(/[^?#\\s<>\"\\\\^`{|}]*)?$"},
         "role_claim": {"$ref": "#/definitions/nonEmptyString"},
         "role_mapping": {
           "type": "object",

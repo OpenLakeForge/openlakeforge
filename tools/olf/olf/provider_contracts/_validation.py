@@ -148,6 +148,8 @@ def _oidc_issuer_url(value: object, *, where: str) -> str:
         raise ProviderContractError(f"{where} contains characters invalid in a URI")
     if not uri.startswith("https://") or "?" in uri or "#" in uri:
         raise ProviderContractError(f"{where} must be an https URL with no query or fragment")
+    if not urlsplit(uri).hostname:  # "https://:443/" has a netloc but no host
+        raise ProviderContractError(f"{where} must have a non-empty host")
     return uri
 
 

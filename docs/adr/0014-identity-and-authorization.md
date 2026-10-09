@@ -105,7 +105,7 @@ is rejected by the parser and by the #181 secret-value check; credentials
 reach pods only through `secretKeyRef`/`envFrom`.
 
 Optional, so an issuer that lacks something says so and consumers degrade
-rather than break: `adapter` (provenance only, e.g. `keycloak`, `external`),
+rather than break: `adapter` (provenance only for consumers, e.g. `keycloak`, `external`; but the validator requires `adapter: "keycloak"` when the profile selects keycloak, the default, to correlate that profile with its binding; external profiles need none),
 `provider` (an opaque object for the adapter's own data, such as a realm or
 user pool id; consumers never read it, and it still passes the secret-value
 check), and `capabilities` (`admin_api`, `groups_in_token`, `logout_endpoint`,

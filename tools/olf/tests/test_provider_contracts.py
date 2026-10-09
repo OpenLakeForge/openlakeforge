@@ -1548,11 +1548,19 @@ def test_malformed_issuer_authority_is_a_contract_error() -> None:
         parse_provider_contracts(contract, _topology(contract))
 
 
+def test_issuer_url_requires_a_host() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = "https://:443/"
+    with pytest.raises(ProviderContractError, match="non-empty host"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
 _BAD_ISSUERS = [
     "http://idp.example/t",
     "https://idp.example/t?realm=x",
     "https://idp.example/t#f",
     "https:///tenant",
+    "https://:443/",
     "https://user:pass@example.com",
 ]
 
