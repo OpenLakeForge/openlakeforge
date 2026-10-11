@@ -155,8 +155,8 @@ https://dagster.dev.olf.localhost
 ```
 
 Browsers resolve `*.localhost` to your machine; no `/etc/hosts` edit is
-needed. v0.4 serves these URLs without authentication, for private
-evaluation only — authentication arrives in v0.5. `olf forward --provider
+needed. Every URL except the sign-in host sits behind the authentication
+perimeter, and the stack is for local evaluation only. `olf forward --provider
 local` remains as a port-forward fallback. See
 [Access OpenLakeForge](docs/setup/local.md#access-openlakeforge).
 
