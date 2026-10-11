@@ -161,12 +161,35 @@ platform apply recreates it and `keycloak-config-cli` pushes the new value
 kubectl -n olf-system delete job -l app.kubernetes.io/name=keycloak
 ```
 
-Not yet exercised on a cluster: this rotation step, and the `olf deploy`
-Secret check against a live cluster (it is covered by unit tests only). What
-was run: the module's rendered realm file, applied with the pinned
+`olf e2e run --env local` also sends a Keycloak action email to a throwaway
+mail sink in a throwaway realm and asserts delivery, and that an unreachable
+SMTP server is reported as a failure (see ADR 0014). It does not test your
+relay: it never uses the credentials in your Secret.
+
+Not yet exercised on a cluster: this rotation step, the `olf deploy` Secret
+check (unit tests only), and the sink-in-kind part of the e2e check. What was
+run: the module's rendered realm file, applied with the pinned
 `keycloak-config-cli` to the pinned Keycloak 26.6.4 on a Docker network with a
 Mailpit sink, produced the `smtpServer` with the username from the environment
 and a masked password, and Keycloak's `execute-actions-email` delivered through
 it with that login (Mailpit recorded the SMTP username). Removing `smtp` from
 the profile emptied `smtpServer` and turned `resetPasswordAllowed` and
-`verifyEmail` off.
+`verifyEmail` off. The e2e check's Keycloak and Mailpit calls were run the same
+way, with Mailpit on Docker instead of in kind.
+
+## The perimeter cookie secret
+
+`oauth2-proxy-cookie` signs and encrypts the perimeter session cookies. A
+platform apply does not re-run its completed Job, so a deleted Secret stays
+missing and the proxies cannot start. To recreate or rotate it (every browser
+session ends; people sign in again):
+
+```bash
+kubectl -n olf-system delete secret oauth2-proxy-cookie --ignore-not-found
+TF_CLI_ARGS_apply='-replace=module.perimeter.kubernetes_job_v1.cookie_secret' \
+  olf deploy --provider local --phase platform
+kubectl -n olf-system rollout restart deployment -l openlakeforge.io/role-floor
+```
+
+The Job log shows `Created Secret oauth2-proxy-cookie`. Not yet exercised as a
+drill; the Job's create-if-missing behaviour is what the deploy ran.
