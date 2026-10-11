@@ -181,6 +181,7 @@ def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
             "shared/query": "https://trino.olf.localhost",
             "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
         },
+        "protected": ["shared/portal", "shared/query", "stage/prod/orchestration"],
     }
 
 

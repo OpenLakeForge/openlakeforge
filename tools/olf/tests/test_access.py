@@ -40,7 +40,35 @@ def forwarded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return calls
 
 
-def _reach(ref: str = "stage/dev/reporting"):  # noqa: ANN202
+def test_a_route_behind_the_perimeter_is_port_forwarded_unless_the_ingress_is_under_test(
+    forwarded: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(access.ACCESS_ENV, json.dumps({**ROUTES, "protected": ["stage/dev/reporting"]}))
+
+    with _reach() as url:
+        assert url == "http://127.0.0.1:18088"
+    with _reach(through_ingress=True) as url:
+        assert url == "https://superset.dev.olf.localhost"
+    assert forwarded == ["superset"]
+
+
+def test_contract_access_lists_the_protected_routes_only_when_the_perimeter_is_enabled() -> None:
+    contracts = {
+        "shared": {
+            "access": {
+                "issuer": "local-ca",
+                "routes": {"shared/portal": {"url": "https://olf.localhost", "enabled": True}},
+                "perimeter": {"enabled": True, "protected_routes": ["shared/portal", "shared/gone"]},
+            }
+        }
+    }
+
+    assert access.contract_access(contracts)["protected"] == ["shared/portal"]
+    contracts["shared"]["access"]["perimeter"]["enabled"] = False
+    assert "protected" not in access.contract_access(contracts)
+
+
+def _reach(ref: str = "stage/dev/reporting", **kwargs):  # noqa: ANN003, ANN202
     return access.service_url(
         ref,
         service="superset",
@@ -48,6 +76,7 @@ def _reach(ref: str = "stage/dev/reporting"):  # noqa: ANN202
         namespace="olf-dev",
         log_path="/dev/null",
         shared_namespace="olf-system",
+        **kwargs,
     )
 
 

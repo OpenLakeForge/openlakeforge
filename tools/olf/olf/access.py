@@ -3,6 +3,11 @@
 Every client goes through `service_url`: the contract's ingress route when
 there is one, a `kubectl port-forward` when there is not (AWS and Azure
 contracts carry no routes) or when `OLF_PORT_FORWARD` asks for it.
+
+A route behind the perimeter (ADR 0014) answers a request with no session by
+redirecting to login, so automation never takes it: it port-forwards to the
+internal Service, which only an operator with `pods/portforward` can reach.
+Only a caller that tests the ingress itself passes `through_ingress=True`.
 """
 
 from __future__ import annotations
@@ -47,7 +52,9 @@ def contract_access(contracts: Mapping[str, Any] | None, *, stage: str | None = 
         for ref, route in access["routes"].items()
         if route.get("enabled") and (stage is None or not ref.startswith("stage/") or ref.startswith(f"stage/{stage}/"))
     }
-    return {"issuer": access["issuer"], "routes": routes}
+    perimeter = access.get("perimeter") or {}
+    protected = sorted(set(perimeter.get("protected_routes", [])) & set(routes)) if perimeter.get("enabled") else []
+    return {"issuer": access["issuer"], "routes": routes, **({"protected": protected} if protected else {})}
 
 
 def _resolve_localhost(host: Any) -> Any:
@@ -85,6 +92,7 @@ def service_url(
     shared_namespace: str,
     local_port: int | None = None,
     kube_context: str | None = None,
+    through_ingress: bool = False,
 ) -> Iterator[str]:
     """Yield the base URL of the service bound at contract `ref` for the block.
 
@@ -96,7 +104,10 @@ def service_url(
     because `config.shared_namespace()` falls back to the stage namespace.
     """
     access = json.loads(os.environ.get(ACCESS_ENV) or "{}")
-    url = None if config.truthy(os.environ.get(PORT_FORWARD_ENV, "")) else access.get("routes", {}).get(ref)
+    bypass = config.truthy(os.environ.get(PORT_FORWARD_ENV, "")) or (
+        ref in access.get("protected", []) and not through_ingress
+    )
+    url = None if bypass else access.get("routes", {}).get(ref)
     if url is None:
         with k8s.port_forward(
             service, remote_port, namespace, local_port=local_port, log_path=log_path, kube_context=kube_context
