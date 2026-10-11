@@ -56,6 +56,7 @@ _ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
 _USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_service", "query", "identity", "portal"})
 # The landing page is the one route on the apex: https://<base_domain>.
 _PORTAL_REF = "shared/portal"
+_IDENTITY_REF = "shared/identity"
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
 # The ingress terminates TLS with a certificate from the issuer; the only mode
 # the local Traefik/cert-manager adapter implements.
@@ -203,6 +204,8 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
     if not present:
         if access["implementation"] == "access.ingress":
             raise ProviderContractError(f"shared.access access.ingress requires {sorted(_ACCESS_INGRESS_FIELDS)!r}")
+        if "perimeter" in access:
+            raise ProviderContractError("shared.access.perimeter protects ingress routes and needs the ingress fields")
         return
     if present != _ACCESS_INGRESS_FIELDS:
         raise ProviderContractError(
@@ -254,6 +257,41 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         if host in hosts:
             raise ProviderContractError(f"{where}.url host {host!r} is already routed to another service")
         hosts.add(host)
+    if "perimeter" in access:
+        _parse_perimeter(access["perimeter"], routes=access["routes"], base_domain=base_domain)
+
+
+def _parse_perimeter(value: object, *, routes: Mapping[str, Any], base_domain: str) -> None:
+    """shared.access.perimeter (ADR 0014 seam 3): which routes sit behind authentication.
+
+    A claim that a route is protected is only worth having if nothing
+    user-facing is silently left out, so the set must be exactly the enabled
+    user-facing routes minus the login surface.
+    """
+    where = "shared.access.perimeter"
+    document = _fields(value, where=where, required={"implementation", "enabled", "protected_routes", "callback_url"})
+    _string(document["implementation"], where=f"{where}.implementation")
+    if not isinstance(document["enabled"], bool):
+        raise ProviderContractError(f"{where}.enabled must be a boolean")
+    protected = document["protected_routes"]
+    if not isinstance(protected, (list, tuple)) or not all(isinstance(ref, str) for ref in protected):
+        raise ProviderContractError(f"{where}.protected_routes must be a list of route refs")
+    if _IDENTITY_REF in protected:
+        raise ProviderContractError(
+            f"{where}.protected_routes must not include {_IDENTITY_REF}: it is never behind the perimeter"
+        )
+    user_facing = {ref for ref, route in routes.items() if route["enabled"] and route["exposure"] == "user-facing"}
+    expected = user_facing - {_IDENTITY_REF} if document["enabled"] else set()
+    if set(protected) != expected or len(protected) != len(set(protected)):
+        raise ProviderContractError(
+            f"{where}.protected_routes must be exactly {sorted(expected)!r} "
+            "(every enabled user-facing route except the identity route)"
+        )
+    callback = urlsplit(_absolute_http_uri(document["callback_url"], where=f"{where}.callback_url"))
+    host = (callback.hostname or "").lower()
+    on_base_domain = host.endswith(f".{base_domain.lower()}")
+    if callback.scheme != "https" or callback.path != "/oauth2/callback" or not on_base_domain:
+        raise ProviderContractError(f"{where}.callback_url must be https://<host>.{base_domain}/oauth2/callback")
 
 
 def _parse_shared(
@@ -279,7 +317,7 @@ def _parse_shared(
             binding,
             where=f"shared.{name}",
             required={"ref", "implementation"},
-            optional=(_ACCESS_INGRESS_FIELDS if name == "access" else set())
+            optional=(_ACCESS_INGRESS_FIELDS | {"perimeter"} if name == "access" else set())
             | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
                 "endpoint",

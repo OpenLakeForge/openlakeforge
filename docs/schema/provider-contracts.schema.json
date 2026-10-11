@@ -142,6 +142,17 @@
         "base_domain": {"$ref": "#/definitions/nonEmptyString"},
         "issuer": {"$ref": "#/definitions/nonEmptyString"},
         "tls_mode": {"enum": ["ingress-terminated"]},
+        "perimeter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["implementation", "enabled", "protected_routes", "callback_url"],
+          "properties": {
+            "implementation": {"$ref": "#/definitions/nonEmptyString"},
+            "enabled": {"type": "boolean"},
+            "protected_routes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/definitions/nonEmptyString"}},
+            "callback_url": {"type": "string", "pattern": "^https://"}
+          }
+        },
         "routes": {
           "type": "object",
           "additionalProperties": {

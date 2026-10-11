@@ -75,7 +75,7 @@ unavailability. This is the lock-out the recovery below exists for.
 | Superset (#25) | OIDC login; 15 min non-sliding session; roles synced at login from `shared.identity.roles`; logout endpoint reachable from the chain | #25 |
 | OpenMetadata (#25) | OIDC login; session or token expiry 15 min renewing through the issuer; logout in the chain | #25, expiry setting to verify |
 | Dagster, Trino UI | Perimeter only; no native session | #176 |
-| Keycloak realm | Access token lifespan 5 min; SSO session idle 30 min, max 10 h | #24 realm file (not yet set) |
+| Keycloak realm | Access token lifespan 5 min; SSO session idle 30 min, max 10 h | Set in the realm file (`accessTokenLifespan` 300, `ssoSessionIdleTimeout` 1800, `ssoSessionMaxLifespan` 36000). Not yet read back from a running Keycloak |
 
 ## Cluster-administrator recovery (break-glass)
 

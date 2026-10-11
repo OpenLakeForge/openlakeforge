@@ -1335,6 +1335,27 @@ def test_access_ingress_contract_fails_closed(mutate, match: str) -> None:
         parse_provider_contracts(contract, topology)
 
 
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        # A user-facing route left out of the perimeter is an open door.
+        (lambda perimeter: perimeter["protected_routes"].remove("shared/query"), "must be exactly"),
+        (lambda perimeter: perimeter["protected_routes"].append("shared/identity"), "never behind the perimeter"),
+        (lambda perimeter: perimeter.__setitem__("enabled", False), "must be exactly \\[\\]"),
+        (lambda perimeter: perimeter.__setitem__("enabled", "yes"), "enabled must be a boolean"),
+        (lambda perimeter: perimeter.pop("callback_url"), "callback_url"),
+        (lambda perimeter: perimeter.__setitem__("callback_url", "http://oauth2.olf.localhost/x"), "callback_url"),
+    ],
+)
+def test_perimeter_contract_fails_closed(mutate, match: str) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    mutate(contract["shared"]["access"]["perimeter"])
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
 def _drop_identity_roles(contract: dict) -> None:
     del contract["shared"]["identity"]["roles"]
 

@@ -56,6 +56,12 @@ locals {
     verifyEmail           = local.smtp_enabled
     loginWithEmailAllowed = true
     bruteForceProtected   = true
+    # Session policy (docs/architecture/identity-sessions-and-recovery.md):
+    # the access token bounds how long the perimeter can serve a removed role
+    # or disabled user; the SSO session ends a refresh chain at 10 h.
+    accessTokenLifespan   = 300
+    ssoSessionIdleTimeout = 1800
+    ssoSessionMaxLifespan = 36000
     groups                = [for role in var.roles : { name = role }]
     smtpServer            = local.smtp_server
     clients = [
