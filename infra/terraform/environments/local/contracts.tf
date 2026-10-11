@@ -336,8 +336,11 @@ locals {
 
   identity_keycloak = var.identity_issuer == "keycloak"
 
-  # Where each consumer's client may send the browser back. The perimeter
-  # fronts every user-facing route (#176), so it may return to all of them.
+  # Every login returns to this one host, which the perimeter proxy answers;
+  # the session cookie on .<base_domain> then covers every route.
+  perimeter_callback_host = "oauth2.${var.access_base_domain}"
+
+  # Where each consumer's client may send the browser back.
   identity_consumer_redirects = {
     superset     = [for name in keys(local.analytics_stages) : "https://superset.${name}.${var.access_base_domain}/*"]
     openmetadata = local.governance_enabled ? ["https://openmetadata.${var.access_base_domain}/*"] : []
@@ -345,10 +348,7 @@ locals {
   }
   identity_client_redirects = {
     for name in ["perimeter", "superset", "openmetadata", "trino"] : name => {
-      redirect_uris = name == "perimeter" ? concat(
-        [for stage in keys(local.enabled_stages) : "https://dagster.${stage}.${var.access_base_domain}/oauth2/callback"],
-        [for uri in flatten(values(local.identity_consumer_redirects)) : replace(uri, "/*", "/oauth2/callback")],
-      ) : local.identity_consumer_redirects[name]
+      redirect_uris = name == "perimeter" ? ["https://${local.perimeter_callback_host}/oauth2/callback"] : local.identity_consumer_redirects[name]
     }
   }
 
@@ -454,6 +454,27 @@ locals {
     }
   })
 
+  # ADR 0014 seam 3: everything user-facing except the login surface sits
+  # behind the perimeter, so a new route is protected without being listed.
+  perimeter_protected_refs = [for ref in keys(local.access_routes) : ref if ref != "shared/identity"]
+
+  # What Traefik routes: the contract's routes, each tagged with the access
+  # group that gates it, plus the perimeter's own login callback.
+  ingress_routes = merge(
+    { for ref, route in local.access_routes : ref => merge(route, { group = lookup(module.perimeter.route_group, ref, "") }) },
+    {
+      "perimeter/callback" = {
+        host         = local.perimeter_callback_host
+        tls_host     = "*.${var.access_base_domain}"
+        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+        service_name = module.perimeter.callback_service_name
+        service_port = module.perimeter.port
+        path         = "/oauth2"
+        group        = ""
+      }
+    },
+  )
+
   access_contract = {
     provider             = local.local_provider_name
     implementation       = "access.ingress"
@@ -467,6 +488,7 @@ locals {
     routes = {
       for ref, route in local.access_routes : ref => { url = "https://${route.host}", enabled = true, exposure = "user-facing" }
     }
+    perimeter  = module.perimeter.contract
     local_only = true
   }
 
@@ -535,6 +557,7 @@ locals {
         issuer         = local.access_contract.issuer
         tls_mode       = local.access_contract.tls_mode
         routes         = local.access_contract.routes
+        perimeter      = local.access_contract.perimeter
       }
       observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
       }, local.governance_enabled ? {

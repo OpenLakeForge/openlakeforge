@@ -24,7 +24,6 @@ import requests
 import yaml
 
 from olf import access, config, k8s, log
-from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._identity_mail import check_email_delivery, check_realm_mail_matches_contract, mail_sink
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
@@ -42,7 +41,6 @@ def check_identity(cfg: E2EConfig) -> None:
     if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
         log.info("Skipping the identity checks: OLF_PORT_FORWARD bypasses the ingress the issuer URL needs.")
         return
-    stage = os.environ.get(CONTRACT_STAGE_ENV, "dev")
     with access.service_url(
         "shared/identity",
         service=KEYCLOAK_SERVICE,
@@ -54,7 +52,7 @@ def check_identity(cfg: E2EConfig) -> None:
     ) as base_url:
         check_discovery(identity, base_url)
         check_discovery_from_pod(cfg, identity)
-        redirect_uri = f"{_stage_route(cfg, stage)}/oauth2/callback"
+        redirect_uri = _perimeter_callback(cfg)
         check_client_secret_is_enforced(cfg, identity, redirect_uri)
         check_role_claims(cfg, identity, base_url, redirect_uri)
         # The sink first: its pull can outlast the one-minute admin token.
@@ -67,12 +65,13 @@ def _realm(identity: dict[str, Any]) -> str:
     return str(identity["issuer_url"].rsplit("/", 1)[1])
 
 
-def _stage_route(cfg: E2EConfig, stage: str) -> str:
-    contracts = load_provider_contracts_or_raise(cfg)
+def _perimeter_callback(cfg: E2EConfig) -> str:
+    """The one redirect URI the `perimeter` client is registered with."""
+    access_contract = load_provider_contracts_or_raise(cfg)["shared"]["access"]
     try:
-        return str(contracts["shared"]["access"]["routes"][f"stage/{stage}/orchestration"]["url"])
+        return str(access_contract["perimeter"]["callback_url"])
     except KeyError as exc:
-        raise E2EError(f"the contract has no route for stage {stage!r}'s orchestration service") from exc
+        raise E2EError("the contract has no shared.access.perimeter to take the callback URL from") from exc
 
 
 def check_discovery(identity: dict[str, Any], base_url: str) -> None:

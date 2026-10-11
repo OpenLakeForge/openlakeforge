@@ -50,6 +50,19 @@ def test_a_client_secret_the_issuer_enforces_passes(monkeypatch: pytest.MonkeyPa
     _identity.check_client_secret_is_enforced(e2e_cfg(tmp_path), _IDENTITY, "https://x/oauth2/callback")
 
 
+def test_the_redirect_uri_is_the_perimeter_callback_of_the_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    callback = "https://oauth2.olf.localhost/oauth2/callback"
+    contracts: dict[str, Any] = {"shared": {"access": {"perimeter": {"callback_url": callback}}}}
+    monkeypatch.setattr(_identity, "load_provider_contracts_or_raise", lambda _cfg: contracts)
+    assert _identity._perimeter_callback(e2e_cfg(tmp_path)) == callback
+
+    contracts["shared"]["access"] = {}
+    with pytest.raises(E2EError, match="shared.access.perimeter"):
+        _identity._perimeter_callback(e2e_cfg(tmp_path))
+
+
 class _Keycloak:
     """The admin API calls the mail checks make, answered the way Keycloak does."""
 

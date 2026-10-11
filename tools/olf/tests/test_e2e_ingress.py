@@ -122,3 +122,23 @@ def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
         _ingress.assert_portal_lists_routes(
             '<a href="https://trino.olf.localhost">q</a><a href="https://evil.example">x</a>', routes
         )
+
+
+def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from_any_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = "redirect_uri=https%3A%2F%2Foauth2.olf.localhost%2Foauth2%2Fcallback"
+    keycloak = f"https://auth.olf.localhost/realms/openlakeforge/protocol/openid-connect/auth?{callback}"
+    external = f"https://login.example/authorize?client_id=perimeter&{callback}"
+    cases = (
+        (200, "", True),
+        (302, keycloak, True),
+        (302, external, True),
+        (302, "https://elsewhere.example", False),
+        (404, "", False),
+    )
+
+    for status, location, answered in cases:
+        reply = SimpleNamespace(status_code=status, headers={"Location": location})
+        monkeypatch.setattr(_ingress.requests, "get", lambda *_args, reply=reply, **_kwargs: reply)
+        assert _ingress._dagster_answers(_URL, attempts=1, delay=0) is answered

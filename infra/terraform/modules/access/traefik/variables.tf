@@ -33,14 +33,28 @@ variable "base_values_file" {
 }
 
 variable "routes" {
-  description = "User-facing routes keyed by contract ref: the host, the wildcard tls_host covering it, and the backend Service in its namespace."
+  description = "Routes keyed by contract ref: the host, the wildcard tls_host covering it, the backend Service in its namespace, the path prefix it answers, and the access group whose middlewares gate it (empty: none)."
   type = map(object({
     host         = string
     tls_host     = string
     namespace    = string
     service_name = string
     service_port = number
+    path         = optional(string, "/")
+    group        = optional(string, "")
   }))
+}
+
+variable "group_middlewares" {
+  description = "Access group to the Traefik middlewares, in order, that gate its routes (modules/access/perimeter). Every non-empty route group must appear."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "dynamic_config" {
+  description = "Traefik file-provider document defining the middlewares group_middlewares names, or null for none."
+  type        = any
+  default     = null
 }
 
 variable "cluster_issuer_name" {

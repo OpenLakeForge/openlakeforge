@@ -58,13 +58,17 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
    self-signed once and never rotated by a re-deploy; `olf deploy` waits for
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
-   the only value the contract accepts. Each namespace gets one standard
-   `Ingress` holding its routes and one wildcard certificate
-   (`*.<stage>.<base_domain>`, or `*.<base_domain>` for shared services),
-   issued by cert-manager's ingress-shim. The shared namespace's certificate
-   also names the bare `<base_domain>`, because a wildcard does not match the
-   apex. A standard `Ingress` needs no CRD at plan time, and #176 attaches
-   auth middleware to it by annotation without changing hosts.
+   the only value the contract accepts. Each namespace gets one wildcard
+   certificate (`*.<stage>.<base_domain>`, or `*.<base_domain>` for shared
+   services), issued by cert-manager's ingress-shim. The shared namespace's
+   certificate also names the bare `<base_domain>`, because a wildcard does
+   not match the apex. Routes are standard `Ingress` objects, which need no
+   CRD at plan time. Traefik attaches middleware per `Ingress`, so a
+   namespace has one `Ingress` per access group (the role floor, ADR 0014
+   seam 3), each naming the same TLS Secret; only one per namespace carries
+   the issuer annotation. The `Ingress` without a group holds the routes
+   behind no middleware: the identity route and the perimeter's login
+   callback.
 7. **The portal is a static page at the base domain.** It lists every route
    of `shared.access.routes` that is enabled and `user-facing`, grouped by
    stage. Terraform renders the HTML from the same route data that feeds
@@ -72,7 +76,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    service the contract does not route. A pinned BusyBox `httpd` serves it
    from the `olf-system` namespace in the platform phase: the route set is
    static infrastructure (ADR 0002). Links are not filtered by role;
-   the perimeter (#176) will deny what a role cannot open and send an
+   the perimeter (#176) denies what a role cannot open and sends an
    unauthenticated request to login, and the portal sits behind it like
    every other route.
 
@@ -123,3 +127,8 @@ local routes; it is never behind the perimeter (ADR 0014). Decision 8 (in-cluste
 resolution of the routes and the CA ConfigMap) was added with it.
 #330 added the portal (decisions 2, 3, 4, 6 and 7): the apex route, its
 certificate name, and the landing page.
+#176 put every route except the identity route behind the perimeter (ADR 0014
+seam 3): decision 6 now renders one `Ingress` per namespace and access group,
+and `olf`'s clients port-forward to a protected route instead of taking its
+ingress URL (decision 5). The login callback host `oauth2.<base_domain>` is
+answered by the proxy and is not a contract route.
