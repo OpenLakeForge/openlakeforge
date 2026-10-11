@@ -17,7 +17,7 @@
       "shared/query": {"url": "https://trino.olf.localhost", "enabled": true, "exposure": "user-facing"},
       "stage/dev/orchestration": {"url": "https://dagster.dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
       "stage/prod/orchestration": {"url": "https://dagster.prod.olf.localhost", "enabled": true, "exposure": "user-facing"}
-    }},
+    }, "perimeter": {"implementation": "perimeter.oauth2_proxy", "enabled": true, "protected_routes": ["shared/portal", "shared/query", "stage/dev/orchestration", "stage/prod/orchestration"], "callback_url": "https://oauth2.olf.localhost/oauth2/callback"}},
     "observability": {"ref": "shared/observability", "implementation": "observability.object_log_archive"}
   },
   "stages": {

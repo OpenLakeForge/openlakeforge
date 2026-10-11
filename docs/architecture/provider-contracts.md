@@ -114,6 +114,15 @@ all present or all absent:
 | `user-facing` only for orchestration, reporting, governance, query, identity, portal | databases, storage admin, catalog, registry stay internal; code servers have no ref |
 | `url` is `https://<host>.<base_domain>`, unique across routes; the portal's is `https://<base_domain>` | one host, one service |
 | `tls_mode` is `ingress-terminated` | the only mode an adapter implements |
+| optional `perimeter` is `{implementation, enabled, protected_routes, callback_url}` and needs the ingress fields | what sits behind authentication (ADR 0014 seam 3) |
+| `protected_routes` is exactly the enabled user-facing routes except `shared/identity` (empty when `enabled` is false) | a user-facing route left out is an open door, so `olf` rejects it |
+| `callback_url` is `https://<host>.<base_domain>/oauth2/callback` | the one redirect URI of the `perimeter` client |
+
+The local root emits `perimeter` once the perimeter adapter lands (#176); the
+AWS and Azure roots do not. When public DNS and ACME exposure is added, `olf`
+must refuse a contract that exposes routes publicly without an enabled
+perimeter. That refusal is not implemented, because no contract field says a
+route is public yet.
 
 ### `shared.identity`
 
@@ -181,7 +190,7 @@ default `role_mapping` of each role to its same-named group); the AWS and Azure
 roots do not yet. With `spec.identity.issuer: external` the local root emits
 the profile's issuer fields and names the client Secrets
 `oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The optional `admin` block (seam 4)
-is not in the schema until #331. The perimeter fields are #176.
+is not in the schema until #331. The perimeter fields are in `shared.access`.
 
 The local root also emits an optional `shared.portal` binding
 (`{ref: "shared/portal", implementation: "portal.static_page"}`), which is what
