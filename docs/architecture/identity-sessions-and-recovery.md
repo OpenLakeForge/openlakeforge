@@ -80,6 +80,13 @@ recovery below exists for.
 | Dagster, Trino UI | Perimeter only; no native session | #176 (implemented) |
 | Keycloak realm | Access token lifespan 5 min; SSO session idle 30 min, max 10 h | Set in the realm file (`accessTokenLifespan` 300, `ssoSessionIdleTimeout` 1800, `ssoSessionMaxLifespan` 36000). Not yet read back from a running Keycloak |
 
+oauth2-proxy keeps a session's roles until the next sign-in whenever the
+issuer's refresh response omits the ID token (optional in OIDC Core 12.2).
+Keycloak returns one (to verify on the running stack), so the 5 min bound
+holds there. An external issuer must return an ID token with the role claim on
+refresh, or a removed role stays usable until its SSO session ends (at most
+10 h).
+
 ## Cluster-administrator recovery (break-glass)
 
 Designed, not implemented, not drilled. The drill ("Keycloak-outage recovery
