@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -66,11 +65,12 @@ class _Keycloak:
             return SimpleNamespace(status_code=status, text="Failed to send execute actions email: boom")
         if method == "GET":
             return SimpleNamespace(json=lambda: self.realm, raise_for_status=lambda: None)
-        return SimpleNamespace(headers={"Location": "https://kc/users/u1"}, raise_for_status=lambda: None)
+        return SimpleNamespace(
+            status_code=204, headers={"Location": "https://kc/users/u1"}, raise_for_status=lambda: None
+        )
 
 
 def _sink(monkeypatch: pytest.MonkeyPatch, delivered: set[str]) -> None:
-    monkeypatch.setattr(_identity_mail, "_mail_sink", lambda _cfg: contextlib.nullcontext())
     monkeypatch.setattr(_identity_mail, "_sink_recipients", lambda _cfg: delivered)
     monkeypatch.setattr(_identity_mail.time, "sleep", lambda _s: None)
 
@@ -128,3 +128,17 @@ def test_a_realm_without_mail_and_a_contract_without_it_agree() -> None:
     realm = {"resetPasswordAllowed": False, "verifyEmail": False, "smtpServer": {}}
 
     _identity_mail.check_realm_mail_matches_contract({}, _Keycloak(realm=realm), "https://kc/realm")
+
+
+def test_a_throwaway_realm_that_cannot_be_removed_fails_the_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _sink(monkeypatch, {"delivered@example.invalid"})
+    keycloak = _Keycloak()
+    request = keycloak.request
+    keycloak.request = lambda method, url, **kw: (  # type: ignore[method-assign]
+        SimpleNamespace(status_code=401) if method == "DELETE" else request(method, url, **kw)
+    )
+
+    with pytest.raises(E2EError, match="was not removed: HTTP 401"):
+        _identity_mail.check_email_delivery(e2e_cfg(tmp_path), keycloak, "https://kc")

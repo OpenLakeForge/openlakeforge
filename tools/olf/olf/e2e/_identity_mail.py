@@ -59,11 +59,11 @@ def check_realm_mail_matches_contract(identity: dict[str, Any], admin: requests.
 
 
 def _remove_sink(cfg: E2EConfig) -> None:
-    kubectl(cfg, ["delete", "pod,service", SINK, "-n", cfg.platform_namespace, "--ignore-not-found", "--wait=false"])
+    kubectl(cfg, ["delete", "pod,service", SINK, "-n", cfg.platform_namespace, "--ignore-not-found"])
 
 
 @contextlib.contextmanager
-def _mail_sink(cfg: E2EConfig) -> Iterator[None]:
+def mail_sink(cfg: E2EConfig) -> Iterator[None]:
     catalog = yaml.safe_load((cfg.distribution_root / "release/component-catalog.yaml").read_text())
     image = catalog["components"]["images"]["e2e_mail_sink"]
     namespace = cfg.platform_namespace
@@ -112,7 +112,9 @@ def _send_action_email(admin: requests.Session, realm_admin: str, user_id: str) 
 
 def check_email_delivery(cfg: E2EConfig, admin: requests.Session, base_url: str) -> None:
     """A Keycloak action email arrives at an SMTP server, and an unreachable
-    server is reported as a delivery failure rather than as success."""
+    server is reported as a delivery failure rather than as success. The caller
+    holds `mail_sink` open and opens `admin` after it: the sink can take minutes
+    to pull, and an admin token lives one."""
     log.step("Checking a Keycloak action email reaches a test mail sink...")
     realm = f"olf-e2e-mail-{secrets.token_hex(3)}"
     realm_admin = f"{base_url}/admin/realms/{realm}"
@@ -124,28 +126,28 @@ def check_email_delivery(cfg: E2EConfig, admin: requests.Session, base_url: str)
         "ssl": "false",
         "starttls": "false",
     }
-    with _mail_sink(cfg):
-        created = _call(
-            admin, "POST", f"{base_url}/admin/realms", json={"realm": realm, "enabled": True, "smtpServer": smtp}
-        )
-        created.raise_for_status()
-        try:
-            user_id, email = _create_user(admin, realm_admin, "delivered")
-            sent = _send_action_email(admin, realm_admin, user_id)
-            if sent.status_code != 204:
-                raise E2EError(f"Keycloak did not send the action email: HTTP {sent.status_code}")
-            _wait_for_delivery(cfg, email)
+    created = _call(
+        admin, "POST", f"{base_url}/admin/realms", json={"realm": realm, "enabled": True, "smtpServer": smtp}
+    )
+    created.raise_for_status()
+    try:
+        user_id, email = _create_user(admin, realm_admin, "delivered")
+        sent = _send_action_email(admin, realm_admin, user_id)
+        if sent.status_code != 204:
+            raise E2EError(f"Keycloak did not send the action email: HTTP {sent.status_code}")
+        _wait_for_delivery(cfg, email)
 
-            # Port 1 on Keycloak's own loopback refuses the connection at once.
-            _call(admin, "PUT", realm_admin, json={"smtpServer": smtp | {"host": "localhost", "port": "1"}})
-            user_id, email = _create_user(admin, realm_admin, "undeliverable")
-            failed = _send_action_email(admin, realm_admin, user_id)
-            if failed.status_code != 500 or "Failed to send" not in failed.text:
-                raise E2EError(
-                    f"an unreachable SMTP server was not reported as a delivery failure: HTTP {failed.status_code}"
-                )
-            if email in _sink_recipients(cfg):
-                raise E2EError(f"the mail sink holds a message for {email}, whose delivery was reported as failed")
-        finally:
-            with contextlib.suppress(requests.RequestException):
-                _call(admin, "DELETE", realm_admin)
+        # Port 1 on Keycloak's own loopback refuses the connection at once.
+        _call(admin, "PUT", realm_admin, json={"smtpServer": smtp | {"host": "localhost", "port": "1"}})
+        user_id, email = _create_user(admin, realm_admin, "undeliverable")
+        failed = _send_action_email(admin, realm_admin, user_id)
+        if failed.status_code != 500 or "Failed to send" not in failed.text:
+            raise E2EError(
+                f"an unreachable SMTP server was not reported as a delivery failure: HTTP {failed.status_code}"
+            )
+        if email in _sink_recipients(cfg):
+            raise E2EError(f"the mail sink holds a message for {email}, whose delivery was reported as failed")
+    finally:
+        deleted = _call(admin, "DELETE", realm_admin)
+        if deleted.status_code not in (204, 404):
+            raise E2EError(f"the throwaway realm {realm} was not removed: HTTP {deleted.status_code}")

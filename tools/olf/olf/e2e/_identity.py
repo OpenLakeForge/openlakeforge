@@ -25,7 +25,7 @@ import yaml
 
 from olf import access, config, k8s, log
 from olf.contracts import CONTRACT_STAGE_ENV
-from olf.e2e._identity_mail import check_email_delivery, check_realm_mail_matches_contract
+from olf.e2e._identity_mail import check_email_delivery, check_realm_mail_matches_contract, mail_sink
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 KEYCLOAK_SERVICE = "keycloak"
@@ -57,7 +57,8 @@ def check_identity(cfg: E2EConfig) -> None:
         redirect_uri = f"{_stage_route(cfg, stage)}/oauth2/callback"
         check_client_secret_is_enforced(cfg, identity, redirect_uri)
         check_role_claims(cfg, identity, base_url, redirect_uri)
-        with _admin_session(cfg, base_url) as admin:
+        # The sink first: its pull can outlast the one-minute admin token.
+        with mail_sink(cfg), _admin_session(cfg, base_url) as admin:
             check_realm_mail_matches_contract(identity, admin, f"{base_url}/admin/realms/{_realm(identity)}")
             check_email_delivery(cfg, admin, base_url)
 
