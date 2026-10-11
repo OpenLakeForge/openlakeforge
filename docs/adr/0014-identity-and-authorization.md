@@ -274,5 +274,16 @@ Outbound SMTP (#24): `spec.identity.smtp`, the `email_delivery` capability, the
 realm `smtpServer` and the deploy-time Secret check are built. The shared
 namespace is created by the platform apply, so on a first deploy the Secret
 cannot exist before it: deploy once without `smtp`, create the Secret, then add
-`smtp` and re-run the platform phase. Delivery against a test mail sink is
-checked separately; this ADR does not claim a configured relay was tested.
+`smtp` and re-run the platform phase.
+
+Email delivery check (#24): `olf e2e run` starts a throwaway Mailpit (catalog
+`e2e_mail_sink`, digest-pinned; never part of the stack), creates a throwaway
+realm pointed at it, asks Keycloak for an `UPDATE_PASSWORD` action email for a
+test user and asserts it reaches the sink; a second send with SMTP pointed at a
+closed port must come back as HTTP 500 `Failed to send execute actions email`
+and leave nothing in the sink. A throwaway realm is used because replacing a
+realm's `smtpServer` through the admin API drops the stored password, which
+would break a real relay. The deployed realm is only read, to require that
+`resetPasswordAllowed` and `verifyEmail` equal `capabilities.email_delivery`.
+This proves Keycloak's mail path, not an operator's relay.
+
