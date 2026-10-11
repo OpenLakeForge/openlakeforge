@@ -244,6 +244,14 @@ needs no session. That is the documented development fallback
 only the perimeter and ingress e2e checks go through the public hostnames.
 Containing internal traffic is #46.
 
+`olf e2e run --env local` exercises the seam (`e2e/_perimeter.py`): per route,
+an unauthenticated request is redirected to the issuer (or gets 401 with
+`Accept: application/json`), also with forged identity headers; signed in as
+throwaway `viewer`, `analyst`, `data-engineer` and no-role users, each route
+answers as `release/identity-roles.yaml` says, a denial is the 403
+role-restricted page with a portal link, and a direct API call carrying only a
+denied user's session cookie is refused too.
+
 Session settings are the policy document's: cookie `--cookie-expire=30m`,
 re-issued on every refresh (Traefik `addAuthCookiesToResponse` carries the
 refreshed cookie to the browser), refresh at most every 4 min; the realm sets

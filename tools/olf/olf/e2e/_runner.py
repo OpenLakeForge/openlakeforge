@@ -27,6 +27,7 @@ from olf.e2e._ingress import (
 )
 from olf.e2e._isolation import check_stage_isolation
 from olf.e2e._layers import Layer, configured_layers
+from olf.e2e._perimeter import check_perimeter
 from olf.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
 from olf.e2e._shell import (
     E2EConfig,
@@ -295,6 +296,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("route certificate renewal", check_certificate_renewal))
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
         assertions.append(FullAssertion("identity issuer and role claims", check_identity))
+        assertions.append(FullAssertion("perimeter authentication and role decisions", check_perimeter))
     assertions.extend(
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
