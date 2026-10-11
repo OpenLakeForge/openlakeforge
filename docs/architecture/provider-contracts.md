@@ -124,6 +124,10 @@ must refuse a contract that exposes routes publicly without an enabled
 perimeter. That refusal is not implemented, because no contract field says a
 route is public yet.
 
+`olf` port-forwards to every route in `protected_routes` of an enabled
+perimeter instead of using its URL, because the ingress answers a request with
+no session by redirecting to login.
+
 ### `shared.identity`
 
 Every root emits `{ref, implementation, roles}`. `implementation` is whatever

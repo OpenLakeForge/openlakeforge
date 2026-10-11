@@ -44,8 +44,12 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    servers have no ref and cannot be routed at all.
 5. **Port-forward is an explicit development fallback**, not an access path.
    `olf`'s own clients (`olf.access.service_url`) use a stage's route when
-   its contract has one, and port-forward only when it has none (the AWS and
-   Azure contracts today) or `OLF_PORT_FORWARD` is set. They resolve
+   its contract has one, and port-forward when it has none (the AWS and
+   Azure contracts today), when `OLF_PORT_FORWARD` is set, or when the route
+   is in `shared.access.perimeter.protected_routes` of an enabled perimeter
+   (ADR 0014 seam 3), because the ingress answers a request with no session
+   by redirecting to login. Only a caller that tests the ingress itself passes
+   `through_ingress=True`. They resolve
    `*.localhost` to `127.0.0.1` in-process and, for the `local-ca` issuer,
    verify against the CA read from the cluster — no `/etc/hosts` edit and no
    disabled verification. Users trust that CA once with `olf access trust`.

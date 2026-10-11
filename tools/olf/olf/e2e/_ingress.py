@@ -151,6 +151,8 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
 
 @contextlib.contextmanager
 def _route(cfg: E2EConfig) -> Iterator[str]:
+    # The drills test the ingress itself, so they take the public URL even when
+    # the route is behind the perimeter.
     with access.service_url(
         f"stage/{os.environ.get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
         service=DAGSTER_WEBSERVER_SERVICE_NAME,
@@ -159,6 +161,7 @@ def _route(cfg: E2EConfig) -> Iterator[str]:
         log_path=f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log",
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
+        through_ingress=True,
     ) as url:
         yield url
 

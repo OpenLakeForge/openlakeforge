@@ -279,9 +279,11 @@ curl --resolve dagster.dev.olf.localhost:443:127.0.0.1 https://dagster.dev.olf.l
 
 `olf forward --provider local` still starts `kubectl port-forward`s to fixed
 localhost ports, and is the only way to reach the services that have no
-route (Polaris, SeaweedFS). `olf`'s own clients use the ingress; set
-`OLF_PORT_FORWARD=1` to make them port-forward instead, for example while
-debugging the ingress:
+route (Polaris, SeaweedFS). `olf`'s own clients use the ingress, except for a
+route behind an enabled authentication perimeter, which they port-forward to
+(they hold no browser session); that needs `pods/portforward` on the cluster.
+Set `OLF_PORT_FORWARD=1` to make them port-forward for every route, for
+example while debugging the ingress:
 
 ```bash
 OLF_PORT_FORWARD=1 olf e2e run --env local

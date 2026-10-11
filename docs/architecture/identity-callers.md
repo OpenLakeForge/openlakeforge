@@ -42,7 +42,7 @@ principal and stage scope; Secret reference; rotation.
 | Platform and bootstrap (`olf deploy`, `destroy`, `check`, `diagnostics`) | Workstation or CI runner | Kubernetes API through kubeconfig; Terraform, Helm, kubectl | Kubernetes RBAC; the local kind kubeconfig is cluster-admin | Whole cluster | None | Kubeconfig lifecycle belongs to the cluster |
 | Artifact deployment (`olf artifacts upload-manifests`, `deploy-optional-layers`) | Workstation or CI | `kubectl port-forward` to the SeaweedFS Service (`s3.port_forward_client`); credentials read by `k8s.secret_value` | RBAC (`secrets` get, `pods/portforward`) plus an S3 key | The ops-bucket Secret named by the contract, default `seaweedfs-s3-creds`: the SeaweedFS S3 admin key, not a stage key (**to verify** against the contract) | `seaweedfs-s3-creds`, keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Terraform-generated; residual debt |
 | Catalog reconciliation (`olf catalog sync-namespaces`) | Workstation or CI | `kubectl port-forward` to Polaris | OAuth client credentials of the Polaris `deployer` principal | Deployer principal's catalog roles | `polaris-deployer-creds` (name from the contract) | Polaris bootstrap Job |
-| Metadata reconciliation (`olf openmetadata deploy-metadata`) | Workstation or CI | `access.service_url`: the ingress route when the contract has routes (the local default), a port-forward otherwise or with `OLF_PORT_FORWARD=1` | OpenMetadata native admin login, email and password from `OPENMETADATA_ADMIN_EMAIL` / `_PASSWORD`, defaults `admin@open-metadata.org` / `admin` | Instance-wide admin | None; env default | None |
+| Metadata reconciliation (`olf openmetadata deploy-metadata`) | Workstation or CI | `access.service_url`: the ingress route when the contract has routes (the local default), a port-forward otherwise, with `OLF_PORT_FORWARD=1`, or for a route behind an enabled perimeter | OpenMetadata native admin login, email and password from `OPENMETADATA_ADMIN_EMAIL` / `_PASSWORD`, defaults `admin@open-metadata.org` / `admin` | Instance-wide admin | None; env default | None |
 | Superset report deployment (`olf report import`) | Workstation or CI | Same `access.service_url` | Superset native admin login, `SUPERSET_ADMIN_USERNAME` / `_PASSWORD`, defaults `admin` / `admin` | Instance-wide admin | None; env default | None |
 | `olf users` (#331, not built) | Operator workstation | Port-forward to the Keycloak Service, admin REST API | Client credentials of the `olf-users` client | User and group management in the realm | Name fixed by #331 | Bootstrap Job |
 | Workstation e2e (`olf e2e run`) | Workstation | kubectl exec and run, and port-forwards (Trino CLI pod, Dagster, portal) | RBAC. The identity checks also use the Keycloak master `admin` (`keycloak-admin-creds`, read through RBAC) and the ingress hostnames | Creates and deletes per-role test users | `keycloak-admin-creds` | Admin rotation runbook |
@@ -98,14 +98,17 @@ Two cases differ:
 - The cloud and `issuer: external` cases are unchanged: the runner needs the
   Kubernetes RBAC and the operator-provided Secrets.
 
-**Gap, not fixed here.** `access.service_url` prefers the ingress route
-whenever the contract has routes, so today `olf openmetadata deploy-metadata`,
-`olf report import` and the e2e assertions go through Traefik. Once the
-perimeter is on, that path hits forwardAuth. A later change must make
-port-forward the default for these callers (`OLF_PORT_FORWARD=1` already
-selects it) and decide how they authenticate to Superset and OpenMetadata when
-those accept only issuer login: **to verify** whether the native `db` login of
-`SupersetClient` and the OpenMetadata basic login survive OIDC being enabled.
+**Built.** `access.service_url` port-forwards to every route in
+`shared.access.perimeter.protected_routes` when the perimeter is enabled, so
+`olf openmetadata deploy-metadata`, `olf report import` and the e2e assertions
+reach the internal Service and never meet forwardAuth. Only the ingress drills
+in `olf e2e` pass `through_ingress=True`. No root emits an enabled perimeter yet
+(#176, next change), so today this changes nothing at runtime.
+
+**Still open.** How these callers authenticate to Superset and OpenMetadata
+once those accept only issuer login (#25): **to verify** whether the native
+`db` login of `SupersetClient` and the OpenMetadata basic login survive OIDC
+being enabled.
 
 ## Known limitations
 
