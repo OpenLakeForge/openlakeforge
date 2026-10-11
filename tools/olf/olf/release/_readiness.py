@@ -309,7 +309,9 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         )
     },
 }
-_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
+# Not part of the deployed stack: build bases, and the throwaway mail sink
+# `olf e2e` starts for its email-delivery check (e2e/_identity_mail.py).
+_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base", "e2e_mail_sink"})
 
 
 def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:
