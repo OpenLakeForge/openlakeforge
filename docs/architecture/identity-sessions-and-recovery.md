@@ -4,8 +4,9 @@ The session policy #176 and #25 implement (#177), and the design of the
 cluster-administrator recovery that works when Keycloak is down. Numbers were
 approved by the maintainer on 2026-10-09.
 
-**Status.** Everything below is *designed*. Nothing here is built, and no
-timing has been measured on a running stack. Where a number depends on upstream
+**Status.** Everything below is *designed*, except the realm token and SSO
+session lifetimes, which are set in the realm file. No timing has been measured
+on a running stack. Where a number depends on upstream
 behaviour that was not checked, the row says "to verify" and names the change
 that must verify it. An integration that cannot meet a bound must document the
 limitation and test it; "takes effect on next login" is not acceptable.
@@ -64,8 +65,8 @@ The perimeter does not extend sessions it cannot refresh and has no stale
 grace period. Existing sessions keep working until the access token expires,
 at most 5 min, then every protected route refuses requests. New logins fail.
 Native sessions end by their own 15 min expiry and cannot be renewed. The
-login route and the portal are not behind the perimeter and show the issuer's
-unavailability. This is the lock-out the recovery below exists for.
+login route is not behind the perimeter and shows the issuer's unavailability;
+the portal is behind it, like every other protected route. This is the lock-out the recovery below exists for.
 
 ## What each integration must do
 
