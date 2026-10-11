@@ -275,6 +275,11 @@ without systemd-resolved, macOS); `olf`'s own clients pin `*.localhost` to
 curl --resolve dagster.dev.olf.localhost:443:127.0.0.1 https://dagster.dev.olf.localhost/server_info
 ```
 
+Every route except `auth.<base_domain>` sits behind the authentication
+perimeter (ADR 0014), so that request answers `302` to the sign-in page, and
+`401` with `-H 'Accept: application/json'`. A signed-in role the service does
+not permit gets a `403` page saying access is role-restricted.
+
 ## Port-forward fallback
 
 `olf forward --provider local` still starts `kubectl port-forward`s to fixed

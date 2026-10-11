@@ -32,7 +32,7 @@ principal and stage scope; Secret reference; rotation.
 
 | Path | Caller | Endpoint / transport | Credential | Scope | Secret | Rotation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Browser through the perimeter (#176, not built) | Person's browser | `https://<service>.<base_domain>` via Traefik, forwardAuth to oauth2-proxy | Issuer login, perimeter cookie | Canonical role against `shared.identity.roles`, every enabled stage | None (cookie secret in [identity-credentials.md](identity-credentials.md)) | Session policy in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md) |
+| Browser through the perimeter (#176) | Person's browser | `https://<service>.<base_domain>` via Traefik, forwardAuth to oauth2-proxy | Issuer login, perimeter cookie | Canonical role against `shared.identity.roles`, every enabled stage | None (cookie secret in [identity-credentials.md](identity-credentials.md)) | Session policy in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md) |
 | Browser to Superset / OpenMetadata native OIDC (#25, not built) | Person's browser | Same route; the app redirects to the issuer | Issuer login, native session | Role claim mapped by the role model | Client Secrets `keycloak-client-superset` / `-openmetadata` | Client rotation runbook |
 
 ### Class 2: `olf`, CI and workstation
@@ -102,8 +102,7 @@ Two cases differ:
 `shared.access.perimeter.protected_routes` when the perimeter is enabled, so
 `olf openmetadata deploy-metadata`, `olf report import` and the e2e assertions
 reach the internal Service and never meet forwardAuth. Only the ingress drills
-in `olf e2e` pass `through_ingress=True`. No root emits an enabled perimeter yet
-(#176, next change), so today this changes nothing at runtime.
+in `olf e2e` pass `through_ingress=True`.
 
 **Still open.** How these callers authenticate to Superset and OpenMetadata
 once those accept only issuer login (#25): **to verify** whether the native

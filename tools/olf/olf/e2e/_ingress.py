@@ -79,10 +79,14 @@ def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
 
 def _dagster_answers(url: str, *, attempts: int, delay: float) -> bool:
     # Traefik answers 404/503 itself while it has no backend for the host, so
-    # any HTTP status is not recovery: only Dagster's own endpoint returning 200.
+    # any HTTP status is not recovery: only Dagster's own endpoint returning 200,
+    # or, behind the perimeter, the proxy's redirect to the issuer's login.
     for _ in range(attempts):
         try:
-            if requests.get(f"{url}/server_info", timeout=5).status_code == 200:
+            reply = requests.get(f"{url}/server_info", allow_redirects=False, timeout=5)
+            if reply.status_code == 200 or (
+                reply.status_code == 302 and "/protocol/openid-connect/auth" in reply.headers.get("Location", "")
+            ):
                 return True
         except requests.RequestException:
             pass

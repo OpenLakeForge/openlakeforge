@@ -247,8 +247,33 @@ module "traefik" {
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/traefik.yaml"
   chart_package_path  = var.traefik_chart_package_path
-  routes              = local.access_routes
+  routes              = local.ingress_routes
   cluster_issuer_name = module.cert_manager.cluster_issuer_name
+  group_middlewares   = module.perimeter.group_middlewares
+  dynamic_config      = module.perimeter.traefik_dynamic_config
+}
+
+# ADR 0014 seam 3. The proxy discovers the issuer at its public URL when it
+# starts, so it waits for the in-cluster resolution and the CA (through
+# ca_configmap_name) and for the realm Job (through identity_oidc). The auth
+# route's Ingress is not ordered before it: Traefik takes the middlewares from
+# this module, so a module-level depends_on would be a cycle, and the proxy
+# restarts until the route answers.
+module "perimeter" {
+  source = "../../modules/access/perimeter"
+
+  namespace         = kubernetes_namespace_v1.shared.metadata[0].name
+  base_domain       = var.access_base_domain
+  callback_host     = local.perimeter_callback_host
+  portal_url        = "https://${var.access_base_domain}"
+  ca_configmap_name = local.identity_keycloak ? module.in_cluster_resolution.ca_configmap_name : null
+  identity_roles    = local.identity_roles
+  role_mapping      = local.identity_oidc.role_mapping
+  role_claim        = local.identity_oidc.role_claim
+  issuer_url        = local.identity_oidc.issuer_url
+  client_id         = local.identity_oidc.clients.perimeter.client_id
+  client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
+  protected_refs    = local.perimeter_protected_refs
 }
 
 # The admin Secret is created by the keycloak module's credentials Job and

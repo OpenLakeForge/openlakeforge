@@ -59,6 +59,10 @@ _KEYCLOAK_CONFIG_CLI_IMAGE = (
     "adorsys/keycloak-config-cli:6.5.1-26.5.5"
     "@sha256:0955d98c8a341898b7aa177477edf8a1e90569ae50bbe7598141c1270b773274"
 )
+_OAUTH2_PROXY_IMAGE = (
+    "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5"
+    "@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916"
+)
 _SUPERSET_DOCKERIZE_IMAGE = "apache/superset:dockerize"
 _SUPERSET_IMAGE = "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
 _REDIS_IMAGE = "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
@@ -77,7 +81,7 @@ def selected_images(features: DeploymentFeatures, *, server_arch: str, keycloak:
     images += [polaris_image, polaris_admin_image]
     if features.governance_enabled:
         images += [_OPENMETADATA_SERVER_IMAGE, _OPENMETADATA_INGESTION_IMAGE]
-    images.append(_POSTGRES_IMAGE)
+    images += [_POSTGRES_IMAGE, _OAUTH2_PROXY_IMAGE]
     if keycloak:
         images += [_KEYCLOAK_IMAGE, _KEYCLOAK_CONFIG_CLI_IMAGE]
     if features.analytics_enabled:

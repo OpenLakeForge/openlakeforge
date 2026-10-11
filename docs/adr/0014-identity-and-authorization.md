@@ -9,9 +9,10 @@ three roots and validated by `olf` (#175); the `identity.oidc` contract shape
 default and which emits `identity.oidc` (#24). The AWS and Azure roots still
 emit their existing `identity` implementations
 (`identity.aws_pod_identity`, `identity.azure_workload_identity_ready`).
-**Decided, not built:** seams 3–4 below. Nothing enforces a grant yet. Rows
-marked "not built" are the direction #176 and #331 implement; they are not a
-description of the code.
+The local perimeter (seam 3, #176) enforces the route grants; how far it has
+been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
+**Decided, not built:** seam 4 below; rows marked "not built" are the
+direction #331 implements, not a description of the code.
 
 ## Context
 
@@ -33,7 +34,7 @@ each have their own adapter and none leaks into another:
 | --- | --- | --- | --- |
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
 | 2. Issuer: who you are, which roles you hold (**built** for local, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
-| 3. Perimeter: enforce route grants before the service (**not built**, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
+| 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
 | 4. Admin: write user and role assignment (**not built**, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
 ### Seam 1 — the role model (built)
@@ -169,7 +170,7 @@ references (`oidc-client-<consumer>`, key `client-secret`).
 | --- | --- |
 | Realm as code | a `keycloak-config-cli` Job applies one realm file; the Terraform Keycloak provider is not used, because it must reach Keycloak at plan time and would be configured from a resource created in the same apply |
 | Roles | one Keycloak group per canonical role, named exactly as the role, so the default `role_mapping` is the role to its same-named group; a group mapper emits them in `role_claim` (`groups`) |
-| Clients | `perimeter`, `superset`, `openmetadata`, `trino`; confidential, authorization-code only, redirect URIs limited to the routes of the service they front |
+| Clients | `perimeter`, `superset`, `openmetadata`, `trino`; confidential, authorization-code only, redirect URIs limited to the routes of the service they front; the `perimeter` client has the one callback `https://oauth2.<base_domain>/oauth2/callback` |
 | Secrets | an in-cluster bootstrap Job creates a Kubernetes Secret per client (`keycloak-client-<consumer>`, key `client-secret`) only if it is missing; Terraform knows the names only. The realm Job reads them through `secretKeyRef` and `$(env:...)` substitution, so no value is in the realm file, the Job spec or the contract |
 | Mail | `smtpServer` in the realm file from the non-secret profile fields. The login reaches the realm Job only as `SMTP_USERNAME`/`SMTP_PASSWORD` from `secretKeyRef`, substituted by `keycloak-config-cli` like a client secret, so it is in no ConfigMap, Terraform variable, output or state. `verifyEmail` and `resetPasswordAllowed` are true only when SMTP is configured: a reset link that cannot be mailed is a dead end. Self-registration stays off |
 | Users | never in Terraform or the realm file; created in Keycloak's admin console, so onboarding needs no apply. The bootstrap admin is in Secret `keycloak-admin-creds` |
@@ -179,7 +180,8 @@ references (`oidc-client-<consumer>`, key `client-secret`).
 The adapter declares `capabilities` `groups_in_token` and `logout_endpoint`
 true, `email_delivery` true when SMTP is configured, and `admin_api` false
 until `olf users` exists (#331). The consumers are
-wired by #25, #26 and #176; none is yet.
+wired by #25, #26 and #176; the perimeter (`perimeter` client) is, Superset,
+OpenMetadata and the Trino UI are not.
 
 Rotating a client secret is deleting its Secret and replacing the bootstrap
 Job, which regenerates it and re-runs the realm Job; the runbook is
@@ -197,14 +199,56 @@ on `.<base_domain>`: curl (libpsl) and headless Chromium both accepted a
 `Domain=.olf.localhost` cookie and sent it to a sibling host, and both
 rejected `Domain=.localhost`. Firefox and Safari were not tested.
 
-### Seam 3 — perimeter (decided, not built; #176)
+### Seam 3 — perimeter (built for local; #176)
 
-oauth2-proxy behind Traefik `forwardAuth`; each route's allowed roles come
-from seam 1 translated through `role_mapping`. Traefik attaches middleware per
-`Ingress` and ADR 0013 renders one `Ingress` per namespace, so routes with
-different grants need separate `Ingress` objects; #176 rewrites ADR 0013
-accordingly. The identity route (`auth.<base_domain>`) is never behind the
-perimeter.
+`modules/access/perimeter` runs oauth2-proxy behind Traefik `forwardAuth`.
+Route grants are read from `release/identity-roles.yaml` and nowhere else.
+
+| Piece | How |
+| --- | --- |
+| Role floor | Grants are monotonic, so what a service admits is a prefix of `precedence`, fully described by its lowest role. The module computes each protected route's floor from its service name (`portal` has none: the lowest role) |
+| Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today: `oauth2-proxy-viewer` (any recognised role: portal, Superset, OpenMetadata) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new service is a row in the matrix; a new floor is a new instance without new code |
+| Middleware | Traefik file-provider middlewares (a `Middleware` CRD cannot be planned before the Traefik release installs it): `olf-strip-identity` deletes every inbound `X-Forwarded-*` / `X-Auth-Request-*` identity header, then `olf-auth-<floor>` forwards to that floor's proxy and copies only the proxy's `X-Auth-Request-*` headers upstream |
+| Ingress | One `Ingress` per namespace and floor (`openlakeforge-routes[-<floor>]`) carrying the middleware annotation; the namespace's one wildcard certificate is still issued from a single primary `Ingress` (ADR 0013 decision 6) |
+| Protected set | Every route of `shared.access.routes` except `shared/identity`, derived, never listed. `olf` rejects a contract whose `shared.access.perimeter.protected_routes` differs |
+| Login callback | One host, `oauth2.<base_domain>/oauth2/*`, answered by the any-role instance and not behind the perimeter; the `perimeter` client has that single redirect URI, and the cookie on `.<base_domain>` carries the session to every route |
+| Cookie secret | Created by an in-cluster Job only if missing (`oauth2-proxy-cookie`); Terraform never reads it. Rotation: delete the Secret, replace the Job, restart the proxies (signs everyone out once) |
+| Client secret | `secretKeyRef` to `identity.oidc.clients.perimeter.secret_ref` |
+
+Behaviour, all decided by the proxy before a request reaches a service:
+
+| Request | Answer |
+| --- | --- |
+| No session, browser | 302 to the issuer's login (the one login page for every service); after login back to the original URL |
+| No session, `Accept: application/json`, `X-Requested-With`, or path under `/api`, `/graphql`, `/v1` | 401, never an HTML login page |
+| Session, role not permitted, or no recognised role | 403 with the "Access is role-restricted" page and a link to the portal. The proxy clears the session cookie on this path, so the next page load passes silently through the issuer's SSO session |
+| Issuer down | A session the proxy cannot refresh expires with its 5 min access token and is not extended; a new login fails |
+| Proxy down | forwardAuth cannot reach it and Traefik answers an error, never the service |
+| Forged `X-Forwarded-*` / `X-Auth-Request-*` | Deleted before forwardAuth; the decision is the proxy's, from its own cookie |
+
+Exempt from the perimeter, exhaustively: `auth.<base_domain>` (Keycloak login,
+required-action and email-link endpoints, token and JWKS endpoints) and
+`oauth2.<base_domain>/oauth2/*`. Nothing else is. **Open:** the whole Keycloak
+service is routed on `auth.<base_domain>`, so its admin console and the
+`master` realm login page are reachable without a perimeter session (they
+still require a Keycloak login). Narrowing the route to the realm's public
+paths changes how `olf e2e` and `olf users` reach the admin API, so it is a
+follow-up decision, not part of this change.
+
+The perimeter protects ingress only. Internal Services are reached directly
+and bypass it by design; a pod, or an operator holding `pods/portforward`,
+needs no session. That is the documented development fallback
+(`kubectl port-forward`, `OLF_PORT_FORWARD=1`) and the break-glass path in
+[`identity-sessions-and-recovery.md`](../architecture/identity-sessions-and-recovery.md).
+`olf` itself takes it for every protected route (`olf.access.service_url`);
+only the perimeter and ingress e2e checks go through the public hostnames.
+Containing internal traffic is #46.
+
+Session settings are the policy document's: cookie `--cookie-expire=30m`,
+re-issued on every refresh (Traefik `addAuthCookiesToResponse` carries the
+refreshed cookie to the browser), refresh at most every 4 min; the realm sets
+access token 5 min, SSO idle 30 min, SSO max 10 h. The 10 h absolute bound is
+the issuer's SSO maximum ending the refresh chain, not a cookie lifetime.
 
 ### Seam 4 — admin (decided, not built; #331)
 
@@ -215,7 +259,8 @@ Assigning roles is an optional capability of the issuer. Where it is absent,
 
 Three written gates bind the implementation of seams 3 and 4 and the
 credential-producing work. They are policy for #176, #25, #26, #331 and #46 to
-implement; none is built.
+implement; the perimeter part of the sessions gate is built (seam 3), the rest
+is not.
 
 | Gate | Decision | Document |
 | --- | --- | --- |
@@ -276,3 +321,11 @@ namespace is created by the platform apply, so on a first deploy the Secret
 cannot exist before it: deploy once without `smtp`, create the Secret, then add
 `smtp` and re-run the platform phase. Delivery against a test mail sink is
 checked separately; this ADR does not claim a configured relay was tested.
+
+Perimeter (#176): seam 3 is built for the local root. oauth2-proxy instances
+per role floor, Traefik file-provider middlewares, one `Ingress` per namespace
+and floor (ADR 0013 decision 6 rewritten accordingly), a single login callback
+host, `shared.access.perimeter` in the contract, realm token and SSO lifespans
+set, and `olf` clients port-forward to protected routes. Runtime verification
+and what remains (issuer outage drill, logout, latency) are tracked in
+`docs/architecture/identity-sessions-and-recovery.md`.

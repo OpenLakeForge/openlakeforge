@@ -4,8 +4,10 @@ The session policy #176 and #25 implement (#177), and the design of the
 cluster-administrator recovery that works when Keycloak is down. Numbers were
 approved by the maintainer on 2026-10-09.
 
-**Status.** Everything below is *designed*. Nothing here is built, and no
-timing has been measured on a running stack. Where a number depends on upstream
+**Status.** The perimeter settings and the realm lifespans are implemented
+(#176) but not yet run on a cluster, and no timing has been measured on a
+running stack. Logout, the native Superset and OpenMetadata sessions and the
+recovery procedure are *designed*, not built. Where a number depends on upstream
 behaviour that was not checked, the row says "to verify" and names the change
 that must verify it. An integration that cannot meet a bound must document the
 limitation and test it; "takes effect on next login" is not acceptable.
@@ -64,17 +66,18 @@ The perimeter does not extend sessions it cannot refresh and has no stale
 grace period. Existing sessions keep working until the access token expires,
 at most 5 min, then every protected route refuses requests. New logins fail.
 Native sessions end by their own 15 min expiry and cannot be renewed. The
-login route and the portal are not behind the perimeter and show the issuer's
-unavailability. This is the lock-out the recovery below exists for.
+login route is not behind the perimeter and shows the issuer's unavailability;
+the portal is behind it (#176), so it refuses too. This is the lock-out the
+recovery below exists for.
 
 ## What each integration must do
 
 | Integration | Required | Change |
 | --- | --- | --- |
-| oauth2-proxy (#176) | Refresh against the issuer at most every 4 min; cookie 30 min idle and 10 h absolute; no stale-session grace; sign-out chained to service logouts and the issuer | #176 |
+| oauth2-proxy (#176) | Refresh against the issuer at most every 4 min; cookie 30 min idle and 10 h absolute; no stale-session grace; sign-out chained to service logouts and the issuer | #176. Set: `--cookie-refresh=4m`, `--cookie-expire=30m`; the 10 h bound is the realm's SSO maximum ending the refresh chain. The sign-out chain is not built |
 | Superset (#25) | OIDC login; 15 min non-sliding session; roles synced at login from `shared.identity.roles`; logout endpoint reachable from the chain | #25 |
 | OpenMetadata (#25) | OIDC login; session or token expiry 15 min renewing through the issuer; logout in the chain | #25, expiry setting to verify |
-| Dagster, Trino UI | Perimeter only; no native session | #176 |
+| Dagster, Trino UI | Perimeter only; no native session | #176 (implemented) |
 | Keycloak realm | Access token lifespan 5 min; SSO session idle 30 min, max 10 h | Set in the realm file (`accessTokenLifespan` 300, `ssoSessionIdleTimeout` 1800, `ssoSessionMaxLifespan` 36000). Not yet read back from a running Keycloak |
 
 ## Cluster-administrator recovery (break-glass)

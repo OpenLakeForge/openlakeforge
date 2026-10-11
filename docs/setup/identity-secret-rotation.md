@@ -45,7 +45,9 @@ until it restarts.
 
 4. Restart every workload that reads the Secret, so it loads the new value.
    Environment variables from a Secret are read at container start.
-   Services that consume the clients (#25, #26, #176) are not wired yet; when
+   The `perimeter` client is read by the oauth2-proxy Deployments
+   (`kubectl -n olf-system rollout restart deployment -l openlakeforge.io/component=perimeter`).
+   Services that consume the other clients (#25, #26) are not wired yet; when
    they are, list their restart here.
 
 5. Confirm. The old value must be refused and the new one accepted. The token
@@ -57,7 +59,7 @@ until it restarts.
    NEW=$(kubectl -n olf-system get secret keycloak-client-perimeter -o jsonpath='{.data.client-secret}' | base64 -d)
    for s in "$OLD" "$NEW"; do
      curl -sk -d grant_type=authorization_code -d code=invalid -d client_id=perimeter \
-       -d redirect_uri=https://app.olf.localhost/oauth2/callback --data-urlencode "client_secret=$s" \
+       -d redirect_uri=https://oauth2.olf.localhost/oauth2/callback --data-urlencode "client_secret=$s" \
        https://auth.olf.localhost/realms/openlakeforge/protocol/openid-connect/token; echo
    done   # first: unauthorized_client, second: invalid_grant
    ```
@@ -90,7 +92,8 @@ bootstrap Job, for the `perimeter` client, following steps 2, 3 and 5:
 | `keycloak-admin-creds` deleted while Keycloak is deployed | The Job fails with the pointer to the admin recovery and creates nothing |
 | `olf e2e run --env local` after the drill | Passes, including each client's Secret authenticating it |
 
-Step 4 (restarting consumers) was not exercised: no consumer is wired yet.
+Step 4 (restarting consumers) was not exercised, including the oauth2-proxy
+restart above.
 
 ## The bootstrap admin
 
