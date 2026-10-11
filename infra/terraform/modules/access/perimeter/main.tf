@@ -30,9 +30,11 @@ locals {
   # One instance per distinct floor. The last role's instance always exists:
   # it answers the login callback and admits every recognised role.
   floors = toset(concat([local.last_role], compact(values(local.route_floor))))
+  # An external issuer may map only some canonical roles (olf accepts any
+  # non-empty subset); an unmapped role simply has no claim value to admit.
   allowed_claims = {
     for floor in local.floors : floor => distinct(flatten([
-      for role in slice(local.precedence, 0, index(local.precedence, floor) + 1) : var.role_mapping[role]
+      for role in slice(local.precedence, 0, index(local.precedence, floor) + 1) : lookup(var.role_mapping, role, [])
     ]))
   }
 
@@ -117,6 +119,11 @@ resource "terraform_data" "grants" {
     precondition {
       condition     = alltrue([for floor in values(local.route_floor) : floor != null])
       error_message = "A protected route has no grant row in release/identity-roles.yaml; the perimeter denies a service with no grant, so it cannot be routed without one."
+    }
+    # With no --allowed-group the proxy admits every authenticated user.
+    precondition {
+      condition     = alltrue([for claims in values(local.allowed_claims) : length(claims) > 0])
+      error_message = "identity role_mapping maps no role that a protected route admits, so its proxy would have no allowed group; map at least one role at or above every route's lowest role."
     }
   }
 }
