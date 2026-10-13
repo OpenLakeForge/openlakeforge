@@ -1485,6 +1485,10 @@ def test_identity_admin_is_optional_for_an_external_issuer_and_may_use_a_url() -
         (lambda i: i["admin"]["secret_ref"].update(key="a b"), "secret_ref.key is not a valid"),
         (lambda i: i["admin"]["service"].update(port=0), "valid TCP port"),
         (lambda i: i["admin"]["service"].update(name="Not A Name"), "service.name is not a valid"),
+        (lambda i: i["admin"]["service"].update(name="1keycloak"), "service.name is not a valid"),
+        (lambda i: i["admin"]["service"].update(name="k" * 64), "service.name is not a valid"),
+        (lambda i: i["admin"]["service"].update(namespace="team.identity"), "service.namespace is not a valid"),
+        (lambda i: i["admin"]["service"].update(namespace="n" * 64), "service.namespace is not a valid"),
     ],
 )
 def test_identity_admin_fails_closed(mutate, match: str) -> None:
