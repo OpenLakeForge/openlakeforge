@@ -39,6 +39,7 @@ from olf.commands import (
     source,
     superset,
     toolchain,
+    users,
 )
 
 app = typer.Typer(
@@ -74,6 +75,7 @@ app.add_typer(project.app, name="project")
 app.add_typer(profile.app, name="profile")
 app.add_typer(platform.app, name="platform")
 app.add_typer(toolchain.app, name="toolchain")
+app.add_typer(users.app, name="users")
 
 app.command("deploy")(deployment.deploy)
 app.command("plan")(deployment.plan)

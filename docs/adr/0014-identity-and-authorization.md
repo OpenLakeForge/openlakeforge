@@ -11,10 +11,10 @@ emit their existing `identity` implementations
 (`identity.aws_pod_identity`, `identity.azure_workload_identity_ready`).
 The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
-**Seam 4 (#331):** the `shared.identity.admin` contract and the Keycloak
-`olf-users` client behind it are built; the `olf users` commands that use them
-are not yet, and rows marked "not built" are the direction #331 implements, not
-a description of the code.
+**Seam 4 (#331):** the `shared.identity.admin` contract, the Keycloak
+`olf-users` client and `olf users` `roles`, `list`, `grant`, `revoke`, `disable`
+and `enable` are built. Invitations, resend, cancellation and `bootstrap_admins`
+are not; rows marked "not built" are the direction #331 implements.
 
 ## Context
 
@@ -37,7 +37,7 @@ each have their own adapter and none leaks into another:
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
 | 2. Issuer: who you are, which roles you hold (**built** for local, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
 | 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
-| 4. Admin: write user and role assignment (contract **built**, `olf users` not built, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
+| 4. Admin: write user and role assignment (**built** except invitations, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
 ### Seam 1 — the role model (built)
 
@@ -113,8 +113,8 @@ the validator requires `adapter: "keycloak"` when the profile selects keycloak,
 the default, to correlate that profile with its binding; external profiles
 need none) and `capabilities` (`admin_api`, `groups_in_token`,
 `logout_endpoint`, `email_delivery`, each boolean; absent means not declared,
-and no `admin_api` means `olf users` is read-only and points at the issuer
-console). `email_delivery` says the issuer can send account-setup and recovery
+and no `admin_api` means `olf users` cannot list or change users, only report
+the configured roles, and points at the issuer console). `email_delivery` says the issuer can send account-setup and recovery
 mail, so #331 can fail an invitation early with "no mail configured" instead of
 after the account exists. It carries no host or credential, and for the
 keycloak adapter `olf` requires it to be true exactly when the profile sets
@@ -275,12 +275,14 @@ evaluated and deferred in
 where table-level policy would be enforced for Polaris and for Glue with Lake
 Formation (the different-mechanism case the "fifth mapping" above refers to).
 
-### Seam 4 — admin (contract built; `olf users` not yet; #331)
+### Seam 4 — admin (built except invitations; #331)
 
-Assigning roles is an optional capability of the issuer. Where it is absent,
-`olf users` only reads. The optional `shared.identity.admin` block says where
-the admin API is and which Secret holds the credential of a client limited to
-user administration:
+Assigning roles is an optional capability of the issuer. Without it `olf users`
+only reports the configured roles: OIDC alone does not enumerate users, so
+listing needs the admin capability too, and every other verb points at the
+issuer's own administration surface. The optional `shared.identity.admin` block
+says where the admin API is and which Secret holds the credential of a client
+limited to user administration:
 
 | Field | Meaning |
 | --- | --- |
@@ -294,6 +296,14 @@ then points at the issuer's own administration surface. The Keycloak driver
 treats the block as the whole interface: automation uses `olf-users` through an
 RBAC-authorized port-forward and never the perimeter or a person's account
 (`identity-callers.md`).
+
+`olf users roles` reports the roles and groups from the contract; `list`
+shows each user's state (`active`, `pending` while required actions remain,
+`disabled`) and canonical roles, flagging users with none; `grant` and `revoke`
+add and remove group membership; `disable` also ends the user's
+issuer sessions (the propagation delay is measured under #177) and `enable`
+reverses it. Every verb takes `--json`, prints no password, token, setup link or
+client secret, and refuses service accounts by their reserved username prefix.
 
 `manage-users` is Keycloak's user-administration role: the least role that
 moves users between groups and sends execute-actions mail is a user
@@ -399,3 +409,5 @@ settings, list clients, read events or reach another realm.
 Dagster boundary and Polaris (#26): the Dagster paragraph in seam 3 and the
 "Catalog credentials" section point at `identity-callers.md` and ADR 0015.
 Documentation only.
+
+User commands (#331, slice 1): `olf users` roles, list, grant, revoke, disable and enable.
