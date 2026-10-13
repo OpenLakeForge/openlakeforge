@@ -41,8 +41,10 @@ def check_admin_client(cfg: E2EConfig, identity: dict[str, Any], base_url: str, 
         data={"grant_type": "password", **credentials, "username": "x", "password": "x"},
         timeout=REQUEST_TIMEOUT,
     )
-    if password.status_code == 200:
-        raise E2EError("olf-users must not be a login client, but the password grant succeeded")
+    # Keycloak refuses a client without direct access grants before it looks at the user, so `x`/`x` still gets
+    # this error; a bad-credentials answer (401 invalid_grant) would mean the grant is enabled.
+    if password.status_code != 400 or password.json().get("error") != "unauthorized_client":
+        raise E2EError(f"olf-users must not be a login client, but the password grant got HTTP {password.status_code}")
 
     token = requests.post(token_url, data={"grant_type": "client_credentials", **credentials}, timeout=REQUEST_TIMEOUT)
     token.raise_for_status()
@@ -58,6 +60,19 @@ def check_admin_client(cfg: E2EConfig, identity: dict[str, Any], base_url: str, 
     users = requests.get(f"{realm_admin}/users", headers=headers, timeout=REQUEST_TIMEOUT).json()
     if any(user["username"].startswith("service-account-") for user in users):
         raise E2EError("the user listing includes a service account; olf users would offer to grant it a role")
+
+    # The read-only checks above pass with view-users alone; the client exists to write users.
+    created = requests.post(
+        f"{realm_admin}/users",
+        headers=headers,
+        json={"username": "olf-e2e-admin-probe", "enabled": False},
+        timeout=REQUEST_TIMEOUT,
+    )
+    if created.status_code != 201:
+        raise E2EError(f"olf-users could not create a user: HTTP {created.status_code}")
+    removed = status("DELETE", f"{realm_admin}/users/{created.headers['Location'].rsplit('/', 1)[1]}")
+    if removed != 204:
+        raise E2EError(f"olf-users created the user olf-e2e-admin-probe but could not delete it: HTTP {removed}")
 
     # Any realm-management role gets Keycloak's brief realm representation (HTTP
     # 200); the settings (mail server, lifespans, events) must stay hidden.

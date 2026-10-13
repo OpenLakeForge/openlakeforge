@@ -25,22 +25,27 @@ class _Keycloak:
     def __init__(self) -> None:
         self.overrides: dict[str, Any] = {}
 
-    def response(self, status: int, body: Any = None) -> SimpleNamespace:
+    def response(self, status: int, body: Any = None, headers: dict[str, str] | None = None) -> SimpleNamespace:
         return SimpleNamespace(
-            status_code=status, json=lambda: body, raise_for_status=lambda: None
+            status_code=status, json=lambda: body, raise_for_status=lambda: None, headers=headers or {}
         )
 
-    def token(self, _url: str, data: dict[str, str], **_kwargs: Any) -> SimpleNamespace:
+    def token(self, url: str, data: dict[str, str] | None = None, **_kwargs: Any) -> SimpleNamespace:
+        if url.endswith("/users"):
+            return self.override("create", self.response(201, headers={"Location": f"{_REALM}/users/abc"}))
+        assert data is not None
         if data["client_secret"] != "referenced":
             return self.response(401)
         if data["grant_type"] == "password":
-            return self.override("password", self.response(401))
+            return self.override("password", self.response(400, {"error": "unauthorized_client"}))
         return self.response(200, {"access_token": "t"})
 
     def override(self, key: str, default: Any) -> Any:
         return self.overrides.get(key, default)
 
     def request(self, method: str, url: str, **_kwargs: Any) -> SimpleNamespace:
+        if method == "DELETE":
+            return self.override("delete", self.response(204))
         if url.endswith(("/users", "/groups")) and "master" not in url:
             return self.override(url.rsplit("/", 1)[1], self.response(200, [{"username": "alice"}]))
         return self.override("forbidden", self.response(403))
@@ -82,6 +87,9 @@ _SERVICE_ACCOUNT = (200, [{"username": "service-account-olf-users"}])
         ({"forbidden": (200, {"smtpServer": {}})}, {}, "realm representation carries them"),
         ({"users": _SERVICE_ACCOUNT}, {}, "service account"),
         ({"password": _OK}, {}, "not be a login client"),
+        ({"password": (401, {"error": "invalid_grant"})}, {}, "not be a login client"),
+        ({"create": (403, {})}, {}, "could not create a user"),
+        ({"delete": (403, {})}, {}, "could not delete it"),
         ({}, {"realm": {"adminEventsEnabled": False}}, "record admin events"),
         ({}, {"realm": {**_RECORDING, "adminEventsDetailsEnabled": True}}, "record admin events"),
         ({}, {"events": []}, "no admin event"),

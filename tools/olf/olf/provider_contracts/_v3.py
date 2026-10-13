@@ -26,6 +26,7 @@ from olf.provider_contracts._validation import (
     _CATALOG_PROVIDERS,
     _CATALOG_TYPE_BY_PROVIDER,
     _CATALOG_TYPES,
+    _SERVICE_NAME_PATTERN,
     _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER,
     V3_SCHEMA_VERSION,
     ProviderContractError,
@@ -161,9 +162,13 @@ def _check_identity_admin(identity: Mapping[str, Any]) -> None:
         _oidc_issuer_url(admin["admin_url"], where=f"{where}.admin_url")
         return
     service = _fields(admin["service"], where=f"{where}.service", required={"namespace", "name", "port"})
-    for field in ("namespace", "name"):
-        if not is_secret_name(_string(service[field], where=f"{where}.service.{field}")):
-            raise ProviderContractError(f"{where}.service.{field} is not a valid Kubernetes object name")
+    # A namespace is a DNS-1123 label and a Service name an RFC 1035 label; a DNS subdomain would let `a.b`, a
+    # leading digit or 253 characters through, naming an object that cannot exist.
+    namespace = _string(service["namespace"], where=f"{where}.service.namespace")
+    if "." in namespace or not is_secret_name(namespace):
+        raise ProviderContractError(f"{where}.service.namespace is not a valid Kubernetes namespace name")
+    if not _SERVICE_NAME_PATTERN.fullmatch(_string(service["name"], where=f"{where}.service.name")):
+        raise ProviderContractError(f"{where}.service.name is not a valid Kubernetes Service name")
     _tcp_port(service["port"], where=f"{where}.service.port")
 
 
