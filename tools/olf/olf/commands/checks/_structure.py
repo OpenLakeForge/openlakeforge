@@ -47,6 +47,8 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/adr/0012-project-revisions-and-promotion.md",
     "docs/adr/0013-service-access-and-ingress.md",
     "docs/adr/0014-identity-and-authorization.md",
+    "docs/adr/0016-trino-workload-authentication.md",
+    "docs/testing/trino_workload_auth_proof.py",
     "release/identity-roles.yaml",
     "docs/setup/identity-secret-rotation.md",
     "infra/README.md",

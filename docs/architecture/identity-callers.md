@@ -45,19 +45,19 @@ principal and stage scope; Secret reference; rotation.
 | Metadata reconciliation (`olf openmetadata deploy-metadata`) | Workstation or CI | `access.service_url`: the ingress route when the contract has routes (the local default), a port-forward otherwise, with `OLF_PORT_FORWARD=1`, or for a route behind an enabled perimeter | OpenMetadata native admin login, email and password from `OPENMETADATA_ADMIN_EMAIL` / `_PASSWORD`, defaults `admin@open-metadata.org` / `admin` | Instance-wide admin | None; env default | None |
 | Superset report deployment (`olf report import`) | Workstation or CI | Same `access.service_url` | Superset native admin login, `SUPERSET_ADMIN_USERNAME` / `_PASSWORD`, defaults `admin` / `admin` | Instance-wide admin | None; env default | None |
 | `olf users` (#331, not built) | Operator workstation | Port-forward to the Keycloak Service, admin REST API | Client credentials of the `olf-users` client | User and group management in the realm | Name fixed by #331 | Bootstrap Job |
-| Workstation e2e (`olf e2e run`) | Workstation | kubectl exec and run, and port-forwards (Trino CLI pod, Dagster, portal) | RBAC. The identity and perimeter checks also use the Keycloak master `admin` (`keycloak-admin-creds`, read through RBAC) and the ingress hostnames; the perimeter check signs in over HTTP as throwaway per-role users | Creates and deletes per-role test users | `keycloak-admin-creds` | Admin rotation runbook |
+| Workstation e2e (`olf e2e run`) | Workstation | kubectl exec and run, and port-forwards (Trino CLI pod, Dagster, portal) | RBAC; the Trino CLI runs as `--user olf-<stage>-runtime` with no password today, a password over HTTPS after the #26 migration ([ADR 0016](../adr/0016-trino-workload-authentication.md), pending). The identity and perimeter checks also use the Keycloak master `admin` (`keycloak-admin-creds`, read through RBAC) and the ingress hostnames; the perimeter check signs in over HTTP as throwaway per-role users | Creates and deletes per-role test users | `keycloak-admin-creds` | Admin rotation runbook |
 | CI (`.github/workflows/local-full-e2e.yml`) | GitHub runner | The same `olf` commands against a kind cluster created on the runner | The ephemeral cluster's kubeconfig. The only GitHub secret the workflow uses is `GITHUB_TOKEN`, for the registry | Ephemeral cluster | None for platform credentials | Cluster is discarded |
 
 ### Class 2: in-cluster
 
 | Path | Caller | Endpoint / transport | Credential / boundary | Scope | Secret | Rotation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Superset to Trino | Superset pod, stage namespace | `trino:8080` ClusterIP, plain HTTP | **None.** The SQLAlchemy URI carries a user name (`trino://<user>@...`). `olf` rewrites it to the stage's `olf-<stage>-runtime` from the contract | Trino catalog rules match that string | None | None; #26 |
-| dbt to Trino (Dagster run pod) | Run pod | Same Trino Service | **None**; `OPENLAKEFORGE_DBT_TRINO_USER` is `olf-<stage>-runtime` | Same | None | None; #26 |
+| Superset to Trino | Superset pod, stage namespace | `trino:8080` ClusterIP, plain HTTP | **None.** The SQLAlchemy URI carries a user name (`trino://<user>@...`). `olf` rewrites it to the stage's `olf-<stage>-runtime` from the contract. Decided, migration pending (#26): password file over HTTPS, one verified principal per stage ([ADR 0016](../adr/0016-trino-workload-authentication.md)) | Trino catalog rules match that string | None today; after migration the stage's `trino-credential` | None today; per [ADR 0016](../adr/0016-trino-workload-authentication.md) |
+| dbt to Trino (Dagster run pod) | Run pod | Same Trino Service | **None**; `OPENLAKEFORGE_DBT_TRINO_USER` is `olf-<stage>-runtime`. Decided, migration pending (#26): dbt-trino `method: ldap` over HTTPS ([ADR 0016](../adr/0016-trino-workload-authentication.md)) | Same | None today; after migration the stage's `trino-credential` | None today; per [ADR 0016](../adr/0016-trino-workload-authentication.md) |
 | Trino to Polaris | Trino pod | Polaris REST in the shared namespace | OAuth client credentials of the stage's Trino principal | One stage catalog | `trino_credentials_secret_name`, keys `POLARIS_TRINO_CLIENT_ID` / `_SECRET` | Rotate the Polaris principal; the bootstrap Job rotates a principal whose Secret is gone |
 | Floe runner to Polaris | Floe Job | Polaris REST | OAuth client credentials of the stage's Floe principal | One stage catalog | `floe_credentials_secret_name`, keys `POLARIS_FLOE_CLIENT_ID` / `_SECRET`, replicated into the stage namespace | Same |
 | Floe and Trino to SeaweedFS | Pods | S3 API on the in-cluster Service | Per-stage S3 key | One stage's buckets | Stage S3 Secrets | Terraform-generated |
-| OpenMetadata to Polaris and to Trino | OpenMetadata pods | Polaris REST; Trino as user `openmetadata` | Polaris `om` principal; Trino user is a string match (read-only rules) | All stage catalogs, read | `om_credentials_secret_name` | As above |
+| OpenMetadata to Polaris and to Trino | OpenMetadata pods | Polaris REST; Trino as user `openmetadata` | Polaris `om` principal; Trino user is a string match (read-only rules) today. Decided, migration pending (#26): Trino `BasicAuth` over HTTPS as principal `openmetadata` ([ADR 0016](../adr/0016-trino-workload-authentication.md)) | All stage catalogs, read | `om_credentials_secret_name`; Trino: none today, `trino-credential-openmetadata` after migration | As above; Trino per [ADR 0016](../adr/0016-trino-workload-authentication.md) |
 | OpenMetadata ingestion bot | Floe and Dagster pods, governed stages | OpenMetadata API (OpenLineage) | Bot JWT, sent as `OPENLINEAGE_API_KEY` / Floe `secret_name` | Governed stages only | `openmetadata-ingestion-bot`, key from the contract | The OpenMetadata bootstrap Job regenerates it on each run. **To verify** that the bot token keeps validating once OIDC is enabled (#25) |
 | Dagster | Pods and anyone who can reach the Service | Dagster webserver | **No native authentication** (none configured in `infra/helm/values/local/dagster.yaml`, and Dagster OSS has none). Its only boundary will be the perimeter (#176) plus RBAC and NetworkPolicy (#46). No NetworkPolicy object exists in the tree today, so nothing here verifies the caller | n/a | None | n/a |
 | Dagster run launcher | Dagster pod | Kubernetes API, creating run Jobs | The pod's ServiceAccount | **To verify** (#46) | None | n/a |
@@ -118,8 +118,10 @@ being enabled.
   authorization deferral (#179); it is not solved by anything in v0.5-alpha.
 - **Trino principal is a claim.** The catalog rules key on `X-Trino-User`, which
   Trino accepts unauthenticated (register entry "Trino has no client
-  authentication" in [`technical-debt.md`](../technical-debt.md)). #26 chooses
-  the mechanism.
+  authentication" in [`technical-debt.md`](../technical-debt.md)). [ADR 0016](../adr/0016-trino-workload-authentication.md)
+  selects password-file authentication over HTTPS and proves a DEV credential
+  cannot become PROD; no caller is migrated yet, so the rows above still
+  describe the unauthenticated path.
 - **Static `admin` passwords** for Superset and OpenMetadata are the credential
   `olf` metadata and report deployment authenticate with today.
 - **Unverified acceptance items** of #178: that class-2 traffic is unreachable
