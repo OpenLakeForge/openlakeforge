@@ -295,11 +295,13 @@ treats the block as the whole interface: automation uses `olf-users` through an
 RBAC-authorized port-forward and never the perimeter or a person's account
 (`identity-callers.md`).
 
-`manage-users` is Keycloak's user-administration role, and it also covers
-group membership and role mappings of users: the least role that moves users
-between groups and sends execute-actions mail is a user administrator, not a
-group-only one. What it does not carry (realm settings, clients, events, other
-realms) is asserted by `olf e2e run`.
+`manage-users` is Keycloak's user-administration role: the least role that
+moves users between groups and sends execute-actions mail is a user
+administrator, not a group-only one, so the client could place a user in any
+group, not only the canonical ones (`olf users` only ever names canonical
+roles). What it does not carry (realm settings, clients, events, other realms)
+is asserted by `olf e2e run`; mapping `manage-realm` onto its own service
+account was tried by hand and refused with 403.
 
 ## Policy documents
 

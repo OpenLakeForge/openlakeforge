@@ -78,7 +78,8 @@ _SERVICE_ACCOUNT = (200, [{"username": "service-account-olf-users"}])
 @pytest.mark.parametrize(
     ("overrides", "session", "match"),
     [
-        ({"forbidden": _OK}, {}, "must not read the realm settings"),
+        ({"forbidden": _OK}, {}, "must not write the realm settings"),
+        ({"forbidden": (200, {"smtpServer": {}})}, {}, "realm representation carries them"),
         ({"users": _SERVICE_ACCOUNT}, {}, "service account"),
         ({"password": _OK}, {}, "not be a login client"),
         ({}, {"realm": {"adminEventsEnabled": False}}, "record admin events"),

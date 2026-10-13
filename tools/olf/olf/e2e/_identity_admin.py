@@ -59,8 +59,13 @@ def check_admin_client(cfg: E2EConfig, identity: dict[str, Any], base_url: str, 
     if any(user["username"].startswith("service-account-") for user in users):
         raise E2EError("the user listing includes a service account; olf users would offer to grant it a role")
 
+    # Any realm-management role gets Keycloak's brief realm representation (HTTP
+    # 200); the settings (mail server, lifespans, events) must stay hidden.
+    brief = requests.get(realm_admin, headers=headers, timeout=REQUEST_TIMEOUT)
+    if brief.status_code == 200 and {"smtpServer", "accessTokenLifespan", "adminEventsEnabled"} & set(brief.json()):
+        raise E2EError("olf-users must not read the realm settings, but the realm representation carries them")
+
     forbidden = {
-        "read the realm settings": ("GET", realm_admin),
         "write the realm settings": ("PUT", realm_admin),
         "list clients": ("GET", f"{realm_admin}/clients"),
         "read admin events": ("GET", f"{realm_admin}/admin-events"),
