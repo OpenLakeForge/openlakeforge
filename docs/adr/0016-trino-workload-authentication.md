@@ -132,6 +132,22 @@ platform-phase apply with authentication disabled, a setting the migration must
 define and exercise. A deleted principal Secret is regenerated (a rotation), a
 deleted `trino-password-file` rebuilt; an issuer outage changes nothing.
 
+### Migration checklist
+
+Found in review; the migration must settle each before step 4.
+
+- Cloud roots: only the local root has cert-manager and `olf-local-ca` (ADR
+  0013 decision 8), and AWS and Azure expose Trino over HTTP; define the CA and
+  certificate there, or a provider-neutral trust input in the contract.
+- `infra/helm/values/local/trino.yaml` sets `http-server.process-forwarded=true`
+  in all three roots, which the proof server omits. A pod may be able to send
+  `X-Forwarded-Proto: https` to port 8080 and have a password accepted over
+  plain HTTP; disable it on the Service or prove c2/c4 with it set and the
+  header spoofed.
+- OpenMetadata stores the Trino password encrypted with its Fernet key, which
+  `infra/helm/values/local/openmetadata.yaml` sets to the public upstream
+  default; generate a per-deployment key Secret before persisting it.
+
 ### Per-user identity (#179)
 
 Not foreclosed, and exercised (g1-g3): with the DEV principal also allowed to

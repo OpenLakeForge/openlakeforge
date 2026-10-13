@@ -36,10 +36,10 @@ ITERATIONS = 10_000
 COUNT = "SELECT count(*) FROM {catalog}.tiny.nation"
 
 
-def pinned_image() -> str:
-    match = re.search(r"^\s+trino: (trinodb/trino:\S+)$", (REPO / "release/component-catalog.yaml").read_text(), re.M)
+def pinned_image(name: str = "trino") -> str:
+    match = re.search(rf"^\s+{name}: (\S+@sha256:\S+)$", (REPO / "release/component-catalog.yaml").read_text(), re.M)
     if not match:
-        raise SystemExit("no pinned trino image in release/component-catalog.yaml")
+        raise SystemExit(f"no pinned {name} image in release/component-catalog.yaml")
     return match.group(1)
 
 
@@ -278,7 +278,7 @@ def client_cases(server: Server, report: Report) -> None:
         f"print(T(c).client.connect().execute(s.text({sql!r})).scalar())"
     )
     run("client: trino driver + SQLAlchemy URI (Superset image)", superset, "/app/.venv/bin/python", ["-c", sqlalchemy])
-    ingestion = "docker.getcollate.io/openmetadata/ingestion-base:1.13.6"
+    ingestion = pinned_image("openmetadata_ingestion")
     om_args = ["-W", "ignore", "-c", openmetadata]
     run("client: OpenMetadata Trino connector, BasicAuth + verify", ingestion, "python", om_args)
 
