@@ -26,6 +26,7 @@ from olf.provider_contracts._validation import (
     _CATALOG_PROVIDERS,
     _CATALOG_TYPE_BY_PROVIDER,
     _CATALOG_TYPES,
+    _SERVICE_NAME_PATTERN,
     _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER,
     V3_SCHEMA_VERSION,
     ProviderContractError,
@@ -118,12 +119,57 @@ def _check_identity_roles(value: object, distribution_root: Path | None) -> None
 _OIDC_IMPLEMENTATION = "identity.oidc"
 _OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
 # Optional: `adapter` is provenance only, `capabilities` declares what this
-# issuer lacks so consumers degrade (no admin API: `olf users` read-only).
-_OIDC_OPTIONAL = {"adapter", "capabilities"}
+# issuer lacks so consumers degrade (no admin API: `olf users` read-only), and
+# `admin` is where the admin API is reached when it exists (seam 4).
+_OIDC_OPTIONAL = {"adapter", "capabilities", "admin"}
 # email_delivery: the issuer can send account-setup and recovery mail (#331 reports
 # a delivery failure distinctly, and an issuer without it is not asked to send).
 _OIDC_CAPABILITIES = frozenset({"admin_api", "email_delivery", "groups_in_token", "logout_endpoint"})
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
+
+
+def _secret_ref(value: object, *, where: str) -> None:
+    ref = _fields(value, where=where, required={"name", "key"})
+    for field, valid in (("name", is_secret_name), ("key", is_secret_key)):
+        if not valid(_string(ref[field], where=f"{where}.{field}")):
+            raise ProviderContractError(f"{where}.{field} is not a valid Kubernetes Secret {field}")
+
+
+def _check_identity_admin(identity: Mapping[str, Any]) -> None:
+    """Seam 4: `admin` is present exactly when `capabilities.admin_api` is true.
+    It names where the admin API is and which Secret holds the credential of a
+    client limited to user administration; `implementation` selects the driver."""
+    where = "shared.identity.admin"
+    declared = identity.get("capabilities", {}).get("admin_api", False)
+    if "admin" not in identity:
+        if declared:
+            raise ProviderContractError(f"{where} is required when capabilities.admin_api is true")
+        return
+    if not declared:
+        raise ProviderContractError(f"{where} requires capabilities.admin_api to be true")
+    admin = _fields(
+        identity["admin"],
+        where=where,
+        required={"implementation", "client_id", "secret_ref"},
+        optional={"service", "admin_url"},
+    )
+    _string(admin["implementation"], where=f"{where}.implementation")
+    _string(admin["client_id"], where=f"{where}.client_id")
+    _secret_ref(admin["secret_ref"], where=f"{where}.secret_ref")
+    if ("service" in admin) == ("admin_url" in admin):
+        raise ProviderContractError(f"{where} needs exactly one of 'service' (in-cluster) or 'admin_url'")
+    if "admin_url" in admin:
+        _oidc_issuer_url(admin["admin_url"], where=f"{where}.admin_url")
+        return
+    service = _fields(admin["service"], where=f"{where}.service", required={"namespace", "name", "port"})
+    # A namespace is a DNS-1123 label and a Service name an RFC 1035 label; a DNS subdomain would let `a.b`, a
+    # leading digit or 253 characters through, naming an object that cannot exist.
+    namespace = _string(service["namespace"], where=f"{where}.service.namespace")
+    if "." in namespace or not is_secret_name(namespace):
+        raise ProviderContractError(f"{where}.service.namespace is not a valid Kubernetes namespace name")
+    if not _SERVICE_NAME_PATTERN.fullmatch(_string(service["name"], where=f"{where}.service.name")):
+        raise ProviderContractError(f"{where}.service.name is not a valid Kubernetes Service name")
+    _tcp_port(service["port"], where=f"{where}.service.port")
 
 
 def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) -> None:
@@ -148,6 +194,7 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
             raise ProviderContractError(
                 f"{where}.capabilities.{capability} must be a boolean named one of {sorted(_OIDC_CAPABILITIES)!r}"
             )
+    _check_identity_admin(identity)
     if selected.issuer == "keycloak" and identity.get("capabilities", {}).get("email_delivery", False) != (
         selected.smtp is not None
     ):
@@ -175,12 +222,7 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         client_where = f"{where}.clients.{name}"
         document = _fields(client, where=client_where, required={"client_id", "secret_ref"})
         _string(document["client_id"], where=f"{client_where}.client_id")
-        secret_ref = _fields(document["secret_ref"], where=f"{client_where}.secret_ref", required={"name", "key"})
-        for field, valid in (("name", is_secret_name), ("key", is_secret_key)):
-            if not valid(_string(secret_ref[field], where=f"{client_where}.secret_ref.{field}")):
-                raise ProviderContractError(
-                    f"{client_where}.secret_ref.{field} is not a valid Kubernetes Secret {field}"
-                )
+        _secret_ref(document["secret_ref"], where=f"{client_where}.secret_ref")
     if selected.issuer == "keycloak" and identity.get("adapter") != "keycloak":
         raise ProviderContractError(f"{where} must come from the keycloak adapter when spec.identity is keycloak")
     deployed = (identity["issuer_url"], identity["role_claim"], {r: tuple(v) for r, v in mapping.items()})

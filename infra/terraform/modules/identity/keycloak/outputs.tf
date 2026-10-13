@@ -29,8 +29,15 @@ output "contract" {
       }
     }
     adapter = "keycloak"
-    # admin_api becomes true when `olf users` lands (#331).
-    capabilities = { admin_api = false, email_delivery = var.smtp != null, groups_in_token = true, logout_endpoint = true }
+    # Seam 4 (ADR 0014): where `olf users` reaches the admin API. References
+    # only; the client secret is read from the Secret at runtime.
+    admin = {
+      implementation = "identity.admin.keycloak"
+      service        = { namespace = var.namespace, name = kubernetes_service_v1.keycloak.metadata[0].name, port = 8080 }
+      client_id      = local.users_client_id
+      secret_ref     = { name = local.users_secret_name, key = "client-secret" }
+    }
+    capabilities = { admin_api = true, email_delivery = var.smtp != null, groups_in_token = true, logout_endpoint = true }
   }
 
   depends_on = [kubernetes_job_v1.realm]

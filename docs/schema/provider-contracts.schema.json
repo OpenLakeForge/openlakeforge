@@ -59,7 +59,7 @@
       "if": {"properties": {"implementation": {"const": "identity.oidc"}}},
       "then": {"required": ["issuer_url", "role_claim", "role_mapping", "clients"]},
       "else": {"not": {"anyOf": [
-        {"required": ["adapter"]}, {"required": ["capabilities"]},
+        {"required": ["adapter"]}, {"required": ["capabilities"]}, {"required": ["admin"]},
         {"required": ["issuer_url"]}, {"required": ["role_claim"]},
         {"required": ["role_mapping"]}, {"required": ["clients"]}
       ]}},
@@ -75,6 +75,29 @@
             "email_delivery": {"type": "boolean"},
             "groups_in_token": {"type": "boolean"},
             "logout_endpoint": {"type": "boolean"}
+          }
+        },
+        "admin": {
+          "type": "object",
+          "description": "Seam 4 (ADR 0014): where `olf users` reaches the issuer's admin API. Present exactly when capabilities.admin_api is true (enforced by the olf validator). `implementation` selects the driver; exactly one of `service` and `admin_url` is given.",
+          "additionalProperties": false,
+          "required": ["implementation", "client_id", "secret_ref"],
+          "oneOf": [{"required": ["service"]}, {"required": ["admin_url"]}],
+          "properties": {
+            "implementation": {"$ref": "#/definitions/nonEmptyString"},
+            "service": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["namespace", "name", "port"],
+              "properties": {
+                "namespace": {"$ref": "#/definitions/nonEmptyString"},
+                "name": {"$ref": "#/definitions/nonEmptyString"},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+              }
+            },
+            "admin_url": {"type": "string", "pattern": "^https://"},
+            "client_id": {"$ref": "#/definitions/nonEmptyString"},
+            "secret_ref": {"$ref": "#/definitions/oidcClient/properties/secret_ref"}
           }
         },
         "issuer_url": {"type": "string", "pattern": "^https://", "description": "Loose check; the olf Python validator (_oidc_issuer_url) is the authority."},

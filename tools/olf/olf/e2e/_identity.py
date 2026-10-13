@@ -24,6 +24,7 @@ import requests
 import yaml
 
 from olf import access, config, k8s, log
+from olf.e2e._identity_admin import check_admin_client
 from olf.e2e._identity_mail import check_email_delivery, check_realm_mail_matches_contract, mail_sink
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
@@ -55,6 +56,8 @@ def check_identity(cfg: E2EConfig) -> None:
         redirect_uri = _perimeter_callback(cfg)
         check_client_secret_is_enforced(cfg, identity, redirect_uri)
         check_role_claims(cfg, identity, base_url, redirect_uri)
+        with _admin_session(cfg, base_url) as admin:
+            check_admin_client(cfg, identity, base_url, admin)
         # The sink first: its pull can outlast the one-minute admin token.
         with mail_sink(cfg), _admin_session(cfg, base_url) as admin:
             check_realm_mail_matches_contract(identity, admin, f"{base_url}/admin/realms/{_realm(identity)}")
@@ -102,8 +105,10 @@ def check_discovery_from_pod(cfg: E2EConfig, identity: dict[str, Any]) -> None:
     # curl itself treats *.localhost as loopback (RFC 6761) without asking DNS,
     # so the address cluster DNS answers is looked up and handed to it;
     # getaddrinfo-based clients (Python, Java) need no such help.
+    # The sleep lets `kubectl run -i` attach before the output is written; a pod
+    # that answers first has its output lost to the attach race.
     script = (
-        f'ip="$(getent hosts {host} | cut -d" " -f1)" && '
+        f'sleep 3 && ip="$(getent hosts {host} | cut -d" " -f1)" && '
         f'curl -sS --fail --max-time 20 --cacert /ca/ca.crt --resolve {host}:443:"$ip" {url}'
     )
     spec = {

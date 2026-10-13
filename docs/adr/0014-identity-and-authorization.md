@@ -11,8 +11,10 @@ emit their existing `identity` implementations
 (`identity.aws_pod_identity`, `identity.azure_workload_identity_ready`).
 The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
-**Decided, not built:** seam 4 below; rows marked "not built" are the
-direction #331 implements, not a description of the code.
+**Seam 4 (#331):** the `shared.identity.admin` contract and the Keycloak
+`olf-users` client behind it are built; the `olf users` commands that use them
+are not yet, and rows marked "not built" are the direction #331 implements, not
+a description of the code.
 
 ## Context
 
@@ -35,7 +37,7 @@ each have their own adapter and none leaks into another:
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
 | 2. Issuer: who you are, which roles you hold (**built** for local, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
 | 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
-| 4. Admin: write user and role assignment (**not built**, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
+| 4. Admin: write user and role assignment (contract **built**, `olf users` not built, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
 ### Seam 1 — the role model (built)
 
@@ -141,8 +143,8 @@ generic OIDC) is a checklist, not a schema change:**
 The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
 (default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (external only: issuer-assigned
 client ids by consumer, default the consumer name);
-`external` requires all three. `bootstrap_admins` (#331) and the optional
-`shared.identity.admin` block (seam 4) are deferred to #331.
+`external` requires all three. `bootstrap_admins` is deferred to #331; the
+optional `shared.identity.admin` block is seam 4 below.
 
 `spec.identity.smtp` (keycloak only; an external issuer sends its own mail)
 configures outbound mail. Settings are non-secret: `host`, `port`,
@@ -173,13 +175,15 @@ references (`oidc-client-<consumer>`, key `client-secret`).
 | Clients | `perimeter`, `superset`, `openmetadata`, `trino`; confidential, authorization-code only, redirect URIs limited to the routes of the service they front; the `perimeter` client has the one callback `https://oauth2.<base_domain>/oauth2/callback` |
 | Secrets | an in-cluster bootstrap Job creates a Kubernetes Secret per client (`keycloak-client-<consumer>`, key `client-secret`) only if it is missing; Terraform knows the names only. The realm Job reads them through `secretKeyRef` and `$(env:...)` substitution, so no value is in the realm file, the Job spec or the contract |
 | Mail | `smtpServer` in the realm file from the non-secret profile fields. The login reaches the realm Job only as `SMTP_USERNAME`/`SMTP_PASSWORD` from `secretKeyRef`, substituted by `keycloak-config-cli` like a client secret, so it is in no ConfigMap, Terraform variable, output or state. `verifyEmail` and `resetPasswordAllowed` are true only when SMTP is configured: a reset link that cannot be mailed is a dead end. Self-registration stays off |
-| Users | never in Terraform or the realm file; created in Keycloak's admin console, so onboarding needs no apply. The bootstrap admin is in Secret `keycloak-admin-creds` |
+| Users | never in Terraform or the realm file, except the service account Keycloak makes for `olf-users` (below); onboarding needs no apply. The bootstrap admin is in Secret `keycloak-admin-creds` |
+| Admin client | `olf-users`: confidential, service-account-only (no login flow, no password grant), secret in `keycloak-client-olf-users` created like the others. Its service account holds only `view-users` and `manage-users` of `realm-management`. It is not one of the four consumer clients and not in the role matrix |
+| Audit | the realm records admin events (`adminEventsEnabled`) with `adminEventsDetailsEnabled` off, so no request body, and with it no password or token, is stored |
 | Route | `https://auth.<base_domain>`, the `shared/identity` route; never granted a role and never behind the perimeter |
 | Issuer | Keycloak pins every URL, `iss` included, to `https://auth.<base_domain>` whatever address a caller used |
 
 The adapter declares `capabilities` `groups_in_token` and `logout_endpoint`
-true, `email_delivery` true when SMTP is configured, and `admin_api` false
-until `olf users` exists (#331). The consumers are
+true, `email_delivery` true when SMTP is configured, and `admin_api` true with
+the `admin` block (seam 4). The consumers are
 wired by #25, #26 and #176 (Trino workload callers: [ADR 0016](0016-trino-workload-authentication.md)); the perimeter (`perimeter` client) is, Superset,
 OpenMetadata and the Trino UI are not.
 
@@ -271,10 +275,33 @@ evaluated and deferred in
 where table-level policy would be enforced for Polaris and for Glue with Lake
 Formation (the different-mechanism case the "fifth mapping" above refers to).
 
-### Seam 4 — admin (decided, not built; #331)
+### Seam 4 — admin (contract built; `olf users` not yet; #331)
 
 Assigning roles is an optional capability of the issuer. Where it is absent,
-`olf users` only reads.
+`olf users` only reads. The optional `shared.identity.admin` block says where
+the admin API is and which Secret holds the credential of a client limited to
+user administration:
+
+| Field | Meaning |
+| --- | --- |
+| `implementation` | selects the driver in `olf` (`identity.admin.keycloak`); an unknown value is reported, not guessed |
+| `service` or `admin_url` | exactly one: `{namespace, name, port}` of an in-cluster Service that `olf` reaches by `kubectl port-forward`, or an https URL |
+| `client_id`, `secret_ref{name,key}` | a client-credentials client and the Secret holding its secret; no value is in the contract |
+
+`capabilities.admin_api` is true exactly when `admin` is present; `olf` rejects
+either without the other. An external issuer may omit both, and `olf users`
+then points at the issuer's own administration surface. The Keycloak driver
+treats the block as the whole interface: automation uses `olf-users` through an
+RBAC-authorized port-forward and never the perimeter or a person's account
+(`identity-callers.md`).
+
+`manage-users` is Keycloak's user-administration role: the least role that
+moves users between groups and sends execute-actions mail is a user
+administrator, not a group-only one, so the client could place a user in any
+group, not only the canonical ones (`olf users` only ever names canonical
+roles). What it does not carry (realm settings, clients, events, other realms)
+is asserted by `olf e2e run`; mapping `manage-realm` onto its own service
+account was tried by hand and refused with 403.
 
 ## Policy documents
 
@@ -360,6 +387,14 @@ host, `shared.access.perimeter` in the contract, realm token and SSO lifespans
 set, and `olf` clients port-forward to protected routes. Runtime verification
 and what remains (issuer outage drill, logout, latency) are tracked in
 `docs/architecture/identity-sessions-and-recovery.md`.
+
+Admin client (#331, slice 1): seam 4's contract is built. The realm gains the
+service-account-only `olf-users` client with `view-users` and `manage-users`,
+its secret is created by the credentials Job, the adapter emits
+`shared.identity.admin` and declares `admin_api`, and the realm records admin
+events without details. `olf e2e run` asserts that the client authenticates by
+client credentials, lists users and groups, and cannot read or write realm
+settings, list clients, read events or reach another realm.
 
 Dagster boundary and Polaris (#26): the Dagster paragraph in seam 3 and the
 "Catalog credentials" section point at `identity-callers.md` and ADR 0015.

@@ -47,6 +47,19 @@
     }
   },
   "adapter": "keycloak",
+  "admin": {
+    "implementation": "identity.admin.keycloak",
+    "service": {
+      "namespace": "olf-system",
+      "name": "keycloak",
+      "port": 8080
+    },
+    "client_id": "olf-users",
+    "secret_ref": {
+      "name": "keycloak-client-olf-users",
+      "key": "client-secret"
+    }
+  },
   "capabilities": {
     "admin_api": true,
     "groups_in_token": true,
