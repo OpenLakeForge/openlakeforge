@@ -105,8 +105,10 @@ def check_discovery_from_pod(cfg: E2EConfig, identity: dict[str, Any]) -> None:
     # curl itself treats *.localhost as loopback (RFC 6761) without asking DNS,
     # so the address cluster DNS answers is looked up and handed to it;
     # getaddrinfo-based clients (Python, Java) need no such help.
+    # The sleep lets `kubectl run -i` attach before the output is written; a pod
+    # that answers first has its output lost to the attach race.
     script = (
-        f'ip="$(getent hosts {host} | cut -d" " -f1)" && '
+        f'sleep 3 && ip="$(getent hosts {host} | cut -d" " -f1)" && '
         f'curl -sS --fail --max-time 20 --cacert /ca/ca.crt --resolve {host}:443:"$ip" {url}'
     )
     spec = {
