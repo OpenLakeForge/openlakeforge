@@ -134,7 +134,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
         (
             "local",
             [
-                "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "portal", "identity",
+                "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "portal", "identity", "perimeter",
                 "superset", "openmetadata", "artifacts", "isolation",
             ],
         ),
@@ -154,6 +154,7 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_traefik_restart_recovery", lambda _cfg: calls.append("traefik"))
     monkeypatch.setattr(_runner, "check_certificate_renewal", lambda _cfg: calls.append("renewal"))
     monkeypatch.setattr(_runner, "check_identity", lambda _cfg: calls.append("identity"))
+    monkeypatch.setattr(_runner, "check_perimeter", lambda _cfg: calls.append("perimeter"))
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
@@ -179,6 +180,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_traefik_restart_recovery", lambda _cfg: calls.append("traefik"))
     monkeypatch.setattr(_runner, "check_certificate_renewal", lambda _cfg: calls.append("renewal"))
     monkeypatch.setattr(_runner, "check_identity", lambda _cfg: calls.append("identity"))
+    monkeypatch.setattr(_runner, "check_perimeter", lambda _cfg: calls.append("perimeter"))
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
@@ -190,8 +192,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     _runner.run_full(e2e_cfg(tmp_path))
 
     assert calls == [
-        "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "portal", "identity", "artifacts",
-        "isolation",
+        "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "portal", "identity", "perimeter",
+        "artifacts", "isolation",
     ]
     assert "Skipped e2e assertions: Superset dashboards, OpenMetadata governance assets" in messages
 

@@ -44,7 +44,7 @@ applies.
 
 | Bound | Mechanism | Verified |
 | --- | --- | --- |
-| Perimeter, 5 min | The proxy cannot serve a request on an expired access token, and a refresh for a disabled user or a user whose SSO session ended is refused. A removed role changes the groups in the next token. | **To verify** in #176: that the pinned oauth2-proxy re-checks allowed roles on refresh rather than only at login, and that Keycloak refuses refresh for a disabled user. |
+| Perimeter, 5 min | The proxy cannot serve a request on an expired access token, and a refresh for a disabled user or a user whose SSO session ended is refused. A removed role changes the groups in the next token. | **Read in the source of the pinned oauth2-proxy v7.15.5, not run.** The allowed groups are checked against the session on every request (`getAuthenticatedSession`, `ProviderData.Authorize`), so a refresh that changes the groups changes the decision. A refresh redeems the refresh token and replaces the session groups from the new ID token (`OIDCProvider.RefreshSession`). A refresh the issuer answers with `invalid_grant` or `invalid_client` clears the session; any other refresh error keeps it only until its access token (5 min) expires. **To verify on a cluster**: that Keycloak refuses the refresh for a disabled user and that the measured delay is within 5 min. |
 | Native, 15 min | Superset: non-sliding session lifetime of 15 min with roles synced at login. OpenMetadata: its own session or token expiry set to 15 min, if the pinned version exposes one. | **To verify** in #25 against the pinned versions. If a version cannot meet 15 min, #25 records the limit and the exposure window in this file. |
 | Faster offboarding | The administrator may also end the user's sessions in the issuer. This shortens the window but is not what the bound relies on. | Not verified. |
 
@@ -128,6 +128,10 @@ unauthenticated request to a protected public route is still refused.
 
 ## Not claimed
 
-No timing in the policy table, no Keycloak, oauth2-proxy, Superset or
-OpenMetadata behaviour, and no part of the recovery has been run. The verifying
-changes are named in each row.
+No timing in the policy table, no Keycloak, Superset or OpenMetadata behaviour,
+and no part of the recovery has been run. The oauth2-proxy rows above were read
+from the pinned source. `olf e2e run --env local` exercises the perimeter
+(unauthenticated redirect and 401, per-role allow and deny, forged identity
+headers, a direct API call with a session) but not revocation timing, an
+issuer outage with an open session, logout or latency. The verifying changes
+are named in each row.

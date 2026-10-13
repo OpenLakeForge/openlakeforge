@@ -30,7 +30,7 @@ from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts
 KEYCLOAK_SERVICE = "keycloak"
 KEYCLOAK_ADMIN_SECRET = "keycloak-admin-creds"
 REQUEST_TIMEOUT = 15
-_LOGIN_ACTION = re.compile(r'<form[^>]+id="kc-form-login"[^>]+action="([^"]+)"')
+LOGIN_ACTION = re.compile(r'<form[^>]+id="kc-form-login"[^>]+action="([^"]+)"')
 
 
 def check_identity(cfg: E2EConfig) -> None:
@@ -210,7 +210,7 @@ def _id_token_claims(
         timeout=REQUEST_TIMEOUT,
     )
     page.raise_for_status()
-    match = _LOGIN_ACTION.search(page.text)
+    match = LOGIN_ACTION.search(page.text)
     if match is None:
         raise E2EError("the issuer's login page has no login form")
     login = browser.post(
@@ -242,18 +242,26 @@ def _id_token_claims(
     return dict(json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))))
 
 
-def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, redirect_uri: str) -> None:
-    """A throwaway user per canonical role gets exactly that role in the role claim;
-    a user in no group gets none."""
-    log.step("Checking each canonical role reaches the ID token...")
-    claim = identity["role_claim"]
-    realm_admin = f"{base_url}/admin/realms/{_realm(identity)}"
-    secret = _client_secret(cfg, identity, "perimeter")
+def realm_admin_url(identity: dict[str, Any], base_url: str) -> str:
+    return f"{base_url}/admin/realms/{identity['issuer_url'].rsplit('/', 1)[1]}"
+
+
+@contextlib.contextmanager
+def throwaway_users(
+    cfg: E2EConfig, identity: dict[str, Any], base_url: str, roles: list[str | None]
+) -> Iterator[dict[str | None, tuple[str, str]]]:
+    """Throwaway users, one per role (None: in no group), as {role: (username, password)}.
+
+    Always deleted, whatever the block does; user records never live in
+    Terraform (ADR 0014).
+    """
+    realm_admin = realm_admin_url(identity, base_url)
     suffix = secrets.token_hex(3)
     created: list[str] = []
+    users: dict[str | None, tuple[str, str]] = {}
     try:
         with _admin_session(cfg, base_url) as admin:
-            for role in [*identity["role_mapping"], None]:
+            for role in roles:
                 name = f"olf-e2e-{role or 'no-role'}-{suffix}"
                 password = secrets.token_urlsafe(24)
                 created_user = _admin(
@@ -279,17 +287,27 @@ def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, r
                         admin, "GET", f"{realm_admin}/groups", params={"search": group, "exact": "true"}
                     ).json()[0]["id"]
                     _admin(admin, "PUT", f"{realm_admin}/users/{user_id}/groups/{group_id}")
-                claims = _id_token_claims(
-                    identity, identity["clients"]["perimeter"], secret, redirect_uri, name, password
-                )
-                expected = identity["role_mapping"][role] if role is not None else []
-                if claims.get(claim, []) != expected:
-                    raise E2EError(f"{name}: expected {claim}={expected}, got {claims.get(claim)!r}")
-                if claims["iss"] != identity["issuer_url"]:
-                    raise E2EError(f"{name}: token iss {claims['iss']!r} differs from the contract's issuer_url")
+                users[role] = (name, password)
+        yield users
     finally:
         if created:
             with _admin_session(cfg, base_url) as admin:
                 for user_id in created:
                     with contextlib.suppress(requests.RequestException):
                         _admin(admin, "DELETE", f"{realm_admin}/users/{user_id}")
+
+
+def check_role_claims(cfg: E2EConfig, identity: dict[str, Any], base_url: str, redirect_uri: str) -> None:
+    """A throwaway user per canonical role gets exactly that role in the role claim;
+    a user in no group gets none."""
+    log.step("Checking each canonical role reaches the ID token...")
+    claim = identity["role_claim"]
+    secret = _client_secret(cfg, identity, "perimeter")
+    with throwaway_users(cfg, identity, base_url, [*identity["role_mapping"], None]) as users:
+        for role, (name, password) in users.items():
+            claims = _id_token_claims(identity, identity["clients"]["perimeter"], secret, redirect_uri, name, password)
+            expected = identity["role_mapping"][role] if role is not None else []
+            if claims.get(claim, []) != expected:
+                raise E2EError(f"{name}: expected {claim}={expected}, got {claims.get(claim)!r}")
+            if claims["iss"] != identity["issuer_url"]:
+                raise E2EError(f"{name}: token iss {claims['iss']!r} differs from the contract's issuer_url")
