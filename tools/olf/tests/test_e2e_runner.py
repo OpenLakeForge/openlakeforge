@@ -168,6 +168,28 @@ def test_run_full_only_restarts_polaris_for_local(
     assert calls == expected
 
 
+def test_run_full_scans_for_exposed_credentials_after_a_failed_assertion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+
+    def fail(_cfg: object) -> None:
+        raise E2EError("namespaces missing")
+
+    def leaky_scan(_cfg: object) -> None:
+        calls.append("exposure")
+        raise E2EError("leak")
+
+    monkeypatch.setattr(_runner, "check_catalog_namespaces", fail)
+    monkeypatch.setattr(_runner, "check_secret_exposure", leaky_scan)
+    monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
+
+    with pytest.raises(E2EError, match="namespaces missing"):
+        _runner.run_full(e2e_cfg(tmp_path))
+
+    assert calls == ["exposure"]
+
+
 def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

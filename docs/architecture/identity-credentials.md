@@ -106,8 +106,15 @@ Keycloak admin password, the four OIDC client secrets (names from the identity
 contract), the perimeter cookie secret (`oauth2-proxy-cookie`), and the SMTP
 password when the realm Job references one (found through its `SMTP_PASSWORD`
 `secretKeyRef`, because the contract does not carry the SMTP Secret name). It
-also looks for each value base64-encoded, the form Kubernetes stores Secret data
-in. A failure names the surface and the Secret (`name/key`), never the value.
+also looks for each value base64-encoded (the form Kubernetes stores Secret data
+in) and JSON-escaped (the form in `-o json` and Terraform state). A failure names
+the surface and the Secret (`name/key`), never the value.
+
+With an external issuer (`identity.external_oidc`) the Keycloak admin password
+and the action-link check do not apply; the operator-provided client Secrets,
+the cookie secret and any SMTP password are still scanned. When an earlier
+assertion fails, the scan still runs (best effort) and only logs its result, so
+the run reports the original failure.
 
 | Surface | What is read |
 | --- | --- |
@@ -135,9 +142,14 @@ Not covered:
 - CI logs and uploaded CI artifacts: the scan sees the cluster's logs, not the
   workflow's own output.
 - Member passwords and action tokens are matched by shape, in diagnostics only.
-  A password a user typed that appears in a log is not found.
+  A password a user typed that appears in a log is not found. The query-string
+  shape needs a value of at least 8 characters, so a shorter one is not matched.
 - Pod logs older than the tail, logs of pods that were replaced before the
-  scan, and any surface outside the platform and stage namespaces.
+  scan, logs of a container's previous instance after a restart (`kubectl logs
+  --previous` is not collected), and any surface outside the platform and stage
+  namespaces.
+- A failure before the assertions start (the pod readiness check) does not run
+  the scan.
 - Old Terraform state files left from before the bootstrap Job (see "Generate
   outside Terraform"): only the current state is read.
 - Only the current values are searched, so a rotated-out value that leaked

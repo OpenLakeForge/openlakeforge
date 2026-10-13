@@ -64,8 +64,10 @@ def find_exposures(credentials: Mapping[str, str], surfaces: Surfaces) -> list[s
             log.info(f"Skipping the exposure scan of {surface}: unavailable.")
             continue
         for label, value in credentials.items():
-            # Kubernetes carries Secret data base64-encoded, so that form is a leak too.
-            if value in text or base64.b64encode(value.encode()).decode() in text:
+            # Kubernetes carries Secret data base64-encoded, and `-o json` and Terraform
+            # state escape quotes, backslashes and newlines: those forms are leaks too.
+            forms = (value, base64.b64encode(value.encode()).decode(), json.dumps(value)[1:-1])
+            if any(form in text for form in forms):
                 found.append(f"{surface} contains the value of Secret {label}")
     return found
 
@@ -86,9 +88,7 @@ def scan(credentials: Mapping[str, str], surfaces: Surfaces, *, link_surfaces: S
 
 def check_secret_exposure(cfg: E2EConfig) -> None:
     identity = load_provider_contracts_or_raise(cfg)["shared"]["identity"]
-    if identity.get("adapter") != "keycloak":
-        log.info("Skipping the credential exposure scan: the Keycloak adapter is not deployed.")
-        return
+    keycloak = identity.get("adapter") == "keycloak"
     log.step("Scanning state, ConfigMaps, diagnostics and logs for identity credentials...")
     namespaces = health_namespaces(cfg)
     bundles = {f"diagnostics bundle of {ns}": _diagnostics_bundle(cfg, ns) for ns in namespaces}
@@ -96,20 +96,25 @@ def check_secret_exposure(cfg: E2EConfig) -> None:
         f"ConfigMaps in {ns}": _kubectl_text(cfg, ["get", "configmap", "-n", ns, "-o", "json"]) for ns in namespaces
     }
     surfaces = {**_state_surfaces(cfg), **configmaps, **bundles, **_log_surfaces(cfg, namespaces)}
-    scan(_credentials(cfg, identity), surfaces, link_surfaces=bundles)
+    # Action links are Keycloak's; the client and cookie Secrets exist with any issuer.
+    scan(_credentials(cfg, identity, keycloak=keycloak), surfaces, link_surfaces=bundles if keycloak else {})
 
 
-def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
+def _credentials(cfg: E2EConfig, identity: Mapping[str, Any], *, keycloak: bool = True) -> dict[str, str]:
     namespace = cfg.platform_namespace
-    required = [(KEYCLOAK_ADMIN_SECRET, "password")] + [
-        (spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity["clients"].values()
-    ]
-    found = {
-        f"{name}/{key}": k8s.secret_value(name, key, namespace, kube_context=cfg.kube_context) for name, key in required
-    }
-    for name, key in [COOKIE_SECRET, *_smtp_password_refs(cfg)]:
+
+    def read(name: str, key: str) -> str:
+        # secret_value puts the key in a JSONPath, where `.` separates fields.
+        return k8s.secret_value(name, key.replace(".", "\\."), namespace, kube_context=cfg.kube_context)
+
+    clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity["clients"].values()]
+    # An external issuer's client Secrets are operator-provided, so they may be absent or short.
+    required = [(KEYCLOAK_ADMIN_SECRET, "password"), *clients] if keycloak else []
+    optional = [COOKIE_SECRET, *([] if keycloak else clients), *_smtp_password_refs(cfg)]
+    found = {f"{name}/{key}": read(name, key) for name, key in required}
+    for name, key in optional:
         try:
-            value = k8s.secret_value(name, key, namespace, kube_context=cfg.kube_context)
+            value = read(name, key)
         except k8s.KubectlError:
             log.info(f"Not scanning for Secret {name}/{key}: it is not in {namespace}.")
             continue
@@ -125,8 +130,10 @@ def _smtp_password_refs(cfg: E2EConfig) -> list[tuple[str, str]]:
     """The SMTP Secret is named by the profile, which the contract does not carry;
     the realm Job's SMTP_PASSWORD reference is where the deployed name shows."""
     text = _kubectl_text(cfg, ["get", "jobs", "-n", cfg.platform_namespace, "-o", "json"])
+    if text is None:  # not "no SMTP": passing here would hide an unscanned password
+        raise E2EError(f"cannot list the Jobs in {cfg.platform_namespace} to find the SMTP Secret")
     refs: list[tuple[str, str]] = []
-    for job in json.loads(text or '{"items": []}')["items"]:
+    for job in json.loads(text)["items"]:
         for container in job["spec"]["template"]["spec"].get("containers", []):
             for env in container.get("env", []):
                 ref = env.get("valueFrom", {}).get("secretKeyRef")

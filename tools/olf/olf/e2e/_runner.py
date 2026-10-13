@@ -279,9 +279,23 @@ def run_full(cfg: E2EConfig) -> None:
             skipped.append(assertion.label)
             log.info(f"Skipping {assertion.label}: {assertion.layer} layer is disabled.")
             continue
-        assertion.check(cfg)
+        try:
+            assertion.check(cfg)
+        except Exception:
+            # A failed run is when logs and diagnostics are most likely to hold a leaked value.
+            if cfg.env == "local" and assertion.check is not check_secret_exposure:
+                _scan_after_failure(cfg)
+            raise
     if skipped:
         log.info("Skipped e2e assertions: " + ", ".join(skipped))
+
+
+def _scan_after_failure(cfg: E2EConfig) -> None:
+    """Best effort: the assertion failure is what the run reports, so a scan problem is only logged."""
+    try:
+        check_secret_exposure(cfg)
+    except Exception as exc:
+        log.error(f"Exposure scan after the failed assertion: {exc}")
 
 
 def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:

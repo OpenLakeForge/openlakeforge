@@ -126,3 +126,47 @@ def test_state_files_are_read_and_a_missing_one_is_unavailable(tmp_path: Path) -
 
 def test_the_admin_api_path_that_sends_the_email_is_not_a_leak() -> None:
     exposure.scan({}, {}, link_surfaces={"diagnostics bundle": "PUT /admin/realms/r/users/1/execute-actions-email 204"})
+
+
+def test_a_json_escaped_value_is_a_leak() -> None:
+    password = 'long"pass\\word12345'
+    text = json.dumps({"data": password})
+
+    assert password not in text
+    assert exposure.find_exposures({"mail/pw": password}, {"ConfigMaps in olf-system": text})
+
+
+def test_an_external_issuer_still_scans_client_and_cookie_secrets_and_a_dotted_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    read: list[tuple[str, str]] = []
+    cookie = "k" * 32
+
+    def secret_value(name: str, key: str, _namespace: str, **_kwargs: Any) -> str:
+        read.append((name, key))
+        if name == "oauth2-proxy-cookie":
+            return cookie
+        if name == "mail":
+            return "m" * 20
+        raise k8s.KubectlError("not found")
+
+    job = json.loads(json.dumps(SMTP_JOB))
+    env = job["items"][0]["spec"]["template"]["spec"]["containers"][0]["env"][0]
+    env["valueFrom"]["secretKeyRef"]["key"] = "smtp.pw"
+    monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
+    monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: json.dumps(job))
+    monkeypatch.setattr(exposure.log, "info", lambda _message: None)
+
+    found = exposure._credentials(_cfg(), IDENTITY, keycloak=False)
+
+    assert found == {"oauth2-proxy-cookie/cookie-secret": cookie, "mail/smtp.pw": "m" * 20}
+    assert ("keycloak-admin-creds", "password") not in read
+    assert ("keycloak-client-perimeter", "client-secret") in read
+    assert ("mail", "smtp\\.pw") in read
+
+
+def test_failing_to_list_the_jobs_is_an_error_not_no_smtp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: None)
+
+    with pytest.raises(E2EError, match="SMTP Secret"):
+        exposure._smtp_password_refs(_cfg())
