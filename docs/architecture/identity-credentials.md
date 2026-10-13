@@ -150,6 +150,7 @@ Not covered:
   namespaces.
 - A failure before the assertions start (the pod readiness check) does not run
   the scan.
+- Operator-chosen secrets (external-issuer client secrets, SMTP) containing `<`, `>` or `&` are not matched in Kubernetes JSON output, which Go encodes as `\u003c`, `\u003e`, `\u0026`; generated secrets are alphanumeric and unaffected.
 - Old Terraform state files left from before the bootstrap Job (see "Generate
   outside Terraform"): only the current state is read.
 - Only the current values are searched, so a rotated-out value that leaked
