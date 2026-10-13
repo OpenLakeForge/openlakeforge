@@ -135,7 +135,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
             "local",
             [
                 "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "portal", "identity", "perimeter",
-                "superset", "openmetadata", "artifacts", "isolation",
+                "superset", "openmetadata", "artifacts", "isolation", "exposure",
             ],
         ),
         ("azure", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts", "isolation"]),
@@ -160,6 +160,7 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
+    monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
 
     _runner.run_full(e2e_cfg(tmp_path, env=env))
@@ -186,6 +187,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
+    monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": False, "analytics": False})
     monkeypatch.setattr(_runner.log, "info", messages.append)
 
@@ -193,7 +195,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
 
     assert calls == [
         "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "portal", "identity", "perimeter",
-        "artifacts", "isolation",
+        "artifacts", "isolation", "exposure",
     ]
     assert "Skipped e2e assertions: Superset dashboards, OpenMetadata governance assets" in messages
 
