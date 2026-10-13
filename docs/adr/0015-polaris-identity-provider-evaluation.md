@@ -88,7 +88,7 @@ Defer. Polaris keeps `internal` authentication in v0.5-alpha.
    a service principal, Floe's acceptance of a foreign token endpoint — would
    each need a cluster experiment.
 
-### Follow-up scope (to be opened by the maintainer; no issue number exists yet)
+### Follow-up scope (tracked in #367)
 
 Start only when per-user identity must reach the catalog (the #179 follow-up)
 or an operator needs to remove Polaris-held secrets. It is sequenced with the
@@ -147,8 +147,8 @@ Implications to carry into #179's ADR:
 - The class-2 inventory states that the `om` Polaris credential is unused
   (`identity-callers.md`).
 - #26's Polaris acceptance item ("decision documented in an ADR or issue
-  comment, with explicit follow-up scope") is met by this record once the
-  maintainer opens the follow-up issue named above.
+  comment, with explicit follow-up scope") is met by this record and
+  the follow-up issue #367.
 
 ## History
 
