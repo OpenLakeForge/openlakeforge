@@ -57,9 +57,10 @@ principal and stage scope; Secret reference; rotation.
 | Trino to Polaris | Trino pod | Polaris REST in the shared namespace | OAuth client credentials of the stage's Trino principal | One stage catalog | `trino_credentials_secret_name`, keys `POLARIS_TRINO_CLIENT_ID` / `_SECRET` | Rotate the Polaris principal; the bootstrap Job rotates a principal whose Secret is gone |
 | Floe runner to Polaris | Floe Job | Polaris REST | OAuth client credentials of the stage's Floe principal | One stage catalog | `floe_credentials_secret_name`, keys `POLARIS_FLOE_CLIENT_ID` / `_SECRET`, replicated into the stage namespace | Same |
 | Floe and Trino to SeaweedFS | Pods | S3 API on the in-cluster Service | Per-stage S3 key | One stage's buckets | Stage S3 Secrets | Terraform-generated |
-| OpenMetadata to Polaris and to Trino | OpenMetadata pods | Polaris REST; Trino as user `openmetadata` | Polaris `om` principal; Trino user is a string match (read-only rules) | All stage catalogs, read | `om_credentials_secret_name` | As above |
+| OpenMetadata to Trino | OpenMetadata pods | Trino as user `openmetadata` | A string match (read-only rules), no authentication | All stage catalogs, read | None | None; #26 |
+| Polaris `om` principal | Nothing | n/a | A principal the Polaris bootstrap still creates with `CATALOG_MANAGE_CONTENT` on every stage catalog. OpenMetadata crawls through Trino, and no module or `olf` command reads its Secret ([ADR 0015](../adr/0015-polaris-identity-provider-evaluation.md)) | All stage catalogs, write | `om_credentials_secret_name` | Dormant; removal is follow-up scope |
 | OpenMetadata ingestion bot | Floe and Dagster pods, governed stages | OpenMetadata API (OpenLineage) | Bot JWT, sent as `OPENLINEAGE_API_KEY` / Floe `secret_name` | Governed stages only | `openmetadata-ingestion-bot`, key from the contract | The OpenMetadata bootstrap Job regenerates it on each run. **To verify** that the bot token keeps validating once OIDC is enabled (#25) |
-| Dagster | Pods and anyone who can reach the Service | Dagster webserver | **No native authentication** (none configured in `infra/helm/values/local/dagster.yaml`, and Dagster OSS has none). Its only boundary will be the perimeter (#176) plus RBAC and NetworkPolicy (#46). No NetworkPolicy object exists in the tree today, so nothing here verifies the caller | n/a | None | n/a |
+| Dagster | Pods, `olf e2e`, and anyone who can reach the Service | Dagster webserver, ClusterIP port 80, and its GraphQL API | **No native authentication or per-user authorization.** None is configured in `infra/helm/values/local/dagster.yaml`, and Dagster OSS has none. The ingress route is protected by the perimeter (#176); this in-cluster path is protected only by Kubernetes RBAC (`pods/portforward`, `exec`) until NetworkPolicy (#46). No NetworkPolicy object exists in the tree today, so any pod can call the Service. See [Dagster boundary](#dagster-boundary) | n/a | None | n/a |
 | Dagster run launcher | Dagster pod | Kubernetes API, creating run Jobs | The pod's ServiceAccount | **To verify** (#46) | None | n/a |
 | Issuer back-channel | oauth2-proxy, Superset, OpenMetadata pods | `https://auth.<base_domain>` through Traefik, trusting the local CA (`in-cluster-resolution` module) | Client secret at the token endpoint; JWKS is public | One client each | `keycloak-client-<consumer>` | Client rotation runbook. Discovery and `iss` from a pod are checked by `olf e2e` today |
 | Datastores | Keycloak, Polaris, Superset, OpenMetadata | PostgreSQL | Per-service database user | Own database | `postgresql-*-creds` | Terraform-generated; residual debt |
@@ -109,6 +110,37 @@ once those accept only issuer login (#25): **to verify** whether the native
 `db` login of `SupersetClient` and the OpenMetadata basic login survive OIDC
 being enabled.
 
+## Dagster boundary
+
+Dagster OSS has no native authentication and no per-user authorization (#26).
+The tree configures none. Three paths reach the same webserver and GraphQL API:
+
+| Path | Who | What stops everyone else |
+| --- | --- | --- |
+| `https://dagster.<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014, seam 3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
+| `kubectl port-forward` to the `dagster-dagster-webserver` Service | `olf e2e run` (`e2e/_dagster.py`) and an operator | Kubernetes RBAC: `pods/portforward` in the stage namespace. The forward binds loopback, and the caller needs no session |
+| The Service by its in-cluster name | Any pod | Nothing today. NetworkPolicy (#46) is not built |
+
+The two internal paths are class 2 (a workload or operator acting through
+Kubernetes RBAC), not an authentication bypass that is reachable from outside
+the cluster: the Service is `ClusterIP`, the only route out of the cluster is
+the perimeter-protected ingress, and the kind ingress listens on `127.0.0.1`
+(ADR 0013). The OpenMetadata Dagster connector is deferred
+(`technical-debt.md`), so OpenMetadata does not call Dagster today.
+That the internal path is unreachable by an untrusted pod is **not yet
+verified**: it needs #46.
+
+Consequence. Whoever is admitted to Dagster, by either path, has the full
+Dagster capability: launching jobs with run configuration, terminating and
+deleting runs, reloading code locations and toggling schedules (general
+Dagster capabilities, not re-checked against the pinned 1.13.7). The pods
+that run user code and runs hold the stage's storage and Polaris (Floe)
+Secrets, and the OpenMetadata ingestion-bot Secret when governance is enabled
+(`runtime_env_secrets` in `modules/orchestration/dagster`). Holding
+`data-engineer` therefore means holding all of that, and the role should be
+assigned on that basis. Canonical roles do not narrow it: the grant maps both
+roles to `full`.
+
 ## Known limitations
 
 - **Shared service accounts.** Every class-2 credential is shared by all
@@ -120,6 +152,9 @@ being enabled.
   Trino accepts unauthenticated (register entry "Trino has no client
   authentication" in [`technical-debt.md`](../technical-debt.md)). #26 chooses
   the mechanism.
+- **Polaris keeps its own client credentials.** Whether the issuer could
+  authenticate the catalog callers instead is evaluated in
+  [ADR 0015](../adr/0015-polaris-identity-provider-evaluation.md) and deferred.
 - **Static `admin` passwords** for Superset and OpenMetadata are the credential
   `olf` metadata and report deployment authenticate with today.
 - **Unverified acceptance items** of #178: that class-2 traffic is unreachable
