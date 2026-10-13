@@ -14,6 +14,35 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+<!-- DRAFT for the v0.5-alpha entry (#26, #179). Move this section into the
+     `## [0.5.0-alpha.N]` heading when the release is cut, and re-check each
+     sentence against main then: NetworkPolicy (#46) and the Trino connection
+     model (#26) are still open. -->
+
+### Known limitations: identity and authorization (draft, v0.5-alpha)
+
+v0.5-alpha adds **service-level** access control: a person signs in through
+the identity provider and their role decides which services they reach. It
+does not add authorization inside Dagster or over data.
+
+- **Dagster has no per-user authorization.** Dagster OSS has no native
+  authentication or authorization. The perimeter decides who reaches it: only
+  `platform-admin` and `data-engineer` hold the Dagster grant. Anyone admitted
+  has the full Dagster capability, including launching any job and reaching
+  the credentials its run pods hold, so assign `data-engineer` only to people
+  you would trust with that. Callers inside the cluster (`olf e2e`, and any
+  pod) reach Dagster without a session through its cluster-internal Service.
+  That path is a Kubernetes RBAC boundary, not an authentication check, and
+  nothing restricts which pods may call it until NetworkPolicy is added
+  (#46). See [identity-callers.md](docs/architecture/identity-callers.md#dagster-boundary).
+- **No data-level authorization.** Any user who can reach Superset can query
+  everything Superset's Trino connection can reach. Superset connects to Trino
+  as one shared principal per stage, so the end user's identity never reaches
+  Trino or the catalog, and a user's role does not change which tables,
+  rows or columns they can read. Do not load data of differing sensitivity
+  into a deployment whose users should not all see it. Per-user data access is
+  assessed in #179 and is not part of this release.
+
 ## [0.4.0-alpha.1] - 2026-10-07
 
 The secure service access release (Milestone 4), on the local workstation.
