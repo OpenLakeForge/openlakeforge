@@ -49,7 +49,6 @@ def test_values_too_short_to_scan_for_are_rejected_without_printing_them() -> No
 @pytest.mark.parametrize(
     "text",
     [
-        "PUT /admin/realms/r/users/1/execute-actions-email",
         "https://auth.olf.localhost/realms/r/login-actions/action-token?key=eyJhbGciOi",
         "GET /reset?token=0123456789abcdef",
         "jdbc:postgresql://db/kc?user=kc&password=s3cretpassw0rd",
@@ -123,3 +122,7 @@ def test_state_files_are_read_and_a_missing_one_is_unavailable(tmp_path: Path) -
         "Terraform state of local": '{"version": 4}',
         "Terraform state of foundation": None,
     }
+
+
+def test_the_admin_api_path_that_sends_the_email_is_not_a_leak() -> None:
+    exposure.scan({}, {}, link_surfaces={"diagnostics bundle": "PUT /admin/realms/r/users/1/execute-actions-email 204"})

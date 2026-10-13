@@ -35,10 +35,12 @@ MIN_VALUE_LENGTH = 16
 # does not carry (docs/architecture/identity-credentials.md).
 COOKIE_SECRET = ("oauth2-proxy-cookie", "cookie-secret")
 LOG_TAIL_LINES = 2000
-# `login-actions/action-token` is the path Keycloak mails for an action token.
+# `login-actions/action-token` is the path Keycloak mails for an action token. The admin
+# API path `execute-actions-email` is not matched: the e2e's own mail check calls it and
+# access logs record it, but it carries no token.
 # The (?<![\w-]) keeps `access_token=` and `X-token=` out; `<` skips `<redacted>`.
 ACTION_LINK = re.compile(
-    r"execute-actions-email|login-actions/action-token|(?<![\w-])(?:password|token)=[^\s&\"'<][^\s&\"']{7,}"
+    r"login-actions/action-token|(?<![\w-])(?:password|token)=[^\s&\"'<][^\s&\"']{7,}"
 )
 
 Surfaces = Mapping[str, str | None]

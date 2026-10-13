@@ -117,8 +117,7 @@ in. A failure names the surface and the Secret (`name/key`), never the value.
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
 
 The diagnostics bundle is also checked for the shape of what has no known value
-to search for: a Keycloak action link (`execute-actions-email`,
-`login-actions/action-token`) or a `password=`/`token=` query string with a
+to search for: a Keycloak action link (`login-actions/action-token`) or a `password=`/`token=` query string with a
 value. That is the whole check for member passwords and invitation or
 recovery tokens.
 
