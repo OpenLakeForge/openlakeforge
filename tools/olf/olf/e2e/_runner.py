@@ -29,6 +29,7 @@ from olf.e2e._isolation import check_stage_isolation
 from olf.e2e._layers import Layer, configured_layers
 from olf.e2e._perimeter import check_perimeter
 from olf.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.e2e._secret_exposure import check_secret_exposure
 from olf.e2e._shell import (
     E2EConfig,
     E2EError,
@@ -278,9 +279,23 @@ def run_full(cfg: E2EConfig) -> None:
             skipped.append(assertion.label)
             log.info(f"Skipping {assertion.label}: {assertion.layer} layer is disabled.")
             continue
-        assertion.check(cfg)
+        try:
+            assertion.check(cfg)
+        except Exception:
+            # A failed run is when logs and diagnostics are most likely to hold a leaked value.
+            if cfg.env == "local" and assertion.check is not check_secret_exposure:
+                _scan_after_failure(cfg)
+            raise
     if skipped:
         log.info("Skipped e2e assertions: " + ", ".join(skipped))
+
+
+def _scan_after_failure(cfg: E2EConfig) -> None:
+    """Best effort: the assertion failure is what the run reports, so a scan problem is only logged."""
+    try:
+        check_secret_exposure(cfg)
+    except Exception as exc:
+        log.error(f"Exposure scan after the failed assertion: {exc}")
 
 
 def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
@@ -305,4 +320,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("cross-stage isolation", check_stage_isolation),
         ]
     )
+    if cfg.env == "local":
+        # Last, so the logs and diagnostics it scans include everything the run did.
+        assertions.append(FullAssertion("identity credential exposure", check_secret_exposure))
     return tuple(assertions)

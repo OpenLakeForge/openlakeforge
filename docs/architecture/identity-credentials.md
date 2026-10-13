@@ -97,6 +97,67 @@ The OpenMetadata bootstrap Job deletes and recreates the ingestion-bot Secret
 each time it runs, so a re-run of that Job is a rotation. Whether a redeploy
 re-runs it was not verified here.
 
+## Exposure scan
+
+`olf e2e run --env local` ends with `identity credential exposure`
+(`tools/olf/olf/e2e/_secret_exposure.py`). It reads the **current** values of
+the identity Secrets from the cluster and looks for those exact strings: the
+Keycloak admin password, the four OIDC client secrets (names from the identity
+contract), the perimeter cookie secret (`oauth2-proxy-cookie`), and the SMTP
+password when the realm Job references one (found through its `SMTP_PASSWORD`
+`secretKeyRef`, because the contract does not carry the SMTP Secret name). It
+also looks for each value base64-encoded (the form Kubernetes stores Secret data
+in) and JSON-escaped (the form in `-o json` and Terraform state). A failure names
+the surface and the Secret (`name/key`), never the value.
+
+With an external issuer (`identity.external_oidc`) the Keycloak admin password
+and the action-link check do not apply; the operator-provided client Secrets,
+the cookie secret and any SMTP password are still scanned. When an earlier
+assertion fails, the scan still runs (best effort) and only logs its result, so
+the run reports the original failure.
+
+| Surface | What is read |
+| --- | --- |
+| Terraform state | The platform root's and the foundation's state files (source checkout: `terraform.tfstate` in each root; installed: under `OPENLAKEFORGE_TERRAFORM_STATE_ROOT`). |
+| ConfigMaps | `kubectl get configmap -o json` in the platform and stage namespaces. |
+| Diagnostics | The bundle `olf diagnostics collect` writes for each of those namespaces. |
+| Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
+
+The diagnostics bundle is also checked for the shape of what has no known value
+to search for: a Keycloak action link (`login-actions/action-token`) or a `password=`/`token=` query string with a
+value. That is the whole check for member passwords and invitation or
+recovery tokens.
+
+A surface that cannot be read (no state file yet, a failed `kubectl`) is
+logged as skipped, not passed. A value shorter than 16 characters is not
+scanned for, because it would match ordinary text; the generated secrets are 32
+characters, so this only affects a short operator-chosen SMTP password, which
+is then logged as not scanned.
+
+Not covered:
+
+- Helm release Secrets (`sh.helm.release.v1.*`) hold the rendered values
+  compressed, and are not decoded. Rendered values reach the scan only through
+  ConfigMaps and logs.
+- CI logs and uploaded CI artifacts: the scan sees the cluster's logs, not the
+  workflow's own output.
+- Member passwords and action tokens are matched by shape, in diagnostics only.
+  A password a user typed that appears in a log is not found. The query-string
+  shape needs a value of at least 8 characters, so a shorter one is not matched.
+- Pod logs older than the tail, logs of pods that were replaced before the
+  scan, logs of a container's previous instance after a restart (`kubectl logs
+  --previous` is not collected), and any surface outside the platform and stage
+  namespaces.
+- A failure before the assertions start (the pod readiness check) does not run
+  the scan.
+- Operator-chosen secrets (external-issuer client secrets, SMTP) containing `<`, `>` or `&` are not matched in Kubernetes JSON output, which Go encodes as `\u003c`, `\u003e`, `\u0026`; generated secrets are alphanumeric and unaffected.
+- Old Terraform state files left from before the bootstrap Job (see "Generate
+  outside Terraform"): only the current state is read.
+- Only the current values are searched, so a rotated-out value that leaked
+  earlier is not found.
+- Not yet run on a cluster: the wiring (`kubectl`, `olf diagnostics collect`,
+  state paths) is unit-tested with fake surfaces only.
+
 ## Not claimed
 
 The bootstrap Job's unit-level guard is the `olf check contracts` rule above.
