@@ -89,10 +89,11 @@ def scan(credentials: Mapping[str, str], surfaces: Surfaces, *, link_surfaces: S
 
 
 def check_secret_exposure(cfg: E2EConfig) -> None:
-    identity = load_provider_contracts_or_raise(cfg)["shared"]["identity"]
+    contracts = load_provider_contracts_or_raise(cfg)
+    identity = contracts["shared"]["identity"]
     keycloak = identity.get("adapter") == "keycloak"
     log.step("Scanning state, ConfigMaps, diagnostics and logs for identity credentials...")
-    namespaces = health_namespaces(cfg)
+    namespaces = scan_namespaces(cfg, contracts)
     bundles = {f"diagnostics bundle of {ns}": _diagnostics_bundle(cfg, ns) for ns in namespaces}
     configmaps = {
         f"ConfigMaps in {ns}": _kubectl_text(cfg, ["get", "configmap", "-n", ns, "-o", "json"]) for ns in namespaces
@@ -100,6 +101,13 @@ def check_secret_exposure(cfg: E2EConfig) -> None:
     surfaces = {**_state_surfaces(cfg), **configmaps, **bundles, **_log_surfaces(cfg, namespaces)}
     # Action links are Keycloak's; the client and cookie Secrets exist with any issuer.
     scan(_credentials(cfg, identity, keycloak=keycloak), surfaces, link_surfaces=bundles if keycloak else {})
+
+
+def scan_namespaces(cfg: E2EConfig, contracts: Mapping[str, Any]) -> tuple[str, ...]:
+    """The shared namespace and every stage's, not only the selected one: the Trino passwords of all stages are
+    scanned for, so a PROD password leaked in PROD's namespace must be found by a run that selected DEV."""
+    stages = (spec.get("namespace") for spec in (contracts.get("stages") or {}).values())
+    return tuple(dict.fromkeys((*health_namespaces(cfg), *filter(None, stages))))
 
 
 def _credentials(cfg: E2EConfig, identity: Mapping[str, Any], *, keycloak: bool = True) -> dict[str, str]:

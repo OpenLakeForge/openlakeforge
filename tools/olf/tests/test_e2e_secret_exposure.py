@@ -178,6 +178,15 @@ def test_an_external_issuer_still_scans_client_and_cookie_secrets_and_a_dotted_k
     assert ("mail", "smtp\\.pw") in read
 
 
+def test_every_stage_namespace_is_scanned_not_only_the_selected_one() -> None:
+    cfg = SimpleNamespace(platform_namespace="olf-system", namespace="olf-dev", shared_namespace="olf-system")
+    contracts = {"stages": {"dev": {"namespace": "olf-dev"}, "prod": {"namespace": "olf-prod"}}}
+
+    assert exposure.scan_namespaces(cfg, contracts) == ("olf-system", "olf-dev", "olf-prod")
+    # Single-namespace roots carry no stage namespaces; the health namespaces are the whole set.
+    assert exposure.scan_namespaces(cfg, {"stages": {"dev": {}}}) == ("olf-system", "olf-dev")
+
+
 def test_failing_to_list_the_secrets_is_an_error_not_no_trino_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: None)
 
