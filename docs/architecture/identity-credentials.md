@@ -120,7 +120,7 @@ the run reports the original failure.
 | Surface | What is read |
 | --- | --- |
 | Terraform state | The platform root's and the foundation's state files (source checkout: `terraform.tfstate` in each root; installed: under `OPENLAKEFORGE_TERRAFORM_STATE_ROOT`). |
-| ConfigMaps | `kubectl get configmap -o json` in the platform and stage namespaces. |
+| ConfigMaps | `kubectl get configmap -o json` in the platform namespace and every stage namespace in the provider contract, not only the stage the run selected. |
 | Diagnostics | The bundle `olf diagnostics collect` writes for each of those namespaces. |
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
 
