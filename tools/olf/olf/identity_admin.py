@@ -148,6 +148,14 @@ class KeycloakAdmin:
                 return dict(found[0])
         return None
 
+    def has_account(self, who: str) -> bool:
+        """Whether an account exists in any state (pending, active or disabled)."""
+        return self._lookup(who) is not None
+
+    @property
+    def can_invite(self) -> bool:
+        return self._email_delivery
+
     def _find(self, who: str) -> dict[str, Any]:
         user = self._lookup(who)
         if user is None:

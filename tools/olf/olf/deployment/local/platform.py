@@ -7,11 +7,14 @@ semantics of the shell script.
 
 from __future__ import annotations
 
+import base64
 import json
-from collections.abc import Mapping
+import os
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 
+from olf import config as olf_config
 from olf import log
 from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
@@ -21,6 +24,7 @@ from olf.deployment.engine import DeploymentConfig, Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.retry import RetryPolicy, run_with_retry
+from olf.profile import SmtpCredentialsRef
 from olf.tooling.kubectl import KubeContextUnreachableError
 
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
@@ -35,6 +39,9 @@ _POLARIS_JOB_PREFIXES = (
 # Every root's shared-services namespace was named "lakehouse" and addressed
 # as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.
 _LEGACY_SHARED_NAMESPACE = "lakehouse"
+# A one-shot way to create the SMTP Secret on a first deploy; see `require_smtp_credentials`.
+SMTP_USERNAME_ENV = "OLF_SMTP_USERNAME"
+SMTP_PASSWORD_ENV = "OLF_SMTP_PASSWORD"
 
 
 def stage_namespace_resource_addr(stage: str) -> str:
@@ -90,10 +97,49 @@ def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return variables
 
 
-def require_smtp_credentials(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    """The SMTP login is a Secret the operator creates before the deploy: the realm
-    Job reads it through `secretKeyRef` and would otherwise sit in
-    CreateContainerConfigError until its ten-minute timeout. Only key names are read."""
+def _smtp_login_from_environment() -> tuple[str, str] | None:
+    username, password = olf_config.env(SMTP_USERNAME_ENV), olf_config.env(SMTP_PASSWORD_ENV)
+    return (username, password) if username and password else None
+
+
+def _create_smtp_secret(
+    deployment: LocalDeploymentConfig,
+    tools: Toolkit,
+    ref: SmtpCredentialsRef,
+    login: tuple[str, str],
+    *,
+    env: Mapping[str, str],
+) -> None:
+    """Create the SMTP Secret with `kubectl create` fed on stdin, so the login is in no argv, log or
+    Terraform input. It cannot replace an existing Secret."""
+    namespace = deployment.context.shared_namespace
+    data = {ref.username_key: login[0], ref.password_key: login[1]}
+    secret = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": ref.name, "namespace": namespace},
+        "data": {key: base64.b64encode(value.encode()).decode() for key, value in data.items()},
+    }
+    tools.kubectl.create_from_manifest(
+        json.dumps(secret), context=deployment.kube_context, kubeconfig=deployment.paths.kubeconfig_path, env=env
+    )
+    log.step(f"Created Secret '{ref.name}' in namespace '{namespace}' from {SMTP_USERNAME_ENV}/{SMTP_PASSWORD_ENV}.")
+
+
+def require_smtp_credentials(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    env: Mapping[str, str],
+    create_namespace: Callable[[], None] | None = None,
+) -> None:
+    """The SMTP login is a Secret in the shared namespace: the realm Job reads it through `secretKeyRef` and
+    would otherwise sit in CreateContainerConfigError until its ten-minute timeout. Only key names are read.
+
+    The platform apply creates that namespace, so on a first deploy the operator can instead put the login in
+    OLF_SMTP_USERNAME and OLF_SMTP_PASSWORD. A missing Secret is then created, never overwritten, once the
+    caller passes `create_namespace` (a Terraform-owned namespace, made just before the Secret). `platform_up`
+    passes it only after the drift reset, which deletes a shared namespace Terraform does not know yet."""
     smtp = config.context.topology.identity.smtp
     if smtp is None or smtp.credentials_secret_ref is None:
         return
@@ -102,14 +148,28 @@ def require_smtp_credentials(config: LocalDeploymentConfig, tools: Toolkit, *, e
         f"kubectl -n {namespace} create secret generic {ref.name} "
         f'--from-literal={ref.username_key}="$SMTP_USERNAME" --from-literal={ref.password_key}="$SMTP_PASSWORD"'
     )
-    if not kube_ops.namespace_exists(
+    hint = (
+        f"Either set {SMTP_USERNAME_ENV} and {SMTP_PASSWORD_ENV} in your shell and re-run the deploy, which creates "
+        f"the Secret, or create it yourself (set SMTP_USERNAME and SMTP_PASSWORD first): {command}"
+    )
+    login = _smtp_login_from_environment()
+    namespace_present = kube_ops.namespace_exists(
         tools.kubectl, namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
-    ):
-        raise DeploymentPreconditionError(
-            f"spec.identity.smtp needs Secret '{ref.name}' in namespace '{namespace}', which does not exist yet. "
-            "Deploy once without spec.identity.smtp, create the Secret (set SMTP_USERNAME and SMTP_PASSWORD in "
-            f"your shell first): {command}; then add smtp to the profile and re-run the deploy."
-        )
+    )
+
+    def provision() -> None:
+        if create_namespace is not None and login is not None:
+            if not namespace_present:
+                create_namespace()
+            _create_smtp_secret(config, tools, ref, login, env=env)
+
+    if not namespace_present:
+        if login is None:
+            raise DeploymentPreconditionError(
+                f"spec.identity.smtp needs Secret '{ref.name}' in namespace '{namespace}', which the platform apply "
+                f"has not created yet. {hint}"
+            )
+        return provision()
     result = tools.kubectl.get(
         "secret",
         name=ref.name,
@@ -121,10 +181,11 @@ def require_smtp_credentials(config: LocalDeploymentConfig, tools: Toolkit, *, e
         check=False,
     )
     if not result.ok:
+        if login is not None and "NotFound" in result.stderr:
+            return provision()
         raise DeploymentPreconditionError(
             f"spec.identity.smtp needs Secret '{ref.name}' in namespace '{namespace}' and kubectl could not read "
-            f"it: {result.stderr.strip() or 'non-zero status'}. Create it (set SMTP_USERNAME and SMTP_PASSWORD in "
-            f"your shell first): {command}"
+            f"it: {result.stderr.strip() or 'non-zero status'}. {hint}"
         )
     missing = {ref.username_key, ref.password_key} - set(result.stdout.split())
     if missing:
@@ -133,6 +194,33 @@ def require_smtp_credentials(config: LocalDeploymentConfig, tools: Toolkit, *, e
             "spec.identity.smtp.credentials_secret_ref names them. Recreate it with the command shape above "
             f"(kubectl delete secret {ref.name} first): {command}"
         )
+
+
+def onboard_bootstrap_admins(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """Invite `spec.identity.bootstrap_admins` through the applied contract's admin binding. Runs outside
+    Terraform, after the realm Job completed, so no user record is in state or in a Terraform input."""
+    emails = config.context.topology.identity.bootstrap_admins
+    if not emails:
+        return
+    from olf import contracts
+    from olf.deployment import bootstrap_admins
+
+    payload = contracts.load_provider_contracts(
+        str(config.paths.platform_terraform_dir),
+        environ={**os.environ, **env},
+        honor_contract_file=False,
+        strict_state=True,
+        resolver=tools.resolver,
+    )
+    if payload is None:
+        raise DeploymentPreconditionError("no applied provider contract to onboard bootstrap_admins through.")
+    os.environ["KUBECONFIG"] = str(config.paths.kubeconfig_path)  # olf.k8s runs kubectl in this process's environment
+    bootstrap_admins.onboard(
+        payload["shared"]["identity"],
+        emails,
+        namespace=config.context.shared_namespace,
+        kube_context=config.kube_context,
+    )
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -438,6 +526,20 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
             env=env,
         )
 
+    def _create_shared_namespace() -> None:
+        # Targeted, so Terraform owns the namespace from the start: importing a hand-made one into a state that
+        # holds nothing else fails, and the Secret has to exist before the realm Job the full apply creates.
+        log.step("Creating the shared namespace first, so the SMTP Secret exists before the realm Job...")
+        tools.terraform.apply(
+            platform_dir,
+            var_files=var_files,
+            variables=variables,
+            extra_args=[f"-target={_SHARED_NAMESPACE_RESOURCE_ADDR}"],
+            env=env,
+        )
+
+    require_smtp_credentials(config, tools, env=env, create_namespace=_create_shared_namespace)
+
     def _apply_once() -> None:
         for prefix in _POLARIS_JOB_PREFIXES:
             kube_ops.cleanup_failed_jobs_by_prefix(
@@ -470,4 +572,5 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
         env=env,
     )
 
+    onboard_bootstrap_admins(config, tools, env=env)
     log.step("Static OpenLakeForge local platform is applied.")

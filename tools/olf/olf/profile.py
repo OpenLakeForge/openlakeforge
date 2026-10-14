@@ -41,7 +41,7 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
-_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp"}
+_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp", "bootstrap_admins"}
 _IDENTITY_ISSUERS = ("keycloak", "external")
 _SMTP_FIELDS = {"host", "port", "from_address", "from_name", "security", "auth", "credentials_secret_ref"}
 _SMTP_SECURITY = ("none", "starttls", "ssl")
@@ -149,6 +149,8 @@ class IdentitySpec:
     client_ids: Mapping[str, str] | None = None
     # Only for the issuer OpenLakeForge deploys; an external issuer sends its own mail.
     smtp: SmtpSpec | None = None
+    # Emails invited as platform-admin at deploy, once; the issuer owns the account afterwards (#331).
+    bootstrap_admins: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -439,6 +441,12 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
                 f"{where}.smtp requires issuer 'keycloak' (an external issuer sends its own mail)"
             )
         smtp = _validate_smtp(document["smtp"], where=f"{where}.smtp")
+    admins = document.get("bootstrap_admins", [])
+    if not isinstance(admins, list) or not all(isinstance(a, str) and _EMAIL_PATTERN.fullmatch(a) for a in admins):
+        raise DeploymentProfileError(f"{where}.bootstrap_admins must be a list of email addresses")
+    admins = [a.lower() for a in admins]  # the issuer lowercases usernames and emails
+    if len(set(admins)) != len(admins):
+        raise DeploymentProfileError(f"{where}.bootstrap_admins must not repeat an address")
     return IdentitySpec(
         issuer=issuer,
         issuer_url=issuer_url,
@@ -446,6 +454,7 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         role_mapping=mapping,
         client_ids=client_ids,
         smtp=smtp,
+        bootstrap_admins=tuple(admins),
     )
 
 

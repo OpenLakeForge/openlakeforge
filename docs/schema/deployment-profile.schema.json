@@ -60,6 +60,12 @@
               "propertyNames": {"enum": ["perimeter", "superset", "openmetadata", "trino"]},
               "additionalProperties": {"type": "string", "minLength": 1}
             },
+            "bootstrap_admins": {
+              "type": "array",
+              "uniqueItems": true,
+              "description": "Emails invited once as platform-admin at deploy. Never resent, re-enabled or restored on a redeploy, and removing an entry deletes nothing.",
+              "items": {"type": "string", "pattern": "^[^@\\s<>,;\"]+@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"}
+            },
             "smtp": {
               "type": "object",
               "additionalProperties": false,

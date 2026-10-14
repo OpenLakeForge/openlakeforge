@@ -4,6 +4,7 @@ import io
 import json
 import tarfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
@@ -567,9 +568,9 @@ def test_smtp_reaches_the_root_as_settings_and_a_secret_reference_only(tmp_path:
 
 
 class _SecretRunner(RecordingRunner):
-    def __init__(self, *, namespace: bool = True, keys: str | None = "username\npassword\n") -> None:
+    def __init__(self, *, namespace: bool = True, keys: str | None = "username\npassword\n", stderr: str = "") -> None:
         super().__init__()
-        self._namespace, self._keys = namespace, keys
+        self._namespace, self._keys, self._stderr = namespace, keys, stderr
 
     def run(self, command, **kwargs):  # type: ignore[override]
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
@@ -577,7 +578,9 @@ class _SecretRunner(RecordingRunner):
         if "namespace" in argv:
             return _ok() if self._namespace else _fail()
         if "secret" in argv:
-            return _ok(self._keys) if self._keys is not None else _fail()
+            if self._keys is None:
+                return CommandResult(argv=(), returncode=1, stdout="", stderr=self._stderr, duration_seconds=0.0)
+            return _ok(self._keys)
         return _ok()
 
 
@@ -604,7 +607,7 @@ def test_smtp_without_auth_needs_no_secret(tmp_path: Path) -> None:
     [
         (_SecretRunner(keys=None), "could not read it"),
         (_SecretRunner(keys="username\n"), r"lacks key\(s\) \['password'\]"),
-        (_SecretRunner(namespace=False), "does not exist yet"),
+        (_SecretRunner(namespace=False), "has not created yet"),
     ],
 )
 def test_missing_smtp_credentials_fail_before_deploy_with_the_create_command_shape(
@@ -614,3 +617,59 @@ def test_missing_smtp_credentials_fail_before_deploy_with_the_create_command_sha
         _require_smtp(tmp_path, runner)
 
     assert 'create secret generic smtp-creds --from-literal=username="$SMTP_USERNAME"' in str(error.value)
+
+
+def test_a_first_deploy_without_the_secret_or_the_environment_login_names_the_one_shot_path(tmp_path: Path) -> None:
+    with pytest.raises(DeploymentPreconditionError, match="OLF_SMTP_USERNAME and OLF_SMTP_PASSWORD"):
+        _require_smtp(tmp_path, _SecretRunner(namespace=False))
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_smtp_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLF_SMTP_USERNAME", raising=False)
+    monkeypatch.delenv("OLF_SMTP_PASSWORD", raising=False)
+
+
+def _creates(runner: RecordingRunner) -> list[Any]:
+    return [call for call in runner.calls if call.argv[-3:] == ["create", "-f", "-"]]
+
+
+@pytest.mark.parametrize(
+    ("runner", "namespaces_created"),
+    [
+        (_SecretRunner(namespace=False), 1),
+        (_SecretRunner(keys=None, stderr='secrets "smtp-creds" not found (NotFound)'), 0),
+    ],
+)
+def test_the_smtp_login_from_the_environment_creates_the_missing_secret_without_putting_it_in_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: RecordingRunner, namespaces_created: int
+) -> None:
+    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
+    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
+    platform.require_smtp_credentials(_smtp_config(tmp_path), _toolkit(runner), env={})
+    assert _creates(runner) == []  # the early check only tolerates the gap; it creates nothing
+
+    order: list[str] = []
+    platform.require_smtp_credentials(
+        _smtp_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: order.append("namespace")
+    )
+
+    (call,) = _creates(runner)
+    secret = json.loads(call.kwargs["input_text"])
+    assert (secret["kind"], secret["data"]) == ("Secret", {"username": "bWFpbGVy", "password": "czNjcjN0LXZhbHVl"})
+    assert order == ["namespace"] * namespaces_created  # the namespace is made only when absent
+    assert "s3cr3t-value" not in " ".join(call.argv)
+
+
+def test_an_existing_smtp_secret_is_never_replaced_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
+    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
+    runner = _SecretRunner()
+
+    platform.require_smtp_credentials(
+        _smtp_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+    )
+
+    assert _creates(runner) == []

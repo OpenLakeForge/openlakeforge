@@ -441,6 +441,24 @@ def test_smtp_requires_the_keycloak_issuer_because_an_external_issuer_sends_its_
         validate_deployment_profile(_smtp_profile(_SMTP, **external))
 
 
+def _admins_profile(admins: object) -> dict:
+    document = _smtp_profile(_SMTP)
+    document["spec"]["identity"] = {"bootstrap_admins": admins}
+    return document
+
+
+def test_bootstrap_admins_default_to_none_and_are_lowercased() -> None:
+    assert validate_deployment_profile(_smtp_profile(_SMTP)).identity.bootstrap_admins == ()
+    admins = validate_deployment_profile(_admins_profile(["Ada@Example.org", "bob@example.org"])).identity
+    assert admins.bootstrap_admins == ("ada@example.org", "bob@example.org")
+
+
+@pytest.mark.parametrize("admins", ["ada@example.org", ["not-an-email"], [1], ["a@example.org", "A@example.org"]])
+def test_bootstrap_admins_must_be_distinct_email_addresses(admins: object) -> None:
+    with pytest.raises(DeploymentProfileError, match="bootstrap_admins"):
+        validate_deployment_profile(_admins_profile(admins))
+
+
 def test_render_json_carries_smtp_settings_and_secret_reference_but_no_credentials() -> None:
     topology = resolve_topology(validate_deployment_profile(_smtp_profile(_SMTP_AUTH)))
     smtp = json.loads(topology.render_json())["identity"]["smtp"]
