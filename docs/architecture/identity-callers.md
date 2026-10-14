@@ -108,7 +108,10 @@ in `olf e2e` pass `through_ingress=True`.
 **Still open.** How these callers authenticate to Superset and OpenMetadata
 once those accept only issuer login (#25): **to verify** whether the native
 `db` login of `SupersetClient` and the OpenMetadata basic login survive OIDC
-being enabled.
+being enabled. Read from source in
+[`identity-service-permissions.md`](identity-service-permissions.md): the
+Superset REST `db` login should survive; OpenMetadata's basic login does not
+(it answers 403 under `custom-oidc`), so those callers move to a bot token.
 
 ## Dagster boundary
 
