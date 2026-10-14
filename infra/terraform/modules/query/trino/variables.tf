@@ -150,4 +150,15 @@ variable "workload_authentication_enabled" {
     condition     = !var.workload_authentication_enabled || length(var.stage_namespaces) > 0
     error_message = "workload_authentication_enabled needs stage_namespaces: without the credential Job there is no password for any caller."
   }
+
+  validation {
+    condition     = !var.workload_authentication_enabled || var.tls_issuer_name != null
+    error_message = "workload_authentication_enabled needs tls_issuer_name: passwords are only accepted over HTTPS."
+  }
+}
+
+variable "tls_issuer_name" {
+  description = "cert-manager ClusterIssuer that signs the Trino serving certificate. Only read when workload_authentication_enabled is true."
+  type        = string
+  default     = null
 }

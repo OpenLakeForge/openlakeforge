@@ -32,6 +32,8 @@ REPO = Path(__file__).resolve().parents[2]
 NAME = "olf-trino-auth-proof"
 HTTPS_PORT, HTTP_PORT = 18443, 18080
 STAGES = ("dev", "prod")
+# OpenMetadata crawls every stage catalog read-only (modules/query/trino).
+PRINCIPALS = ("olf-dev-runtime", "olf-prod-runtime", "openmetadata")
 ITERATIONS = 10_000
 COUNT = "SELECT count(*) FROM {catalog}.tiny.nation"
 
@@ -61,13 +63,16 @@ def access_rules(*, bind_principals: bool = True, acts_as: tuple[str, str] | Non
     user)` also lets that stage's principal act as `user`, read-only on its catalog: the per-user shape of #179.
     """
     catalogs = [{"user": principal(s), "catalog": f"lakehouse_{s}", "allow": "all"} for s in STAGES]
-    principals = [{"principal": principal(s), "user": principal(s), "allow": True} for s in STAGES]
+    catalogs += [{"user": "openmetadata", "catalog": f"lakehouse_{s}", "allow": "read-only"} for s in STAGES]
+    principals = [{"principal": p, "user": p, "allow": True} for p in PRINCIPALS]
     if acts_as:
         stage, user = acts_as
         catalogs.append({"user": user, "catalog": f"lakehouse_{stage}", "allow": "read-only"})
         principals[STAGES.index(stage)]["user"] = f"{principal(stage)}|{user}"
     catalogs += [{"catalog": "system", "allow": "read-only"}, {"catalog": ".*", "allow": "none"}]
-    rules: dict = {"catalogs": catalogs}
+    # The unconditional table rule is what the module renders for Polaris-backed catalogs.
+    tables = [{"privileges": ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"]}]
+    rules: dict = {"catalogs": catalogs, "tables": tables}
     if bind_principals:
         rules["principals"] = [*principals, {"principal": ".*", "user": ".*", "allow": False}]
     return rules
@@ -95,15 +100,23 @@ class Server:
         openssl("pkey", "-in", "srv.key", "-out", "srv.pk8")
         # Only `pub` reaches containers: the CA and server keys stay out of them.
         (self.pub / "server.pem").write_text((tls / "srv.pk8").read_text() + (tls / "srv.crt").read_text())
+        # cert-manager's CombinedPEM output: the PKCS8 key, then the certificate chain (leaf, CA).
+        chain = (tls / "srv.crt").read_text() + (self.pub / "ca.crt").read_text()
+        (self.pub / "tls-combined.pem").write_text((tls / "srv.pk8").read_text() + chain)
 
-    def write_files(self, *, secured: bool) -> None:
+    def write_files(self, *, secured: bool, deployed: bool = False, forwarded: bool = False) -> None:
+        """`deployed` is the shape modules/query/trino renders: the CombinedPEM keystore, the shared secret from the
+        environment and no `http-server.process-forwarded`, which `forwarded` adds back to show why."""
         (self.etc / "catalog").mkdir(parents=True, exist_ok=True)
         config = "coordinator=true\nnode-scheduler.include-coordinator=true\nhttp-server.http.port=8080\n"
         config += "discovery.uri=http://localhost:8080\nhttp-server.https.enabled=true\nhttp-server.https.port=8443\n"
-        config += "http-server.https.keystore.path=/etc/trino/tls/server.pem\n"
+        config += f"http-server.https.keystore.path=/etc/trino/tls/{'tls-combined' if deployed else 'server'}.pem\n"
+        config += "http-server.process-forwarded=true\n" if forwarded else ""
         if secured:
             config += "http-server.authentication.type=PASSWORD\n"
-            config += f"internal-communication.shared-secret={secrets.token_hex(16)}\n"
+            config += "internal-communication.shared-secret=" + (
+                "${ENV:TRINO_INTERNAL_SECRET}\n" if deployed else f"{secrets.token_hex(16)}\n"
+            )
             (self.etc / "password-authenticator.properties").write_text(
                 "password-authenticator.name=file\nfile.password-file=/etc/trino/password.db\nfile.refresh-period=1s\n"
             )
@@ -129,6 +142,7 @@ class Server:
         names = [f"{f}.properties" for f in files] + ["password.db", "rules.json", "catalog"]
         mounts = [(self.etc / name, f"/etc/trino/{name}") for name in names]
         cmd = ["docker", "run", "-d", "--name", NAME, "--memory", "1500m", "-v", f"{self.pub}:/etc/trino/tls:ro"]
+        cmd += ["-e", f"TRINO_INTERNAL_SECRET={secrets.token_hex(16)}"]
         cmd += ["-p", f"127.0.0.1:{HTTPS_PORT}:8443", "-p", f"127.0.0.1:{HTTP_PORT}:8080"]
         for source, target in mounts:
             cmd += ["-v", f"{source}:{target}:ro"] if source.exists() else []
@@ -141,9 +155,9 @@ class Server:
         subprocess.run(["docker", "rm", "-f", NAME], capture_output=True)
 
     def statement(self, sql: str, *, creds: tuple[str, str] | None = None, header_user: str | None = None,
-                  plain_http: bool = False) -> tuple[bool, str]:
+                  plain_http: bool = False, headers: dict[str, str] | None = None) -> tuple[bool, str]:
         """POST a statement the way every Trino client does: (succeeded, first value or error text)."""
-        headers = {"X-Trino-Source": "olf-proof"}
+        headers = {"X-Trino-Source": "olf-proof", **(headers or {})}
         if header_user:
             headers["X-Trino-User"] = header_user
         if creds:
@@ -245,6 +259,39 @@ def server_cases(server: Server, report: Report) -> None:
     ask("g3 DEV credential acting as bob", False, "cannot become user", "lakehouse_dev", creds=dev, header_user="bob")
 
 
+def deployed_cases(server: Server, report: Report) -> None:
+    """The server as modules/query/trino configures it, restarted from the cases above."""
+    sql = COUNT.format
+    dev, prod, om = ((u, server.passwords[u]) for u in PRINCIPALS)
+    spoof = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "trino"}
+
+    def restart(*, forwarded: bool) -> None:
+        server.stop()
+        server.write_files(secured=True, deployed=True, forwarded=forwarded)
+        server.start()
+        server.wait_ready(creds=dev)
+
+    restart(forwarded=False)
+    report.case("k1 deployed shape (CombinedPEM keystore, shared secret from the environment): DEV reads DEV", True,
+                server.statement(sql(catalog="lakehouse_dev"), creds=dev), "25")
+    # Without process-forwarded Trino refuses any X-Forwarded-* request outright, so the spoof cannot make the
+    # HTTP port look secure. The same refusal is what Traefik's forwarded requests get (see k4 and the ADR).
+    report.case("k2 valid PROD credential on the HTTP port with a spoofed X-Forwarded-Proto: https", False,
+                server.statement(sql(catalog="lakehouse_prod"), creds=prod, plain_http=True, headers=spoof),
+                "HTTP 406")
+    report.case("k3 X-Trino-User only on the HTTP port with a spoofed X-Forwarded-Proto: https", False,
+                server.statement(sql(catalog="lakehouse_prod"), header_user=prod[0], plain_http=True, headers=spoof),
+                "HTTP 40")
+    for stage in STAGES:
+        report.case(f"o1 OpenMetadata credential reads the {stage.upper()} catalog", True,
+                    server.statement(sql(catalog=f"lakehouse_{stage}"), creds=om), "25")
+    report.case("o2 OpenMetadata credential claims olf-prod-runtime", False,
+                server.statement(sql(catalog="lakehouse_prod"), creds=om, header_user=prod[0]), "cannot become user")
+    restart(forwarded=True)
+    report.case("k4 CONTROL, process-forwarded=true: the same spoof gets the password accepted over HTTP", True,
+                server.statement(sql(catalog="lakehouse_prod"), creds=prod, plain_http=True, headers=spoof), "25")
+
+
 def client_cases(server: Server, report: Report) -> None:
     """The repository's real client libraries and CLI, at the versions it ships."""
     user = principal("dev")
@@ -311,7 +358,7 @@ def main() -> int:
     Server.stop()
     # Under $HOME, not /tmp: a snap-packaged Docker daemon cannot bind-mount /tmp.
     with tempfile.TemporaryDirectory(prefix="olf-trino-proof-", dir=Path.home()) as tmp:
-        passwords = {principal(s): secrets.token_urlsafe(24) for s in STAGES}
+        passwords = {user: secrets.token_urlsafe(24) for user in PRINCIPALS}
         server = Server(Path(tmp), passwords)
         try:
             server.make_tls()
@@ -326,6 +373,7 @@ def main() -> int:
             server_cases(server, report)
             if args.clients:
                 client_cases(server, report)
+            deployed_cases(server, report)
         finally:
             server.stop()
     print(f"\n{'FAILED: ' + str(report.failed) if report.failed else 'all cases passed'}")

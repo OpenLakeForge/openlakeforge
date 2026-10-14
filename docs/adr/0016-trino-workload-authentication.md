@@ -2,15 +2,16 @@
 
 ## Status
 
-Decided and proven in isolation; **migration in progress**. Built so far
-(migration step 2, first half): the credential Job in `modules/query/trino`
-creates the principal Secrets, `trino-password-file` and
-`trino-internal-secret` and replicates each stage's principal, and the
-`trino_workload_authentication_enabled` switch exists, default off and read by
-nothing yet. No caller, chart value or Trino setting has changed. What binds is
-the selection, the principal mapping and the migration order. Until the
-migration lands Trino runs unauthenticated and its row in
-`docs/technical-debt.md` stays open.
+Decided and proven in isolation; **migration in progress**. Built so far: the
+credential Job in `modules/query/trino` creates the principal Secrets,
+`trino-password-file` and `trino-internal-secret` and replicates each stage's
+principal; behind `trino_workload_authentication_enabled` (default off) the
+module also issues the serving certificate, opens the HTTPS listener, turns on
+`PASSWORD` authentication and renders the `principals` rules. No caller has its
+credential yet, so the switch must stay off until they do, and with it off no
+chart value or Trino setting differs from before. What binds is the selection,
+the principal mapping and the migration order. Until the migration lands Trino
+runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
 ## Context
 
@@ -94,10 +95,10 @@ bcrypt). A stage namespace never receives another stage's Secret. Chart wiring:
 | Piece | Decision |
 | --- | --- |
 | Certificate | cert-manager `Certificate` from the `local-ca` ClusterIssuer (ADR 0013), SANs `trino`, `trino.olf-system`, `trino.olf-system.svc`, the cluster-local FQDN and `localhost` (the in-pod CLI), PKCS8 key |
-| Keystore | Trino reads a PEM file of key then certificate (proved with an openssl-built file). That cert-manager's `CombinedPEM` output supplies it, and whether Trino reloads it on renewal, are **to verify** |
+| Keystore | Trino reads a PEM file of the PKCS8 key then the certificate chain. The `Certificate` asks cert-manager for `CombinedPEM` (key `tls-combined.pem`, a GA output format in the pinned v1.21.2: no feature gate); the Secret is mounted as a directory at `/etc/trino/tls`. Case k1 serves from a file in that layout. **Not followed on renewal**: with the file replaced by the symlink swap a Secret volume uses, the served certificate was unchanged 90 seconds later (run by hand, not in the script), so renewal needs a coordinator restart; the certificate lasts a year (`renewBefore` 30 days) |
 | Workload trust | callers use `trino.olf-system.svc.cluster.local:8443` and mount ConfigMap `olf-local-ca` (`ca.crt`, already in `olf-system` and every stage namespace, ADR 0013 decision 8) |
 | HTTP port | stays, because the chart's probes use it. Proved: `GET /v1/info` needs no credential (h) and a query or password on it is refused (c2, c4). Callers should not be offered it (#46) |
-| Ingress hop | Traefik reaches Trino over HTTP with `X-Forwarded-*` today. Whether Trino then treats that as secure was **not tested**; the human OAuth2 change decides it, with `web-ui.authentication.type` keeping the UI login separate from workload passwords |
+| Ingress hop | Traefik reaches Trino over HTTP with `X-Forwarded-*`. `http-server.process-forwarded` is **not set** when authentication is on (k2-k4): with it set, a pod sending `X-Forwarded-Proto: https` to the HTTP port has its password accepted there; without it Trino answers any `X-Forwarded-*` request `406`. Traefik's requests carry those headers, so **the `shared/query` route to Trino answers 406 while authentication is on**. Restoring it (the human OAuth2 change, `web-ui.authentication.type` keeping the UI login separate from workload passwords) needs either Traefik not forwarding those headers or accepting a cleartext password on the HTTP port; that is open |
 
 ### Consumer configuration
 
@@ -145,10 +146,13 @@ Found in review; the migration must settle each before step 4.
   0013 decision 8), and AWS and Azure expose Trino over HTTP; define the CA and
   certificate there, or a provider-neutral trust input in the contract.
 - `infra/helm/values/local/trino.yaml` sets `http-server.process-forwarded=true`
-  in all three roots, which the proof server omits. A pod may be able to send
-  `X-Forwarded-Proto: https` to port 8080 and have a password accepted over
-  plain HTTP; disable it on the Service or prove c2/c4 with it set and the
-  header spoofed.
+  in all three roots, which the proof server omits. **Settled for the local
+  root, with a consequence**: a pod can send `X-Forwarded-Proto: https` to
+  port 8080 and have a password accepted over plain HTTP (k4), so the module
+  drops the setting when authentication is on and the spoof is refused (k2,
+  k3). The cost is the `shared/query` route above, and `olf e2e`'s perimeter
+  check that a role granted `query` reaches it (`check_role_decisions`)
+  cannot pass with authentication on until that is resolved.
 - OpenMetadata stores the Trino password encrypted with its Fernet key, which
   `infra/helm/values/local/openmetadata.yaml` sets to the public upstream
   default; generate a per-deployment key Secret before persisting it.
@@ -185,6 +189,14 @@ self-check in `tools/olf/tests/test_trino_workload_auth_proof.py`. Run on
 | h | `GET /v1/info` on the HTTP port, no credential (the chart's probe) | `200`, `"state":"ACTIVE"` |
 | e1, e2 | PROD password rewritten in `password.db`, no restart | old: `401 Invalid credentials`; new: accepted: 25 |
 | g1-g3 | DEV principal also allowed as `alice` (read-only on DEV) | as `alice`: DEV 25, PROD `Cannot access catalog lakehouse_prod`; as `bob`: `cannot become user bob` |
+| k1 | The configuration `modules/query/trino` renders: CombinedPEM keystore, `internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SECRET}`, no `process-forwarded`; DEV credential, DEV catalog | accepted: 25 |
+| k2, k3 | On that server, the HTTP port with `X-Forwarded-Proto: https` and a valid PROD credential, or `X-Trino-User` only | `406 ... does not allow processing of the X-Forwarded-Proto header` |
+| k4 | Control: the same server with `http-server.process-forwarded=true`, the k2 request | accepted: 25 (why the setting is dropped) |
+| o1, o2 | `openmetadata` credential: both stage catalogs; claiming `olf-prod-runtime` | accepted: 25 each; `Principal openmetadata cannot become user olf-prod-runtime` |
+
+k1-k4 and o1-o2 were added on 2026-10-14 and run without `--clients`; the
+rules the script serves now include the `openmetadata` principal and the
+unconditional `tables` rule, as the module renders them.
 
 Clients, against the same secured server, each returned 25 (dbt: `Connection
 test: [OK connection ok]`): the `trino` 0.340 driver via a SQLAlchemy
@@ -214,3 +226,6 @@ platform.
 
 New record (#26 decision gate): mechanism selected and proven; nothing built.
 Credential Job and the default-off switch landed (migration step 2, first half).
+HTTPS listener, certificate, `PASSWORD` authentication and `principals` rules
+added behind the switch; `process-forwarded` and keystore reload settled by
+cases k1-k4 and a manual renewal check.

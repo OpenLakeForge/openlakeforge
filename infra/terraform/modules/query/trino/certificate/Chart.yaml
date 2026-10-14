@@ -1,0 +1,5 @@
+apiVersion: v2
+name: trino-certificate
+description: Serving certificate for the Trino HTTPS listener, issued by a cert-manager ClusterIssuer.
+type: application
+version: 0.1.0

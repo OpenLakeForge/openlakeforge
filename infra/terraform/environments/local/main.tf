@@ -374,6 +374,7 @@ module "trino" {
 
   stage_namespaces                = local.stage_namespaces
   workload_authentication_enabled = var.trino_workload_authentication_enabled
+  tls_issuer_name                 = module.cert_manager.cluster_issuer_name
 
   depends_on = [
     module.polaris,
