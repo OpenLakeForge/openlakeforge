@@ -35,6 +35,7 @@ _POLARIS_JOB_PREFIXES = (
     "keycloak-credentials-",
     "keycloak-realm-",
     "oauth2-proxy-cookie-",
+    "trino-credentials-",
 )
 # Every root's shared-services namespace was named "lakehouse" and addressed
 # as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.

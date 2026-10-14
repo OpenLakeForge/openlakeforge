@@ -372,6 +372,9 @@ module "trino" {
   stage_catalog_contracts    = local.stage_catalog_contracts
   catalog_bootstrap_revision = local.polaris_bootstrap_hash
 
+  stage_namespaces                = local.stage_namespaces
+  workload_authentication_enabled = var.trino_workload_authentication_enabled
+
   depends_on = [
     module.polaris,
   ]
