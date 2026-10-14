@@ -15,6 +15,13 @@ from olf import k8s
 TIMEOUT = 15
 PAGE = 200
 KEYCLOAK_DRIVER = "identity.admin.keycloak"
+# What the member does through the mailed link: confirm the address, then choose their own password.
+SETUP_ACTIONS = ["VERIFY_EMAIL", "UPDATE_PASSWORD"]
+SETUP_LIFESPAN = 86400  # seconds a setup link stays usable
+NO_MAIL = (
+    "This issuer cannot send mail (shared.identity.capabilities.email_delivery is not true), so it cannot invite "
+    "anyone. Set spec.identity.smtp and re-run `olf deploy --phase platform`. No account was created."
+)
 NO_ADMIN = (
     "This issuer exposes no admin API (shared.identity.capabilities.admin_api is not true), so olf cannot change "
     "users. Use the issuer's own administration surface; listing users also needs a directory-read capability, "
@@ -24,6 +31,21 @@ NO_ADMIN = (
 
 class AdminError(RuntimeError):
     """A failure the operator can act on; its message is safe to print."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class DeliveryError(AdminError):
+    """The issuer is healthy and the account exists, but it could not send the setup mail."""
+
+    def __init__(self, email: str) -> None:
+        super().__init__(
+            f"The issuer could not send the setup email to {email}: check the SMTP server in spec.identity.smtp. "
+            f"The account is pending and has no access; retry with `olf users resend {email}` (no deploy needed)."
+        )
+        self.email = email
 
 
 @dataclass(frozen=True)
@@ -66,6 +88,7 @@ class KeycloakAdmin:
         client_secret: str,
         roles: RoleModel,
         session: requests.Session | None = None,
+        email_delivery: bool = False,
     ) -> None:
         self._base = base_url.rstrip("/")
         self._realm = realm
@@ -73,6 +96,7 @@ class KeycloakAdmin:
         self._roles = roles
         self._http = session or requests.Session()
         self._token: str | None = None
+        self._email_delivery = email_delivery
 
     def _login(self) -> str:
         reply = self._http.post(
@@ -95,7 +119,7 @@ class KeycloakAdmin:
             **kwargs,
         )
         if reply.status_code >= 400:
-            raise AdminError(f"The issuer answered {method} {path} with HTTP {reply.status_code}.")
+            raise AdminError(f"The issuer answered {method} {path} with HTTP {reply.status_code}.", reply.status_code)
         return reply.json() if reply.content else None
 
     def _pages(self, path: str) -> Iterator[dict[str, Any]]:
@@ -113,7 +137,7 @@ class KeycloakAdmin:
                 return str(group["id"])
         raise AdminError(f"The issuer has no group {names[0]!r} for role {role!r}; re-run the platform phase.")
 
-    def _find(self, who: str) -> dict[str, Any]:
+    def _lookup(self, who: str) -> dict[str, Any] | None:
         for field in ("username", "email"):
             found = self._call("GET", "/users", params={field: who, "exact": "true"})
             # ponytail: the user representation does not say which users are service accounts, their
@@ -122,7 +146,13 @@ class KeycloakAdmin:
                 raise AdminError(f"{who!r} is a service account, not a person; olf users does not administer it.")
             if found:
                 return dict(found[0])
-        raise AdminError(f"No user {who!r} (searched by username and email).")
+        return None
+
+    def _find(self, who: str) -> dict[str, Any]:
+        user = self._lookup(who)
+        if user is None:
+            raise AdminError(f"No user {who!r} (searched by username and email).")
+        return user
 
     def users(self) -> list[User]:
         """Every user with the canonical roles they hold, by group membership."""
@@ -155,6 +185,51 @@ class KeycloakAdmin:
             self._call("POST", f"/users/{user['id']}/logout")
 
 
+    def _pending(self, who: str, verb: str) -> dict[str, Any]:
+        user = self._find(who)
+        if not user.get("enabled") or not user.get("requiredActions"):
+            state = "disabled" if not user.get("enabled") else "active"
+            raise AdminError(f"{who} is {state}, not pending; `olf users {verb}` applies only to unfinished setup.")
+        return user
+
+    def _send_setup(self, user: dict[str, Any], actions: list[str]) -> None:
+        path = f"/users/{user['id']}/execute-actions-email"
+        try:
+            self._call("PUT", path, params={"lifespan": SETUP_LIFESPAN}, json=actions)
+        except AdminError as exc:
+            if exc.status != 500:  # Keycloak's answer when the SMTP server refuses or is unreachable
+                raise
+            raise DeliveryError(user["email"]) from exc
+
+    def invite(self, email: str, role: str) -> None:
+        """Create a pending account holding `role` and mail its setup link; the member chooses the password.
+        A DeliveryError leaves the account pending, so `resend` can finish the job."""
+        if not self._email_delivery:
+            raise AdminError(NO_MAIL)
+        if "@" not in email:
+            raise AdminError(f"{email!r} is not an email address.")
+        email = email.lower()
+        group = self._group_id(role)
+        if self._lookup(email):
+            raise AdminError(f"{email} already has an account; `olf users resend` is for a pending one.")
+        account = {"username": email, "email": email, "enabled": True, "emailVerified": False}
+        self._call("POST", "/users", json=account | {"requiredActions": SETUP_ACTIONS})
+        user = self._find(email)
+        self._call("PUT", f"/users/{user['id']}/groups/{group}")
+        self._send_setup(user, SETUP_ACTIONS)
+
+    def resend(self, who: str) -> None:
+        """Mail a pending account a fresh link for the actions it still owes; grants nothing."""
+        if not self._email_delivery:
+            raise AdminError(NO_MAIL)
+        user = self._pending(who, "resend")
+        self._send_setup(user, user["requiredActions"])
+
+    def cancel(self, who: str) -> None:
+        """Delete a pending account; its mailed links stop working with it."""
+        self._call("DELETE", f"/users/{self._pending(who, 'cancel')['id']}")
+
+
 @contextlib.contextmanager
 def connect(identity: Mapping[str, Any], *, secret_namespace: str, kube_context: str | None) -> Iterator[KeycloakAdmin]:
     """An admin client for a contract's `identity` binding; a `service` is reached by `kubectl port-forward`,
@@ -170,11 +245,12 @@ def connect(identity: Mapping[str, Any], *, secret_namespace: str, kube_context:
         secret = k8s.secret_value(ref["name"], ref["key"], namespace, kube_context=kube_context)
         realm = str(identity["issuer_url"].rsplit("/", 1)[1])
         args = (realm, admin["client_id"], secret, RoleModel.from_contract(identity))
+        mail = bool(identity.get("capabilities", {}).get("email_delivery"))
         if service is None:
-            yield KeycloakAdmin(admin["admin_url"], *args)
+            yield KeycloakAdmin(admin["admin_url"], *args, email_delivery=mail)
             return
         name, port_, ns = service["name"], service["port"], service["namespace"]
         with k8s.port_forward(name, port_, ns, kube_context=kube_context) as port:
-            yield KeycloakAdmin(f"http://127.0.0.1:{port}", *args)
+            yield KeycloakAdmin(f"http://127.0.0.1:{port}", *args, email_delivery=mail)
     except k8s.KubectlError as exc:
         raise AdminError(f"Could not reach the issuer through kubectl: {exc}") from exc

@@ -52,6 +52,34 @@ def test_grant_revoke_disable_and_enable_change_the_issuer(monkeypatch: pytest.M
     assert _run("grant", "ada", "--role", "root").exit_code == 1
 
 
+def test_invite_resend_and_cancel_report_json_and_never_a_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeKeycloak()
+    _issuer(monkeypatch, IDENTITY, fake)
+
+    invited = _run("invite", "new@example.org", "--role", "analyst", "--json")
+    user = {"user": "new@example.org"}
+    assert json.loads(invited.output) == user | {"state": "pending", "role": "analyst", "email_sent": True}
+    assert json.loads(_run("resend", "new@example.org", "--json").output)["email_sent"] is True
+    assert json.loads(_run("cancel", "new@example.org", "--json").output) == user | {"cancelled": True}
+    assert "new@example.org" not in {u["username"] for u in fake.users}
+    assert _run("resend", "ada").exit_code == 1  # active: refused
+
+
+def test_a_delivery_failure_exits_2_unlike_other_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeKeycloak()
+    fake.smtp_down = True
+    _issuer(monkeypatch, IDENTITY, fake)
+
+    failed = _run("invite", "new@example.org", "--role", "viewer", "--json")
+
+    assert failed.exit_code == 2
+    assert json.loads(failed.output) | {"error": ""} == {
+        "user": "new@example.org", "state": "pending", "email_sent": False, "error": ""
+    }
+    assert _run("list", "--json").exit_code == 0
+    assert _run("invite", "x@example.org", "--role", "root").exit_code == 1  # not a role: plain failure
+
+
 def test_without_an_admin_api_the_command_explains_and_roles_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
     identity = {k: v for k, v in IDENTITY.items() if k != "admin"} | {"capabilities": {"admin_api": False}}
     monkeypatch.setattr(users, "_identity", lambda *_args: (identity, "olf-system", "kind-x"))

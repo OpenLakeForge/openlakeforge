@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import secrets
 import time
 from collections.abc import Iterator
@@ -34,6 +35,18 @@ SMTP_PORT = 1025
 API_PORT = 8025
 REQUEST_TIMEOUT = 15
 DELIVERY_WAIT_SECONDS = 30
+
+
+def sink_smtp(cfg: E2EConfig) -> dict[str, str]:
+    """A realm `smtpServer` that delivers to the sink, unauthenticated."""
+    return {
+        "host": f"{SINK}.{cfg.platform_namespace}.svc",
+        "port": str(SMTP_PORT),
+        "from": "olf-e2e@example.invalid",
+        "auth": "false",
+        "ssl": "false",
+        "starttls": "false",
+    }
 
 
 def _call(admin: requests.Session, method: str, url: str, **kwargs: Any) -> requests.Response:
@@ -77,18 +90,36 @@ def mail_sink(cfg: E2EConfig) -> Iterator[None]:
         _remove_sink(cfg)
 
 
+def _sink_api(cfg: E2EConfig, path: str) -> Any:
+    proxy = f"/api/v1/namespaces/{cfg.platform_namespace}/pods/{SINK}:{API_PORT}/proxy/api/v1/{path}"
+    return json.loads(kubectl(cfg, ["get", "--raw", proxy], capture=True))
+
+
+def sink_message_ids(cfg: E2EConfig, recipient: str) -> list[str]:
+    """Ids of the messages to `recipient`, newest first."""
+    messages = _sink_api(cfg, "messages")["messages"]
+    return [m["ID"] for m in messages if any(to["Address"] == recipient for to in m["To"])]
+
+
 def _sink_recipients(cfg: E2EConfig) -> set[str]:
-    proxy = f"/api/v1/namespaces/{cfg.platform_namespace}/pods/{SINK}:{API_PORT}/proxy/api/v1/messages"
-    messages = json.loads(kubectl(cfg, ["get", "--raw", proxy], capture=True))["messages"]
-    return {to["Address"] for message in messages for to in message["To"]}
+    return {to["Address"] for message in _sink_api(cfg, "messages")["messages"] for to in message["To"]}
 
 
-def _wait_for_delivery(cfg: E2EConfig, recipient: str) -> None:
+def wait_for_delivery(cfg: E2EConfig, recipient: str, count: int = 1) -> list[str]:
     deadline = time.monotonic() + DELIVERY_WAIT_SECONDS
-    while recipient not in _sink_recipients(cfg):
+    while len(ids := sink_message_ids(cfg, recipient)) < count:
         if time.monotonic() > deadline:
             raise E2EError(f"Keycloak accepted the action email for {recipient}, but it never reached the mail sink")
         time.sleep(1)
+    return ids
+
+
+def action_link(cfg: E2EConfig, message_id: str) -> str:
+    """The account-setup link in a message. For the test that follows it only; it is never logged."""
+    match = re.search(r"https?://\S+/login-actions/action-token\?\S+", _sink_api(cfg, f"message/{message_id}")["Text"])
+    if match is None:
+        raise E2EError("the setup email holds no action link")
+    return match[0]
 
 
 def _create_user(admin: requests.Session, realm_admin: str, name: str) -> tuple[str, str]:
@@ -118,14 +149,7 @@ def check_email_delivery(cfg: E2EConfig, admin: requests.Session, base_url: str)
     log.step("Checking a Keycloak action email reaches a test mail sink...")
     realm = f"olf-e2e-mail-{secrets.token_hex(3)}"
     realm_admin = f"{base_url}/admin/realms/{realm}"
-    smtp = {
-        "host": f"{SINK}.{cfg.platform_namespace}.svc",
-        "port": str(SMTP_PORT),
-        "from": "olf-e2e@example.invalid",
-        "auth": "false",
-        "ssl": "false",
-        "starttls": "false",
-    }
+    smtp = sink_smtp(cfg)
     created = _call(
         admin, "POST", f"{base_url}/admin/realms", json={"realm": realm, "enabled": True, "smtpServer": smtp}
     )
@@ -135,7 +159,7 @@ def check_email_delivery(cfg: E2EConfig, admin: requests.Session, base_url: str)
         sent = _send_action_email(admin, realm_admin, user_id)
         if sent.status_code != 204:
             raise E2EError(f"Keycloak did not send the action email: HTTP {sent.status_code}")
-        _wait_for_delivery(cfg, email)
+        wait_for_delivery(cfg, email)
 
         # Port 1 on Keycloak's own loopback refuses the connection at once.
         _call(admin, "PUT", realm_admin, json={"smtpServer": smtp | {"host": "localhost", "port": "1"}})

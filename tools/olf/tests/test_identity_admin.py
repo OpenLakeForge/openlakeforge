@@ -40,6 +40,8 @@ class FakeKeycloak:
         self.members["g-viewer"].update({"u1", "u2"})
         self.members["g-other"].add("u3")
         self.logged_out: list[str] = []
+        self.mails: list[tuple[str, list[str]]] = []  # (user id, actions) per execute-actions-email
+        self.smtp_down = False
 
     def post(self, url: str, data: dict[str, str], **_kwargs: Any) -> SimpleNamespace:
         if data["client_secret"] != "the-secret":
@@ -63,6 +65,17 @@ class FakeKeycloak:
         if match := re.fullmatch(r"/users/(.+)/logout", path):
             self.logged_out.append(match[1])
             return self._reply(204)
+        if method == "POST" and path == "/users":
+            self.users.append({"id": f"n{len(self.users)}", **kwargs["json"]})
+            return self._reply(201)
+        if match := re.fullmatch(r"/users/(.+)/execute-actions-email", path):
+            if self.smtp_down:
+                return self._reply(500, {"errorMessage": "Failed to send execute actions email"})
+            self.mails.append((match[1], kwargs["json"]))
+            return self._reply(204)
+        if method == "DELETE" and re.fullmatch(r"/users/[^/]+", path):
+            self.users = [u for u in self.users if u["id"] != path.rsplit("/", 1)[1]]
+            return self._reply(204)
         if method == "PUT" and re.fullmatch(r"/users/[^/]+", path):
             next(u for u in self.users if u["id"] == path.rsplit("/", 1)[1]).update(kwargs["json"])
             return self._reply(204)
@@ -76,9 +89,15 @@ class FakeKeycloak:
         return SimpleNamespace(status_code=status, json=lambda: body, content=b"x" if body is not None else b"")
 
 
-def _admin(fake: FakeKeycloak, secret: str = "the-secret") -> KeycloakAdmin:
+def _admin(fake: FakeKeycloak, secret: str = "the-secret", email_delivery: bool = True) -> KeycloakAdmin:
     return KeycloakAdmin(
-        "http://127.0.0.1:1", "openlakeforge", "olf-users", secret, RoleModel.from_contract(IDENTITY), session=fake  # type: ignore[arg-type]
+        "http://127.0.0.1:1",
+        "openlakeforge",
+        "olf-users",
+        secret,
+        RoleModel.from_contract(IDENTITY),
+        session=fake,  # type: ignore[arg-type]
+        email_delivery=email_delivery,
     )
 
 
@@ -137,3 +156,57 @@ def test_a_rejected_client_secret_does_not_echo_it() -> None:
     with pytest.raises(AdminError, match="olf-users client credentials") as raised:
         _admin(FakeKeycloak(), secret="wrong-secret-value").users()
     assert "wrong-secret-value" not in str(raised.value)
+
+
+def test_invite_creates_a_pending_account_with_the_role_and_mails_a_setup_link_without_choosing_a_password() -> None:
+    fake = FakeKeycloak()
+    admin = _admin(fake)
+
+    admin.invite("New.Member@Example.org", "analyst")
+
+    member = _state(admin, "new.member@example.org")
+    assert (member.state, member.roles) == ("pending", ("analyst",))
+    created = next(u for u in fake.users if u["username"] == "new.member@example.org")
+    assert "credentials" not in created and not created["emailVerified"]
+    assert fake.mails == [(created["id"], ["VERIFY_EMAIL", "UPDATE_PASSWORD"])]
+
+
+def test_invite_that_cannot_be_mailed_keeps_a_pending_account_and_resend_finishes_it() -> None:
+    fake = FakeKeycloak()
+    fake.smtp_down = True
+    admin = _admin(fake)
+
+    with pytest.raises(identity_admin.DeliveryError, match="olf users resend new@example.org"):
+        admin.invite("new@example.org", "viewer")
+    assert (_state(admin, "new@example.org").state, fake.mails) == ("pending", [])
+
+    fake.smtp_down = False
+    admin.resend("new@example.org")
+    assert len(fake.mails) == 1 and _state(admin, "new@example.org").roles == ("viewer",)
+
+
+def test_invite_without_mail_creates_nothing_and_rejects_bad_input() -> None:
+    fake = FakeKeycloak()
+
+    with pytest.raises(AdminError, match="cannot send mail"):
+        _admin(fake, email_delivery=False).invite("new@example.org", "viewer")
+    for email, role, match in (("nobody", "viewer", "not an email"), ("new@example.org", "root", "canonical role")):
+        with pytest.raises(AdminError, match=match):
+            _admin(fake).invite(email, role)
+    assert len(fake.users) == 3
+
+
+def test_resend_and_cancel_apply_only_to_a_pending_account_and_cancel_removes_it() -> None:
+    fake = FakeKeycloak()
+    admin = _admin(fake)
+
+    for verb in (admin.resend, admin.cancel):
+        for who, state in (("ada", "active"), ("cy", "disabled")):
+            with pytest.raises(AdminError, match=f"is {state}, not pending"):
+                verb(who)
+    admin.resend("bob")
+    assert fake.mails == [("u2", ["UPDATE_PASSWORD"])]  # only the actions it still owes
+    admin.cancel("bob")
+    assert [u.username for u in admin.users()] == ["ada", "cy"]
+    with pytest.raises(AdminError, match="No user"):
+        admin.resend("bob")

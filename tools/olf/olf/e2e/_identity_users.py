@@ -14,15 +14,24 @@ from olf.e2e._shell import E2EConfig, E2EError
 from olf.identity_admin import KeycloakAdmin, RoleModel
 
 
+def users_admin(
+    cfg: E2EConfig, identity: dict[str, Any], base_url: str, email_delivery: bool = False
+) -> tuple[KeycloakAdmin, str]:
+    """The `olf users` client the deployed contract describes, and its client secret."""
+    realm, client_id = identity["issuer_url"].rsplit("/", 1)[1], identity["admin"]["client_id"]
+    ref = identity["admin"]["secret_ref"]
+    secret = k8s.secret_value(ref["name"], ref["key"], cfg.platform_namespace, kube_context=cfg.kube_context)
+    roles = RoleModel.from_contract(identity)
+    return KeycloakAdmin(base_url, realm, client_id, secret, roles, email_delivery=email_delivery), secret
+
+
 def check_users_administration(
     cfg: E2EConfig, identity: dict[str, Any], base_url: str, claims: Callable[[str, str], dict[str, Any]]
 ) -> None:
     """`claims(username, password)` returns the ID token's claims, or raises E2EError if login is refused."""
     log.step("Checking olf users: grant, revoke, disable and enable...")
     realm, client_id = identity["issuer_url"].rsplit("/", 1)[1], identity["admin"]["client_id"]
-    ref = identity["admin"]["secret_ref"]
-    secret = k8s.secret_value(ref["name"], ref["key"], cfg.platform_namespace, kube_context=cfg.kube_context)
-    admin = KeycloakAdmin(base_url, realm, client_id, secret, RoleModel.from_contract(identity))
+    admin, secret = users_admin(cfg, identity, base_url)
     token = requests.post(
         f"{base_url}/realms/{realm}/protocol/openid-connect/token",
         data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": secret},

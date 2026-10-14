@@ -84,7 +84,8 @@ class _Keycloak:
 
 
 def _sink(monkeypatch: pytest.MonkeyPatch, delivered: set[str]) -> None:
-    monkeypatch.setattr(_identity_mail, "_sink_recipients", lambda _cfg: delivered)
+    messages = [{"ID": address, "To": [{"Address": address}]} for address in delivered]
+    monkeypatch.setattr(_identity_mail, "_sink_api", lambda _cfg, _path: {"messages": messages})
     monkeypatch.setattr(_identity_mail.time, "sleep", lambda _s: None)
 
 
