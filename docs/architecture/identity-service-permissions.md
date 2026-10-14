@@ -31,7 +31,7 @@ chart 0.15.5; OpenMetadata chart and server 1.13.6. Read: Superset 6.1.0
 | --- | --- | --- | --- |
 | 1 | Superset has no read-only dashboard role. `Gamma` can create and edit its own charts and dashboards | **V** `manager.py` `_is_gamma_pvm` | `viewer` is a custom role: Superset's own `Public` permission set under another name |
 | 2 | `superset init` rewrites `Admin`, `Alpha`, `Gamma` and `sql_lab` permissions from code. Data-access grants (`schema_access`) added by hand to `Gamma` are dropped | **V** `set_role`, `_is_user_defined_permission` | Data scope for `analyst` and `viewer` lives in a separate custom role |
-| 3 | `Alpha` has no SQL Lab. SQL Lab permissions belong to the `sql_lab` role only | **V** `_is_alpha_pvm` excludes `_is_sql_lab_only` | The yaml maps `data-engineer` to `Alpha`, so data engineers have no SQL Lab. Open question 1 |
+| 3 | `Alpha` has no SQL Lab. SQL Lab permissions belong to the `sql_lab` role only | **V** `_is_alpha_pvm` excludes `_is_sql_lab_only` | The yaml maps `data-engineer` to `Alpha`, so data engineers have no SQL Lab. Decision 1 |
 | 4 | Flask-AppBuilder's built-in `keycloak` provider reads the `groups` claim by name | **V** `get_oauth_user_info` | Unusable: it is the Keycloak-specific claim the contract forbids. A custom user-info method reads `role_claim` |
 | 5 | The login page waits for a click: FAB's `AuthOAuthView.login` lists providers, and Superset registers its own `SupersetAuthView` at `/login/` unless a subclass sets `register_superset_auth_view = False` | **V** `AuthOAuthView`, `views/auth.py`, `register_views` | Silent renewal needs a small auth-view subclass registered through `authoauthview` |
 | 6 | OpenMetadata has no roles named `read` or `write`; `Admin` is a user flag. `DataConsumer`, which every user inherits, is not read-only | **V** `UserUtil`, `TeamRepository.initOrganization`, seed policies | `read` and `write` are defined below; the default baseline must be tightened |
@@ -164,13 +164,12 @@ With those, `read` is exactly `OrganizationPolicy-ViewAll-Rule`.
 | Edit description, tags, glossary terms, tier, certification | Allow | Allow | **Deny** | **Deny** | `DataStewardPolicy-EditRule`; denied only after baseline change 1 |
 | Edit display name, lineage; run ingestion pipelines (`Trigger`) | Allow | Allow | **Deny** | **Deny** | Same rule and `TriggerRule` |
 | Change owners | Allow | Allow | **Deny** | **Deny** | `EditOwners` in `DataStewardPolicy`; denied for others only after baseline change 2 |
-| Create or delete entities (services, domains, glossaries, tables) | Allow | **Deny** | **Deny** | **Deny** | No `Create` or `Delete` outside admin and bot policies. Open question 3 |
+| Create or delete entities (services, domains, glossaries, tables) | Allow | **Deny** | **Deny** | **Deny** | No `Create` or `Delete` outside admin and bot policies. Decision 3 |
 | Roles, policies, teams, users, bots, settings | Allow | **Deny** | **Deny** | **Deny** | No role grants `Create` on these; `authorizeAdmin` endpoints need the flag |
 
 Known path outside the roles: `Owner-Rule` gives an entity's owner `All` on it
 whatever the owner's role. A data engineer demoted to `analyst` who still owns
-assets keeps full control of them until ownership is reassigned. Open
-question 4.
+assets keeps full control of them until ownership is reassigned (decision 4).
 
 ### Claim to role: the native mechanism cannot be used (D)
 
@@ -190,7 +189,7 @@ baseline only; `useRolesFromProvider` stays `false`. `olf` owns the grant:
 | Command | `olf openmetadata sync-roles [--user]`: for each issuer user, set `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer`; the canonical role is read the way `olf users list` reads it |
 | Called by | `olf users grant`, `revoke`, `disable` and `enable` after the issuer change, creating the OpenMetadata user first if it has never logged in (login finds an existing user by name, **V**); `olf deploy`; `olf e2e run` |
 | Identity | The class-2 OpenMetadata automation bot below, over the RBAC-authorized port-forward |
-| Gap | A role changed in the issuer console, not through `olf users`, reaches OpenMetadata at the next `sync-roles`. Documented exception, tested (test OM-7). Whether to add a scheduled run is open question 2 |
+| Gap | A role changed in the issuer console, not through `olf users`, reaches OpenMetadata at the next `sync-roles`. Documented exception, tested (test OM-7). A scheduled run is a follow-up (decision 2) |
 
 ### Local administrator and automation (class 2)
 
@@ -198,7 +197,7 @@ baseline only; `useRolesFromProvider` stays `false`. `olf` owns the grant:
 | --- | --- |
 | `admin@open-metadata.org` / `admin` | Unusable under `custom-oidc` (**V**, finding 8). The `admin` principal stays in the database with no credential; set `initialAdmins` to a name the issuer cannot produce, because the principal is derived from claims and `initialAdmins` users are re-flagged admin on every start (**V** `UserUtil.createOrUpdateUser`; the exact claim derivation is **T**) |
 | Bot tokens | `publicKeys` keeps OpenMetadata's own JWKS URL beside the issuer's (**V** `MultiUrlJwkProvider`), so bot JWTs, which are signed by OpenMetadata, keep validating. `ingestion-bot` should keep working for Floe and Dagster (**T**, acceptance item of #25) |
-| `olf` and the bootstrap Job | Replace email and password login with a dedicated admin automation bot (`olf-automation`) whose JWT is stored in a Secret created in cluster if missing (#181). `IngestionBotPolicy` denies `EditDisplayName`, so `ingestion-bot` is not a drop-in (**V**). The bot exists only after OpenMetadata starts, and creating it needs an admin token, which basic login no longer provides. **First-boot sequence is the main implementation risk (T).** Candidates: (a) install with `provider: basic`, let the Job create the bot and Secret, then upgrade the release to `custom-oidc`; (b) read the seeded bot's token from the database and decrypt it with the `fernetkey` |
+| `olf` and the bootstrap Job | Replace email and password login with a dedicated admin automation bot (`olf-automation`) whose JWT is stored in a Secret created in cluster if missing (#181). `IngestionBotPolicy` denies `EditDisplayName`, so `ingestion-bot` is not a drop-in (**V**). The bot exists only after OpenMetadata starts, and creating it needs an admin token, which basic login no longer provides. **Decided (decision 6):** install with `provider: basic`, let the Job create the bot and Secret, then upgrade the release to `custom-oidc`. Sequencing on a fresh install is the main implementation risk (**T**) |
 | OpenMetadata to Superset | The service connection stores a Superset username and password; it moves to the Superset ingestion user above |
 
 ### Sessions (V from source, T on the stack)
@@ -258,26 +257,32 @@ status (2xx or 403).
 | OM-9 | Anyone | `POST /api/v1/users/login` with `admin@open-metadata.org` / `admin` | 403 |
 | OM-10 | Automation | `olf openmetadata deploy-metadata`, bootstrap Job, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
 | OM-11 | Issuer user whose principal is `admin` | Sign in | Not an admin |
+| OM-12 | Anyone | Read `Organization` default roles and `OrganizationPolicy` rules | Default roles empty, no `NoOwner-Rule` (fails after an upgrade that re-seeds them) |
 
-## Open questions
+## Decisions
 
-1. **SQL Lab for `data-engineer`.** The yaml grants `Alpha`, which lacks SQL
-   Lab (finding 3). Add `sql_lab` to the grant (a matrix change in
-   `release/identity-roles.yaml` and ADR 0014), or accept no SQL Lab?
-2. **OpenMetadata role assignment.** Accept `olf`-driven `sync-roles` with
-   the console gap as the documented exception, or add a scheduled in-cluster
-   run (a new always-on or CronJob component), or defer OpenMetadata role
-   differentiation until a release that both removes roles and reads a
-   configurable claim?
+Maintainer decisions for v0.5-alpha.
+
+1. **SQL Lab is Admin-only.** `sql_lab` is not added to `data-engineer`;
+   `release/identity-roles.yaml` and ADR 0014 stay unchanged. Revisit through
+   the matrix in a later milestone.
+2. **`olf` assigns OpenMetadata roles.** `olf openmetadata sync-roles`, driven
+   from `olf users` grant, revoke, disable and enable plus deploy and e2e. A
+   role changed only in the issuer console is the documented, tested exception
+   (OM-7). A scheduled in-cluster run, and an OpenMetadata upgrade that reads a
+   configurable claim, are follow-ups, not v0.5.
 3. **`write` cannot create or delete entities.** `DataSteward` edits metadata
-   only. Is that the intent of "write", or does `data-engineer` also create
-   domains, glossaries and services (a custom role)?
-4. **Ownership outlives a role.** Keep `Owner-Rule`, and reassign owned assets
-   on demotion and offboarding (#177), or remove it?
-5. **Patching system objects.** Is the bootstrap Job patching `Organization`
-   and `OrganizationPolicy` acceptable, given an OpenMetadata upgrade may
-   re-seed them?
-6. **First-boot automation credential for OpenMetadata**: option (a) or (b).
+   only; accepted, to keep the grant a built-in role.
+4. **Ownership outlives a role.** `Owner-Rule` stays for v0.5. Demotion and
+   offboarding must reassign owned assets; the procedure belongs to the #177
+   "owned objects" deliverable.
+5. **The bootstrap Job patches `Organization` and `OrganizationPolicy`.**
+   Acceptable for local qualification. The bootstrap Job and e2e (OM-12) assert
+   the patch is still in place, so an upgrade that re-seeds them fails loudly.
+6. **First-boot automation credential: option (a).** Install with
+   `provider: basic`, let the Job create the automation bot and its Secret,
+   then flip the release to `custom-oidc`. Decrypting the seeded bot token with
+   `fernetkey` is rejected.
 
 ## Not claimed
 
