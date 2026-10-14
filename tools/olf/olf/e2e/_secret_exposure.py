@@ -34,6 +34,8 @@ MIN_VALUE_LENGTH = 16
 # The perimeter module names its cookie Secret from a release name the contract
 # does not carry (docs/architecture/identity-credentials.md).
 COOKIE_SECRET = ("oauth2-proxy-cookie", "cookie-secret")
+TRINO_INTERNAL_SECRET = ("trino-internal-secret", "internal-communication.shared-secret")
+TRINO_CREDENTIAL_PREFIX = "trino-credential-"
 LOG_TAIL_LINES = 2000
 # `login-actions/action-token` is the path Keycloak mails for an action token. The admin
 # API path `execute-actions-email` is not matched: the e2e's own mail check calls it and
@@ -110,7 +112,7 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any], *, keycloak: bool 
     clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity["clients"].values()]
     # An external issuer's client Secrets are operator-provided, so they may be absent or short.
     required = [(KEYCLOAK_ADMIN_SECRET, "password"), *clients] if keycloak else []
-    optional = [COOKIE_SECRET, *([] if keycloak else clients), *_smtp_password_refs(cfg)]
+    optional = [COOKIE_SECRET, *([] if keycloak else clients), *_smtp_password_refs(cfg), *_trino_secret_refs(cfg)]
     found = {f"{name}/{key}": read(name, key) for name, key in required}
     for name, key in optional:
         try:
@@ -140,6 +142,19 @@ def _smtp_password_refs(cfg: E2EConfig) -> list[tuple[str, str]]:
                 if env["name"] == "SMTP_PASSWORD" and ref:
                     refs.append((ref["name"], ref["key"]))
     return sorted(set(refs))
+
+
+def _trino_secret_refs(cfg: E2EConfig) -> list[tuple[str, str]]:
+    """The Trino workload credentials (ADR 0016) are named by principal, and which
+    principals exist is the Job's call, so the Secrets themselves are listed. None
+    exist until the credential Job has run, which is not an error."""
+    text = _kubectl_text(cfg, ["get", "secrets", "-n", cfg.platform_namespace, "-o", "name"])
+    if text is None:
+        raise E2EError(f"cannot list the Secrets in {cfg.platform_namespace} to find the Trino credentials")
+    names = sorted(line.removeprefix("secret/") for line in text.split())
+    return [(name, "password") for name in names if name.startswith(TRINO_CREDENTIAL_PREFIX)] + [
+        TRINO_INTERNAL_SECRET
+    ]
 
 
 def _state_surfaces(cfg: E2EConfig) -> dict[str, str | None]:

@@ -128,3 +128,26 @@ variable "catalog_bootstrap_revision" {
   description = "Content revision used to force Trino pod rollouts when Polaris bootstrap credentials or grants change."
   type        = string
 }
+
+variable "stage_namespaces" {
+  description = "Stage name to stage namespace. When non-empty, a bootstrap Job creates the Trino workload credentials (ADR 0016) and copies each stage's own principal into its namespace. Empty creates nothing."
+  type        = map(string)
+  default     = {}
+}
+
+variable "bootstrap_job_image" {
+  description = "Image of the Job that creates the Trino workload credentials when missing, pinned by digest (release/component-catalog.yaml)."
+  type        = string
+  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+}
+
+variable "workload_authentication_enabled" {
+  description = "Require a verified password from every Trino caller (ADR 0016). Off, Trino accepts any claimed X-Trino-User. Turning it on needs the credentials above and a coordinated deploy of every caller; nothing reads it until the authentication change lands."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.workload_authentication_enabled || length(var.stage_namespaces) > 0
+    error_message = "workload_authentication_enabled needs stage_namespaces: without the credential Job there is no password for any caller."
+  }
+}

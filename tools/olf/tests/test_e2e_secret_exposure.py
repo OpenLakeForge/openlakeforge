@@ -84,6 +84,15 @@ SMTP_JOB = {
 }
 
 
+def _kubectl_stub(jobs: str) -> Any:
+    """Answers the Job listing with `jobs` and the Secret name listing with one Trino principal."""
+
+    def stub(_cfg: Any, args: list[str]) -> str:
+        return "secret/keycloak-admin-creds\nsecret/trino-credential-olf-dev-runtime" if "secrets" in args else jobs
+
+    return stub
+
+
 def _cfg() -> Any:
     return SimpleNamespace(platform_namespace="olf-system", kube_context="ctx")
 
@@ -94,6 +103,8 @@ def test_credentials_come_from_the_secrets_the_contract_and_deployment_name(monk
         ("keycloak-client-perimeter", "client-secret"): CLIENT,
         ("oauth2-proxy-cookie", "cookie-secret"): "k" * 32,
         ("mail", "pw"): "short",
+        ("trino-credential-olf-dev-runtime", "password"): "d" * 32,
+        ("trino-internal-secret", "internal-communication\\.shared-secret"): "i" * 32,
     }
 
     def secret_value(name: str, key: str, _namespace: str, **_kwargs: Any) -> str:
@@ -102,13 +113,15 @@ def test_credentials_come_from_the_secrets_the_contract_and_deployment_name(monk
         return values[(name, key)]
 
     monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
-    monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: json.dumps(SMTP_JOB))
+    monkeypatch.setattr(exposure, "_kubectl_text", _kubectl_stub(json.dumps(SMTP_JOB)))
     monkeypatch.setattr(exposure.log, "info", lambda _message: None)
 
     assert exposure._credentials(_cfg(), IDENTITY) == {
         "keycloak-admin-creds/password": ADMIN,
         "keycloak-client-perimeter/client-secret": CLIENT,
         "oauth2-proxy-cookie/cookie-secret": "k" * 32,
+        "trino-credential-olf-dev-runtime/password": "d" * 32,
+        "trino-internal-secret/internal-communication.shared-secret": "i" * 32,
     }
 
 
@@ -154,7 +167,7 @@ def test_an_external_issuer_still_scans_client_and_cookie_secrets_and_a_dotted_k
     env = job["items"][0]["spec"]["template"]["spec"]["containers"][0]["env"][0]
     env["valueFrom"]["secretKeyRef"]["key"] = "smtp.pw"
     monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
-    monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: json.dumps(job))
+    monkeypatch.setattr(exposure, "_kubectl_text", _kubectl_stub(json.dumps(job)))
     monkeypatch.setattr(exposure.log, "info", lambda _message: None)
 
     found = exposure._credentials(_cfg(), IDENTITY, keycloak=False)
@@ -163,6 +176,13 @@ def test_an_external_issuer_still_scans_client_and_cookie_secrets_and_a_dotted_k
     assert ("keycloak-admin-creds", "password") not in read
     assert ("keycloak-client-perimeter", "client-secret") in read
     assert ("mail", "smtp\\.pw") in read
+
+
+def test_failing_to_list_the_secrets_is_an_error_not_no_trino_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: None)
+
+    with pytest.raises(E2EError, match="Trino credentials"):
+        exposure._trino_secret_refs(_cfg())
 
 
 def test_failing_to_list_the_jobs_is_an_error_not_no_smtp(monkeypatch: pytest.MonkeyPatch) -> None:
