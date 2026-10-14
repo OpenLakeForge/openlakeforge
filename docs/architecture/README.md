@@ -22,6 +22,9 @@ This directory contains the repo-local architecture source of truth for OpenLake
   `identity-callers.md` are the identity policy gates (ADR 0014): credential
   inventory, session policy with administrator recovery, and the caller
   inventory.
+- `identity-service-permissions.md` specifies what each canonical role may do
+  in Superset and OpenMetadata, the native roles that implement it, and how
+  both services meet the session policy (#25).
 - `../technical-debt.md` tracks known weaknesses, mitigations, and fix paths.
 - `../testing/floe-openlineage-capture-test-plan.md` describes the capture-based
   validation path for Floe OpenLineage events.
