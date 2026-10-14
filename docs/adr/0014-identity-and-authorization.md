@@ -246,7 +246,7 @@ needs no session. That is the documented development fallback
 [`identity-sessions-and-recovery.md`](../architecture/identity-sessions-and-recovery.md).
 `olf` itself takes it for every protected route (`olf.access.service_url`);
 only the perimeter and ingress e2e checks go through the public hostnames.
-Containing internal traffic is #46. Dagster in particular has no native
+Containing internal traffic is #46 ([ADR 0017](0017-local-network-policy-and-rbac.md)). Dagster in particular has no native
 authentication or per-user authorization, so the perimeter is its only human
 access control and anyone admitted has full Dagster capability; the boundary
 and its internal paths are in
