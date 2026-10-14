@@ -4,8 +4,8 @@
 
 Design for #46 (local qualification only); **nothing is built**. What binds
 today is the policy model, the flow table, the RBAC inventory, the conformance
-plan and the slice order. One premise needs the maintainer's re-decision before
-slice 1: see [Premise check](#premise-check-does-kindnet-enforce).
+plan and the slice order. The CNI question is settled in [Decisions](#decisions):
+the canary on kindnet comes first, Calico is the fallback.
 
 Claims carry a tag. **[V]** read from this repository or rendered from the
 pinned charts with `helm template` (no cluster). **[D]** read in upstream
@@ -44,20 +44,19 @@ kindnetd that kind release ships. The upstream project calls itself a
 "reference implementation" [D]; its semantics for `ipBlock`, host-network
 sources (kubelet, the API server) and Service DNAT ordering are **[T]**.
 
-Decision for the maintainer, because it changes slice 1 completely:
+The two options, and why slice 1 is a gate (see [Decisions](#decisions)):
 
-| | A. kindnet (kind 0.32.0 default) | B. Calico (approved) |
+| | A. kindnet (kind 0.32.0 default) | B. Calico (fallback) |
 | --- | --- | --- |
 | Install work | None. Slice 1 is the enforcement canary | A CNI install in the foundation, ~450 lines (below) |
 | Existing local clusters | Work as they are | Must be destroyed and recreated: the CNI cannot be swapped under a running kind cluster |
 | Cost per developer | None | Extra RAM, extra startup minutes, a second upgrade surface (Calico release, Kubernetes-version-specific CRDs [D]) |
 | Semantics | Reference implementation, [T] | The mature, documented implementation |
-| Decided by | A canary that proves a deny-all policy drops traffic | Maintainer approval, given |
+| Decided by | A canary that proves a deny-all policy drops traffic | Only if the canary fails: Calico is the documented fallback |
 
-**Recommendation: run the canary on the existing cluster first** (slice 1a). If
-it blocks, adopt A, record the kindnet version in the History and drop slice
-1b. If it does not, or the semantics gaps in [T] cannot be closed, build B as
-designed below. The rest of this ADR holds under either; only the CNI section
+**Slice 1a, the canary on the pinned kind 0.32.0, is the gate.** If it blocks,
+kindnet is the dataplane, the kindnet version goes in the History and slice 1b
+is not built. If it does not enforce, B is built as designed below. The rest of this ADR holds under either; only the CNI section
 and the apiserver rows of the flow table are CNI-sensitive.
 
 ## Decision
@@ -211,9 +210,9 @@ recorded and pinned by the e2e check.
 | `default` ServiceAccount, every namespace | no Role [V] | token auto-mounted into Postgres, Keycloak, portal, oauth2-proxy, Trino and Superset pods; only `log_archive.tf` sets `automount_service_account_token` [V] | Tighten: `automount_service_account_token = false` on the module-owned workloads that never call the API. Chart-owned pods: **T** |
 | `keycloak-credentials`, `<perimeter>-cookie` | `create` Secrets (namespace-wide) + `get` by `resourceNames` | create-if-missing credentials | Exception E1: `create` cannot be limited by `resourceNames` [V: comment in `credentials.tf`] |
 | `publish-local-ca` (each trust namespace) | ConfigMaps `create/get/patch/update` (namespace-wide); `get` on the CA Secret by name | publishes `olf-local-ca` | Exception E1 (ConfigMaps only) |
-| `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create/delete/get/patch/update`, namespace-wide [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Tighten**: every Secret and marker name is known at plan time (`*_credentials_secret_name`, `<name>-bootstrap-pending`, `polaris-dbt-creds`); `get/update/patch/delete` by `resourceNames`, `create` stays |
+| `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create/delete/get/patch/update`, namespace-wide [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Tighten (slice 4)**: every Secret and marker name is known at plan time (`*_credentials_secret_name`, `<name>-bootstrap-pending`, `polaris-dbt-creds`); `get/update/patch/delete` by `resourceNames`, `create` stays |
 | `openmetadata-bootstrap` (`olf-system`, governed and revoked stage namespaces) | Secrets `create/delete/get/patch/update`, namespace-wide [V] | the ingestion-bot Secret | **Tighten**: by the bot Secret's name |
-| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | Exception E2, **the widest**: a compromised OpenMetadata can read `keycloak-admin-creds`, the PostgreSQL admin and the Polaris root Secret. `pipelineServiceClientConfig.k8s.rbac.enabled` exists [V], but the server creates Secrets with generated names, so a `resourceNames` Role cannot replace it. Options for the maintainer: accept for v0.5-alpha local (recommended, written down here), or move the release to its own namespace, which changes the topology and every contract that names `olf-system` |
+| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; slice 4 narrows it, it is not accepted by default.** A compromised OpenMetadata can read `keycloak-admin-creds`, the PostgreSQL admin and the Polaris root Secret. Slice 4 sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role for the server and the ingestion ServiceAccount, with Secret verbs limited by `resourceNames` where the chart lets the names be fixed. The server creates Secrets with generated names [T], so if the chart cannot be configured, E2 is recorded as a named exception with this exact exposure and asserted by the pin check |
 | `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3: no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
 | `traefik` ClusterRole | Secrets `get/list/watch` in **all** namespaces; Ingress status update [V] | TLS Secrets | Exception E4; narrowing to namespaces is a chart option, **T** |
 | cert-manager ClusterRoles | Secrets `get/list/watch/create/update/delete` cluster-wide [V] | issuing certificates | Exception E5, inherent |
@@ -249,6 +248,7 @@ denied pairs, the RBAC expectations). Probe pods use the `k8s_bootstrap` image
 | Positive control | the same probe from the same namespace to Traefik 8443 (F1), and a pod carrying an allowed workload's labels (for example Superset's in a stage namespace) to Trino | connects, so a broken probe or DNS cannot pass the negatives vacuously |
 | Back-channel | existing `check_discovery_from_pod` with its temporary policy (F26) | still returns the issuer |
 | Authorized flows | the unchanged `olf e2e run --env local`: pipelines, Silver and Gold through Trino, dashboards, OpenMetadata assets, artifacts | pass with every policy on. This is the "unattended pipelines still work" evidence and needs no new code |
+| kindnet semantics (Option A) | the canary's pairs extended with: an `ipBlock` allow and an `ipBlock` `except`; a kubelet probe and an API-server-to-webhook call into a default-deny pod (node-sourced traffic); a policy naming a pod port reached through a ClusterIP Service (DNAT order); a named port | each behaves as the flow table assumes; a failure here is a reason to build B |
 | Port-forward | the existing forwards (SeaweedFS, Polaris, Keycloak, Dagster, Superset, OpenMetadata, portal) | pass; the run fails if any falls back to another path |
 | RBAC | the can-i table and the Secret-verb pin above | as above |
 
@@ -280,7 +280,7 @@ after every one.
 | 2 | `release/network-flows.yaml` and its check, the module, and the **stage-namespace** policies (default-deny, DNS, intra-namespace, F5, F6, F7 to F12 egress, F20) | Dynamic pods with labels not read (Floe, run pods): the stage rule is namespace-wide on purpose |
 | 3a | `olf-system` data plane: Postgres, SeaweedFS, Polaris, Trino ingress and egress | Postgres bootstrap Job pods carry the Postgres pod labels [V], so the Job is also "Postgres" to a selector; give it its own egress row |
 | 3b | `olf-system` access plane: Traefik, oauth2-proxy, Keycloak, portal, cert-manager, OpenMetadata, OpenSearch, all Jobs | cert-manager's webhook is called by the API server from the node (F21): a wrong rule fails `terraform apply`. The F20 cluster-IP and endpoint, F22 and F23 rendered from the profile |
-| 4 | RBAC: `resourceNames` for the Polaris and OpenMetadata bootstrap Roles, `createClusterRole: false`, `automount_service_account_token = false`, and the can-i and pin assertions | Removing a grant a chart quietly uses; the e2e is the check |
+| 4 | RBAC: `resourceNames` for the Polaris and OpenMetadata bootstrap Roles, `createClusterRole: false`, `automount_service_account_token = false`, and the can-i and pin assertions | Removing a grant a chart quietly uses; the e2e is the check. E2 is the hard part |
 | 5 | The conformance e2e matrix completed, `identity-callers.md` and ADR 0014 updated to "verified", #178's "unreachable from outside" box | The slices above each add their rows; this one adds the untrusted-namespace matrix and docs |
 
 Ordering with the other v0.5 work: the Trino rows move to 8443 in the #26
@@ -299,18 +299,29 @@ each as an edit to the flow file in that PR.
   per-user data access (#179), and Trino authentication itself (#26).
 - Egress filtering by hostname, mTLS between pods, and any service mesh.
 
-## Open questions
+## Decisions
 
-1. A or B (above): is the premise that kindnet does not enforce still right?
-2. E2: accept OpenMetadata's namespace-wide Secret access for v0.5-alpha, or
-   move it to a namespace of its own?
-3. Allow the e2e to create temporary policies in `olf-system` (F26), or put its
-   probes in a namespace of their own?
-4. Stage-wide trust (decision 3) is coarser than per-pod rules because user code
-   launches pods; is that acceptable for the local qualification?
+1. **Calico is a fallback, not the plan.** The approval rested on the belief
+   that kind does not enforce NetworkPolicy; the kind release notes say it
+   does. Slice 1a (canary, with a positive control) decides; slice 1b is built
+   only if the canary proves kindnet does not enforce. kube-network-policies is
+   a reference implementation, so the conformance e2e tests the semantics the
+   flow table relies on (`ipBlock`, node-sourced traffic, DNAT order).
+2. **E2 and the over-broad Roles are narrowed, not accepted.** Slice 4 limits
+   OpenMetadata's Secret access, the Polaris and OpenMetadata bootstrap Roles
+   (`resourceNames`) and the SeaweedFS cluster role (`createClusterRole:
+   false`); a grant that cannot be removed becomes a named, tested exception.
+3. **The e2e may create temporary, labelled policies in `olf-system`** for its
+   own probe pods (`check_discovery_from_pod`, `mail_sink`), removed in a
+   `finally`; the probes stay in `olf-system`.
+4. **Stage-wide trust is accepted for local qualification.** Inside a stage
+   namespace there are no per-pod rules, because user code launches pods with
+   labels it controls. The limitation: anything running in a stage namespace
+   can reach everything that namespace may reach.
 
 ## History
 
-New record (#46 design): premise check on kindnet, the Calico install design,
-the default-deny model with a derived flow table, the RBAC inventory with its
-exceptions, the conformance plan and the slice order. Nothing built.
+New record (#46 design): premise check on kindnet, the Calico install design
+(fallback), the default-deny model with a derived flow table, the RBAC
+inventory with its exceptions, the conformance plan, the slice order and the
+maintainer's decisions. Nothing built.
