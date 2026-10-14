@@ -134,6 +134,12 @@ variable "trino_chart_package_path" {
   default     = null
 }
 
+variable "trino_workload_authentication_enabled" {
+  description = "Require a verified password from every Trino caller (ADR 0016). Callers are given their credentials in separate changes, so leave this false until they are."
+  type        = bool
+  default     = false
+}
+
 variable "dagster_chart_package_path" {
   description = "Optional local Dagster Helm chart package used by local-up to avoid transient GitHub chart download failures."
   type        = string
