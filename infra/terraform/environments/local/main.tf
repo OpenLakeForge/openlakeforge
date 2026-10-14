@@ -251,6 +251,7 @@ module "traefik" {
   cluster_issuer_name = module.cert_manager.cluster_issuer_name
   group_middlewares   = module.perimeter.group_middlewares
   dynamic_config      = module.perimeter.traefik_dynamic_config
+  backend_transports  = module.trino.traefik_backends
 }
 
 # ADR 0014 seam 3. The proxy discovers the issuer at its public URL when it

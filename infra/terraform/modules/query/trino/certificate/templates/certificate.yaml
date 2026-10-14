@@ -27,3 +27,21 @@ spec:
     name: {{ .Values.issuerName }}
     kind: ClusterIssuer
     group: cert-manager.io
+---
+# Traefik re-encrypts to Trino and needs the CA that signed the certificate
+# above. Every cert-manager Secret carries ca.crt, so this one exists to give
+# Traefik that file without mounting Trino's private key; it is never used to
+# authenticate anything.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.trustSecretName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Values.trustSecretName }}
+  dnsNames:
+    - {{ .Values.trustSecretName }}
+  issuerRef:
+    name: {{ .Values.issuerName }}
+    kind: ClusterIssuer
+    group: cert-manager.io

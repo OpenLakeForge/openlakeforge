@@ -30,6 +30,7 @@ from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[2]
 NAME = "olf-trino-auth-proof"
+NETWORK, TRAEFIK_NAME, TRAEFIK_PORT = "olf-trino-auth-proof-net", "olf-trino-auth-proof-traefik", 18000
 HTTPS_PORT, HTTP_PORT = 18443, 18080
 STAGES = ("dev", "prod")
 # OpenMetadata crawls every stage catalog read-only (modules/query/trino).
@@ -104,14 +105,20 @@ class Server:
         chain = (tls / "srv.crt").read_text() + (self.pub / "ca.crt").read_text()
         (self.pub / "tls-combined.pem").write_text((tls / "srv.pk8").read_text() + chain)
 
-    def write_files(self, *, secured: bool, deployed: bool = False, forwarded: bool = False) -> None:
+    def write_files(self, *, secured: bool, deployed: bool = False, http: bool = True) -> None:
         """`deployed` is the shape modules/query/trino renders: the CombinedPEM keystore, the shared secret from the
-        environment and no `http-server.process-forwarded`, which `forwarded` adds back to show why."""
+        environment, `process-forwarded` and, unless `http`, no HTTP listener (the control keeps it)."""
         (self.etc / "catalog").mkdir(parents=True, exist_ok=True)
         config = "coordinator=true\nnode-scheduler.include-coordinator=true\nhttp-server.http.port=8080\n"
         config += "discovery.uri=http://localhost:8080\nhttp-server.https.enabled=true\nhttp-server.https.port=8443\n"
         config += f"http-server.https.keystore.path=/etc/trino/tls/{'tls-combined' if deployed else 'server'}.pem\n"
-        config += "http-server.process-forwarded=true\n" if forwarded else ""
+        config += "http-server.process-forwarded=true\n" if deployed else ""
+        if deployed and not http:
+            # A later line wins over the chart's own discovery.uri, which is written first. A node reaches itself
+            # at a name in the certificate, trusting the CA, because HTTPS-only internal traffic is verified.
+            config += "http-server.http.enabled=false\ndiscovery.uri=https://localhost:8443\n"
+            config += "internal-communication.https.required=true\n"
+            config += "internal-communication.https.truststore.path=/etc/trino/tls/ca.crt\n"
         if secured:
             config += "http-server.authentication.type=PASSWORD\n"
             config += "internal-communication.shared-secret=" + (
@@ -122,7 +129,8 @@ class Server:
             )
             self.write_passwords()
         (self.etc / "config.properties").write_text(config)
-        (self.etc / "node.properties").write_text("node.environment=proof\nnode.data-dir=/data/trino\n")
+        internal = "node.internal-address=localhost\n" if deployed and not http else ""
+        (self.etc / "node.properties").write_text(f"node.environment=proof\nnode.data-dir=/data/trino\n{internal}")
         (self.etc / "access-control.properties").write_text(
             "access-control.name=file\nsecurity.config-file=/etc/trino/rules.json\nsecurity.refresh-period=1s\n"
         )
@@ -141,7 +149,9 @@ class Server:
         files = ("config", "node", "password-authenticator", "access-control")
         names = [f"{f}.properties" for f in files] + ["password.db", "rules.json", "catalog"]
         mounts = [(self.etc / name, f"/etc/trino/{name}") for name in names]
+        subprocess.run(["docker", "network", "create", NETWORK], capture_output=True)
         cmd = ["docker", "run", "-d", "--name", NAME, "--memory", "1500m", "-v", f"{self.pub}:/etc/trino/tls:ro"]
+        cmd += ["--network", NETWORK, "--network-alias", "trino"]
         cmd += ["-e", f"TRINO_INTERNAL_SECRET={secrets.token_hex(16)}"]
         cmd += ["-p", f"127.0.0.1:{HTTPS_PORT}:8443", "-p", f"127.0.0.1:{HTTP_PORT}:8080"]
         for source, target in mounts:
@@ -154,16 +164,25 @@ class Server:
     def stop() -> None:
         subprocess.run(["docker", "rm", "-f", NAME], capture_output=True)
 
+    @staticmethod
+    def cleanup() -> None:
+        subprocess.run(["docker", "rm", "-f", NAME, TRAEFIK_NAME], capture_output=True)
+        subprocess.run(["docker", "network", "rm", NETWORK], capture_output=True)
+
     def statement(self, sql: str, *, creds: tuple[str, str] | None = None, header_user: str | None = None,
-                  plain_http: bool = False, headers: dict[str, str] | None = None) -> tuple[bool, str]:
+                  plain_http: bool = False, headers: dict[str, str] | None = None,
+                  via_traefik: bool = False) -> tuple[bool, str]:
         """POST a statement the way every Trino client does: (succeeded, first value or error text)."""
         headers = {"X-Trino-Source": "olf-proof", **(headers or {})}
         if header_user:
             headers["X-Trino-User"] = header_user
         if creds:
             headers["Authorization"] = "Basic " + b64encode(":".join(creds).encode()).decode()
-        if plain_http:
-            conn: http.client.HTTPConnection = http.client.HTTPConnection("localhost", HTTP_PORT, timeout=60)
+        if via_traefik:
+            conn: http.client.HTTPConnection = http.client.HTTPConnection("localhost", TRAEFIK_PORT, timeout=60)
+            headers["Host"] = "trino.test"
+        elif plain_http:
+            conn = http.client.HTTPConnection("localhost", HTTP_PORT, timeout=60)
         else:
             context = ssl.create_default_context(cafile=str(self.pub / "ca.crt"))
             conn = http.client.HTTPSConnection("localhost", HTTPS_PORT, timeout=60, context=context)
@@ -260,36 +279,85 @@ def server_cases(server: Server, report: Report) -> None:
 
 
 def deployed_cases(server: Server, report: Report) -> None:
-    """The server as modules/query/trino configures it, restarted from the cases above."""
+    """The server as modules/query/trino configures it (HTTPS only, process-forwarded on), restarted from above."""
     sql = COUNT.format
     dev, prod, om = ((u, server.passwords[u]) for u in PRINCIPALS)
-    spoof = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "trino"}
+    spoof = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "trino.test"}
 
-    def restart(*, forwarded: bool) -> None:
+    def restart(*, http: bool) -> None:
         server.stop()
-        server.write_files(secured=True, deployed=True, forwarded=forwarded)
+        server.write_files(secured=True, deployed=True, http=http)
         server.start()
         server.wait_ready(creds=dev)
 
-    restart(forwarded=False)
-    report.case("k1 deployed shape (CombinedPEM keystore, shared secret from the environment): DEV reads DEV", True,
-                server.statement(sql(catalog="lakehouse_dev"), creds=dev), "25")
-    # Without process-forwarded Trino refuses any X-Forwarded-* request outright, so the spoof cannot make the
-    # HTTP port look secure. The same refusal is what Traefik's forwarded requests get (see k4 and the ADR).
-    report.case("k2 valid PROD credential on the HTTP port with a spoofed X-Forwarded-Proto: https", False,
-                server.statement(sql(catalog="lakehouse_prod"), creds=prod, plain_http=True, headers=spoof),
-                "HTTP 406")
-    report.case("k3 X-Trino-User only on the HTTP port with a spoofed X-Forwarded-Proto: https", False,
-                server.statement(sql(catalog="lakehouse_prod"), header_user=prod[0], plain_http=True, headers=spoof),
-                "HTTP 40")
+    restart(http=True)
+    report.case("k0 CONTROL, HTTP listener on with process-forwarded: a spoofed X-Forwarded-Proto gets a password "
+                "accepted over plain HTTP", True,
+                server.statement(sql(catalog="lakehouse_prod"), creds=prod, plain_http=True, headers=spoof), "25")
+    restart(http=False)
+    report.case("k1 deployed shape (HTTPS only, CombinedPEM keystore, secret from the environment): DEV reads DEV",
+                True, server.statement(sql(catalog="lakehouse_dev"), creds=dev), "25")
+    try:
+        http.client.HTTPConnection("localhost", HTTP_PORT, timeout=5).request("GET", "/v1/info")
+        refused = (False, "the HTTP port answered")
+    except OSError as error:
+        refused = (True, type(error).__name__)
+    report.case("k2 no HTTP listener: the HTTP port refuses the connection", True, refused, "")
+    report.case("k3 forwarded headers as Traefik sends them, valid PROD credential, HTTPS", True,
+                server.statement(sql(catalog="lakehouse_prod"), creds=prod, headers=spoof), "25")
+    report.case("k4 forwarded headers, X-Trino-User only, HTTPS", False,
+                server.statement(sql(catalog="lakehouse_prod"), header_user=prod[0], headers=spoof), "HTTP 401")
+    # The chart's readiness and startup probes run the image's health-check, which uses HTTPS once HTTP is disabled.
+    check = subprocess.run(["docker", "exec", NAME, "/usr/lib/trino/bin/health-check"], capture_output=True, text=True)
+    context = ssl.create_default_context(cafile=str(server.pub / "ca.crt"))
+    probe = http.client.HTTPSConnection("localhost", HTTPS_PORT, timeout=30, context=context)
+    probe.request("GET", "/v1/info")
+    answer = probe.getresponse()
+    body = answer.read().decode()
+    report.case("h2 chart probes: health-check exits 0 and GET /v1/info on HTTPS needs no credential", True,
+                (check.returncode == 0 and answer.status == 200, f"exit {check.returncode}, HTTP {answer.status} "
+                                                                   f"{body[:60]}"), "ACTIVE")
     for stage in STAGES:
         report.case(f"o1 OpenMetadata credential reads the {stage.upper()} catalog", True,
                     server.statement(sql(catalog=f"lakehouse_{stage}"), creds=om), "25")
     report.case("o2 OpenMetadata credential claims olf-prod-runtime", False,
                 server.statement(sql(catalog="lakehouse_prod"), creds=om, header_user=prod[0]), "cannot become user")
-    restart(forwarded=True)
-    report.case("k4 CONTROL, process-forwarded=true: the same spoof gets the password accepted over HTTP", True,
-                server.statement(sql(catalog="lakehouse_prod"), creds=prod, plain_http=True, headers=spoof), "25")
+    traefik_cases(server, report)
+
+
+def traefik_cases(server: Server, report: Report) -> None:
+    """Traefik re-encrypting to 8443 with the CA as its transport trust, as the file provider configures it."""
+    config = server.dir / "traefik.yml"
+    config.write_text(
+        "http:\n  routers:\n    trino: {rule: Host(`trino.test`), service: trino, entryPoints: [web]}\n"
+        "  services:\n    trino:\n      loadBalancer:\n        serversTransport: trino\n"
+        "        servers: [{url: 'https://trino:8443'}]\n"
+        "  serversTransports:\n    trino: {rootCAs: [/ca/ca.crt], serverName: trino}\n"
+    )
+    # Plain HTTP into Traefik stands in for the websecure entrypoint; trusting the forwarded headers lets the
+    # request carry the X-Forwarded-Proto: https that websecure would set.
+    cmd = ["docker", "run", "-d", "--name", TRAEFIK_NAME, "--network", NETWORK, "-p", f"127.0.0.1:{TRAEFIK_PORT}:8000"]
+    cmd += ["-v", f"{config}:/etc/traefik/dynamic.yml:ro", "-v", f"{server.pub}:/ca:ro", pinned_image("traefik")]
+    cmd += ["--entrypoints.web.address=:8000", "--entrypoints.web.forwardedHeaders.insecure=true"]
+    cmd += ["--providers.file.filename=/etc/traefik/dynamic.yml"]
+    started = subprocess.run(cmd, capture_output=True, text=True)
+    if started.returncode:
+        raise SystemExit(f"docker run traefik failed: {started.stderr.strip()}")
+    sql, dev = COUNT.format(catalog="lakehouse_dev"), (principal("dev"), server.passwords[principal("dev")])
+    headers = {"X-Forwarded-Proto": "https"}
+    result: tuple[bool, str] = (False, "traefik did not answer")
+    for _ in range(15):
+        try:
+            result = server.statement(sql, creds=dev, headers=headers, via_traefik=True)
+            if result[0]:
+                break
+        except (OSError, http.client.HTTPException):
+            pass
+        time.sleep(2)
+    report.case("t1 through Traefik to the HTTPS port, verified against the CA: DEV credential reads DEV", True,
+                result, "25")
+    report.case("t2 through Traefik, X-Trino-User only", False,
+                server.statement(sql, header_user=dev[0], headers=headers, via_traefik=True), "HTTP 401")
 
 
 def client_cases(server: Server, report: Report) -> None:
@@ -355,7 +423,7 @@ def main() -> int:
     args = parser.parse_args()
     print(f"image: {pinned_image()}")
     report = Report()
-    Server.stop()
+    Server.cleanup()
     # Under $HOME, not /tmp: a snap-packaged Docker daemon cannot bind-mount /tmp.
     with tempfile.TemporaryDirectory(prefix="olf-trino-proof-", dir=Path.home()) as tmp:
         passwords = {user: secrets.token_urlsafe(24) for user in PRINCIPALS}
@@ -375,7 +443,7 @@ def main() -> int:
                 client_cases(server, report)
             deployed_cases(server, report)
         finally:
-            server.stop()
+            server.cleanup()
     print(f"\n{'FAILED: ' + str(report.failed) if report.failed else 'all cases passed'}")
     return 1 if report.failed else 0
 

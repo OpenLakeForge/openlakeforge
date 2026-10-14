@@ -179,11 +179,14 @@ locals {
       }
     },
   ] : []
-  # Password authentication on an HTTPS listener (ADR 0016). The HTTP port
-  # stays for the chart's probes: Trino refuses a query or a password on it.
-  # `http-server.process-forwarded` is deliberately not set: with it on, a pod
-  # can send `X-Forwarded-Proto: https` to the HTTP port and have a password
-  # accepted there (docs/testing/trino_workload_auth_proof.py, case k4).
+  tls_ca_secret_name = "trino-ca-bundle"
+  traefik_transport  = "trino"
+  # Password authentication on an HTTPS-only coordinator (ADR 0016). There is
+  # no HTTP listener, so nothing can downgrade a password to cleartext, and
+  # `process-forwarded` stays on for the requests Traefik re-encrypts to 8443.
+  # A node reaches itself at https://localhost:8443, a name in the certificate,
+  # with the CA as its truststore; the chart's own discovery.uri comes first and
+  # the later line wins (proof k1).
   auth_values = {
     server = {
       config = {
@@ -195,12 +198,34 @@ locals {
         }
       }
     }
-    auth                       = { passwordAuthSecret = "trino-password-file" }
-    additionalConfigProperties = ["internal-communication.shared-secret=$${ENV:TRINO_INTERNAL_SECRET}"]
+    auth = { passwordAuthSecret = "trino-password-file" }
+    additionalConfigProperties = [
+      "http-server.process-forwarded=true",
+      "http-server.http.enabled=false",
+      "discovery.uri=https://localhost:8443",
+      "internal-communication.https.required=true",
+      "internal-communication.https.truststore.path=/etc/trino/tls/ca.crt",
+      "internal-communication.shared-secret=$${ENV:TRINO_INTERNAL_SECRET}",
+    ]
+    additionalNodeProperties = ["node.internal-address=localhost"]
+    # Traefik reaches Trino over HTTPS, trusting the CA through the file-provider
+    # transport of the same name (modules/access/traefik).
+    service = {
+      annotations = {
+        "traefik.ingress.kubernetes.io/service.serversscheme"    = "https"
+        "traefik.ingress.kubernetes.io/service.serverstransport" = "${local.traefik_transport}@file"
+      }
+    }
     coordinator = {
       # Mounted as a directory so a renewed Secret reaches the pod; Trino does
       # not reload it, so the coordinator restarts to pick it up.
       secretMounts = [{ name = "tls", secretName = local.tls_secret_name, path = "/etc/trino/tls" }]
+      # The chart hardwires the liveness probe to the HTTP port, which no longer
+      # exists, and takes only its timings. The readiness and startup probes run
+      # the image's health-check, which uses HTTPS when HTTP is disabled, so
+      # these values only make the liveness failure effectively inert: it fires
+      # once an hour and would restart the pod after 1000 failures.
+      livenessProbe = { periodSeconds = 3600, failureThreshold = 1000 }
     }
   }
   # Create a named service account when one is explicitly requested (EKS Pod Identity
@@ -271,8 +296,9 @@ resource "helm_release" "certificate" {
   namespace = var.namespace
 
   values = [yamlencode({
-    secretName = local.tls_secret_name
-    issuerName = var.tls_issuer_name
-    dnsNames   = local.tls_dns_names
+    secretName      = local.tls_secret_name
+    trustSecretName = local.tls_ca_secret_name
+    issuerName      = var.tls_issuer_name
+    dnsNames        = local.tls_dns_names
   })]
 }
