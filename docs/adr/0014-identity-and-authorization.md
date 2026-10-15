@@ -144,7 +144,7 @@ The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
 (default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (external only: issuer-assigned
 client ids by consumer, default the consumer name);
 `external` requires all three. `bootstrap_admins` is a list of distinct email
-addresses (lowercased) invited as `platform-admin` at deploy; the optional
+addresses (lowercased, `keycloak` issuer only) invited as `platform-admin` at deploy; the optional
 `shared.identity.admin` block is seam 4 below.
 
 `spec.identity.smtp` (keycloak only; an external issuer sends its own mail)
@@ -337,8 +337,10 @@ back (the account deleted), because the next deploy skips existing accounts and
 would otherwise never retry a pending one nobody was mailed; this differs from
 `olf users invite`, which keeps the pending account for `resend`. Failure to
 use the issuer at all fails the deploy after every address was tried; the
-next deploy resumes with the addresses that still have no account. An external
-issuer without an admin API gets a warning instead.
+next deploy resumes with the addresses that still have no account. The profile
+accepts `bootstrap_admins` only with `issuer: keycloak`, because an external
+issuer has no admin write support; if a contract still lacks the admin API the
+step warns.
 
 A pending account has no credential and so no access, whatever its group.
 Keycloak answers HTTP 500 `Failed to send execute actions email` when the

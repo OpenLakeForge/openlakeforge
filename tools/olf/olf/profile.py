@@ -442,6 +442,10 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
             )
         smtp = _validate_smtp(document["smtp"], where=f"{where}.smtp")
     admins = document.get("bootstrap_admins", [])
+    if admins and issuer != "keycloak":
+        raise DeploymentProfileError(
+            f"{where}.bootstrap_admins requires issuer 'keycloak' (an external issuer is administered elsewhere)"
+        )
     if not isinstance(admins, list) or not all(isinstance(a, str) and _EMAIL_PATTERN.fullmatch(a) for a in admins):
         raise DeploymentProfileError(f"{where}.bootstrap_admins must be a list of email addresses")
     admins = [a.lower() for a in admins]  # the issuer lowercases usernames and emails

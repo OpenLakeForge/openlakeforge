@@ -459,6 +459,18 @@ def test_bootstrap_admins_must_be_distinct_email_addresses(admins: object) -> No
         validate_deployment_profile(_admins_profile(admins))
 
 
+def test_bootstrap_admins_require_the_keycloak_issuer() -> None:
+    document = _admins_profile(["ada@example.org"])
+    document["spec"]["identity"] |= {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    with pytest.raises(DeploymentProfileError, match="bootstrap_admins requires issuer 'keycloak'"):
+        validate_deployment_profile(document)
+
+
 def test_render_json_carries_smtp_settings_and_secret_reference_but_no_credentials() -> None:
     topology = resolve_topology(validate_deployment_profile(_smtp_profile(_SMTP_AUTH)))
     smtp = json.loads(topology.render_json())["identity"]["smtp"]
