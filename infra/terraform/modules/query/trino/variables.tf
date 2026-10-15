@@ -141,24 +141,29 @@ variable "bootstrap_job_image" {
   default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
 }
 
-variable "workload_authentication_enabled" {
-  description = "Require a verified password from every Trino caller (ADR 0016). Off, Trino accepts any claimed X-Trino-User. Turning it on needs the credentials above and a coordinated deploy of every caller; nothing reads it until the authentication change lands."
-  type        = bool
-  default     = false
+variable "workload_authentication" {
+  description = "How far ADR 0016 is applied. off: nothing changes. tls: an HTTPS listener and certificate beside the HTTP one, callers still unauthenticated, so they can move to HTTPS and prove the CA first. password: PASSWORD authentication on an HTTPS-only coordinator with the principals rules; every caller must already hold its credential."
+  type        = string
+  default     = "off"
 
   validation {
-    condition     = !var.workload_authentication_enabled || length(var.stage_namespaces) > 0
-    error_message = "workload_authentication_enabled needs stage_namespaces: without the credential Job there is no password for any caller."
+    condition     = contains(["off", "tls", "password"], var.workload_authentication)
+    error_message = "workload_authentication must be off, tls or password."
   }
 
   validation {
-    condition     = !var.workload_authentication_enabled || var.tls_issuer_name != null
-    error_message = "workload_authentication_enabled needs tls_issuer_name: passwords are only accepted over HTTPS."
+    condition     = var.workload_authentication == "off" || var.tls_issuer_name != null
+    error_message = "workload_authentication tls and password need tls_issuer_name."
+  }
+
+  validation {
+    condition     = var.workload_authentication != "password" || length(var.stage_namespaces) > 0
+    error_message = "workload_authentication password needs stage_namespaces: without the credential Job there is no password for any caller."
   }
 }
 
 variable "tls_issuer_name" {
-  description = "cert-manager ClusterIssuer that signs the Trino serving certificate. Only read when workload_authentication_enabled is true."
+  description = "cert-manager ClusterIssuer that signs the Trino serving certificate. Only read when workload_authentication is not off."
   type        = string
   default     = null
 }

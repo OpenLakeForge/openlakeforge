@@ -145,7 +145,8 @@ locals {
     )
   }, local.principal_rules))
 
-  auth_enabled = var.workload_authentication_enabled
+  tls_enabled  = var.workload_authentication != "off"
+  auth_enabled = var.workload_authentication == "password"
   # Each verified principal may become exactly its own user, so a DEV password
   # cannot claim `olf-prod-runtime` through X-Trino-User; the last rule denies
   # every other principal (ADR 0016). A for expression, not a conditional, so
@@ -181,6 +182,25 @@ locals {
   ] : []
   tls_ca_secret_name = "trino-ca-bundle"
   traefik_transport  = "trino"
+  # The tls level: an HTTPS listener beside the HTTP one, no authentication, so
+  # callers can move to HTTPS and prove the CA while still sending only a user
+  # name (ADR 0016 migration step 2-3).
+  tls_values = {
+    server = {
+      config = {
+        https = {
+          enabled  = true
+          port     = 8443
+          keystore = { path = "/etc/trino/tls/tls-combined.pem" }
+        }
+      }
+    }
+    coordinator = {
+      # Mounted as a directory so a renewed Secret reaches the pod; Trino does
+      # not reload it, so the coordinator restarts to pick it up.
+      secretMounts = [{ name = "tls", secretName = local.tls_secret_name, path = "/etc/trino/tls" }]
+    }
+  }
   # Password authentication on an HTTPS-only coordinator (ADR 0016). There is
   # no HTTP listener, so nothing can downgrade a password to cleartext, and
   # `process-forwarded` stays on for the requests Traefik re-encrypts to 8443.
@@ -191,11 +211,6 @@ locals {
     server = {
       config = {
         authenticationType = "PASSWORD"
-        https = {
-          enabled  = true
-          port     = 8443
-          keystore = { path = "/etc/trino/tls/tls-combined.pem" }
-        }
       }
     }
     auth = { passwordAuthSecret = "trino-password-file" }
@@ -217,9 +232,6 @@ locals {
       }
     }
     coordinator = {
-      # Mounted as a directory so a renewed Secret reaches the pod; Trino does
-      # not reload it, so the coordinator restarts to pick it up.
-      secretMounts = [{ name = "tls", secretName = local.tls_secret_name, path = "/etc/trino/tls" }]
       # The chart hardwires the liveness probe to the HTTP port, which no longer
       # exists, and takes only its timings. The readiness and startup probes run
       # the image's health-check, which uses HTTPS when HTTP is disabled, so
@@ -267,7 +279,7 @@ resource "helm_release" "trino" {
         annotations = var.service_account_annotations
       }
     }),
-  ], local.auth_enabled ? [yamlencode(local.auth_values)] : [])
+  ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [])
 
   lifecycle {
     # The principals rule is built from stage_namespaces and the catalog rules
@@ -289,7 +301,7 @@ resource "helm_release" "trino" {
 # A release of its own: Certificate is a cert-manager CRD kind, which Helm
 # cannot map until cert-manager has installed it (same reason as local-ca).
 resource "helm_release" "certificate" {
-  count = local.auth_enabled ? 1 : 0
+  count = local.tls_enabled ? 1 : 0
 
   name      = "${var.release_name}-certificate"
   chart     = "${path.module}/certificate"

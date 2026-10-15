@@ -134,10 +134,10 @@ variable "trino_chart_package_path" {
   default     = null
 }
 
-variable "trino_workload_authentication_enabled" {
-  description = "Require a verified password from every Trino caller (ADR 0016). Callers are given their credentials in separate changes, so leave this false until they are."
-  type        = bool
-  default     = false
+variable "trino_workload_authentication" {
+  description = "off, tls or password (ADR 0016): tls adds Trino's HTTPS listener while callers stay unauthenticated; password requires a verified password from every caller. Callers are given their credentials in separate changes, so leave this off until they are."
+  type        = string
+  default     = "off"
 }
 
 variable "dagster_chart_package_path" {

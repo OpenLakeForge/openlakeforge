@@ -5,12 +5,13 @@
 Decided and proven in isolation; **migration in progress**. Built so far: the
 credential Job in `modules/query/trino` creates the principal Secrets,
 `trino-password-file` and `trino-internal-secret` and replicates each stage's
-principal; behind `trino_workload_authentication_enabled` (default off) the
-module also issues the serving certificate, replaces the HTTP listener with an
-HTTPS one, turns on `PASSWORD` authentication, renders the `principals` rules
-and gives Traefik a verified HTTPS transport to Trino. No caller has its
-credential yet, so the switch must stay off until they do, and with it off no
-chart value or Trino setting differs from before. What binds is the selection,
+principal. The switch `trino_workload_authentication` has three levels, `off`
+(the default; nothing differs from before), `tls` (the module issues the
+serving certificate and adds an HTTPS listener beside the HTTP one, callers
+unchanged: migration steps 2-3) and `password` (the HTTP listener is replaced,
+`PASSWORD` authentication and the `principals` rules turn on, and Traefik gets
+a verified HTTPS transport to Trino: step 4). No caller has its credential
+yet, so `password` must not be used until they do. What binds is the selection,
 the principal mapping and the migration order. Until the migration lands Trino
 runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
