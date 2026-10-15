@@ -42,6 +42,8 @@ class FakeKeycloak:
         self.logged_out: list[str] = []
         self.mails: list[tuple[str, list[str]]] = []  # (user id, actions) per execute-actions-email
         self.smtp_down = False
+        self.group_assignment_fails = False
+        self.credentials: dict[str, list[dict]] = {}  # user id -> credentials; none by default
 
     def post(self, url: str, data: dict[str, str], **_kwargs: Any) -> SimpleNamespace:
         if data["client_secret"] != "the-secret":
@@ -59,7 +61,11 @@ class FakeKeycloak:
             return self._reply(200, [{"id": gid, "name": n} for n, gid in self.groups.items() if params["search"] in n])
         if match := re.fullmatch(r"/groups/(.+)/members", path):
             return self._page([u for u in self.users if u["id"] in self.members[match[1]]], params)
+        if match := re.fullmatch(r"/users/(.+)/credentials", path):
+            return self._reply(200, self.credentials.get(match[1], []))
         if match := re.fullmatch(r"/users/(.+)/groups/(.+)", path):
+            if self.group_assignment_fails:
+                return self._reply(500)
             (self.members[match[2]].add if method == "PUT" else self.members[match[2]].discard)(match[1])
             return self._reply(204)
         if match := re.fullmatch(r"/users/(.+)/logout", path):
@@ -194,6 +200,32 @@ def test_invite_without_mail_creates_nothing_and_rejects_bad_input() -> None:
         with pytest.raises(AdminError, match=match):
             _admin(fake).invite(email, role)
     assert len(fake.users) == 3
+
+
+def test_an_established_user_with_a_required_action_is_not_an_invitation_and_cancel_keeps_it() -> None:
+    fake = FakeKeycloak()
+    # bob owes UPDATE_PASSWORD (e.g. a password-expiry policy) but already holds a password.
+    fake.credentials["u2"] = [{"type": "password"}]
+    admin = _admin(fake)
+
+    for verb in (admin.resend, admin.cancel):
+        with pytest.raises(AdminError, match="bob is active, not pending"):
+            verb("bob")
+    assert "bob" in {u.username for u in admin.users()} and fake.mails == []
+
+
+def test_an_invite_whose_role_assignment_fails_leaves_no_account_so_a_retry_can_succeed() -> None:
+    fake = FakeKeycloak()
+    fake.group_assignment_fails = True
+    admin = _admin(fake)
+
+    with pytest.raises(AdminError, match="HTTP 500"):
+        admin.invite("new@example.org", "viewer")
+    assert len(fake.users) == 3 and fake.mails == []
+
+    fake.group_assignment_fails = False
+    admin.invite("new@example.org", "viewer")
+    assert _state(admin, "new@example.org").roles == ("viewer",)
 
 
 def test_resend_and_cancel_apply_only_to_a_pending_account_and_cancel_removes_it() -> None:

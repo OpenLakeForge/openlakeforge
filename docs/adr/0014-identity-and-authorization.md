@@ -310,7 +310,7 @@ Onboarding is an invitation, never a password chosen by the operator:
 | Verb | Effect |
 | --- | --- |
 | `invite <email> --role <role>` | creates the account (username = email, enabled, email unverified, required actions `VERIFY_EMAIL` and `UPDATE_PASSWORD`, no credential), puts it in the role's group, then asks Keycloak's `execute-actions-email` for a link valid 24 hours. The member sets their own password through it. Refused when the issuer's `email_delivery` capability is false, before any account exists |
-| `resend <email>` | mails a fresh link for the actions the account still owes. Only a pending account (enabled, required actions left); an active or disabled one is refused, so resend never adds access |
+| `resend <email>` | mails a fresh link for the actions the account still owes. Only a pending account (enabled, required actions left, and no credential: a required action alone is not proof of an invitation, since Keycloak sets them on established users too); an active or disabled one is refused, so resend never adds access |
 | `cancel <email>` | deletes a pending account, so its mailed links stop working with it; an active or disabled account is refused |
 
 A pending account has no credential and so no access, whatever its group.

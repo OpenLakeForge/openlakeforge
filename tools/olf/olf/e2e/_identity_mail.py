@@ -7,9 +7,11 @@ configured. The throwaway realm has Keycloak's own mail path and no users but
 the test user, and is deleted afterwards.
 
 The mail server is a Mailpit that lives for this check only. The product stack
-has no mail server and the default profile needs no SMTP. Message bodies and
-links are never read or logged: only the recipient address, which the check
-chose, is looked at.
+has no mail server and the default profile needs no SMTP. The delivery check
+looks only at the recipient address. The invitation checks (`_identity_invite`)
+also read a message body, through `action_link`, to follow the setup link as the
+new member; the test never logs or prints it. `olf users` itself never reads
+mail and never prints a link.
 """
 
 from __future__ import annotations
