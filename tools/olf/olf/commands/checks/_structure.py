@@ -52,6 +52,8 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/adr/0017-local-network-policy-and-rbac.md",
     "docs/architecture/identity-service-permissions.md",
     "docs/testing/trino_workload_auth_proof.py",
+    "infra/terraform/modules/query/trino/certificate/Chart.yaml",
+    "infra/terraform/modules/query/trino/certificate/templates/certificate.yaml",
     "release/identity-roles.yaml",
     "docs/setup/identity-secret-rotation.md",
     "infra/README.md",
