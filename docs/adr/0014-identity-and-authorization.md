@@ -12,9 +12,9 @@ emit their existing `identity` implementations
 The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
 **Seam 4 (#331):** the `shared.identity.admin` contract, the Keycloak
-`olf-users` client and `olf users` `roles`, `list`, `grant`, `revoke`, `disable`
-and `enable` are built. Invitations, resend, cancellation and `bootstrap_admins`
-are not; rows marked "not built" are the direction #331 implements.
+`olf-users` client and `olf users` `roles`, `list`, `grant`, `revoke`, `disable`,
+`enable`, `invite`, `resend` and `cancel` are built. `bootstrap_admins` is not;
+rows marked "not built" are the direction #331 implements.
 
 ## Context
 
@@ -37,7 +37,7 @@ each have their own adapter and none leaks into another:
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
 | 2. Issuer: who you are, which roles you hold (**built** for local, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
 | 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
-| 4. Admin: write user and role assignment (**built** except invitations, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
+| 4. Admin: write user and role assignment (**built** except `bootstrap_admins`, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
 ### Seam 1 — the role model (built)
 
@@ -275,7 +275,7 @@ evaluated and deferred in
 where table-level policy would be enforced for Polaris and for Glue with Lake
 Formation (the different-mechanism case the "fifth mapping" above refers to).
 
-### Seam 4 — admin (built except invitations; #331)
+### Seam 4 — admin (built except `bootstrap_admins`; #331)
 
 Assigning roles is an optional capability of the issuer. Without it `olf users`
 only reports the configured roles: OIDC alone does not enumerate users, so
@@ -304,6 +304,31 @@ add and remove group membership; `disable` also ends the user's
 issuer sessions (the propagation delay is measured under #177) and `enable`
 reverses it. Every verb takes `--json`, prints no password, token, setup link or
 client secret, and refuses service accounts by their reserved username prefix.
+
+Onboarding is an invitation, never a password chosen by the operator:
+
+| Verb | Effect |
+| --- | --- |
+| `invite <email> --role <role>` | creates the account (username = email, enabled, email unverified, required actions `VERIFY_EMAIL` and `UPDATE_PASSWORD`, no credential), puts it in the role's group, then asks Keycloak's `execute-actions-email` for a link valid 24 hours. The member sets their own password through it. Refused when the issuer's `email_delivery` capability is false, before any account exists |
+| `resend <email>` | mails a fresh link for the actions the account still owes. Only a pending account (enabled, required actions left, and no credential: a required action alone is not proof of an invitation, since Keycloak sets them on established users too); an active or disabled one is refused, so resend never adds access |
+| `cancel <email>` | deletes a pending account, so its mailed links stop working with it; an active or disabled account is refused |
+
+A pending account has no credential and so no access, whatever its group.
+Keycloak answers HTTP 500 `Failed to send execute actions email` when the
+mail server refuses or cannot be reached; `olf` reports that as a delivery
+failure with exit code 2 (other failures exit 1) and a message naming
+`olf users resend`, because the account exists and the issuer is healthy. An
+expired link leaves the account pending; `resend` issues a new one.
+
+Keycloak does not revoke a setup link when it is used or when `resend`
+supersedes it: until it expires, any link mailed to the address can open the
+password form again, for a pending and for an already active account (observed
+by hand on Keycloak 26.6.4; `olf e2e run` does not assert it). Only `cancel`, which deletes the
+account, makes a link unusable early. The window is the 24 hours of the link
+and needs the member's mailbox, which password recovery would also reach. After
+the password step Keycloak asks a new member for a first and last name because
+the realm's user profile requires them; `list` reports the account `active`
+from the moment the required actions are done.
 
 `manage-users` is Keycloak's user-administration role: the least role that
 moves users between groups and sends execute-actions mail is a user
@@ -412,6 +437,12 @@ Dagster boundary and Polaris (#26): the Dagster paragraph in seam 3 and the
 Documentation only.
 
 User commands (#331, slice 1): `olf users` roles, list, grant, revoke, disable and enable.
+
+Invitations (#331, slice 2): `olf users invite`, `resend` and `cancel`. `olf e2e
+run` points the deployed realm's `smtpServer` at the throwaway mail sink for the
+step (skipped when the realm has its own SMTP, which a realm update would
+corrupt), completes onboarding through the mailed link as the new member,
+and empties `smtpServer` again.
 
 Trino workload authentication (#26 decision gate): [ADR 0016](0016-trino-workload-authentication.md)
 selects password-file authentication over HTTPS for the class-2 Trino callers.

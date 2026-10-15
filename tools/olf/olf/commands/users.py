@@ -17,7 +17,8 @@ app = typer.Typer(help="Users and their canonical roles, administered in the ide
 _Provider = Annotated[str, typer.Option("--provider", help="Deployment provider whose issuer to administer.")]
 _AsJson = Annotated[bool, typer.Option("--json", help="Machine-readable output.")]
 _User = Annotated[str, typer.Argument(help="Username or email.")]
-_Role = Annotated[str, typer.Option("--role", help="Canonical role; see `olf users roles`.")]
+_Email = Annotated[str, typer.Argument(help="The member's email address; it is also their username.")]
+_Role =Annotated[str, typer.Option("--role", help="Canonical role; see `olf users roles`.")]
 
 
 def _identity(provider: str) -> tuple[dict[str, Any], str, str]:
@@ -40,11 +41,16 @@ def _identity(provider: str) -> tuple[dict[str, Any], str, str]:
     return payload["shared"]["identity"], context.shared_namespace, context.kube_context
 
 
-def _run(provider: str, action: Callable[[identity_admin.KeycloakAdmin], Any]) -> Any:
+def _run(provider: str, action: Callable[[identity_admin.KeycloakAdmin], Any], as_json: bool = False) -> Any:
     identity, namespace, kube_context = _identity(provider)
     try:
         with identity_admin.connect(identity, secret_namespace=namespace, kube_context=kube_context) as admin:
             return action(admin)
+    except identity_admin.DeliveryError as exc:
+        # Exit 2, not 1: the issuer works and the account exists; only the mail did not go out.
+        document = {"user": exc.email, "state": "pending", "email_sent": False, "error": str(exc)}
+        typer.echo(json.dumps(document, indent=2) if as_json else str(exc), err=not as_json)
+        raise typer.Exit(code=2) from exc
     except identity_admin.AdminError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
@@ -87,6 +93,29 @@ def revoke(user: _User, role: _Role, provider: _Provider = "local", as_json: _As
     """Remove a canonical role."""
     _run(provider, lambda admin: admin.revoke(user, role))
     _emit(as_json, {"user": user, "revoked": role}, f"Revoked {role} from {user}.")
+
+
+@app.command("invite")
+def invite(email: _Email, role: _Role, provider: _Provider = "local", as_json: _AsJson = False) -> None:
+    """Create a pending account with a role and email it a setup link; the member chooses their own password."""
+    _run(provider, lambda admin: admin.invite(email, role), as_json)
+    hours = identity_admin.SETUP_LIFESPAN // 3600
+    text = f"Invited {email} as {role}: a setup email was sent, valid for {hours} hours."
+    _emit(as_json, {"user": email, "state": "pending", "role": role, "email_sent": True}, text)
+
+
+@app.command("resend")
+def resend(email: _Email, provider: _Provider = "local", as_json: _AsJson = False) -> None:
+    """Email a pending account a fresh setup link; accounts that finished setup or are disabled are refused."""
+    _run(provider, lambda admin: admin.resend(email), as_json)
+    _emit(as_json, {"user": email, "state": "pending", "email_sent": True}, f"A new setup email was sent to {email}.")
+
+
+@app.command("cancel")
+def cancel(email: _Email, provider: _Provider = "local", as_json: _AsJson = False) -> None:
+    """Remove a pending account so its setup links stop working."""
+    _run(provider, lambda admin: admin.cancel(email))
+    _emit(as_json, {"user": email, "cancelled": True}, f"Cancelled the invitation of {email}.")
 
 
 def _toggle(enabled: bool) -> Callable[..., None]:
