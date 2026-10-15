@@ -35,7 +35,7 @@ are discarded.
 | Direction | The Secret is the source of truth; the realm Job pushes it into Keycloak (it reads client secrets through `secretKeyRef`). Nothing is read back out of Keycloak. |
 | Change detection | Replacing the bootstrap Job replaces the realm Job (`replace_triggered_by`), so the realm re-applies without Terraform hashing a Secret value. |
 | Rotation | Explicit: delete the Secret, replace the bootstrap Job, restart consumers ([runbook](../setup/identity-secret-rotation.md)). |
-| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception); `get` only on the six Secrets it owns (the admin, the four consumer clients and `olf-users`). The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
+| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../adr/0017-local-network-policy-and-rbac.md)); `get` only on the six Secrets it owns (the admin, the four consumer clients and `olf-users`). The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
 
 ### Missing-secret recovery
 

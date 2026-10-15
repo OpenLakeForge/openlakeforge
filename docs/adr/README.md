@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-These sixteen records describe the decisions that shape OpenLakeForge **today**.
+These seventeen records describe the decisions that shape OpenLakeForge **today**.
 Each is binding: if the code disagrees with one, either the code is wrong or the
 ADR is, and one of them gets fixed.
 
@@ -32,6 +32,7 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0014](0014-identity-and-authorization.md) | **Identity and authorization** — four seams (role model, issuer, perimeter, admin), each with its own adapter; canonical roles are the only vocabulary and provider mappings are keyed by them; the fixed role model is built, the rest is decided direction; OpenLakeForge roles are never cloud IAM |
 | [0015](0015-polaris-identity-provider-evaluation.md) | **Polaris identity-provider evaluation** — Polaris 1.4.0 can validate issuer tokens but still owns principals and grants; deferred, with the catalog-side findings for the data-plane assessment (#179) |
 | [0016](0016-trino-workload-authentication.md) | **Trino workload authentication** — password-file authentication over HTTPS for Superset, dbt, OpenMetadata and `olf e2e`; `principals` rules bind each verified credential to one stage user; proven in a standalone container, callers not yet migrated |
+| [0017](0017-local-network-policy-and-rbac.md) | **Local NetworkPolicy and RBAC** — default-deny ingress and egress for `olf-system` and stage namespaces with a derived flow table, an enforcing-dataplane gate and canary, the RBAC inventory with its exceptions, and the conformance plan; design only, nothing built |
 
 ## Related
 
