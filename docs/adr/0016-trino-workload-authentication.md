@@ -2,10 +2,15 @@
 
 ## Status
 
-Decided and proven in isolation; **not built**: the #26 decision gate changes
-no caller, chart value or module. What binds today is the selection, the
-principal mapping and the migration order. Until the migration lands Trino runs
-unauthenticated and its row in `docs/technical-debt.md` stays open.
+Decided and proven in isolation; **migration in progress**. Built so far
+(migration step 2, first half): the credential Job in `modules/query/trino`
+creates the principal Secrets, `trino-password-file` and
+`trino-internal-secret` and replicates each stage's principal, and the
+`trino_workload_authentication_enabled` switch exists, default off and read by
+nothing yet. No caller, chart value or Trino setting has changed. What binds is
+the selection, the principal mapping and the migration order. Until the
+migration lands Trino runs unauthenticated and its row in
+`docs/technical-debt.md` stays open.
 
 ## Context
 
@@ -208,3 +213,4 @@ platform.
 ## History
 
 New record (#26 decision gate): mechanism selected and proven; nothing built.
+Credential Job and the default-off switch landed (migration step 2, first half).
