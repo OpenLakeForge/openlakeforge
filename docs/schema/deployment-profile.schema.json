@@ -106,8 +106,11 @@
             }
           },
           "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
-          "then": {"required": ["issuer_url", "role_claim", "role_mapping"]},
-          "else": {"not": {"anyOf": [{"required": ["client_ids"]}, {"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}}
+          "then": {
+            "required": ["issuer_url", "role_claim", "role_mapping"],
+            "not": {"anyOf": [{"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}
+          },
+          "else": {"not": {"required": ["client_ids"]}}
         },
         "stages": {
           "type": "object",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -642,16 +643,19 @@ def _creates(runner: RecordingRunner) -> list[Any]:
     ],
 )
 def test_the_smtp_login_from_the_environment_creates_the_missing_secret_without_putting_it_in_argv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: RecordingRunner, namespaces_created: int
+    tmp_path: Path, runner: RecordingRunner, namespaces_created: int
 ) -> None:
-    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
-    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
-    platform.require_smtp_credentials(_smtp_config(tmp_path), _toolkit(runner), env={})
+    login = ("mailer", "s3cr3t-value")
+    platform.require_smtp_credentials(_smtp_config(tmp_path), _toolkit(runner), env={}, login=login)
     assert _creates(runner) == []  # the early check only tolerates the gap; it creates nothing
 
     order: list[str] = []
     platform.require_smtp_credentials(
-        _smtp_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: order.append("namespace")
+        _smtp_config(tmp_path),
+        _toolkit(runner),
+        env={},
+        login=login,
+        create_namespace=lambda: order.append("namespace"),
     )
 
     (call,) = _creates(runner)
@@ -661,15 +665,43 @@ def test_the_smtp_login_from_the_environment_creates_the_missing_secret_without_
     assert "s3cr3t-value" not in " ".join(call.argv)
 
 
-def test_an_existing_smtp_secret_is_never_replaced_from_the_environment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
-    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
+def test_an_existing_smtp_secret_is_never_replaced_from_the_environment(tmp_path: Path) -> None:
     runner = _SecretRunner()
 
     platform.require_smtp_credentials(
-        _smtp_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+        _smtp_config(tmp_path), _toolkit(runner), env={}, login=("mailer", "x"), create_namespace=lambda: None
     )
 
     assert _creates(runner) == []
+
+
+def test_the_smtp_login_leaves_the_process_environment_so_no_child_process_inherits_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
+    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
+
+    assert platform.take_smtp_login() == ("mailer", "s3cr3t-value")
+    assert "OLF_SMTP_USERNAME" not in os.environ and "OLF_SMTP_PASSWORD" not in os.environ
+    assert platform.take_smtp_login() is None
+
+
+def test_a_half_set_smtp_login_is_dropped_not_left_in_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
+
+    assert platform.take_smtp_login() is None
+    assert "OLF_SMTP_USERNAME" not in os.environ
+
+
+def test_building_the_local_provider_scrubs_the_smtp_login_before_any_phase_can_spawn_a_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.deployment.local.provider import LocalProvider
+
+    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
+    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
+
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(RecordingRunner()), environ={})
+
+    assert "OLF_SMTP_PASSWORD" not in os.environ
+    assert "s3cr3t-value" not in repr(provider)

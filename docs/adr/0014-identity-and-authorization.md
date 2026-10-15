@@ -430,10 +430,10 @@ by `random_password`, so Terraform state no longer holds them.
 
 Outbound SMTP (#24): `spec.identity.smtp`, the `email_delivery` capability, the
 realm `smtpServer` and the deploy-time Secret check are built. The shared
-namespace is created by the platform apply, so on a first deploy the Secret
-cannot exist before it: deploy once without `smtp`, create the Secret, then add
-`smtp` and re-run the platform phase. (Replaced by the one-shot environment
-path, #331 slice 2.)
+namespace is created by the platform apply, so a first deploy supplies the
+login through `OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD` (#331, slice 2; see "The
+Deployment Profile gains `spec.identity`" above) or creates the Secret by hand
+after a first deploy without `smtp`.
 
 Email delivery check (#24): `olf e2e run` starts a throwaway Mailpit (catalog
 `e2e_mail_sink`, digest-pinned; never part of the stack), creates a throwaway
@@ -487,4 +487,5 @@ only; no behaviour changed.
 
 Bootstrap administrators and first-deploy SMTP (#331, slice 2): `spec.identity.bootstrap_admins`
 is built (see seam 4). A first deploy can create the SMTP Secret from
-`OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD`, replacing the deploy-twice flow.
+`OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD`, which `olf` removes from its own
+process environment at start so no child process inherits them.

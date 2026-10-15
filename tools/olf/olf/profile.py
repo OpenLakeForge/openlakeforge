@@ -365,6 +365,10 @@ def _validate_smtp(document: object, *, where: str) -> SmtpSpec:
                 raise DeploymentProfileError(
                     f"{where}.credentials_secret_ref.{field} is not a valid Kubernetes Secret {field.split('_')[-1]}"
                 )
+        if ref.username_key == ref.password_key:
+            raise DeploymentProfileError(
+                f"{where}.credentials_secret_ref: username_key and password_key must differ (a key holds one value)"
+            )
     elif "credentials_secret_ref" in document:
         raise DeploymentProfileError(f"{where}.credentials_secret_ref requires auth true")
     return SmtpSpec(

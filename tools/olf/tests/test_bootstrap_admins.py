@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from test_identity_admin import IDENTITY, FakeKeycloak, _admin
+from test_identity_admin import IDENTITY, FakeKeycloak, _admin, _Down
 
 from olf import identity_admin
 from olf.deployment import bootstrap_admins
@@ -83,6 +83,31 @@ def test_onboard_reports_mail_problems_but_fails_the_deploy_when_the_issuer_cann
     _connect(monkeypatch, _admin(FakeKeycloak(), secret="wrong"))
     with pytest.raises(DeploymentError, match="olf-users client credentials"):
         bootstrap_admins.onboard(IDENTITY, ADMINS, namespace="olf-system", kube_context="kind-x")
+
+
+class _StuckDelete(FakeKeycloak):
+    """Keycloak refusing to delete a user."""
+
+    def request(self, method: str, url: str, headers: dict[str, str], params: dict | None = None, **kwargs: Any):  # type: ignore[override]
+        if method == "DELETE" and "/groups/" not in url:
+            return self._reply(500)
+        return super().request(method, url, headers, params, **kwargs)
+
+
+def test_a_rollback_that_fails_is_reported_because_the_account_would_block_every_retry() -> None:
+    fake = _StuckDelete()
+    fake.smtp_down = True
+
+    outcome = bootstrap_admins.invite_missing(_admin(fake), ["new@example.org"])
+
+    assert outcome.unsent == {} and "olf users cancel new@example.org" in outcome.failed["new@example.org"]
+    assert "new@example.org" in _state(fake)  # the stuck account is real, so it must not read as undelivered
+
+
+def test_an_unreachable_issuer_fails_every_address_after_trying_each() -> None:
+    outcome = bootstrap_admins.invite_missing(_admin(_Down()), ADMINS)
+
+    assert list(outcome.failed) == ADMINS and not outcome.invited
 
 
 def test_an_issuer_without_an_admin_api_is_reported_not_an_error() -> None:

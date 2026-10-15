@@ -48,6 +48,17 @@ class DeliveryError(AdminError):
         self.email = email
 
 
+@contextlib.contextmanager
+def _transport() -> Iterator[None]:
+    """A dropped port-forward or a timeout is an issuer failure the caller can act on, not a traceback."""
+    try:
+        yield
+    except requests.RequestException as exc:
+        raise AdminError(
+            f"Could not reach the issuer ({type(exc).__name__}): is the Keycloak pod or its port-forward down?"
+        ) from exc
+
+
 @dataclass(frozen=True)
 class RoleModel:
     """Canonical roles, highest first, and the claim values (groups) each maps to."""
@@ -99,9 +110,12 @@ class KeycloakAdmin:
         self._email_delivery = email_delivery
 
     def _login(self) -> str:
-        reply = self._http.post(
-            f"{self._base}/realms/{self._realm}/protocol/openid-connect/token", data=self._credentials, timeout=TIMEOUT
-        )
+        with _transport():
+            reply = self._http.post(
+                f"{self._base}/realms/{self._realm}/protocol/openid-connect/token",
+                data=self._credentials,
+                timeout=TIMEOUT,
+            )
         if reply.status_code != 200:
             raise AdminError(
                 f"The issuer refused the olf-users client credentials (HTTP {reply.status_code}). "
@@ -111,13 +125,14 @@ class KeycloakAdmin:
 
     def _call(self, method: str, path: str, **kwargs: Any) -> Any:
         self._token = self._token or self._login()
-        reply = self._http.request(
-            method,
-            f"{self._base}/admin/realms/{self._realm}{path}",
-            headers={"Authorization": f"Bearer {self._token}"},
-            timeout=TIMEOUT,
-            **kwargs,
-        )
+        with _transport():
+            reply = self._http.request(
+                method,
+                f"{self._base}/admin/realms/{self._realm}{path}",
+                headers={"Authorization": f"Bearer {self._token}"},
+                timeout=TIMEOUT,
+                **kwargs,
+            )
         if reply.status_code >= 400:
             raise AdminError(f"The issuer answered {method} {path} with HTTP {reply.status_code}.", reply.status_code)
         return reply.json() if reply.content else None

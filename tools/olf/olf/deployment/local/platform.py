@@ -14,7 +14,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 
-from olf import config as olf_config
 from olf import log
 from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
@@ -98,8 +97,11 @@ def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return variables
 
 
-def _smtp_login_from_environment() -> tuple[str, str] | None:
-    username, password = olf_config.env(SMTP_USERNAME_ENV), olf_config.env(SMTP_PASSWORD_ENV)
+def take_smtp_login() -> tuple[str, str] | None:
+    """Move the one-shot SMTP login out of the process environment. Every child process (Docker, kind, Helm,
+    Terraform, kubectl) inherits `os.environ`, and the login belongs only on the stdin of the one
+    `kubectl create`, so the provider takes it before running anything."""
+    username, password = os.environ.pop(SMTP_USERNAME_ENV, ""), os.environ.pop(SMTP_PASSWORD_ENV, "")
     return (username, password) if username and password else None
 
 
@@ -132,15 +134,17 @@ def require_smtp_credentials(
     tools: Toolkit,
     *,
     env: Mapping[str, str],
+    login: tuple[str, str] | None = None,
     create_namespace: Callable[[], None] | None = None,
 ) -> None:
     """The SMTP login is a Secret in the shared namespace: the realm Job reads it through `secretKeyRef` and
     would otherwise sit in CreateContainerConfigError until its ten-minute timeout. Only key names are read.
 
     The platform apply creates that namespace, so on a first deploy the operator can instead put the login in
-    OLF_SMTP_USERNAME and OLF_SMTP_PASSWORD. A missing Secret is then created, never overwritten, once the
-    caller passes `create_namespace` (a Terraform-owned namespace, made just before the Secret). `platform_up`
-    passes it only after the drift reset, which deletes a shared namespace Terraform does not know yet."""
+    OLF_SMTP_USERNAME and OLF_SMTP_PASSWORD (`login`, from `take_smtp_login`). A missing Secret is then
+    created, never overwritten, once the caller passes `create_namespace` (a Terraform-owned namespace, made
+    just before the Secret). `platform_up` passes it only after the drift reset, which deletes a shared
+    namespace Terraform does not know yet."""
     smtp = config.context.topology.identity.smtp
     if smtp is None or smtp.credentials_secret_ref is None:
         return
@@ -153,7 +157,6 @@ def require_smtp_credentials(
         f"Either set {SMTP_USERNAME_ENV} and {SMTP_PASSWORD_ENV} in your shell and re-run the deploy, which creates "
         f"the Secret, or create it yourself (set SMTP_USERNAME and SMTP_PASSWORD first): {command}"
     )
-    login = _smtp_login_from_environment()
     namespace_present = kube_ops.namespace_exists(
         tools.kubectl, namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
     )
@@ -472,7 +475,13 @@ def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
     return _predicate
 
 
-def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+def platform_up(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    env: Mapping[str, str],
+    smtp_login: tuple[str, str] | None = None,
+) -> None:
     platform_dir = config.paths.platform_terraform_dir
 
     if not config.paths.foundation_state_path.is_file():
@@ -488,7 +497,7 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
             "Run the foundation phase before applying the local platform."
         ) from exc
 
-    require_smtp_credentials(config, tools, env=env)
+    require_smtp_credentials(config, tools, env=env, login=smtp_login)
 
     if config.platform_features.analytics_enabled:
         from olf.deployment.local import images
@@ -539,7 +548,9 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
             env=env,
         )
 
-    require_smtp_credentials(config, tools, env=env, create_namespace=_create_shared_namespace)
+    require_smtp_credentials(
+        config, tools, env=env, login=smtp_login, create_namespace=_create_shared_namespace
+    )
 
     def _apply_once() -> None:
         for prefix in _POLARIS_JOB_PREFIXES:

@@ -89,9 +89,11 @@ refresh, or a removed role stays usable until its SSO session ends (at most
 
 ## User lifecycle with `olf users`
 
-User records live in the issuer; no step below needs a deploy. Every command
-takes `--json`, prints no password, token or setup link, and is declared in
-ADR 0014 seam 4.
+User records live in the issuer. Only the first row, onboarding the profile's
+`bootstrap_admins`, happens during `olf deploy`, which has no `--json` option;
+every later step is an `olf users` command that needs no deploy. Every
+`olf users` command takes `--json`, prints no password, token or setup link,
+and is declared in ADR 0014 seam 4.
 
 | Step | Command | What happens |
 | --- | --- | --- |

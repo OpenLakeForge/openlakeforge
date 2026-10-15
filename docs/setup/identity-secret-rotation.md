@@ -150,8 +150,10 @@ olf deploy --provider local
 unset OLF_SMTP_USERNAME OLF_SMTP_PASSWORD
 ```
 
-The login travels to `kubectl create` on stdin, so it is in no argument list,
-log, Terraform variable or state. It is read only when the Secret is missing:
+`olf` removes both variables from its own environment as it starts, so no
+Docker, Helm, Terraform or kubectl child process inherits them, and the login
+travels only to `kubectl create` on stdin: it is in no argument list, log,
+Terraform variable or state. It is read only when the Secret is missing:
 an existing Secret is never replaced from the environment (rotate it as below).
 Without the variables, on a cluster that does not have the Secret yet, the
 deploy stops before the apply and names both options. The alternative is the

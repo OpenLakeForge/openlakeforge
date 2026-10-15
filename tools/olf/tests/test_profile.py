@@ -459,6 +459,12 @@ def test_bootstrap_admins_must_be_distinct_email_addresses(admins: object) -> No
         validate_deployment_profile(_admins_profile(admins))
 
 
+def test_smtp_credential_keys_must_differ() -> None:
+    ref = {"name": "smtp-creds", "username_key": "k", "password_key": "k"}
+    with pytest.raises(DeploymentProfileError, match="must differ"):
+        validate_deployment_profile(_smtp_profile(_SMTP_AUTH | {"credentials_secret_ref": ref}))
+
+
 def test_bootstrap_admins_require_the_keycloak_issuer() -> None:
     document = _admins_profile(["ada@example.org"])
     document["spec"]["identity"] |= {

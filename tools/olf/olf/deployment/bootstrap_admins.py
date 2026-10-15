@@ -8,7 +8,6 @@ an offboarded user or restore a revoked role, and removing an entry deletes noth
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,12 +30,18 @@ class Outcome:
 def _invite(admin: KeycloakAdmin, email: str) -> None:
     try:
         admin.invite(email, ROLE)
-    except AdminError:
+    except AdminError as failure:
         # A later deploy skips every existing account, so a pending one nobody was mailed would never be
         # retried. Taking it back keeps "no account" and "retry on the next deploy" the same state.
         if admin.has_account(email):
-            with contextlib.suppress(AdminError):
+            try:
                 admin.cancel(email)
+            except AdminError as rollback:
+                # The account stays and blocks retries: say so rather than report an undelivered invite.
+                raise AdminError(
+                    f"{failure} The account it created could not be removed ({rollback}); run "
+                    f"`olf users cancel {email}` before the next deploy."
+                ) from failure
         raise
 
 
