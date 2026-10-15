@@ -592,6 +592,29 @@ def test_deployment_profile_schema_conformance_passes_for_a_valid_profile(tmp_pa
     assert contracts_check.profile_schema_errors(repo_root) == []
 
 
+def test_the_schema_accepts_bootstrap_admins_and_smtp_for_the_keycloak_issuer(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_profile(repo_root, "valid_keycloak_identity.yaml")
+
+    assert contracts_check.profile_schema_errors(repo_root) == []
+
+
+def test_the_schema_rejects_bootstrap_admins_for_an_external_issuer(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_profile(repo_root, "valid_slim_local.yaml")
+    profile = repo_root / "openlakeforge.yaml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8")
+        + "  identity:\n    issuer: external\n    issuer_url: https://login.example.com/\n"
+        "    role_claim: groups\n    role_mapping: {viewer: [v]}\n    bootstrap_admins: [ada@example.org]\n",
+        encoding="utf-8",
+    )
+
+    errors = contracts_check.profile_schema_errors(repo_root)
+
+    assert errors and all("bootstrap_admins" in error or "should not be valid" in error for error in errors)
+
+
 def test_deployment_profile_schema_conformance_reports_canonical_model_rejection(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_profile(repo_root, "invalid_no_stage_enabled.yaml")

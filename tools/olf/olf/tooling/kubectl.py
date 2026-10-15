@@ -41,6 +41,7 @@ class Kubectl:
         timeout_seconds: float | None = None,
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
+        input_text: str | None = None,
     ) -> CommandResult:
         argv = [str(self._executable())]
         if context is not None:
@@ -58,7 +59,19 @@ class Kubectl:
             timeout_seconds=timeout_seconds,
             retry_policy=retry_policy,
             retry_if=retry_if,
+            input_text=input_text,
         )
+
+    def create_from_manifest(
+        self,
+        manifest: str,
+        *,
+        context: str | None = None,
+        kubeconfig: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        """`kubectl create -f -`: the manifest travels on stdin, so a Secret's data never appears in argv."""
+        return self._run(["create", "-f", "-"], context=context, kubeconfig=kubeconfig, env=env, input_text=manifest)
 
     def config_get_contexts(
         self,

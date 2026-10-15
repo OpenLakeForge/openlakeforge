@@ -13,8 +13,8 @@ The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
 **Seam 4 (#331):** the `shared.identity.admin` contract, the Keycloak
 `olf-users` client and `olf users` `roles`, `list`, `grant`, `revoke`, `disable`,
-`enable`, `invite`, `resend` and `cancel` are built. `bootstrap_admins` is not;
-rows marked "not built" are the direction #331 implements.
+`enable`, `invite`, `resend` and `cancel` are built, and so is the deploy-time
+`spec.identity.bootstrap_admins` step.
 
 ## Context
 
@@ -37,7 +37,7 @@ each have their own adapter and none leaks into another:
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
 | 2. Issuer: who you are, which roles you hold (**built** for local, #24) | `shared.identity` as `identity.oidc` | Keycloak, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
 | 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
-| 4. Admin: write user and role assignment (**built** except `bootstrap_admins`, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
+| 4. Admin: write user and role assignment (**built**, #331) | optional `shared.identity.admin` | Keycloak admin API behind `olf users` | absent: `olf users` is read-only and points at the issuer console |
 
 ### Seam 1 — the role model (built)
 
@@ -143,8 +143,9 @@ generic OIDC) is a checklist, not a schema change:**
 The Deployment Profile gains `spec.identity`: `issuer: keycloak | external`
 (default `keycloak`), with optional `issuer_url`, `role_claim`, `role_mapping`, `client_ids` (external only: issuer-assigned
 client ids by consumer, default the consumer name);
-`external` requires all three. `bootstrap_admins` is deferred to #331; the
-optional `shared.identity.admin` block is seam 4 below.
+`external` requires all three. `bootstrap_admins` is a list of distinct email
+addresses (lowercased, `keycloak` issuer only) invited as `platform-admin` at deploy; the optional
+`shared.identity.admin` block is seam 4 below.
 
 `spec.identity.smtp` (keycloak only; an external issuer sends its own mail)
 configures outbound mail. Settings are non-secret: `host`, `port`,
@@ -157,7 +158,15 @@ malformed host or sender, `auth` without a reference (and a reference without
 `auth`), and `auth` over `security: none`, which would send the login in the
 clear. `olf deploy` refuses to start the platform phase until the Secret and
 both keys exist, naming the `kubectl create secret` command shape; it reads key
-names, never values.
+names, never values. The Secret lives in the namespace the platform apply
+creates, so a first deploy may instead carry the login in `OLF_SMTP_USERNAME`
+and `OLF_SMTP_PASSWORD`: when the Secret is missing, `olf` first applies the
+shared namespace alone (`terraform apply -target`, so Terraform owns it; a
+hand-made namespace cannot be imported into an empty state, and the drift reset
+deletes one Terraform does not know), then creates the Secret with one
+`kubectl create` fed on stdin, then runs the full apply, so the Secret exists
+before the realm Job. An existing Secret is never replaced from the
+environment.
 
 ### The local Keycloak adapter
 
@@ -275,7 +284,7 @@ evaluated and deferred in
 where table-level policy would be enforced for Polaris and for Glue with Lake
 Formation (the different-mechanism case the "fifth mapping" above refers to).
 
-### Seam 4 — admin (built except `bootstrap_admins`; #331)
+### Seam 4 — admin (built; #331)
 
 Assigning roles is an optional capability of the issuer. Without it `olf users`
 only reports the configured roles: OIDC alone does not enumerate users, so
@@ -312,6 +321,26 @@ Onboarding is an invitation, never a password chosen by the operator:
 | `invite <email> --role <role>` | creates the account (username = email, enabled, email unverified, required actions `VERIFY_EMAIL` and `UPDATE_PASSWORD`, no credential), puts it in the role's group, then asks Keycloak's `execute-actions-email` for a link valid 24 hours. The member sets their own password through it. Refused when the issuer's `email_delivery` capability is false, before any account exists |
 | `resend <email>` | mails a fresh link for the actions the account still owes. Only a pending account (enabled, required actions left, and no credential: a required action alone is not proof of an invitation, since Keycloak sets them on established users too); an active or disabled one is refused, so resend never adds access |
 | `cancel <email>` | deletes a pending account, so its mailed links stop working with it; an active or disabled account is refused |
+
+**Bootstrap administrators.** After the platform apply and the realm Job,
+`olf deploy` (`bootstrap_admins`, `olf/deployment/bootstrap_admins.py`)
+invites each `spec.identity.bootstrap_admins` address as `platform-admin`
+through the same admin client, outside Terraform, so no user record is in
+state, a variable or an output. It only creates: an account in *any* state
+(pending, active, disabled) is left alone, so a redeploy never resends mail,
+resets a password, re-enables an offboarded user or restores a revoked role,
+and removing an entry deletes nothing. Delivery problems do not fail the
+deploy: with no SMTP, or a relay that refuses, the address is reported with the
+reason and `olf users invite` as the retry, and the platform stays protected
+(nobody holds an account). An invitation whose mail could not be sent is rolled
+back (the account deleted), because the next deploy skips existing accounts and
+would otherwise never retry a pending one nobody was mailed; this differs from
+`olf users invite`, which keeps the pending account for `resend`. Failure to
+use the issuer at all fails the deploy after every address was tried; the
+next deploy resumes with the addresses that still have no account. The profile
+accepts `bootstrap_admins` only with `issuer: keycloak`, because an external
+issuer has no admin write support; if a contract still lacks the admin API the
+step warns.
 
 A pending account has no credential and so no access, whatever its group.
 Keycloak answers HTTP 500 `Failed to send execute actions email` when the
@@ -401,9 +430,10 @@ by `random_password`, so Terraform state no longer holds them.
 
 Outbound SMTP (#24): `spec.identity.smtp`, the `email_delivery` capability, the
 realm `smtpServer` and the deploy-time Secret check are built. The shared
-namespace is created by the platform apply, so on a first deploy the Secret
-cannot exist before it: deploy once without `smtp`, create the Secret, then add
-`smtp` and re-run the platform phase.
+namespace is created by the platform apply, so a first deploy supplies the
+login through `OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD` (#331, slice 2; see "The
+Deployment Profile gains `spec.identity`" above) or creates the Secret by hand
+after a first deploy without `smtp`.
 
 Email delivery check (#24): `olf e2e run` starts a throwaway Mailpit (catalog
 `e2e_mail_sink`, digest-pinned; never part of the stack), creates a throwaway
@@ -454,3 +484,8 @@ role for Superset and OpenMetadata, the exact native roles behind `Alpha`,
 `docs/architecture/identity-service-permissions.md`. It records that
 OpenMetadata 1.13.6 cannot map the canonical claim to roles itself. Design
 only; no behaviour changed.
+
+Bootstrap administrators and first-deploy SMTP (#331, slice 2): `spec.identity.bootstrap_admins`
+is built (see seam 4). A first deploy can create the SMTP Secret from
+`OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD`, which `olf` removes from its own
+process environment at start so no child process inherits them.

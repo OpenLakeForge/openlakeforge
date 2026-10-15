@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import requests
 
 from olf import identity_admin
 from olf.identity_admin import AdminError, KeycloakAdmin, RoleModel
@@ -162,6 +163,22 @@ def test_a_rejected_client_secret_does_not_echo_it() -> None:
     with pytest.raises(AdminError, match="olf-users client credentials") as raised:
         _admin(FakeKeycloak(), secret="wrong-secret-value").users()
     assert "wrong-secret-value" not in str(raised.value)
+
+
+def test_a_dropped_connection_is_an_issuer_failure_not_a_traceback() -> None:
+    admin = _admin(_Down())
+
+    with pytest.raises(AdminError, match="Could not reach the issuer"):
+        admin.users()
+
+
+class _Down:
+    """A session whose every request fails the way a dropped port-forward does."""
+
+    def post(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise requests.ConnectionError("connection refused")
+
+    request = post
 
 
 def test_invite_creates_a_pending_account_with_the_role_and_mails_a_setup_link_without_choosing_a_password() -> None:

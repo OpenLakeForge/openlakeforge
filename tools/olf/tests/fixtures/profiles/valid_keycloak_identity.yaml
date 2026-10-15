@@ -1,0 +1,23 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-identity
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+  identity:
+    bootstrap_admins:
+      - ada@example.org
+    smtp:
+      host: smtp.example.org
+      port: 587
+      from_address: olf@example.org
+      auth: true
+      credentials_secret_ref:
+        name: smtp-credentials

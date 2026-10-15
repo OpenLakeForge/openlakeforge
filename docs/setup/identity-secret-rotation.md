@@ -139,8 +139,26 @@ spec:
 ```
 
 The Secret lives in the shared namespace (`olf-system`), which the platform
-apply creates, so on a first deploy run the platform phase once without `smtp`,
-then:
+apply creates. **On a first deploy** put the login in two environment
+variables for that one command; `olf deploy` then applies the namespace alone,
+creates the Secret, and runs the full apply, so the realm Job finds it:
+
+```bash
+read -rp 'SMTP username: ' OLF_SMTP_USERNAME; read -rsp 'SMTP password: ' OLF_SMTP_PASSWORD; echo
+export OLF_SMTP_USERNAME OLF_SMTP_PASSWORD
+olf deploy --provider local
+unset OLF_SMTP_USERNAME OLF_SMTP_PASSWORD
+```
+
+`olf` removes both variables from its own environment as it starts, so no
+Docker, Helm, Terraform or kubectl child process inherits them, and the login
+travels only to `kubectl create` on stdin: it is in no argument list, log,
+Terraform variable or state. It is read only when the Secret is missing:
+an existing Secret is never replaced from the environment (rotate it as below).
+Without the variables, on a cluster that does not have the Secret yet, the
+deploy stops before the apply and names both options. The alternative is the
+manual two-step flow: deploy once without `smtp`, create the Secret yourself,
+then add `smtp` and re-run the platform phase:
 
 ```bash
 read -rp 'SMTP username: ' SMTP_USERNAME; read -rsp 'SMTP password: ' SMTP_PASSWORD; echo
@@ -149,9 +167,10 @@ kubectl -n olf-system create secret generic smtp-credentials \
 unset SMTP_USERNAME SMTP_PASSWORD
 ```
 
-Add the `smtp` block and run `olf deploy --provider local --phase platform`.
 `olf deploy` stops before the apply, naming this command shape, if the Secret
-or either key is missing. It reads key names only.
+exists but lacks either key. It reads key names only. Do not create the
+namespace by hand before the first deploy: Terraform cannot import it into an
+empty state, and a namespace it does not know is what the drift reset deletes.
 
 To change the login, recreate the Secret, then delete the realm Job so the next
 platform apply recreates it and `keycloak-config-cli` pushes the new value
@@ -166,9 +185,13 @@ mail sink in a throwaway realm and asserts delivery, and that an unreachable
 SMTP server is reported as a failure (see ADR 0014). It does not test your
 relay: it never uses the credentials in your Secret.
 
-Not yet exercised on a cluster: this rotation step, the `olf deploy` Secret
-check (unit tests only), and the sink-in-kind part of the e2e check. What was
-run: the module's rendered realm file, applied with the pinned
+Run on a kind cluster (#331): a first deploy with `smtp` (authenticated, to a
+Mailpit pod) and the two environment variables created the namespace, the
+Secret and the realm, with the password in no log, and a later deploy without
+the variables reused the Secret. A hand-made namespace with an empty Terraform
+state failed the import and was reset by the next deploy. Not yet exercised on
+a cluster: the login-change step above against a real relay. What was run
+earlier: the module's rendered realm file, applied with the pinned
 `keycloak-config-cli` to the pinned Keycloak 26.6.4 on a Docker network with a
 Mailpit sink, produced the `smtpServer` with the username from the environment
 and a masked password, and Keycloak's `execute-actions-email` delivered through

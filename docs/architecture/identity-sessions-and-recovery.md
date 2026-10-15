@@ -87,6 +87,42 @@ holds there. An external issuer must return an ID token with the role claim on
 refresh, or a removed role stays usable until its SSO session ends (at most
 10 h).
 
+## User lifecycle with `olf users`
+
+User records live in the issuer. Only the first row, onboarding the profile's
+`bootstrap_admins`, happens during `olf deploy`, which has no `--json` option;
+every later step is an `olf users` command that needs no deploy. Every
+`olf users` command takes `--json`, prints no password, token or setup link,
+and is declared in ADR 0014 seam 4.
+
+| Step | Command | What happens |
+| --- | --- | --- |
+| First administrators | `spec.identity.bootstrap_admins` in the profile, then `olf deploy` | Each address that has no account is invited as `platform-admin`. An account in any state is left alone, so a redeploy never resends mail, resets a password, re-enables a disabled user or restores a revoked role; removing an entry deletes nothing. Needs SMTP: without it the address is reported, nothing is created and the platform stays protected |
+| Onboard | `olf users invite <email> --role <role>` | A pending account holding the role, and a setup email whose link lasts 24 hours. The member follows it, confirms the address, chooses their own password (and, because the realm requires one, a first and last name) and then signs in |
+| Link expired or lost | `olf users resend <email>` | A new link for a pending account only; an active or disabled account is refused, so resend adds no access |
+| Withdraw | `olf users cancel <email>` | Deletes a pending account; its mailed links stop working. An active or disabled account is refused |
+| Mail failed | the command exits 2 and says so | The account is pending and has no access (it has no password). Fix the relay and run `resend`; no deploy. For bootstrap administrators the account is removed instead, so the next `olf deploy` retries |
+| Change role | `olf users grant` / `revoke` | Group membership changes at once; the user's next token carries the new roles. A role-less user is authenticated and denied everywhere (`olf users list` flags them) |
+| Offboard | `olf users disable <email>` | Disables the account and ends its issuer sessions; a disabled user cannot sign in again. `enable` reverses it. Revoke the role as well if the account may be re-enabled later: a redeploy does not restore either |
+| Forgotten password | the sign-in page's reset link | Needs SMTP; the reset link is mailed by the issuer. No temporary password is ever distributed |
+
+What is verified: `olf e2e run --env local` invites throwaway members through
+a test mail sink, follows the mailed link as the new member and signs in with
+the invited role claim; shows a pending or undelivered account cannot sign in
+and a cancelled one's link leads nowhere; shows resend and cancel refuse active
+accounts; revokes and
+disables users and signs in again to see the changed claim and the refused
+login; and runs the bootstrap step twice around an offboarding to show it is
+not undone.
+
+What is not: how long an *already open* perimeter or native session survives
+`revoke` or `disable` is the bound in the policy table above, not a measurement.
+Keycloak does not invalidate a setup link when it is used or when a later link
+is mailed: until its 24 hours end, a link can open the password form again for
+that account (observed by hand, not asserted). `cancel`, which deletes the
+account, is the only early revocation. Credential recovery of an SSO account
+belongs to the upstream issuer, and SSO account linking (#373) is not built.
+
 ## Cluster-administrator recovery (break-glass)
 
 Designed, not implemented, not drilled. The drill ("Keycloak-outage recovery

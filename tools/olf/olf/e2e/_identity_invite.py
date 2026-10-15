@@ -1,4 +1,4 @@
-"""`olf users invite`, `resend` and `cancel` against the real issuer (#331).
+"""`olf users invite`, `resend` and `cancel`, and the bootstrap step a redeploy repeats, against the real issuer (#331).
 
 The deployed realm has no mail server by default, so for this check only its
 `smtpServer` is pointed at the throwaway mail sink and emptied again at the end.
@@ -20,6 +20,7 @@ from typing import Any
 import requests
 
 from olf import log
+from olf.deployment.bootstrap_admins import invite_missing
 from olf.e2e._identity_mail import action_link, sink_message_ids, sink_smtp, wait_for_delivery
 from olf.e2e._identity_users import users_admin
 from olf.e2e._shell import E2EConfig, E2EError
@@ -83,7 +84,9 @@ def check_invitations(
     admin, _ = users_admin(cfg, identity, base_url, email_delivery=True)
     role, claim = identity["roles"]["precedence"][-1], identity["role_claim"]
     suffix = secrets.token_hex(3)
-    member, withdrawn, stuck = (f"olf-e2e-{n}-{suffix}@example.invalid" for n in ("member", "withdrawn", "stuck"))
+    member, withdrawn, stuck, *bootstrap = (
+        f"olf-e2e-{n}-{suffix}@example.invalid" for n in ("member", "withdrawn", "stuck", "boot-a", "boot-b")
+    )
 
     def account(email: str) -> Any:
         return next((user for user in admin.users() if user.username == email), None)
@@ -139,10 +142,29 @@ def check_invitations(
         admin.resend(stuck)
         wait_for_delivery(cfg, stuck)
         admin.cancel(stuck)
+
+        # A redeploy runs the same bootstrap step over the same profile list: offboarding must survive it.
+        first_run = invite_missing(admin, bootstrap)
+        _require(first_run.invited == bootstrap, f"the bootstrap step did not invite its addresses: {first_run}")
+        for email in bootstrap:
+            wait_for_delivery(cfg, email)
+        admin.revoke(bootstrap[0], "platform-admin")
+        admin.set_enabled(bootstrap[0], False)
+        second_run = invite_missing(admin, bootstrap)
+        _require(second_run.existing == bootstrap and not second_run.invited, "a redeploy invited existing accounts")
+        _require(
+            (account(bootstrap[0]).state, account(bootstrap[0]).roles) == ("disabled", ()),
+            "a redeploy undid the offboarding of a bootstrap administrator",
+        )
+        _require(
+            (account(bootstrap[1]).state, account(bootstrap[1]).roles) == ("pending", ("platform-admin",)),
+            "a redeploy changed a pending bootstrap administrator",
+        )
+        _require(all(len(sink_message_ids(cfg, e)) == 1 for e in bootstrap), "a redeploy re-sent setup mail")
     finally:
         put_smtp({})
         with master_admin() as session:
-            for email in (member, withdrawn, stuck):
+            for email in (member, withdrawn, stuck, *bootstrap):
                 for found in session.get(f"{realm_url}/users", params={"username": email, "exact": "true"}).json():
                     session.delete(f"{realm_url}/users/{found['id']}", timeout=REQUEST_TIMEOUT)
             restored = session.get(realm_url, timeout=REQUEST_TIMEOUT).json()
