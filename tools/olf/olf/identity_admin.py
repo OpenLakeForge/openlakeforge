@@ -194,11 +194,17 @@ class KeycloakAdmin:
 
 
     def _pending(self, who: str, verb: str) -> dict[str, Any]:
+        """An enabled account that owes required actions *and holds no credential*. A required action alone
+        proves nothing: Keycloak also sets them on established users (password expiry, profile completion),
+        and `cancel` deletes. An invited account has no password until its owner sets one."""
         user = self._find(who)
-        if not user.get("enabled") or not user.get("requiredActions"):
-            state = "disabled" if not user.get("enabled") else "active"
-            raise AdminError(f"{who} is {state}, not pending; `olf users {verb}` applies only to unfinished setup.")
-        return user
+        if not user.get("enabled"):
+            state = "disabled"
+        elif not user.get("requiredActions") or self._call("GET", f"/users/{user['id']}/credentials"):
+            state = "active"
+        else:
+            return user
+        raise AdminError(f"{who} is {state}, not pending; `olf users {verb}` applies only to unfinished setup.")
 
     def _send_setup(self, user: dict[str, Any], actions: list[str]) -> None:
         path = f"/users/{user['id']}/execute-actions-email"
@@ -223,7 +229,13 @@ class KeycloakAdmin:
         account = {"username": email, "email": email, "enabled": True, "emailVerified": False}
         self._call("POST", "/users", json=account | {"requiredActions": SETUP_ACTIONS})
         user = self._find(email)
-        self._call("PUT", f"/users/{user['id']}/groups/{group}")
+        try:
+            self._call("PUT", f"/users/{user['id']}/groups/{group}")
+        except AdminError:
+            # A pending account without its role would block a retry (it exists) and `resend` restores no role.
+            with contextlib.suppress(AdminError):
+                self._call("DELETE", f"/users/{user['id']}")
+            raise
         self._send_setup(user, SETUP_ACTIONS)
 
     def resend(self, who: str) -> None:
