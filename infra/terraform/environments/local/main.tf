@@ -251,6 +251,7 @@ module "traefik" {
   cluster_issuer_name = module.cert_manager.cluster_issuer_name
   group_middlewares   = module.perimeter.group_middlewares
   dynamic_config      = module.perimeter.traefik_dynamic_config
+  backend_transports  = module.trino.traefik_backends
 }
 
 # ADR 0014 seam 3. The proxy discovers the issuer at its public URL when it
@@ -372,8 +373,9 @@ module "trino" {
   stage_catalog_contracts    = local.stage_catalog_contracts
   catalog_bootstrap_revision = local.polaris_bootstrap_hash
 
-  stage_namespaces                = local.stage_namespaces
-  workload_authentication_enabled = var.trino_workload_authentication_enabled
+  stage_namespaces        = local.stage_namespaces
+  workload_authentication = var.trino_workload_authentication
+  tls_issuer_name         = module.cert_manager.cluster_issuer_name
 
   depends_on = [
     module.polaris,

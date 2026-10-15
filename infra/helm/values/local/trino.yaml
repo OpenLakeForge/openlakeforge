@@ -7,7 +7,10 @@ server:
   workers: 0
 
 # Traefik terminates TLS for https://trino.<base_domain> and adds X-Forwarded-*
-# headers, which Trino rejects unless told to process them.
+# headers, which Trino rejects unless told to process them. modules/query/trino
+# replaces this list when workload authentication is on: it also disables the
+# HTTP listener, since with both a password is accepted over the HTTP port
+# (docs/adr/0016-trino-workload-authentication.md).
 additionalConfigProperties:
   - http-server.process-forwarded=true
 

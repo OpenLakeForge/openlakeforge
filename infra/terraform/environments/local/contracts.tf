@@ -410,7 +410,7 @@ locals {
         tls_host     = "*.${var.access_base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
         service_name = module.trino.service_name
-        service_port = module.trino.http_port
+        service_port = module.trino.route_port
       }
     },
     local.identity_keycloak ? {

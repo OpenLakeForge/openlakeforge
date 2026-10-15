@@ -61,3 +61,12 @@ variable "cluster_issuer_name" {
   description = "cert-manager ClusterIssuer that signs each namespace's wildcard route certificate."
   type        = string
 }
+
+variable "backend_transports" {
+  description = "Transports for backends that speak HTTPS, keyed by name: the Secret whose ca.crt signed the backend and the server name to verify. A Service selects one with the traefik.ingress.kubernetes.io/service.serverstransport annotation (<name>@file)."
+  type = map(object({
+    ca_secret   = string
+    server_name = string
+  }))
+  default = {}
+}

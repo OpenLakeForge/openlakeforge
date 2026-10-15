@@ -36,3 +36,4 @@ def test_each_principal_may_only_become_its_own_user_unless_extended() -> None:
         False,
     ]
     assert may_become(extended, dev, "alice") and not may_become(extended, prod, "alice")
+    assert may_become(base, "openmetadata", "openmetadata") and not may_become(base, "openmetadata", prod)

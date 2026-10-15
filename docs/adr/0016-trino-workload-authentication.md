@@ -2,15 +2,18 @@
 
 ## Status
 
-Decided and proven in isolation; **migration in progress**. Built so far
-(migration step 2, first half): the credential Job in `modules/query/trino`
-creates the principal Secrets, `trino-password-file` and
-`trino-internal-secret` and replicates each stage's principal, and the
-`trino_workload_authentication_enabled` switch exists, default off and read by
-nothing yet. No caller, chart value or Trino setting has changed. What binds is
-the selection, the principal mapping and the migration order. Until the
-migration lands Trino runs unauthenticated and its row in
-`docs/technical-debt.md` stays open.
+Decided and proven in isolation; **migration in progress**. Built so far: the
+credential Job in `modules/query/trino` creates the principal Secrets,
+`trino-password-file` and `trino-internal-secret` and replicates each stage's
+principal. The switch `trino_workload_authentication` has three levels, `off`
+(the default; nothing differs from before), `tls` (the module issues the
+serving certificate and adds an HTTPS listener beside the HTTP one, callers
+unchanged: migration steps 2-3) and `password` (the HTTP listener is replaced,
+`PASSWORD` authentication and the `principals` rules turn on, and Traefik gets
+a verified HTTPS transport to Trino: step 4). No caller has its credential
+yet, so `password` must not be used until they do. What binds is the selection,
+the principal mapping and the migration order. Until the migration lands Trino
+runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
 ## Context
 
@@ -63,8 +66,8 @@ and was not run; the client capabilities above and the password path were.
 
 `principals` rules in `rules.json` list each principal with the one user it may
 assume and end with a deny-all rule. Trino then answers: no credential on
-HTTPS 401, any query on the HTTP port 403, wrong password 401, valid password
-with an `X-Trino-User` outside the principal's list "Principal X cannot become
+HTTPS 401, any query on an HTTP listener 403 (the module has none, see k2),
+wrong password 401, valid password with an `X-Trino-User` outside the principal's list "Principal X cannot become
 user Y" before any catalog rule, and only then the catalog and table rules for
 the resulting user. Callers of one stage share its credential (the
 shared-service-account limitation in `identity-callers.md`).
@@ -94,10 +97,11 @@ bcrypt). A stage namespace never receives another stage's Secret. Chart wiring:
 | Piece | Decision |
 | --- | --- |
 | Certificate | cert-manager `Certificate` from the `local-ca` ClusterIssuer (ADR 0013), SANs `trino`, `trino.olf-system`, `trino.olf-system.svc`, the cluster-local FQDN and `localhost` (the in-pod CLI), PKCS8 key |
-| Keystore | Trino reads a PEM file of key then certificate (proved with an openssl-built file). That cert-manager's `CombinedPEM` output supplies it, and whether Trino reloads it on renewal, are **to verify** |
+| Keystore | Trino reads a PEM file of the PKCS8 key then the certificate chain. The `Certificate` asks cert-manager for `CombinedPEM` (key `tls-combined.pem`, a GA output format in the pinned v1.21.2: no feature gate); the Secret is mounted as a directory at `/etc/trino/tls`. Case k1 serves from a file in that layout. **Not followed on renewal**: with the file replaced by the symlink swap a Secret volume uses, the served certificate was unchanged 90 seconds later (run by hand, not in the script), so renewal needs a coordinator restart; the certificate lasts a year (`renewBefore` 30 days) |
 | Workload trust | callers use `trino.olf-system.svc.cluster.local:8443` and mount ConfigMap `olf-local-ca` (`ca.crt`, already in `olf-system` and every stage namespace, ADR 0013 decision 8) |
-| HTTP port | stays, because the chart's probes use it. Proved: `GET /v1/info` needs no credential (h) and a query or password on it is refused (c2, c4). Callers should not be offered it (#46) |
-| Ingress hop | Traefik reaches Trino over HTTP with `X-Forwarded-*` today. Whether Trino then treats that as secure was **not tested**; the human OAuth2 change decides it, with `web-ui.authentication.type` keeping the UI login separate from workload passwords |
+| HTTP port | **Disabled** (`http-server.http.enabled=false`) when authentication is on, so no cleartext listener exists (k2). Without that, the HTTP port refuses a password only until a pod spoofs `X-Forwarded-Proto: https` (k0). The server then reaches itself at `https://localhost:8443` (a name in the certificate) with the CA as its internal truststore, `node.internal-address=localhost` and `internal-communication.https.required=true`; without those the node's calls to itself fail the handshake on its pod IP, which the certificate cannot name. That is single-node only, as local is (`workers: 0`) |
+| Probes | The image's `health-check`, which the chart runs for readiness and startup, uses HTTPS once HTTP is disabled, and `GET /v1/info` on HTTPS needs no credential (h2). The chart's **liveness** probe is hardwired to the named HTTP port and takes only timings, so with HTTP off it can only fail; the module sets it to once an hour with 1000 failures, which makes it inert. A hung coordinator is therefore pulled from service by readiness but not restarted. A chart that lets the liveness probe be replaced would restore it |
+| Ingress hop | Traefik re-encrypts to Trino's HTTPS port and verifies it against the local CA. `http-server.process-forwarded=true` stays, since the forwarded headers Traefik adds are otherwise refused with `406`; with no HTTP listener a spoofed `X-Forwarded-Proto` has nothing to downgrade (k0 against k2). The Trino Service carries `traefik.ingress.kubernetes.io/service.serversscheme: https` and `...service.serverstransport: trino@file`; the transport is in Traefik's file provider with `rootCAs` and `serverName` (the Service FQDN), and the CA comes from a Secret that cert-manager issues for that purpose (`trino-ca-bundle`) so that Traefik does not mount Trino's private key. Cases t1 and t2 run the pinned Traefik image with that transport against the proof server; the Kubernetes annotations that select it were not run. The human OAuth2 change adds `OAUTH2` beside `PASSWORD` for the UI |
 
 ### Consumer configuration
 
@@ -145,10 +149,14 @@ Found in review; the migration must settle each before step 4.
   0013 decision 8), and AWS and Azure expose Trino over HTTP; define the CA and
   certificate there, or a provider-neutral trust input in the contract.
 - `infra/helm/values/local/trino.yaml` sets `http-server.process-forwarded=true`
-  in all three roots, which the proof server omits. A pod may be able to send
-  `X-Forwarded-Proto: https` to port 8080 and have a password accepted over
-  plain HTTP; disable it on the Service or prove c2/c4 with it set and the
-  header spoofed.
+  in all three roots, which the proof server omits. **Settled for the local
+  root**: with the HTTP listener on, a pod can send `X-Forwarded-Proto: https`
+  to port 8080 and have a password accepted over plain HTTP (k0), so the module
+  disables the HTTP listener and keeps `process-forwarded` for Traefik's
+  re-encrypted requests (k2, k3, t1). `olf e2e`'s perimeter check that a role
+  granted `query` reaches the route (`check_role_decisions`, status below 400)
+  also needs the human `OAUTH2` authenticator beside `PASSWORD`, which the caller
+  migration adds; the route itself no longer fails at the transport.
 - OpenMetadata stores the Trino password encrypted with its Fernet key, which
   `infra/helm/values/local/openmetadata.yaml` sets to the public upstream
   default; generate a per-deployment key Secret before persisting it.
@@ -185,6 +193,17 @@ self-check in `tools/olf/tests/test_trino_workload_auth_proof.py`. Run on
 | h | `GET /v1/info` on the HTTP port, no credential (the chart's probe) | `200`, `"state":"ACTIVE"` |
 | e1, e2 | PROD password rewritten in `password.db`, no restart | old: `401 Invalid credentials`; new: accepted: 25 |
 | g1-g3 | DEV principal also allowed as `alice` (read-only on DEV) | as `alice`: DEV 25, PROD `Cannot access catalog lakehouse_prod`; as `bob`: `cannot become user bob` |
+| k0 | Control: HTTP listener on with `process-forwarded=true`, a valid PROD credential on the HTTP port with a spoofed `X-Forwarded-Proto: https` | accepted: 25 (why the listener is disabled) |
+| k1 | The configuration `modules/query/trino` renders: HTTPS only, CombinedPEM keystore, `internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SECRET}`, `process-forwarded`, internal HTTPS truststore; DEV credential, DEV catalog | accepted: 25 |
+| k2 | On that server, a connection to the HTTP port | refused |
+| k3, k4 | Forwarded headers as Traefik sends them, over HTTPS: a valid PROD credential; `X-Trino-User` only | accepted: 25; `HTTP 401` |
+| h2 | The chart's `health-check` inside the container, and `GET /v1/info` on HTTPS with no credential | exit 0; `200`, `"state":"ACTIVE"` |
+| t1, t2 | Pinned Traefik with a file-provider transport (`rootCAs`, `serverName`) to `https://trino:8443`, `X-Forwarded-Proto: https`: DEV credential; `X-Trino-User` only | accepted: 25; `HTTP 401` |
+| o1, o2 | `openmetadata` credential: both stage catalogs; claiming `olf-prod-runtime` | accepted: 25 each; `Principal openmetadata cannot become user olf-prod-runtime` |
+
+k0-k4, h2, t1, t2 and o1-o2 were added on 2026-10-14 and run without `--clients`; the
+rules the script serves now include the `openmetadata` principal and the
+unconditional `tables` rule, as the module renders them.
 
 Clients, against the same secured server, each returned 25 (dbt: `Connection
 test: [OK connection ok]`): the `trino` 0.340 driver via a SQLAlchemy
@@ -214,3 +233,7 @@ platform.
 
 New record (#26 decision gate): mechanism selected and proven; nothing built.
 Credential Job and the default-off switch landed (migration step 2, first half).
+HTTPS-only listener, certificate, `PASSWORD` authentication, `principals` rules
+and a Traefik re-encrypting transport added behind the switch; the HTTP
+listener is disabled and `process-forwarded` kept (cases k0-k4, t1, t2), and
+keystore reload settled by a manual renewal check.
