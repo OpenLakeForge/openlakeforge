@@ -103,6 +103,23 @@ and the apiserver rows of the flow table are CNI-sensitive.
 | Cost | **Not measured [T]; measure before merging slice 1b** with `docker stats` on the node containers before and after, and record startup time of `olf deploy --phase foundation`. Expected from the objects: one operator pod, a `calico-node` DaemonSet pod per node (3), `calico-kube-controllers`, possibly Typha; five images pulled once per node unless prefetched. The first cost every developer sees is the forced destroy and the CI runner's longer foundation step |
 | What changes for developers | The first deploy after the change recreates the cluster; pods no longer reach arbitrary Services, so an ad hoc `kubectl run curl` in an OLF namespace is blocked (use `port-forward`, or `exec` into an allowed pod); `olf e2e` creates and removes its own temporary policies; `kubectl get pods -A` shows two more namespaces |
 
+Slice 1b must resolve these review findings before it is built; none is
+designed here, because Option B is built only if the canary fails:
+
+- **Guard before Terraform.** `triggers_replace` hashes the kind config, so the
+  foundation apply replaces the resource and its destroy provisioner deletes the
+  cluster; the missing-CNI check must run before that apply, or ownership of
+  replacement must change.
+- **Ownership.** The Calico release and `Installation` are static foundation
+  infrastructure; place them in Terraform state, or rewrite ADR 0002 to allow
+  an `olf`-owned step, rather than a second unrecorded ownership model.
+- **CRDs.** The v3.33 operator chart may not install the Calico CRDs (the
+  upstream kind guide installs them first, in a Kubernetes-version-specific
+  file [D]); pin and apply the matching CRD bundle before the operator.
+- **Image set.** v3.33 may have consolidated `cni`, `kube-controllers` and
+  `typha` into `calico/calico`; derive the prefetch and `ImageSet` lists from
+  the pinned operator's `--print-images=list` output, not from the names above.
+
 ### Option A: kindnet
 
 Nothing is installed. Slice 1 is the gate and canary below, run against the
@@ -112,9 +129,10 @@ unless a developer's cluster predates kind 0.24 [D].
 ### The gate and the canary
 
 `olf` creates a throwaway namespace with a deny-all policy, a server pod and a
-client pod, and requires the connection to fail (a drop times out; a refused
-connection means the policy was not applied) while an identical pair in a
-second, policy-free namespace connects. Deploy runs it once after the CNI is
+client pod, and requires every connection attempt to fail, by timeout or by
+refusal (the NetworkPolicy contract promises only that the connection cannot
+occur, not how it is signalled [D]), while an identical pair in a second,
+policy-free namespace connects, which also proves the server was listening. Deploy runs it once after the CNI is
 ready; the e2e runs it again as its first step. This is the evidence for
 "Local runtime demonstrably enforces default-deny network policy".
 
@@ -170,13 +188,14 @@ port [D]).
 | F17 | SeaweedFS pods among themselves; bucket Job | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; `bucket` Job waits on 9333 and 8888 | V |
 | F18 | Keycloak realm Job; `olf users` (port-forward) | Keycloak | 8080 | `keycloak-config-cli` URL in `modules/identity/keycloak` | V |
 | F19 | Polaris bootstrap and replication Jobs | Polaris | 8181 | `bootstrap.sh.tftpl` | V |
-| F20 | Jobs: `keycloak-credentials`, `perimeter-cookie-secret`, `publish-local-ca`, `catalog-bootstrap`, `catalog-credential-replication`, `governance-bootstrap`, `governance-credential-replication`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
+| F20 | Jobs: `keycloak-credentials`, `perimeter-cookie-secret`, `publish-local-ca`, `catalog-bootstrap`, `catalog-credential-replication`, `governance-bootstrap`, `governance-credential-replication`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `libs/k8s_log_archive.py`]) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
 | F21 | API server (control-plane node) | cert-manager webhook | 10250 | admission webhook | node-sourced traffic **T** |
 | F22 | Keycloak | the SMTP host and port of `spec.identity.smtp` | profile-driven | rendered from the profile; `ipBlock` cannot name a host, so `0.0.0.0/0` minus the pod and Service CIDRs on that port | T |
 | F23 | oauth2-proxy and, later, OIDC clients | an `issuer: external` host | 443 | profile-driven, same rendering | T |
 | F24 | kubelet (node) | any pod | probes | not a policy flow: node-to-local-pod traffic is not blocked [D] | T |
 | F25 | `kubectl port-forward`, `exec`, `logs` | any pod | none | the kubelet's runtime stream enters the pod's own network namespace, loopback, never crossing the policy hooks [D] | T |
-| F26 | `olf e2e` probe pods in `olf-system` | Traefik 8443, Keycloak mail sink | per probe | `check_discovery_from_pod` and `mail_sink` create pods there [V] | the e2e creates a policy for each, then deletes it |
+| F26 | `olf e2e` issuer probe pod in `olf-system` | Traefik 8443 | 8443 | `check_discovery_from_pod` creates the pod there [V] | the e2e creates a policy for it, then deletes it |
+| F27 | Keycloak | the e2e mail-sink pod (`olf-system`) | 1025 | `mail_sink` points the realm's SMTP at the sink; the sink only receives [V: `_identity_mail.py`] | the e2e creates egress and ingress policies for it, then deletes them |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -212,7 +231,7 @@ recorded and pinned by the e2e check.
 | `publish-local-ca` (each trust namespace) | ConfigMaps `create/get/patch/update` (namespace-wide); `get` on the CA Secret by name | publishes `olf-local-ca` | Exception E1 (ConfigMaps only) |
 | `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create/delete/get/patch/update`, namespace-wide [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Tighten (slice 4)**: every Secret and marker name is known at plan time (`*_credentials_secret_name`, `<name>-bootstrap-pending`, `polaris-dbt-creds`); `get/update/patch/delete` by `resourceNames`, `create` stays |
 | `openmetadata-bootstrap` (`olf-system`, governed and revoked stage namespaces) | Secrets `create/delete/get/patch/update`, namespace-wide [V] | the ingestion-bot Secret | **Tighten**: by the bot Secret's name |
-| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; slice 4 narrows it, it is not accepted by default.** A compromised OpenMetadata can read `keycloak-admin-creds`, the PostgreSQL admin and the Polaris root Secret. Slice 4 sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role for the server and the ingestion ServiceAccount, with Secret verbs limited by `resourceNames` where the chart lets the names be fixed. The server creates Secrets with generated names [T], so if the chart cannot be configured, E2 is recorded as a named exception with this exact exposure and asserted by the pin check |
+| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; slice 4 narrows it, it is not accepted by default.** A compromised OpenMetadata can read `keycloak-admin-creds`, the PostgreSQL admin and the Polaris root Secret. Limiting Secret verbs by `resourceNames` is not enough while the same Role can create pods, Jobs or CronJobs in `olf-system`: a workload mounts any Secret in its namespace and can run as any ServiceAccount there, including Traefik's and cert-manager's [D: Kubernetes RBAC good practices]. Slice 4 therefore counts workload creation as Secret access. It sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role only if pod and Job creation can be confined (for example to a dedicated ingestion namespace or ServiceAccount); the server also creates Secrets with generated names [T]. Otherwise E2 is recorded as a named exception with this exact exposure, asserted by the pin check |
 | `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3: no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
 | `traefik` ClusterRole | Secrets `get/list/watch` in **all** namespaces; Ingress status update [V] | TLS Secrets | Exception E4; narrowing to namespaces is a chart option, **T** |
 | cert-manager ClusterRoles | Secrets `get/list/watch/create/update/delete` cluster-wide [V] | issuing certificates | Exception E5, inherent |
@@ -229,7 +248,8 @@ subject above, `create` ServiceAccount tokens, `escalate` or `bind` Roles, and
 `patch` ConfigMap `coredns` in `kube-system` (the Corefile the
 in-cluster-resolution module owns). A second assertion lists every Role and
 ClusterRole bound to a ServiceAccount in the OLF namespaces that grants a
-Secret verb and compares the set with E1 to E6: a new one fails the run until
+Secret verb, or create on pods, Jobs, CronJobs or workload controllers (which
+reads Secrets by mounting them), and compares the set with E1 to E6: a new one fails the run until
 this ADR names it.
 
 ## Conformance test
@@ -308,11 +328,11 @@ each as an edit to the flow file in that PR.
    a reference implementation, so the conformance e2e tests the semantics the
    flow table relies on (`ipBlock`, node-sourced traffic, DNAT order).
 2. **E2 and the over-broad Roles are narrowed, not accepted.** Slice 4 limits
-   OpenMetadata's Secret access, the Polaris and OpenMetadata bootstrap Roles
+   OpenMetadata's Secret and workload-creation access, the Polaris and OpenMetadata bootstrap Roles
    (`resourceNames`) and the SeaweedFS cluster role (`createClusterRole:
    false`); a grant that cannot be removed becomes a named, tested exception.
 3. **The e2e may create temporary, labelled policies in `olf-system`** for its
-   own probe pods (`check_discovery_from_pod`, `mail_sink`), removed in a
+   own probe pods (`check_discovery_from_pod`, `mail_sink`; F26, F27), removed in a
    `finally`; the probes stay in `olf-system`.
 4. **Stage-wide trust is accepted for local qualification.** Inside a stage
    namespace there are no per-pod rules, because user code launches pods with
