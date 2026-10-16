@@ -65,12 +65,16 @@ user database: refresh tokens and signing keys live in Kubernetes objects.
   no apply: they are GitHub team changes, under the client's existing GitHub
   audit log and 2FA policy.
 - `olf users`, the `shared.identity.admin` contract, the Keycloak `olf-users`
-  client and `spec.identity.bootstrap_admins` are removed. The first
+  client and `spec.identity.bootstrap_admins` are removed (#383). The first
   administrator is whoever is in the team mapped to `platform-admin`.
 - Every platform user needs a GitHub account in the mapped organisation. On a
   paid GitHub plan each member is a seat, which matters for dashboard viewers;
   a separate free organisation used only for platform access is an option.
-- The cluster must reach `github.com` for logins and refreshes. A GitHub
+- Signing out of OpenLakeForge does not sign the person out of GitHub; on a
+  shared browser the next sign-in reuses that GitHub account (ADR 0014,
+  "Logout").
+- The cluster must reach `github.com` and `api.github.com` for logins and
+  refreshes, an egress flow ADR 0017 does not have yet. A GitHub
   outage blocks new logins; existing sessions run to their bound.
 - Air-gapped installations are not served by the default adapter; they use
   `issuer: external`.

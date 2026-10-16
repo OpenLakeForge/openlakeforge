@@ -13,9 +13,10 @@ The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
 **Decided, not built:** GitHub teams as the source of people and roles, with
 Dex as the issuer adapter ([ADR 0018](0018-github-is-the-forge.md)); Keycloak
-stays the deployed local adapter until it lands. **Seam 4 is removed:** user
-and role administration is GitHub's, and `olf users` with the
-`shared.identity.admin` contract no longer exists.
+stays the deployed local adapter until it lands. **Seam 4 is decided removed:**
+user and role administration becomes GitHub's. Until #383 lands, the
+`shared.identity.admin` contract, `olf users` and `bootstrap_admins` described
+in this ADR's History are still built.
 
 ## Context
 
@@ -234,11 +235,15 @@ grants nothing: only the mapped teams count.
 | Upstream app | A GitHub OAuth App owned by the organisation with the one callback `https://auth.<base_domain>/callback` and scope `read:org`. The operator creates it and stores its client id and secret in a Secret the profile references; the secret never enters the profile or state. An organisation that restricts third-party access must approve the app |
 | Admission | The connector's `orgs` lists the organisation with every mapped team. A GitHub user in none of them is refused by Dex at login, before any token exists, so an uninvited identity never reaches the perimeter |
 | Groups claim | `teamNameField: slug`; the `groups` claim carries `<organisation>:<team-slug>` |
-| `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so the perimeter and every consumer are untouched |
+| `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
+| Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's `--scope=openid email profile` (set for Keycloak) becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams |
+| Token lifetimes | Pinned to the session policy, not Dex's defaults (24 h ID tokens): `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`. Asserted by the adapter's e2e |
 | Clients | `perimeter`, `superset`, `openmetadata`, `trino` as static Dex clients, secrets from the existing bootstrap Job (#181) |
 | Login entry | The portal at the base domain is the front door. An unauthenticated visit is sent by the perimeter (`--skip-provider-button`) to Dex; with one connector and `alwaysShowLoginScreen` off, Dex goes straight to GitHub, and `skipApprovalScreen` removes its consent page. The person sees GitHub's authorize page once per app, then lands back on the portal. Dex's own login page is never shown, so it needs no branding |
 | Single sign-on | Dex keeps no browser session of its own by default; GitHub's session is what makes the next login silent. A native Superset or OpenMetadata login bounces through Dex to GitHub and back without a prompt while the GitHub session lasts. To be verified with the adapter |
-| Storage | Dex's `kubernetes` storage; no database, so the `keycloak` PostgreSQL database goes |
+| Logout | **Revises the platform-wide logout policy for this adapter.** Sign-out still ends the perimeter cookie and the native Superset and OpenMetadata sessions, so user B never reaches a surviving session of user A. Dex has no end-session endpoint and the GitHub session belongs to the person, not the platform: OpenLakeForge does not end it. The signed-out page links to GitHub's sign-out, and states that on a shared browser the next sign-in reuses the GitHub account still signed in there |
+| Storage | Dex's `kubernetes` storage; no database, so the `keycloak` PostgreSQL database goes. Dex then needs its own service account with an automounted token and a namespaced Role on the `dex.coreos.com` resources in `olf-system`; its CRDs are installed by the platform apply, not by Dex at runtime, so Dex holds no cluster-scoped grant. This is an exception row for the ADR 0017 RBAC inventory, added with the adapter (#384) |
+| Network | Dex calls `github.com` (token exchange) and `api.github.com` (user and team lookups) at every login and refresh. ADR 0017 has no internet egress today; the adapter adds that flow row, scoped to Dex, before default-deny egress is enforced (#384) |
 | Revocation | team membership is read at login and again on each refresh; the perimeter refreshes at most every 4 min, so removing someone from a team or the organisation ends perimeter access within the #177 bound. To be measured on the adapter, not assumed |
 | Mail | none. Dex sends no mail and `spec.identity.smtp` goes with Keycloak |
 | Break-glass | unchanged: the cluster administrator's kubeconfig and the services' native admin logins by port-forward (`identity-sessions-and-recovery.md`). Dex has no admin account to recover |
@@ -333,7 +338,7 @@ first `platform-admin` is whoever is in the team mapped to it.
 | Change role | move them between mapped teams |
 | Revoke every role | remove them from every mapped team: they can still sign in to GitHub, but Dex refuses them |
 | Offboard | remove them from the organisation |
-| List who holds what | `gh api orgs/<org>/teams/<slug>/members` per mapped team |
+| List who holds what | `gh api --paginate orgs/<org>/teams/<slug>/members` per mapped team |
 
 Until the Dex adapter lands, the deployed Keycloak has no member onboarding
 path: `olf users` and `spec.identity.bootstrap_admins` were removed with the
