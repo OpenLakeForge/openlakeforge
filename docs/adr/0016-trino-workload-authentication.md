@@ -8,11 +8,11 @@ credential Job in `modules/query/trino` creates the principal Secrets,
 principal. The switch `trino_workload_authentication` has three levels, `off`
 (the default; nothing differs from before), `tls` (the module issues the
 serving certificate and adds an HTTPS listener beside the HTTP one; dbt run
-pods and `olf e2e` use it, sending only the user name: migration steps 2-3),
+pods, `olf e2e` and Superset use it, sending only the user name: migration steps 2-3),
 and `password` (the HTTP listener is replaced, `PASSWORD` authentication and the
 `principals` rules turn on, and Traefik gets a verified HTTPS transport to
-Trino: step 4). Superset and OpenMetadata are still on HTTP and no caller sends
-its password yet, so `password` must not be used until they do. What binds is
+Trino: step 4). OpenMetadata is still on HTTP and no caller sends its password
+yet, so `password` must not be used until they do. What binds is
 the selection, the principal mapping and the migration order. Until the migration lands Trino
 runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
@@ -243,3 +243,10 @@ Step 3 for the pipeline callers: dbt run pods (profile, run env, CA mount) and
 remain. Callers send no password until `password`, because an unauthenticated
 HTTPS listener refuses one (case 0c); the consumer table's "password" rows
 describe step 4, not step 3.
+Step 3 for Superset: with a TLS query contract, `olf report import` writes the
+database URI on the `tls_port` with `engine_params.connect_args`
+`http_scheme: https` and `verify` set to the `olf-local-ca` ConfigMap, which
+the superset module mounts in the Superset pods. This mounts the CA where the
+driver runs instead of storing it as `server_cert`, which step 4 may still
+choose. OpenMetadata ingestion remains: the ingestion pods' CA mount is
+unresolved.

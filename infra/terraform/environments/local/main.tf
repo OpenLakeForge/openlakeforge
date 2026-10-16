@@ -480,6 +480,8 @@ module "superset" {
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
+  # The literal name, as in the query contract: see contracts.tf.
+  trino_ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
 
   depends_on = [
     module.postgresql,
