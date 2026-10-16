@@ -32,24 +32,38 @@ or on Azure.
 - 🧊 **Open table format** — Apache Iceberg keeps storage independent from the engines that use it.
 - 🏗️ **Infrastructure included** — Kubernetes, Terraform and Helm come with the platform.
 
-## The stack
+## How it works
+
+Data moves through three medallion layers, each owned by one tool:
+
+|Layer|What happens|Technology|
+|---|---|---|
+|**Bronze**|Raw source files land unchanged in object storage|dlt|
+|**Silver**|Technical contracts validate them into Iceberg tables|Floe|
+|**Gold**|Business marts are modelled in SQL and run in the query engine|dbt-trino on Trino|
+
+Dagster orchestrates every run. Around that path sit the shared services:
 
 |Capability|Technology|
 |---|---|
-|Extraction|dlt|
-|Validation & technical contracts|Floe|
 |Table format|Apache Iceberg|
-|Transformation|dbt-trino|
-|Query engine|Trino|
-|Orchestration|Dagster|
 |Data catalog|Apache Polaris / AWS Glue|
-|Object storage|S3-compatible storage / AWS S3|
-|Governance|OpenMetadata _(optional)_|
+|Object storage|S3-compatible storage (SeaweedFS) / AWS S3|
+|Service state|PostgreSQL / Amazon RDS|
+|Governance and lineage|OpenMetadata _(optional)_|
 |Dashboards|Superset _(optional)_|
 
 Infrastructure sits behind provider-neutral contracts, so local, AWS and Azure
 expose the same platform capabilities with different implementations.
 → [How provider portability works](/docs/architecture/provider-contracts.md)
+
+### Is it a good fit?
+
+|Good fit|Not yet|
+|---|---|
+|A small team that wants a working batch lakehouse without building the platform first|Streaming workloads: v1 is batch-first|
+|Keeping data on your own Kubernetes, storage and cloud account|Production-critical use: the project is alpha|
+|Moving the same project between a laptop, AWS and Azure|Teams that want a fully managed SaaS|
 
 ## Quickstart
 
@@ -73,11 +87,38 @@ olf status --provider local   # lists every service URL, e.g. https://dagster.de
 olf e2e run --env local --suite full
 ```
 
-Tear it down with `olf destroy --provider local`.
+The first deploy takes several minutes while Kubernetes and the container
+images download. Tear it down with `olf destroy --provider local`.
+
+**What you get:** a local lakehouse with three example data products already
+wired end to end, `sales/order_revenue`, `sales/customer_health` and
+`supply_chain/inventory_reliability`. Each one loads CSV files into Bronze,
+validates them into Silver and builds Gold marts. Open Dagster to see the
+asset graph and launch the pipelines; query the results through Trino.
 
 The [local installation guide](/docs/setup/local.md) covers the rest: `pip`
-installs, toolchain modes, empty projects and access troubleshooting. Then
-[build your first data product](/docs/getting-started/first-data-product.md).
+installs, toolchain modes, empty projects and access troubleshooting.
+
+### Your project
+
+`olf init` creates a writable project. The platform itself (Terraform, Helm,
+images) stays in the installed distribution, so your repository holds only
+what you own:
+
+```text
+my-lakehouse/
+├── openlakeforge.yaml      # Deployment Profile: provider, stages, preset
+└── lakehouse_code/
+    ├── lakehouse.yaml      # domains and data products
+    ├── bronze/             # sources and their dlt loaders
+    ├── silver/             # Floe contracts per domain
+    ├── gold/               # dbt projects per product
+    ├── pipelines/dagster/  # one Dagster job per product
+    └── dashboards/superset/
+```
+
+Add your own with `olf source new` and `olf product new`, or follow
+[Build your first data product](/docs/getting-started/first-data-product.md).
 
 ### Slim or Full?
 
@@ -99,12 +140,13 @@ again. The optional layers do not change the ingestion-to-Gold data path.
 A Deployment Profile can enable `dev`, an optional `uat`, and `prod`
 (`olf init --stages dev,prod`). Every stage runs in the same cluster, in its
 own `olf-<stage>` namespace with its own Dagster (and Superset with the full
-preset), buckets and `lakehouse_<stage>` catalog. The platform services in `olf-system` are shared.
+preset), buckets and `lakehouse_<stage>` catalog. The platform services in
+`olf-system` are shared.
 
 A change is built **once** into an immutable project revision: the project's
 code plus one image pinned by digest, pushed to a registry such as GHCR (ECR on
-AWS). That
-revision is activated in DEV, validated, and then activated unchanged in PROD.
+AWS). That revision is activated in DEV, validated, and then activated
+unchanged in PROD.
 PROD never rebuilds, and no data is copied between stages.
 
 ```bash
@@ -125,7 +167,7 @@ with PROD behind an environment approval. See
 The same platform runs on managed infrastructure:
 
 - ☁️ **AWS** — EKS, ECR, S3, RDS PostgreSQL and Glue:
-  [AWS deployment](/docs/setup/cloud-poc-setup.md#aws-eks) ·
+  [AWS deployment](/docs/setup/aws.md) ·
   [AWS architecture](/docs/architecture/aws-eks-poc.md)
 - ☁️ **Azure** — AKS and ACR with the in-cluster platform services:
   [Azure deployment](/docs/setup/azure.md)
