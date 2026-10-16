@@ -11,8 +11,8 @@ If you are discovering OpenLakeForge for the first time, start with the [root RE
 | I want to...                          | Start here                                                       |
 | ------------------------------------- | ---------------------------------------------------------------- |
 | 🚀 Try OpenLakeForge locally          | [Local installation](setup/local.md)                             |
-| ☁️ Deploy to AWS                      | [AWS deployment](setup/cloud-poc-setup.md#aws-eks)               |
-| ☁️ Deploy to Azure                    | [Azure deployment](setup/cloud-poc-setup.md#azure-aks)           |
+| ☁️ Deploy to AWS                      | [AWS deployment](setup/aws.md)               |
+| ☁️ Deploy to Azure                    | [Azure deployment](setup/azure.md)           |
 | 🧱 Build my first data product        | [Your first data product](getting-started/first-data-product.md) |
 | 📄 Understand `lakehouse.yaml`        | [Domain descriptor reference](reference/domain-descriptor.md)    |
 | 🔁 Promote a revision through stages in CI | [Reference CI/CD](reference/ci-cd.md)                      |
@@ -57,7 +57,7 @@ OpenLakeForge can deploy the same platform architecture to AWS using services in
 
 The AWS environment is currently named `aws-poc` because it has been validated in sandbox environments. The POC designation describes its validation maturity, not a reduced platform implementation.
 
-➡️ [Deploy OpenLakeForge to AWS](setup/cloud-poc-setup.md#aws-eks)
+➡️ [Deploy OpenLakeForge to AWS](setup/aws.md)
 
 ### Azure
 
@@ -65,7 +65,7 @@ The Azure deployment runs OpenLakeForge on AKS and ACR while keeping the same Op
 
 As with AWS, the `azure-poc` name reflects the environment in which the deployment is currently validated.
 
-➡️ [Deploy OpenLakeForge to Azure](setup/cloud-poc-setup.md#azure-aks)
+➡️ [Deploy OpenLakeForge to Azure](setup/azure.md)
 
 ---
 
