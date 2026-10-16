@@ -47,8 +47,9 @@ the provider-neutral `identity.oidc` contract of ADR 0014; wiring each of
 them to GitHub's API directly would put a provider-specific adapter in every
 consumer. Dex's GitHub connector turns a GitHub login into an OIDC token
 whose `groups` claim lists the user's teams as `<org>:<team-slug>`, so the
-contract, the role mapping and every consumer stay unchanged. Dex keeps no
-user database: refresh tokens and signing keys live in Kubernetes objects.
+contract and the role mapping stay unchanged. Dex keeps no user directory:
+only refresh tokens and signing keys, in its own database on the platform
+PostgreSQL.
 
 ### Boundaries
 
