@@ -12,6 +12,11 @@ from olf.e2e._shell import E2EConfig, E2EError, kubectl
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
 
+# The coordinator mounts its serving certificate's CA only when workload
+# authentication is on (ADR 0016), so the pod itself says which listener to use
+# - no contract field has to be threaded to the workstation.
+_TRINO_CA = "/etc/trino/tls/ca.crt"
+
 
 def stage_catalog_name(cfg: E2EConfig) -> str:
     """The Iceberg catalog this run's stage is served under.
@@ -180,6 +185,14 @@ def trino_scalar(cfg: E2EConfig, sql: str) -> str:
     return parse_trino_scalar(trino_query(cfg, sql))
 
 
+def _trino_cli_script() -> str:
+    return (
+        f"if [ -f {_TRINO_CA} ]; then "
+        f'exec trino --server https://localhost:8443 --truststore-path {_TRINO_CA} "$@"; '
+        'else exec trino "$@"; fi'
+    )
+
+
 def trino_query(cfg: E2EConfig, sql: str) -> str:
     output = kubectl(
         cfg,
@@ -189,6 +202,9 @@ def trino_query(cfg: E2EConfig, sql: str) -> str:
             cfg.platform_namespace,
             "deploy/trino-coordinator",
             "--",
+            "sh",
+            "-c",
+            _trino_cli_script(),
             "trino",
             "--output-format",
             "CSV_UNQUOTED",

@@ -128,3 +128,33 @@ def test_shared_services_are_queried_in_the_shared_namespace(
     _trino.trino_query(cfg, "SELECT 1")
 
     assert commands[0][:3] == ["exec", "-n", "olf-system"]
+
+
+@pytest.mark.parametrize("tls", [False, True])
+def test_trino_query_uses_https_only_when_the_coordinator_serves_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tls: bool
+) -> None:
+    """Run the command the coordinator pod would run, with a stub `trino`."""
+    import subprocess
+
+    stub = tmp_path / "trino"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    stub.chmod(0o755)
+    ca = tmp_path / "ca.crt"
+    if tls:
+        ca.write_text("pem")
+    monkeypatch.setattr(_trino, "_TRINO_CA", str(ca))
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+
+    def _run_in_pod(_cfg, args, **_kwargs):  # noqa: ANN001, ANN202
+        return subprocess.run(args[args.index("--") + 1 :], capture_output=True, text=True, check=True).stdout
+
+    monkeypatch.setattr(_trino, "kubectl", _run_in_pod)
+
+    argv = _trino.trino_query(e2e_cfg(tmp_path), "SELECT 1").splitlines()
+
+    assert argv[-2:] == ["--execute", "SELECT 1"]
+    assert ("--server" in argv) is tls
+    if tls:
+        assert argv[argv.index("--server") + 1] == "https://localhost:8443"
+        assert argv[argv.index("--truststore-path") + 1] == str(ca)

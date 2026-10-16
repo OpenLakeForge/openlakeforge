@@ -9,6 +9,11 @@ output "http_port" {
   value       = 8080
 }
 
+output "tls_port" {
+  description = "Trino HTTPS port callers can use once the serving certificate is issued; null while workload authentication is off."
+  value       = local.tls_enabled ? 8443 : null
+}
+
 output "route_port" {
   description = "Port the ingress route reaches Trino on: the HTTPS port when workload authentication is on, since the HTTP listener is then disabled."
   value       = local.auth_enabled ? 8443 : 8080

@@ -489,6 +489,10 @@ module "dagster" {
   query_contract = merge(local.query_contract, {
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
+    tls_port                   = module.trino.tls_port
+    # A literal, not module.in_cluster_resolution's output: that module waits on
+    # Traefik, which waits on the Dagster route, so the reference is a cycle.
+    ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   })
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
   code_locations      = local.orchestration_contract.code_locations

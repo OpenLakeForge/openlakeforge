@@ -7,6 +7,8 @@ order_revenue:
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
       port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
+      cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
       schema: order_revenue_gold
       threads: 1
@@ -16,6 +18,8 @@ order_revenue:
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
       port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
+      cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
       schema: order_revenue_gold
       threads: 1
