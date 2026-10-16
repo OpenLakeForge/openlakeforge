@@ -1,0 +1,24 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-github
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+  identity:
+    issuer: github
+    github:
+      organization: OpenLakeForge
+      teams:
+        platform-admin: [olf-platform-admins]
+        data-engineer: [olf-data-engineers]
+        analyst: [olf-analysts]
+        viewer: [olf-viewers]
+      oauth_app_secret_ref:
+        name: github-oauth-app
