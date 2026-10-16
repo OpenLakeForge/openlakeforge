@@ -364,5 +364,8 @@ run in the policy slices.
 
 Canary reworked after review: one server and client pair is proven to connect
 with no policy, then an ingress-only and an egress-only deny must each block it.
-The maintainer's run above used the earlier two-namespace canary; the rework is
-unit-tested only and needs one re-run of the same command.
+The maintainer's run above used the earlier two-namespace canary. The rework
+was then run against the same pinned cluster (kind v0.32.0, kindnetd
+`v20260528-9350166c`) through `require_policy_enforcement` and printed
+"NetworkPolicy is enforced.": kindnet blocks the pair for an ingress-only and an
+egress-only deny. Option A stands.
