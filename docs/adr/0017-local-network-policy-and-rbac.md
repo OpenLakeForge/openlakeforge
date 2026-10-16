@@ -2,10 +2,11 @@
 
 ## Status
 
-Design for #46 (local qualification only); **nothing is built**. What binds
-today is the policy model, the flow table, the RBAC inventory, the conformance
-plan and the slice order. The CNI question is settled in [Decisions](#decisions):
-the canary on kindnet comes first, Calico is the fallback.
+Design for #46 (local qualification only); slice 1a (the canary gate) is
+built, no policy is. What binds today is the policy model, the flow table, the
+RBAC inventory, the conformance plan and the slice order. The CNI question is
+**settled: Option A, kindnet.** The canary passed on the pinned kind 0.32.0
+(History), so Calico (slice 1b) is not built.
 
 Claims carry a tag. **[V]** read from this repository or rendered from the
 pinned charts with `helm template` (no cluster). **[D]** read in upstream
@@ -352,5 +353,10 @@ unless a deny-all namespace blocks a client its policy-free twin reaches.
 Observed once, outside `olf`'s own cluster: on a stock kind v0.31.0 cluster
 (not the pinned 0.32.0) with kindnetd
 `v20251212-v0.29.0-alpha-105-g20ccfc88`, the gate passed, so kindnet blocked
-the deny-all pair. That does not settle A: the maintainer's run on the pinned
-kind 0.32.0 does, and slice 1b stays open until then.
+the deny-all pair. That did not settle A on its own.
+
+Option A settled (maintainer run, 2026-10-16): `olf deploy --provider local
+--phase foundation` on the pinned kind v0.32.0, node `kindest/node:v1.36.1`,
+kindnetd `v20260528-9350166c`, printed "NetworkPolicy is enforced." Slice 1b
+(Calico) is dropped; the kindnet-semantics rows of the conformance test still
+run in the policy slices.
