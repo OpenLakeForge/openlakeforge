@@ -606,28 +606,12 @@ phase resolves its selected stage's storage, catalog, credentials, and ops
 activation prefix, so deploying PROD artifacts cannot fall back to DEV's data
 plane.
 
-### Upgrading a v0.2 local deployment
-
-There is no in-place upgrade from a v0.2 local deployment, or from any earlier
-local deployment that already enabled UAT or PROD. Medallion buckets are named
-`lakehouse-<stage>-bronze`, `-silver`, and `-gold`. v0.2 named DEV's
-`lakehouse-bronze`, `lakehouse-silver`, and `lakehouse-gold`, and other stages
-`<profile>-<stage>-<layer>`, such as `openlakeforge-prod-bronze`. Polaris keeps
-the storage locations each `lakehouse_<stage>` warehouse was created with, so
-applying this version over an existing deployment leaves those warehouses
-pointing at buckets that are no longer used, while the stage credentials grant
-only the new ones. Destroy the local stack and deploy again; data in the old
-buckets is not copied.
-
-```bash
-olf destroy --provider local
-olf deploy --provider local
-```
+### Deprecated `--profile` command
 
 The deprecated `--provider local --profile slim|full` command remains a
-single-DEV Deployment Profile. Enabling UAT or PROD creates its own
-`lakehouse-uat-*` or `lakehouse-prod-*` buckets and catalog; it does not copy
-DEV data.
+single-DEV Deployment Profile. Medallion buckets are named
+`lakehouse-<stage>-bronze`, `-silver`, and `-gold`, so enabling UAT or PROD
+creates its own `lakehouse-uat-*` or `lakehouse-prod-*` buckets and catalog.
 
 The local kubeconfig path can also be overridden:
 
