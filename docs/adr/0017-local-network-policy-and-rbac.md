@@ -386,3 +386,16 @@ labels are not read, and the SeaweedFS `component=s3` label is from the chart,
 not rendered here), F14, and F20 (whether the Service address, the endpoint
 address or both reach the policy). The policy module was planned against a
 stub provider, not applied.
+
+Slice 2 runtime check (maintainer, 2026-10-16, kind v0.32.0, kindnetd
+`v20260528-9350166c`): `olf deploy` and `olf e2e run --env local` pass with the
+stage policies, so the pipeline flows in the file are sufficient. From a probe
+pod in `olf-dev`, Trino (F10) answers and Keycloak (no flow) is refused by pod
+IP, by ClusterIP and by name. **Observed limitation:** kindnet programs a new
+pod's policy asynchronously, and a probe started seconds earlier still reached
+Keycloak by pod IP and ClusterIP before the deny took effect. A freshly started
+stage pod therefore has a short window of unrestricted egress. Run pods are
+short-lived and start inside that window, so this is recorded as a known
+exposure of the kindnet dataplane, to be measured and either accepted or
+mitigated (for example an init-time wait) in slice 5's conformance matrix.
+
