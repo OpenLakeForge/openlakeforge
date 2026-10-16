@@ -627,13 +627,23 @@ locals {
           deployer_client_id_key           = local.stage_catalog_contracts[name].deployer_client_id_key
           deployer_client_secret_key       = local.stage_catalog_contracts[name].deployer_client_secret_key
         }
-        query = {
+        # tls_port and ca_configmap_name appear only while Trino serves HTTPS
+        # (ADR 0016): strings, filtered by a for expression so the absent case
+        # is an empty object of the same type. The ConfigMap name is a literal
+        # because module.in_cluster_resolution waits on Traefik, which waits on
+        # routes built from this contract: a cycle.
+        query = merge({
           service_ref          = "shared/query"
           catalog_ref          = "stage/${name}/catalog"
           catalog_name         = local.stage_catalog_contracts[name].catalog_name
           endpoint             = local.query_contract.endpoint
           runtime_identity_ref = "stage/${name}/runtime_identity"
-        }
+          }, {
+          for key, value in tomap({
+            tls_port          = module.trino.tls_port == null ? null : tostring(module.trino.tls_port),
+            ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca",
+          }) : key => value if value != null
+        })
         orchestration = {
           service_ref  = "stage/${name}/orchestration"
           endpoint_ref = "stage/${name}/endpoints/orchestration"

@@ -5,7 +5,7 @@ inventory_reliability:
       type: trino
       method: none
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
-      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_TLS_PORT', env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080')) | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
       http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
       cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
@@ -16,7 +16,7 @@ inventory_reliability:
       type: trino
       method: none
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
-      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_TLS_PORT', env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080')) | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
       http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
       cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"

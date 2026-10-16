@@ -283,6 +283,17 @@ def _user_values(
         }
         - {""}
     )
+    # The CA that signs Trino's certificate, for dbt in the run pods; the
+    # profile reads these names (libs/dbt/profiles/local.yml).
+    ca_configmap = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", "")
+    tls_pod: dict[str, Any] = {}
+    if ca_configmap and contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"):
+        env.append({"name": "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME", "value": "https"})
+        env.append({"name": "OPENLAKEFORGE_QUERY_TRINO_CA", "value": f"{_QUERY_CA_DIR}/ca.crt"})
+        tls_pod = {
+            "volumes": [{"name": "query-ca", "configMap": {"name": ca_configmap}}],
+            "volumeMounts": [{"name": "query-ca", "mountPath": _QUERY_CA_DIR, "readOnly": True}],
+        }
     return {
         "global": dict(platform_globals),
         "extraManifests": [_log_archive_manifest(
@@ -311,6 +322,7 @@ def _user_values(
                 "includeConfigInLaunchedRuns": {"enabled": True},
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
+                **tls_pod,
                 "deploymentLabels": {
                     "openlakeforge.io/project-revision": activation.project_revision,
                     _ACTIVATION_LABEL: activation.activation_revision,
@@ -325,6 +337,7 @@ def _user_values(
     }
 
 
+_QUERY_CA_DIR = "/etc/olf/query-ca"
 _USER_SUBCHART = "charts/dagster-user-deployments/"
 
 

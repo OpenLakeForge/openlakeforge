@@ -216,32 +216,20 @@ locals {
     : "${var.query_contract.service_name}.${var.query_contract.service_namespace}"
   )
 
-  query_tls = try(var.query_contract.tls_port, null) != null && try(var.query_contract.ca_configmap_name, null) != null
-  query_ca  = "/etc/olf/query-ca/ca.crt"
-
-  query_env = concat([
+  query_env = [
     {
       name  = "OPENLAKEFORGE_QUERY_TRINO_HOST"
       value = local.query_host
     },
     {
       name  = "OPENLAKEFORGE_QUERY_TRINO_PORT"
-      value = tostring(local.query_tls ? var.query_contract.tls_port : var.query_contract.http_port)
+      value = tostring(var.query_contract.http_port)
     },
     {
       name  = "OPENLAKEFORGE_QUERY_TRINO_CATALOG"
       value = var.query_contract.catalog_name
     },
-    ], local.query_tls ? [
-    {
-      name  = "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"
-      value = "https"
-    },
-    {
-      name  = "OPENLAKEFORGE_QUERY_TRINO_CA"
-      value = local.query_ca
-    },
-  ] : [])
+  ]
 
   dbt_env = concat([
     {
@@ -355,10 +343,6 @@ locals {
       }
       env        = local.runtime_env
       envSecrets = local.runtime_env_secrets
-      # Launched runs inherit these (includeConfigInLaunchedRuns), which is how
-      # a dbt run pod gets the CA to verify Trino's certificate.
-      volumes      = local.query_tls ? [{ name = "query-ca", configMap = { name = var.query_contract.ca_configmap_name } }] : []
-      volumeMounts = local.query_tls ? [{ name = "query-ca", mountPath = dirname(local.query_ca), readOnly = true }] : []
     }
   ]
 

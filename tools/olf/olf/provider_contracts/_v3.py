@@ -577,6 +577,7 @@ def _parse_stage(
         document["query"],
         where=f"stages.{name.value}.query",
         required={"service_ref", "catalog_ref", "catalog_name", "endpoint", "runtime_identity_ref"},
+        optional={"tls_port", "ca_configmap_name"},
     )
     _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
     _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
