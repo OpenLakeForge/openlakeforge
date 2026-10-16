@@ -420,3 +420,12 @@ Trino to itself (only needed if the CNI does not hairpin the Service address)
 and the new-pod window recorded above, which now also covers these pods. The
 module was validated and its rule sets evaluated with `terraform console`, not
 applied.
+
+Slice 3a runtime check (maintainer, kind, fresh cluster): `olf deploy` passes
+and the allow and deny probes match. One e2e run failed at the Polaris restart
+drill: the Trino query right after the new Polaris pod was Ready got an empty
+response from Polaris, and two re-runs passed. Under kindnet a restarted,
+policy-selected pod is briefly unreachable after Ready, the same asynchronous
+programming seen for new egress above, now on a destination. The drill retries
+its first post-restart query for up to 60 s instead of weakening the policies.
+Slice 5 should measure the window.
