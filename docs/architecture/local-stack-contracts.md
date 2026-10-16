@@ -42,9 +42,9 @@ http://seaweedfs-s3.olf-system:8333
 The storage module owns:
 
 - S3 access credentials in `seaweedfs-s3-creds`
-- the Bronze landing bucket `lakehouse-bronze` (raw CSV files, owned by ingestion)
-- the Silver Iceberg bucket `lakehouse-silver` (Floe-validated tables, owned by Floe)
-- the Gold Iceberg bucket `lakehouse-gold` (dbt business marts, owned by dbt)
+- the Bronze landing bucket `lakehouse-<stage>-bronze` (raw CSV files, owned by ingestion)
+- the Silver Iceberg bucket `lakehouse-<stage>-silver` (Floe-validated tables, owned by Floe)
+- the Gold Iceberg bucket `lakehouse-<stage>-gold` (dbt business marts, owned by dbt)
 - the local ops/artifact bucket `openlakeforge-ops`
 - path-style S3 access
 - region `us-east-1`
@@ -93,12 +93,12 @@ The catalog module owns:
 - local catalog type `rest`
 - local catalog provider `polaris`
 - root bootstrap credentials in `polaris-bootstrap-credentials`
-- the `lakehouse_dev` warehouse with `default-base-location: s3://lakehouse-silver/`
+- the `lakehouse_dev` warehouse with `default-base-location: s3://lakehouse-dev-silver/`
 - product Silver namespaces such as `sales_silver` with storage
-  locations under `s3://lakehouse-silver/<namespace>/`
+  locations under `s3://lakehouse-dev-silver/<namespace>/`
 - product Gold namespaces such as `order_revenue_gold` with storage
-  locations under `s3://lakehouse-gold/<namespace>/`
-- allowed S3 locations `s3://lakehouse-silver/` and `s3://lakehouse-gold/`
+  locations under `s3://lakehouse-dev-gold/<namespace>/`
+- allowed S3 locations `s3://lakehouse-dev-silver/` and `s3://lakehouse-dev-gold/`
 - the Trino service principal and role grants
 - Trino OAuth credentials in `polaris-trino-creds`
 - the Floe service principal and role grants

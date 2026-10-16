@@ -32,7 +32,7 @@ def test_local_profile_uses_polaris_rest_catalog_and_secrets() -> None:
     assert 'type: "rest"' in profile
     assert 'default: "iceberg_catalog"' in profile
     assert "image: ghcr.io/malon64/floe:0.6.11" in profile
-    assert 'warehouse_prefix: "s3://lakehouse-silver"' in profile
+    assert 'warehouse_prefix: "s3://lakehouse-dev-silver"' in profile
     assert "secret_name: seaweedfs-s3-creds" in profile
     assert "secret_name: polaris-floe-creds" in profile
     assert "secret_name: openmetadata-ingestion-bot" in profile
@@ -47,12 +47,12 @@ def test_local_profile_uses_polaris_rest_catalog_and_secrets() -> None:
     assert "\nstorages:" not in profile
 
 
-def test_checked_in_dev_profile_uses_the_preserved_storage_identities() -> None:
+def test_checked_in_dev_profile_uses_the_dev_stage_buckets() -> None:
     profile = yaml.safe_load((REPO_ROOT / "libs/floe/profiles/local-k8s.yml").read_text())
 
-    assert profile["variables"]["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "lakehouse-bronze"
-    assert profile["variables"]["OPENLAKEFORGE_STORAGE_SILVER_BUCKET"] == "lakehouse-silver"
-    assert profile["catalogs"]["definitions"][0]["warehouse_prefix"] == "s3://lakehouse-silver"
+    assert profile["variables"]["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "lakehouse-dev-bronze"
+    assert profile["variables"]["OPENLAKEFORGE_STORAGE_SILVER_BUCKET"] == "lakehouse-dev-silver"
+    assert profile["catalogs"]["definitions"][0]["warehouse_prefix"] == "s3://lakehouse-dev-silver"
 
 
 def test_aws_profile_uses_glue_catalog_without_secrets() -> None:

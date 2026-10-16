@@ -606,17 +606,12 @@ phase resolves its selected stage's storage, catalog, credentials, and ops
 activation prefix, so deploying PROD artifacts cannot fall back to DEV's data
 plane.
 
-### Upgrading a v0.2 local deployment
+### Deprecated `--profile` command
 
 The deprecated `--provider local --profile slim|full` command remains a
-single-DEV Deployment Profile. Apply the platform phase before artifacts so
-Terraform retains the existing DEV Bronze, Silver, Gold, ops, and
-`lakehouse_dev` identities while it writes the v3 contract. The platform
-recreates stage services in `olf-dev`; pause active runs during that apply.
-After `olf profile resolve --json` and `olf deploy --provider local --phase
-platform` succeed, deploy artifacts with an explicit `--stage dev`. Enabling
-UAT or PROD then creates new stage-qualified medallion buckets and catalogs;
-it does not copy DEV data.
+single-DEV Deployment Profile. Medallion buckets are named
+`lakehouse-<stage>-bronze`, `-silver`, and `-gold`, so enabling UAT or PROD
+creates its own `lakehouse-uat-*` or `lakehouse-prod-*` buckets and catalog.
 
 The local kubeconfig path can also be overridden:
 

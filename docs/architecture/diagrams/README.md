@@ -130,7 +130,7 @@ sequenceDiagram
     Note over Run: image project-code · SA dagster · TTL 1h
 
     Note over Run: ① Bronze — dlt
-    Run->>S3: land raw entities in lakehouse-bronze
+    Run->>S3: land raw entities in lakehouse-dev-bronze
 
     Note over Run: ② Silver — Floe, out of process
     loop once per entity, sequential (5 for order_revenue)

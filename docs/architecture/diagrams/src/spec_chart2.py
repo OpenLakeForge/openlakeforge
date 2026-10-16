@@ -63,10 +63,10 @@ c.icon(470, 790, "sts", "filer", size=46, label2=":8888")
 c.icon(630, 790, "deploy", "s3 gateway", size=46, label2="S3 API")
 
 c.box(772, 710, 370, 230, "Buckets", color="storage", fill="#FFFFFF")
-c.cylinder(875, 812, 150, 74, "lakehouse-bronze", color="bronze")
-c.cylinder(1052, 812, 150, 74, "lakehouse-silver", color="silver")
-c.cylinder(875, 896, 150, 74, "lakehouse-gold", color="gold")
-c.cylinder(1052, 896, 150, 74, "openlakeforge-ops", color="storage")
+c.cylinder(875, 812, 166, 74, "lakehouse-dev-bronze", color="bronze")
+c.cylinder(1052, 812, 166, 74, "lakehouse-dev-silver", color="silver")
+c.cylinder(875, 896, 166, 74, "lakehouse-dev-gold", color="gold")
+c.cylinder(1052, 896, 166, 74, "openlakeforge-ops", color="storage")
 
 # ---------- Wires ----------
 c.edge([(302, 542), (322, 542)], color="control")

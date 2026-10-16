@@ -56,24 +56,6 @@ variable "foundation_state_path" {
   default     = null
 }
 
-variable "bronze_bucket_name" {
-  description = "Existing DEV Bronze bucket retained from the v0.2 Azure POC."
-  type        = string
-  default     = "lakehouse-bronze"
-}
-
-variable "silver_bucket_name" {
-  description = "Existing DEV Silver bucket retained from the v0.2 Azure POC."
-  type        = string
-  default     = "lakehouse-silver"
-}
-
-variable "gold_bucket_name" {
-  description = "Existing DEV Gold bucket retained from the v0.2 Azure POC."
-  type        = string
-  default     = "lakehouse-gold"
-}
-
 variable "ops_bucket_name" {
   description = "S3-compatible SeaweedFS bucket used for operational artifacts: manifests, logs, reports, and run artifacts."
   type        = string
