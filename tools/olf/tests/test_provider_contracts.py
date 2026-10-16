@@ -1426,12 +1426,27 @@ def _oidc_contract(name: str) -> dict:
 _OIDC_FIXTURES = sorted(p.stem.removeprefix("identity-oidc-") for p in FIXTURES.glob("identity-oidc-*.json"))
 
 
+_GITHUB_IDENTITY = {
+    "issuer": "github",
+    "github": {
+        "organization": "OpenLakeForge",
+        "teams": {
+            "platform-admin": ["olf-platform-admins"],
+            "data-engineer": ["olf-data-engineers"],
+            "analyst": ["olf-analysts"],
+            "viewer": ["olf-viewers"],
+        },
+        "oauth_app_secret_ref": {"name": "github-oauth-app"},
+    },
+}
+
+
 @pytest.mark.parametrize("name", _OIDC_FIXTURES)
 def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     contract = _oidc_contract(name)
     shared = contract["shared"]["identity"]
-    # Keycloak is the default issuer; any other adapter needs an external spec.
-    external = None if name == "keycloak" else {
+    # Keycloak is the default issuer, Dex serves `github`; any other adapter needs an external spec.
+    external = {"keycloak": None, "dex": _GITHUB_IDENTITY}.get(name) or {
         "issuer": "external",
         "issuer_url": shared["issuer_url"],
         "role_claim": shared["role_claim"],
@@ -1447,6 +1462,21 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     assert identity["role_claim"] == json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text())["role_claim"]
     assert _hcl.secret_value_fields(contract) == []
     jsonschema.validate(contract, SCHEMA)
+
+
+def test_identity_oidc_adapter_must_correlate_with_the_profiles_issuer() -> None:
+    dex, keycloak = _oidc_contract("dex"), _oidc_contract("keycloak")
+    with pytest.raises(ProviderContractError, match="keycloak adapter when spec.identity is keycloak"):
+        parse_provider_contracts(dex, _topology(dex))
+    with pytest.raises(ProviderContractError, match="dex adapter when spec.identity is github"):
+        parse_provider_contracts(keycloak, _topology(keycloak, _GITHUB_IDENTITY))
+
+
+def test_identity_oidc_dex_mapping_must_match_the_profiles_github_teams() -> None:
+    contract = _oidc_contract("dex")
+    contract["shared"]["identity"]["role_mapping"]["viewer"] = ["openlakeforge:somebody-else"]
+    with pytest.raises(ProviderContractError, match="must match the profile's"):
+        parse_provider_contracts(contract, _topology(contract, _GITHUB_IDENTITY))
 
 
 def test_identity_oidc_must_match_the_profiles_external_identity() -> None:

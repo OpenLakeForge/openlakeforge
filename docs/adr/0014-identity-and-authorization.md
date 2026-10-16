@@ -11,9 +11,10 @@ emit their existing `identity` implementations
 (`identity.aws_pod_identity`, `identity.azure_workload_identity_ready`).
 The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
-**Decided, not built:** GitHub teams as the source of people and roles, with
-Dex as the issuer adapter ([ADR 0018](0018-github-is-the-forge.md)); Keycloak
-stays the deployed local adapter until it lands. **Seam 4 is removed:** user
+**Built for `issuer: github`:** GitHub teams as the source of people and
+roles, with Dex as the issuer adapter ([ADR 0018](0018-github-is-the-forge.md));
+Keycloak remains the default issuer until it is removed (#384). The Dex
+adapter has not been run against a real GitHub organisation. **Seam 4 is removed:** user
 and role administration is GitHub's; `olf users`, the `shared.identity.admin`
 contract and `bootstrap_admins` no longer exist (#383).
 
@@ -205,7 +206,7 @@ on `.<base_domain>`: curl (libpsl) and headless Chromium both accepted a
 `Domain=.olf.localhost` cookie and sent it to a sibling host, and both
 rejected `Domain=.localhost`. Firefox and Safari were not tested.
 
-### The GitHub adapter through Dex (decided, not built)
+### The GitHub adapter through Dex (built for local; #384)
 
 The default local issuer becomes Dex with its GitHub connector
 ([ADR 0018](0018-github-is-the-forge.md)). People and their roles live in
@@ -498,3 +499,14 @@ Organisation login case (#397): the organisation is no longer lowercased.
 Lowercasing it (#388, from a review finding that holds for team slugs only)
 made Dex refuse every member of `OpenLakeForge`, because GitHub preserves the
 case of a login and Dex compares it exactly. Team slugs stay lowercased.
+
+Dex adapter (#384 slice b1): `modules/identity/dex` deploys a digest-pinned Dex
+for `spec.identity.issuer: github` (postgres storage on a `dex` database, the
+GitHub connector limited to the mapped teams, the four static clients with
+secrets from an in-cluster Job) and the root emits `identity.oidc` with
+`adapter: dex`. The perimeter requests `groups offline_access` for it, and
+`olf deploy` refuses to start the platform phase without the OAuth App Secret.
+Dex's static clients match redirect URIs exactly, so the Superset,
+OpenMetadata and Trino clients carry the Keycloak wildcard URIs until each is
+wired to OIDC (#25). Keycloak's removal, the stub-upstream e2e and the
+NetworkPolicy flow are separate slices.

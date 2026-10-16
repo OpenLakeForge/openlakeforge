@@ -335,6 +335,8 @@ locals {
   identity_roles = yamldecode(file("${path.root}/../../../../release/identity-roles.yaml"))
 
   identity_keycloak = var.identity_issuer == "keycloak"
+  identity_dex      = var.identity_issuer == "github"
+  identity_deployed = local.identity_keycloak || local.identity_dex
 
   # Every login returns to this one host, which the perimeter proxy answers;
   # the session cookie on .<base_domain> then covers every route.
@@ -356,7 +358,7 @@ locals {
   # the operator provisions the client Secrets, named by consumer like the
   # adapter's own; client ids default to the consumer names unless the issuer
   # assigned its own (client_ids).
-  identity_oidc = try(module.keycloak[0].contract, local.identity_oidc_external)
+  identity_oidc = try(module.keycloak[0].contract, module.dex[0].contract, local.identity_oidc_external)
   identity_oidc_external = {
     issuer_url   = try(var.identity_external.issuer_url, null)
     role_claim   = try(var.identity_external.role_claim, null)
@@ -372,7 +374,7 @@ locals {
   identity_contract = {
     provider              = local.local_provider_name
     implementation        = "identity.oidc"
-    adapter               = local.identity_keycloak ? "identity.keycloak" : "identity.external_oidc"
+    adapter               = local.identity_keycloak ? "identity.keycloak" : local.identity_dex ? "identity.dex" : "identity.external_oidc"
     auth_mode             = "oidc"
     oidc_enabled          = true
     workload_identity     = "kubernetes-service-account"
@@ -412,14 +414,14 @@ locals {
         service_port = module.trino.route_port
       }
     },
-    local.identity_keycloak ? {
+    local.identity_deployed ? {
       # The login surface: never granted a role and never behind the perimeter.
       "shared/identity" = {
         host         = "auth.${var.access_base_domain}"
         tls_host     = "*.${var.access_base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
-        service_name = module.keycloak[0].service_name
-        service_port = module.keycloak[0].http_port
+        service_name = local.identity_dex ? module.dex[0].service_name : module.keycloak[0].service_name
+        service_port = local.identity_dex ? module.dex[0].http_port : module.keycloak[0].http_port
       }
     } : {},
     local.governance_enabled ? {

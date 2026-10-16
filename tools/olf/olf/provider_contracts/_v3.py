@@ -122,6 +122,8 @@ _OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
 _OIDC_OPTIONAL = {"adapter", "capabilities"}
 # email_delivery: the issuer can send account recovery mail.
 _OIDC_CAPABILITIES = frozenset({"email_delivery", "groups_in_token", "logout_endpoint"})
+# The adapter OpenLakeForge deploys for each issuer it deploys; `external` has none.
+_DEPLOYED_ADAPTER = {"keycloak": "keycloak", "github": "dex"}
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
 
 
@@ -182,8 +184,11 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
         document = _fields(client, where=client_where, required={"client_id", "secret_ref"})
         _string(document["client_id"], where=f"{client_where}.client_id")
         _secret_ref(document["secret_ref"], where=f"{client_where}.secret_ref")
-    if selected.issuer == "keycloak" and identity.get("adapter") != "keycloak":
-        raise ProviderContractError(f"{where} must come from the keycloak adapter when spec.identity is keycloak")
+    adapter = _DEPLOYED_ADAPTER.get(selected.issuer)
+    if adapter is not None and identity.get("adapter") != adapter:
+        raise ProviderContractError(
+            f"{where} must come from the {adapter} adapter when spec.identity is {selected.issuer}"
+        )
     deployed = (identity["issuer_url"], identity["role_claim"], {r: tuple(v) for r, v in mapping.items()})
     declared = (selected.issuer_url, selected.role_claim, selected.role_mapping)
     # keycloak compares only the fields the profile supplied; external compares all

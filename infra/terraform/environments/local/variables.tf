@@ -212,13 +212,13 @@ variable "manage_user_deployments" {
 }
 
 variable "identity_issuer" {
-  description = "Deployment Profile spec.identity.issuer (ADR 0014): `keycloak` deploys the adapter, `external` takes the contract from identity_external."
+  description = "Deployment Profile spec.identity.issuer (ADR 0014): `keycloak` and `github` (Dex) deploy an adapter, `external` takes the contract from identity_external."
   type        = string
   default     = "keycloak"
 
   validation {
-    condition     = contains(["keycloak", "external"], var.identity_issuer)
-    error_message = "spec.identity.issuer must be keycloak or external."
+    condition     = contains(["keycloak", "external", "github"], var.identity_issuer)
+    error_message = "spec.identity.issuer must be keycloak, external or github."
   }
 }
 
@@ -229,6 +229,20 @@ variable "identity_external" {
     role_claim   = string
     role_mapping = map(list(string))
     client_ids   = optional(map(string), {})
+  })
+  default = null
+}
+
+variable "identity_github" {
+  description = "Deployment Profile spec.identity.github (ADR 0014): the organisation, canonical role to team slugs, and the OAuth App Secret reference (names only). Required when identity_issuer is github."
+  type = object({
+    organization = string
+    teams        = map(list(string))
+    oauth_app_secret_ref = object({
+      name              = string
+      client_id_key     = string
+      client_secret_key = string
+    })
   })
   default = null
 }
