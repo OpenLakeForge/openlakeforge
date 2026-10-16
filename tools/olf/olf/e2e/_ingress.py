@@ -34,7 +34,7 @@ PORTAL_REF = "shared/portal"
 
 
 def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
-    if _skipped("the Traefik restart drill"):
+    if _no_ingress(cfg) or _skipped("the Traefik restart drill"):
         return
     log.step("Checking ingress routes recover from a Traefik restart...")
     started = time.monotonic()
@@ -53,6 +53,8 @@ def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
 
 def check_portal_lists_routes(cfg: E2EConfig) -> None:
     """The landing page at the base domain links every enabled user-facing route and nothing else."""
+    if _no_ingress(cfg):
+        return
     log.step("Checking the landing page lists the user-facing routes...")
     routes = load_provider_contracts_or_raise(cfg)["shared"]["access"]["routes"]
     with access.service_url(
@@ -103,7 +105,7 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
     the Certificate's status, so the old Secret keeps serving until the new
     one replaces it.
     """
-    if _skipped("the certificate renewal drill"):
+    if _no_ingress(cfg) or _skipped("the certificate renewal drill"):
         return
     log.step("Checking the served route certificate renews without downtime...")
     with _route(cfg) as url:
@@ -171,6 +173,14 @@ def _route(cfg: E2EConfig) -> Iterator[str]:
         through_ingress=True,
     ) as url:
         yield url
+
+
+def _no_ingress(cfg: E2EConfig) -> bool:
+    # A quickstart contract (no spec.access) carries no routes: everything is port-forwarded.
+    if "routes" in load_provider_contracts_or_raise(cfg)["shared"]["access"]:
+        return False
+    log.info("Skipping the ingress checks: the contract declares no ingress.")
+    return True
 
 
 def _skipped(drill: str) -> bool:

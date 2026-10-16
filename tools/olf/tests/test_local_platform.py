@@ -140,14 +140,30 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "superset_chart_package_path",
         "traefik_chart_package_path",
         "cert_manager_chart_package_path",
-        "access_base_domain",
-        "access_issuer",
-        "identity_issuer",
     }
 
 
+def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_issuer(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec, IdentitySpec
+
+    assert "identity_issuer" not in platform.platform_apply_variables(
+        _config(tmp_path, topology=replace(_topology(), access=AccessSpec()))
+    )
+    secured = replace(_topology(), access=AccessSpec(), identity=IdentitySpec())
+    variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
+    assert (variables["access_base_domain"], variables["access_issuer"]) == ("olf.localhost", "local-ca")
+    assert variables["identity_issuer"] == "keycloak"
+
+
 def test_the_default_identity_issuer_deploys_keycloak_and_passes_no_claim_mapping(tmp_path: Path) -> None:
-    variables = platform.platform_apply_variables(_config(tmp_path))
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec, IdentitySpec
+
+    secured = replace(_topology(), access=AccessSpec(), identity=IdentitySpec())
+    variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
 
     assert variables["identity_issuer"] == "keycloak"
     assert "identity_external" not in variables

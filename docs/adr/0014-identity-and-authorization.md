@@ -42,6 +42,14 @@ each have their own adapter and none leaks into another:
 
 ### Seam 1 — the role model (built)
 
+A profile with no `spec.identity` block deploys no issuer and no perimeter
+(#399); `spec.identity` requires `spec.access` (ADR 0013). The role model does
+not depend on an issuer, so the contract still carries `shared.identity.roles`
+and validates it, with `implementation: identity.none` and no `issuer_url`,
+`role_claim`, `role_mapping` or `clients`. `shared.access` then has no
+`perimeter`. A consumer that needs an issuer must treat `identity.none` as
+"unauthenticated, local only".
+
 `release/identity-roles.yaml` is product-level and fixed for v0.5-alpha, like
 the component catalog; it is not deployment-configurable. Terraform reads it
 with `yamldecode(file(...))` in each root's `contracts.tf`; `olf` reads the

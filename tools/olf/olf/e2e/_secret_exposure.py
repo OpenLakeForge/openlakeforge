@@ -91,6 +91,9 @@ def scan(credentials: Mapping[str, str], surfaces: Surfaces, *, link_surfaces: S
 def check_secret_exposure(cfg: E2EConfig) -> None:
     contracts = load_provider_contracts_or_raise(cfg)
     identity = contracts["shared"]["identity"]
+    if "clients" not in identity:
+        log.info("Skipping the identity credential scan: the contract declares no issuer.")
+        return
     keycloak = identity.get("adapter") == "keycloak"
     log.step("Scanning state, ConfigMaps, diagnostics and logs for identity credentials...")
     namespaces = scan_namespaces(cfg, contracts)

@@ -10,6 +10,7 @@ from olf.deployment.context import Provider
 from olf.profile import (
     AccessSpec,
     DeploymentProfileError,
+    IdentitySpec,
     Preset,
     StageName,
     legacy_single_stage_topology,
@@ -201,9 +202,30 @@ def test_validate_deployment_profile_accepts_label_safe_names(name: str) -> None
     assert validate_deployment_profile(document).name == name
 
 
-def test_access_defaults_to_the_local_evaluation_install_and_accepts_a_real_domain() -> None:
+def test_no_access_or_identity_block_means_a_quickstart_with_neither() -> None:
+    topology = resolve_topology(validate_deployment_profile(_load_fixture("valid_slim_local.yaml")))
+    assert topology.access is None and topology.identity is None
+    rendered = json.loads(topology.render_json())
+    assert rendered["access"] is None and rendered["identity"] is None
+
+
+def test_identity_without_access_is_rejected() -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["identity"] = {}
+    with pytest.raises(DeploymentProfileError, match="spec.identity requires spec.access"):
+        validate_deployment_profile(document)
+
+
+def test_an_empty_access_block_asks_for_the_defaults_and_identity_may_follow() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = {}
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "local-ca")
+    document["spec"]["identity"] = {}
+    assert resolve_topology(validate_deployment_profile(document)).identity == IdentitySpec()
+
+
+def test_access_accepts_a_real_domain() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
 
     document["spec"]["access"] = {"base_domain": "olf.example.com", "issuer": "letsencrypt"}
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
@@ -230,6 +252,7 @@ def test_access_rejects_names_a_route_host_or_issuer_cannot_use(access: dict, ma
 
 def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"] |= {"access": {}, "identity": {}}
     assert validate_deployment_profile(document).identity.issuer == "keycloak"
 
     document["spec"]["identity"] = {
@@ -274,6 +297,7 @@ def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
 )
 def test_identity_fails_closed(identity: dict, match: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = identity
 
     with pytest.raises(DeploymentProfileError, match=match):
@@ -282,6 +306,7 @@ def test_identity_fails_closed(identity: dict, match: str) -> None:
 
 def test_identity_survives_topology_resolution() -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {
         "issuer": "external",
         "issuer_url": "https://login.example.com/",
@@ -300,9 +325,11 @@ def test_identity_client_ids_are_validated() -> None:
         "role_claim": "g",
         "role_mapping": {"viewer": ["v"]},
     }
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = base | {"client_ids": {"trino": "0oa1"}}
     assert validate_deployment_profile(document).identity.client_ids == {"trino": "0oa1"}
     for bad in ({"nope": "x"}, {"trino": ""}, {}):
+        document["spec"].setdefault("access", {})
         document["spec"]["identity"] = base | {"client_ids": bad}
         with pytest.raises(DeploymentProfileError):
             validate_deployment_profile(document)
@@ -310,6 +337,7 @@ def test_identity_client_ids_are_validated() -> None:
 
 def test_identity_client_ids_require_external_issuer() -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {"client_ids": {"trino": "0oa1"}}
     with pytest.raises(DeploymentProfileError, match="client_ids requires issuer 'external'"):
         validate_deployment_profile(document)
@@ -317,6 +345,7 @@ def test_identity_client_ids_require_external_issuer() -> None:
 
 def test_render_json_carries_identity() -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {
         "issuer": "external",
         "issuer_url": "https://login.example.com/",
@@ -330,6 +359,7 @@ def test_render_json_carries_identity() -> None:
 
 def test_external_identity_is_immutable_and_rejects_a_malformed_authority() -> None:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {
         "issuer": "external",
         "issuer_url": "https://login.example.com/",
@@ -357,6 +387,7 @@ def test_external_identity_roles_come_from_the_given_distribution_root(
     monkeypatch.chdir(project)
     monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {
         "issuer": "external",
         "issuer_url": "https://[::1]:8443/realms/x",
@@ -389,6 +420,7 @@ _SMTP_AUTH = _SMTP | {"auth": True, "credentials_secret_ref": {"name": "smtp-cre
 
 def _smtp_profile(smtp: dict, **identity: object) -> dict:
     document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {"smtp": smtp, **identity}
     return document
 
@@ -443,6 +475,7 @@ def test_smtp_requires_the_keycloak_issuer_because_an_external_issuer_sends_its_
 
 def test_bootstrap_admins_are_no_longer_accepted() -> None:
     document = _smtp_profile(_SMTP)
+    document["spec"].setdefault("access", {})
     document["spec"]["identity"] = {"bootstrap_admins": ["ada@example.org"]}
     with pytest.raises(DeploymentProfileError, match="bootstrap_admins"):
         validate_deployment_profile(document)

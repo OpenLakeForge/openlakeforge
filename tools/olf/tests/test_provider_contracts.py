@@ -98,7 +98,12 @@ def _topology(contract: dict, identity: dict | None = None):
                     },
                     "preset": "slim",
                     "stages": stages,
-                    **({"identity": identity} if identity else {}),
+                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    **(
+                        {"identity": identity or {}}
+                        if identity or contract["shared"]["identity"]["implementation"] == "identity.oidc"
+                        else {}
+                    ),
                 },
             }
         )
@@ -1628,3 +1633,44 @@ def test_identity_oidc_email_delivery_is_declared_exactly_when_the_profile_confi
         parse_provider_contracts(configured, _topology(configured))
     with pytest.raises(ProviderContractError, match="email_delivery must be true exactly when"):
         parse_provider_contracts(_oidc_contract("keycloak"), _topology(configured, smtp))
+
+
+def _quickstart_contract() -> dict:
+    """The local fixture as a profile with no spec.access or spec.identity emits it: roles only, no routes."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    shared = contract["shared"]
+    shared["access"] = {"ref": "shared/access", "implementation": "access.port_forward"}
+    shared["identity"] = {
+        "ref": "shared/identity",
+        "implementation": "identity.none",
+        "roles": shared["identity"]["roles"],
+    }
+    del shared["portal"]
+    return contract
+
+
+def test_a_quickstart_contract_parses_with_roles_but_no_routes_issuer_or_perimeter() -> None:
+    contract = _quickstart_contract()
+
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert "routes" not in parsed.shared.values["access"]
+    assert "roles" in parsed.shared.values["identity"]
+
+
+def test_a_contract_with_ingress_needs_the_profile_to_declare_access() -> None:
+    contract = _quickstart_contract()
+    contract["shared"]["access"] = _fixture("local-provider-contracts-v3.json")["shared"]["access"]
+
+    with pytest.raises(ProviderContractError, match="profile has no spec.access"):
+        parse_provider_contracts(contract, _topology(_quickstart_contract()))
+
+
+def test_an_oidc_issuer_needs_the_profile_to_declare_identity() -> None:
+    contract = _quickstart_contract()
+    contract["shared"]["identity"] = _fixture("local-provider-contracts-v3.json")["shared"]["identity"] | {
+        "implementation": "identity.oidc"
+    }
+
+    with pytest.raises(ProviderContractError, match="declares no spec.identity"):
+        parse_provider_contracts(contract, _topology(_quickstart_contract()))

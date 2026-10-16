@@ -102,7 +102,10 @@ def _require_ingress_preconditions(config: LocalDeploymentConfig, tools: Toolkit
     exists; and a taken host port surfaces as an opaque docker error from deep
     inside kind's create.
     """
-    issuer = config.context.topology.access.issuer
+    access = config.context.topology.access
+    if access is None:
+        return
+    issuer = access.issuer
     if issuer != LOCAL_CA_ISSUER:
         raise DeploymentPreconditionError(
             f"spec.access.issuer is {issuer!r}, but the local provider ships only the {LOCAL_CA_ISSUER!r} issuer. "

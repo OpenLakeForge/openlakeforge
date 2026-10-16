@@ -75,11 +75,19 @@ def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return _topology_variables(config.context)
 
 
+def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """`spec.access` as the local root's inputs; absent, the root deploys no ingress."""
+    access = config.context.topology.access
+    return {} if access is None else {"access_base_domain": access.base_domain, "access_issuer": access.issuer}
+
+
 def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """`spec.identity` as the local root's inputs. An `external` issuer carries
     its claim mapping with it; `keycloak` needs only the choice, because the
     adapter derives the rest from the canonical roles."""
     identity = config.context.topology.identity
+    if identity is None:
+        return {}
     variables = {"identity_issuer": identity.issuer}
     if identity.issuer == "external":
         variables["identity_external"] = json.dumps(
@@ -156,7 +164,8 @@ def require_smtp_credentials(
     created, never overwritten, once the caller passes `create_namespace` (a Terraform-owned namespace, made
     just before the Secret). `platform_up` passes it only after the drift reset, which deletes a shared
     namespace Terraform does not know yet."""
-    smtp = config.context.topology.identity.smtp
+    identity = config.context.topology.identity
+    smtp = identity.smtp if identity else None
     if smtp is None or smtp.credentials_secret_ref is None:
         return
     ref, namespace = smtp.credentials_secret_ref, config.context.shared_namespace
@@ -221,7 +230,8 @@ def require_github_oauth_secret(
     """Dex reads the GitHub OAuth App through `secretKeyRef` and would otherwise sit in
     CreateContainerConfigError. Only key names are read. The shared namespace is made first when absent,
     so the operator has somewhere to create the Secret."""
-    github = config.context.topology.identity.github
+    identity = config.context.topology.identity
+    github = identity.github if identity else None
     if github is None:
         return
     ref, namespace = github.oauth_app_secret_ref, config.context.shared_namespace
@@ -280,9 +290,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "superset_image_repository": images.superset_repository,
         "superset_image_tag": images.superset_tag,
         "superset_image_pull_policy": images.superset_pull_policy,
-        "access_base_domain": config.context.topology.access.base_domain,
-        "access_issuer": config.context.topology.access.issuer,
-    } | identity_variables(config) | cached_chart_variables(config) | {
+    } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
     }
 
