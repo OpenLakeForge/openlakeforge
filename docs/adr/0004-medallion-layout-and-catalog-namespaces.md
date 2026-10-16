@@ -122,5 +122,5 @@ Silver).
 Bucket names follow `lakehouse-<stage>-<layer>` for every stage, matching the
 `lakehouse_<stage>` catalogs. DEV previously kept the v0.2 names
 (`lakehouse-bronze`, `-silver`, `-gold`) and the other stages used
-`<profile>-<stage>-<layer>`; the local environment now uses the single scheme,
-and the AWS and Azure environments are still on the old one.
+`<profile>-<stage>-<layer>`; the local and Azure environments now use the single scheme,
+and the AWS environment is still on the old one.

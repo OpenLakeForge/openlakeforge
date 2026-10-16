@@ -608,13 +608,16 @@ plane.
 
 ### Upgrading a v0.2 local deployment
 
-There is no in-place upgrade from a v0.2 local deployment. Medallion buckets are
-named `lakehouse-<stage>-bronze`, `-silver`, and `-gold`, while v0.2 used
-`lakehouse-bronze`, `lakehouse-silver`, and `lakehouse-gold`. Polaris keeps the
-storage locations its `lakehouse_dev` warehouse was created with, so applying
-this version over an existing deployment leaves the warehouse pointing at
-buckets that are no longer used. Destroy the local stack and deploy again; data
-in the old buckets is not copied.
+There is no in-place upgrade from a v0.2 local deployment, or from any earlier
+local deployment that already enabled UAT or PROD. Medallion buckets are named
+`lakehouse-<stage>-bronze`, `-silver`, and `-gold`. v0.2 named DEV's
+`lakehouse-bronze`, `lakehouse-silver`, and `lakehouse-gold`, and other stages
+`<profile>-<stage>-<layer>`, such as `openlakeforge-prod-bronze`. Polaris keeps
+the storage locations each `lakehouse_<stage>` warehouse was created with, so
+applying this version over an existing deployment leaves those warehouses
+pointing at buckets that are no longer used, while the stage credentials grant
+only the new ones. Destroy the local stack and deploy again; data in the old
+buckets is not copied.
 
 ```bash
 olf destroy --provider local

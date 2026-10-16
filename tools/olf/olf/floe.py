@@ -32,9 +32,9 @@ def render_profile(environ: Mapping[str, str]) -> str:
     namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "olf-dev"))
     catalog_name = env("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
     storage_bronze_bucket = env(
-        "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze")
+        "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-dev-bronze")
     )
-    storage_silver_bucket = env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver")
+    storage_silver_bucket = env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-dev-silver")
     ops_bucket = env("OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops"))
     storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
     storage_implementation = env("OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs")

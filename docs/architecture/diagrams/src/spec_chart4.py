@@ -12,9 +12,9 @@ LANE_X, LANE_W = 260, 650
 CHIP_Y_OFF = 92
 
 # ---------- left column: the buckets ----------
-c.cylinder(142, 205, 168, 80, "lakehouse-bronze", color="bronze", sub="owner: source crm")
-c.cylinder(142, 445, 168, 80, "lakehouse-silver", color="silver", sub="owner: domain sales")
-c.cylinder(142, 685, 168, 80, "lakehouse-gold", color="gold", sub="owner: product order_revenue")
+c.cylinder(142, 205, 168, 80, "lakehouse-dev-bronze", color="bronze", sub="owner: source crm")
+c.cylinder(142, 445, 168, 80, "lakehouse-dev-silver", color="silver", sub="owner: domain sales")
+c.cylinder(142, 685, 168, 80, "lakehouse-dev-gold", color="gold", sub="owner: product order_revenue")
 c.edge([(226, 205), (260, 205)], color="bronze")
 c.edge([(226, 445), (260, 445)], color="silver")
 c.edge([(226, 685), (260, 685)], color="gold")
@@ -70,8 +70,8 @@ c.label(946, 556, "namespaces by owner:", size=11.5)
 c.label(946, 574, "source_bronze · domain_silver", size=10.5, mono=True)
 c.label(946, 592, "product_gold", size=10.5, mono=True)
 c.label(946, 626, "allowed locations only:", size=11.5)
-c.label(946, 644, "s3://lakehouse-bronze/", size=10.5, mono=True)
-c.label(946, 662, "s3://lakehouse-{silver,gold}/", size=10.5, mono=True)
+c.label(946, 644, "s3://lakehouse-dev-bronze/", size=10.5, mono=True)
+c.label(946, 662, "s3://lakehouse-dev-{silver,gold}/", size=10.5, mono=True)
 c.label(946, 696, "writers commit through the", size=11.5)
 c.label(946, 712, "catalog — never raw paths", size=11.5)
 c.edge([(930, 445), (910, 445)], color="control", dashed=True)
