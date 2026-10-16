@@ -60,12 +60,6 @@
               "propertyNames": {"enum": ["perimeter", "superset", "openmetadata", "trino"]},
               "additionalProperties": {"type": "string", "minLength": 1}
             },
-            "bootstrap_admins": {
-              "type": "array",
-              "uniqueItems": true,
-              "description": "Emails invited once as platform-admin at deploy. Never resent, re-enabled or restored on a redeploy, and removing an entry deletes nothing.",
-              "items": {"type": "string", "pattern": "^[^@\\s<>,;\"]+@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"}
-            },
             "smtp": {
               "type": "object",
               "additionalProperties": false,
@@ -141,7 +135,7 @@
               "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
               "then": {
                 "required": ["issuer_url", "role_claim", "role_mapping"],
-                "not": {"anyOf": [{"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}
+                "not": {"required": ["smtp"]}
               },
               "else": {"not": {"required": ["client_ids"]}}
             },
@@ -149,7 +143,7 @@
               "if": {"properties": {"issuer": {"const": "github"}}, "required": ["issuer"]},
               "then": {
                 "required": ["github"],
-                "not": {"anyOf": [{"required": ["issuer_url"]}, {"required": ["role_claim"]}, {"required": ["role_mapping"]}, {"required": ["client_ids"]}, {"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}
+                "not": {"anyOf": [{"required": ["issuer_url"]}, {"required": ["role_claim"]}, {"required": ["role_mapping"]}, {"required": ["client_ids"]}, {"required": ["smtp"]}]}
               },
               "else": {"not": {"required": ["github"]}}
             }

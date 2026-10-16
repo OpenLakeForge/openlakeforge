@@ -1449,54 +1449,6 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     jsonschema.validate(contract, SCHEMA)
 
 
-def _keycloak_admin_contract(mutate) -> dict:
-    contract = _oidc_contract("keycloak")
-    mutate(contract["shared"]["identity"])
-    return contract
-
-
-def test_identity_admin_is_optional_for_an_external_issuer_and_may_use_a_url() -> None:
-    def to_url(identity: dict) -> None:
-        identity["admin"] = {**identity["admin"], "admin_url": "https://admin.example.com/realms/t"}
-        del identity["admin"]["service"]
-        identity["adapter"] = "external"
-
-    # An external issuer is the parametrised conformance fixture; here only the admin block varies.
-    contract = _keycloak_admin_contract(to_url)
-    shared = contract["shared"]["identity"]
-    external = {
-        "issuer": "external",
-        "issuer_url": shared["issuer_url"],
-        "role_claim": shared["role_claim"],
-        "role_mapping": shared["role_mapping"],
-        "client_ids": {n: c["client_id"] for n, c in shared["clients"].items()},
-    }
-    parse_provider_contracts(contract, _topology(contract, external))
-
-
-@pytest.mark.parametrize(
-    ("mutate", "match"),
-    [
-        (lambda i: i.pop("admin"), "shared.identity.admin is required when capabilities.admin_api is true"),
-        (lambda i: i["capabilities"].update(admin_api=False), "requires capabilities.admin_api to be true"),
-        (lambda i: i["admin"].update(admin_url="https://a.example.com"), "exactly one of 'service'"),
-        (lambda i: i["admin"].pop("service"), "exactly one of 'service'"),
-        (lambda i: i["admin"].update(client_secret="x"), "unsupported fields"),
-        (lambda i: i["admin"]["secret_ref"].update(key="a b"), "secret_ref.key is not a valid"),
-        (lambda i: i["admin"]["service"].update(port=0), "valid TCP port"),
-        (lambda i: i["admin"]["service"].update(name="Not A Name"), "service.name is not a valid"),
-        (lambda i: i["admin"]["service"].update(name="1keycloak"), "service.name is not a valid"),
-        (lambda i: i["admin"]["service"].update(name="k" * 64), "service.name is not a valid"),
-        (lambda i: i["admin"]["service"].update(namespace="team.identity"), "service.namespace is not a valid"),
-        (lambda i: i["admin"]["service"].update(namespace="n" * 64), "service.namespace is not a valid"),
-    ],
-)
-def test_identity_admin_fails_closed(mutate, match: str) -> None:
-    contract = _keycloak_admin_contract(mutate)
-    with pytest.raises(ProviderContractError, match=match):
-        parse_provider_contracts(contract, _topology(contract))
-
-
 def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
     contract = _oidc_contract("cognito")
     shared = contract["shared"]["identity"]

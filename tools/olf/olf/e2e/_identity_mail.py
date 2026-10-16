@@ -1,4 +1,4 @@
-"""Email checks for the identity provider (#24, feeding #331).
+"""Email checks for the identity provider (#24).
 
 Delivery runs in a throwaway realm, not the deployed one: replacing a realm's
 `smtpServer` through the admin API drops its stored password (the read-back is
@@ -8,17 +8,13 @@ the test user, and is deleted afterwards.
 
 The mail server is a Mailpit that lives for this check only. The product stack
 has no mail server and the default profile needs no SMTP. The delivery check
-looks only at the recipient address. The invitation checks (`_identity_invite`)
-also read a message body, through `action_link`, to follow the setup link as the
-new member; the test never logs or prints it. `olf users` itself never reads
-mail and never prints a link.
+looks only at the recipient address.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
-import re
 import secrets
 import time
 from collections.abc import Iterator
@@ -114,14 +110,6 @@ def wait_for_delivery(cfg: E2EConfig, recipient: str, count: int = 1) -> list[st
             raise E2EError(f"Keycloak accepted the action email for {recipient}, but it never reached the mail sink")
         time.sleep(1)
     return ids
-
-
-def action_link(cfg: E2EConfig, message_id: str) -> str:
-    """The account-setup link in a message. For the test that follows it only; it is never logged."""
-    match = re.search(r"https?://\S+/login-actions/action-token\?\S+", _sink_api(cfg, f"message/{message_id}")["Text"])
-    if match is None:
-        raise E2EError("the setup email holds no action link")
-    return match[0]
 
 
 def _create_user(admin: requests.Session, realm_admin: str, name: str) -> tuple[str, str]:

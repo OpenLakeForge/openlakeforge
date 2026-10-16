@@ -25,14 +25,6 @@ locals {
   # appears in the ConfigMap, the Job spec, or a log line.
   client_secret_env = { for name in keys(var.clients) : name => "CLIENT_SECRET_${upper(name)}" }
 
-  # `olf users` (#331): a service-account-only client with the least
-  # realm-management roles that list, disable and enable users and move them
-  # between the canonical-role groups. `manage-users` is also what sends
-  # execute-actions mail (slice 2). It is not a consumer client, never logs a
-  # person in, and has no view of clients, events or realm settings.
-  users_client_id    = "olf-users"
-  users_client_roles = ["view-users", "manage-users"]
-
   # Mail is all-or-nothing: a realm that offers password reset or email
   # verification without a mail server is a dead end for the user. The SMTP
   # login, like a client secret, is only ever a `$(env:...)` placeholder here.
@@ -76,26 +68,7 @@ locals {
     # representation can carry a credential value.
     adminEventsEnabled        = true
     adminEventsDetailsEnabled = false
-    # The one user record in the file: the service account Keycloak makes for
-    # `olf-users`, which is what carries the client's roles.
-    users = [{
-      username               = "service-account-${local.users_client_id}"
-      enabled                = true
-      serviceAccountClientId = local.users_client_id
-      clientRoles            = { "realm-management" = local.users_client_roles }
-    }]
-    clients = concat([{
-      clientId                  = local.users_client_id
-      name                      = local.users_client_id
-      enabled                   = true
-      protocol                  = "openid-connect"
-      publicClient              = false
-      secret                    = "$(env:CLIENT_SECRET_OLF_USERS)"
-      standardFlowEnabled       = false
-      implicitFlowEnabled       = false
-      directAccessGrantsEnabled = false
-      serviceAccountsEnabled    = true
-      }], [
+    clients = [
       for name, client in var.clients : {
         clientId                  = name
         name                      = name
@@ -123,7 +96,7 @@ locals {
           }
         }]
       }
-    ])
+    ]
   }
   realm_json = jsonencode(local.realm)
 
@@ -378,16 +351,6 @@ resource "kubernetes_job_v1" "realm" {
                   name = local.client_secret_name[env.key]
                   key  = "client-secret"
                 }
-              }
-            }
-          }
-
-          env {
-            name = "CLIENT_SECRET_OLF_USERS"
-            value_from {
-              secret_key_ref {
-                name = local.users_secret_name
-                key  = "client-secret"
               }
             }
           }

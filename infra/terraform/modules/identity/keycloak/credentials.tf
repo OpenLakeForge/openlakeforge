@@ -4,11 +4,10 @@
 locals {
   admin_secret_name  = "${var.release_name}-admin-creds"
   client_secret_name = { for name in keys(var.clients) : name => "${var.release_name}-client-${name}" }
-  users_secret_name  = "${var.release_name}-client-${local.users_client_id}"
   credentials_script = templatefile("${path.module}/templates/credentials.sh.tftpl", {
     release_name      = var.release_name
     admin_secret_name = local.admin_secret_name
-    clients           = join(" ", sort(concat(keys(var.clients), [local.users_client_id])))
+    clients           = join(" ", sort(keys(var.clients)))
   })
 }
 
@@ -61,7 +60,7 @@ resource "kubernetes_role_v1" "credentials" {
   rule {
     api_groups     = [""]
     resources      = ["secrets"]
-    resource_names = concat([local.admin_secret_name, local.users_secret_name], values(local.client_secret_name))
+    resource_names = concat([local.admin_secret_name], values(local.client_secret_name))
     verbs          = ["get"]
   }
   rule {

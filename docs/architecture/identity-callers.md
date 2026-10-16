@@ -44,7 +44,6 @@ principal and stage scope; Secret reference; rotation.
 | Catalog reconciliation (`olf catalog sync-namespaces`) | Workstation or CI | `kubectl port-forward` to Polaris | OAuth client credentials of the Polaris `deployer` principal | Deployer principal's catalog roles | `polaris-deployer-creds` (name from the contract) | Polaris bootstrap Job |
 | Metadata reconciliation (`olf openmetadata deploy-metadata`) | Workstation or CI | `access.service_url`: the ingress route when the contract has routes (the local default), a port-forward otherwise, with `OLF_PORT_FORWARD=1`, or for a route behind an enabled perimeter | OpenMetadata native admin login, email and password from `OPENMETADATA_ADMIN_EMAIL` / `_PASSWORD`, defaults `admin@open-metadata.org` / `admin` | Instance-wide admin | None; env default | None |
 | Superset report deployment (`olf report import`) | Workstation or CI | Same `access.service_url` | Superset native admin login, `SUPERSET_ADMIN_USERNAME` / `_PASSWORD`, defaults `admin` / `admin` | Instance-wide admin | None; env default | None |
-| `olf users` (#331: roles, list, grant, revoke, disable, enable, invite, resend, cancel), and the bootstrap-admin step of `olf deploy` | Operator workstation | Port-forward to the Keycloak Service, admin REST API | Client credentials of the `olf-users` client | User and group management in the realm (`view-users`, `manage-users`) | `keycloak-client-olf-users`, key `client-secret` | Bootstrap Job |
 | Workstation e2e (`olf e2e run`) | Workstation | kubectl exec and run, and port-forwards (Trino CLI pod, Dagster, portal) | RBAC; the Trino CLI runs as `--user olf-<stage>-runtime` with no password today, over HTTPS to `localhost:8443` when `trino_workload_authentication` is `tls` or `password`, and with the password after the #26 cutover ([ADR 0016](../adr/0016-trino-workload-authentication.md), step 4 pending). The identity and perimeter checks also use the Keycloak master `admin` (`keycloak-admin-creds`, read through RBAC) and the ingress hostnames; the perimeter check signs in over HTTP as throwaway per-role users | Creates and deletes per-role test users | `keycloak-admin-creds` | Admin rotation runbook |
 | CI (`.github/workflows/local-full-e2e.yml`) | GitHub runner | The same `olf` commands against a kind cluster created on the runner | The ephemeral cluster's kubeconfig. The only GitHub secret the workflow uses is `GITHUB_TOKEN`, for the registry | Ephemeral cluster | None for platform credentials | Cluster is discarded |
 
@@ -84,7 +83,7 @@ a pipeline) by one of two paths:
    by its internal name.
 
 Never through the public hostnames and their browser redirects, and never
-authenticated as an invited human or service-administrator account. Who may
+authenticated as a human or service-administrator account. Who may
 automate is who holds `pods/portforward` and the Secret reads in RBAC; a
 claimed user name (`X-Trino-User`, a login) is not proof of identity and
 is not the control.

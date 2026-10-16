@@ -42,7 +42,7 @@ _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
 _IDENTITY_FIELDS = {
-    "issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp", "bootstrap_admins", "github"
+    "issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp", "github"
 }
 _IDENTITY_ISSUERS = ("keycloak", "external", "github")
 _GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref"}
@@ -175,8 +175,6 @@ class IdentitySpec:
     client_ids: Mapping[str, str] | None = None
     # Only for the issuer OpenLakeForge deploys; an external issuer sends its own mail.
     smtp: SmtpSpec | None = None
-    # Emails invited as platform-admin at deploy, once; the issuer owns the account afterwards (#331).
-    bootstrap_admins: tuple[str, ...] = ()
     # For issuer `github`, role_claim and role_mapping above are derived from this, never written.
     github: GitHubSpec | None = None
 
@@ -540,16 +538,6 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
                 f"{where}.smtp requires issuer 'keycloak' (an external issuer sends its own mail)"
             )
         smtp = _validate_smtp(document["smtp"], where=f"{where}.smtp")
-    admins = document.get("bootstrap_admins", [])
-    if admins and issuer != "keycloak":
-        raise DeploymentProfileError(
-            f"{where}.bootstrap_admins requires issuer 'keycloak' (an external issuer is administered elsewhere)"
-        )
-    if not isinstance(admins, list) or not all(isinstance(a, str) and _EMAIL_PATTERN.fullmatch(a) for a in admins):
-        raise DeploymentProfileError(f"{where}.bootstrap_admins must be a list of email addresses")
-    admins = [a.lower() for a in admins]  # the issuer lowercases usernames and emails
-    if len(set(admins)) != len(admins):
-        raise DeploymentProfileError(f"{where}.bootstrap_admins must not repeat an address")
     if github is not None:
         role_claim = "groups"
         mapping = MappingProxyType(
@@ -562,7 +550,6 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         role_mapping=mapping,
         client_ids=client_ids,
         smtp=smtp,
-        bootstrap_admins=tuple(admins),
         github=github,
     )
 

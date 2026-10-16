@@ -49,7 +49,6 @@
   },
   "adapter": "external",
   "capabilities": {
-    "admin_api": false,
     "logout_endpoint": false
   }
 }

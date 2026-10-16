@@ -200,33 +200,6 @@ def require_smtp_credentials(
         )
 
 
-def onboard_bootstrap_admins(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    """Invite `spec.identity.bootstrap_admins` through the applied contract's admin binding. Runs outside
-    Terraform, after the realm Job completed, so no user record is in state or in a Terraform input."""
-    emails = config.context.topology.identity.bootstrap_admins
-    if not emails:
-        return
-    from olf import contracts
-    from olf.deployment import bootstrap_admins
-
-    payload = contracts.load_provider_contracts(
-        str(config.paths.platform_terraform_dir),
-        environ={**os.environ, **env},
-        honor_contract_file=False,
-        strict_state=True,
-        resolver=tools.resolver,
-    )
-    if payload is None:
-        raise DeploymentPreconditionError("no applied provider contract to onboard bootstrap_admins through.")
-    os.environ["KUBECONFIG"] = str(config.paths.kubeconfig_path)  # olf.k8s runs kubectl in this process's environment
-    bootstrap_admins.onboard(
-        payload["shared"]["identity"],
-        emails,
-        namespace=config.context.shared_namespace,
-        kube_context=config.kube_context,
-    )
-
-
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
     return topology_variables(config) | {
@@ -584,5 +557,4 @@ def platform_up(
         env=env,
     )
 
-    onboard_bootstrap_admins(config, tools, env=env)
     log.step("Static OpenLakeForge local platform is applied.")
