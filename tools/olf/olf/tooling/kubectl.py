@@ -135,6 +135,20 @@ class Kubectl:
         args.extend(extra_args)
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
 
+    def exec(
+        self,
+        pod: str,
+        command: Sequence[str],
+        *,
+        namespace: str,
+        context: str | None = None,
+        kubeconfig: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        return self._run(
+            ["exec", pod, "-n", namespace, "--", *command], context=context, kubeconfig=kubeconfig, env=env
+        )
+
     def patch(
         self,
         resource: str,
