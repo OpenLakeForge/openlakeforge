@@ -83,12 +83,12 @@ def test_collect_status_raises_when_a_query_fails() -> None:
 def test_report_leads_with_the_contract_urls_and_serializes_them() -> None:
     report = StatusReport(
         sections=(StatusSection(title="Pods (olf-dev)", output="dagster Running"),),
-        urls={"stage/dev/orchestration": "https://dagster.dev.olf.localhost"},
+        urls={"stage/dev/orchestration": "https://dagster-dev.olf.localhost"},
     )
 
-    assert report.render().startswith("=== URLs ===\nstage/dev/orchestration: https://dagster.dev.olf.localhost\n\n")
+    assert report.render().startswith("=== URLs ===\nstage/dev/orchestration: https://dagster-dev.olf.localhost\n\n")
     assert report.as_dict() == {
-        "urls": {"stage/dev/orchestration": "https://dagster.dev.olf.localhost"},
+        "urls": {"stage/dev/orchestration": "https://dagster-dev.olf.localhost"},
         "sections": {"Pods (olf-dev)": "dagster Running"},
     }
 

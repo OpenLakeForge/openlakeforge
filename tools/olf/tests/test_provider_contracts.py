@@ -179,7 +179,7 @@ def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
         "routes": {
             "shared/portal": "https://olf.localhost",
             "shared/query": "https://trino.olf.localhost",
-            "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
+            "stage/prod/orchestration": "https://dagster-prod.olf.localhost",
         },
         "protected": ["shared/portal", "shared/query", "stage/prod/orchestration"],
     }
@@ -1197,8 +1197,8 @@ def test_local_access_routes_only_enabled_user_facing_services() -> None:
     assert {ref: route["url"] for ref, route in routes.items()} == {
         "shared/portal": "https://olf.localhost",
         "shared/query": "https://trino.olf.localhost",
-        "stage/dev/orchestration": "https://dagster.dev.olf.localhost",
-        "stage/prod/orchestration": "https://dagster.prod.olf.localhost",
+        "stage/dev/orchestration": "https://dagster-dev.olf.localhost",
+        "stage/prod/orchestration": "https://dagster-prod.olf.localhost",
     }
     assert {route["exposure"] for route in routes.values()} == {"user-facing"}
 
@@ -1221,11 +1221,11 @@ def _route(ref: str, url: str) -> dict:
         ),
         # A disabled capability (no reporting on this fixture) has no service to route.
         (
-            lambda access: access["routes"].update(_route("stage/dev/reporting", "https://superset.dev.olf.localhost")),
+            lambda access: access["routes"].update(_route("stage/dev/reporting", "https://superset-dev.olf.localhost")),
             "does not resolve",
         ),
         (
-            lambda access: access["routes"].update(_route("stage/dev/code-server", "https://code.dev.olf.localhost")),
+            lambda access: access["routes"].update(_route("stage/dev/code-server", "https://code-dev.olf.localhost")),
             "does not resolve",
         ),
         (lambda access: access.pop("issuer"), "declared together"),
@@ -1233,7 +1233,7 @@ def _route(ref: str, url: str) -> dict:
         (lambda access: access.__setitem__("issuer", "letsencrypt"), "must match the profile"),
         (
             lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
-                "url", "http://dagster.dev.olf.localhost"
+                "url", "http://dagster-dev.olf.localhost"
             ),
             "must be https",
         ),
@@ -1266,7 +1266,7 @@ def _route(ref: str, url: str) -> dict:
         ),
         (
             lambda access: access["routes"]["shared/query"].__setitem__(
-                "url", "https://dagster.dev.olf.localhost/trino"
+                "url", "https://dagster-dev.olf.localhost/trino"
             ),
             "must be https",
         ),
@@ -1285,7 +1285,7 @@ def _route(ref: str, url: str) -> dict:
         # A stage route carries its own stage label; a shared route carries none.
         (
             lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
-                "url", "https://dagster.prod.olf.localhost"
+                "url", "https://dagster-prod.olf.localhost"
             ),
             "must be https",
         ),

@@ -58,7 +58,7 @@ variable "dynamic_config" {
 }
 
 variable "cluster_issuer_name" {
-  description = "cert-manager ClusterIssuer that signs each namespace's wildcard route certificate."
+  description = "cert-manager ClusterIssuer that signs the one wildcard route certificate."
   type        = string
 }
 

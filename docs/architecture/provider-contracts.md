@@ -100,7 +100,7 @@ all present or all absent:
   "issuer": "local-ca",
   "tls_mode": "ingress-terminated",
   "routes": {
-    "stage/dev/orchestration": {"url": "https://dagster.dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
+    "stage/dev/orchestration": {"url": "https://dagster-dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
     "shared/portal": {"url": "https://olf.localhost", "enabled": true, "exposure": "user-facing"},
     "shared/catalog_service": {"url": "https://polaris.olf.localhost", "enabled": true, "exposure": "internal"}
   }

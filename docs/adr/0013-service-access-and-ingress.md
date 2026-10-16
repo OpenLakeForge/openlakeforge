@@ -26,9 +26,15 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | `issuer` | `local-ca` | an ACME (Let's Encrypt) or organisational CA issuer |
 
    The defaults need neither a purchased domain nor a public server.
-2. **Routes are stage-derived:** `https://<service>.<stage>.<base_domain>`;
-   a shared service (OpenMetadata, Trino) drops the stage label. The one
-   exception is the portal (decision 7), which is the apex,
+2. **Routes sit one level under the base domain:** a stage service is
+   `https://<service>-<stage>.<base_domain>` (`dagster-dev.olf.localhost`);
+   a shared service (OpenMetadata, Trino) drops the stage suffix. One
+   wildcard level is all that most client certificates and edge providers
+   cover (#340), so a single `*.<base_domain>` certificate serves every
+   route. Stage names are the fixed set `dev`, `uat`, `prod` and the stage
+   services are `dagster` and `superset`, so no `<service>-<stage>` host can
+   equal a shared or reserved host (`trino`, `openmetadata`, `auth`,
+   `oauth2`). The one exception is the portal (decision 7), which is the apex,
    `https://<base_domain>`.
 3. **The provider contract carries the routes.** `shared.access` gains
    `base_domain`, `issuer`, `tls_mode`, and `routes` — declared together or
@@ -58,15 +64,18 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
    self-signed once and never rotated by a re-deploy; `olf deploy` waits for
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
-   the only value the contract accepts. Each namespace gets one wildcard
-   certificate (`*.<stage>.<base_domain>`, or `*.<base_domain>` for shared
-   services), issued by cert-manager's ingress-shim. The shared namespace's
-   certificate also names the bare `<base_domain>`, because a wildcard does
-   not match the apex. Routes are standard `Ingress` objects, which need no
+   the only value the contract accepts. One wildcard
+   certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
+   does not match the apex), is issued in the shared namespace by
+   cert-manager's ingress-shim and is Traefik's default certificate
+   (`tlsStore.default`). Traefik's TLS store is global and keyed by SNI, so
+   per-namespace copies of the same wildcard would leave one of them serving
+   every route; stage `Ingress` objects carry an empty `tls` block, which
+   enables TLS on the router and names no Secret. Routes are standard `Ingress` objects, which need no
    CRD at plan time. Traefik attaches middleware per `Ingress`, so a
    namespace has one `Ingress` per access group (the role floor, ADR 0014
-   seam 3), each naming the same TLS Secret; only one per namespace carries
-   the issuer annotation. The `Ingress` without a group holds the routes
+   seam 3); only one in the shared namespace carries the issuer annotation
+   and names the TLS Secret. The `Ingress` without a group holds the routes
    behind no middleware: the identity route and the perimeter's login
    callback.
 7. **The portal is a static page at the base domain.** It lists every route
@@ -132,3 +141,7 @@ seam 3): decision 6 now renders one `Ingress` per namespace and access group,
 and `olf`'s clients port-forward to a protected route instead of taking its
 ingress URL (decision 5). The login callback host `oauth2.<base_domain>` is
 answered by the proxy and is not a contract route.
+#389 flattened stage hostnames to `<service>-<stage>.<base_domain>` (decisions 2 and
+6): every namespace's certificate is now `*.<base_domain>`.
+The flat-hostname change also replaced the per-namespace certificates with one shared
+wildcard served as Traefik's default certificate (decision 6).

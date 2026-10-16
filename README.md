@@ -151,7 +151,7 @@ olf status --provider local   # lists every service URL
 ```
 
 ```text
-https://dagster.dev.olf.localhost
+https://dagster-dev.olf.localhost
 ```
 
 Browsers resolve `*.localhost` to your machine; no `/etc/hosts` edit is

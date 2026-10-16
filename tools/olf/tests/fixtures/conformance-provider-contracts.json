@@ -30,22 +30,22 @@
         "stage/dev/orchestration": {
           "enabled": true,
           "exposure": "user-facing",
-          "url": "https://dagster.dev.olf.localhost"
+          "url": "https://dagster-dev.olf.localhost"
         },
         "stage/dev/reporting": {
           "enabled": true,
           "exposure": "user-facing",
-          "url": "https://superset.dev.olf.localhost"
+          "url": "https://superset-dev.olf.localhost"
         },
         "stage/prod/orchestration": {
           "enabled": true,
           "exposure": "user-facing",
-          "url": "https://dagster.prod.olf.localhost"
+          "url": "https://dagster-prod.olf.localhost"
         },
         "stage/prod/reporting": {
           "enabled": true,
           "exposure": "user-facing",
-          "url": "https://superset.prod.olf.localhost"
+          "url": "https://superset-prod.olf.localhost"
         }
       },
       "tls_mode": "ingress-terminated"

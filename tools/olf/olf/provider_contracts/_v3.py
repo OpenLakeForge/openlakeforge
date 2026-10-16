@@ -251,14 +251,19 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
             or not _BASE_DOMAIN_PATTERN.fullmatch(host)
         ):
             raise ProviderContractError(f"{where}.url must be https://<host>.{base_domain}")
-        # ADR 0013: a stage route carries its own stage label, a shared route none,
-        # so a DEV backend can never answer on a PROD or shared hostname.
-        scope = f"{ref.split('/')[1]}." if ref.startswith("stage/") else ""
-        suffix = f".{scope}{base_domain}".lower()
+        # ADR 0013: a stage route is `<service>-<stage>` under the base domain, a
+        # shared route a bare `<service>`, so a DEV backend can never answer on a
+        # PROD or shared hostname.
+        suffix = f".{base_domain}".lower()
+        label = host[: -len(suffix)] if host.endswith(suffix) else ""
         if ref == _PORTAL_REF:
             if host != base_domain.lower():
                 raise ProviderContractError(f"{where}.url must be https://{base_domain}")
-        elif not host.endswith(suffix) or "." in host[: -len(suffix)]:
+        elif ref.startswith("stage/"):
+            stage_suffix = f"-{ref.split('/')[1]}"
+            if not label.endswith(stage_suffix) or "." in label or label == stage_suffix:
+                raise ProviderContractError(f"{where}.url must be https://<service>{stage_suffix}{suffix}")
+        elif not label or "." in label:
             raise ProviderContractError(f"{where}.url must be https://<service>{suffix}")
         if host in hosts:
             raise ProviderContractError(f"{where}.url host {host!r} is already routed to another service")
