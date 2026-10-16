@@ -336,7 +336,7 @@ locals {
 
   # Block presence in the profile is the switch (ADR 0013/0014): no spec.access,
   # no ingress; no spec.identity, no issuer and no perimeter.
-  access_enabled   = local.base_domain != null
+  access_enabled   = var.access_base_domain != null
   identity_enabled = var.identity_issuer != null
   # Route TLS (cert-manager, the local CA, route certificates) is the one
   # TLS-specific switch; today every declared access block has it. Derive it
@@ -564,13 +564,17 @@ locals {
       access = merge(
         { ref = "shared/access", implementation = local.access_contract.implementation },
         # A port-forward contract carries none of the ingress fields (ADR 0013).
-        !local.access_enabled ? {} : {
-          base_domain = local.access_contract.base_domain
-          issuer      = local.access_contract.issuer
-          tls_mode    = local.access_contract.tls_mode
-          routes      = local.access_contract.routes
+        # A filtered for expression, not `cond ? {...} : {}`: Terraform cannot
+        # unify an empty object with one holding nested objects (routes).
+        {
+          for key, value in {
+            base_domain = local.access_contract.base_domain
+            issuer      = local.access_contract.issuer
+            tls_mode    = local.access_contract.tls_mode
+            routes      = local.access_contract.routes
+          } : key => value if local.access_enabled
         },
-        local.identity_enabled ? { perimeter = local.access_contract.perimeter } : {},
+        { for key, value in { perimeter = local.access_contract.perimeter } : key => value if local.identity_enabled },
       )
       observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
       }, local.access_enabled ? {

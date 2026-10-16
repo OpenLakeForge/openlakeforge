@@ -375,8 +375,14 @@ class _PlatformScriptedRunner(RecordingRunner):
         return _ok()
 
 
-def test_platform_up_happy_path_applies_terraform(tmp_path: Path) -> None:
-    config = _config(tmp_path, profile=Profile.SLIM)
+@pytest.mark.parametrize("with_access", [True, False])
+def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: bool) -> None:
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec
+
+    topology = replace(_topology(analytics=False), access=AccessSpec()) if with_access else None
+    config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
     config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.foundation_state_path.write_text("{}")
     runner = _PlatformScriptedRunner(namespace_exists=False, seaweedfs_in_state=True)
@@ -386,8 +392,10 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path) -> None:
 
     apply_calls = [c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv]
     assert len(apply_calls) == 1
-    # The apply is not done until the local CA has actually signed a certificate.
-    assert any("wait" in c.argv and "certificate/local-ca-probe" in c.argv for c in runner.calls)
+    # With an ingress, the apply is not done until the local CA has signed a
+    # certificate; a quickstart deploys no local CA to wait for.
+    waited = any("wait" in c.argv and "certificate/local-ca-probe" in c.argv for c in runner.calls)
+    assert waited is with_access
 
 
 def test_platform_up_recovers_from_drifted_state(tmp_path: Path) -> None:
