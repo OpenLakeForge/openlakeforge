@@ -41,20 +41,25 @@ def verdict(
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """`denies` holds (direction, apply, remove). Each must turn a connecting pair into a blocked one."""
+
+    def eventually(expected: bool) -> bool:
+        # Removing a policy is as asynchronous as applying one.
+        for attempt in range(attempts):
+            if connects() is expected:
+                return True
+            if attempt < attempts - 1:
+                sleep(delay)
+        return False
+
     for direction, apply, remove in denies:
-        if not connects():
+        if not eventually(True):
             raise PolicyNotEnforcedError(
                 f"NetworkPolicy canary is inconclusive: the pair could not connect before the {direction} "
                 "policy, so a blocked connection afterwards would prove nothing."
             )
         apply()
         try:
-            for attempt in range(attempts):
-                if not connects():
-                    break
-                if attempt < attempts - 1:
-                    sleep(delay)
-            else:
+            if not eventually(False):
                 raise PolicyNotEnforcedError(
                     f"This cluster does not enforce {direction} NetworkPolicy: the client still connected "
                     f"through a deny policy ({attempts} attempts). Default-deny policies would be inert "
