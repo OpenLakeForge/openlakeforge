@@ -216,15 +216,3 @@ kubectl -n olf-system rollout restart deployment -l openlakeforge.io/role-floor
 
 The Job log shows `Created Secret oauth2-proxy-cookie`. Not yet exercised as a
 drill; the Job's create-if-missing behaviour is what the deploy ran.
-
-## The `olf-users` admin client
-
-`keycloak-client-olf-users` is the secret of the service-account client that
-`olf users` administers users with (#331). It rotates like the consumer
-clients above: delete the Secret, replace the bootstrap Job (step 3) and the
-realm Job pushes the new value into the client. Nothing needs restarting,
-because `olf users` reads the Secret on every invocation and holds no session.
-Confirm with the same token-endpoint test, using `grant_type=client_credentials`
-and `client_id=olf-users`: the retired value gets HTTP 401, the new one a token.
-`olf e2e run --env local` asserts that the Secret the contract references
-authenticates the client and that a wrong value does not.

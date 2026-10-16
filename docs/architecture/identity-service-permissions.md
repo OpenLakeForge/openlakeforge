@@ -186,11 +186,11 @@ baseline only; `useRolesFromProvider` stays `false`. `olf` owns the grant:
 
 | Step | Detail |
 | --- | --- |
-| Command | `olf openmetadata sync-roles [--user]`: for each issuer user, set `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer`; the canonical role is read the way `olf users list` reads it |
-| Called by | `olf users grant`, `revoke`, `disable` and `enable` after the issuer change, creating the OpenMetadata user first if it has never logged in (login finds an existing user by name, **V**); `olf deploy`; `olf e2e run` |
+| Command | `olf openmetadata sync-roles [--user]`: for each issuer user, set `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer`. **Reopened by [ADR 0018](../adr/0018-github-is-the-forge.md):** the canonical role was read from the Keycloak admin API, which goes; reading the mapped GitHub teams' members is the candidate source, decided with the Dex adapter |
+| Called by | `olf deploy`; `olf e2e run`; creating the OpenMetadata user first if it has never logged in (login finds an existing user by name, **V**) |
 | Identity | The class-2 OpenMetadata automation bot below, over the RBAC-authorized port-forward |
-| Gap | A role changed in the issuer console, not through `olf users`, reaches OpenMetadata at the next `sync-roles`. Documented exception, tested (test OM-7). A scheduled run is a follow-up (decision 2) |
-| External issuer | Without `admin_api`, `olf users` cannot enumerate users (ADR 0014 seam 4), so `sync-roles` only runs per user: `--user <name> --role <canonical>`, invoked by the operator. Otherwise `platform-admin` and `data-engineer` users of such an issuer stay at the read baseline. External-issuer runtime parity is outside v0.5 qualification (#25) |
+| Gap | Every role change is now a GitHub team change (ADR 0018), so a changed role reaches OpenMetadata only at the next `sync-roles`. This is the normal path, not an exception (test OM-7); a scheduled run is therefore required, not a follow-up (decision 2) |
+| External issuer | OIDC alone does not enumerate users, so `sync-roles` only runs per user: `--user <name> --role <canonical>`, invoked by the operator. Otherwise `platform-admin` and `data-engineer` users of such an issuer stay at the read baseline. External-issuer runtime parity is outside v0.5 qualification (#25) |
 
 ### Local administrator and automation (class 2)
 
@@ -222,8 +222,7 @@ Bounds for OpenMetadata: **disable** or session end: the next refresh at the
 issuer is refused, and the ID token (5 min) and perimeter (5 min) expire first,
 so at most 5 min. **T**: that Keycloak refuses the refresh for a disabled user
 and that its refresh response includes `id_token`. Role **change**: bounded by
-`sync-roles`, not by the session (above); a change made through `olf users` is
-immediate. This is the documented exception to the 15 min native bound, and the
+`sync-roles`, not by the session (above). This is the documented exception to the 15 min native bound, and the
 reason is that authorization lives in the OpenMetadata database, not in the
 token.
 
@@ -251,9 +250,9 @@ status (2xx or 403).
 | OM-2 | viewer, analyst | Edit description, tags, tier; set owner on an unowned asset | Deny each (proves baseline change 1 and 2) |
 | OM-3 | data-engineer | Edit description, tags, owner, lineage; create a service; create a role | Allow, allow, allow, allow, deny, deny |
 | OM-4 | platform-admin | Create a role; read a setting | Allow |
-| OM-5 | platform-admin demoted to analyst through `olf users` | Admin-only call, immediately and after 15 min | Deny both |
-| OM-6 | data-engineer demoted to viewer through `olf users` | Edit a description | Deny, with no new login |
-| OM-7 | Role changed in the issuer console only | Read the user's OpenMetadata roles before and after `olf openmetadata sync-roles` | Stale before, correct after; exposure recorded |
+| OM-5 | platform-admin moved to an `analyst` team, then `sync-roles` | Admin-only call, immediately and after 15 min | Deny both |
+| OM-6 | data-engineer moved to a `viewer` team, then `sync-roles` | Edit a description | Deny, with no new login |
+| OM-7 | Role changed in GitHub, before `sync-roles` runs | Read the user's OpenMetadata roles before and after `olf openmetadata sync-roles` | Stale before, correct after; exposure recorded |
 | OM-8 | User disabled | Any call after the ID token expires | Refused within 5 min; refresh logged as refused |
 | OM-9 | Anyone | `POST /api/v1/users/login` with `admin@open-metadata.org` / `admin` | 403 |
 | OM-10 | Automation | `olf openmetadata deploy-metadata`, bootstrap Job, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
@@ -267,11 +266,12 @@ Maintainer decisions for v0.5-alpha.
 1. **SQL Lab is Admin-only.** `sql_lab` is not added to `data-engineer`;
    `release/identity-roles.yaml` and ADR 0014 stay unchanged. Revisit through
    the matrix in a later milestone.
-2. **`olf` assigns OpenMetadata roles.** `olf openmetadata sync-roles`, driven
-   from `olf users` grant, revoke, disable and enable plus deploy and e2e. A
-   role changed only in the issuer console is the documented, tested exception
-   (OM-7). A scheduled in-cluster run, and an OpenMetadata upgrade that reads a
-   configurable claim, are follow-ups, not v0.5.
+2. **`olf` assigns OpenMetadata roles.** `olf openmetadata sync-roles`, run by
+   deploy and e2e. With roles in GitHub (ADR 0018) there is no `olf` command at
+   the moment of a change, so a scheduled in-cluster run is needed to bound how
+   long a changed role is stale (OM-7); its interval and the GitHub credential
+   it reads teams with are open, decided with the Dex adapter. An OpenMetadata
+   upgrade that reads a configurable claim would remove the sync.
 3. **`write` cannot create or delete entities.** `DataSteward` edits metadata
    only; accepted, to keep the grant a built-in role.
 4. **Ownership outlives a role.** `Owner-Rule` stays for v0.5. Demotion and

@@ -367,7 +367,6 @@ locals {
         secret_ref = { name = "oidc-client-${name}", key = "client-secret" }
       }
     }
-    capabilities = { admin_api = false }
   }
 
   identity_contract = {

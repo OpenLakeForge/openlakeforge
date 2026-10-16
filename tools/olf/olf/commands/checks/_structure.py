@@ -226,7 +226,6 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "tools/olf/olf/commands/product.py",
     "tools/olf/olf/commands/init.py",
     "tools/olf/olf/deployment/engine.py",
-    "tools/olf/olf/deployment/bootstrap_admins.py",
     "tools/olf/olf/deployment/local/provider.py",
     "tools/olf/olf/deployment/local/config.py",
     "tools/olf/olf/deployment/cloud/provider.py",

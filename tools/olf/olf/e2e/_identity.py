@@ -17,7 +17,6 @@ import os
 import re
 import secrets
 from collections.abc import Iterator
-from functools import partial
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -25,10 +24,7 @@ import requests
 import yaml
 
 from olf import access, config, k8s, log
-from olf.e2e._identity_admin import check_admin_client
-from olf.e2e._identity_invite import check_invitations
 from olf.e2e._identity_mail import check_email_delivery, check_realm_mail_matches_contract, mail_sink
-from olf.e2e._identity_users import check_users_administration
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 KEYCLOAK_SERVICE = "keycloak"
@@ -59,16 +55,10 @@ def check_identity(cfg: E2EConfig) -> None:
         redirect_uri = _perimeter_callback(cfg)
         check_client_secret_is_enforced(cfg, identity, redirect_uri)
         check_role_claims(cfg, identity, base_url, redirect_uri)
-        with _admin_session(cfg, base_url) as admin:
-            check_admin_client(cfg, identity, base_url, admin)
-        perimeter = identity["clients"]["perimeter"]
-        login = partial(_id_token_claims, identity, perimeter, _client_secret(cfg, identity, "perimeter"), redirect_uri)
-        check_users_administration(cfg, identity, base_url, login)
         # The sink first: its pull can outlast the one-minute admin token.
         with mail_sink(cfg), _admin_session(cfg, base_url) as admin:
             check_realm_mail_matches_contract(identity, admin, f"{base_url}/admin/realms/{_realm(identity)}")
             check_email_delivery(cfg, admin, base_url)
-            check_invitations(cfg, identity, base_url, login, partial(_admin_session, cfg, base_url))
 
 
 def _realm(identity: dict[str, Any]) -> str:

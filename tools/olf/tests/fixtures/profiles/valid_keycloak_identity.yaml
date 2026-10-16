@@ -12,8 +12,6 @@ spec:
     dev:
       enabled: true
   identity:
-    bootstrap_admins:
-      - ada@example.org
     smtp:
       host: smtp.example.org
       port: 587
