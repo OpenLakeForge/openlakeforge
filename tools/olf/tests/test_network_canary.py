@@ -5,24 +5,55 @@ import pytest
 from olf.deployment.local.network_canary import PolicyNotEnforcedError, verdict
 
 
-def _verdict(control: bool, denied_results: list[bool]) -> None:
-    outcomes = iter(denied_results)
-    verdict(lambda: control, lambda: next(outcomes), attempts=len(denied_results), sleep=lambda _: None)
+class _Pair:
+    """A pod pair whose reachability depends on which deny policy is applied and which the cluster enforces."""
+
+    def __init__(self, *, enforces: set[str], broken: bool = False, late: int = 0) -> None:
+        self.enforces, self.broken, self.late = enforces, broken, late
+        self.applied: str | None = None
+
+    def connects(self) -> bool:
+        if self.broken:
+            return False
+        if self.applied in self.enforces:
+            if self.late > 0:
+                self.late -= 1
+                return True
+            return False
+        return True
+
+    def deny(self, direction: str):  # noqa: ANN201
+        return (direction, lambda: setattr(self, "applied", direction), lambda: setattr(self, "applied", None))
+
+    def run(self) -> None:
+        verdict(self.connects, [self.deny("ingress"), self.deny("egress")], sleep=lambda _: None)
 
 
-def test_enforcing_cluster_passes() -> None:
-    _verdict(True, [False])
+def test_both_directions_blocked_passes() -> None:
+    _Pair(enforces={"ingress", "egress"}).run()
 
 
 def test_policy_that_lands_late_still_passes() -> None:
-    _verdict(True, [True, True, False])
+    _Pair(enforces={"ingress", "egress"}, late=2).run()
 
 
-def test_cluster_that_never_blocks_is_reported_as_not_enforcing() -> None:
-    with pytest.raises(PolicyNotEnforcedError, match="does not enforce"):
-        _verdict(True, [True, True, True])
+def test_ingress_enforced_but_not_egress_names_egress() -> None:
+    with pytest.raises(PolicyNotEnforcedError, match="does not enforce egress"):
+        _Pair(enforces={"ingress"}).run()
 
 
-def test_failing_positive_control_is_inconclusive_not_enforcing() -> None:
+def test_nothing_enforced_names_ingress() -> None:
+    with pytest.raises(PolicyNotEnforcedError, match="does not enforce ingress"):
+        _Pair(enforces=set()).run()
+
+
+def test_pair_that_never_connects_is_inconclusive() -> None:
     with pytest.raises(PolicyNotEnforcedError, match="inconclusive"):
-        _verdict(False, [False])
+        _Pair(enforces={"ingress", "egress"}, broken=True).run()
+
+
+def test_policy_is_removed_even_when_it_fails() -> None:
+    pair = _Pair(enforces=set())
+    with pytest.raises(PolicyNotEnforcedError):
+        pair.run()
+    assert pair.applied is None

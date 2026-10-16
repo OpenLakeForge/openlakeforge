@@ -350,6 +350,7 @@ maintainer's decisions. Nothing built.
 Slice 1a built: `olf deploy --provider local` runs the canary
 (`olf/deployment/local/network_canary.py`) after the foundation and fails
 unless a deny-all namespace blocks a client its policy-free twin reaches.
+(Superseded below by the one-pair, two-direction canary.)
 Observed once, outside `olf`'s own cluster: on a stock kind v0.31.0 cluster
 (not the pinned 0.32.0) with kindnetd
 `v20251212-v0.29.0-alpha-105-g20ccfc88`, the gate passed, so kindnet blocked
@@ -360,3 +361,8 @@ Option A settled (maintainer run, 2026-10-16): `olf deploy --provider local
 kindnetd `v20260528-9350166c`, printed "NetworkPolicy is enforced." Slice 1b
 (Calico) is dropped; the kindnet-semantics rows of the conformance test still
 run in the policy slices.
+
+Canary reworked after review: one server and client pair is proven to connect
+with no policy, then an ingress-only and an egress-only deny must each block it.
+The maintainer's run above used the earlier two-namespace canary; the rework is
+unit-tested only and needs one re-run of the same command.
