@@ -3,10 +3,10 @@
   "issuer_url": "https://auth.olf.localhost",
   "role_claim": "groups",
   "role_mapping": {
-    "platform-admin": ["openlakeforge:olf-platform-admins"],
-    "data-engineer": ["openlakeforge:olf-data-engineers"],
-    "analyst": ["openlakeforge:olf-analysts"],
-    "viewer": ["openlakeforge:olf-viewers"]
+    "platform-admin": ["OpenLakeForge:olf-platform-admins"],
+    "data-engineer": ["OpenLakeForge:olf-data-engineers"],
+    "analyst": ["OpenLakeForge:olf-analysts"],
+    "viewer": ["OpenLakeForge:olf-viewers"]
   },
   "clients": {
     "perimeter": {"client_id": "perimeter", "secret_ref": {"name": "dex-client-perimeter", "key": "client-secret"}},
