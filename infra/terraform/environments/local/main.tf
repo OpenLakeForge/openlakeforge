@@ -85,13 +85,12 @@ locals {
   stage_service_accounts   = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
-      # DEV is the v0.2 deployment profile. Retaining its established bucket
-      # identities keeps the existing Polaris warehouse and Iceberg metadata
-      # valid through the platform-first v3 migration; later stages get new,
-      # stage-qualified buckets.
-      bronze_bucket_name      = name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze",
-      silver_bucket_name      = name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver",
-      gold_bucket_name        = name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold",
+      # The prefix is fixed rather than taken from var.profile_name so the
+      # buckets match the `lakehouse_<stage>` catalogs: the default profile
+      # name would give `openlakeforge-dev-bronze` next to `lakehouse_dev`.
+      bronze_bucket_name      = "lakehouse-${name}-bronze",
+      silver_bucket_name      = "lakehouse-${name}-silver",
+      gold_bucket_name        = "lakehouse-${name}-gold",
       credentials_secret_name = "seaweedfs-${name}-s3-creds"
     }
   }

@@ -20,7 +20,7 @@ class _S3Client:
 
     def head_bucket(self, *, Bucket: str) -> None:  # noqa: N803
         self.head_buckets.append(Bucket)
-        if Bucket == "openlakeforge-prod-bronze":
+        if Bucket == "lakehouse-prod-bronze":
             raise ClientError({"Error": {"Code": "403", "Message": "denied"}}, "HeadBucket")
 
     def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int) -> None:  # noqa: N803, ARG002
@@ -35,8 +35,8 @@ def test_isolation_uses_the_selected_stage_bucket_from_the_contract(
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
     provider_contracts = {
         "stages": {
-            "dev": {"storage": {"bronze": {"bucket_name": "lakehouse-bronze"}}},
-            "prod": {"storage": {"bronze": {"bucket_name": "openlakeforge-prod-bronze"}}},
+            "dev": {"storage": {"bronze": {"bucket_name": "lakehouse-dev-bronze"}}},
+            "prod": {"storage": {"bronze": {"bucket_name": "lakehouse-prod-bronze"}}},
         }
     }
     client = _S3Client()
@@ -62,7 +62,7 @@ def test_isolation_uses_the_selected_stage_bucket_from_the_contract(
 
     _isolation.check_stage_isolation(cfg)
 
-    assert client.head_buckets == ["openlakeforge-prod-bronze", "lakehouse-bronze"]
+    assert client.head_buckets == ["lakehouse-prod-bronze", "lakehouse-dev-bronze"]
     assert client.prefixes == ["activations/prod/", "activations/dev/"]
 
 

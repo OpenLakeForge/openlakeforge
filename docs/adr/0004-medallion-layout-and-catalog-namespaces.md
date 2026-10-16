@@ -64,11 +64,11 @@ the identical namespace names work on either catalog with no translation layer.
 
 Each medallion layer gets its own bucket rather than a path prefix inside one:
 
-| Bucket (local default) | Layer | Written by |
+| Bucket (local DEV) | Layer | Written by |
 | --- | --- | --- |
-| `lakehouse-bronze` | Bronze | dlt |
-| `lakehouse-silver` | Silver | Floe |
-| `lakehouse-gold` | Gold | dbt-trino |
+| `lakehouse-dev-bronze` | Bronze | dlt |
+| `lakehouse-dev-silver` | Silver | Floe |
+| `lakehouse-dev-gold` | Gold | dbt-trino |
 | `openlakeforge-ops` | operational artifacts | the artifacts phase |
 
 Buckets are the unit at which IAM policies, lifecycle rules, retention, and
@@ -118,3 +118,9 @@ Merges the decisions previously recorded as ADR 0013 (medallion bucket split),
 0014 (ops artifact bucket and prefixes), and 0026 (medallion ownership and the
 flat catalog namespace contract, which superseded ADR 0021's product-owned
 Silver).
+
+Bucket names follow `lakehouse-<stage>-<layer>` for every stage, matching the
+`lakehouse_<stage>` catalogs. DEV previously kept the v0.2 names
+(`lakehouse-bronze`, `-silver`, `-gold`) and the other stages used
+`<profile>-<stage>-<layer>`; the local environment now uses the single scheme,
+and the AWS and Azure environments are still on the old one.
