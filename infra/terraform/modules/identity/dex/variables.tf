@@ -66,8 +66,8 @@ variable "database_key" {
   default     = "dex"
 }
 
-variable "ca_secret_name" {
-  description = "Secret in the namespace holding the platform CA certificate as tls.crt. Dex trusts it as rootCA for a GitHub Enterprise `github.host`; unused for github.com."
+variable "ca_configmap_name" {
+  description = "ConfigMap in the namespace with the public platform CA as ca.crt (olf-local-ca). Dex trusts it as rootCA for a GitHub Enterprise `github.host`; unused for github.com."
   type        = string
   default     = null
 }

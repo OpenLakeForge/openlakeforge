@@ -19,7 +19,7 @@ locals {
 
   database = var.postgresql_contract.databases[var.database_key]
   issuer   = "https://${var.hostname}"
-  trust_ca = var.github.host != null && var.ca_secret_name != null
+  trust_ca = var.github.host != null && var.ca_configmap_name != null
 
   # `groups` carries `<organisation>:<team-slug>` (teamNameField: slug).
   role_mapping = {
@@ -258,10 +258,11 @@ resource "kubernetes_deployment_v1" "dex" {
           for_each = local.trust_ca ? [1] : []
           content {
             name = "ca"
-            secret {
-              secret_name = var.ca_secret_name
+            # Not optional: the kubelet retries the mount until the ConfigMap is published.
+            config_map {
+              name = var.ca_configmap_name
               items {
-                key  = "tls.crt"
+                key  = "ca.crt"
                 path = "ca.crt"
               }
             }
