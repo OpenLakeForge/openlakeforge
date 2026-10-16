@@ -13,6 +13,8 @@ from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:
     context = DeploymentContext.local(repo_root=tmp_path, profile=profile)
@@ -179,3 +181,26 @@ def test_prefetch_images_skips_crictl_pull_for_undigested_images(tmp_path: Path)
 
     floe_tag_calls = [c for c in runner.calls if c.argv[:2] == ["docker", "tag"] and "floe" in " ".join(c.argv)]
     assert not floe_tag_calls
+
+
+def test_canary_image_is_loaded_into_nodes_before_its_pods_are_created() -> None:
+    from olf.deployment.local import network_canary
+
+    class _StopAtCreate(Exception):
+        pass
+
+    class _Runner(_ScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            if "create" in argv:
+                self.calls.append(RecordedCall(argv=["kubectl", "create"], kwargs={}))
+                raise _StopAtCreate
+            return super().run(command, **kwargs)
+
+    runner = _Runner()
+    with pytest.raises(_StopAtCreate):
+        network_canary.require_policy_enforcement(_config(_REPO_ROOT), _toolkit(runner), env={})
+
+    argvs = [c.argv for c in runner.calls]
+    loaded = next(i for i, a in enumerate(argvs) if "import" in a and "ctr" in a)
+    assert loaded < argvs.index(["kubectl", "create"])
