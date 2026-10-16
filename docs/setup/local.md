@@ -224,7 +224,7 @@ message; `none` means every route certificate is issued and current.
 ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
 
 The full local e2e suite restarts Traefik and forces a renewal of the
-stage's route certificate, then requires the route to answer again and the
+shared route certificate, then requires the route to answer again and the
 served certificate's serial to change with no failed TLS handshake. Each
 drill writes its observations to `.tmp/e2e-evidence/` in the project.
 
