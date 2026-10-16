@@ -216,6 +216,12 @@ def test_identity_without_access_is_rejected() -> None:
         validate_deployment_profile(document)
 
 
+def test_a_cloud_profile_may_declare_identity_without_access() -> None:
+    document = _load_fixture("valid_full_aws_with_uat_prod.yaml")
+    document["spec"]["identity"] = {}
+    assert validate_deployment_profile(document).access is None
+
+
 def test_an_empty_access_block_asks_for_the_defaults_and_identity_may_follow() -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["access"] = {}

@@ -36,7 +36,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    chosen over an `access.exposure` field because a second field would let the
    block and the field disagree (`access:` present with `exposure: none`), and
    the defaults above already make an empty block meaningful.
-   `spec.identity` requires `spec.access`: sign-in redirects need the route
+   On the local provider `spec.identity` requires `spec.access` (the cloud roots do not read `spec.access`): sign-in redirects need the route
    hostnames, so the profile is rejected at validation otherwise.
 2. **Routes sit one level under the base domain:** a stage service is
    `https://<service>-<stage>.<base_domain>` (`dagster-dev.olf.localhost`);

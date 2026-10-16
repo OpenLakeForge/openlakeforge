@@ -20,7 +20,8 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["provider", "preset", "stages"],
-      "dependentRequired": {"identity": ["access"]},
+      "if": {"properties": {"provider": {"properties": {"type": {"const": "local"}}}}},
+      "then": {"dependentRequired": {"identity": ["access"]}},
       "properties": {
         "provider": {
           "type": "object",

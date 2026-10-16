@@ -629,9 +629,9 @@ def validate_deployment_profile(
         if "identity" in spec
         else None
     )
-    if identity is not None and access is None:
+    if provider.type == Provider.LOCAL and identity is not None and access is None:
         raise DeploymentProfileError(
-            f"{source}: spec.identity requires spec.access (sign-in needs the route hostnames)"
+            f"{source}: spec.identity requires spec.access on the local provider (sign-in needs the route hostnames)"
         )
     return DeploymentProfile(
         name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity
