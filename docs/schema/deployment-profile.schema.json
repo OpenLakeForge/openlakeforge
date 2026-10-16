@@ -93,7 +93,7 @@
               "required": ["organization", "teams", "oauth_app_secret_ref"],
               "description": "GitHub organisation teams as the source of roles. role_claim and role_mapping are derived: groups and <organization>:<slug>.",
               "properties": {
-                "organization": {"type": "string", "pattern": "^[A-Za-z0-9-]+$", "description": "Lowercased by olf: Dex compares exactly and GitHub returns lowercase logins."},
+                "organization": {"type": "string", "pattern": "^[A-Za-z0-9-]+$", "description": "The organisation login exactly as GitHub shows it, case included: Dex compares it exactly."},
                 "teams": {
                   "type": "object",
                   "minProperties": 1,

@@ -230,9 +230,11 @@ spec:
 ```
 
 Keys outside `precedence` are rejected, as for `role_mapping`. The
-organisation and team slugs are lowercased by `olf` before anything is
-rendered, because GitHub returns canonical lowercase logins and slugs and Dex
-compares them exactly. A role with no team is held by nobody. Being an organisation owner or a repository admin
+team slugs are lowercased by `olf`, because GitHub slugs are always lowercase.
+The organisation is kept exactly as written and must match its GitHub login's
+case: GitHub preserves the case of a login, and Dex compares each team's
+organisation login with the configured name exactly, so `openlakeforge` for the
+`OpenLakeForge` organisation refuses every member (observed on Dex v2.46.0). A role with no team is held by nobody. Being an organisation owner or a repository admin
 grants nothing: only the mapped teams count.
 
 | Piece | How |
