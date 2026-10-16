@@ -51,7 +51,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "issuer": {"enum": ["keycloak", "external"], "default": "keycloak"},
+            "issuer": {"enum": ["keycloak", "external", "github"], "default": "keycloak"},
             "issuer_url": {"type": "string", "pattern": "^https://", "description": "Loose check; the olf Python validator (_oidc_issuer_url) is the authority."},
             "role_claim": {"type": "string", "minLength": 1},
             "client_ids": {
@@ -93,6 +93,37 @@
               "then": {"required": ["credentials_secret_ref"], "properties": {"security": {"enum": ["starttls", "ssl"]}}},
               "else": {"not": {"required": ["credentials_secret_ref"]}}
             },
+            "github": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["organization", "teams", "oauth_app_secret_ref"],
+              "description": "GitHub organisation teams as the source of roles. role_claim and role_mapping are derived: groups and <organization>:<slug>.",
+              "properties": {
+                "organization": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"},
+                "teams": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": {"enum": ["platform-admin", "data-engineer", "analyst", "viewer"]},
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}
+                  }
+                },
+                "oauth_app_secret_ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name"],
+                  "description": "Secret holding the GitHub OAuth App client id and secret.",
+                  "properties": {
+                    "name": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+                    "client_id_key": {"type": "string", "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$", "default": "client-id"},
+                    "client_secret_key": {"type": "string", "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$", "default": "client-secret"}
+                  }
+                }
+              }
+            },
             "role_mapping": {
               "type": "object",
               "minProperties": 1,
@@ -105,12 +136,24 @@
               }
             }
           },
-          "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
-          "then": {
-            "required": ["issuer_url", "role_claim", "role_mapping"],
-            "not": {"anyOf": [{"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}
-          },
-          "else": {"not": {"required": ["client_ids"]}}
+          "allOf": [
+            {
+              "if": {"properties": {"issuer": {"const": "external"}}, "required": ["issuer"]},
+              "then": {
+                "required": ["issuer_url", "role_claim", "role_mapping"],
+                "not": {"anyOf": [{"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}
+              },
+              "else": {"not": {"required": ["client_ids"]}}
+            },
+            {
+              "if": {"properties": {"issuer": {"const": "github"}}, "required": ["issuer"]},
+              "then": {
+                "required": ["github"],
+                "not": {"anyOf": [{"required": ["issuer_url"]}, {"required": ["role_claim"]}, {"required": ["role_mapping"]}, {"required": ["client_ids"]}, {"required": ["smtp"]}, {"required": ["bootstrap_admins"]}]}
+              },
+              "else": {"not": {"required": ["github"]}}
+            }
+          ]
         },
         "stages": {
           "type": "object",

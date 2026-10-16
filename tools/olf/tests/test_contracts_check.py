@@ -599,6 +599,20 @@ def test_the_schema_accepts_bootstrap_admins_and_smtp_for_the_keycloak_issuer(tm
     assert contracts_check.profile_schema_errors(repo_root) == []
 
 
+def test_the_schema_accepts_the_github_issuer_and_rejects_a_hand_written_mapping(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_profile(repo_root, "valid_github_identity.yaml")
+    assert contracts_check.profile_schema_errors(repo_root) == []
+
+    profile = repo_root / "openlakeforge.yaml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace("issuer: github\n", "issuer: github\n    role_claim: groups\n"),
+        encoding="utf-8",
+    )
+
+    assert contracts_check.profile_schema_errors(repo_root)
+
+
 def test_the_schema_rejects_bootstrap_admins_for_an_external_issuer(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_profile(repo_root, "valid_slim_local.yaml")

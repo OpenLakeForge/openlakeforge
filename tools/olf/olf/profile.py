@@ -41,8 +41,14 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
-_IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp", "bootstrap_admins"}
-_IDENTITY_ISSUERS = ("keycloak", "external")
+_IDENTITY_FIELDS = {
+    "issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp", "bootstrap_admins", "github"
+}
+_IDENTITY_ISSUERS = ("keycloak", "external", "github")
+_GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref"}
+_GITHUB_SECRET_REF_FIELDS = {"name", "client_id_key", "client_secret_key"}
+_GITHUB_ORG = re.compile(r"[A-Za-z0-9-]+")
+_GITHUB_SLUG = re.compile(r"[A-Za-z0-9_.-]+")
 _SMTP_FIELDS = {"host", "port", "from_address", "from_name", "security", "auth", "credentials_secret_ref"}
 _SMTP_SECURITY = ("none", "starttls", "ssl")
 _SMTP_SECRET_REF_FIELDS = {"name", "username_key", "password_key"}
@@ -135,6 +141,26 @@ class SmtpSpec:
 
 
 @dataclass(frozen=True)
+class GitHubOAuthRef:
+    """The Secret holding the GitHub OAuth App's client id and secret, created
+    out-of-band. The profile names it and never carries a value."""
+
+    name: str
+    client_id_key: str = "client-id"
+    client_secret_key: str = "client-secret"
+
+
+@dataclass(frozen=True)
+class GitHubSpec:
+    """People and roles live in a GitHub organisation (ADR 0014); the profile only
+    says which team holds which canonical role."""
+
+    organization: str
+    teams: Mapping[str, tuple[str, ...]]
+    oauth_app_secret_ref: GitHubOAuthRef
+
+
+@dataclass(frozen=True)
 class IdentitySpec:
     """Which OIDC issuer signs people in (ADR 0014 seam 2). `keycloak` is the
     on-prem default OpenLakeForge deploys; `external` points at an existing
@@ -151,6 +177,8 @@ class IdentitySpec:
     smtp: SmtpSpec | None = None
     # Emails invited as platform-admin at deploy, once; the issuer owns the account afterwards (#331).
     bootstrap_admins: tuple[str, ...] = ()
+    # For issuer `github`, role_claim and role_mapping above are derived from this, never written.
+    github: GitHubSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -382,6 +410,58 @@ def _validate_smtp(document: object, *, where: str) -> SmtpSpec:
     )
 
 
+def _known_roles(*, where: str, distribution_root: Path | None) -> list[str]:
+    # Fail closed on a role the product does not define (release/identity-roles.yaml).
+    roles_file = (distribution_root or config.distribution_root()) / "release/identity-roles.yaml"
+    try:
+        return list(yaml.safe_load(roles_file.read_text("utf-8"))["precedence"])
+    except OSError as exc:
+        raise DeploymentProfileError(f"{where}: cannot read {roles_file}: {exc.strerror}") from exc
+
+
+def _validate_github(document: object, *, where: str, distribution_root: Path | None) -> GitHubSpec:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{where} must be an object")
+    _forbid_unexpected(document, _GITHUB_FIELDS, where=where)
+    missing = sorted(_GITHUB_FIELDS - set(document))
+    if missing:
+        raise DeploymentProfileError(f"{where}: missing required field(s) {missing!r}")
+    org = document["organization"]
+    if not isinstance(org, str) or not _GITHUB_ORG.fullmatch(org):
+        raise DeploymentProfileError(f"{where}.organization must be a GitHub organisation name")
+    raw = document["teams"]
+    if not isinstance(raw, Mapping) or not raw:
+        raise DeploymentProfileError(f"{where}.teams must be a non-empty object")
+    roles = _known_roles(where=f"{where}.teams", distribution_root=distribution_root)
+    for role, slugs in raw.items():
+        if role not in roles:
+            raise DeploymentProfileError(f"{where}.teams names unknown role {role!r}")
+        valid_slugs = isinstance(slugs, list) and all(isinstance(s, str) and _GITHUB_SLUG.fullmatch(s) for s in slugs)
+        if not slugs or not valid_slugs:
+            raise DeploymentProfileError(f"{where}.teams.{role} must be a non-empty list of team slugs")
+        if len(set(slugs)) != len(slugs):
+            raise DeploymentProfileError(f"{where}.teams.{role} must not repeat a team slug")
+    every = [s for slugs in raw.values() for s in slugs]
+    if len(set(every)) != len(every):
+        raise DeploymentProfileError(f"{where}.teams must not map one team to more than one role")
+    ref = document["oauth_app_secret_ref"]
+    ref_where = f"{where}.oauth_app_secret_ref"
+    if not isinstance(ref, Mapping):
+        raise DeploymentProfileError(f"{ref_where} must be an object")
+    _forbid_unexpected(ref, _GITHUB_SECRET_REF_FIELDS, where=ref_where)
+    if "name" not in ref:
+        raise DeploymentProfileError(f"{ref_where}: missing required field 'name'")
+    oauth = GitHubOAuthRef(**ref)
+    checks = (("name", is_secret_name), ("client_id_key", is_secret_key), ("client_secret_key", is_secret_key))
+    for field, valid in checks:
+        if not valid(getattr(oauth, field)):
+            raise DeploymentProfileError(f"{ref_where}.{field} is not a valid Kubernetes Secret {field.split('_')[-1]}")
+    if oauth.client_id_key == oauth.client_secret_key:
+        raise DeploymentProfileError(f"{ref_where}: client_id_key and client_secret_key must differ")
+    teams = {role: tuple(slugs) for role, slugs in raw.items()}
+    return GitHubSpec(organization=org, teams=teams, oauth_app_secret_ref=oauth)
+
+
 def _validate_identity(document: object, *, source: str, distribution_root: Path | None = None) -> IdentitySpec:
     where = f"{source}: spec.identity"
     if not isinstance(document, Mapping):
@@ -394,6 +474,17 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         missing = sorted({"issuer_url", "role_claim", "role_mapping"} - set(document))
         if missing:
             raise DeploymentProfileError(f"{where}: issuer 'external' requires {missing!r}")
+    github = None
+    if issuer == "github":
+        if "github" not in document:
+            raise DeploymentProfileError(f"{where}: issuer 'github' requires 'github'")
+        # The mapping is derived from `github`, so a second source could only disagree with it.
+        applicable = sorted({"issuer_url", "role_claim", "role_mapping"} & set(document))
+        if applicable:
+            raise DeploymentProfileError(f"{where}: issuer 'github' derives its claims; remove {applicable!r}")
+        github = _validate_github(document["github"], where=f"{where}.github", distribution_root=distribution_root)
+    elif "github" in document:
+        raise DeploymentProfileError(f"{where}.github requires issuer 'github'")
     issuer_url = document.get("issuer_url")
     if "issuer_url" in document:  # by key: an explicit null is invalid, not omitted
         # Lazy: provider_contracts imports this module (cycle).
@@ -411,14 +502,9 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         raw = document["role_mapping"]
         if not isinstance(raw, Mapping) or not raw:
             raise DeploymentProfileError(f"{where}.role_mapping must be a non-empty object")
-        # Fail closed on a role the product does not define (release/identity-roles.yaml).
-        roles_file = (distribution_root or config.distribution_root()) / "release/identity-roles.yaml"
-        try:
-            roles = yaml.safe_load(roles_file.read_text("utf-8"))
-        except OSError as exc:
-            raise DeploymentProfileError(f"{where}.role_mapping: cannot read {roles_file}: {exc.strerror}") from exc
+        roles = _known_roles(where=f"{where}.role_mapping", distribution_root=distribution_root)
         for role, values in raw.items():
-            if role not in roles["precedence"]:
+            if role not in roles:
                 raise DeploymentProfileError(f"{where}.role_mapping names unknown role {role!r}")
             if not isinstance(values, list) or not values or not all(isinstance(v, str) and v for v in values):
                 raise DeploymentProfileError(f"{where}.role_mapping.{role} must be a non-empty list of strings")
@@ -455,6 +541,11 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
     admins = [a.lower() for a in admins]  # the issuer lowercases usernames and emails
     if len(set(admins)) != len(admins):
         raise DeploymentProfileError(f"{where}.bootstrap_admins must not repeat an address")
+    if github is not None:
+        role_claim = "groups"
+        mapping = MappingProxyType(
+            {role: tuple(f"{github.organization}:{slug}" for slug in slugs) for role, slugs in github.teams.items()}
+        )
     return IdentitySpec(
         issuer=issuer,
         issuer_url=issuer_url,
@@ -463,6 +554,7 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         client_ids=client_ids,
         smtp=smtp,
         bootstrap_admins=tuple(admins),
+        github=github,
     )
 
 

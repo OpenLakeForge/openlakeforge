@@ -486,3 +486,79 @@ def test_render_json_carries_smtp_settings_and_secret_reference_but_no_credentia
         "username_key": "username",
         "password_key": "password",
     }
+
+
+def _github_profile(**changes: object) -> dict:
+    document = _load_fixture("valid_github_identity.yaml")
+    document["spec"]["identity"].update(changes)
+    return document
+
+
+def test_github_issuer_derives_the_groups_claim_and_org_qualified_role_mapping() -> None:
+    profile = validate_deployment_profile(_load_fixture("valid_github_identity.yaml"))
+    identity = profile.identity
+
+    assert identity.role_claim == "groups"
+    assert dict(identity.role_mapping) == {
+        "platform-admin": ("OpenLakeForge:olf-platform-admins",),
+        "data-engineer": ("OpenLakeForge:olf-data-engineers",),
+        "analyst": ("OpenLakeForge:olf-analysts",),
+        "viewer": ("OpenLakeForge:olf-viewers",),
+    }
+    ref = identity.github.oauth_app_secret_ref
+    assert (ref.name, ref.client_id_key, ref.client_secret_key) == ("github-oauth-app", "client-id", "client-secret")
+    assert json.loads(resolve_topology(profile).render_json())["identity"]["github"]["organization"] == "OpenLakeForge"
+
+
+def test_a_role_may_have_several_teams() -> None:
+    github = _github_profile()["spec"]["identity"]["github"] | {"teams": {"viewer": ["a", "b"]}}
+
+    identity = validate_deployment_profile(_github_profile(github=github)).identity
+
+    assert identity.role_mapping["viewer"] == ("OpenLakeForge:a", "OpenLakeForge:b")
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        ({"organization": ""}, "organization"),
+        ({"teams": {}}, "non-empty object"),
+        ({"teams": {"owner": ["x"]}}, "unknown role 'owner'"),
+        ({"teams": {"viewer": []}}, "non-empty list"),
+        ({"teams": {"viewer": ["a", "a"]}}, "repeat a team slug"),
+        ({"teams": {"viewer": ["a"], "analyst": ["a"]}}, "more than one role"),
+        ({"oauth_app_secret_ref": {"name": "Bad_Name"}}, "oauth_app_secret_ref.name"),
+        ({"oauth_app_secret_ref": {"name": "s", "client_id_key": "k", "client_secret_key": "k"}}, "must differ"),
+        ({"oauth_app_secret_ref": {"name": "s", "client_secret": "literal"}}, "must not contain"),
+    ],
+)
+def test_github_fails_closed(change: dict, match: str) -> None:
+    github = _github_profile()["spec"]["identity"]["github"] | change
+    with pytest.raises(DeploymentProfileError, match=match):
+        validate_deployment_profile(_github_profile(github=github))
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"issuer_url": "https://login.example.com/"},
+        {"role_claim": "groups"},
+        {"role_mapping": {"viewer": ["v"]}},
+        {"client_ids": {"trino": "t"}},
+        {"smtp": _SMTP},
+        {"bootstrap_admins": ["ada@example.org"]},
+    ],
+)
+def test_github_issuer_rejects_what_it_derives_or_does_not_use(extra: dict) -> None:
+    with pytest.raises(DeploymentProfileError):
+        validate_deployment_profile(_github_profile(**extra))
+
+
+def test_github_block_and_issuer_go_together() -> None:
+    document = _github_profile()
+    del document["spec"]["identity"]["github"]
+    with pytest.raises(DeploymentProfileError, match="requires 'github'"):
+        validate_deployment_profile(document)
+
+    with pytest.raises(DeploymentProfileError, match="github requires issuer 'github'"):
+        validate_deployment_profile(_github_profile(issuer="keycloak"))
