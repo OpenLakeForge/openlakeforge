@@ -36,6 +36,12 @@ variable "portal_url" {
   type        = string
 }
 
+variable "scope" {
+  description = "OIDC scopes oauth2-proxy requests. An issuer that returns the role claim or a refresh token only on request (Dex) adds them here."
+  type        = string
+  default     = "openid email profile"
+}
+
 variable "ca_configmap_name" {
   description = "ConfigMap in `namespace` whose ca.crt signs the issuer's certificate (modules/access/in-cluster-resolution). Null when the issuer's certificate chains to a public root."
   type        = string

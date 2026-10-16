@@ -203,6 +203,7 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             "infra/terraform/modules/governance/openmetadata/variables.tf",
             "infra/terraform/modules/access/in-cluster-resolution/variables.tf",
             "infra/terraform/modules/identity/keycloak/variables.tf",
+            "infra/terraform/modules/identity/dex/variables.tf",
             "infra/terraform/modules/access/perimeter/variables.tf",
             "infra/terraform/modules/query/trino/variables.tf",
         ),
@@ -213,6 +214,12 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
     ),
     "keycloak": _ImageDeploymentSource(
         paths=("infra/terraform/modules/identity/keycloak/variables.tf",),
+        full_ref_pattern=re.compile(
+            r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
+        ),
+    ),
+    "dex": _ImageDeploymentSource(
+        paths=("infra/terraform/modules/identity/dex/variables.tf",),
         full_ref_pattern=re.compile(
             r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
         ),

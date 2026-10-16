@@ -589,6 +589,68 @@ def _require_smtp(tmp_path: Path, runner: RecordingRunner, **kwargs) -> None:  #
     platform.require_smtp_credentials(_smtp_config(tmp_path, **kwargs), _toolkit(runner), env={})
 
 
+def _github_config(tmp_path: Path):  # noqa: ANN202
+    from dataclasses import replace
+
+    from olf.profile import GitHubOAuthRef, GitHubSpec, IdentitySpec
+
+    github = GitHubSpec(
+        organization="openlakeforge",
+        teams={"platform-admin": ("olf-admins",), "viewer": ("olf-viewers", "olf-guests")},
+        oauth_app_secret_ref=GitHubOAuthRef(name="github-oauth-app", client_id_key="id", client_secret_key="secret"),
+    )
+    return _config(tmp_path, topology=replace(_topology(), identity=IdentitySpec(issuer="github", github=github)))
+
+
+def test_github_reaches_the_root_as_team_slugs_and_secret_names_only(tmp_path: Path) -> None:
+    variables = platform.platform_apply_variables(_github_config(tmp_path))
+
+    assert variables["identity_issuer"] == "github"
+    assert json.loads(variables["identity_github"]) == {
+        "organization": "openlakeforge",
+        "teams": {"platform-admin": ["olf-admins"], "viewer": ["olf-viewers", "olf-guests"]},
+        "oauth_app_secret_ref": {"name": "github-oauth-app", "client_id_key": "id", "client_secret_key": "secret"},
+    }
+    assert "identity_github" not in platform.platform_apply_variables(_config(tmp_path))
+
+
+def _require_github(tmp_path: Path, runner: RecordingRunner, made: list[str]) -> None:
+    platform.require_github_oauth_secret(
+        _github_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: made.append("namespace")
+    )
+
+
+def test_a_complete_github_oauth_secret_passes(tmp_path: Path) -> None:
+    made: list[str] = []
+    _require_github(tmp_path, _SecretRunner(keys="id\nsecret\n"), made)
+    assert made == []
+
+
+@pytest.mark.parametrize(
+    ("runner", "match", "made"),
+    [
+        (_SecretRunner(keys=None, stderr="NotFound"), "could not read it: NotFound", []),
+        (_SecretRunner(keys="id\n"), r"lacks key\(s\) \['secret'\]", []),
+        (_SecretRunner(namespace=False, keys=None), "could not read it", ["namespace"]),
+    ],
+)
+def test_a_missing_github_oauth_secret_fails_before_deploy_with_the_create_command(
+    tmp_path: Path, runner: RecordingRunner, match: str, made: list[str]
+) -> None:
+    got: list[str] = []
+    with pytest.raises(DeploymentPreconditionError, match=match) as error:
+        _require_github(tmp_path, runner, got)
+
+    assert got == made  # the shared namespace is made first, so the Secret has somewhere to go
+    assert 'create secret generic github-oauth-app --from-literal=id="$GITHUB_CLIENT_ID"' in str(error.value)
+
+
+def test_no_github_means_no_oauth_secret_check(tmp_path: Path) -> None:
+    runner = _SecretRunner(namespace=False)
+    platform.require_github_oauth_secret(_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None)
+    assert runner.calls == []
+
+
 def test_smtp_credentials_present_with_both_keys_pass_and_only_key_names_are_read(tmp_path: Path) -> None:
     runner = _SecretRunner()
     _require_smtp(tmp_path, runner)
