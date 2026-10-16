@@ -252,7 +252,11 @@ choose. OpenMetadata ingestion remains and is blocked: in 1.13.6 the Trino
 connection has no `sslConfig` or CA-content field, only a `verify` string that
 the ingestion passes to `requests` as a file path, and the k8s pipeline client
 (`K8sPipelineClientConfig`) accepts no volumes, only plain-string
-`extraEnvVars`. No supported way puts the CA file in the ingestion pods. Open
-options: an ingestion image carrying the CA, an OpenMetadata upgrade that adds
-volume support, or an OpenMetadata Trino connection through a verified
-non-Trino path. `password` stays unusable until one is chosen.
+`extraEnvVars`. No supported way puts the CA file in pods the OpenMetadata
+server creates. **Chosen (maintainer review):** OLF runs the Trino metadata
+ingestion itself as a Kubernetes Job, with the same pinned `ingestion-base`
+image and `metadata ingest` workflow, the `olf-local-ca` ConfigMap mounted and
+`verify` pointing at it, instead of deploying it through the OpenMetadata
+pipeline client. Rejected: an image carrying the CA (the CA is per cluster), an
+OpenMetadata upgrade (an unknown, larger change) and `verify: false`.
+`password` stays unusable until that Job lands.
