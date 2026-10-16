@@ -4,7 +4,8 @@
 
 Design for #46 (local qualification only); slice 1a (the canary gate) and
 slice 2 (the flow file, its check, the policy module and the stage-namespace
-policies) are built; `olf-system` has no policy yet. What binds today is the policy model, the flow table, the
+policies) and slice 3a (default-deny on the `olf-system` data plane: Postgres,
+SeaweedFS, Polaris, Trino) are built; the rest of `olf-system` has no policy yet. What binds today is the policy model, the flow table, the
 RBAC inventory, the conformance plan and the slice order. The CNI question is
 **settled: Option A, kindnet.** The canary passed on the pinned kind 0.32.0
 (History), so Calico (slice 1b) is not built.
@@ -176,7 +177,7 @@ port [D]).
 | F3 | Traefik | Keycloak, portal, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` in `contracts.tf` | V |
 | F4 | oauth2-proxy | Traefik 8443 | 8443 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset and OpenMetadata join when #25 lands |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
-| F6 | Keycloak, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
+| F6 | Keycloak, Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
 | F8 | Trino | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
@@ -399,3 +400,23 @@ short-lived and start inside that window, so this is recorded as a known
 exposure of the kindnet dataplane, to be measured and either accepted or
 mitigated (for example an init-time wait) in slice 5's conformance matrix.
 
+Slice 3a built: `workloads` in `release/network-flows.yaml` names the four
+data-plane workloads by chart labels (`name` plus `instance`, and
+`component=coordinator` for Trino), and the module renders one policy per
+workload in `olf-system` denying both directions except the rows that name it.
+Only those pods are selected; every other `olf-system` pod stays unisolated
+until slice 3b, and there is no namespace-wide deny. Jobs share the `name`
+label with their workload but not `instance`, so they are unselected and
+their traffic is allowed at the destination by their `openlakeforge.io/job`
+label (bucket, Polaris bootstrap and replication, Polaris metastore
+bootstrap). The Postgres bootstrap Job is the exception the slice list
+flagged: its pod carries the Postgres labels, so it is selected and has its own
+egress row to Postgres (F6). Trino listens on 8080 and 8443 and both are
+allowed. Callers of Trino from `olf-system` are one row from every pod of the
+namespace (F11), **[T]**: OpenMetadata ingestion Job pod labels are set by the
+server at runtime and are not read, so the row narrows to OpenMetadata and
+Traefik in 3b once they are. Still **[T]**: F7 (Polaris to SeaweedFS), F10
+Trino to itself (only needed if the CNI does not hairpin the Service address)
+and the new-pod window recorded above, which now also covers these pods. The
+module was validated and its rule sets evaluated with `terraform console`, not
+applied.

@@ -563,7 +563,9 @@ module "network_policy" {
   source = "../../modules/security/network-policy"
 
   stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
+  shared_namespace = kubernetes_namespace_v1.shared.metadata[0].name
   flows            = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).flows
+  workloads        = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).workloads
   apiserver_cidrs = [
     for ip in concat(
       [data.kubernetes_service_v1.apiserver.spec[0].cluster_ip],
