@@ -92,6 +92,22 @@ Runtime images are pushed as:
 The default tag is `azure-<git_sha>`, falling back to a UTC timestamp when the
 repository is unavailable.
 
+### Upgrading an existing deployment
+
+Medallion buckets are named `lakehouse-<stage>-bronze`, `-silver`, and `-gold`.
+Earlier Azure deployments named DEV's `lakehouse-bronze`, `lakehouse-silver`,
+and `lakehouse-gold`, and other stages `<profile>-<stage>-<layer>`. Polaris
+keeps the storage locations each `lakehouse_<stage>` warehouse was created
+with, so deploying this version over an existing platform leaves those
+warehouses pointing at buckets that are no longer used, while the stage
+credentials grant only the new ones. There is no in-place upgrade: destroy the
+platform phase and deploy again. Data in the old buckets is not copied.
+
+```bash
+olf destroy --provider azure --phase platform
+olf deploy --provider azure
+```
+
 Forward service UIs to localhost:
 
 ```bash
