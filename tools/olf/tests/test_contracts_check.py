@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -666,3 +667,13 @@ def test_hcl_structured_contracts_rejects_credential_handling_in_an_identity_mod
 
 def test_hcl_structured_contracts_accepts_the_real_identity_modules() -> None:
     assert _hcl._identity_module_errors(ROOT) == []
+
+
+def test_dex_config_expands_env_only_where_dex_does() -> None:
+    """Dex expands `$NAME` in connector and storage config but not in a static client's `secret`;
+    a client must name its env var with `secretEnv` (verified against the pinned image)."""
+    main = (ROOT / "infra/terraform/modules/identity/dex/main.tf").read_text()
+    placeholders = re.findall(r'"\$[A-Z_]+"', main)
+    assert sorted(placeholders) == ['"$DEX_DB_PASSWORD"', '"$GITHUB_CLIENT_ID"', '"$GITHUB_CLIENT_SECRET"']
+    clients = main[main.index("staticClients") :]
+    assert "secretEnv" in clients and not re.search(r"^\s*secret\s*=", clients, re.MULTILINE)

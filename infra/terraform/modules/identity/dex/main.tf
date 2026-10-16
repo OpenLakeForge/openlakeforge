@@ -25,8 +25,10 @@ locals {
     for role, slugs in var.github.teams : role => [for slug in slugs : "${var.github.organization}:${slug}"]
   }
 
-  # Dex expands `$NAME` in its config file from the environment, so every
-  # secret reaches it through a secretKeyRef and none is in the ConfigMap.
+  # Every secret reaches Dex through a secretKeyRef, none is in the ConfigMap.
+  # Verified against the pinned image: Dex expands `$NAME` in the connector and
+  # storage config, but NOT in `staticClients[].secret` (the literal string
+  # becomes the secret). A static client names its env var with `secretEnv`.
   client_secret_env = { for name in keys(var.clients) : name => "DEX_CLIENT_SECRET_${upper(name)}" }
 
   # JSON is YAML; Dex parses it as such. The session policy is pinned here
@@ -80,7 +82,7 @@ locals {
       for name, client in var.clients : {
         id           = name
         name         = name
-        secret       = format("$%s", local.client_secret_env[name])
+        secretEnv    = local.client_secret_env[name]
         redirectURIs = client.redirect_uris
       }
     ]
