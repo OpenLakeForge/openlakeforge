@@ -9,12 +9,17 @@ and architecture-aws. Coordinates are hand-placed on a 1320-wide canvas.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from lib import a, bucket, chip, defs, edge, export, image, legend, node, text, tool, zone
 
 W = 1320
 
 
-def _data_path(storage_logo, storage_name, buckets, ops_name, catalog, database, om_catalog):
+def _data_path(
+    storage_logo: str, storage_name: str, buckets: tuple[tuple[str, str], ...], ops_name: tuple[str, str],
+    catalog: tuple[str, str, str, list[str]], database: tuple[str, str, list[str], str], om_catalog: str,
+) -> None:
     """Orchestration and data-path zones shared by the local and AWS charts."""
     zone(12, 12, 1296, 128, "ORCHESTRATE")
     zone(12, 156, 1296, 548, "DATA PATH")
@@ -79,7 +84,7 @@ def _data_path(storage_logo, storage_name, buckets, ops_name, catalog, database,
     node(804, cy, 296, 112, logo, "SERVICE STATE", title, subs, tcls=tcls)
 
 
-def _access(ty, entry):
+def _access(ty: int, entry: tuple[tuple[int, str, str, str], ...]) -> None:
     """User → entry hops → oauth2-proxy → Dex ⇄ GitHub."""
     for x, logo, name, sub in entry:
         tool(x, ty, logo, name, sub)
@@ -92,12 +97,12 @@ def _access(ty, entry):
     text(1190, ty + 16, "connector", "elabel", "middle")
 
 
-def local():
+def local() -> list[Path]:
     h = 984
     defs()
     _data_path(
         "seaweedfs", "SeaweedFS",
-        (("lakehouse-dev-bronze", "raw CSV, immutable"), ("lakehouse-dev-silver", "Iceberg tables"),
+        (("lakehouse-dev-bronze", "raw CSV"), ("lakehouse-dev-silver", "Iceberg tables"),
          ("lakehouse-dev-gold", "Iceberg tables")),
         ("openlakeforge-ops", "manifests · reports"),
         ("polaris", "ICEBERG REST CATALOG", "Apache Polaris", ["Floe commits and Trino", "resolves tables here"]),
@@ -139,7 +144,7 @@ def local():
     )
 
 
-def aws():
+def aws() -> list[Path]:
     h = 936
     defs()
     _data_path(
@@ -185,7 +190,7 @@ def aws():
     )
 
 
-def _step(x, w, n, label, title, cls=""):
+def _step(x: int, w: int, n: int, label: str, title: str, cls: str = "") -> None:
     a(f'<rect class="step {cls}" x="{x}" y="20" width="{w}" height="262" rx="18"/>')
     a(f'<circle class="num {cls}" cx="{x+28}" cy="48" r="14"/>')
     text(x + 28, 53, str(n), "numt", "middle")
@@ -193,23 +198,23 @@ def _step(x, w, n, label, title, cls=""):
     text(x + 52, 64, title, "title")
 
 
-def _pill(x, y, w, s, cls=""):
+def _pill(x: int, y: int, w: int, s: str, cls: str = "") -> None:
     a(f'<rect class="pill {cls}" x="{x}" y="{y}" width="{w}" height="34" rx="17"/>')
     text(x + w / 2, y + 22, s, "ptxt mono" if cls == "mono" else "ptxt", "middle")
 
 
-def _down(x, y1, y2):
+def _down(x: int, y1: int, y2: int) -> None:
     edge(f"M{x},{y1} L{x},{y2}", "data")
 
 
-def _stage_box(x, name, label):
+def _stage_box(x: int, name: str, label: str) -> None:
     a(f'<rect class="ns {name}" x="{x}" y="340" width="630" height="262" rx="16"/>')
     text(x + 18, 366, f"NAMESPACE olf-{name}", "stage")
     text(x + 18, 390, label, "title")
-    chip(x + 430, 352, 36, "dagster", pad=4)
-    chip(x + 472, 352, 36, "superset", pad=4)
-    text(x + 516, 368, "Dagster, Superset", "tsub")
-    text(x + 516, 384, "run sha256:<rev>", "tsub")
+    chip(x + 412, 352, 36, "dagster", pad=4)
+    chip(x + 454, 352, 36, "superset", pad=4, optional=True)
+    text(x + 498, 368, "Dagster, Superset *", "tsub")
+    text(x + 498, 384, "run sha256:<rev>", "tsub")
     for i, tier in enumerate(("bronze", "silver", "gold")):
         bucket(x + 120 + i * 195, 430, 176, f"lakehouse-{name}-{tier}",
                "raw CSV" if tier == "bronze" else "Iceberg tables", tier, tier != "bronze")
@@ -217,7 +222,7 @@ def _stage_box(x, name, label):
     text(x + 315, 588, "its own buckets, catalog and database", "tsub", "middle")
 
 
-def stages():
+def stages() -> list[Path]:
     h = 766
     defs()
     _step(12, 250, 1, "WRITE CODE", "Your repository")
@@ -275,7 +280,7 @@ def stages():
     edge("M875,282 L875,312 Q875,322 865,322 L540,322 Q530,322 530,332 L530,338", "data", "activates", 700, 316)
     edge("M1167,282 L1167,338", "data", "activates", 1175, 318, "start")
 
-    legend(742, ("data", "dev", "prod"))
+    legend(742, ("data", "dev", "prod", "opt"))
     return export(
         "stage-promotion", W, h, "OpenLakeForge stage promotion",
         "A developer merges a pull request into main. The build job pushes one project-code image to "

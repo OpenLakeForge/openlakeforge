@@ -38,7 +38,7 @@ Data moves through three medallion layers, each owned by one tool:
 
 |Layer|What happens|Technology|
 |---|---|---|
-|**Bronze**|Raw source files land unchanged in object storage|dlt|
+|**Bronze**|Source files land as CSV in object storage|dlt|
 |**Silver**|Technical contracts validate them into Iceberg tables|Floe|
 |**Gold**|Business marts are modelled in SQL and run in the query engine|dbt-trino on Trino|
 

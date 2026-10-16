@@ -55,6 +55,7 @@ text { font-family: SANS; font-variant-ligatures: none; }
 .ns.dev, .step.accent { stroke: var(--accent); stroke-width: 1.8; }
 .ns.prod { stroke: var(--prod); stroke-width: 1.8; }
 .chip { fill: var(--chip); stroke: var(--chip-line); }
+.chip.opt { stroke: var(--muted); stroke-dasharray: 4 3; }
 .stage { font: 500 10px MONO; letter-spacing: .08em; fill: var(--muted); }
 .title { font-size: 17px; font-weight: 650; fill: var(--ink); }
 .title.big { font-size: 22px; }
@@ -106,23 +107,27 @@ def defs() -> None:
     a("</defs>")
 
 
-def text(x, y, s, cls="sub", anchor="start"):
+def text(x: float, y: float, s: str, cls: str = "sub", anchor: str = "start") -> None:
     a(f'<text class="{cls}" x="{x}" y="{y}" text-anchor="{anchor}">{E(s)}</text>')
 
 
-def image(logo, x, y, w, h):
+def image(logo: str, x: float, y: float, w: float, h: float) -> None:
     """Place a logo. Each logo is embedded once per file and reused through `<use>`."""
     used.add(logo)
     a(f'<use href="#lg-{logo}" x="{x}" y="{y}" width="{w}" height="{h}"/>')
 
 
-def chip(x, y, s, logo, pad=7, w=None):
+def chip(x: float, y: float, s: float, logo: str, pad: float = 7, w: float | None = None,
+         optional: bool = False) -> None:
     w = w or s
-    a(f'<rect class="chip" x="{x}" y="{y}" width="{w}" height="{s}" rx="10"/>')
+    a(f'<rect class="chip{" opt" if optional else ""}" x="{x}" y="{y}" width="{w}" height="{s}" rx="10"/>')
     image(logo, x + pad, y + pad, w - 2 * pad, s - 2 * pad)
 
 
-def node(x, y, w, h, logo, stage, title, subs, optional=False, tcls="title", cs=50):
+def node(
+    x: float, y: float, w: float, h: float, logo: str | None, stage: str, title: str, subs: list[str],
+    optional: bool = False, tcls: str = "title", cs: float = 50,
+) -> None:
     a(f'<rect class="card{" opt" if optional else ""}" x="{x}" y="{y}" width="{w}" height="{h}" rx="14"/>')
     if logo:
         chip(x + 12, y + 12, cs, logo)
@@ -136,18 +141,18 @@ def node(x, y, w, h, logo, stage, title, subs, optional=False, tcls="title", cs=
         text(x + 14, y + 82 + i * 16, s)
 
 
-def edge(d, kind, label=None, lx=0, ly=0, anchor="middle"):
+def edge(d: str, kind: str, label: str | None = None, lx: float = 0, ly: float = 0, anchor: str = "middle") -> None:
     a(f'<g class="edge {kind}"><path d="{d}" marker-end="url(#ah-{kind})"/></g>')
     if label:
         text(lx, ly, label, "elabel", anchor)
 
 
-def zone(x, y, w, h, label):
+def zone(x: float, y: float, w: float, h: float, label: str) -> None:
     a(f'<rect class="zone" x="{x}" y="{y}" width="{w}" height="{h}" rx="18"/>')
     text(x + 16, y + 22, label, "zlabel")
 
 
-def bucket(cx, top, w, name, sub, tier, iceberg=False):
+def bucket(cx: float, top: float, w: float, name: str, sub: str, tier: str, iceberg: bool = False) -> None:
     rx, ry, h = w / 2, 9, 78
     x0, x1 = cx - rx, cx + rx
     a(f'<g class="{tier}">')
@@ -160,7 +165,7 @@ def bucket(cx, top, w, name, sub, tier, iceberg=False):
         image("iceberg", cx - 11, top + 55, 22, 22)
 
 
-def tool(x, y, logo, name, sub, pad=7):
+def tool(x: float, y: float, logo: str, name: str, sub: str, pad: float = 7) -> None:
     chip(x, y, 58, logo, pad=pad)
     text(x + 29, y + 76, name, "tname", "middle")
     if sub:
@@ -178,7 +183,7 @@ LEGEND = {
 }
 
 
-def legend(y, kinds, x=24):
+def legend(y: float, kinds: tuple[str, ...], x: float = 24) -> None:
     for kind in kinds:
         if kind in ("data", "ctl", "lin"):
             a(f'<g class="edge {kind}"><path d="M{x},{y} L{x+30},{y}" marker-end="url(#ah-{kind})"/></g>')
@@ -198,9 +203,11 @@ def export(name: str, width: int, height: int, title: str, desc: str) -> list[Pa
         'preserveAspectRatio="xMidYMid meet"/></symbol>'
         for n in sorted(used)
     )
-    written = []
+    written: list[Path] = []
     for theme, tokens in THEMES.items():
-        css = re.sub(r"var\(--([a-z-]+)\)", lambda m, t=tokens: t[m.group(1)], CSS)
+        css = CSS
+        for token, value in tokens.items():
+            css = css.replace(f"var(--{token})", value)
         css = re.sub(r"\s+", " ", css).strip()
         doc = (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" '
