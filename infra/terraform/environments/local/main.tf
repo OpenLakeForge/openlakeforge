@@ -514,3 +514,32 @@ module "dagster" {
     module.superset,
   ]
 }
+
+# F20: the policy sees the post-DNAT endpoint address, and whether it also
+# sees the Service address depends on the CNI, so both are allowed.
+data "kubernetes_service_v1" "apiserver" {
+  metadata {
+    name      = "kubernetes"
+    namespace = "default"
+  }
+}
+
+data "kubernetes_endpoints_v1" "apiserver" {
+  metadata {
+    name      = "kubernetes"
+    namespace = "default"
+  }
+}
+
+module "network_policy" {
+  source = "../../modules/security/network-policy"
+
+  stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
+  flows            = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).flows
+  apiserver_cidrs = [
+    for ip in concat(
+      [data.kubernetes_service_v1.apiserver.spec[0].cluster_ip],
+      flatten([for subset in data.kubernetes_endpoints_v1.apiserver.subset : [for address in subset.address : address.ip]]),
+    ) : "${ip}/32"
+  ]
+}

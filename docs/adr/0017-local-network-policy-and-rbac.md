@@ -2,8 +2,9 @@
 
 ## Status
 
-Design for #46 (local qualification only); slice 1a (the canary gate) is
-built, no policy is. What binds today is the policy model, the flow table, the
+Design for #46 (local qualification only); slice 1a (the canary gate) and
+slice 2 (the flow file, its check, the policy module and the stage-namespace
+policies) are built; `olf-system` has no policy yet. What binds today is the policy model, the flow table, the
 RBAC inventory, the conformance plan and the slice order. The CNI question is
 **settled: Option A, kindnet.** The canary passed on the pinned kind 0.32.0
 (History), so Calico (slice 1b) is not built.
@@ -369,3 +370,32 @@ was then run against the same pinned cluster (kind v0.32.0, kindnetd
 `v20260528-9350166c`) through `require_policy_enforcement` and printed
 "NetworkPolicy is enforced.": kindnet blocks the pair for an ingress-only and an
 egress-only deny. Option A stands.
+
+Slice 2 built: `release/network-flows.yaml` holds the stage rows of the flow
+table (F3 and F14 ingress, F5, F6, F9, F10, F12 and F20 egress), checked by
+`olf check flows` (in `olf check all`) for scope, ports, tag and that every id
+is a row of the table above. `modules/security/network-policy` renders, per
+stage namespace, a default-deny policy for both directions and one allow
+policy: the whole namespace may talk to itself, plus the file's rows.
+Additions beyond the slice list, needed so the stack keeps working: F3
+(Traefik into Dagster 80 and Superset 8088, namespace-wide) and F14 (from
+`olf-system`, Superset 8088). F7, F8, F11 and F13 have `olf-system` sources and
+land in slices 3a/3b. F10 allows both 8080 and 8443; the 8080 row is dropped
+with the Trino HTTP listener. Still **[T]**: F9 (Floe runner and run pod
+labels are not read, and the SeaweedFS `component=s3` label is from the chart,
+not rendered here), F14, and F20 (whether the Service address, the endpoint
+address or both reach the policy). The policy module was planned against a
+stub provider, not applied.
+
+Slice 2 runtime check (maintainer, 2026-10-16, kind v0.32.0, kindnetd
+`v20260528-9350166c`): `olf deploy` and `olf e2e run --env local` pass with the
+stage policies, so the pipeline flows in the file are sufficient. From a probe
+pod in `olf-dev`, Trino (F10) answers and Keycloak (no flow) is refused by pod
+IP, by ClusterIP and by name. **Observed limitation:** kindnet programs a new
+pod's policy asynchronously, and a probe started seconds earlier still reached
+Keycloak by pod IP and ClusterIP before the deny took effect. A freshly started
+stage pod therefore has a short window of unrestricted egress. Run pods are
+short-lived and start inside that window, so this is recorded as a known
+exposure of the kindnet dataplane, to be measured and either accepted or
+mitigated (for example an init-time wait) in slice 5's conformance matrix.
+
