@@ -5,8 +5,8 @@ metadata:
   env: "local"
   description: "Contract-rendered local Kubernetes runner profile for OpenLakeForge Floe assets."
 variables:
-  OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "lakehouse-bronze"
-  OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "lakehouse-silver"
+  OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "lakehouse-dev-bronze"
+  OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "lakehouse-dev-silver"
   OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-ops"
   OPENLAKEFORGE_STORAGE_REGION: "us-east-1"
 catalogs:
@@ -20,7 +20,7 @@ catalogs:
       oauth2_server_uri: "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens"
       scope: "PRINCIPAL_ROLE:ALL"
       warehouse_storage: "lakehouse_silver"
-      warehouse_prefix: "s3://lakehouse-silver"
+      warehouse_prefix: "s3://lakehouse-dev-silver"
 execution:
   orchestration:
     strategy: sequential

@@ -608,28 +608,23 @@ plane.
 
 ### Upgrading a v0.2 local deployment
 
-The deprecated `--provider local --profile slim|full` command remains a
-single-DEV Deployment Profile. Apply the platform phase before artifacts so
-Terraform writes the v3 contract. The platform recreates stage services in
-`olf-dev`; pause active runs during that apply. After `olf profile resolve
---json` and `olf deploy --provider local --phase platform` succeed, deploy
-artifacts with an explicit `--stage dev`.
-
-Medallion buckets are named `lakehouse-<stage>-bronze`, `-silver`, and `-gold`,
-so a v0.2 DEV deployment, whose buckets were `lakehouse-bronze`,
-`lakehouse-silver`, and `lakehouse-gold`, does not carry over. Polaris keeps
-the storage locations it was created with, so renaming the buckets under an
-existing `lakehouse_dev` warehouse leaves it pointing at buckets that are no
-longer used. There is no migration path for alpha installs: destroy the local
-stack and deploy again. Data in the old buckets is not copied.
+There is no in-place upgrade from a v0.2 local deployment. Medallion buckets are
+named `lakehouse-<stage>-bronze`, `-silver`, and `-gold`, while v0.2 used
+`lakehouse-bronze`, `lakehouse-silver`, and `lakehouse-gold`. Polaris keeps the
+storage locations its `lakehouse_dev` warehouse was created with, so applying
+this version over an existing deployment leaves the warehouse pointing at
+buckets that are no longer used. Destroy the local stack and deploy again; data
+in the old buckets is not copied.
 
 ```bash
 olf destroy --provider local
 olf deploy --provider local
 ```
 
-Enabling UAT or PROD creates its own `lakehouse-uat-*` or `lakehouse-prod-*`
-buckets and catalog; it does not copy DEV data.
+The deprecated `--provider local --profile slim|full` command remains a
+single-DEV Deployment Profile. Enabling UAT or PROD creates its own
+`lakehouse-uat-*` or `lakehouse-prod-*` buckets and catalog; it does not copy
+DEV data.
 
 The local kubeconfig path can also be overridden:
 
