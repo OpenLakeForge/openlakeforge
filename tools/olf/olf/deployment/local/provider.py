@@ -86,9 +86,10 @@ class LocalProvider:
         return self.context.command_env(docker_host=docker_host)
 
     def foundation_up(self) -> None:
-        from olf.deployment.local import foundation
+        from olf.deployment.local import foundation, network_canary
 
         foundation.foundation_up(self.config, self.tools, env=self.env)
+        network_canary.require_policy_enforcement(self.config, self.tools, env=self.env)
 
     def foundation_down(self, *, force: bool = False) -> None:
         from olf.deployment.local import foundation

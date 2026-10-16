@@ -345,3 +345,12 @@ New record (#46 design): premise check on kindnet, the Calico install design
 (fallback), the default-deny model with a derived flow table, the RBAC
 inventory with its exceptions, the conformance plan, the slice order and the
 maintainer's decisions. Nothing built.
+
+Slice 1a built: `olf deploy --provider local` runs the canary
+(`olf/deployment/local/network_canary.py`) after the foundation and fails
+unless a deny-all namespace blocks a client its policy-free twin reaches.
+Observed once, outside `olf`'s own cluster: on a stock kind v0.31.0 cluster
+(not the pinned 0.32.0) with kindnetd
+`v20251212-v0.29.0-alpha-105-g20ccfc88`, the gate passed, so kindnet blocked
+the deny-all pair. That does not settle A: the maintainer's run on the pinned
+kind 0.32.0 does, and slice 1b stays open until then.
