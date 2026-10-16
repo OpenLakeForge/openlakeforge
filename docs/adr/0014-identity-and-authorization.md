@@ -13,10 +13,9 @@ The local perimeter (seam 3, #176) enforces the route grants; how far it has
 been run on a cluster is recorded in `docs/architecture/identity-sessions-and-recovery.md`.
 **Decided, not built:** GitHub teams as the source of people and roles, with
 Dex as the issuer adapter ([ADR 0018](0018-github-is-the-forge.md)); Keycloak
-stays the deployed local adapter until it lands. **Seam 4 is decided removed:**
-user and role administration becomes GitHub's. Until #383 lands, the
-`shared.identity.admin` contract, `olf users` and `bootstrap_admins` described
-in this ADR's History are still built.
+stays the deployed local adapter until it lands. **Seam 4 is removed:** user
+and role administration is GitHub's; `olf users`, the `shared.identity.admin`
+contract and `bootstrap_admins` no longer exist (#383).
 
 ## Context
 
@@ -356,8 +355,8 @@ OpenMetadata roles are not reconciled from GitHub. What #25 builds:
 | List who holds what | `gh api --paginate orgs/<org>/teams/<slug>/members` per mapped team |
 
 Until the Dex adapter lands, the deployed Keycloak has no member onboarding
-path: `olf users` and `spec.identity.bootstrap_admins` were removed with the
-decision, and only `olf e2e run` creates (throwaway) Keycloak users.
+path: `olf users` and `spec.identity.bootstrap_admins` are removed (#383), and
+only `olf e2e run` creates (throwaway) Keycloak users.
 
 ## Policy documents
 
