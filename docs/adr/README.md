@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-These seventeen records describe the decisions that shape OpenLakeForge **today**.
+These eighteen records describe the decisions that shape OpenLakeForge **today**.
 Each is binding: if the code disagrees with one, either the code is wrong or the
 ADR is, and one of them gets fixed.
 
@@ -29,10 +29,11 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0011](0011-deployment-profile-and-stages.md) | **Deployment Profile v1** — provider, stage, and preset are separate typed concepts; `openlakeforge.yaml` resolves to one effective `DeploymentTopology` before any Terraform, Helm, or Kubernetes object exists |
 | [0012](0012-project-revisions-and-promotion.md) | **Project revisions** — a build-once, content-addressed `ProjectRevision` covering descriptors, Floe contracts, dbt, Dagster, reports, and the project-code image digest; excludes deployment intent and every stage-rendered artifact |
 | [0013](0013-service-access-and-ingress.md) | **Service access** — one ingress everywhere, configured by `access.base_domain` + `access.issuer`; stage-derived HTTPS routes in `shared.access`; internal endpoints cannot be user-facing; port-forward only as a dev fallback |
-| [0014](0014-identity-and-authorization.md) | **Identity and authorization** — four seams (role model, issuer, perimeter, admin), each with its own adapter; canonical roles are the only vocabulary and provider mappings are keyed by them; the fixed role model is built, the rest is decided direction; OpenLakeForge roles are never cloud IAM |
+| [0014](0014-identity-and-authorization.md) | **Identity and authorization** — three seams (role model, issuer, perimeter), each with its own adapter; canonical roles are the only vocabulary and provider mappings are keyed by them; GitHub teams through Dex are the decided issuer, Keycloak is deployed until then; user administration is GitHub's; OpenLakeForge roles are never cloud IAM |
 | [0015](0015-polaris-identity-provider-evaluation.md) | **Polaris identity-provider evaluation** — Polaris 1.4.0 can validate issuer tokens but still owns principals and grants; deferred, with the catalog-side findings for the data-plane assessment (#179) |
 | [0016](0016-trino-workload-authentication.md) | **Trino workload authentication** — password-file authentication over HTTPS for Superset, dbt, OpenMetadata and `olf e2e`; `principals` rules bind each verified credential to one stage user; proven in a standalone container, callers not yet migrated |
 | [0017](0017-local-network-policy-and-rbac.md) | **Local NetworkPolicy and RBAC** — default-deny ingress and egress for `olf-system` and stage namespaces with a derived flow table, an enforcing-dataplane gate and canary, the RBAC inventory with its exceptions, and the conformance plan; design only, nothing built |
+| [0018](0018-github-is-the-forge.md) | **GitHub is the forge** — source, CI, release and project images on GitHub today; client CD in GitHub Actions and people and roles from GitHub organisation teams through Dex are decided; `olf users` removed |
 
 ## Related
 
