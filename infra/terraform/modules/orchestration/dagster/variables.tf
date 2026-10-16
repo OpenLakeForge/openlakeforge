@@ -185,6 +185,10 @@ variable "query_contract" {
     service_namespace          = optional(string)
     endpoint                   = optional(string)
     runtime_identity_principal = optional(string)
+    # Set together once the query service serves HTTPS (ADR 0016): the port to
+    # use and the ConfigMap holding the CA that signed its certificate.
+    tls_port          = optional(number)
+    ca_configmap_name = optional(string)
   })
 }
 

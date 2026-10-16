@@ -1077,3 +1077,22 @@ def test_a_deleted_release_is_uninstalled_rather_than_restored(
         harness.deploy("dev")
 
     assert harness.helm.uninstalled == ["olf-dev"]
+
+
+def test_stage_query_tls_fields_of_a_real_contract_reach_the_code_server() -> None:
+    """The fields sit only under stages.<stage>.query, as `terraform output` emits them."""
+    import json
+
+    from test_provider_conformance import REPO_ROOT, _topology_of
+
+    from olf.contracts import build_contract_env
+
+    contract = json.loads((Path(__file__).parent / "fixtures/local-provider-contracts-v3.json").read_text())
+    contract["stages"]["dev"]["query"].update(tls_port="8443", ca_configmap_name="olf-local-ca")
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology_of(contract), stage="dev")
+    deployment = _values({k: v for k, v in exports.items() if "QUERY_TRINO" in k})["deployments"][0]
+
+    env = {e["name"]: e.get("value") for e in deployment["env"]}
+    assert env["OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"] == "https"
+    assert deployment["volumes"][0]["configMap"]["name"] == "olf-local-ca"
