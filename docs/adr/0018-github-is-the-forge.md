@@ -34,7 +34,7 @@ than standing up a parallel system.
 | CI of this repository | `.github/workflows/checks.yml` on every pull request and `merge_group`; `main` behind the `main_protection` ruleset and a merge queue | binding |
 | Release of this repository | `.github/workflows/release.yml`: PyPI through GitHub OIDC Trusted Publishing, GitHub Releases with checksums, SBOMs and provenance (ADR 0009) | binding |
 | Project images | GHCR. `local-full-e2e.yml` pushes the nightly `project-code-nightly` image there; `docs/setup/local.md` documents GHCR (or Docker Hub) for promotable revisions | binding for this repository; the client's registry stays an environment setting |
-| Client CD | A GitHub Actions workflow running `olf project build` and `olf project deploy` on the CD boundary of ADR 0002 | decided, not built; `olf init` scaffolds no workflow yet |
+| Client CD | A GitHub Actions workflow running `olf project image`, `olf project build` and `olf project deploy` (the steps `.github/actions/build-revision` already chains) on the CD boundary of ADR 0002 | decided, not built; `olf init` scaffolds no workflow yet |
 | People and roles | GitHub organisation membership and teams. Dex brokers GitHub login into the `identity.oidc` contract; each canonical role maps to one or more teams | decided, not built (ADR 0014, seam 2) |
 | User administration | GitHub: inviting, removing and changing someone's team is done in GitHub (web, `gh`, or the client's own GitHub Terraform). `olf users` is removed | decided; removal in progress |
 

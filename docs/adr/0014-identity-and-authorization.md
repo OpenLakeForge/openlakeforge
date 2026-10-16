@@ -224,6 +224,10 @@ spec:
         data-engineer: [data-eng]
         analyst: [analysts]
         viewer: [dashboards]
+      oauth_app_secret_ref:       # Dex's upstream GitHub OAuth App
+        name: github-oauth-app
+        client_id_key: client-id          # default
+        client_secret_key: client-secret  # default
 ```
 
 Keys outside `precedence` are rejected, as for `role_mapping`. A role with no
@@ -232,12 +236,12 @@ grants nothing: only the mapped teams count.
 
 | Piece | How |
 | --- | --- |
-| Upstream app | A GitHub OAuth App owned by the organisation with the one callback `https://auth.<base_domain>/callback`. Dex's connector requests `user:email` (it reads the primary, possibly private, address) and `read:org` (teams); both appear on the authorize page and in an organisation's approval request. The operator creates it and stores its client id and secret in a Secret the profile references; the secret never enters the profile or state. An organisation that restricts third-party access must approve the app |
+| Upstream app | A GitHub OAuth App owned by the organisation with the one callback `https://auth.<base_domain>/callback`. Dex's connector requests `user:email` (it reads the primary, possibly private, address) and `read:org` (teams); both appear on the authorize page and in an organisation's approval request. The operator creates it and stores its client id and secret in the Secret named by `oauth_app_secret_ref` (validated like `smtp.credentials_secret_ref`: a Secret name, two distinct keys); neither value enters the profile or state. This is Dex's upstream client, distinct from the four downstream consumer clients of `identity.oidc`. An organisation that restricts third-party access must approve the app |
 | Admission | The connector's `orgs` lists the organisation with every mapped team. A GitHub user in none of them is refused by Dex at login, before any token exists, so an uninvited identity never reaches the perimeter |
 | Groups claim | `teamNameField: slug`; the `groups` claim carries `<organisation>:<team-slug>` |
 | `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
 | Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's `--scope=openid email profile` (set for Keycloak) becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams |
-| Token lifetimes | Pinned to the session policy, not Dex's defaults (24 h ID tokens): `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`, and `reuseInterval` kept (Dex default 3s) because the floor-specific oauth2-proxy instances can redeem the same cookie's refresh token concurrently. Asserted by the adapter's e2e, including parallel refreshes |
+| Token lifetimes | Pinned to the session policy, not Dex's defaults (24 h ID tokens): `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`, and `reuseInterval` kept (Dex default 3s) because the floor-specific oauth2-proxy instances can redeem the same cookie's refresh token concurrently. Asserted by the adapter's e2e, including parallel refreshes. **Revises the 10 h absolute bound for this adapter:** it ends the OpenLakeForge session chain, but a new one starts without a prompt while the person's GitHub session is valid, because Dex cannot force GitHub to re-authenticate. Re-authentication frequency and 2FA are therefore governed by GitHub and the organisation's policy, not by the platform |
 | Clients | `perimeter`, `superset`, `openmetadata`, `trino` as static Dex clients, secrets from the existing bootstrap Job (#181) |
 | Login entry | The portal at the base domain is the front door. An unauthenticated visit is sent by the perimeter (`--skip-provider-button`) to Dex; with one connector and `alwaysShowLoginScreen` off, Dex goes straight to GitHub, and `skipApprovalScreen` removes its consent page. The person sees GitHub's authorize page once per app, then lands back on the portal. Dex's own login page is never shown, so it needs no branding |
 | Single sign-on | Dex keeps no browser session of its own by default; GitHub's session is what makes the next login silent. A native Superset or OpenMetadata login bounces through Dex to GitHub and back without a prompt while the GitHub session lasts. To be verified with the adapter |
