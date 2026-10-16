@@ -157,8 +157,13 @@ olf project deploy -f openlakeforge.yaml --stage dev  --revision sha256:<rev>
 olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<rev>
 ```
 
-In CI, the `build-revision` and `deploy-stage` GitHub Actions run these steps,
-with PROD behind an environment approval. See
+`olf project image` pushes to a registry you must be able to write to: locally,
+set `PROJECT_CODE_IMAGE_REPOSITORY` (for example your own GHCR repository) and
+log in to it first; cloud providers use their own ECR or ACR.
+
+In CI, the `build-revision` and `deploy-stage` GitHub Actions run these steps.
+The PROD approval is yours to configure: protect the `prod` GitHub environment
+with required reviewers before the first run. See
 [Reference CI/CD](/docs/reference/ci-cd.md) and
 [Project revisions](/docs/architecture/project-revisions.md).
 

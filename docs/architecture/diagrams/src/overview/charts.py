@@ -275,8 +275,9 @@ def stages() -> list[Path]:
               ("postgresql", "PostgreSQL"), ("openmetadata", "OpenMetadata"), ("dex", "Dex"))
     for i, (logo, name) in enumerate(shared):
         x = 42 + i * 205
-        chip(x, 656, 36, logo, pad=4)
-        text(x + 46, 679, name, "tname")
+        optional = logo == "openmetadata"
+        chip(x, 656, 36, logo, pad=4, optional=optional)
+        text(x + 46, 679, name + (" *" if optional else ""), "tname")
     edge("M875,282 L875,312 Q875,322 865,322 L540,322 Q530,322 530,332 L530,338", "data", "activates", 700, 316)
     edge("M1167,282 L1167,338", "data", "activates", 1175, 318, "start")
 
