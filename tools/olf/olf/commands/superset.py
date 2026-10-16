@@ -132,6 +132,7 @@ def deploy_superset_reports(stage: str = "") -> None:
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
         admin_password=config.env("SUPERSET_ADMIN_PASSWORD", "admin"),
         schema_prefix=target.schema_prefix,
+        extra=target.extra,
     )
 
 

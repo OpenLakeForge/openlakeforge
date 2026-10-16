@@ -28,6 +28,11 @@ class ReportStageError(RuntimeError):
     """A stage cannot serve a report import or export."""
 
 
+# Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
+SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
+_TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
+
+
 @dataclass(frozen=True)
 class StageReportTarget:
     """One stage's own Superset instance and Gold connection."""
@@ -36,6 +41,9 @@ class StageReportTarget:
     namespace: str
     sqlalchemy_uri: str
     schema_prefix: str
+    # Superset's per-database `extra`: the HTTPS scheme and the CA to verify
+    # against, set only while Trino serves HTTPS (ADR 0016).
+    extra: dict[str, Any] | None = None
 
 
 def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
@@ -91,10 +99,12 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     # another stage or deployment -- the endpoint, the catalog, or the Trino
     # user whose catalog rules decide what SQL Lab on this connection can
     # read -- so none of it is trusted. Same shape `build_contract_env` uses.
+    tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
+    tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
     sqlalchemy_uri = "trino://{user}@{host}:{port}/{catalog}".format(
         user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
-        port=connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
+        port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
         catalog=connection["OPENLAKEFORGE_QUERY_TRINO_CATALOG"],
     )
     return StageReportTarget(
@@ -102,6 +112,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         namespace=namespace,
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
+        extra=_TLS_EXTRA if tls else None,
     )
 
 
@@ -132,7 +143,13 @@ def discover_dashboard_files(report_dir: Path) -> list[Path]:
 
 
 def build_report_bundle(
-    source_dir: Path, bundle_path: Path, bundle_root: str, sqlalchemy_uri: str, *, schema_prefix: str = ""
+    source_dir: Path,
+    bundle_path: Path,
+    bundle_root: str,
+    sqlalchemy_uri: str,
+    *,
+    schema_prefix: str = "",
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Zip the report YAML, rewriting the database sqlalchemy_uri and dataset schemas in place.
 
@@ -161,6 +178,8 @@ def build_report_bundle(
                 raise ValueError(f"{relative}: is not a YAML mapping")
             if rewrite_database:
                 document["sqlalchemy_uri"] = sqlalchemy_uri
+                if extra:
+                    document["extra"] = {**(document.get("extra") or {}), **extra}
             else:
                 schema = document.get("schema")
                 if not isinstance(schema, str) or not schema:
@@ -464,6 +483,7 @@ def deploy_reports(
     admin_username: str,
     admin_password: str,
     schema_prefix: str = "",
+    extra: dict[str, Any] | None = None,
 ) -> None:
     # Computed before touching the cluster: a declared-but-unmounted bundle
     # must still fail loudly, and validate_report_registry already does that
@@ -496,7 +516,9 @@ def deploy_reports(
 
             identity = bundle_identity(report_dir)
             bundle_path = work_dir / identity.name
-            build_report_bundle(source_dir, bundle_path, identity.root, sqlalchemy_uri, schema_prefix=schema_prefix)
+            build_report_bundle(
+                source_dir, bundle_path, identity.root, sqlalchemy_uri, schema_prefix=schema_prefix, extra=extra
+            )
 
             log.step(f"Importing Superset report assets from {bundle_path}")
             client.import_assets(bundle_path)
