@@ -19,6 +19,7 @@ locals {
 
   database = var.postgresql_contract.databases[var.database_key]
   issuer   = "https://${var.hostname}"
+  trust_ca = var.github.host != null && var.ca_secret_name != null
 
   # `groups` carries `<organisation>:<team-slug>` (teamNameField: slug).
   role_mapping = {
@@ -74,6 +75,9 @@ locals {
         teamNameField = "slug"
         loadAllGroups = false
         useLoginAsID  = false
+        # rootCA is required by Dex whenever hostName is set.
+        hostName = var.github.host
+        rootCA   = var.github.host == null ? null : "/etc/dex-ca/ca.crt"
       }
     }]
     # Dex matches redirect URIs exactly. The consumers' wildcard entries match
@@ -208,6 +212,15 @@ resource "kubernetes_deployment_v1" "dex" {
             read_only  = true
           }
 
+          dynamic "volume_mount" {
+            for_each = local.trust_ca ? [1] : []
+            content {
+              name       = "ca"
+              mount_path = "/etc/dex-ca"
+              read_only  = true
+            }
+          }
+
           security_context {
             allow_privilege_escalation = false
             capabilities {
@@ -238,6 +251,20 @@ resource "kubernetes_deployment_v1" "dex" {
               port = "telemetry"
             }
             period_seconds = 20
+          }
+        }
+
+        dynamic "volume" {
+          for_each = local.trust_ca ? [1] : []
+          content {
+            name = "ca"
+            secret {
+              secret_name = var.ca_secret_name
+              items {
+                key  = "tls.crt"
+                path = "ca.crt"
+              }
+            }
           }
         }
 

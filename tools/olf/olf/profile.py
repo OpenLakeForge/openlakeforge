@@ -45,7 +45,8 @@ _IDENTITY_FIELDS = {
     "issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "smtp", "github"
 }
 _IDENTITY_ISSUERS = ("keycloak", "external", "github")
-_GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref"}
+_GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref", "host"}
+_GITHUB_REQUIRED = _GITHUB_FIELDS - {"host"}
 _GITHUB_SECRET_REF_FIELDS = {"name", "client_id_key", "client_secret_key"}
 _GITHUB_ORG = re.compile(r"[A-Za-z0-9-]+")
 _GITHUB_SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
@@ -158,6 +159,7 @@ class GitHubSpec:
     organization: str
     teams: Mapping[str, tuple[str, ...]]
     oauth_app_secret_ref: GitHubOAuthRef
+    host: str | None = None  # GitHub Enterprise Server hostname; None is github.com
 
 
 @dataclass(frozen=True)
@@ -421,7 +423,7 @@ def _validate_github(document: object, *, where: str, distribution_root: Path | 
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{where} must be an object")
     _forbid_unexpected(document, _GITHUB_FIELDS, where=where)
-    missing = sorted(_GITHUB_FIELDS - set(document))
+    missing = sorted(_GITHUB_REQUIRED - set(document))
     if missing:
         raise DeploymentProfileError(f"{where}: missing required field(s) {missing!r}")
     org = document["organization"]
@@ -467,8 +469,11 @@ def _validate_github(document: object, *, where: str, distribution_root: Path | 
             raise DeploymentProfileError(f"{ref_where}.{field} is not a valid Kubernetes Secret {field.split('_')[-1]}")
     if oauth.client_id_key == oauth.client_secret_key:
         raise DeploymentProfileError(f"{ref_where}: client_id_key and client_secret_key must differ")
+    host = document.get("host")
+    if host is not None and (not isinstance(host, str) or len(host) > 253 or not _HOSTNAME_PATTERN.fullmatch(host)):
+        raise DeploymentProfileError(f"{where}.host must be a hostname, without a scheme or path")
     teams = MappingProxyType({role: tuple(slugs) for role, slugs in lowered.items()})
-    return GitHubSpec(organization=org, teams=teams, oauth_app_secret_ref=oauth)
+    return GitHubSpec(organization=org, teams=teams, oauth_app_secret_ref=oauth, host=host)
 
 
 def _validate_identity(document: object, *, source: str, distribution_root: Path | None = None) -> IdentitySpec:

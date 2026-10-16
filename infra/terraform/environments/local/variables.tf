@@ -219,6 +219,7 @@ variable "identity_github" {
   description = "Deployment Profile spec.identity.github (ADR 0014): the organisation, canonical role to team slugs, and the OAuth App Secret reference (names only). Required when identity_issuer is github."
   type = object({
     organization = string
+    host         = optional(string)
     teams        = map(list(string))
     oauth_app_secret_ref = object({
       name              = string

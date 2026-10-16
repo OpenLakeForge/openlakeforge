@@ -70,3 +70,19 @@ def test_a_user_with_no_role_is_refused_at_sign_in(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(_perimeter, "_sign_in", lambda *_args: (None, _reply(200)))
     with pytest.raises(E2EError, match="no role"):
         _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, None, "u", "p")
+
+
+def test_a_user_in_no_team_must_be_refused_by_the_issuer_not_signed_in() -> None:
+    def refused(*_args: Any) -> Any:
+        return None, _reply(500)
+
+    def signed_in(*_args: Any) -> Any:
+        return None, _reply(200)
+
+    _perimeter.check_role_decisions(
+        IDENTITY, list(ROUTES), ROUTES, None, "u", "", sign_in=refused, refused_at_login=True
+    )
+    with pytest.raises(E2EError, match="not refused at login"):
+        _perimeter.check_role_decisions(
+            IDENTITY, list(ROUTES), ROUTES, None, "u", "", sign_in=signed_in, refused_at_login=True
+        )
