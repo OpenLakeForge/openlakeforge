@@ -234,8 +234,9 @@ team slugs are lowercased by `olf`, because GitHub slugs are always lowercase.
 The organisation is kept exactly as written and must match its GitHub login's
 case: GitHub preserves the case of a login, and Dex compares each team's
 organisation login with the configured name exactly, so `openlakeforge` for the
-`OpenLakeForge` organisation refuses every member (observed on Dex v2.46.0). A role with no team is held by nobody. Being an organisation owner or a repository admin
-grants nothing: only the mapped teams count.
+`OpenLakeForge` organisation refuses every member (observed on Dex v2.46.0).
+A role with no team is held by nobody. Being an organisation owner or a
+repository admin grants nothing: only the mapped teams count.
 
 | Piece | How |
 | --- | --- |
@@ -492,3 +493,8 @@ as Dex with the GitHub connector, roles mapped to organisation teams in
 `olf-users` client and `spec.identity.bootstrap_admins` are deleted, and
 invitation, role assignment and offboarding are GitHub's. Keycloak stays
 deployed until the Dex adapter replaces it.
+
+Organisation login case (#397): the organisation is no longer lowercased.
+Lowercasing it (#388, from a review finding that holds for team slugs only)
+made Dex refuse every member of `OpenLakeForge`, because GitHub preserves the
+case of a login and Dex compares it exactly. Team slugs stay lowercased.
