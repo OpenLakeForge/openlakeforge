@@ -1,0 +1,60 @@
+# Flow table of docs/adr/0017-local-network-policy-and-rbac.md as data. Read
+# by infra/terraform/modules/security/network-policy and validated by
+# `olf check flows`. Every flow not listed is denied.
+#
+# scope: stage (every stage namespace, one trust domain), shared (olf-system),
+#   kube-system, or apiserver (the kubernetes Service and API server endpoints).
+# pods: optional label selector inside the scope; absent means every pod.
+# ports/protocols: container ports (policies see the post-DNAT port);
+#   protocols defaults to [TCP].
+# tag: V read from the tree, T needs a running cluster to confirm.
+#
+# This file holds the rows the policy slices have built so far (stage
+# namespaces). Slices 3a/3b add the olf-system rows.
+flows:
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik}}
+    to: {scope: stage}
+    ports: [80, 8088] # Dagster webserver, Superset; the stage rule is namespace-wide
+    tag: V
+  - id: F5
+    from: {scope: stage}
+    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
+    ports: [53]
+    protocols: [UDP, TCP]
+    tag: V
+  - id: F6
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql}}
+    ports: [5432]
+    tag: V
+  - id: F9
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris}}
+    ports: [8181]
+    tag: T # Floe runner pod labels are not in the tree; the stage rule ignores them
+  - id: F9
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/component: s3}}
+    ports: [8333]
+    tag: T
+  - id: F10
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/component: coordinator}}
+    ports: [8080, 8443] # 8443 is the contract's tls_port once workload authentication is on
+    tag: V
+  - id: F12
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata}}
+    ports: [8585]
+    tag: V
+  - id: F14
+    from: {scope: shared}
+    to: {scope: stage}
+    ports: [8088]
+    tag: T # whether OpenMetadata ingestion reaches Superset today is unconfirmed
+  - id: F20
+    from: {scope: stage}
+    to: {scope: apiserver}
+    ports: [443, 6443] # Service port and endpoint port; DNAT order is unconfirmed
+    tag: T
