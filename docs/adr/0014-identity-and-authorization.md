@@ -230,8 +230,10 @@ spec:
         client_secret_key: client-secret  # default
 ```
 
-Keys outside `precedence` are rejected, as for `role_mapping`. A role with no
-team is held by nobody. Being an organisation owner or a repository admin
+Keys outside `precedence` are rejected, as for `role_mapping`. The
+organisation and team slugs are lowercased by `olf` before anything is
+rendered, because GitHub returns canonical lowercase logins and slugs and Dex
+compares them exactly. A role with no team is held by nobody. Being an organisation owner or a repository admin
 grants nothing: only the mapped teams count.
 
 | Piece | How |
@@ -336,10 +338,14 @@ them are GitHub team and organisation changes, made in GitHub's web UI, with
 the organisation's 2FA policy. They need no `olf` command and no apply. The
 first `platform-admin` is whoever is in the team mapped to it. OpenMetadata
 cannot read roles from the token (`identity-service-permissions.md`), so its
-roles follow at the next scheduled `olf openmetadata sync-roles`, which reads
-the mapped teams' members through an organisation-owned GitHub App with
-*Members: read* (#25); until that lands, OpenMetadata roles are not
-reconciled from GitHub.
+roles follow a scheduled `olf openmetadata sync-roles` (#25). Until that lands,
+OpenMetadata roles are not reconciled from GitHub. What #25 builds:
+
+| Piece | Decision |
+| --- | --- |
+| Credential | an organisation-owned GitHub App with *Members: read*, installed on the organisation. Its App ID and private key are in an operator-created Secret named by `spec.identity.github.members_app_secret_ref` `{name, app_id_key, private_key_key}` (defaults `app-id`, `private-key`), required when governance is enabled, validated like `oauth_app_secret_ref`; the sync mints a short-lived installation token per run |
+| User key | the GitHub `login`. Dex emits it as `preferred_username`, OpenMetadata is configured to derive its principal from that claim, and the team-members API returns the same `login`, so the sync joins on it; email is never the key |
+| Interval | every 5 minutes, inside the 15 min native-service revocation bound of `identity-sessions-and-recovery.md`; the #25 runtime verification measures a demotion |
 
 | Action | In GitHub |
 | --- | --- |
