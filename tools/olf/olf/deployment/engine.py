@@ -208,6 +208,11 @@ class DeploymentEngine:
     )
 
     def deploy(self, phase: DeploymentPhase = DeploymentPhase.ALL) -> None:
+        # Here, not in a command, so `olf deploy` and `olf platform apply` both refuse before any phase mutates.
+        if self.provider.context.topology.identity.issuer == "github":
+            raise DeploymentPreconditionError(
+                "spec.identity.issuer 'github' cannot be deployed: the Dex adapter is not built yet (#384)"
+            )
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
             self._require_runnable_project()
         phases = self._phase_deploy_order if phase == DeploymentPhase.ALL else (phase,)

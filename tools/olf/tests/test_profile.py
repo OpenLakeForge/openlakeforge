@@ -500,14 +500,14 @@ def test_github_issuer_derives_the_groups_claim_and_org_qualified_role_mapping()
 
     assert identity.role_claim == "groups"
     assert dict(identity.role_mapping) == {
-        "platform-admin": ("OpenLakeForge:olf-platform-admins",),
-        "data-engineer": ("OpenLakeForge:olf-data-engineers",),
-        "analyst": ("OpenLakeForge:olf-analysts",),
-        "viewer": ("OpenLakeForge:olf-viewers",),
+        "platform-admin": ("openlakeforge:olf-platform-admins",),
+        "data-engineer": ("openlakeforge:olf-data-engineers",),
+        "analyst": ("openlakeforge:olf-analysts",),
+        "viewer": ("openlakeforge:olf-viewers",),
     }
     ref = identity.github.oauth_app_secret_ref
     assert (ref.name, ref.client_id_key, ref.client_secret_key) == ("github-oauth-app", "client-id", "client-secret")
-    assert json.loads(resolve_topology(profile).render_json())["identity"]["github"]["organization"] == "OpenLakeForge"
+    assert json.loads(resolve_topology(profile).render_json())["identity"]["github"]["organization"] == "openlakeforge"
 
 
 def test_a_role_may_have_several_teams() -> None:
@@ -515,7 +515,7 @@ def test_a_role_may_have_several_teams() -> None:
 
     identity = validate_deployment_profile(_github_profile(github=github)).identity
 
-    assert identity.role_mapping["viewer"] == ("OpenLakeForge:a", "OpenLakeForge:b")
+    assert identity.role_mapping["viewer"] == ("openlakeforge:a", "openlakeforge:b")
 
 
 @pytest.mark.parametrize(
@@ -562,3 +562,24 @@ def test_github_block_and_issuer_go_together() -> None:
 
     with pytest.raises(DeploymentProfileError, match="github requires issuer 'github'"):
         validate_deployment_profile(_github_profile(issuer="keycloak"))
+
+
+def test_github_organization_and_team_slugs_are_lowercased_and_compared_after_lowercasing() -> None:
+    github = _github_profile()["spec"]["identity"]["github"] | {"teams": {"analyst": ["Olf-Analysts"]}}
+    identity = validate_deployment_profile(_github_profile(github=github)).identity
+    assert identity.github.organization == "openlakeforge"
+    assert identity.role_mapping["analyst"] == ("openlakeforge:olf-analysts",)
+
+    for teams, match in (
+        ({"viewer": ["Analysts", "analysts"]}, "repeat a team slug"),
+        ({"viewer": ["Analysts"], "analyst": ["analysts"]}, "more than one role"),
+    ):
+        with pytest.raises(DeploymentProfileError, match=match):
+            validate_deployment_profile(_github_profile(github=github | {"teams": teams}))
+
+
+@pytest.mark.parametrize("slug", ["Data_Engineering", "a.b", "-a", "a--b"])
+def test_github_team_slugs_must_be_canonical(slug: str) -> None:
+    github = _github_profile()["spec"]["identity"]["github"] | {"teams": {"viewer": [slug]}}
+    with pytest.raises(DeploymentProfileError, match="slug as GitHub shows it"):
+        validate_deployment_profile(_github_profile(github=github))

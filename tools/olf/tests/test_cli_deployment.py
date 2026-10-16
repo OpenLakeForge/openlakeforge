@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import typer
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.profile import IdentitySpec, StageName
+from olf.profile import StageName
 
 runner = CliRunner()
-
-
-_CONTEXT = SimpleNamespace(topology=SimpleNamespace(identity=IdentitySpec()))
 
 
 class _FakeEngine:
@@ -43,7 +39,7 @@ class _FakeEngine:
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch) -> _FakeEngine:
     engine = _FakeEngine()
-    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *a, **k: _CONTEXT)
+    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *a, **k: object())
     monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
     return engine
 
@@ -53,7 +49,7 @@ def test_deploy_forwards_kubeconfig_path_to_build_context(monkeypatch: pytest.Mo
 
     def _capture_build_context(*args, **kwargs):  # noqa: ANN002, ANN003
         calls.append(kwargs)
-        return _CONTEXT
+        return object()
 
     engine = _FakeEngine()
     monkeypatch.setattr("olf.commands.deployment._build_context", _capture_build_context)
@@ -63,16 +59,6 @@ def test_deploy_forwards_kubeconfig_path_to_build_context(monkeypatch: pytest.Mo
 
     assert result.exit_code == 0
     assert calls[0]["kubeconfig_path"] == "/tmp/custom/kind-smoke.yaml"
-
-
-def test_deploy_refuses_the_github_issuer_before_building_an_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    context = SimpleNamespace(topology=SimpleNamespace(identity=IdentitySpec(issuer="github")))
-    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *a, **k: context)
-
-    result = runner.invoke(app, ["deploy"])
-
-    assert result.exit_code == 1
-    assert "Dex adapter is not built yet (#384)" in result.output
 
 
 def test_build_context_honors_kubeconfig_path_override_for_cloud_providers(tmp_path: Path) -> None:
@@ -111,7 +97,7 @@ def test_platform_apply_never_routes_to_artifacts(monkeypatch: pytest.MonkeyPatc
     from olf.deployment.engine import DeploymentPhase
 
     engine = _FakeEngine()
-    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", lambda *a, **k: _CONTEXT)
+    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", lambda *a, **k: object())
     monkeypatch.setattr("olf.commands.platform._engine", lambda *a, **k: engine)
 
     result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])

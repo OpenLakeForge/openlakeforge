@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, is_dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -47,8 +47,8 @@ _IDENTITY_FIELDS = {
 _IDENTITY_ISSUERS = ("keycloak", "external", "github")
 _GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref"}
 _GITHUB_SECRET_REF_FIELDS = {"name", "client_id_key", "client_secret_key"}
-_GITHUB_ORG = re.compile(r"[A-Za-z0-9-]+")
-_GITHUB_SLUG = re.compile(r"[A-Za-z0-9_.-]+")
+_GITHUB_ORG = re.compile(r"[a-z0-9-]+")
+_GITHUB_SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 _SMTP_FIELDS = {"host", "port", "from_address", "from_name", "security", "auth", "credentials_secret_ref"}
 _SMTP_SECURITY = ("none", "starttls", "ssl")
 _SMTP_SECRET_REF_FIELDS = {"name", "username_key", "password_key"}
@@ -266,8 +266,8 @@ class DeploymentTopology:
 
 
 def _json_default(value: Any) -> Any:
-    # IdentitySpec.role_mapping is a read-only MappingProxyType; smtp is a dataclass.
-    return asdict(value) if is_dataclass(value) and not isinstance(value, type) else dict(value)
+    # json recurses into the result, so a shallow view suffices; asdict would deepcopy a read-only MappingProxyType.
+    return vars(value) if is_dataclass(value) and not isinstance(value, type) else dict(value)
 
 
 def _identifier(value: object, *, field: str, source: str) -> str:
@@ -427,21 +427,30 @@ def _validate_github(document: object, *, where: str, distribution_root: Path | 
     if missing:
         raise DeploymentProfileError(f"{where}: missing required field(s) {missing!r}")
     org = document["organization"]
-    if not isinstance(org, str) or not _GITHUB_ORG.fullmatch(org):
+    if not isinstance(org, str) or not _GITHUB_ORG.fullmatch(org.lower()):
         raise DeploymentProfileError(f"{where}.organization must be a GitHub organisation name")
+    # Dex compares exactly and GitHub returns lowercase logins and slugs.
+    org = org.lower()
     raw = document["teams"]
     if not isinstance(raw, Mapping) or not raw:
         raise DeploymentProfileError(f"{where}.teams must be a non-empty object")
     roles = _known_roles(where=f"{where}.teams", distribution_root=distribution_root)
+    lowered: dict[str, list[str]] = {}
     for role, slugs in raw.items():
         if role not in roles:
             raise DeploymentProfileError(f"{where}.teams names unknown role {role!r}")
-        valid_slugs = isinstance(slugs, list) and all(isinstance(s, str) and _GITHUB_SLUG.fullmatch(s) for s in slugs)
-        if not slugs or not valid_slugs:
+        if not isinstance(slugs, list) or not slugs or not all(isinstance(s, str) for s in slugs):
             raise DeploymentProfileError(f"{where}.teams.{role} must be a non-empty list of team slugs")
+        slugs = [s.lower() for s in slugs]
+        bad = [s for s in slugs if not _GITHUB_SLUG.fullmatch(s)]
+        if bad:
+            raise DeploymentProfileError(
+                f"{where}.teams.{role}: {bad!r} is not a team slug; use the slug as GitHub shows it in the team URL"
+            )
+        lowered[role] = slugs
         if len(set(slugs)) != len(slugs):
             raise DeploymentProfileError(f"{where}.teams.{role} must not repeat a team slug")
-    every = [s for slugs in raw.values() for s in slugs]
+    every = [s for slugs in lowered.values() for s in slugs]
     if len(set(every)) != len(every):
         raise DeploymentProfileError(f"{where}.teams must not map one team to more than one role")
     ref = document["oauth_app_secret_ref"]
@@ -458,7 +467,7 @@ def _validate_github(document: object, *, where: str, distribution_root: Path | 
             raise DeploymentProfileError(f"{ref_where}.{field} is not a valid Kubernetes Secret {field.split('_')[-1]}")
     if oauth.client_id_key == oauth.client_secret_key:
         raise DeploymentProfileError(f"{ref_where}: client_id_key and client_secret_key must differ")
-    teams = {role: tuple(slugs) for role, slugs in raw.items()}
+    teams = MappingProxyType({role: tuple(slugs) for role, slugs in lowered.items()})
     return GitHubSpec(organization=org, teams=teams, oauth_app_secret_ref=oauth)
 
 

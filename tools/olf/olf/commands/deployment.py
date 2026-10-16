@@ -82,10 +82,6 @@ def deploy(
         project_root=project_root,
         allow_stage_removal=allow_stage_removal,
     )
-    if context.topology.identity.issuer == "github":
-        raise typer.Exit(
-            code=fail("spec.identity.issuer 'github' cannot be deployed: the Dex adapter is not built yet (#384)")
-        )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "prefetch", "platform", "artifacts"))
     try:

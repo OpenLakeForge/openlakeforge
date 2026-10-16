@@ -182,3 +182,43 @@ def test_toolkit_default_includes_aws_and_azure_adapters() -> None:
 
     assert isinstance(toolkit.aws, AwsCli)
     assert isinstance(toolkit.azure, AzureCli)
+
+
+def _github_provider(tmp_path: Path) -> _FakeProvider:
+    from olf.profile import IdentitySpec
+
+    provider = _FakeProvider(_runnable_project(tmp_path))
+    topology = replace(provider.context.topology, identity=IdentitySpec(issuer="github"))
+    provider.context = replace(provider.context, topology=topology)
+    return provider
+
+
+def test_deploy_refuses_the_github_issuer_before_any_phase_runs(tmp_path: Path) -> None:
+    provider = _github_provider(tmp_path)
+
+    with pytest.raises(DeploymentPreconditionError, match=r"Dex adapter is not built yet \(#384\)"):
+        DeploymentEngine(provider).deploy(DeploymentPhase.FOUNDATION)
+
+    assert provider.calls == []
+
+
+@pytest.mark.parametrize("argv", [["deploy"], ["platform", "apply", "-f", "p.yaml"]])
+def test_deploy_and_platform_apply_both_refuse_the_github_issuer(
+    argv: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from olf.cli import app
+
+    provider = _github_provider(tmp_path)
+    engine = DeploymentEngine(provider)
+    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *a, **k: provider.context)
+    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", lambda *a, **k: provider.context)
+    monkeypatch.setattr("olf.commands.platform._engine", lambda *a, **k: engine)
+
+    result = CliRunner().invoke(app, argv)
+
+    assert result.exit_code == 1
+    assert "Dex adapter is not built yet" in result.output
+    assert provider.calls == []
