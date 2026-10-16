@@ -22,9 +22,13 @@ the catalog and object storage with its own credentials (ADR 0015). The end
 user's identity never leaves Superset, so every Superset user has the data
 access of that one principal.
 
-Stated plainly for operators: **in v0.5-alpha, any user who can reach Superset
-is limited in data only by what Superset's Trino connection can read.** The
-platform's role does not narrow it. Do not load data of differing sensitivity
+Stated plainly for operators: **in v0.5-alpha a user's role narrows what they can
+reach through Superset** (`analyst` and `viewer` hold `schema_access` on the
+Gold schemas only; `platform-admin` and `data-engineer` hold all-database
+access, `identity-service-permissions.md`), **but nothing below Superset
+enforces it.** Trino sees one shared principal per stage, so the catalog and
+storage apply no per-user restriction, and anything that bypasses Superset's
+checks reaches everything that principal reads. Do not load data of differing sensitivity
 into a deployment whose users should not all see it.
 
 ## Decision
@@ -50,7 +54,7 @@ into a deployment whose users should not all see it.
 | 4 | With no `impersonation` rules but `principals` rules present, impersonation is allowed (the principal rules are assumed to govern it). With neither, it is denied | V | same page |
 | 5 | `principals` rules are marked **deprecated** in 480; the docs point to user mapping plus `impersonation` rules | V | same page, "Principal rules" |
 | 6 | Today's mechanism (ADR 0016: `principals` rules, a DEV credential acting as `alice` on DEV only, `cannot become user bob` otherwise) was run on 480 | V | ADR 0016 cases g1-g3 |
-| 7 | Replacing the `principals` rules with `impersonation` rules gives the same stage binding: a DEV credential asking for `olf-prod-runtime` matches no rule and is denied, and a request for its own user skips the check | T | derived from claims 2-4; not run |
+| 7 | Replacing the `principals` rules with `impersonation` rules does **not** keep the stage binding once end users are allowed: after DEV's principal becomes `alice`, catalog and table rules evaluate `alice`, so denying `olf-prod-runtime` as a target does not keep `alice` out of PROD catalogs. Without impersonation targets, a request for another principal is denied and a request for its own user skips the check | T | derived from claims 1-4 and 6; not run |
 | 8 | Rules can match `group`; groups come from a group provider, which is `file` or `ldap`. The OAuth2 authentication page lists no option that reads groups from a token | V | Trino 480 docs, group mapping; OAuth2 authentication |
 | 9 | Iceberg table data is read with Trino's own S3 key and the catalog is created without vended credentials, so Trino rules are the only per-user check on data files | V | ADR 0015, `modules/query/trino/main.tf` |
 
@@ -73,7 +77,8 @@ What this means for the design:
 - **Deny the service names first.** Rules are first-match (claim 3), so a
   `deny` rule for every service principal (`olf-*-runtime`, `openmetadata`)
   must precede the allow, or a stage credential could become another stage's
-  principal. T: the ordered rule set and its isolation cases.
+  principal. That alone does not keep stages apart: an end user the DEV
+  credential may become is evaluated by the catalog rules as itself (prerequisite 6). T.
 - **End-user names must not collide with service names.** GitHub logins are
   free text (ADR 0018) and could equal a service principal. The Trino user
   needs a namespace or a pattern the service names cannot match. T.
@@ -105,7 +110,7 @@ What this means for the design:
 | Cache sharing | With the user in the key, a dashboard's cache is per person. Hit rate falls by roughly the number of distinct viewers per dashboard and Redis use rises the same way. No measurement | T |
 | Connection pooling | Connections are created with `NullPool` by default and the engine is built on each use, so there is no pool for impersonation to defeat. Trino's protocol is per-query HTTP | V (code); T (cost) |
 | Trino per query | One extra impersonation check and per-user rule evaluation. Expected negligible beside query time; not measured | T |
-| Non-request contexts | Scheduled reports, alerts and cache warm-up have no `g.user` (claim 3) and run as the shared principal, so they see all stage data. Which Superset paths hit this is not established | V (fallback); T (paths) |
+| Background paths | Cache warm-up resolves `CACHE_WARMUP_EXECUTORS` (default: the chart owner) and runs as that account, with no username when none resolves; alerts and reports use `ALERT_REPORTS_EXECUTORS` (default: the owner). Which of these identities reaches Trino, and what it may read, is not established | V (config, `tasks/cache.py`); T (Trino identity) |
 | Metadata browsing | Whether SQL Lab and dataset editors list only tables the user may read, and whether metadata caches are shared across users | T |
 | Username source | The name is Superset's account name. Its derivation from Dex (ADR 0018) may not match the Trino rule pattern, and `IMPERSONATE_WITH_EMAIL_PREFIX` would change it again | T |
 
@@ -135,12 +140,17 @@ What this means for the design:
 4. A role-to-Trino mapping keyed by canonical role: group provider or generated
    user rules (ADR 0014, fifth mapping), with table-level rules per role.
 5. Superset: `impersonate_user` on with `CACHE_IMPERSONATION` on, a decision on
-   `IMPERSONATE_WITH_EMAIL_PREFIX`, and a policy for contexts with no user.
-6. A measurement of the dashboard cost on kind with several users (Superset
+   `IMPERSONATE_WITH_EMAIL_PREFIX`, and an executor policy: which identity warm-up, alerts and reports use
+   and what it may read in Trino.
+6. Effective users qualified by stage: `new_user` rewritten to a stage-scoped
+   name with catalog rules keyed by it, or another input that keeps the
+   original stage principal, so a DEV `alice` cannot read PROD (Trino claim
+   7). T.
+7. A measurement of the dashboard cost on kind with several users (Superset
    cost table).
-7. A decision on the catalog layer: Polaris session identity (ADR 0015) and
+8. A decision on the catalog layer: Polaris session identity (ADR 0015) and
    Glue with Lake Formation stay separate adapters.
-8. `olf e2e` cases: an `analyst` denied a table a `data-engineer` reads, through
+9. `olf e2e` cases: an `analyst` denied a table a `data-engineer` reads, through
    Superset, and a cache check that one user's result is not served to another.
 
 ## Consequences

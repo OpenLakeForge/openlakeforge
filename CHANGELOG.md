@@ -38,8 +38,9 @@ does not add authorization inside Dagster or over data.
 - **No data-level authorization.** A user's role decides which services they
   reach, not which data they read. Superset connects to Trino as one shared
   identity per stage, so Trino and the catalog never see the end user, and
-  nothing narrows what a signed-in Superset user can read below what that
-  connection can read. Do not load data of differing sensitivity into a
+  Superset's role permissions limit what a user reaches through Superset
+  (`analyst` and `viewer` are limited to the Gold schemas), but nothing below
+  Superset enforces them: Trino and the storage apply no per-user rule. Do not load data of differing sensitivity into a
   deployment whose users should not all see it. Separation between stages
   (DEV cannot read PROD) is a Trino rule, and holds against a caller that
   forges its name only once Trino authentication is enforced (#26, open).
