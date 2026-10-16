@@ -9,7 +9,7 @@ runtime wiring, the nested ephemeral jobs that do orchestration and ingestion (B
 Silver — Gold executes as SQL in the long-lived Trino coordinator, not in a Job), the
 medallion data path, and the provider contracts that make the platform modular. They
 complement the product chart in
-[../../assets/openlakeforge_v1.png](../../assets/openlakeforge_v1.png), which shows
+[the README architecture chart](../../assets/architecture-local-light.svg), which shows
 *what* the platform does; these show *how*.
 
 | **20** | **1+N** | **3** | **0** |

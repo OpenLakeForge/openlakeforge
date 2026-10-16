@@ -4,6 +4,15 @@ The AWS POC keeps the OpenLakeForge application shape from local and Azure, but
 uses managed AWS services for the lakehouse dependencies that matter most for
 operations cost and durability.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/architecture-aws-dark.svg">
+  <img alt="OpenLakeForge on AWS: Dagster on EKS orchestrates dlt, Floe and dbt-trino over per-stage S3 buckets registered in the Glue Data Catalog, with RDS PostgreSQL for service state, ECR for images, and Route 53, an ALB with ACM, oauth2-proxy and Dex for sign-in" src="../assets/architecture-aws-light.svg">
+</picture>
+
+The chart shows the target AWS shape. The access path (Route 53, ALB, ACM,
+oauth2-proxy and Dex) is not built yet; [POC Limits](#poc-limits) lists what
+the POC still does differently.
+
 ## Target Shape
 
 | Boundary | AWS POC implementation |
