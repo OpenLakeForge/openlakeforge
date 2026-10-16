@@ -33,6 +33,7 @@ _POLARIS_JOB_PREFIXES = (
     "polaris-metastore-bootstrap-",
     "keycloak-credentials-",
     "keycloak-realm-",
+    "dex-credentials-",
     "oauth2-proxy-cookie-",
     "trino-credentials-",
 )
@@ -87,6 +88,16 @@ def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
                 "role_claim": identity.role_claim,
                 "role_mapping": {role: list(values) for role, values in (identity.role_mapping or {}).items()},
                 "client_ids": dict(identity.client_ids or {}),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    if identity.github is not None:
+        variables["identity_github"] = json.dumps(
+            {
+                "organization": identity.github.organization,
+                "teams": {role: list(slugs) for role, slugs in identity.github.teams.items()},
+                "oauth_app_secret_ref": asdict(identity.github.oauth_app_secret_ref),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -197,6 +208,55 @@ def require_smtp_credentials(
             f"Secret '{ref.name}' in namespace '{namespace}' lacks key(s) {sorted(missing)}; "
             "spec.identity.smtp.credentials_secret_ref names them. Recreate it with the command shape above "
             f"(kubectl delete secret {ref.name} first): {command}"
+        )
+
+
+def require_github_oauth_secret(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    env: Mapping[str, str],
+    create_namespace: Callable[[], None],
+) -> None:
+    """Dex reads the GitHub OAuth App through `secretKeyRef` and would otherwise sit in
+    CreateContainerConfigError. Only key names are read. The shared namespace is made first when absent,
+    so the operator has somewhere to create the Secret."""
+    github = config.context.topology.identity.github
+    if github is None:
+        return
+    ref, namespace = github.oauth_app_secret_ref, config.context.shared_namespace
+    command = (
+        f"kubectl -n {namespace} create secret generic {ref.name} "
+        f'--from-literal={ref.client_id_key}="$GITHUB_CLIENT_ID" '
+        f'--from-literal={ref.client_secret_key}="$GITHUB_CLIENT_SECRET"'
+    )
+    if not kube_ops.namespace_exists(
+        tools.kubectl, namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
+    ):
+        create_namespace()
+    result = tools.kubectl.get(
+        "secret",
+        name=ref.name,
+        namespace=namespace,
+        output=r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}',
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        raise DeploymentPreconditionError(
+            f"spec.identity.github needs the GitHub OAuth App Secret '{ref.name}' in namespace '{namespace}' "
+            f"(docs/setup/github-oauth-app.md); kubectl could not read it: "
+            f"{result.stderr.strip() or 'non-zero status'}. Create it (set GITHUB_CLIENT_ID and "
+            f"GITHUB_CLIENT_SECRET first): {command}"
+        )
+    missing = {ref.client_id_key, ref.client_secret_key} - set(result.stdout.split())
+    if missing:
+        raise DeploymentPreconditionError(
+            f"Secret '{ref.name}' in namespace '{namespace}' lacks key(s) {sorted(missing)}; "
+            f"spec.identity.github.oauth_app_secret_ref names them. Recreate it (kubectl delete secret {ref.name} "
+            f"first): {command}"
         )
 
 
@@ -512,7 +572,7 @@ def platform_up(
     def _create_shared_namespace() -> None:
         # Targeted, so Terraform owns the namespace from the start: importing a hand-made one into a state that
         # holds nothing else fails, and the Secret has to exist before the realm Job the full apply creates.
-        log.step("Creating the shared namespace first, so the SMTP Secret exists before the realm Job...")
+        log.step("Creating the shared namespace first, so the identity Secret exists before the issuer starts...")
         tools.terraform.apply(
             platform_dir,
             var_files=var_files,
@@ -524,6 +584,8 @@ def platform_up(
     require_smtp_credentials(
         config, tools, env=env, login=smtp_login, create_namespace=_create_shared_namespace
     )
+
+    require_github_oauth_secret(config, tools, env=env, create_namespace=_create_shared_namespace)
 
     def _apply_once() -> None:
         for prefix in _POLARIS_JOB_PREFIXES:

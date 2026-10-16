@@ -23,7 +23,7 @@ resource "helm_release" "superset" {
   cleanup_on_fail = true
   upgrade_install = true
 
-  values = [
+  values = concat([
     file(var.base_values_file),
     yamlencode({
       image = {
@@ -84,5 +84,10 @@ resource "helm_release" "superset" {
         SUPERSET_SECRET_KEY = random_password.secret_key.result
       }
     }),
-  ]
+    ], var.trino_ca_configmap_name == null ? [] : [
+    yamlencode({
+      extraVolumes      = [{ name = "query-ca", configMap = { name = var.trino_ca_configmap_name } }]
+      extraVolumeMounts = [{ name = "query-ca", mountPath = "/etc/olf/query-ca", readOnly = true }]
+    }),
+  ])
 }

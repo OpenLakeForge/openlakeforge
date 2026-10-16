@@ -778,3 +778,42 @@ def test_two_bundles_may_share_a_database_spelled_in_different_cases(tmp_path: P
     )
 
     assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR]) == []
+
+
+def _applied_environment(**tls: str) -> dict[str, str]:
+    return {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_DBT_TRINO_USER": "olf-dev-runtime",
+        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",
+        "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
+        **tls,
+    }
+
+
+def test_a_tls_query_contract_targets_https_with_the_ca_and_an_off_one_is_unchanged(tmp_path: Path) -> None:
+    plain = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
+    tls = superset.resolve_stage_report_target(
+        _applied_environment(
+            OPENLAKEFORGE_QUERY_TRINO_TLS_PORT="8443", OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP="olf-local-ca"
+        ),
+        stage="dev",
+    )
+
+    assert plain.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev"
+    assert plain.extra is None
+    assert tls.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"
+    assert tls.extra == {
+        "engine_params": {"connect_args": {"http_scheme": "https", "verify": superset.SUPERSET_QUERY_CA}}
+    }
+
+    source = tmp_path / "report"
+    (source / "databases").mkdir(parents=True)
+    (source / "databases" / "trino.yaml").write_text("database_name: trino\nuuid: database-id\n")
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(source, bundle_path, "b", tls.sqlalchemy_uri, extra=tls.extra)
+    with ZipFile(bundle_path) as bundle:
+        database = yaml.safe_load(bundle.read("b/databases/trino.yaml"))
+    assert database["extra"] == tls.extra

@@ -141,6 +141,15 @@ locals {
         namespaces              = [var.shared_namespace]
       }
     } : {},
+    local.identity_dex ? {
+      dex = {
+        key                     = "dex"
+        db_name                 = "dex"
+        db_user                 = "dex"
+        credentials_secret_name = "postgresql-dex-creds"
+        namespaces              = [var.shared_namespace]
+      }
+    } : {},
   )
   polaris_bootstrap_hash = sha256(join("", [
     for f in sort(fileset("${path.root}/../../modules/catalog/polaris", "**/*.{tf,tftpl}")) :
@@ -267,7 +276,7 @@ module "perimeter" {
   base_domain       = var.access_base_domain
   callback_host     = local.perimeter_callback_host
   portal_url        = "https://${var.access_base_domain}"
-  ca_configmap_name = local.identity_keycloak ? module.in_cluster_resolution.ca_configmap_name : null
+  ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution.ca_configmap_name : null
   identity_roles    = local.identity_roles
   role_mapping      = local.identity_oidc.role_mapping
   role_claim        = local.identity_oidc.role_claim
@@ -275,6 +284,9 @@ module "perimeter" {
   client_id         = local.identity_oidc.clients.perimeter.client_id
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
   protected_refs    = local.perimeter_protected_refs
+  # Dex returns `groups` only for its scope and a refresh token only for
+  # offline_access (ADR 0014); Keycloak's group mapper needs neither.
+  scope = local.identity_dex ? "openid email profile groups offline_access" : "openid email profile"
 }
 
 # The admin Secret is created by the keycloak module's credentials Job and
@@ -318,6 +330,21 @@ module "keycloak" {
   roles               = local.identity_roles.precedence
   clients             = local.identity_client_redirects
   smtp                = var.identity_smtp
+  postgresql_contract = module.postgresql.contract
+
+  depends_on = [
+    module.postgresql,
+  ]
+}
+
+module "dex" {
+  source = "../../modules/identity/dex"
+  count  = local.identity_dex ? 1 : 0
+
+  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
+  hostname            = "auth.${var.access_base_domain}"
+  github              = var.identity_github
+  clients             = local.identity_client_redirects
   postgresql_contract = module.postgresql.contract
 
   depends_on = [
@@ -453,6 +480,8 @@ module "superset" {
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
+  # The literal name, as in the query contract: see contracts.tf.
+  trino_ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
 
   depends_on = [
     module.postgresql,

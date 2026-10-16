@@ -278,7 +278,7 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--oidc-groups-claim=${var.role_claim}",
               # The default adds a `groups` scope, which Keycloak has no client
               # scope for; the group mapper puts the claim in regardless.
-              "--scope=openid email profile",
+              "--scope=${var.scope}",
               "--code-challenge-method=S256",
               "--email-domain=*",
               # The decision is the group claim; a user an administrator

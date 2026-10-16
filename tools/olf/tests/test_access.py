@@ -14,7 +14,7 @@ from olf.commands.access import trust_steps
 from olf.contracts import build_contract_env
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ROUTES = {"issuer": "local-ca", "routes": {"stage/dev/reporting": "https://superset.dev.olf.localhost"}}
+ROUTES = {"issuer": "local-ca", "routes": {"stage/dev/reporting": "https://superset-dev.olf.localhost"}}
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def test_a_route_behind_the_perimeter_is_port_forwarded_unless_the_ingress_is_un
     with _reach() as url:
         assert url == "http://127.0.0.1:18088"
     with _reach(through_ingress=True) as url:
-        assert url == "https://superset.dev.olf.localhost"
+        assert url == "https://superset-dev.olf.localhost"
     assert forwarded == ["superset"]
 
 
@@ -87,9 +87,9 @@ def test_ingress_route_is_used_and_verified_against_the_local_ca(
 
     with _reach() as url:
         bundle = Path(os.environ["REQUESTS_CA_BUNDLE"]).read_text()
-        loopback = socket.getaddrinfo("superset.dev.olf.localhost", 443, type=socket.SOCK_STREAM)
+        loopback = socket.getaddrinfo("superset-dev.olf.localhost", 443, type=socket.SOCK_STREAM)
 
-    assert url == "https://superset.dev.olf.localhost"
+    assert url == "https://superset-dev.olf.localhost"
     assert forwarded == []
     assert bundle.endswith("LOCAL-CA-PEM\n") and "BEGIN CERTIFICATE" in bundle
     assert {info[4][0] for info in loopback} == {"127.0.0.1"}
@@ -113,7 +113,7 @@ def test_a_public_issuer_keeps_the_system_trust_store(monkeypatch: pytest.Monkey
 
     with _reach() as url:
         assert "REQUESTS_CA_BUNDLE" not in os.environ
-    assert url == "https://superset.dev.olf.localhost"
+    assert url == "https://superset-dev.olf.localhost"
 
 
 def test_contract_without_an_ingress_clears_a_stale_access_env() -> None:

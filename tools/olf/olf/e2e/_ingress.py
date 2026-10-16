@@ -27,7 +27,7 @@ from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts
 
 TRAEFIK_DEPLOYMENT = "deploy/traefik"
 # cert-manager's ingress-shim names the Certificate after the Ingress's TLS
-# secret (modules/access/traefik).
+# secret; the one in the platform namespace is Traefik's default (modules/access/traefik).
 ROUTES_CERTIFICATE = "openlakeforge-routes-tls"
 DRILL_TIMEOUT_SECONDS = 180
 PORTAL_REF = "shared/portal"
@@ -120,14 +120,15 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
         # after a failed issuance) is replaced rather than duplicated.
         current = kubectl(
             cfg,
-            ["get", "certificate", ROUTES_CERTIFICATE, "-n", cfg.namespace, "-o", "jsonpath={.status.conditions}"],
+            ["get", "certificate", ROUTES_CERTIFICATE, "-n", cfg.platform_namespace,
+             "-o", "jsonpath={.status.conditions}"],
             capture=True,
         )
         conditions = [c for c in json.loads(current or "[]") if c.get("type") != "Issuing"] + [issuing]
         kubectl(
             cfg,
             [
-                "patch", "certificate", ROUTES_CERTIFICATE, "-n", cfg.namespace, "--subresource=status",
+                "patch", "certificate", ROUTES_CERTIFICATE, "-n", cfg.platform_namespace, "--subresource=status",
                 "--type=json", "-p", json.dumps([{"op": "add", "path": "/status/conditions", "value": conditions}]),
             ],
         )
@@ -142,7 +143,7 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
                 failures.append(str(exc))
     evidence = {
         "route": url,
-        "certificate": f"{cfg.namespace}/{ROUTES_CERTIFICATE}",
+        "certificate": f"{cfg.platform_namespace}/{ROUTES_CERTIFICATE}",
         "serial_before": before,
         "serial_after": serial,
         "handshakes": handshakes,

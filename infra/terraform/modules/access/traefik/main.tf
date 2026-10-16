@@ -3,9 +3,12 @@ locals {
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
   # Traefik attaches middleware per Ingress, so routes with different access
-  # groups need separate Ingresses. A namespace still has one wildcard
-  # certificate, issued by cert-manager's ingress-shim from the one Ingress per
-  # namespace (the primary) that carries the issuer annotation.
+  # groups need separate Ingresses. Every route is under one wildcard, and
+  # Traefik's TLS store is global and keyed by SNI, so a certificate per
+  # namespace would be a lottery over which one is served. One certificate is
+  # issued by cert-manager's ingress-shim from the primary Ingress in this
+  # module's namespace and is the store's default; Ingresses elsewhere carry an
+  # empty tls block, which only enables TLS on their router.
   ingresses = {
     for key in distinct([for route in values(var.routes) : "${route.namespace}/${route.group}"]) : key => {
       namespace = split("/", key)[0]
@@ -28,6 +31,7 @@ locals {
       } : key => transports if length(var.backend_transports) > 0
     })
   }
+  secret_name = "openlakeforge-routes-tls"
   primary_group = {
     for namespace in keys(local.namespace_hosts) : namespace => sort(distinct([for route in values(var.routes) : route.group if route.namespace == namespace]))[0]
   }
@@ -47,6 +51,7 @@ resource "helm_release" "traefik" {
     [file(var.base_values_file)],
     # Middlewares are defined in the file provider, not as CRD objects: a
     # Middleware kind cannot be planned before this release installs its CRDs.
+    [yamlencode({ tlsStore = { default = { defaultCertificate = { secretName = local.secret_name } } } })],
     local.dynamic_config == null ? [] : [yamlencode({ providers = { file = { enabled = true, content = local.dynamic_config } } })],
     # The chart mounts each Secret by its own name; it holds the CA as ca.crt.
     length(var.backend_transports) == 0 ? [] : [yamlencode({
@@ -66,7 +71,7 @@ resource "kubernetes_ingress_v1" "routes" {
     namespace = each.value.namespace
     annotations = merge(
       { "traefik.ingress.kubernetes.io/router.entrypoints" = "websecure" },
-      local.primary_group[each.value.namespace] == each.value.group ? { "cert-manager.io/cluster-issuer" = var.cluster_issuer_name } : {},
+      each.value.namespace == var.namespace && local.primary_group[each.value.namespace] == each.value.group ? { "cert-manager.io/cluster-issuer" = var.cluster_issuer_name } : {},
       each.value.group == "" ? {} : { "traefik.ingress.kubernetes.io/router.middlewares" = join(",", var.group_middlewares[each.value.group]) },
     )
   }
@@ -75,12 +80,12 @@ resource "kubernetes_ingress_v1" "routes" {
     ingress_class_name = helm_release.traefik.name
 
     tls {
-      hosts = (
+      hosts = each.value.namespace != var.namespace ? [] : (
         local.primary_group[each.value.namespace] == each.value.group
         ? distinct(local.namespace_hosts[each.value.namespace])
         : distinct([for route in values(var.routes) : route.tls_host if route.namespace == each.value.namespace && route.group == each.value.group])
       )
-      secret_name = "openlakeforge-routes-tls"
+      secret_name = each.value.namespace == var.namespace ? local.secret_name : null
     }
 
     dynamic "rule" {

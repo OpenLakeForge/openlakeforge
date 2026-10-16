@@ -9,7 +9,7 @@ from olf.e2e import _perimeter
 from olf.e2e._shell import E2EError
 
 ISSUER = "https://auth.olf.localhost/realms/openlakeforge"
-ROUTES = {"shared/portal": "https://olf.localhost", "stage/dev/orchestration": "https://dagster.dev.olf.localhost"}
+ROUTES = {"shared/portal": "https://olf.localhost", "stage/dev/orchestration": "https://dagster-dev.olf.localhost"}
 IDENTITY = {
     "issuer_url": ISSUER,
     "roles": {"grants": {"orchestration": {"data-engineer": "full"}, "reporting": {"analyst": "Gamma"}}},
@@ -57,7 +57,7 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch, pages: dict[str, Any], direct: A
 
 def test_a_denied_route_must_also_refuse_a_direct_api_call_with_the_session(monkeypatch: pytest.MonkeyPatch) -> None:
     denial = _reply(403, text=f'<h1>{_perimeter.DENIAL_HEADING}</h1><a href="https://olf.localhost">Return</a>')
-    pages = {"https://olf.localhost": _reply(200), "https://dagster.dev.olf.localhost": denial}
+    pages = {"https://olf.localhost": _reply(200), "https://dagster-dev.olf.localhost": denial}
     _signed_in(monkeypatch, pages, denial)
     _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, "analyst", "u", "p")
 

@@ -83,7 +83,7 @@ Open the services and run the example data products end to end:
 
 ```bash
 olf access trust              # trust the local CA once
-olf status --provider local   # lists every service URL, e.g. https://dagster.dev.olf.localhost
+olf status --provider local   # lists every service URL, e.g. https://dagster-dev.olf.localhost
 olf e2e run --env local --suite full
 ```
 

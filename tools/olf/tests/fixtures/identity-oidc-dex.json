@@ -1,0 +1,22 @@
+{
+  "implementation": "identity.oidc",
+  "issuer_url": "https://auth.olf.localhost",
+  "role_claim": "groups",
+  "role_mapping": {
+    "platform-admin": ["OpenLakeForge:olf-platform-admins"],
+    "data-engineer": ["OpenLakeForge:olf-data-engineers"],
+    "analyst": ["OpenLakeForge:olf-analysts"],
+    "viewer": ["OpenLakeForge:olf-viewers"]
+  },
+  "clients": {
+    "perimeter": {"client_id": "perimeter", "secret_ref": {"name": "dex-client-perimeter", "key": "client-secret"}},
+    "superset": {"client_id": "superset", "secret_ref": {"name": "dex-client-superset", "key": "client-secret"}},
+    "openmetadata": {
+      "client_id": "openmetadata",
+      "secret_ref": {"name": "dex-client-openmetadata", "key": "client-secret"}
+    },
+    "trino": {"client_id": "trino", "secret_ref": {"name": "dex-client-trino", "key": "client-secret"}}
+  },
+  "adapter": "dex",
+  "capabilities": {"email_delivery": false, "groups_in_token": true, "logout_endpoint": false}
+}

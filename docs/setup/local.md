@@ -224,7 +224,7 @@ message; `none` means every route certificate is issued and current.
 ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
 
 The full local e2e suite restarts Traefik and forces a renewal of the
-stage's route certificate, then requires the route to answer again and the
+shared route certificate, then requires the route to answer again and the
 served certificate's serial to change with no failed TLS handshake. Each
 drill writes its observations to `.tmp/e2e-evidence/` in the project.
 
@@ -272,7 +272,7 @@ without systemd-resolved, macOS); `olf`'s own clients pin `*.localhost` to
 `127.0.0.1` themselves. For `curl`, pass `--resolve`:
 
 ```bash
-curl --resolve dagster.dev.olf.localhost:443:127.0.0.1 https://dagster.dev.olf.localhost/server_info
+curl --resolve dagster-dev.olf.localhost:443:127.0.0.1 https://dagster-dev.olf.localhost/server_info
 ```
 
 Every route except `auth.<base_domain>` sits behind the authentication
@@ -299,7 +299,7 @@ OLF_PORT_FORWARD=1 olf e2e run --env local
 ### Dagster
 
 ```text
-https://dagster.dev.olf.localhost
+https://dagster-dev.olf.localhost
 ```
 
 Dagster is the main interface for inspecting and running OpenLakeForge data pipelines.
@@ -375,7 +375,7 @@ The additional services are then available at:
 | Service      | URL                                  | Development credentials           |
 | ------------ | ------------------------------------ | --------------------------------- |
 | OpenMetadata | `https://openmetadata.olf.localhost` | `admin@open-metadata.org / admin` |
-| Superset     | `https://superset.dev.olf.localhost` | `admin / admin`                   |
+| Superset     | `https://superset-dev.olf.localhost` | `admin / admin`                   |
 
 These credentials are intended for the local development environment only.
 

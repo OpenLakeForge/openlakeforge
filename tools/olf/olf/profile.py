@@ -47,7 +47,7 @@ _IDENTITY_FIELDS = {
 _IDENTITY_ISSUERS = ("keycloak", "external", "github")
 _GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref"}
 _GITHUB_SECRET_REF_FIELDS = {"name", "client_id_key", "client_secret_key"}
-_GITHUB_ORG = re.compile(r"[a-z0-9-]+")
+_GITHUB_ORG = re.compile(r"[A-Za-z0-9-]+")
 _GITHUB_SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 _SMTP_FIELDS = {"host", "port", "from_address", "from_name", "security", "auth", "credentials_secret_ref"}
 _SMTP_SECURITY = ("none", "starttls", "ssl")
@@ -425,10 +425,12 @@ def _validate_github(document: object, *, where: str, distribution_root: Path | 
     if missing:
         raise DeploymentProfileError(f"{where}: missing required field(s) {missing!r}")
     org = document["organization"]
-    if not isinstance(org, str) or not _GITHUB_ORG.fullmatch(org.lower()):
+    if not isinstance(org, str) or not _GITHUB_ORG.fullmatch(org):
         raise DeploymentProfileError(f"{where}.organization must be a GitHub organisation name")
-    # Dex compares exactly and GitHub returns lowercase logins and slugs.
-    org = org.lower()
+    # Kept as written: GitHub preserves the case of an organisation login and
+    # Dex compares a team's organization.login with this value exactly, so a
+    # case variant refuses every member ("user in org but no teams"). Slugs,
+    # by contrast, are always lowercase on GitHub and are lowercased below.
     raw = document["teams"]
     if not isinstance(raw, Mapping) or not raw:
         raise DeploymentProfileError(f"{where}.teams must be a non-empty object")
