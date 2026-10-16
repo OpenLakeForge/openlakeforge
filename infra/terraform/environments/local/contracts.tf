@@ -341,8 +341,9 @@ locals {
   # Route TLS (cert-manager, the local CA, route certificates) is the one
   # TLS-specific switch; today every declared access block has it. Derive it
   # from the access issuer here if a plain-HTTP mode is added.
-  route_tls   = local.access_enabled
-  base_domain = coalesce(var.access_base_domain, "")
+  route_tls = local.access_enabled
+  # coalesce() skips "" too, so it fails on a null quickstart domain.
+  base_domain = var.access_base_domain == null ? "" : var.access_base_domain
 
   identity_keycloak = var.identity_issuer == "keycloak"
   identity_dex      = var.identity_issuer == "github"
