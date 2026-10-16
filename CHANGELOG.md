@@ -35,13 +35,17 @@ does not add authorization inside Dagster or over data.
   That path is a Kubernetes RBAC boundary, not an authentication check, and
   nothing restricts which pods may call it until NetworkPolicy is added
   (#46). See [identity-callers.md](docs/architecture/identity-callers.md#dagster-boundary).
-- **No data-level authorization.** Any user who can reach Superset can query
-  everything Superset's Trino connection can reach. Superset connects to Trino
-  as one shared principal per stage, so the end user's identity never reaches
-  Trino or the catalog, and a user's role does not change which tables,
-  rows or columns they can read. Do not load data of differing sensitivity
-  into a deployment whose users should not all see it. Per-user data access is
-  assessed in #179 and is not part of this release.
+- **No data-level authorization.** A user's role decides which services they
+  reach, not which data they read. Superset connects to Trino as one shared
+  identity per stage, so Trino and the catalog never see the end user, and
+  nothing narrows what a signed-in Superset user can read below what that
+  connection can read. Do not load data of differing sensitivity into a
+  deployment whose users should not all see it. Separation between stages
+  (DEV cannot read PROD) is a Trino rule, and holds against a caller that
+  forges its name only once Trino authentication is enforced (#26, open).
+  Per-user data access is assessed in
+  [ADR 0019](docs/adr/0019-data-plane-authorization-deferral.md) and is not
+  part of this release.
 
 ## [0.4.0-alpha.1] - 2026-10-07
 
