@@ -514,7 +514,7 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
     assert "AWS_SECRET_ACCESS_KEY" not in env
 
 
-def _values(**capabilities: bool) -> dict:
+def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) -> dict:
     from olf.deployment.activation import _user_values
     from olf.project_activation import ProjectActivation
 
@@ -539,12 +539,37 @@ def _values(**capabilities: bool) -> dict:
             "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME": "polaris-floe-creds",
             "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME": "openmetadata-ingestion-bot",
             "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY": "OPENMETADATA_INGESTION_BOT_JWT",
+            **(contract_extra or {}),
         },
         namespace="olf-dev",
         platform_globals={},
         floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
         code_locations=_DEFAULT_LOCATIONS,
     )
+
+
+def test_trino_https_reaches_the_code_server_with_the_ca_volume() -> None:
+    values = _values(
+        {"OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca"}
+    )
+    deployment = values["deployments"][0]
+    env = {e["name"]: e.get("value") for e in deployment["env"]}
+
+    assert env["OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"] == "https"
+    assert env["OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"] == "8443"
+    ca = env["OPENLAKEFORGE_QUERY_TRINO_CA"]
+    assert deployment["volumes"] == [{"name": "query-ca", "configMap": {"name": "olf-local-ca"}}]
+    (mount,) = deployment["volumeMounts"]
+    assert ca == f"{mount['mountPath']}/ca.crt"
+
+
+def test_without_trino_https_the_code_server_gets_no_ca_volume_or_https_env() -> None:
+    deployment = _values()["deployments"][0]
+
+    assert "volumes" not in deployment
+    assert "volumeMounts" not in deployment
+    names = {e["name"] for e in deployment["env"]}
+    assert not names & {"OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME", "OPENLAKEFORGE_QUERY_TRINO_CA"}
 
 
 def test_governed_stage_maps_the_bot_jwt_to_the_name_openlineage_reads() -> None:
@@ -1052,3 +1077,22 @@ def test_a_deleted_release_is_uninstalled_rather_than_restored(
         harness.deploy("dev")
 
     assert harness.helm.uninstalled == ["olf-dev"]
+
+
+def test_stage_query_tls_fields_of_a_real_contract_reach_the_code_server() -> None:
+    """The fields sit only under stages.<stage>.query, as `terraform output` emits them."""
+    import json
+
+    from test_provider_conformance import REPO_ROOT, _topology_of
+
+    from olf.contracts import build_contract_env
+
+    contract = json.loads((Path(__file__).parent / "fixtures/local-provider-contracts-v3.json").read_text())
+    contract["stages"]["dev"]["query"].update(tls_port="8443", ca_configmap_name="olf-local-ca")
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology_of(contract), stage="dev")
+    deployment = _values({k: v for k, v in exports.items() if "QUERY_TRINO" in k})["deployments"][0]
+
+    env = {e["name"]: e.get("value") for e in deployment["env"]}
+    assert env["OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"] == "https"
+    assert deployment["volumes"][0]["configMap"]["name"] == "olf-local-ca"

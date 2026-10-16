@@ -500,6 +500,9 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     emit("OPENLAKEFORGE_KUBE_NAMESPACE", platform.get("namespace"))
     emit("OPENLAKEFORGE_QUERY_TRINO_CATALOG", query.get("catalog_name"))
     emit("OPENLAKEFORGE_DBT_TRINO_USER", query.get("runtime_identity_principal"))
+    # Not OPENLAKEFORGE_QUERY_TRINO_PORT, which Superset still pairs with http.
+    emit("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", query.get("tls_port"))
+    emit("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", query.get("ca_configmap_name"))
     governance_enabled = governance.get("enabled", True)
     emit("OPENLAKEFORGE_GOVERNANCE_ENABLED", governance_enabled)
     emit("OPENLAKEFORGE_ANALYTICS_ENABLED", reporting.get("enabled", True))

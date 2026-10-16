@@ -7,12 +7,13 @@ credential Job in `modules/query/trino` creates the principal Secrets,
 `trino-password-file` and `trino-internal-secret` and replicates each stage's
 principal. The switch `trino_workload_authentication` has three levels, `off`
 (the default; nothing differs from before), `tls` (the module issues the
-serving certificate and adds an HTTPS listener beside the HTTP one, callers
-unchanged: migration steps 2-3) and `password` (the HTTP listener is replaced,
-`PASSWORD` authentication and the `principals` rules turn on, and Traefik gets
-a verified HTTPS transport to Trino: step 4). No caller has its credential
-yet, so `password` must not be used until they do. What binds is the selection,
-the principal mapping and the migration order. Until the migration lands Trino
+serving certificate and adds an HTTPS listener beside the HTTP one; dbt run
+pods and `olf e2e` use it, sending only the user name: migration steps 2-3),
+and `password` (the HTTP listener is replaced, `PASSWORD` authentication and the
+`principals` rules turn on, and Traefik gets a verified HTTPS transport to
+Trino: step 4). Superset and OpenMetadata are still on HTTP and no caller sends
+its password yet, so `password` must not be used until they do. What binds is
+the selection, the principal mapping and the migration order. Until the migration lands Trino
 runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
 ## Context
@@ -237,3 +238,8 @@ HTTPS-only listener, certificate, `PASSWORD` authentication, `principals` rules
 and a Traefik re-encrypting transport added behind the switch; the HTTP
 listener is disabled and `process-forwarded` kept (cases k0-k4, t1, t2), and
 keystore reload settled by a manual renewal check.
+Step 3 for the pipeline callers: dbt run pods (profile, run env, CA mount) and
+`olf e2e` reach Trino over HTTPS at the `tls` level; Superset and OpenMetadata
+remain. Callers send no password until `password`, because an unauthenticated
+HTTPS listener refuses one (case 0c); the consumer table's "password" rows
+describe step 4, not step 3.

@@ -51,3 +51,11 @@ def test_all_gold_models_use_explicit_join_keys_for_trino() -> None:
     for model in gold_models:
         sql = model.read_text(encoding="utf-8")
         assert not re.search(r"\busing\s*\(", sql, flags=re.IGNORECASE), model
+
+
+def test_local_profile_reaches_trino_over_https_only_when_the_run_pod_is_given_the_ca() -> None:
+    profile = (REPO_ROOT / "libs/dbt/profiles/local.yml").read_text(encoding="utf-8")
+
+    assert profile.count("OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http'") == 2
+    assert profile.count("env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none") == 2
+    assert "password" not in profile

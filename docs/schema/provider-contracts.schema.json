@@ -323,7 +323,9 @@
         "catalog_ref": {"$ref": "#/definitions/nonEmptyString"},
         "catalog_name": {"$ref": "#/definitions/nonEmptyString"},
         "endpoint": {"$ref": "#/definitions/nonEmptyString"},
-        "runtime_identity_ref": {"$ref": "#/definitions/nonEmptyString"}
+        "runtime_identity_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "tls_port": {"$ref": "#/definitions/nonEmptyString"},
+        "ca_configmap_name": {"$ref": "#/definitions/nonEmptyString"}
       }
     },
     "serviceBinding": {
