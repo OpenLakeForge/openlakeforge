@@ -342,7 +342,7 @@ locals {
 
   # Where each consumer's client may send the browser back.
   identity_consumer_redirects = {
-    superset     = [for name in keys(local.analytics_stages) : "https://superset.${name}.${var.access_base_domain}/*"]
+    superset     = [for name in keys(local.analytics_stages) : "https://superset-${name}.${var.access_base_domain}/*"]
     openmetadata = local.governance_enabled ? ["https://openmetadata.${var.access_base_domain}/*"] : []
     trino        = ["https://trino.${var.access_base_domain}/*"]
   }
@@ -387,8 +387,8 @@ locals {
   service_routes = merge(
     {
       for name in keys(local.enabled_stages) : "stage/${name}/orchestration" => {
-        host         = "dagster.${name}.${var.access_base_domain}"
-        tls_host     = "*.${name}.${var.access_base_domain}"
+        host         = "dagster-${name}.${var.access_base_domain}"
+        tls_host     = "*.${var.access_base_domain}"
         namespace    = module.dagster[name].namespace
         service_name = module.dagster[name].webserver_service_name
         service_port = module.dagster[name].webserver_port
@@ -396,8 +396,8 @@ locals {
     },
     {
       for name in keys(local.analytics_stages) : "stage/${name}/reporting" => {
-        host         = "superset.${name}.${var.access_base_domain}"
-        tls_host     = "*.${name}.${var.access_base_domain}"
+        host         = "superset-${name}.${var.access_base_domain}"
+        tls_host     = "*.${var.access_base_domain}"
         namespace    = module.superset[name].namespace
         service_name = module.superset[name].service_name
         service_port = module.superset[name].http_port

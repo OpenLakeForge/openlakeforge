@@ -854,7 +854,7 @@ Open Dagster (run `olf access trust` once first if your browser warns about
 the certificate):
 
 ```text
-https://dagster.dev.olf.localhost
+https://dagster-dev.olf.localhost
 ```
 
 In Dagster, look for:

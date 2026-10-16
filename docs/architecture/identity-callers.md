@@ -119,7 +119,7 @@ The tree configures none. Three paths reach the same webserver and GraphQL API:
 
 | Path | Who | What stops everyone else |
 | --- | --- | --- |
-| `https://dagster.<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014, seam 3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
+| `https://dagster-<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014, seam 3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
 | `kubectl port-forward` to the `dagster-dagster-webserver` Service | `olf e2e run` (`e2e/_dagster.py`) and an operator | Kubernetes RBAC: `pods/portforward` in the stage namespace. The forward binds loopback, and the caller needs no session |
 | The Service by its in-cluster name | Any pod | Nothing today. NetworkPolicy (#46) is not built |
 

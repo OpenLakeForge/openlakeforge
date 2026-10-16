@@ -26,9 +26,15 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | `issuer` | `local-ca` | an ACME (Let's Encrypt) or organisational CA issuer |
 
    The defaults need neither a purchased domain nor a public server.
-2. **Routes are stage-derived:** `https://<service>.<stage>.<base_domain>`;
-   a shared service (OpenMetadata, Trino) drops the stage label. The one
-   exception is the portal (decision 7), which is the apex,
+2. **Routes sit one level under the base domain:** a stage service is
+   `https://<service>-<stage>.<base_domain>` (`dagster-dev.olf.localhost`);
+   a shared service (OpenMetadata, Trino) drops the stage suffix. One
+   wildcard level is all that most client certificates and edge providers
+   cover (#340), so a single `*.<base_domain>` certificate serves every
+   route. Stage names are the fixed set `dev`, `uat`, `prod` and the stage
+   services are `dagster` and `superset`, so no `<service>-<stage>` host can
+   equal a shared or reserved host (`trino`, `openmetadata`, `auth`,
+   `oauth2`). The one exception is the portal (decision 7), which is the apex,
    `https://<base_domain>`.
 3. **The provider contract carries the routes.** `shared.access` gains
    `base_domain`, `issuer`, `tls_mode`, and `routes` — declared together or
@@ -59,8 +65,8 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    self-signed once and never rotated by a re-deploy; `olf deploy` waits for
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
    the only value the contract accepts. Each namespace gets one wildcard
-   certificate (`*.<stage>.<base_domain>`, or `*.<base_domain>` for shared
-   services), issued by cert-manager's ingress-shim. The shared namespace's
+   certificate, always `*.<base_domain>` (a TLS Secret is namespace-scoped, so
+   each namespace still issues its own), issued by cert-manager's ingress-shim. The shared namespace's
    certificate also names the bare `<base_domain>`, because a wildcard does
    not match the apex. Routes are standard `Ingress` objects, which need no
    CRD at plan time. Traefik attaches middleware per `Ingress`, so a
@@ -132,3 +138,5 @@ seam 3): decision 6 now renders one `Ingress` per namespace and access group,
 and `olf`'s clients port-forward to a protected route instead of taking its
 ingress URL (decision 5). The login callback host `oauth2.<base_domain>` is
 answered by the proxy and is not a contract route.
+#389 flattened stage hostnames to `<service>-<stage>.<base_domain>` (decisions 2 and
+6): every namespace's certificate is now `*.<base_domain>`.

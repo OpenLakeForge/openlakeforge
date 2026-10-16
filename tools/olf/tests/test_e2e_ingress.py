@@ -12,7 +12,7 @@ from conftest import e2e_cfg
 from olf.e2e import _ingress
 from olf.e2e._shell import E2EError
 
-_URL = "https://dagster.dev.olf.localhost"
+_URL = "https://dagster-dev.olf.localhost"
 
 
 def _drill(
@@ -109,7 +109,7 @@ def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
         "shared/portal": {"url": "https://olf.localhost", "enabled": True, "exposure": "user-facing"},
         "shared/query": {"url": "https://trino.olf.localhost", "enabled": True, "exposure": "user-facing"},
         "shared/catalog_service": {"url": "https://polaris.olf.localhost", "enabled": True, "exposure": "internal"},
-        "stage/dev/reporting": {"url": "https://bi.dev.olf.localhost", "enabled": False, "exposure": "user-facing"},
+        "stage/dev/reporting": {"url": "https://bi-dev.olf.localhost", "enabled": False, "exposure": "user-facing"},
     }
     _ingress.assert_portal_lists_routes('<a href="https://trino.olf.localhost">query</a>', routes)
     with pytest.raises(E2EError, match="expected"):
