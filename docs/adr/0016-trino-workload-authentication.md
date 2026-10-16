@@ -248,5 +248,11 @@ database URI on the `tls_port` with `engine_params.connect_args`
 `http_scheme: https` and `verify` set to the `olf-local-ca` ConfigMap, which
 the superset module mounts in the Superset pods. This mounts the CA where the
 driver runs instead of storing it as `server_cert`, which step 4 may still
-choose. OpenMetadata ingestion remains: the ingestion pods' CA mount is
-unresolved.
+choose. OpenMetadata ingestion remains and is blocked: in 1.13.6 the Trino
+connection has no `sslConfig` or CA-content field, only a `verify` string that
+the ingestion passes to `requests` as a file path, and the k8s pipeline client
+(`K8sPipelineClientConfig`) accepts no volumes, only plain-string
+`extraEnvVars`. No supported way puts the CA file in the ingestion pods. Open
+options: an ingestion image carrying the CA, an OpenMetadata upgrade that adds
+volume support, or an OpenMetadata Trino connection through a verified
+non-Trino path. `password` stays unusable until one is chosen.
