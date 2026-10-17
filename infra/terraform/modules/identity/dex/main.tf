@@ -19,6 +19,7 @@ locals {
 
   database = var.postgresql_contract.databases[var.database_key]
   issuer   = "https://${var.hostname}"
+  trust_ca = var.github.host != null && var.ca_configmap_name != null
 
   # `groups` carries `<organisation>:<team-slug>` (teamNameField: slug).
   role_mapping = {
@@ -74,6 +75,9 @@ locals {
         teamNameField = "slug"
         loadAllGroups = false
         useLoginAsID  = false
+        # rootCA is required by Dex whenever hostName is set.
+        hostName = var.github.host
+        rootCA   = var.github.host == null ? null : "/etc/dex-ca/ca.crt"
       }
     }]
     # Dex matches redirect URIs exactly. The consumers' wildcard entries match
@@ -209,6 +213,15 @@ resource "kubernetes_deployment_v1" "dex" {
             read_only  = true
           }
 
+          dynamic "volume_mount" {
+            for_each = local.trust_ca ? [1] : []
+            content {
+              name       = "ca"
+              mount_path = "/etc/dex-ca"
+              read_only  = true
+            }
+          }
+
           security_context {
             allow_privilege_escalation = false
             capabilities {
@@ -242,6 +255,21 @@ resource "kubernetes_deployment_v1" "dex" {
           }
         }
 
+        dynamic "volume" {
+          for_each = local.trust_ca ? [1] : []
+          content {
+            name = "ca"
+            # Not optional: the kubelet retries the mount until the ConfigMap is published.
+            config_map {
+              name = var.ca_configmap_name
+              items {
+                key  = "ca.crt"
+                path = "ca.crt"
+              }
+            }
+          }
+        }
+
         volume {
           name = "config"
           config_map {
@@ -252,7 +280,9 @@ resource "kubernetes_deployment_v1" "dex" {
     }
   }
 
-  wait_for_rollout = true
+  # With a private CA the pod waits for the olf-local-ca ConfigMap, which the root publishes only after the
+  # routes that depend on this Deployment: waiting here would deadlock a fresh apply. The kubelet retries the mount.
+  wait_for_rollout = !local.trust_ca
 
   timeouts {
     create = "5m"
