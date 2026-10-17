@@ -52,6 +52,7 @@ def _topology(contract: dict):  # noqa: ANN202
                 "spec": {
                     "provider": {"type": "local"},
                     "preset": "full",
+                    "access": {},
                     # Every stage the contract carries: the parser refuses a
                     # topology that does not match the contract's stage set.
                     "stages": {

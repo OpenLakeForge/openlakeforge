@@ -91,8 +91,9 @@ class ProviderSpec:
 
 @dataclass(frozen=True)
 class AccessSpec:
-    """Where user-facing services are published (ADR 0013). The defaults are
-    the local evaluation install: `*.olf.localhost` names and a local CA."""
+    """Where user-facing services are published (ADR 0013). Declaring the block
+    turns the ingress on; the defaults are the local install: `*.olf.localhost`
+    names and a local CA. Without the block there is no ingress at all."""
 
     base_domain: str = "olf.localhost"
     issuer: str = "local-ca"
@@ -202,8 +203,8 @@ class DeploymentProfile:
     provider: ProviderSpec
     preset: Preset
     stages: tuple[StageSpec, ...]
-    access: AccessSpec = AccessSpec()
-    identity: IdentitySpec = IdentitySpec()
+    access: AccessSpec | None = None
+    identity: IdentitySpec | None = None
 
     def stage(self, name: StageName) -> StageSpec | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -238,8 +239,8 @@ class DeploymentTopology:
     stages: tuple[ResolvedStage, ...]
     shared_services: tuple[str, ...] = _SHARED_SERVICES
     stage_services: tuple[str, ...] = _STAGE_SERVICES
-    access: AccessSpec = AccessSpec()
-    identity: IdentitySpec = IdentitySpec()
+    access: AccessSpec | None = None
+    identity: IdentitySpec | None = None
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -255,8 +256,8 @@ class DeploymentTopology:
                 "stages": [stage.as_dict() for stage in self.stages],
                 "shared_services": list(self.shared_services),
                 "stage_services": list(self.stage_services),
-                "access": {"base_domain": self.access.base_domain, "issuer": self.access.issuer},
-                "identity": vars(self.identity),
+                "access": None if self.access is None else vars(self.access),
+                "identity": None if self.identity is None else vars(self.identity),
             },
             sort_keys=True,
             default=_json_default,
@@ -621,8 +622,17 @@ def validate_deployment_profile(
                 "(every promotion sources from DEV)"
             )
 
-    access = _validate_access(spec.get("access", {}), source=source)
-    identity = _validate_identity(spec.get("identity", {}), source=source, distribution_root=distribution_root)
+    # Block presence is the switch (ADR 0013): `access: {}` is a valid way to ask for the defaults.
+    access = _validate_access(spec["access"], source=source) if "access" in spec else None
+    identity = (
+        _validate_identity(spec["identity"], source=source, distribution_root=distribution_root)
+        if "identity" in spec
+        else None
+    )
+    if provider.type == Provider.LOCAL and identity is not None and access is None:
+        raise DeploymentProfileError(
+            f"{source}: spec.identity requires spec.access on the local provider (sign-in needs the route hostnames)"
+        )
     return DeploymentProfile(
         name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity
     )

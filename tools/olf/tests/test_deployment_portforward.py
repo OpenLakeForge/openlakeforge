@@ -73,6 +73,8 @@ def test_start_builds_argv_via_kubectl_adapter_and_logs_per_target(tmp_path: Pat
         "port-forward",
         "svc/trino",
         "8080:8080",
+        "--address",
+        "127.0.0.1",
         "-n",
         "lakehouse",
     ]

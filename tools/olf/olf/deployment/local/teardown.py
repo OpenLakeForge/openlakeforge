@@ -7,7 +7,6 @@ foundation teardown is a separate step (`olf.deployment.local.foundation`).
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 
 from olf import log
@@ -15,37 +14,10 @@ from olf.deployment import kube_ops
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
 from olf.deployment.local.config import LocalDeploymentConfig
-from olf.deployment.local.platform import platform_destroy_variables, platform_var_files
+from olf.deployment.local.platform import platform_destroy_variables, platform_var_files, restore_stock_corefile
 
 LEGACY_HELM_RELEASES = ("trino", "polaris", "seaweedfs", "garage")
 
-# The kubeadm Corefile the foundation's CoreDNS starts with: the same as
-# modules/access/in-cluster-resolution minus its `rewrite` line. Destroying that
-# module removes the whole key, so a platform-only teardown puts this back.
-_STOCK_COREFILE = """.:53 {
-    errors
-    health {
-       lameduck 5s
-    }
-    ready
-    kubernetes cluster.local in-addr.arpa ip6.arpa {
-       pods insecure
-       fallthrough in-addr.arpa ip6.arpa
-       ttl 30
-    }
-    prometheus :9153
-    forward . /etc/resolv.conf {
-       max_concurrent 1000
-    }
-    cache 30 {
-       disable success cluster.local
-       disable denial cluster.local
-    }
-    loop
-    reload
-    loadbalance
-}
-"""
 
 
 def owned_namespaces(config: LocalDeploymentConfig) -> tuple[str, ...]:
@@ -127,16 +99,7 @@ def platform_down(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
         )
     finally:
         # Even a partial destroy may have deleted the module's Corefile key.
-        log.step("Restoring the stock CoreDNS Corefile...")
-        tools.kubectl.patch(
-            "configmap",
-            "coredns",
-            json.dumps({"data": {"Corefile": _STOCK_COREFILE}}),
-            namespace="kube-system",
-            context=config.kube_context,
-            kubeconfig=config.paths.kubeconfig_path,
-            env=env,
-        )
+        restore_stock_corefile(config, tools, env=env)
 
     log.step("Removing legacy unmanaged Helm releases if present...")
     cleanup_legacy_helm_releases(config, tools, env=env)

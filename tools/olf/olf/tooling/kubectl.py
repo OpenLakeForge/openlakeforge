@@ -219,7 +219,8 @@ class Kubectl:
         argv = [str(self._executable())]
         if context is not None:
             argv += ["--context", context]
-        argv += ["port-forward", resource, *ports]
+        # Loopback only: a quickstart has no authentication in front of these services.
+        argv += ["port-forward", resource, *ports, "--address", "127.0.0.1"]
         if namespace is not None:
             argv += ["-n", namespace]
         return argv

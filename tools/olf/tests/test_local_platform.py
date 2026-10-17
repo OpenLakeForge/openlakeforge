@@ -140,14 +140,30 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "superset_chart_package_path",
         "traefik_chart_package_path",
         "cert_manager_chart_package_path",
-        "access_base_domain",
-        "access_issuer",
-        "identity_issuer",
     }
 
 
+def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_issuer(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec, IdentitySpec
+
+    assert "identity_issuer" not in platform.platform_apply_variables(
+        _config(tmp_path, topology=replace(_topology(), access=AccessSpec()))
+    )
+    secured = replace(_topology(), access=AccessSpec(), identity=IdentitySpec())
+    variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
+    assert (variables["access_base_domain"], variables["access_issuer"]) == ("olf.localhost", "local-ca")
+    assert variables["identity_issuer"] == "keycloak"
+
+
 def test_the_default_identity_issuer_deploys_keycloak_and_passes_no_claim_mapping(tmp_path: Path) -> None:
-    variables = platform.platform_apply_variables(_config(tmp_path))
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec, IdentitySpec
+
+    secured = replace(_topology(), access=AccessSpec(), identity=IdentitySpec())
+    variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
 
     assert variables["identity_issuer"] == "keycloak"
     assert "identity_external" not in variables
@@ -359,8 +375,14 @@ class _PlatformScriptedRunner(RecordingRunner):
         return _ok()
 
 
-def test_platform_up_happy_path_applies_terraform(tmp_path: Path) -> None:
-    config = _config(tmp_path, profile=Profile.SLIM)
+@pytest.mark.parametrize("with_access", [True, False])
+def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: bool) -> None:
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec
+
+    topology = replace(_topology(analytics=False), access=AccessSpec()) if with_access else None
+    config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
     config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.foundation_state_path.write_text("{}")
     runner = _PlatformScriptedRunner(namespace_exists=False, seaweedfs_in_state=True)
@@ -370,8 +392,13 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path) -> None:
 
     apply_calls = [c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv]
     assert len(apply_calls) == 1
-    # The apply is not done until the local CA has actually signed a certificate.
-    assert any("wait" in c.argv and "certificate/local-ca-probe" in c.argv for c in runner.calls)
+    # With an ingress, the apply is not done until the local CA has signed a
+    # certificate; a quickstart deploys no local CA to wait for.
+    waited = any("wait" in c.argv and "certificate/local-ca-probe" in c.argv for c in runner.calls)
+    assert waited is with_access
+    # Dropping spec.access destroys the module that owns the Corefile key.
+    restored = any("patch" in c.argv and "coredns" in c.argv for c in runner.calls)
+    assert restored is not with_access
 
 
 def test_platform_up_recovers_from_drifted_state(tmp_path: Path) -> None:
@@ -767,3 +794,32 @@ def test_building_the_local_provider_scrubs_the_smtp_login_before_any_phase_can_
 
     assert "OLF_SMTP_PASSWORD" not in os.environ
     assert "s3cr3t-value" not in repr(provider)
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_status_renders_certificates_only_when_access_is_declared(
+    declared: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from olf.deployment.local.provider import LocalProvider
+    from olf.profile import AccessSpec
+
+    topology = replace(_topology(), access=AccessSpec() if declared else None)
+    context = SimpleNamespace(
+        topology=topology, shared_namespace="olf-system", namespace_for=lambda stage: "olf-dev", enabled_stages=()
+    )
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("olf.deployment.status.collect_status", lambda *_a, **kw: seen.update(kw))
+    fake = SimpleNamespace(
+        _contracts=lambda: None,
+        context=context,
+        config=SimpleNamespace(kube_context="c", paths=SimpleNamespace(kubeconfig_path="k")),
+        tools=SimpleNamespace(kubectl=None),
+        env={},
+    )
+
+    LocalProvider.status(fake)  # type: ignore[arg-type]
+
+    assert seen["certificates"] is declared
