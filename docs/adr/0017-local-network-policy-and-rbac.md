@@ -453,7 +453,7 @@ pod to Traefik, OpenMetadata and the OLF-owned ingestion Job; the Job label
 until that merges the OpenMetadata pipeline client's ingestion pods (labels not
 read) cannot reach Trino. F14 is narrowed the same way. Dex gets F28, 443 on any
 address, scoped to its pods. F22 (Keycloak to the profile's SMTP port) and F23
-(oauth2-proxy to 443 when the issuer is `external`) are rendered from the
+(oauth2-proxy to the issuer URL's port, 443 by default, when the issuer is `external`) are rendered from the
 profile in `environments/local/main.tf`. Policies are rendered only for
 deployed workloads: the local root drops Keycloak, Dex and the governance
 workloads when the profile does not deploy them, and #406 must extend
