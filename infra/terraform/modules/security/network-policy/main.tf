@@ -7,8 +7,14 @@ terraform {
 }
 
 locals {
-  egress  = [for f in var.flows : f if f.from.scope == "stage"]
-  ingress = [for f in var.flows : f if f.to.scope == "stage"]
+  # A row may list several sources under `from`; each becomes its own row.
+  rows    = flatten([for f in var.flows : [for s in flatten([f.from]) : merge(f, { from = s })]])
+  egress  = [for f in local.rows : f if f.from.scope == "stage"]
+  ingress = [for f in local.rows : f if f.to.scope == "stage"]
+
+  # Peers a namespace selector cannot name are addresses. `any` stops short of
+  # the pod and Service ranges so it cannot reach a pod by IP.
+  cidrs = { apiserver = var.apiserver_cidrs, node = var.node_cidrs, any = ["0.0.0.0/0"] }
 
   # Namespaces are matched by label, never by name. kube-system gets the
   # automatic name label because the cluster, not OLF, creates it.
@@ -20,10 +26,10 @@ locals {
   # A row gives a workload a rule when its pods include every label of the
   # workload, so a Job that shares only the name label never matches.
   workload_ingress = { for name, labels in var.workloads : name => [
-    for f in var.flows : f if f.to.scope == "shared" && alltrue([for k, v in labels : try(f.to.pods[k], null) == v])
+    for f in local.rows : f if f.to.scope == "shared" && alltrue([for k, v in labels : try(f.to.pods[k], null) == v])
   ] }
   workload_egress = { for name, labels in var.workloads : name => [
-    for f in var.flows : f if f.from.scope == "shared" && alltrue([for k, v in labels : try(f.from.pods[k], null) == v])
+    for f in local.rows : f if f.from.scope == "shared" && alltrue([for k, v in labels : try(f.from.pods[k], null) == v])
   ] }
 }
 
@@ -131,10 +137,10 @@ resource "kubernetes_network_policy_v1" "allow" {
   depends_on = [kubernetes_network_policy_v1.default_deny]
 }
 
-# Only the data-plane pods named in `workloads` are selected; the rest of
-# olf-system stays unisolated until the access-plane slice. A policy that
-# selects both directions denies every flow it does not list, so there is no
-# separate deny object.
+# Only the pods named in `workloads` are selected; the rest of olf-system
+# stays unisolated. A policy that selects both directions denies every flow it
+# does not list, so there is no separate deny object. DNS is the baseline of
+# ADR 0017 decision 2, so every workload gets it here rather than as a row.
 resource "kubernetes_network_policy_v1" "workload" {
   for_each = var.workloads
 
@@ -152,21 +158,33 @@ resource "kubernetes_network_policy_v1" "workload" {
       for_each = local.workload_ingress[each.key]
       iterator = flow
       content {
-        from {
-          namespace_selector {
-            match_labels = flow.value.from.scope == "stage" ? null : local.scope_labels[flow.value.from.scope]
-            dynamic "match_expressions" {
-              for_each = flow.value.from.scope == "stage" ? [1] : []
-              content {
-                key      = "openlakeforge.io/stage"
-                operator = "Exists"
-              }
+        dynamic "from" {
+          for_each = contains(keys(local.cidrs), flow.value.from.scope) ? local.cidrs[flow.value.from.scope] : []
+          content {
+            ip_block {
+              cidr   = from.value
+              except = flow.value.from.scope == "any" ? var.internal_cidrs : null
             }
           }
-          dynamic "pod_selector" {
-            for_each = length(try(flow.value.from.pods, {})) > 0 ? [flow.value.from.pods] : []
-            content {
-              match_labels = pod_selector.value
+        }
+        dynamic "from" {
+          for_each = contains(keys(local.cidrs), flow.value.from.scope) ? [] : [flow.value.from]
+          content {
+            namespace_selector {
+              match_labels = from.value.scope == "stage" ? null : local.scope_labels[from.value.scope]
+              dynamic "match_expressions" {
+                for_each = from.value.scope == "stage" ? [1] : []
+                content {
+                  key      = "openlakeforge.io/stage"
+                  operator = "Exists"
+                }
+              }
+            }
+            dynamic "pod_selector" {
+              for_each = length(try(from.value.pods, {})) > 0 ? [from.value.pods] : []
+              content {
+                match_labels = pod_selector.value
+              }
             }
           }
         }
@@ -180,18 +198,56 @@ resource "kubernetes_network_policy_v1" "workload" {
       }
     }
 
+    egress {
+      to {
+        namespace_selector {
+          match_labels = local.scope_labels["kube-system"]
+        }
+        pod_selector {
+          match_labels = { "k8s-app" = "kube-dns" }
+        }
+      }
+      ports {
+        port     = "53"
+        protocol = "UDP"
+      }
+      ports {
+        port     = "53"
+        protocol = "TCP"
+      }
+    }
+
     dynamic "egress" {
       for_each = local.workload_egress[each.key]
       iterator = flow
       content {
-        to {
-          namespace_selector {
-            match_labels = local.scope_labels[flow.value.to.scope]
+        dynamic "to" {
+          for_each = contains(keys(local.cidrs), flow.value.to.scope) ? local.cidrs[flow.value.to.scope] : []
+          content {
+            ip_block {
+              cidr   = to.value
+              except = flow.value.to.scope == "any" ? var.internal_cidrs : null
+            }
           }
-          dynamic "pod_selector" {
-            for_each = length(try(flow.value.to.pods, {})) > 0 ? [flow.value.to.pods] : []
-            content {
-              match_labels = pod_selector.value
+        }
+        dynamic "to" {
+          for_each = contains(keys(local.cidrs), flow.value.to.scope) ? [] : [flow.value.to]
+          content {
+            namespace_selector {
+              match_labels = to.value.scope == "stage" ? null : local.scope_labels[to.value.scope]
+              dynamic "match_expressions" {
+                for_each = to.value.scope == "stage" ? [1] : []
+                content {
+                  key      = "openlakeforge.io/stage"
+                  operator = "Exists"
+                }
+              }
+            }
+            dynamic "pod_selector" {
+              for_each = length(try(to.value.pods, {})) > 0 ? [to.value.pods] : []
+              content {
+                match_labels = pod_selector.value
+              }
             }
           }
         }
