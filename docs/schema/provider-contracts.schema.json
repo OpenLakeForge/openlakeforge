@@ -76,7 +76,7 @@
             "logout_endpoint": {"type": "boolean"}
           }
         },
-        "issuer_url": {"type": "string", "pattern": "^https://", "description": "Loose check; the olf Python validator (_oidc_issuer_url) is the authority."},
+        "issuer_url": {"type": "string", "pattern": "^https?://", "description": "Loose check; the olf Python validator (_oidc_issuer_url) is the authority, and allows http only with tls_mode none."},
         "role_claim": {"$ref": "#/definitions/nonEmptyString"},
         "role_mapping": {
           "type": "object",
@@ -140,7 +140,7 @@
         "implementation": {"$ref": "#/definitions/nonEmptyString"},
         "base_domain": {"$ref": "#/definitions/nonEmptyString"},
         "issuer": {"$ref": "#/definitions/nonEmptyString"},
-        "tls_mode": {"enum": ["ingress-terminated"]},
+        "tls_mode": {"enum": ["ingress-terminated", "none"]},
         "perimeter": {
           "type": "object",
           "additionalProperties": false,
@@ -149,7 +149,7 @@
             "implementation": {"$ref": "#/definitions/nonEmptyString"},
             "enabled": {"type": "boolean"},
             "protected_routes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/definitions/nonEmptyString"}},
-            "callback_url": {"type": "string", "pattern": "^https://"}
+            "callback_url": {"type": "string", "pattern": "^https?://"}
           }
         },
         "routes": {
@@ -159,7 +159,7 @@
             "additionalProperties": false,
             "required": ["url", "enabled", "exposure"],
             "properties": {
-              "url": {"type": "string", "pattern": "^https://"},
+              "url": {"type": "string", "pattern": "^https?://"},
               "enabled": {"type": "boolean"},
               "exposure": {"enum": ["user-facing", "internal"]}
             }
