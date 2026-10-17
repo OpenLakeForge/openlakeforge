@@ -29,7 +29,13 @@ def _host_ports_free(monkeypatch: pytest.MonkeyPatch) -> set[int]:
 
 
 def _config(tmp_path: Path) -> LocalDeploymentConfig:
-    context = DeploymentContext.local(repo_root=tmp_path)
+    from dataclasses import replace
+
+    from olf.deployment.context import Provider
+    from olf.profile import AccessSpec, Preset, legacy_single_stage_topology
+
+    topology = replace(legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.FULL), access=AccessSpec())
+    context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
     return LocalDeploymentConfig.from_environment({}, context=context)
 
 
@@ -341,6 +347,20 @@ def test_foundation_up_names_a_taken_ingress_port_before_kind_runs(tmp_path: Pat
         foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
 
     assert not any(c.argv[0] == "terraform" for c in runner.calls)
+
+
+def test_foundation_up_checks_the_host_ports_even_without_spec_access(
+    tmp_path: Path, _host_ports_free: set[int]
+) -> None:
+    from dataclasses import replace
+
+    config = _config(tmp_path)
+    object.__setattr__(config.context, "topology", replace(config.context.topology, access=None))
+    _host_ports_free.add(80)
+    runner = _ScriptedRunner(rules=[(lambda argv: argv[:2] == ["kind", "get"], _ok("other-cluster\n"))], default=_ok())
+
+    with pytest.raises(DeploymentPreconditionError, match=r"127\.0\.0\.1:80 already in use"):
+        foundation.foundation_up(config, _toolkit_with_runner(runner), env={})
 
 
 def test_foundation_up_accepts_ports_held_by_its_own_cluster(tmp_path: Path, _host_ports_free: set[int]) -> None:

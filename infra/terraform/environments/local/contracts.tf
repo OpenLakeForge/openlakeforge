@@ -334,13 +334,24 @@ locals {
   # ADR 0014: the product-level role model, identical on every provider.
   identity_roles = yamldecode(file("${path.root}/../../../../release/identity-roles.yaml"))
 
+  # Block presence in the profile is the switch (ADR 0013/0014): no spec.access,
+  # no ingress; no spec.identity, no issuer and no perimeter.
+  access_enabled   = var.access_base_domain != null
+  identity_enabled = var.identity_issuer != null
+  # Route TLS (cert-manager, the local CA, route certificates) is the one
+  # TLS-specific switch; today every declared access block has it. Derive it
+  # from the access issuer here if a plain-HTTP mode is added.
+  route_tls = local.access_enabled
+  # coalesce() skips "" too, so it fails on a null quickstart domain.
+  base_domain = var.access_base_domain == null ? "" : var.access_base_domain
+
   identity_keycloak = var.identity_issuer == "keycloak"
   identity_dex      = var.identity_issuer == "github"
   identity_deployed = local.identity_keycloak || local.identity_dex
 
   # Every login returns to this one host, which the perimeter proxy answers;
   # the session cookie on .<base_domain> then covers every route.
-  perimeter_callback_host = "oauth2.${var.access_base_domain}"
+  perimeter_callback_host = "oauth2.${local.base_domain}"
 
   # Dex returns `groups` only for its scope and a refresh token only for
   # offline_access (ADR 0014); Keycloak's group mapper needs neither.
@@ -349,9 +360,9 @@ locals {
   # Where each consumer's client may send the browser back. Superset's callback
   # is Flask-AppBuilder's /oauth-authorized/<provider>, provider `olf`.
   identity_consumer_redirects = {
-    superset     = [for name in keys(local.analytics_stages) : "https://superset-${name}.${var.access_base_domain}/oauth-authorized/olf"]
-    openmetadata = local.governance_enabled ? ["https://openmetadata.${var.access_base_domain}/*"] : []
-    trino        = ["https://trino.${var.access_base_domain}/*"]
+    superset     = [for name in keys(local.analytics_stages) : "https://superset-${name}.${local.base_domain}/oauth-authorized/olf"]
+    openmetadata = local.governance_enabled ? ["https://openmetadata.${local.base_domain}/*"] : []
+    trino        = ["https://trino.${local.base_domain}/*"]
   }
   identity_client_redirects = {
     for name in ["perimeter", "superset", "openmetadata", "trino"] : name => {
@@ -363,7 +374,10 @@ locals {
   # the operator provisions the client Secrets, named by consumer like the
   # adapter's own; client ids default to the consumer names unless the issuer
   # assigned its own (client_ids).
-  identity_oidc = try(module.keycloak[0].contract, module.dex[0].contract, local.identity_oidc_external)
+  # `cond ? contract : {}` cannot unify the issuer contract with an empty
+  # object; try() returns whichever branch succeeds without that constraint.
+  identity_oidc_source = local.identity_enabled ? try(module.keycloak[0].contract, module.dex[0].contract, local.identity_oidc_external) : null
+  identity_oidc        = try({ for key, value in local.identity_oidc_source : key => value }, {})
   identity_oidc_external = {
     issuer_url   = try(var.identity_external.issuer_url, null)
     role_claim   = try(var.identity_external.role_claim, null)
@@ -378,8 +392,8 @@ locals {
 
   identity_contract = {
     provider              = local.local_provider_name
-    implementation        = "identity.oidc"
-    adapter               = local.identity_keycloak ? "identity.keycloak" : local.identity_dex ? "identity.dex" : "identity.external_oidc"
+    implementation        = local.identity_enabled ? "identity.oidc" : "identity.none"
+    adapter               = !local.identity_enabled ? "identity.none" : local.identity_keycloak ? "identity.keycloak" : local.identity_dex ? "identity.dex" : "identity.external_oidc"
     auth_mode             = "oidc"
     oidc_enabled          = true
     workload_identity     = "kubernetes-service-account"
@@ -391,11 +405,11 @@ locals {
   # carries its stage label, a shared one none. Disabled capabilities are
   # absent because their module instances are; storage admin, databases and
   # code servers are never listed.
-  service_routes = merge(
+  service_routes = !local.access_enabled ? {} : merge(
     {
       for name in keys(local.enabled_stages) : "stage/${name}/orchestration" => {
-        host         = "dagster-${name}.${var.access_base_domain}"
-        tls_host     = "*.${var.access_base_domain}"
+        host         = "dagster-${name}.${local.base_domain}"
+        tls_host     = "*.${local.base_domain}"
         namespace    = module.dagster[name].namespace
         service_name = module.dagster[name].webserver_service_name
         service_port = module.dagster[name].webserver_port
@@ -403,8 +417,8 @@ locals {
     },
     {
       for name in keys(local.analytics_stages) : "stage/${name}/reporting" => {
-        host         = "superset-${name}.${var.access_base_domain}"
-        tls_host     = "*.${var.access_base_domain}"
+        host         = "superset-${name}.${local.base_domain}"
+        tls_host     = "*.${local.base_domain}"
         namespace    = module.superset[name].namespace
         service_name = module.superset[name].service_name
         service_port = module.superset[name].http_port
@@ -412,8 +426,8 @@ locals {
     },
     {
       "shared/query" = {
-        host         = "trino.${var.access_base_domain}"
-        tls_host     = "*.${var.access_base_domain}"
+        host         = "trino.${local.base_domain}"
+        tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
         service_name = module.trino.service_name
         service_port = module.trino.route_port
@@ -422,8 +436,8 @@ locals {
     local.identity_deployed ? {
       # The login surface: never granted a role and never behind the perimeter.
       "shared/identity" = {
-        host         = "auth.${var.access_base_domain}"
-        tls_host     = "*.${var.access_base_domain}"
+        host         = "auth.${local.base_domain}"
+        tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
         service_name = local.identity_dex ? module.dex[0].service_name : module.keycloak[0].service_name
         service_port = local.identity_dex ? module.dex[0].http_port : module.keycloak[0].http_port
@@ -431,8 +445,8 @@ locals {
     } : {},
     local.governance_enabled ? {
       "shared/governance_service" = {
-        host         = "openmetadata.${var.access_base_domain}"
-        tls_host     = "*.${var.access_base_domain}"
+        host         = "openmetadata.${local.base_domain}"
+        tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
         service_name = module.openmetadata[0].contract.service_name
         service_port = module.openmetadata[0].contract.http_port
@@ -450,13 +464,13 @@ locals {
     }
   }
 
-  access_routes = merge(local.service_routes, {
+  access_routes = !local.access_enabled ? {} : merge(local.service_routes, {
     "shared/portal" = {
-      host         = var.access_base_domain
-      tls_host     = var.access_base_domain
+      host         = local.base_domain
+      tls_host     = local.base_domain
       namespace    = kubernetes_namespace_v1.shared.metadata[0].name
-      service_name = module.portal.service_name
-      service_port = module.portal.service_port
+      service_name = module.portal[0].service_name
+      service_port = module.portal[0].service_port
     }
   })
 
@@ -467,14 +481,14 @@ locals {
   # What Traefik routes: the contract's routes, each tagged with the access
   # group that gates it, plus the perimeter's own login callback.
   ingress_routes = merge(
-    { for ref, route in local.access_routes : ref => merge(route, { group = lookup(module.perimeter.route_group, ref, "") }) },
-    {
+    { for ref, route in local.access_routes : ref => merge(route, { group = local.identity_enabled ? lookup(module.perimeter[0].route_group, ref, "") : "" }) },
+    !local.identity_enabled ? {} : {
       "perimeter/callback" = {
         host         = local.perimeter_callback_host
-        tls_host     = "*.${var.access_base_domain}"
+        tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
-        service_name = module.perimeter.callback_service_name
-        service_port = module.perimeter.port
+        service_name = module.perimeter[0].callback_service_name
+        service_port = module.perimeter[0].port
         path         = "/oauth2"
         group        = ""
       }
@@ -483,10 +497,10 @@ locals {
 
   access_contract = {
     provider             = local.local_provider_name
-    implementation       = "access.ingress"
-    adapter              = "access.traefik_cert_manager"
-    ingress_class_name   = module.traefik.ingress_class_name
-    cluster_issuer_name  = module.cert_manager.cluster_issuer_name
+    implementation       = local.access_enabled ? "access.ingress" : "access.port_forward"
+    adapter              = local.access_enabled ? "access.traefik_cert_manager" : "access.kubectl_port_forward"
+    ingress_class_name   = try(module.traefik[0].ingress_class_name, null)
+    cluster_issuer_name  = try(module.cert_manager[0].cluster_issuer_name, null)
     base_domain          = var.access_base_domain
     issuer               = var.access_issuer
     tls_mode             = "ingress-terminated"
@@ -494,7 +508,7 @@ locals {
     routes = {
       for ref, route in local.access_routes : ref => { url = "https://${route.host}", enabled = true, exposure = "user-facing" }
     }
-    perimeter  = module.perimeter.contract
+    perimeter  = try(module.perimeter[0].contract, null)
     local_only = true
   }
 
@@ -555,18 +569,25 @@ locals {
         { ref = "shared/identity", implementation = local.identity_contract.implementation, roles = local.identity_roles },
         local.identity_oidc,
       )
-      portal = { ref = "shared/portal", implementation = "portal.static_page" }
-      access = {
-        ref            = "shared/access"
-        implementation = local.access_contract.implementation
-        base_domain    = local.access_contract.base_domain
-        issuer         = local.access_contract.issuer
-        tls_mode       = local.access_contract.tls_mode
-        routes         = local.access_contract.routes
-        perimeter      = local.access_contract.perimeter
-      }
+      access = merge(
+        { ref = "shared/access", implementation = local.access_contract.implementation },
+        # A port-forward contract carries none of the ingress fields (ADR 0013).
+        # A filtered for expression, not `cond ? {...} : {}`: Terraform cannot
+        # unify an empty object with one holding nested objects (routes).
+        {
+          for key, value in {
+            base_domain = local.access_contract.base_domain
+            issuer      = local.access_contract.issuer
+            tls_mode    = local.access_contract.tls_mode
+            routes      = local.access_contract.routes
+          } : key => value if local.access_enabled
+        },
+        { for key, value in { perimeter = local.access_contract.perimeter } : key => value if local.identity_enabled },
+      )
       observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
-      }, local.governance_enabled ? {
+      }, local.access_enabled ? {
+      portal = { ref = "shared/portal", implementation = "portal.static_page" }
+      } : {}, local.governance_enabled ? {
       # OpenMetadata is one shared instance across every governed stage, so
       # its binding lives here rather than being duplicated per stage - a
       # stage merely references it (see stages[*].governance.service_ref).

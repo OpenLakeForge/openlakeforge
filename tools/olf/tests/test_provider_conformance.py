@@ -280,6 +280,7 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
+                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     "stages": {
                         name: {
                             "enabled": True,
@@ -297,7 +298,8 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
 
 
 def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]):  # noqa: ANN202
-    deployment = _contract(provider)["deployment"]
+    contract = _contract(provider)
+    deployment = contract["deployment"]
     return resolve_topology(
         validate_deployment_profile(
             {
@@ -310,6 +312,7 @@ def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
+                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     "stages": {stage.value: {"enabled": True} for stage in enabled},
                 },
             }

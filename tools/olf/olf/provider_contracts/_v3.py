@@ -134,19 +134,22 @@ def _secret_ref(value: object, *, where: str) -> None:
             raise ProviderContractError(f"{where}.{field} is not a valid Kubernetes Secret {field}")
 
 
-def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) -> None:
+def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | None) -> None:
     """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
     a canonical role or a consumer, never by an issuer product; credentials are
     Secret references only."""
     where = "shared.identity"
+    if selected is None and identity["implementation"] == _OIDC_IMPLEMENTATION:
+        raise ProviderContractError(f"{where} is identity.oidc, but the profile declares no spec.identity")
     present = _OIDC_FIELDS & set(identity)
-    if selected.issuer == "external" and identity["implementation"] != _OIDC_IMPLEMENTATION:
+    if selected is not None and selected.issuer == "external" and identity["implementation"] != _OIDC_IMPLEMENTATION:
         raise ProviderContractError(f"{where} must use implementation identity.oidc for an external spec.identity")
     if identity["implementation"] != _OIDC_IMPLEMENTATION:
         present = present | (_OIDC_OPTIONAL & set(identity))
         if present:
             raise ProviderContractError(f"{where} fields {sorted(present)!r} require implementation identity.oidc")
         return
+    assert selected is not None  # identity.oidc without spec.identity was rejected above
     if present != _OIDC_FIELDS:
         raise ProviderContractError(f"{where} identity.oidc requires {sorted(_OIDC_FIELDS - present)!r}")
     if "adapter" in identity:
@@ -207,6 +210,8 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec) ->
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
     present = _ACCESS_INGRESS_FIELDS & set(access)
+    if topology.access is None and (present or "perimeter" in access):
+        raise ProviderContractError("shared.access declares ingress, but the profile has no spec.access")
     if not present:
         if access["implementation"] == "access.ingress":
             raise ProviderContractError(f"shared.access access.ingress requires {sorted(_ACCESS_INGRESS_FIELDS)!r}")
@@ -218,6 +223,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
             "shared.access ingress fields must be declared together; "
             f"missing {sorted(_ACCESS_INGRESS_FIELDS - present)!r}"
         )
+    assert topology.access is not None  # `present` was rejected above otherwise
     base_domain = _string(access["base_domain"], where="shared.access.base_domain")
     if base_domain != topology.access.base_domain:
         raise ProviderContractError(

@@ -139,7 +139,7 @@ def test_deploy_reads_the_role_model_from_the_resolved_distribution_not_cwd(
     profile.write_text(
         "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: t}\n"
         "spec:\n  provider: {type: local}\n  preset: full\n  stages: {dev: {enabled: true}}\n"
-        "  identity:\n    issuer: external\n    issuer_url: https://idp.example.com\n"
+        "  access: {}\n  identity:\n    issuer: external\n    issuer_url: https://idp.example.com\n"
         "    role_claim: groups\n    role_mapping: {viewer: [g]}\n"
     )
     seen: list[str] = []

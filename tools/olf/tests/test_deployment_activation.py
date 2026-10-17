@@ -44,7 +44,7 @@ def _topology(contract: dict):
                 "apiVersion": "openlakeforge.io/v1alpha1",
                 "kind": "DeploymentProfile",
                 "metadata": {"name": contract["deployment"]["profile_name"]},
-                "spec": {"provider": {"type": "local"}, "preset": "full", "stages": stages},
+                "spec": {"provider": {"type": "local"}, "preset": "full", "stages": stages, "access": {}},
             }
         )
     )
