@@ -8,6 +8,7 @@ import typer
 
 from olf import config
 from olf.commands._shared import fail, log_step
+from olf.openmetadata._ingestion import run_trino_ingestion
 from olf.project import ProjectSpec
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
@@ -79,7 +80,12 @@ def deploy_openmetadata_metadata() -> None:
                     config.env("OPENMETADATA_CATALOG_DATABASE") or config.env("OPENLAKEFORGE_CATALOG_NAME")
                 ),
             )
+            # Before the seeding, which fails on tables OpenMetadata has not
+            # crawled yet. Once per artifacts deploy, no CronJob: the pipeline
+            # it replaces was deployed paused and never scheduled.
+            log_step("Crawling Trino into OpenMetadata...")
+            run_trino_ingestion(os.environ, namespace=namespace, service=cfg.catalog_service)
             om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url)).deploy()
-        except om.OpenMetadataError as exc:
+        except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo("Deployed OpenMetadata governance metadata.")

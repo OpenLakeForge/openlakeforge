@@ -182,9 +182,9 @@ port [D]).
 | F8 | Trino | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
 | F10 | stage namespace | Trino | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
-| F11 | OpenMetadata, its ingestion Jobs | Trino 8080 (8443 later) | 8080 | OpenMetadata to Trino row | V (Job labels **T**) |
+| F11 | OpenMetadata, its ingestion Jobs | Trino 8080 (8443 later) | 8080 | OpenMetadata to Trino row; the `openmetadata-trino-ingestion` Job (`openlakeforge.io/job`, OLF-owned) also needs 8443 at `tls`, slice 3b | V (Job labels **T**) |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
-| F13 | OpenMetadata ingestion Jobs, bootstrap and refresh Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V |
+| F13 | OpenMetadata ingestion Jobs, bootstrap and refresh Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
 | F14 | OpenMetadata ingestion Jobs, bootstrap Job | Superset (stage) | 8088 | `superset_url` registered by the bootstrap | V; whether ingestion runs today **T** |
 | F15 | OpenMetadata | OpenSearch | 9200 | `elasticsearch.host` in `openmetadata.yaml` | V |
 | F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |

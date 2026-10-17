@@ -395,29 +395,8 @@
     exit 1
   fi
 
-  # Deploy and trigger the first catalog crawl.
-  deploy_code="$(curl -sS -o /tmp/om-deploy-body -w '%%{http_code}' \
-    -X POST "$om_url/api/v1/services/ingestionPipelines/deploy/$pipeline_id" \
-    -H "Authorization: Bearer $ADMIN_JWT")"
-  case " 200 201 " in
-    *" $deploy_code "*) ;;
-    *)
-      echo "Failed to deploy ingestion pipeline (HTTP $deploy_code)" >&2
-      cat /tmp/om-deploy-body >&2
-      exit 1
-      ;;
-  esac
-
-  trigger_code="$(curl -sS -o /tmp/om-trigger-body -w '%%{http_code}' \
-    -X POST "$om_url/api/v1/services/ingestionPipelines/trigger/$pipeline_id" \
-    -H "Authorization: Bearer $ADMIN_JWT")"
-  case " 200 201 202 " in
-    *" $trigger_code "*) ;;
-    *)
-      echo "Failed to trigger ingestion pipeline (HTTP $trigger_code)" >&2
-      cat /tmp/om-trigger-body >&2
-      exit 1
-      ;;
-  esac
-
+  # Registered, not deployed or triggered, for the hourly refresh CronJob
+  # (refresh.tf), which deploys and triggers it through the pipeline client.
+  # The deploy-time crawl is the OLF-owned Job that `olf openmetadata
+  # deploy-metadata` runs (ADR 0016); moving the refresh onto it is step 4.
   echo "OpenMetadata bootstrap complete."
