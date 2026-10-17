@@ -105,7 +105,7 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
     the Certificate's status, so the old Secret keeps serving until the new
     one replaces it.
     """
-    if _no_ingress(cfg) or _skipped("the certificate renewal drill"):
+    if _no_ingress(cfg) or _no_route_tls(cfg) or _skipped("the certificate renewal drill"):
         return
     log.step("Checking the served route certificate renews without downtime...")
     with _route(cfg) as url:
@@ -122,16 +122,30 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
         # after a failed issuance) is replaced rather than duplicated.
         current = kubectl(
             cfg,
-            ["get", "certificate", ROUTES_CERTIFICATE, "-n", cfg.platform_namespace,
-             "-o", "jsonpath={.status.conditions}"],
+            [
+                "get",
+                "certificate",
+                ROUTES_CERTIFICATE,
+                "-n",
+                cfg.platform_namespace,
+                "-o",
+                "jsonpath={.status.conditions}",
+            ],
             capture=True,
         )
         conditions = [c for c in json.loads(current or "[]") if c.get("type") != "Issuing"] + [issuing]
         kubectl(
             cfg,
             [
-                "patch", "certificate", ROUTES_CERTIFICATE, "-n", cfg.platform_namespace, "--subresource=status",
-                "--type=json", "-p", json.dumps([{"op": "add", "path": "/status/conditions", "value": conditions}]),
+                "patch",
+                "certificate",
+                ROUTES_CERTIFICATE,
+                "-n",
+                cfg.platform_namespace,
+                "--subresource=status",
+                "--type=json",
+                "-p",
+                json.dumps([{"op": "add", "path": "/status/conditions", "value": conditions}]),
             ],
         )
         serial, handshakes, failures = before, 0, []
@@ -181,6 +195,14 @@ def _no_ingress(cfg: E2EConfig) -> bool:
         return False
     log.info("Skipping the ingress checks: the contract declares no ingress.")
     return True
+
+
+def _no_route_tls(cfg: E2EConfig) -> bool:
+    # spec.access.issuer none serves plain HTTP: there is no route certificate to renew.
+    if load_provider_contracts_or_raise(cfg)["shared"]["access"].get("tls_mode") == "none":
+        log.info("Skipping the certificate renewal drill: routes are served over plain HTTP.")
+        return True
+    return False
 
 
 def _skipped(drill: str) -> bool:

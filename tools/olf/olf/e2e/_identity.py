@@ -85,6 +85,14 @@ def check_discovery(identity: dict[str, Any], base_url: str) -> None:
         raise E2EError(f"discovery document says iss {response.json()['issuer']!r}, contract says {issuer!r}")
 
 
+def pod_discovery_script(host: str | None, url: str, *, tls: bool) -> str:
+    cacert = "--cacert /ca/ca.crt " if tls else ""
+    return (
+        f'sleep 3 && ip="$(getent hosts {host} | cut -d" " -f1)" && '
+        f'curl -sS --fail --max-time 20 {cacert}--resolve {host}:{443 if tls else 80}:"$ip" {url}'
+    )
+
+
 def check_discovery_from_pod(cfg: E2EConfig, identity: dict[str, Any]) -> None:
     """A pod resolves the same https URL, trusts its certificate and sees the same `iss`.
 
@@ -104,20 +112,19 @@ def check_discovery_from_pod(cfg: E2EConfig, identity: dict[str, Any]) -> None:
     # getaddrinfo-based clients (Python, Java) need no such help.
     # The sleep lets `kubectl run -i` attach before the output is written; a pod
     # that answers first has its output lost to the attach race.
-    script = (
-        f'sleep 3 && ip="$(getent hosts {host} | cut -d" " -f1)" && '
-        f'curl -sS --fail --max-time 20 --cacert /ca/ca.crt --resolve {host}:443:"$ip" {url}'
-    )
+    # Plain HTTP (spec.access.issuer none) has no certificate and no CA to mount.
+    tls = urlsplit(issuer).scheme == "https"
+    script = pod_discovery_script(host, url, tls=tls)
     spec = {
         "containers": [
             {
                 "name": pod,
                 "image": image,
                 "command": ["sh", "-c", script],
-                "volumeMounts": [{"name": "ca", "mountPath": "/ca"}],
+                **({"volumeMounts": [{"name": "ca", "mountPath": "/ca"}]} if tls else {}),
             }
         ],
-        "volumes": [{"name": "ca", "configMap": {"name": "olf-local-ca"}}],
+        **({"volumes": [{"name": "ca", "configMap": {"name": "olf-local-ca"}}]} if tls else {}),
     }
     kubectl(cfg, ["delete", "pod", pod, "-n", cfg.platform_namespace, "--ignore-not-found"])
     out = kubectl(
