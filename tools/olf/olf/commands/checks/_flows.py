@@ -30,9 +30,16 @@ def _endpoint_errors(label: str, endpoint: object) -> list[str]:
 
 def flow_errors(flows_file: Path, adr_file: Path) -> list[str]:
     """Every problem in the flow file; an empty list means it is valid."""
-    flows = (yaml.safe_load(flows_file.read_text()) or {}).get("flows")
+    document = yaml.safe_load(flows_file.read_text()) or {}
+    flows = document.get("flows")
     if not isinstance(flows, list) or not flows:
         return [f"{flows_file.name}: flows must be a non-empty list"]
+    workloads = document.get("workloads")
+    if not isinstance(workloads, dict) or not workloads or not all(
+        isinstance(labels, dict) and labels and all(isinstance(v, str) for v in labels.values())
+        for labels in workloads.values()
+    ):
+        return [f"{flows_file.name}: workloads must map names to non-empty label maps"]
     adr_ids = set(re.findall(r"^\| (F\d+) \|", adr_file.read_text(), re.MULTILINE))
     errors: list[str] = []
     for index, row in enumerate(flows):

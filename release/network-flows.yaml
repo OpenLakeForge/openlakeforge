@@ -9,8 +9,19 @@
 #   protocols defaults to [TCP].
 # tag: V read from the tree, T needs a running cluster to confirm.
 #
-# This file holds the rows the policy slices have built so far (stage
-# namespaces). Slices 3a/3b add the olf-system rows.
+# workloads: the olf-system pods that get a default-deny policy of their own,
+# by label. A row's `from` or `to` gives that workload a rule when its pods
+# include all the workload's labels, so a row has to carry the instance label
+# to reach a chart pod; Jobs share the name label but not the instance one and
+# stay unselected until slice 3b.
+#
+# This file holds the rows the policy slices have built so far: stage
+# namespaces and the olf-system data plane. Slice 3b adds the rest.
+workloads:
+  postgresql: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}
+  seaweedfs: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}
+  polaris: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}
+  trino: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}
 flows:
   - id: F3
     from: {scope: shared, pods: {app.kubernetes.io/name: traefik}}
@@ -25,22 +36,22 @@ flows:
     tag: V
   - id: F6
     from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
     ports: [5432]
     tag: V
   - id: F9
     from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: polaris}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     ports: [8181]
     tag: T # Floe runner pod labels are not in the tree; the stage rule ignores them
   - id: F9
     from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/component: s3}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
     ports: [8333]
     tag: T
   - id: F10
     from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
     ports: [8080, 8443] # 8443 is the contract's tls_port once workload authentication is on
     tag: V
   - id: F12
@@ -58,3 +69,102 @@ flows:
     to: {scope: apiserver}
     ports: [443, 6443] # Service port and endpoint port; DNAT order is unconfirmed
     tag: T
+  - id: F5
+    from: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
+    ports: [53]
+    protocols: [UDP, TCP]
+    tag: V
+  - id: F5
+    from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
+    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
+    ports: [53]
+    protocols: [UDP, TCP]
+    tag: V
+  - id: F5
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
+    ports: [53]
+    protocols: [UDP, TCP]
+    tag: V
+  - id: F5
+    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
+    ports: [53]
+    protocols: [UDP, TCP]
+    tag: V
+  - id: F6
+    from: {scope: shared, pods: {app.kubernetes.io/name: keycloak}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    ports: [5432]
+    tag: V
+  - id: F6
+    from: {scope: shared, pods: {app.kubernetes.io/name: dex}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    ports: [5432]
+    tag: V
+  - id: F6
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    ports: [5432]
+    tag: V
+  - id: F6
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    ports: [5432]
+    tag: V
+  - id: F6
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-metastore-bootstrap}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    ports: [5432]
+    tag: V
+  - id: F6
+    from: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
+    ports: [5432]
+    tag: V # the bootstrap Job pods carry the Postgres labels
+  - id: F7
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
+    ports: [8333]
+    tag: T
+  - id: F8
+    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    ports: [8181]
+    tag: V
+  - id: F8
+    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
+    ports: [8333]
+    tag: V
+  - id: F10
+    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    ports: [8080, 8443]
+    tag: T # discovery through the Service address, if the CNI hairpins it
+  - id: F11
+    from: {scope: shared}
+    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    ports: [8080, 8443]
+    tag: T # OpenMetadata ingestion Job pod labels are set at runtime; narrow to OpenMetadata and Traefik once read
+  - id: F17
+    from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
+    ports: [8333, 8080, 18080, 8888, 18888, 9333, 19333]
+    tag: V
+  - id: F17
+    from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, openlakeforge.io/job: bucket-bootstrap}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
+    ports: [9333, 19333, 8888, 18888]
+    tag: V
+  - id: F19
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-bootstrap}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    ports: [8181]
+    tag: V
+  - id: F19
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-credential-replication}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    ports: [8181]
+    tag: V
