@@ -107,6 +107,8 @@ def test_port_forward_argv_builds_exact_argv() -> None:
         "port-forward",
         "svc/trino",
         "8080:8080",
+        "--address",
+        "127.0.0.1",
         "-n",
         "lakehouse",
     ]

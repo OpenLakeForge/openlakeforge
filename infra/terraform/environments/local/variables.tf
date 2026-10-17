@@ -171,9 +171,9 @@ variable "cert_manager_chart_package_path" {
 }
 
 variable "access_base_domain" {
-  description = "Deployment Profile spec.access.base_domain (ADR 0013): the domain every route host sits under."
+  description = "Deployment Profile spec.access.base_domain (ADR 0013): the domain every route host sits under. null (no spec.access) deploys no ingress, TLS, portal or perimeter."
   type        = string
-  default     = "olf.localhost"
+  default     = null
 }
 
 variable "access_issuer" {
@@ -194,13 +194,18 @@ variable "manage_user_deployments" {
 }
 
 variable "identity_issuer" {
-  description = "Deployment Profile spec.identity.issuer (ADR 0014): `keycloak` and `github` (Dex) deploy an adapter, `external` takes the contract from identity_external."
+  description = "Deployment Profile spec.identity.issuer (ADR 0014): `keycloak` and `github` (Dex) deploy an adapter, `external` takes the contract from identity_external. null (no spec.identity) deploys no issuer and no perimeter."
   type        = string
-  default     = "keycloak"
+  default     = null
 
   validation {
-    condition     = contains(["keycloak", "external", "github"], var.identity_issuer)
+    condition     = var.identity_issuer == null || contains(["keycloak", "external", "github"], coalesce(var.identity_issuer, "keycloak"))
     error_message = "spec.identity.issuer must be keycloak, external or github."
+  }
+
+  validation {
+    condition     = var.identity_issuer == null || var.access_base_domain != null
+    error_message = "spec.identity requires spec.access: sign-in needs the route hostnames."
   }
 }
 

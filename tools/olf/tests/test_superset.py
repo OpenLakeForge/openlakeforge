@@ -40,6 +40,7 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
+                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     "stages": {
                         name: {
                             "enabled": True,

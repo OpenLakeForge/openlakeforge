@@ -26,6 +26,18 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | `issuer` | `local-ca` | an ACME (Let's Encrypt) or organisational CA issuer |
 
    The defaults need neither a purchased domain nor a public server.
+
+   **The block is the switch (#399).** A profile with no `spec.access` is a
+   quickstart: no Traefik, cert-manager, local CA, CoreDNS rewrite, portal or
+   route Ingresses, and `shared.access` is a port-forward contract
+   (`access.port_forward`, no routes), which `olf` clients and `olf forward`
+   serve over `http://localhost:<port>`. Declaring the block, even as
+   `access: {}` for the defaults, turns the ingress on. Block presence was
+   chosen over an `access.exposure` field because a second field would let the
+   block and the field disagree (`access:` present with `exposure: none`), and
+   the defaults above already make an empty block meaningful.
+   On the local provider `spec.identity` requires `spec.access` (the cloud roots do not read `spec.access`): sign-in redirects need the route
+   hostnames, so the profile is rejected at validation otherwise.
 2. **Routes sit one level under the base domain:** a stage service is
    `https://<service>-<stage>.<base_domain>` (`dagster-dev.olf.localhost`);
    a shared service (OpenMetadata, Trino) drops the stage suffix. One

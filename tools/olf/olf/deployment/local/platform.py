@@ -75,11 +75,19 @@ def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return _topology_variables(config.context)
 
 
+def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """`spec.access` as the local root's inputs; absent, the root deploys no ingress."""
+    access = config.context.topology.access
+    return {} if access is None else {"access_base_domain": access.base_domain, "access_issuer": access.issuer}
+
+
 def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """`spec.identity` as the local root's inputs. An `external` issuer carries
     its claim mapping with it; `keycloak` needs only the choice, because the
     adapter derives the rest from the canonical roles."""
     identity = config.context.topology.identity
+    if identity is None:
+        return {}
     variables = {"identity_issuer": identity.issuer}
     if identity.issuer == "external":
         variables["identity_external"] = json.dumps(
@@ -156,7 +164,8 @@ def require_smtp_credentials(
     created, never overwritten, once the caller passes `create_namespace` (a Terraform-owned namespace, made
     just before the Secret). `platform_up` passes it only after the drift reset, which deletes a shared
     namespace Terraform does not know yet."""
-    smtp = config.context.topology.identity.smtp
+    identity = config.context.topology.identity
+    smtp = identity.smtp if identity else None
     if smtp is None or smtp.credentials_secret_ref is None:
         return
     ref, namespace = smtp.credentials_secret_ref, config.context.shared_namespace
@@ -221,7 +230,8 @@ def require_github_oauth_secret(
     """Dex reads the GitHub OAuth App through `secretKeyRef` and would otherwise sit in
     CreateContainerConfigError. Only key names are read. The shared namespace is made first when absent,
     so the operator has somewhere to create the Secret."""
-    github = config.context.topology.identity.github
+    identity = config.context.topology.identity
+    github = identity.github if identity else None
     if github is None:
         return
     ref, namespace = github.oauth_app_secret_ref, config.context.shared_namespace
@@ -280,9 +290,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "superset_image_repository": images.superset_repository,
         "superset_image_tag": images.superset_tag,
         "superset_image_pull_policy": images.superset_pull_policy,
-        "access_base_domain": config.context.topology.access.base_domain,
-        "access_issuer": config.context.topology.access.issuer,
-    } | identity_variables(config) | cached_chart_variables(config) | {
+    } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
     }
 
@@ -508,6 +516,48 @@ def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
     return _predicate
 
 
+# The kubeadm Corefile the foundation's CoreDNS starts with: the same as
+# modules/access/in-cluster-resolution minus its `rewrite` line. Destroying that
+# module removes the whole key, so a platform-only teardown, and a
+# platform apply that drops spec.access, put this back.
+_STOCK_COREFILE = """.:53 {
+    errors
+    health {
+       lameduck 5s
+    }
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+       pods insecure
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }
+    prometheus :9153
+    forward . /etc/resolv.conf {
+       max_concurrent 1000
+    }
+    cache 30 {
+       disable success cluster.local
+       disable denial cluster.local
+    }
+    loop
+    reload
+    loadbalance
+}
+"""
+
+
+def restore_stock_corefile(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    log.step("Restoring the stock CoreDNS Corefile...")
+    tools.kubectl.patch(
+        "configmap",
+        "coredns",
+        json.dumps({"data": {"Corefile": _STOCK_COREFILE}}),
+        namespace="kube-system",
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+    )
+
 def platform_up(
     config: LocalDeploymentConfig,
     tools: Toolkit,
@@ -608,15 +658,21 @@ def platform_up(
 
     # Neither Helm nor Terraform waits on a Certificate's status, so a local CA
     # that cannot sign would otherwise surface only when the first route fails.
-    log.step("Waiting for the local CA to issue its probe certificate...")
-    tools.kubectl.wait(
-        "certificate/local-ca-probe",
-        for_condition="condition=Ready",
-        namespace=config.context.shared_namespace,
-        context=config.kube_context,
-        kubeconfig=config.paths.kubeconfig_path,
-        timeout="180s",
-        env=env,
-    )
+    # A quickstart (no spec.access) deploys no local CA at all.
+    if config.context.topology.access is None:
+        # Dropping spec.access destroys the in-cluster resolution module, which
+        # deletes the whole Corefile key; CoreDNS would fail on its next reload.
+        restore_stock_corefile(config, tools, env=env)
+    else:
+        log.step("Waiting for the local CA to issue its probe certificate...")
+        tools.kubectl.wait(
+            "certificate/local-ca-probe",
+            for_condition="condition=Ready",
+            namespace=config.context.shared_namespace,
+            context=config.kube_context,
+            kubeconfig=config.paths.kubeconfig_path,
+            timeout="180s",
+            env=env,
+        )
 
     log.step("Static OpenLakeForge local platform is applied.")

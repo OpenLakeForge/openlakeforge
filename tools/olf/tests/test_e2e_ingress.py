@@ -32,6 +32,7 @@ def _drill(
         return conditions if args[0] == "get" else ""
 
     monkeypatch.setattr(_ingress, "kubectl", _kubectl)
+    monkeypatch.setattr(_ingress, "_no_ingress", lambda _cfg: False)
     monkeypatch.setattr(_ingress, "_route", lambda _cfg: contextlib.nullcontext(_URL))
     monkeypatch.setattr(_ingress, "_served_serial", _served_serial)
     monkeypatch.setattr(_ingress.time, "sleep", lambda _seconds: None)
