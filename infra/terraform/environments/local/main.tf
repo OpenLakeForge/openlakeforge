@@ -289,9 +289,7 @@ module "perimeter" {
   client_id         = local.identity_oidc.clients.perimeter.client_id
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
   protected_refs    = local.perimeter_protected_refs
-  # Dex returns `groups` only for its scope and a refresh token only for
-  # offline_access (ADR 0014); Keycloak's group mapper needs neither.
-  scope = local.identity_dex ? "openid email profile groups offline_access" : "openid email profile"
+  scope             = local.identity_scope
 }
 
 # The admin Secret is created by the keycloak module's credentials Job and
@@ -511,6 +509,20 @@ module "superset" {
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
   # The literal name, as in the query contract: see contracts.tf.
   trino_ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
+  # Only with an issuer deployed (spec.identity); without one Superset keeps
+  # its local login. Nothing here names an issuer product.
+  bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
+  oidc = !local.identity_deployed ? null : {
+    issuer_url        = local.identity_oidc.issuer_url
+    role_claim        = local.identity_oidc.role_claim
+    role_mapping      = local.identity_oidc.role_mapping
+    grants            = local.identity_roles.grants.reporting
+    scope             = local.identity_scope
+    client_id         = local.identity_oidc.clients.superset.client_id
+    secret_ref        = local.identity_oidc.clients.superset.secret_ref
+    secret_namespace  = kubernetes_namespace_v1.shared.metadata[0].name
+    ca_configmap_name = "olf-local-ca" # literal, as for Trino above: the module output would close a cycle through the routes
+  }
 
   depends_on = [
     module.postgresql,

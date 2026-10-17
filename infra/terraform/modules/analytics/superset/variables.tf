@@ -102,3 +102,24 @@ variable "postgresql_ssl_mode" {
   type        = string
   default     = "disable"
 }
+
+variable "bootstrap_job_image" {
+  description = "Image of the Job that copies the OIDC client Secret into this namespace (release/component-catalog.yaml, k8s_bootstrap)."
+  type        = string
+}
+
+variable "oidc" {
+  description = "identity.oidc fields for this stage (ADR 0014): the issuer, role claim and mapping, the reporting grants of release/identity-roles.yaml, the scope to request, the superset client id, the client Secret reference and the namespace that holds it, and the ConfigMap with the CA that signs the issuer certificate. Null keeps the local Superset login."
+  type = object({
+    issuer_url        = string
+    role_claim        = string
+    role_mapping      = map(list(string))
+    grants            = map(string)
+    scope             = string
+    client_id         = string
+    secret_ref        = object({ name = string, key = string })
+    secret_namespace  = string
+    ca_configmap_name = string
+  })
+  default = null
+}
