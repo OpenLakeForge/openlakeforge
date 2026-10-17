@@ -20,6 +20,7 @@ import contextlib
 import io
 import json
 import tempfile
+import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,7 @@ def github_stub(cfg: E2EConfig, users: Mapping[str, list[str]]) -> Iterator[None
         kubectl(cfg, run)
         kubectl(cfg, ["expose", "pod", STUB_NAME, "-n", namespace, "--port=443", "--target-port=8443"])
         kubectl(cfg, ["wait", "--for=condition=Ready", f"pod/{STUB_NAME}", "-n", namespace, "--timeout=180s"])
+        _wait_until_dex_reaches(cfg)
         yield
     finally:
         _remove(cfg)
@@ -144,6 +146,20 @@ class StubAuthorize(requests.adapters.BaseAdapter):
 
     def close(self) -> None:
         pass
+
+
+
+def _wait_until_dex_reaches(cfg: E2EConfig, *, attempts: int = 30, delay: float = 2.0) -> None:
+    """A Ready pod is not yet routable: kube-proxy programs the Service a moment
+    later and rejects connections until then, which Dex reports as a refused
+    token exchange. Wait until Dex itself gets any HTTP answer through it."""
+    probe = f"wget -q -O /dev/null --no-check-certificate https://{stub_host(cfg)}/api/v3/user 2>&1 || true"
+    for _ in range(attempts):
+        out = kubectl(cfg, ["exec", "-n", cfg.platform_namespace, "deploy/dex", "--", "sh", "-c", probe], capture=True)
+        if "refused" not in out and "timed out" not in out and "bad address" not in out:
+            return
+        time.sleep(delay)
+    raise E2EError(f"Dex could not reach {stub_host(cfg)} within {attempts * delay:.0f}s")
 
 
 def sign_in_with_stub(url: str, login: str, stub: str) -> tuple[requests.Session, requests.Response]:
