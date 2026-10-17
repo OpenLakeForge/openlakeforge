@@ -636,6 +636,7 @@ module "superset" {
   image_repository    = var.superset_image_repository
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
+  bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
   postgresql_ssl_mode = "require"
 

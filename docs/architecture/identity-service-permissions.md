@@ -5,8 +5,17 @@ service must allow and deny, the native objects that implement
 `release/identity-roles.yaml`, how roles reach each service, and how each
 service meets the session policy in
 [`identity-sessions-and-recovery.md`](identity-sessions-and-recovery.md).
-Nothing here is built. No cluster was available, so every runtime claim is
-marked.
+The Superset sign-in is built (#25 slice a: issuer client, role mapping,
+registration role, 15 min bound); OpenMetadata is not. No cluster was available
+for either, so every runtime claim stays marked.
+
+Built for Superset: `images/superset/olf_oidc.py` (settings derived from the
+contract), `olf_security.py` (user info from `role_claim`, `olf_viewer`,
+`olf_no_access`, the session bound), `modules/analytics/superset` (client
+Secret copy, wiring), and the exact `/oauth-authorized/olf` redirect URI.
+Not yet built: the `olf_data_access` schema grants (the role exists empty, so
+analysts and viewers see no data until the import step fills it), the
+auto-redirect login view, the native 403 page, and the `olf-automation` users.
 
 | Mark | Meaning |
 | --- | --- |

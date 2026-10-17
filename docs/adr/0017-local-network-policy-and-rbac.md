@@ -175,16 +175,16 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 not allowed | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Keycloak, portal, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` in `contracts.tf` | V |
-| F4 | oauth2-proxy | Traefik 8443 | 8443 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset and OpenMetadata join when #25 lands |
+| F4 | oauth2-proxy | Traefik 8443 | 8443 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Keycloak, Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
 | F8 | Trino | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
 | F10 | stage namespace | Trino | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
-| F11 | OpenMetadata, its ingestion Jobs | Trino 8080 (8443 later) | 8080 | OpenMetadata to Trino row | V (Job labels **T**) |
+| F11 | OpenMetadata, its ingestion Jobs | Trino 8080 (8443 later) | 8080 | OpenMetadata to Trino row; the `openmetadata-trino-ingestion` Job (`openlakeforge.io/job`, OLF-owned) also needs 8443 at `tls`, slice 3b | V (Job labels **T**) |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
-| F13 | OpenMetadata ingestion Jobs, bootstrap and refresh Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V |
+| F13 | OpenMetadata ingestion Jobs, bootstrap and refresh Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
 | F14 | OpenMetadata ingestion Jobs, bootstrap Job | Superset (stage) | 8088 | `superset_url` registered by the bootstrap | V; whether ingestion runs today **T** |
 | F15 | OpenMetadata | OpenSearch | 9200 | `elasticsearch.host` in `openmetadata.yaml` | V |
 | F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |

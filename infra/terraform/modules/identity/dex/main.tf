@@ -81,7 +81,8 @@ locals {
       }
     }]
     # Dex matches redirect URIs exactly. The consumers' wildcard entries match
-    # nothing until each is wired to OIDC (#25) with its callback path.
+    # nothing until each is wired to OIDC (#25) with its callback path;
+    # Superset's already is.
     staticClients = [
       for name, client in var.clients : {
         id           = name

@@ -282,15 +282,20 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
 
     def _config(*_args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         captured["metadata_root"] = kwargs["metadata_root"]
-        return SimpleNamespace(base_url=kwargs["base_url"])
+        return SimpleNamespace(base_url=kwargs["base_url"], catalog_service="polaris")
 
     monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", staticmethod(_config))
     monkeypatch.setattr(openmetadata, "OpenMetadataClient", lambda _url: object())
-    monkeypatch.setattr(openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: None))
+    order: list[str] = []
+    monkeypatch.setattr(
+        openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: order.append("seed"))
+    )
+    monkeypatch.setattr(command, "run_trino_ingestion", lambda *_args, **_kwargs: order.append("ingest"))
 
     command.deploy_openmetadata_metadata()
 
     assert captured["metadata_root"] == str(project / "lakehouse_code")
+    assert order == ["ingest", "seed"]
 
 
 def test_openmetadata_command_reports_configuration_errors(

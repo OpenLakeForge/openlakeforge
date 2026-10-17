@@ -366,3 +366,27 @@ def test_set_project_code_image_updates_all_dagster_surfaces(monkeypatch: pytest
     assert len({restarted_at for *_, restarted_at in deployment_images}) == 1
     assert cronjob_images == [("openlakeforge-k8s-log-archive", "repo/project-code:new", "lakehouse")]
     assert rollout_waits == [(deployment, "lakehouse", "600s") for deployment, *_ in deployment_images]
+
+
+def _job_kubectl(status: str, log: str = ""):
+    def fake(args, **_kwargs):  # noqa: ANN001, ANN003, ANN202
+        return {"get": status, "logs": log}.get(args[0], "")
+
+    return fake
+
+
+_JOB = {"metadata": {"name": "ingest", "namespace": "olf-system"}}
+
+
+def test_run_job_returns_on_complete(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "_kubectl", _job_kubectl("Complete"))
+    k8s.run_job(_JOB, timeout_seconds=60)
+
+
+def test_run_job_raises_promptly_on_failed_with_the_token_masked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "_kubectl", _job_kubectl("Failed", "boom jwt=eyJhbGci.eyJzdWIi.c2ln-_x end"))
+    monkeypatch.setattr(k8s.time, "sleep", lambda _s: pytest.fail("kept polling a failed Job"))
+    with pytest.raises(k8s.KubectlError) as raised:
+        k8s.run_job(_JOB, timeout_seconds=60)
+    assert "boom jwt=*** end" in str(raised.value)
+    assert "eyJ" not in str(raised.value)
