@@ -353,9 +353,14 @@ locals {
   # the session cookie on .<base_domain> then covers every route.
   perimeter_callback_host = "oauth2.${local.base_domain}"
 
-  # Where each consumer's client may send the browser back.
+  # Dex returns `groups` only for its scope and a refresh token only for
+  # offline_access (ADR 0014); Keycloak's group mapper needs neither.
+  identity_scope = local.identity_dex ? "openid email profile groups offline_access" : "openid email profile"
+
+  # Where each consumer's client may send the browser back. Superset's callback
+  # is Flask-AppBuilder's /oauth-authorized/<provider>, provider `olf`.
   identity_consumer_redirects = {
-    superset     = [for name in keys(local.analytics_stages) : "https://superset-${name}.${local.base_domain}/*"]
+    superset     = [for name in keys(local.analytics_stages) : "https://superset-${name}.${local.base_domain}/oauth-authorized/olf"]
     openmetadata = local.governance_enabled ? ["https://openmetadata.${local.base_domain}/*"] : []
     trino        = ["https://trino.${local.base_domain}/*"]
   }
