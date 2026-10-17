@@ -254,3 +254,8 @@ flows:
     to: {scope: shared, pods: {openlakeforge.io/e2e: mail-sink}}
     ports: [1025]
     tag: V # the e2e mail sink; the e2e sets the label
+  - id: F29
+    from: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
+    to: {scope: shared, pods: {openlakeforge.io/e2e: github-stub}}
+    ports: [8443] # the stub serves 8443 behind a Service on 443; F28 excludes the pod and Service ranges
+    tag: T # the stub GitHub Enterprise pod of the Dex e2e (#405); the e2e sets the label

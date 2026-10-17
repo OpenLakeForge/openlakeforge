@@ -203,6 +203,7 @@ port [D]).
 | F26 | `olf e2e` issuer probe pod in `olf-system` (label `openlakeforge.io/e2e=issuer-probe`) | Traefik 8443 | 8443 | `check_discovery_from_pod` creates the pod there [V] | V; a flow-file row keyed on the label the e2e sets |
 | F27 | Keycloak | the e2e mail-sink pod (`olf-system`, label `openlakeforge.io/e2e=mail-sink`) | 1025 | `mail_sink` points the realm's SMTP at the sink; the sink only receives [V: `_identity_mail.py`] | V; a flow-file row keyed on the label the e2e sets |
 | F28 | Dex | any address outside the pod and Service ranges | 443 | Dex calls `github.com` and `api.github.com` at every login and refresh ([ADR 0014](0014-identity-and-authorization.md), "Network"); NetworkPolicy has no FQDN selector, so the rule is the port on any address, on the Dex pods only | T |
+| F29 | Dex | the Dex e2e's stub GitHub pod (`olf-system`, label `openlakeforge.io/e2e=github-stub`, #405) | 8443 | the connector `hostName` is `olf-e2e-github.olf-system.svc`; F28 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port) | T; a flow-file row keyed on the label the e2e sets |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
