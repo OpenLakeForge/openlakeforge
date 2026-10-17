@@ -3,7 +3,8 @@
 # `olf check flows`. Every flow not listed is denied.
 #
 # scope: stage (every stage namespace, one trust domain), shared (olf-system),
-#   kube-system, or apiserver (the kubernetes Service and API server endpoints).
+#   kube-system, apiserver (the kubernetes Service and API server endpoints),
+#   node (the cluster nodes) or any (outside the cluster).
 # pods: optional label selector inside the scope; absent means every pod.
 # ports/protocols: container ports (policies see the post-DNAT port);
 #   protocols defaults to [TCP].
@@ -12,19 +13,48 @@
 # workloads: the olf-system pods that get a default-deny policy of their own,
 # by label. A row's `from` or `to` gives that workload a rule when its pods
 # include all the workload's labels, so a row has to carry the instance label
-# to reach a chart pod; Jobs share the name label but not the instance one and
-# stay unselected until slice 3b.
+# to reach a chart pod; a Job shares its workload's name label but not the
+# instance one, so a Job is selected by its own openlakeforge.io/job label.
+# DNS egress is added to every workload by the module and is not a row. The
+# module drops a workload that is not deployed (Keycloak, Dex, governance):
+# its rows then render only on the side that is.
 #
-# This file holds the rows the policy slices have built so far: stage
-# namespaces and the olf-system data plane. Slice 3b adds the rest.
+# `from` may be a list of endpoints: one row, several sources.
+# scope any is every address outside the pod and Service ranges; node is the
+# cluster nodes. A pod reaches a destination only through a row on both sides.
 workloads:
   postgresql: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}
   seaweedfs: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}
   polaris: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}
   trino: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}
+  traefik: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}
+  oauth2-proxy: {openlakeforge.io/workload: oauth2-proxy} # a pod label the perimeter module sets; the floors differ in name
+  portal: {app.kubernetes.io/name: portal}
+  keycloak: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}
+  dex: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}
+  cert-manager-controller: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}
+  cert-manager-cainjector: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}
+  cert-manager-webhook: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}
+  cert-manager-startupapicheck: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}
+  openmetadata: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}
+  opensearch: {app.kubernetes.io/name: opensearch} # instance label unread: the dependencies chart is not rendered here
+  bucket-bootstrap: {openlakeforge.io/job: bucket-bootstrap}
+  catalog-metastore-bootstrap: {openlakeforge.io/job: catalog-metastore-bootstrap}
+  catalog-bootstrap: {openlakeforge.io/job: catalog-bootstrap}
+  catalog-credential-replication: {openlakeforge.io/job: catalog-credential-replication}
+  keycloak-credentials: {openlakeforge.io/job: keycloak-credentials}
+  keycloak-realm: {openlakeforge.io/job: keycloak-realm}
+  dex-credentials: {openlakeforge.io/job: dex-credentials}
+  perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
+  publish-local-ca: {openlakeforge.io/job: publish-local-ca}
+  trino-credentials: {openlakeforge.io/job: trino-credentials}
+  governance-bootstrap: {openlakeforge.io/job: governance-bootstrap}
+  governance-credential-replication: {openlakeforge.io/job: governance-credential-replication}
+  catalog-refresh: {openlakeforge.io/job: catalog-refresh}
+  openmetadata-trino-ingestion: {openlakeforge.io/job: openmetadata-trino-ingestion}
 flows:
   - id: F3
-    from: {scope: shared, pods: {app.kubernetes.io/name: traefik}}
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     to: {scope: stage}
     ports: [80, 8088] # Dagster webserver, Superset; the stage rule is namespace-wide
     tag: V
@@ -56,55 +86,31 @@ flows:
     tag: V
   - id: F12
     from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
     tag: V
   - id: F14
-    from: {scope: shared}
+    from: [{scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
     to: {scope: stage}
     ports: [8088]
-    tag: T # whether OpenMetadata ingestion reaches Superset today is unconfirmed
+    tag: T # whether OpenMetadata ingestion reaches Superset today is unconfirmed; the Job labels are ours, the server's are not read
   - id: F20
     from: {scope: stage}
     to: {scope: apiserver}
     ports: [443, 6443] # Service port and endpoint port; DNAT order is unconfirmed
     tag: T
-  - id: F5
-    from: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
-    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
-    ports: [53]
-    protocols: [UDP, TCP]
-    tag: V
-  - id: F5
-    from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
-    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
-    ports: [53]
-    protocols: [UDP, TCP]
-    tag: V
-  - id: F5
-    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
-    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
-    ports: [53]
-    protocols: [UDP, TCP]
-    tag: V
-  - id: F5
-    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    to: {scope: kube-system, pods: {k8s-app: kube-dns}}
-    ports: [53]
-    protocols: [UDP, TCP]
-    tag: V
   - id: F6
-    from: {scope: shared, pods: {app.kubernetes.io/name: keycloak}}
+    from: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
     to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
     ports: [5432]
     tag: V
   - id: F6
-    from: {scope: shared, pods: {app.kubernetes.io/name: dex}}
+    from: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
     ports: [5432]
     tag: V
   - id: F6
-    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata}}
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
     ports: [5432]
     tag: V
@@ -144,10 +150,10 @@ flows:
     ports: [8080, 8443]
     tag: T # discovery through the Service address, if the CNI hairpins it
   - id: F11
-    from: {scope: shared}
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
     to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
     ports: [8080, 8443]
-    tag: T # OpenMetadata ingestion Job pod labels are set at runtime; narrow to OpenMetadata and Traefik once read
+    tag: T # openmetadata-trino-ingestion is the label of the OLF-owned ingestion Job (#410); the OpenMetadata pipeline client's pods are not read and are denied
   - id: F17
     from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
@@ -168,3 +174,88 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     ports: [8181]
     tag: V
+  - id: F1
+    from: {scope: any}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443]
+    tag: T # host to hostPort 443 through the CNI portmap; 8000 is not allowed
+  - id: F2
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {openlakeforge.io/workload: oauth2-proxy}}
+    ports: [4180]
+    tag: V
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
+    ports: [8080]
+    tag: V
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
+    ports: [5556]
+    tag: V
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: portal}}
+    ports: [8080]
+    tag: V
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    ports: [8585]
+    tag: V
+  - id: F4
+    from: {scope: shared, pods: {openlakeforge.io/workload: oauth2-proxy}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443]
+    tag: V
+  - id: F13
+    from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-refresh}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
+    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    ports: [8585]
+    tag: T # openmetadata-trino-ingestion: the OLF-owned Job (#410)
+  - id: F13
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    ports: [8585]
+    tag: T # jwks and metadataApiEndpoint name the Service; only needed if the CNI does not hairpin it
+  - id: F15
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: opensearch}}
+    ports: [9200]
+    tag: V
+  - id: F18
+    from: {scope: shared, pods: {openlakeforge.io/job: keycloak-realm}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
+    ports: [8080]
+    tag: V
+  - id: F20
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: catalog-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-credential-replication}}, {scope: shared, pods: {openlakeforge.io/job: keycloak-credentials}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: trino-credentials}}, {scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: governance-credential-replication}}]
+    to: {scope: apiserver}
+    ports: [443, 6443]
+    tag: T # Service port and endpoint port; DNAT order is unconfirmed
+  - id: F21
+    from: [{scope: apiserver}, {scope: node}]
+    to: {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}
+    ports: [10250]
+    tag: T # the API server calls the webhook from the control-plane node; its source address under kindnet is unconfirmed
+  - id: F28
+    from: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
+    to: {scope: any}
+    ports: [443]
+    tag: T # github.com and api.github.com at every login and refresh; NetworkPolicy cannot name a host
+  - id: F26
+    from: {scope: shared, pods: {openlakeforge.io/e2e: issuer-probe}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443]
+    tag: V # the e2e issuer probe pod; the e2e sets the label
+  - id: F27
+    from: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
+    to: {scope: shared, pods: {openlakeforge.io/e2e: mail-sink}}
+    ports: [1025]
+    tag: V # the e2e mail sink; the e2e sets the label
+  - id: F29
+    from: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
+    to: {scope: shared, pods: {openlakeforge.io/e2e: github-stub}}
+    ports: [8443] # the stub serves 8443 behind a Service on 443; F28 excludes the pod and Service ranges
+    tag: T # the stub GitHub Enterprise pod of the Dex e2e (#405); the e2e sets the label

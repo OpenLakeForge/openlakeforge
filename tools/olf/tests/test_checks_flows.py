@@ -41,3 +41,9 @@ def test_rejects_pods_on_a_stage_endpoint(tmp_path: Path) -> None:
 
 def test_rejects_missing_or_empty_workloads(tmp_path: Path) -> None:
     assert _errors(tmp_path, VALID.replace("  pg: {app.kubernetes.io/name: postgresql}\n", ""))
+
+
+def test_source_list_is_checked_per_entry(tmp_path: Path) -> None:
+    listed = VALID.replace("from: {scope: stage}", "from: [{scope: stage}, {scope: node}]")
+    assert _errors(tmp_path, listed) == []
+    assert _errors(tmp_path, listed.replace("{scope: node}", "{scope: any, pods: {a: b}}"))

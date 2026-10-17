@@ -263,7 +263,8 @@ resource "kubernetes_deployment_v1" "proxy" {
 
     template {
       metadata {
-        labels = merge(local.labels, { "app.kubernetes.io/name" = "${var.release_name}-${each.key}" })
+        # One constant label so a NetworkPolicy can select every floor (ADR 0017).
+        labels = merge(local.labels, { "app.kubernetes.io/name" = "${var.release_name}-${each.key}", "openlakeforge.io/workload" = "oauth2-proxy" })
       }
 
       spec {
