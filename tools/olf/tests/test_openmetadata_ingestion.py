@@ -58,8 +58,9 @@ def test_bot_token_is_a_secret_reference_never_a_value(environ):
 @pytest.mark.parametrize("environ", [BASE, TLS])
 def test_hourly_refresh_runs_the_same_pod_as_the_job(environ):
     job, _, _, _ = _build(environ)
-    cron = ingestion_cronjob(job)
+    cron = ingestion_cronjob(job, catalog="lakehouse_dev")
     assert cron["kind"] == "CronJob"
+    assert cron["metadata"]["name"] == "openmetadata-trino-ingestion-lakehouse-dev"
     assert cron["spec"]["schedule"] == "0 * * * *"
     assert cron["spec"]["jobTemplate"]["spec"] == job["spec"]
     assert job["spec"]["template"]["metadata"]["labels"] == {"openlakeforge.io/job": "openmetadata-trino-ingestion"}

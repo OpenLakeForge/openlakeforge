@@ -120,17 +120,18 @@ def ingestion_job(
     }
 
 
-def ingestion_cronjob(job: dict[str, Any]) -> dict[str, Any]:
+def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     """The hourly refresh: `job`'s pod, spec and labels, so the two cannot diverge.
 
     Built here rather than in Terraform so the workflow config exists once; the
     TLS and bot-Secret facts it needs are the deployed contracts', which
-    `deploy-metadata` already holds.
+    `deploy-metadata` already holds. The workflow crawls one stage's catalog,
+    so each governed stage gets its own CronJob, named by that catalog.
     """
     return {
         "apiVersion": "batch/v1",
         "kind": "CronJob",
-        "metadata": job["metadata"],
+        "metadata": {**job["metadata"], "name": f"{JOB_NAME}-{catalog.replace('_', '-')}"},
         "spec": {
             "schedule": REFRESH_SCHEDULE,
             "concurrencyPolicy": "Forbid",
@@ -152,5 +153,5 @@ def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: 
         om_api=f"http://{om_host}/api",
     )
     # Applied first so the schedule survives a failed first crawl.
-    k8s.apply_manifest(ingestion_cronjob(job))
+    k8s.apply_manifest(ingestion_cronjob(job, catalog=environ["OPENLAKEFORGE_CATALOG_NAME"]))
     k8s.run_job(job, timeout_seconds=1800)
