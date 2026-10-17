@@ -14,7 +14,7 @@ class OlfSecurityManager(SupersetSecurityManager):
         super().sync_role_definitions()
         # Superset has no read-only dashboard role. Public's permission set
         # under another name cannot be confused with the anonymous role.
-        self.set_role(VIEWER_ROLE, self._is_public_pvm, self.get_session.query(self.permissionview_model).all())
+        self.set_role(VIEWER_ROLE, self._is_public_pvm, self._get_all_pvms())
         for name in (NO_ACCESS_ROLE, DATA_ROLE):
             self.add_role(name)
 
