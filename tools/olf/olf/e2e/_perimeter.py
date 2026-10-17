@@ -81,10 +81,14 @@ def _check_dex_perimeter(
         return
     suffix = secrets.token_hex(3)
     mapping = identity["role_mapping"]
-    roles: list[str | None] = [r for r in ("viewer", "analyst", "data-engineer") if r in mapping]
-    for missing in ("viewer", "analyst", "data-engineer"):
-        if missing not in mapping:
-            log.info(f"Skipping the {missing} role: the profile maps no team to it.")
+    # Every mapped role, platform-admin included, so the check always signs in
+    # at least one admitted user and cannot pass on refusals alone.
+    precedence = identity["roles"]["precedence"]
+    roles: list[str | None] = [r for r in precedence if r in mapping]
+    if not roles:
+        raise E2EError("the profile maps no team to any role; the Dex checks would admit nobody")
+    for missing in (r for r in precedence if r not in mapping):
+        log.info(f"Skipping the {missing} role: the profile maps no team to it.")
     # A user in no mapped team is still in the organisation, in a team that maps to no role.
     organization = next(iter(mapping.values()))[0].split(":")[0]
     roles.append(None)
