@@ -369,7 +369,10 @@ locals {
   # the operator provisions the client Secrets, named by consumer like the
   # adapter's own; client ids default to the consumer names unless the issuer
   # assigned its own (client_ids).
-  identity_oidc = local.identity_enabled ? try(module.keycloak[0].contract, module.dex[0].contract, local.identity_oidc_external) : {}
+  # `cond ? contract : {}` cannot unify the issuer contract with an empty
+  # object; try() returns whichever branch succeeds without that constraint.
+  identity_oidc_source = local.identity_enabled ? try(module.keycloak[0].contract, module.dex[0].contract, local.identity_oidc_external) : null
+  identity_oidc        = try({ for key, value in local.identity_oidc_source : key => value }, {})
   identity_oidc_external = {
     issuer_url   = try(var.identity_external.issuer_url, null)
     role_claim   = try(var.identity_external.role_claim, null)
