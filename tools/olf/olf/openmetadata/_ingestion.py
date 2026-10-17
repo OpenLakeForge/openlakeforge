@@ -78,6 +78,8 @@ def ingestion_job(
     container: dict[str, Any] = {
         "name": "ingest",
         "image": image,
+        # The pipeline client's values (openmetadata.yaml); without them the pod is BestEffort.
+        "resources": {"requests": {"cpu": "250m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
         "command": [
             "sh",
             "-c",
@@ -127,4 +129,4 @@ def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: 
         service=service,
         om_api=f"http://{om_host}/api",
     )
-    k8s.run_job(job, timeout="1800s")
+    k8s.run_job(job, timeout_seconds=1800)
