@@ -2,6 +2,22 @@ locals {
   chart      = var.chart_package_path != null ? var.chart_package_path : "superset"
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
+
+  trust_volumes = concat(
+    var.trino_ca_configmap_name == null ? [] : [{ name = "query-ca", path = "/etc/olf/query-ca", configmap = var.trino_ca_configmap_name }],
+    var.oidc == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = var.oidc.ca_configmap_name }],
+  )
+
+  # Non-secret contract fields; olf_oidc.settings turns them into Superset
+  # config in the image. The client secret arrives through the environment.
+  oidc_config = var.oidc == null ? null : {
+    issuer_url   = var.oidc.issuer_url
+    client_id    = var.oidc.client_id
+    scope        = var.oidc.scope
+    role_claim   = var.oidc.role_claim
+    role_mapping = var.oidc.role_mapping
+    grants       = var.oidc.grants
+  }
 }
 
 resource "random_password" "secret_key" {
@@ -68,7 +84,7 @@ resource "helm_release" "superset" {
         }
       }
 
-      extraEnvRaw = [
+      extraEnvRaw = concat([
         {
           name = "DB_PASS"
           valueFrom = {
@@ -78,16 +94,44 @@ resource "helm_release" "superset" {
             }
           }
         },
-      ]
+        ], var.oidc == null ? [] : [
+        {
+          name = "OIDC_CLIENT_SECRET"
+          valueFrom = {
+            secretKeyRef = {
+              name = var.oidc.secret_ref.name
+              key  = var.oidc.secret_ref.key
+            }
+          }
+        },
+      ])
 
       extraSecretEnv = {
         SUPERSET_SECRET_KEY = random_password.secret_key.result
       }
     }),
-    ], var.trino_ca_configmap_name == null ? [] : [
+    ], length(local.trust_volumes) == 0 ? [] : [
     yamlencode({
-      extraVolumes      = [{ name = "query-ca", configMap = { name = var.trino_ca_configmap_name } }]
-      extraVolumeMounts = [{ name = "query-ca", mountPath = "/etc/olf/query-ca", readOnly = true }]
+      extraVolumes      = [for v in local.trust_volumes : { name = v.name, configMap = { name = v.configmap } }]
+      extraVolumeMounts = [for v in local.trust_volumes : { name = v.name, mountPath = v.path, readOnly = true }]
+    })
+    ], var.oidc == null ? [] : [
+    yamlencode({
+      # Authlib calls the issuer's public URL, which the local CA signs.
+      extraEnv = { REQUESTS_CA_BUNDLE = "/etc/olf/oidc-ca/ca.crt" }
+      configOverrides = {
+        openlakeforge_oidc = <<-EOT
+          import json, os, sys
+          sys.path.insert(0, "/app/olf")
+          from olf_oidc import settings
+          from olf_security import OlfSecurityManager, enforce_session_bound
+          globals().update(settings(json.loads(r'''${jsonencode(local.oidc_config)}'''), os.environ["OIDC_CLIENT_SECRET"]))
+          CUSTOM_SECURITY_MANAGER = OlfSecurityManager
+          FLASK_APP_MUTATOR = enforce_session_bound
+        EOT
+      }
     }),
   ])
+
+  depends_on = [kubernetes_job_v1.oidc_secret]
 }
