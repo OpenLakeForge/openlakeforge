@@ -177,6 +177,7 @@ def test_deploy_reports_imports_each_declared_bundle_through_the_api(
 ) -> None:
     _write_report_bundle(tmp_path)
     _serve(monkeypatch, fake_superset)
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
 
     superset.deploy_reports(
         tmp_path,
@@ -818,3 +819,75 @@ def test_a_tls_query_contract_targets_https_with_the_ca_and_an_off_one_is_unchan
     with ZipFile(bundle_path) as bundle:
         database = yaml.safe_load(bundle.read("b/databases/trino.yaml"))
     assert database["extra"] == tls.extra
+
+
+def test_bundle_schema_perms_lists_only_the_schemas_datasets_read(tmp_path: Path) -> None:
+    _write_report_bundle(tmp_path)
+    (tmp_path / _REPORT_DIR / "databases" / "trino.yaml").write_text(
+        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/iceberg\nuuid: {_DATABASE_UUID}\n"
+        "schema: not_a_dataset\n"
+    )
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(
+        tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg", schema_prefix="lakehouse_dev_"
+    )
+
+    assert superset.bundle_schema_perms(bundle_path) == {"[Trino].[lakehouse_dev_order_revenue_gold]"}
+
+
+def test_deploy_reports_grants_imported_schemas_once_and_keeps_other_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_superset: FakeSuperset
+) -> None:
+    _write_report_bundle(tmp_path)
+    _serve(monkeypatch, fake_superset)
+    fake_superset.permissions.update(
+        {1: ("schema_access", "[Trino].[order_revenue_gold]"), 2: ("schema_access", "[Trino].[other_silver]")}
+    )
+    fake_superset.roles["olf_data_access"] = {7}
+    fake_superset.roles["Gamma"] = {8}
+
+    for _ in range(2):
+        superset.deploy_reports(
+            tmp_path,
+            "openlakeforge-dev",
+            "trino://olf-dev@trino:8080/lakehouse_dev",
+            report_source_dir=None,
+            declared_report_dirs=(_REPORT_DIR,),
+            work_dir=tmp_path / "work",
+            admin_username="admin",
+            admin_password="secret",
+        )
+
+    assert fake_superset.roles == {"olf_data_access": {1, 7}, "Gamma": {8}}
+
+
+def test_deploy_reports_without_sign_in_imports_and_grants_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_superset: FakeSuperset
+) -> None:
+    _write_report_bundle(tmp_path)
+    _serve(monkeypatch, fake_superset)
+    fake_superset.roles.clear()
+
+    superset.deploy_reports(
+        tmp_path,
+        "openlakeforge-dev",
+        "trino://olf-dev@trino:8080/lakehouse_dev",
+        report_source_dir=None,
+        declared_report_dirs=(_REPORT_DIR,),
+        work_dir=tmp_path / "work",
+        admin_username="admin",
+        admin_password="secret",
+    )
+
+    assert len(fake_superset.imported) == 1
+    assert fake_superset.roles == {}
+
+
+def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_path: Path) -> None:
+    _write_report_bundle(tmp_path, database_uuid=_DATABASE_UUID.upper())
+    dataset = tmp_path / _REPORT_DIR / "datasets" / "mart.yaml"
+    dataset.write_text(dataset.read_text().replace(_DATABASE_UUID.upper(), _DATABASE_UUID.lower()))
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg")
+
+    assert superset.bundle_schema_perms(bundle_path) == {"[Trino].[order_revenue_gold]"}
