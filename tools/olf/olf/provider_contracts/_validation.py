@@ -144,14 +144,21 @@ def _check_glue_catalog_id(value: object, *, where: str) -> None:
 _URI_INVALID = re.compile(r"[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]|%(?![0-9A-Fa-f]{2})")
 
 
-def _oidc_issuer_url(value: object, *, where: str) -> str:
+def _oidc_issuer_url(value: object, *, where: str, allow_http: bool = False) -> str:
     """The one authority for OIDC issuer URLs (the schemas only check `^https://`):
-    https, a host, a valid port, no userinfo, query, fragment, whitespace or
-    control characters. `_absolute_http_uri` covers host, port and userinfo."""
+    https (http only in the plain-HTTP `*.localhost` mode, ADR 0014), a host,
+    a valid port, no userinfo, query, fragment, whitespace or control
+    characters. `_absolute_http_uri` covers host, port and userinfo."""
     uri = _absolute_http_uri(value, where=where)
     parts = urlsplit(uri)
-    if parts.scheme != "https" or not parts.hostname or "?" in uri or "#" in uri:
-        raise ProviderContractError(f"{where} must be an https URL with a host and no query or fragment")
+    if (
+        parts.scheme not in (("https", "http") if allow_http else ("https",))
+        or not parts.hostname
+        or "?" in uri
+        or "#" in uri
+    ):
+        scheme = "an http or https" if allow_http else "an https"
+        raise ProviderContractError(f"{where} must be {scheme} URL with a host and no query or fragment")
     if "[" in parts.path or "]" in parts.path:
         raise ProviderContractError(f"{where} must not contain '[' or ']' outside the host")
     if re.search(r"[\s\x00-\x1f\x7f]", uri):

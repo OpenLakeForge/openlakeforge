@@ -284,11 +284,13 @@ resource "kubernetes_deployment_v1" "proxy" {
               # The decision is the group claim; a user an administrator
               # created without verifying the address is still let in.
               "--insecure-oidc-allow-unverified-email=true",
-              "--redirect-url=https://${var.callback_host}/oauth2/callback",
+              "--redirect-url=${var.route_scheme}://${var.callback_host}/oauth2/callback",
               "--whitelist-domain=.${var.base_domain}",
               "--cookie-name=${local.cookie_name}",
               "--cookie-domain=.${var.base_domain}",
               "--cookie-samesite=lax",
+              # Plain HTTP on *.localhost: a Secure cookie would never be sent back.
+              "--cookie-secure=${var.route_scheme == "https"}",
               # 30 min idle: the cookie is re-issued on every refresh, so it
               # lapses only after 30 min with no request. The 10 h absolute
               # bound is the issuer's SSO session maximum, which ends the
@@ -299,6 +301,9 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--upstream=static://202",
               "--http-address=0.0.0.0:${local.port}",
               "--skip-provider-button=true",
+              # oauth2-proxy defaults to approval_prompt=force, which makes Dex
+              # show its consent page on every sign-in despite skipApprovalScreen.
+              "--approval-prompt=auto",
               "--set-xauthrequest=true",
               # Unattended callers get 401 JSON, never a login page.
               "--api-route=^/(api|graphql|v1)(/|$)",

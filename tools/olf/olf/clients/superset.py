@@ -6,8 +6,9 @@ release/component-catalog.yaml (`superset_base`).
 
 from __future__ import annotations
 
+import json
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -65,7 +66,7 @@ class SupersetClient(JsonHttpClient):
         # Flask-WTF CSRF protection covers the REST API too; the token is tied to
         # the session cookie the csrf_token call sets. Referer is checked once
         # Superset is served over HTTPS (WTF_CSRF_SSL_STRICT).
-        csrf_token = self.request("GET", "/api/v1/security/csrf_token/")["result"]
+        csrf_token = self._csrf_token()
         with bundle.open("rb") as body:
             self.send(
                 "POST",
@@ -73,3 +74,52 @@ class SupersetClient(JsonHttpClient):
                 files={"bundle": (bundle.name, body, "application/zip")},
                 headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
             )
+
+    def _csrf_token(self) -> str:
+        return str(self.request("GET", "/api/v1/security/csrf_token/")["result"])
+
+    def grant_permissions(self, role: str, permission: str, view_menus: Sequence[str]) -> bool:
+        """Add `permission` on each view menu to `role`, keeping what the role already holds.
+
+        Superset's role-permission endpoint replaces the whole set, so the
+        grant is the union with the current set: repeating it changes nothing,
+        and a partial import never revokes the schemas of another bundle.
+        Returns False, granting nothing, when the role does not exist.
+        """
+        found = self.request("GET", "/api/v1/security/roles/search/", params={"q": _filter("name", role)})
+        role_id = next((r["id"] for r in found.get("result", []) if r["name"] == role), None)
+        if role_id is None:
+            return False
+        # permissions-resources defines no searchable columns (a filter is an HTTP 400),
+        # so the pages are walked and matched here.
+        found_ids: dict[str, int] = {}
+        page = 0
+        while True:
+            body = self.request(
+                "GET",
+                "/api/v1/security/permissions-resources/",
+                params={"q": json.dumps({"page": page, "page_size": 100})},
+            )
+            rows = body.get("result", [])
+            for r in rows:
+                if r["permission"]["name"] == permission:
+                    found_ids[r["view_menu"]["name"]] = int(r["id"])
+            page += 1
+            if not rows or page * 100 >= body.get("count", 0):
+                break
+        missing = [v for v in view_menus if v not in found_ids]
+        if missing:
+            raise ServiceClientError(f"Superset has no {permission} permission on {missing[0]!r}; was it imported?")
+        wanted = {found_ids[v] for v in view_menus}
+        held = self.request("GET", f"/api/v1/security/roles/{role_id}/permissions/").get("result", [])
+        self.send(
+            "POST",
+            f"/api/v1/security/roles/{role_id}/permissions",
+            json={"permission_view_menu_ids": sorted(wanted | {int(r["id"]) for r in held})},
+            headers={"X-CSRFToken": self._csrf_token(), "Referer": self.base_url},
+        )
+        return True
+
+
+def _filter(column: str, value: str) -> str:
+    return json.dumps({"filters": [{"col": column, "opr": "eq", "value": value}], "page_size": 100})

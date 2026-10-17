@@ -104,7 +104,7 @@ here forecloses it and nothing here builds it.
 
 | Field | Meaning |
 | --- | --- |
-| `issuer_url` | https issuer; the token `iss` must equal it |
+| `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.issuer: none` (ADR 0013, development on `*.localhost`), where Dex and Keycloak issue `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
 | `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
 | `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
 | `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}` |
@@ -236,6 +236,7 @@ spec:
         name: github-oauth-app
         client_id_key: client-id          # default
         client_secret_key: client-secret  # default
+      host: github.example.com    # optional: GitHub Enterprise Server; absent is github.com
 ```
 
 Keys outside `precedence` are rejected, as for `role_mapping`. The
@@ -251,6 +252,8 @@ repository admin grants nothing: only the mapped teams count.
 | --- | --- |
 | Upstream app | A GitHub OAuth App owned by the organisation with the one callback `https://auth.<base_domain>/callback`. Dex's connector requests `user:email` (it reads the primary, possibly private, address) and `read:org` (teams); both appear on the authorize page and in an organisation's approval request. The operator creates it and stores its client id and secret in the Secret named by `oauth_app_secret_ref` (validated like `smtp.credentials_secret_ref`: a Secret name, two distinct keys); neither value enters the profile or state. This is Dex's upstream client, distinct from the four downstream consumer clients of `identity.oidc`. An organisation that restricts third-party access must approve the app |
 | Admission | The connector's `orgs` lists the organisation with every mapped team. A GitHub user in none of them is refused by Dex at login, before any token exists, so an uninvited identity never reaches the perimeter |
+| GitHub Enterprise | `host` is rendered as the connector's `hostName`, so Dex uses `https://<host>/login/oauth/*` and `https://<host>/api/v3/*`. Dex requires `rootCA` with `hostName`; the smallest input is no new field: Dex trusts the platform CA from the `olf-local-ca` ConfigMap (public certificate only, local profile). A GHE server behind a different private CA needs a CA input, left until a client has one |
+| E2E without GitHub | CI cannot sign in to github.com. `olf e2e run` runs a stub GHE (`olf/e2e/github_stub.py`, a throwaway pod with a local-CA certificate) when Dex's `hostName` is `olf-e2e-github.<shared namespace>.svc`, and drives the perimeter role decisions through Dex's real connector with throwaway users per team, plus one in no mapped team who must be refused at login. Otherwise those checks skip |
 | Groups claim | `teamNameField: slug`; the `groups` claim carries `<organisation>:<team-slug>` |
 | `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
 | Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's `--scope=openid email profile` (set for Keycloak) becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams |
@@ -413,6 +416,8 @@ is not.
   cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
 
 ## History
+
+#403 added the http issuer exception to `issuer_url` for `spec.access.issuer: none`.
 
 New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
 #176, and #331, which rewrite this ADR as they land.

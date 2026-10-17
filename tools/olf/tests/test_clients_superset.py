@@ -66,3 +66,28 @@ def test_import_assets_uploads_the_bundle_with_the_csrf_token(fake_superset: Fak
     client.import_assets(bundle)
 
     assert fake_superset.imported == [b"PK-bundle-bytes"]
+
+
+def test_grant_permissions_fails_when_the_schema_was_not_imported(fake_superset: FakeSuperset) -> None:
+    client = _client(fake_superset)
+    client.login()
+
+    with pytest.raises(ServiceClientError, match="was it imported"):
+        client.grant_permissions("olf_data_access", "schema_access", ["[Trino].[missing]"])
+
+
+def test_grant_permissions_skips_a_role_superset_never_created(fake_superset: FakeSuperset) -> None:
+    client = _client(fake_superset)
+    client.login()
+
+    assert client.grant_permissions("nope", "schema_access", ["[Trino].[x]"]) is False
+
+
+def test_grant_permissions_finds_a_permission_beyond_the_first_page(fake_superset: FakeSuperset) -> None:
+    fake_superset.permissions.update({i: ("can_read", f"View{i}") for i in range(1, 250)})
+    fake_superset.permissions[777] = ("schema_access", "[Trino].[late_gold]")
+    client = _client(fake_superset)
+    client.login()
+
+    assert client.grant_permissions("olf_data_access", "schema_access", ["[Trino].[late_gold]"]) is True
+    assert fake_superset.roles["olf_data_access"] == {777}

@@ -30,6 +30,7 @@ variable "github" {
   description = "spec.identity.github: the organisation, canonical role to team slugs (lowercase), and the operator-created Secret holding the GitHub OAuth App client id and secret (names and keys only)."
   type = object({
     organization = string
+    host         = optional(string)
     teams        = map(list(string))
     oauth_app_secret_ref = object({
       name              = string
@@ -63,4 +64,16 @@ variable "database_key" {
   description = "Key of Dex's entry in postgresql_contract.databases."
   type        = string
   default     = "dex"
+}
+
+variable "scheme" {
+  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https: the scheme of the issuer URL."
+  type        = string
+  default     = "https"
+}
+
+variable "ca_configmap_name" {
+  description = "ConfigMap in the namespace with the public platform CA as ca.crt (olf-local-ca). Dex trusts it as rootCA for a GitHub Enterprise `github.host`; unused for github.com."
+  type        = string
+  default     = null
 }
