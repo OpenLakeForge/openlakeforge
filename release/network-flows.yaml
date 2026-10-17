@@ -28,6 +28,11 @@ flows:
     to: {scope: stage}
     ports: [80, 8088] # Dagster webserver, Superset; the stage rule is namespace-wide
     tag: V
+  - id: F4
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik}}
+    ports: [8443] # Superset's OIDC calls to the issuer's public URL, rewritten to Traefik
+    tag: V
   - id: F5
     from: {scope: stage}
     to: {scope: kube-system, pods: {k8s-app: kube-dns}}

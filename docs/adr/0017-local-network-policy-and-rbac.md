@@ -175,7 +175,7 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 not allowed | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Keycloak, portal, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` in `contracts.tf` | V |
-| F4 | oauth2-proxy | Traefik 8443 | 8443 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset and OpenMetadata join when #25 lands |
+| F4 | oauth2-proxy | Traefik 8443 | 8443 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Keycloak, Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |

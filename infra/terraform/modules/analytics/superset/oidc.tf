@@ -63,10 +63,17 @@ resource "kubernetes_role_v1" "oidc_secret_target" {
     namespace = var.namespace
     labels    = local.oidc_labels
   }
+  # `create` cannot be limited by resourceNames; the rest is.
   rule {
     api_groups = [""]
     resources  = ["secrets"]
-    verbs      = ["create", "get", "patch", "update"]
+    verbs      = ["create"]
+  }
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = [var.oidc.secret_ref.name]
+    verbs          = ["get", "patch", "update"]
   }
 }
 
