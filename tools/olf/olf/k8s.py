@@ -13,14 +13,18 @@ import base64
 import contextlib
 import json
 import os
+import re
 import socket
 import subprocess
+import tempfile
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
 from olf import log
 from olf.tooling.resolver import build_resolver
+
+_JWT = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
 
 
 class KubectlError(RuntimeError):
@@ -378,3 +382,31 @@ def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
         except requests.RequestException:
             time.sleep(delay)
     return False
+
+
+
+def run_job(job: dict, *, timeout_seconds: int, poll_seconds: float = 5.0) -> None:
+    """Replace the named Job (its spec is immutable) and wait for Complete or Failed.
+
+    `kubectl wait` takes one condition, so a failed Job would block until the
+    deadline; the status is polled instead. The log tail is masked of JWTs.
+    """
+    name, namespace = job["metadata"]["name"], job["metadata"]["namespace"]
+    _kubectl(["delete", "job", name, "-n", namespace, "--ignore-not-found"])
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as manifest:
+        json.dump(job, manifest)
+        manifest.flush()
+        _kubectl(["create", "-f", manifest.name])
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        conditions = _kubectl(
+            ["get", f"job/{name}", "-n", namespace, "-o", "jsonpath={.status.conditions[*].type}"], capture=True
+        ).split()
+        if "Complete" in conditions:
+            return
+        if "Failed" in conditions:
+            tail = _kubectl(["logs", f"job/{name}", "-n", namespace, "--tail=40"], capture=True, check=False)
+            masked = _JWT.sub("***", tail)
+            raise KubectlError(f"Job {name} failed:\n{masked}")
+        time.sleep(poll_seconds)
+    raise KubectlError(f"Job {name} did not finish within {timeout_seconds}s")
