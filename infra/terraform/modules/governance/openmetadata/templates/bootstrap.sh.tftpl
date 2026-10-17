@@ -393,6 +393,7 @@
   if [ -z "$pipeline_id" ]; then
     echo "Failed to retrieve ingestion pipeline id" >&2
     exit 1
+  fi
 
   # Registered, not deployed or triggered, for the hourly refresh CronJob
   # (refresh.tf), which deploys and triggers it through the pipeline client.
