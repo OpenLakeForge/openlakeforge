@@ -66,6 +66,12 @@ variable "database_key" {
   default     = "dex"
 }
 
+variable "scheme" {
+  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https: the scheme of the issuer URL."
+  type        = string
+  default     = "https"
+}
+
 variable "ca_configmap_name" {
   description = "ConfigMap in the namespace with the public platform CA as ca.crt (olf-local-ca). Dex trusts it as rootCA for a GitHub Enterprise `github.host`; unused for github.com."
   type        = string

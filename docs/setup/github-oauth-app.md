@@ -16,6 +16,8 @@ Use an organisation-owned app, not a personal one.
 | Authorization callback URL | `https://auth.<base_domain>/callback` |
 
 `<base_domain>` is `spec.access.base_domain` (`olf.localhost` by default).
+With `spec.access.issuer: none` (plain HTTP on `*.localhost`, development
+only) use `http://<base_domain>` and `http://auth.<base_domain>/callback`.
 Generate a client secret. An organisation that restricts third-party access
 must approve the app.
 

@@ -208,7 +208,8 @@ A successful end-to-end run is the best way to confirm that your installation is
 
 The local stack publishes its user-facing services through one ingress
 (Traefik on `127.0.0.1:80/443`, ADR 0013) at stable HTTPS URLs under
-`spec.access.base_domain`, `olf.localhost` by default. `olf status` lists them:
+`spec.access.base_domain`, `olf.localhost` by default. With `issuer: none`
+the same routes are plain `http://` URLs and no route certificate exists. `olf status` lists them:
 
 ```bash
 olf status --provider local          # a "URLs" section, keyed by contract ref
@@ -217,14 +218,15 @@ olf status --provider local --json   # {"urls": {...}, "sections": {...}}
 
 Its "Certificates not Ready" section names every cert-manager Certificate
 whose `Ready` condition is not `True`, with that condition's reason and
-message; `none` means every route certificate is issued and current.
+message; `none` means every route certificate is issued and current (with
+`issuer: none` there are no route certificates to report).
 
 `olf deploy` checks the ingress's needs before it creates the kind cluster:
-`spec.access.issuer` must be `local-ca`, the only issuer the local provider
-ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
+`spec.access.issuer` must be `local-ca` or `none` (plain HTTP, see ADR 0013),
+the only issuers the local provider ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
 
-The full local e2e suite restarts Traefik and forces a renewal of the
-shared route certificate, then requires the route to answer again and the
+The full local e2e suite restarts Traefik and, with a TLS issuer, forces a
+renewal of the shared route certificate (skipped with `issuer: none`), then requires the route to answer again and the
 served certificate's serial to change with no failed TLS handshake. Each
 drill writes its observations to `.tmp/e2e-evidence/` in the project.
 

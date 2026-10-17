@@ -177,13 +177,13 @@ variable "access_base_domain" {
 }
 
 variable "access_issuer" {
-  description = "Deployment Profile spec.access.issuer (ADR 0013)."
+  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` serves every route over plain HTTP: no route certificates and no browser-facing CA."
   type        = string
   default     = "local-ca"
 
   validation {
-    condition     = var.access_issuer == "local-ca"
-    error_message = "The local provider ships only the local-ca issuer; set spec.access.issuer to local-ca."
+    condition     = contains(["local-ca", "none"], var.access_issuer)
+    error_message = "The local provider ships the local-ca issuer and, for plain HTTP on *.localhost, none; set spec.access.issuer to one of them."
   }
 }
 

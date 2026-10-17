@@ -18,7 +18,7 @@ locals {
   }
 
   database = var.postgresql_contract.databases[var.database_key]
-  issuer   = "https://${var.hostname}"
+  issuer   = "${var.scheme}://${var.hostname}"
   trust_ca = var.github.host != null && var.ca_configmap_name != null
 
   # `groups` carries `<organisation>:<team-slug>` (teamNameField: slug).

@@ -31,7 +31,7 @@ flows:
   - id: F4
     from: {scope: stage}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik}}
-    ports: [8443] # Superset's OIDC calls to the issuer's public URL, rewritten to Traefik
+    ports: [8443, 8000] # Superset's OIDC calls to the issuer's public URL, rewritten to Traefik: websecure, or web with issuer none
     tag: V
   - id: F5
     from: {scope: stage}

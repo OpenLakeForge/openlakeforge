@@ -340,7 +340,7 @@ def _validate_provider(document: object, *, source: str) -> ProviderSpec:
     return ProviderSpec(type=provider, region=region)
 
 
-def _validate_access(document: object, *, source: str) -> AccessSpec:
+def _validate_access(document: object, *, source: str, provider: Provider) -> AccessSpec:
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: spec.access must be an object")
     _forbid_unexpected(document, _ACCESS_FIELDS, where=f"{source}: spec.access")
@@ -349,6 +349,13 @@ def _validate_access(document: object, *, source: str) -> AccessSpec:
     if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
         raise DeploymentProfileError(f"{source}: spec.access.base_domain must be a lowercase DNS name with a dot")
     issuer = _identifier(document.get("issuer", defaults.issuer), field="spec.access.issuer", source=source)
+    # Plain HTTP is safe only where the browser treats the host as loopback and a
+    # secure context: *.localhost, on the local kind cluster (ADR 0013).
+    if issuer == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
+        raise DeploymentProfileError(
+            f"{source}: spec.access.issuer 'none' (plain HTTP) requires provider 'local' "
+            "and a base_domain ending in '.localhost'"
+        )
     return AccessSpec(base_domain=base_domain, issuer=issuer)
 
 
@@ -628,7 +635,7 @@ def validate_deployment_profile(
             )
 
     # Block presence is the switch (ADR 0013): `access: {}` is a valid way to ask for the defaults.
-    access = _validate_access(spec["access"], source=source) if "access" in spec else None
+    access = _validate_access(spec["access"], source=source, provider=provider.type) if "access" in spec else None
     identity = (
         _validate_identity(spec["identity"], source=source, distribution_root=distribution_root)
         if "identity" in spec

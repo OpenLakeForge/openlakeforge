@@ -284,11 +284,13 @@ resource "kubernetes_deployment_v1" "proxy" {
               # The decision is the group claim; a user an administrator
               # created without verifying the address is still let in.
               "--insecure-oidc-allow-unverified-email=true",
-              "--redirect-url=https://${var.callback_host}/oauth2/callback",
+              "--redirect-url=${var.route_scheme}://${var.callback_host}/oauth2/callback",
               "--whitelist-domain=.${var.base_domain}",
               "--cookie-name=${local.cookie_name}",
               "--cookie-domain=.${var.base_domain}",
               "--cookie-samesite=lax",
+              # Plain HTTP on *.localhost: a Secure cookie would never be sent back.
+              "--cookie-secure=${var.route_scheme == "https"}",
               # 30 min idle: the cookie is re-issued on every refresh, so it
               # lapses only after 30 min with no request. The 10 h absolute
               # bound is the issuer's SSO session maximum, which ends the

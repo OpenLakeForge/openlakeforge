@@ -73,7 +73,7 @@ def _synthetic_multi_capability_contract() -> dict:
     return base
 
 
-def _topology(contract: dict, identity: dict | None = None):
+def _topology(contract: dict, identity: dict | None = None, access: dict | None = None):
     stages = {
         name: {
             "enabled": True,
@@ -98,7 +98,11 @@ def _topology(contract: dict, identity: dict | None = None):
                     },
                     "preset": "slim",
                     "stages": stages,
-                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    **(
+                        {"access": access or {}}
+                        if contract["shared"]["access"]["implementation"] == "access.ingress"
+                        else {}
+                    ),
                     **(
                         {"identity": identity or {}}
                         if identity or contract["shared"]["identity"]["implementation"] == "identity.oidc"
@@ -1563,7 +1567,9 @@ def test_identity_oidc_keycloak_profile_compares_only_supplied_fields() -> None:
         parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "role_claim": "other"}))
 
 
-@pytest.mark.parametrize("issuer_url", ["https://idp.example/a b", "https://idp.example/a\tb", "https://idp.example/a\x00b"])
+@pytest.mark.parametrize(
+    "issuer_url", ["https://idp.example/a b", "https://idp.example/a\tb", "https://idp.example/a\x00b"]
+)
 def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
     contract = _oidc_contract("keycloak")
     contract["shared"]["identity"]["issuer_url"] = issuer_url
@@ -1571,7 +1577,10 @@ def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
         parse_provider_contracts(contract, _topology(contract))
 
 
-@pytest.mark.parametrize("issuer_url", ["https://idp.example/<a>", 'https://idp.example/"', "https://idp.example/a\\b", "https://idp.example/%ZZ"])
+@pytest.mark.parametrize(
+    "issuer_url",
+    ["https://idp.example/<a>", 'https://idp.example/"', "https://idp.example/a\\b", "https://idp.example/%ZZ"],
+)
 def test_issuer_url_rejects_non_uri_characters(issuer_url: str) -> None:
     contract = _oidc_contract("keycloak")
     contract["shared"]["identity"]["issuer_url"] = issuer_url
@@ -1674,3 +1683,67 @@ def test_an_oidc_issuer_needs_the_profile_to_declare_identity() -> None:
 
     with pytest.raises(ProviderContractError, match="declares no spec.identity"):
         parse_provider_contracts(contract, _topology(_quickstart_contract()))
+
+
+def _plain_http(contract: dict) -> dict:
+    """The local fixture as `issuer: none` renders it: http routes and callback, tls_mode none."""
+    access = contract["shared"]["access"]
+    access["issuer"] = "none"
+    access["tls_mode"] = "none"
+    for route in access["routes"].values():
+        route["url"] = route["url"].replace("https://", "http://")
+    perimeter = access["perimeter"]
+    perimeter["callback_url"] = perimeter["callback_url"].replace("https://", "http://")
+    identity = contract["shared"]["identity"]
+    identity["issuer_url"] = identity["issuer_url"].replace("https://", "http://")
+    return contract
+
+
+def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
+    contract = _plain_http(_oidc_contract("keycloak"))
+
+    parsed = parse_provider_contracts(contract, _topology(contract, access={"issuer": "none"}))
+
+    access = parsed.shared.values["access"]
+    assert access["tls_mode"] == "none"
+    assert all(route["url"].startswith("http://") for route in access["routes"].values())
+    assert parsed.shared.values["identity"]["issuer_url"].startswith("http://")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda access: access["routes"]["shared/query"].__setitem__("url", "https://trino.olf.localhost"),
+            "must be http",
+        ),
+        (
+            lambda access: access["perimeter"].__setitem__("callback_url", "https://oauth2.olf.localhost/x"),
+            "callback_url",
+        ),
+        (lambda access: access.__setitem__("tls_mode", "ingress-terminated"), "tls_mode is 'none' exactly"),
+    ],
+)
+def test_plain_http_access_contract_fails_closed(mutate, match: str) -> None:
+    contract = _plain_http(_oidc_contract("keycloak"))
+    topology = _topology(contract, access={"issuer": "none"})
+    mutate(contract["shared"]["access"])
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
+def test_tls_mode_none_is_rejected_with_a_tls_issuer() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["access"]["tls_mode"] = "none"
+
+    with pytest.raises(ProviderContractError, match="tls_mode is 'none' exactly"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:
+    contract = _oidc_contract("keycloak")
+    contract["shared"]["identity"]["issuer_url"] = contract["shared"]["identity"]["issuer_url"].replace("https", "http")
+
+    with pytest.raises(ProviderContractError, match="must be an https URL"):
+        parse_provider_contracts(contract, _topology(contract))

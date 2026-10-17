@@ -10,14 +10,14 @@ import pytest
 from conftest import e2e_cfg
 
 from olf.e2e import _ingress
+from olf.e2e._identity import pod_discovery_script
 from olf.e2e._shell import E2EError
 
 _URL = "https://dagster-dev.olf.localhost"
+_REAL_NO_ROUTE_TLS = _ingress._no_route_tls
 
 
-def _drill(
-    monkeypatch: pytest.MonkeyPatch, served: list[str | Exception], conditions: str = ""
-) -> list[list[str]]:
+def _drill(monkeypatch: pytest.MonkeyPatch, served: list[str | Exception], conditions: str = "") -> list[list[str]]:
     commands: list[list[str]] = []
     serials = iter(served)
 
@@ -33,6 +33,7 @@ def _drill(
 
     monkeypatch.setattr(_ingress, "kubectl", _kubectl)
     monkeypatch.setattr(_ingress, "_no_ingress", lambda _cfg: False)
+    monkeypatch.setattr(_ingress, "_no_route_tls", lambda _cfg: False)
     monkeypatch.setattr(_ingress, "_route", lambda _cfg: contextlib.nullcontext(_URL))
     monkeypatch.setattr(_ingress, "_served_serial", _served_serial)
     monkeypatch.setattr(_ingress.time, "sleep", lambda _seconds: None)
@@ -143,3 +144,23 @@ def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from
         reply = SimpleNamespace(status_code=status, headers={"Location": location})
         monkeypatch.setattr(_ingress.requests, "get", lambda *_args, reply=reply, **_kwargs: reply)
         assert _ingress._dagster_answers(_URL, attempts=1, delay=0) is answered
+
+
+def test_renewal_drill_skips_when_routes_are_plain_http(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    commands = _drill(monkeypatch, [])
+    monkeypatch.setattr(_ingress, "_no_route_tls", _REAL_NO_ROUTE_TLS)
+    monkeypatch.setattr(
+        _ingress, "load_provider_contracts_or_raise", lambda _cfg: {"shared": {"access": {"tls_mode": "none"}}}
+    )
+
+    _ingress.check_certificate_renewal(e2e_cfg(tmp_path))
+
+    assert commands == []
+
+
+def test_pod_discovery_probe_uses_no_ca_and_port_80_over_plain_http() -> None:
+    plain = pod_discovery_script("auth.olf.localhost", "http://auth.olf.localhost/x", tls=False)
+    secure = pod_discovery_script("auth.olf.localhost", "https://auth.olf.localhost/x", tls=True)
+
+    assert "--cacert" not in plain and "auth.olf.localhost:80:" in plain
+    assert "--cacert /ca/ca.crt" in secure and "auth.olf.localhost:443:" in secure

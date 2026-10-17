@@ -18,7 +18,7 @@ locals {
   }
 
   database = var.postgresql_contract.databases[var.database_key]
-  issuer   = "https://${var.hostname}/realms/${var.realm_name}"
+  issuer   = "${var.scheme}://${var.hostname}/realms/${var.realm_name}"
 
   # The env var the Job reads each client secret from. keycloak-config-cli
   # substitutes `$(env:NAME)` in the realm file, so no secret value ever
@@ -154,7 +154,7 @@ resource "kubernetes_deployment_v1" "keycloak" {
             "--http-enabled=true",
             # Traefik terminates TLS; `--hostname` fixes the issuer to the
             # browser-facing URL whatever address a caller used.
-            "--hostname=https://${var.hostname}",
+            "--hostname=${var.scheme}://${var.hostname}",
             "--proxy-headers=xforwarded",
             "--health-enabled=true",
             "--db=postgres",

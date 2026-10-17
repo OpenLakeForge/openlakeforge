@@ -338,10 +338,12 @@ locals {
   # no ingress; no spec.identity, no issuer and no perimeter.
   access_enabled   = var.access_base_domain != null
   identity_enabled = var.identity_issuer != null
-  # Route TLS (cert-manager, the local CA, route certificates) is the one
-  # TLS-specific switch; today every declared access block has it. Derive it
-  # from the access issuer here if a plain-HTTP mode is added.
-  route_tls = local.access_enabled
+  # Route TLS (route certificates) is the one TLS-specific switch; `issuer:
+  # none` is plain HTTP on *.localhost. cert-manager and the local CA stay
+  # deployed with spec.access: pods still mount the CA ConfigMap, and Trino's
+  # internal certificate (ADR 0016) needs the issuer.
+  route_tls    = local.access_enabled && var.access_issuer != "none"
+  route_scheme = local.route_tls ? "https" : "http"
   # coalesce() skips "" too, so it fails on a null quickstart domain.
   base_domain = var.access_base_domain == null ? "" : var.access_base_domain
 
@@ -360,13 +362,13 @@ locals {
   # Where each consumer's client may send the browser back. Superset's callback
   # is Flask-AppBuilder's /oauth-authorized/<provider>, provider `olf`.
   identity_consumer_redirects = {
-    superset     = [for name in keys(local.analytics_stages) : "https://superset-${name}.${local.base_domain}/oauth-authorized/olf"]
-    openmetadata = local.governance_enabled ? ["https://openmetadata.${local.base_domain}/*"] : []
-    trino        = ["https://trino.${local.base_domain}/*"]
+    superset     = [for name in keys(local.analytics_stages) : "${local.route_scheme}://superset-${name}.${local.base_domain}/oauth-authorized/olf"]
+    openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/*"] : []
+    trino        = ["${local.route_scheme}://trino.${local.base_domain}/*"]
   }
   identity_client_redirects = {
     for name in ["perimeter", "superset", "openmetadata", "trino"] : name => {
-      redirect_uris = name == "perimeter" ? ["https://${local.perimeter_callback_host}/oauth2/callback"] : local.identity_consumer_redirects[name]
+      redirect_uris = name == "perimeter" ? ["${local.route_scheme}://${local.perimeter_callback_host}/oauth2/callback"] : local.identity_consumer_redirects[name]
     }
   }
 
@@ -460,7 +462,7 @@ locals {
     for ref, route in local.service_routes : ref => {
       stage = startswith(ref, "stage/") ? split("/", ref)[1] : "shared"
       name  = element(split("/", ref), length(split("/", ref)) - 1)
-      url   = "https://${route.host}"
+      url   = "${local.route_scheme}://${route.host}"
     }
   }
 
@@ -503,10 +505,10 @@ locals {
     cluster_issuer_name  = try(module.cert_manager[0].cluster_issuer_name, null)
     base_domain          = var.access_base_domain
     issuer               = var.access_issuer
-    tls_mode             = "ingress-terminated"
+    tls_mode             = local.route_tls ? "ingress-terminated" : "none"
     internal_access_mode = "cluster-dns"
     routes = {
-      for ref, route in local.access_routes : ref => { url = "https://${route.host}", enabled = true, exposure = "user-facing" }
+      for ref, route in local.access_routes : ref => { url = "${local.route_scheme}://${route.host}", enabled = true, exposure = "user-facing" }
     }
     perimeter  = try(module.perimeter[0].contract, null)
     local_only = true

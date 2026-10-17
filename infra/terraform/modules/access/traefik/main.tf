@@ -51,7 +51,9 @@ resource "helm_release" "traefik" {
     [file(var.base_values_file)],
     # Middlewares are defined in the file provider, not as CRD objects: a
     # Middleware kind cannot be planned before this release installs its CRDs.
-    [yamlencode({ tlsStore = { default = { defaultCertificate = { secretName = local.secret_name } } } })],
+    var.route_tls ? [yamlencode({ tlsStore = { default = { defaultCertificate = { secretName = local.secret_name } } } })] : [],
+    # Plain HTTP serves web only; 443 is not published on the host.
+    var.route_tls ? [] : [yamlencode({ ports = { websecure = { hostPort = null } } })],
     local.dynamic_config == null ? [] : [yamlencode({ providers = { file = { enabled = true, content = local.dynamic_config } } })],
     # The chart mounts each Secret by its own name; it holds the CA as ca.crt.
     length(var.backend_transports) == 0 ? [] : [yamlencode({
@@ -70,8 +72,8 @@ resource "kubernetes_ingress_v1" "routes" {
     name      = each.value.group == "" ? "openlakeforge-routes" : "openlakeforge-routes-${each.value.group}"
     namespace = each.value.namespace
     annotations = merge(
-      { "traefik.ingress.kubernetes.io/router.entrypoints" = "websecure" },
-      each.value.namespace == var.namespace && local.primary_group[each.value.namespace] == each.value.group ? { "cert-manager.io/cluster-issuer" = var.cluster_issuer_name } : {},
+      { "traefik.ingress.kubernetes.io/router.entrypoints" = var.route_tls ? "websecure" : "web" },
+      var.route_tls && each.value.namespace == var.namespace && local.primary_group[each.value.namespace] == each.value.group ? { "cert-manager.io/cluster-issuer" = var.cluster_issuer_name } : {},
       each.value.group == "" ? {} : { "traefik.ingress.kubernetes.io/router.middlewares" = join(",", var.group_middlewares[each.value.group]) },
     )
   }
@@ -79,13 +81,16 @@ resource "kubernetes_ingress_v1" "routes" {
   spec {
     ingress_class_name = helm_release.traefik.name
 
-    tls {
-      hosts = each.value.namespace != var.namespace ? [] : (
-        local.primary_group[each.value.namespace] == each.value.group
-        ? distinct(local.namespace_hosts[each.value.namespace])
-        : distinct([for route in values(var.routes) : route.tls_host if route.namespace == each.value.namespace && route.group == each.value.group])
-      )
-      secret_name = each.value.namespace == var.namespace ? local.secret_name : null
+    dynamic "tls" {
+      for_each = var.route_tls ? [1] : []
+      content {
+        hosts = each.value.namespace != var.namespace ? [] : (
+          local.primary_group[each.value.namespace] == each.value.group
+          ? distinct(local.namespace_hosts[each.value.namespace])
+          : distinct([for route in values(var.routes) : route.tls_host if route.namespace == each.value.namespace && route.group == each.value.group])
+        )
+        secret_name = each.value.namespace == var.namespace ? local.secret_name : null
+      }
     }
 
     dynamic "rule" {

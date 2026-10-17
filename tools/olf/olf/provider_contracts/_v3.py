@@ -60,7 +60,8 @@ _IDENTITY_REF = "shared/identity"
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
 # The ingress terminates TLS with a certificate from the issuer; the only mode
 # the local Traefik/cert-manager adapter implements.
-_TLS_MODES = frozenset({"ingress-terminated"})
+# `none` is the plain-HTTP development mode, tied to spec.access.issuer "none".
+_TLS_MODES = frozenset({"ingress-terminated", "none"})
 # Shared bindings that are platform plumbing rather than network services, so
 # an ingress has no backend to send a route to.
 _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
@@ -134,7 +135,7 @@ def _secret_ref(value: object, *, where: str) -> None:
             raise ProviderContractError(f"{where}.{field} is not a valid Kubernetes Secret {field}")
 
 
-def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | None) -> None:
+def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | None, *, allow_http: bool) -> None:
     """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
     a canonical role or a consumer, never by an issuer product; credentials are
     Secret references only."""
@@ -165,7 +166,11 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | N
         raise ProviderContractError(
             f"{where}.capabilities.email_delivery must be true exactly when spec.identity.smtp is set"
         )
-    _oidc_issuer_url(identity["issuer_url"], where=f"{where}.issuer_url")
+    _oidc_issuer_url(
+        identity["issuer_url"],
+        where=f"{where}.issuer_url",
+        allow_http=allow_http,
+    )
     _string(identity["role_claim"], where=f"{where}.role_claim")
     roles = identity["roles"]["precedence"]
     mapping = _mapping(identity["role_mapping"], where=f"{where}.role_mapping")
@@ -231,8 +236,14 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         )
     if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
         raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
-    if _string(access["tls_mode"], where="shared.access.tls_mode") not in _TLS_MODES:
+    tls_mode = _string(access["tls_mode"], where="shared.access.tls_mode")
+    if tls_mode not in _TLS_MODES:
         raise ProviderContractError(f"shared.access.tls_mode must be one of {sorted(_TLS_MODES)!r}")
+    if (tls_mode == "none") != (topology.access.issuer == "none"):
+        raise ProviderContractError(
+            "shared.access.tls_mode is 'none' exactly when the profile's access issuer is 'none'"
+        )
+    scheme = "http" if tls_mode == "none" else "https"
     hosts: set[str] = set()
     for ref, route in _mapping(access["routes"], where="shared.access.routes").items():
         where = f"shared.access.routes[{ref!r}]"
@@ -250,13 +261,13 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         host = (parts.hostname or "").lower()
         # One host per service: a path or port would let two services share a host.
         if (
-            parts.scheme != "https"
+            parts.scheme != scheme
             or parts.port
             or parts.path not in ("", "/")
             or parts.query
             or not _BASE_DOMAIN_PATTERN.fullmatch(host)
         ):
-            raise ProviderContractError(f"{where}.url must be https://<host>.{base_domain}")
+            raise ProviderContractError(f"{where}.url must be {scheme}://<host>.{base_domain}")
         # ADR 0013: a stage route is `<service>-<stage>` under the base domain, a
         # shared route a bare `<service>`, so a DEV backend can never answer on a
         # PROD or shared hostname.
@@ -264,21 +275,21 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         label = host[: -len(suffix)] if host.endswith(suffix) else ""
         if ref == _PORTAL_REF:
             if host != base_domain.lower():
-                raise ProviderContractError(f"{where}.url must be https://{base_domain}")
+                raise ProviderContractError(f"{where}.url must be {scheme}://{base_domain}")
         elif ref.startswith("stage/"):
             stage_suffix = f"-{ref.split('/')[1]}"
             if not label.endswith(stage_suffix) or "." in label or label == stage_suffix:
-                raise ProviderContractError(f"{where}.url must be https://<service>{stage_suffix}{suffix}")
+                raise ProviderContractError(f"{where}.url must be {scheme}://<service>{stage_suffix}{suffix}")
         elif not label or "." in label:
-            raise ProviderContractError(f"{where}.url must be https://<service>{suffix}")
+            raise ProviderContractError(f"{where}.url must be {scheme}://<service>{suffix}")
         if host in hosts:
             raise ProviderContractError(f"{where}.url host {host!r} is already routed to another service")
         hosts.add(host)
     if "perimeter" in access:
-        _parse_perimeter(access["perimeter"], routes=access["routes"], base_domain=base_domain)
+        _parse_perimeter(access["perimeter"], routes=access["routes"], base_domain=base_domain, scheme=scheme)
 
 
-def _parse_perimeter(value: object, *, routes: Mapping[str, Any], base_domain: str) -> None:
+def _parse_perimeter(value: object, *, routes: Mapping[str, Any], base_domain: str, scheme: str) -> None:
     """shared.access.perimeter (ADR 0014 seam 3): which routes sit behind authentication.
 
     A claim that a route is protected is only worth having if nothing
@@ -307,8 +318,8 @@ def _parse_perimeter(value: object, *, routes: Mapping[str, Any], base_domain: s
     callback = urlsplit(_absolute_http_uri(document["callback_url"], where=f"{where}.callback_url"))
     host = (callback.hostname or "").lower()
     on_base_domain = host.endswith(f".{base_domain.lower()}")
-    if callback.scheme != "https" or callback.path != "/oauth2/callback" or not on_base_domain:
-        raise ProviderContractError(f"{where}.callback_url must be https://<host>.{base_domain}/oauth2/callback")
+    if callback.scheme != scheme or callback.path != "/oauth2/callback" or not on_base_domain:
+        raise ProviderContractError(f"{where}.callback_url must be {scheme}://<host>.{base_domain}/oauth2/callback")
 
 
 def _parse_shared(
@@ -358,7 +369,11 @@ def _parse_shared(
     if "roles" not in parsed["identity"]:
         raise ProviderContractError("shared.identity is missing required field 'roles'")
     _check_identity_roles(parsed["identity"]["roles"], distribution_root)
-    _check_identity_oidc(parsed["identity"], topology.identity)
+    _check_identity_oidc(
+        parsed["identity"],
+        topology.identity,
+        allow_http=topology.access is not None and topology.access.issuer == "none",
+    )
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")

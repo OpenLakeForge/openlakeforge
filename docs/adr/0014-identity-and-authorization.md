@@ -104,7 +104,7 @@ here forecloses it and nothing here builds it.
 
 | Field | Meaning |
 | --- | --- |
-| `issuer_url` | https issuer; the token `iss` must equal it |
+| `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.issuer: none` (ADR 0013, development on `*.localhost`), where Dex and Keycloak issue `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
 | `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
 | `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
 | `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}` |
@@ -416,6 +416,8 @@ is not.
   cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
 
 ## History
+
+#403 added the http issuer exception to `issuer_url` for `spec.access.issuer: none`.
 
 New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
 #176, and #331, which rewrite this ADR as they land.

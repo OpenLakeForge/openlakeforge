@@ -29,6 +29,6 @@ output "contract" {
     implementation   = "perimeter.oauth2_proxy"
     enabled          = true
     protected_routes = sort(var.protected_refs)
-    callback_url     = "https://${var.callback_host}/oauth2/callback"
+    callback_url     = "${var.route_scheme}://${var.callback_host}/oauth2/callback"
   }
 }
