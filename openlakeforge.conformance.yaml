@@ -14,6 +14,10 @@ spec:
   provider:
     type: local
   preset: full
+  # Declared explicitly: the nightly keeps testing the secured stack (ingress,
+  # TLS, issuer, perimeter). Without these blocks a profile is a quickstart.
+  access: {}
+  identity: {}
   stages:
     dev:
       enabled: true

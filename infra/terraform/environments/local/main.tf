@@ -235,15 +235,19 @@ module "seaweedfs" {
 
 module "cert_manager" {
   source = "../../modules/access/cert-manager"
+  # Also for Trino's internal certificate (ADR 0016), which needs an issuer
+  # even when no route is TLS-terminated.
+  count = local.route_tls || var.trino_workload_authentication != "off" ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
   chart_package_path = var.cert_manager_chart_package_path
-  base_domain        = var.access_base_domain
+  base_domain        = local.base_domain
 }
 
 module "portal" {
   source = "../../modules/access/portal"
+  count  = local.access_enabled ? 1 : 0
 
   namespace = kubernetes_namespace_v1.shared.metadata[0].name
   links     = local.portal_links
@@ -251,14 +255,15 @@ module "portal" {
 
 module "traefik" {
   source = "../../modules/access/traefik"
+  count  = local.access_enabled ? 1 : 0
 
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/traefik.yaml"
   chart_package_path  = var.traefik_chart_package_path
   routes              = local.ingress_routes
-  cluster_issuer_name = module.cert_manager.cluster_issuer_name
-  group_middlewares   = module.perimeter.group_middlewares
-  dynamic_config      = module.perimeter.traefik_dynamic_config
+  cluster_issuer_name = try(module.cert_manager[0].cluster_issuer_name, null)
+  group_middlewares   = local.identity_enabled ? module.perimeter[0].group_middlewares : {}
+  dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
   backend_transports  = module.trino.traefik_backends
 }
 
@@ -270,12 +275,13 @@ module "traefik" {
 # restarts until the route answers.
 module "perimeter" {
   source = "../../modules/access/perimeter"
+  count  = local.identity_enabled ? 1 : 0
 
   namespace         = kubernetes_namespace_v1.shared.metadata[0].name
-  base_domain       = var.access_base_domain
+  base_domain       = local.base_domain
   callback_host     = local.perimeter_callback_host
-  portal_url        = "https://${var.access_base_domain}"
-  ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution.ca_configmap_name : null
+  portal_url        = "https://${local.base_domain}"
+  ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
   identity_roles    = local.identity_roles
   role_mapping      = local.identity_oidc.role_mapping
   role_claim        = local.identity_oidc.role_claim
@@ -303,9 +309,10 @@ removed {
 # browser. ADR 0013.
 module "in_cluster_resolution" {
   source = "../../modules/access/in-cluster-resolution"
+  count  = local.access_enabled ? 1 : 0
 
   namespace        = kubernetes_namespace_v1.shared.metadata[0].name
-  base_domain      = var.access_base_domain
+  base_domain      = local.base_domain
   trust_namespaces = values(local.stage_namespaces)
   trust_namespace_uids = concat(
     [kubernetes_namespace_v1.shared.metadata[0].uid],
@@ -325,7 +332,7 @@ module "keycloak" {
   count  = local.identity_keycloak ? 1 : 0
 
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  hostname            = "auth.${var.access_base_domain}"
+  hostname            = "auth.${local.base_domain}"
   roles               = local.identity_roles.precedence
   clients             = local.identity_client_redirects
   smtp                = var.identity_smtp
@@ -341,7 +348,7 @@ module "dex" {
   count  = local.identity_dex ? 1 : 0
 
   namespace = kubernetes_namespace_v1.shared.metadata[0].name
-  hostname  = "auth.${var.access_base_domain}"
+  hostname  = "auth.${local.base_domain}"
   github    = var.identity_github
   # A literal, as in the query contract: module.in_cluster_resolution waits on Traefik, a cycle through the routes.
   ca_configmap_name   = "olf-local-ca"
@@ -351,6 +358,29 @@ module "dex" {
   depends_on = [
     module.postgresql,
   ]
+}
+
+# Ingress and perimeter became optional (block presence in the profile); keep
+# the state of clusters that already have them.
+moved {
+  from = module.cert_manager
+  to   = module.cert_manager[0]
+}
+moved {
+  from = module.portal
+  to   = module.portal[0]
+}
+moved {
+  from = module.traefik
+  to   = module.traefik[0]
+}
+moved {
+  from = module.perimeter
+  to   = module.perimeter[0]
+}
+moved {
+  from = module.in_cluster_resolution
+  to   = module.in_cluster_resolution[0]
 }
 
 module "polaris" {
@@ -403,7 +433,7 @@ module "trino" {
 
   stage_namespaces        = local.stage_namespaces
   workload_authentication = var.trino_workload_authentication
-  tls_issuer_name         = module.cert_manager.cluster_issuer_name
+  tls_issuer_name         = try(module.cert_manager[0].cluster_issuer_name, null)
 
   depends_on = [
     module.polaris,
@@ -565,7 +595,9 @@ module "network_policy" {
   source = "../../modules/security/network-policy"
 
   stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
+  shared_namespace = kubernetes_namespace_v1.shared.metadata[0].name
   flows            = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).flows
+  workloads        = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).workloads
   apiserver_cidrs = [
     for ip in concat(
       [data.kubernetes_service_v1.apiserver.spec[0].cluster_ip],

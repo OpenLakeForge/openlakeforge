@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import time
+from collections.abc import Callable
 
 from openlakeforge_domain import Product
 
@@ -11,6 +13,10 @@ from olf.e2e._shell import E2EConfig, E2EError, kubectl
 
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
+# kindnet programs a new pod's policy asynchronously (ADR 0017 History), so a
+# restarted Polaris is briefly unreachable after it reports Ready.
+POLARIS_QUERY_RETRY_SECONDS = 60
+POLARIS_QUERY_RETRY_INTERVAL_SECONDS = 5
 
 # The coordinator mounts its serving certificate's CA only when workload
 # authentication is on (ADR 0016), so the pod itself says which listener to use
@@ -144,6 +150,26 @@ def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> No
             raise E2EError(f"expected {catalog}.{mart} to contain rows, got {count}")
 
 
+def retry_until_deadline(
+    action: Callable[[], None],
+    *,
+    timeout: float = POLARIS_QUERY_RETRY_SECONDS,
+    interval: float = POLARIS_QUERY_RETRY_INTERVAL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Run `action` until it succeeds; re-raise its last E2EError once `timeout` has passed."""
+    deadline = clock() + timeout
+    while True:
+        try:
+            action()
+            return
+        except E2EError:
+            if clock() >= deadline:
+                raise
+            sleep(interval)
+
+
 def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
     """Verify that Polaris keeps table identity after its pod is recreated."""
     log.step("Checking Polaris restart recovery...")
@@ -178,7 +204,7 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
             f"--timeout={POLARIS_RESTART_TIMEOUT_SECONDS}s",
         ],
     )
-    check_trino_tables_and_marts(cfg)
+    retry_until_deadline(lambda: check_trino_tables_and_marts(cfg))
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:

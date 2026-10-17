@@ -11,8 +11,10 @@ serving certificate and adds an HTTPS listener beside the HTTP one; dbt run
 pods, `olf e2e` and Superset use it, sending only the user name: migration steps 2-3),
 and `password` (the HTTP listener is replaced, `PASSWORD` authentication and the
 `principals` rules turn on, and Traefik gets a verified HTTPS transport to
-Trino: step 4). OpenMetadata is still on HTTP and no caller sends its password
-yet, so `password` must not be used until they do. What binds is
+Trino: step 4). OpenMetadata is still on HTTP: its server-created ingestion
+pods cannot receive the CA, so OLF will run the Trino metadata ingestion as its
+own Job (History, #26). No caller sends its password yet, so `password` must not
+be used until that Job and step 4 land. What binds is
 the selection, the principal mapping and the migration order. Until the migration lands Trino
 runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
@@ -110,7 +112,7 @@ bcrypt). A stage namespace never receives another stage's Secret. Chart wiring:
 | --- | --- |
 | Superset (per stage) | `olf report import` writes `trino://<principal>@trino.olf-system.svc.cluster.local:8443/lakehouse_<stage>`, the CA as `server_cert`, the password in `encrypted_extra` (`auth_method: basic`) read from `trino-credential` through RBAC. The connection uuid is unchanged |
 | dbt in Dagster run pods | `libs/dbt/profiles/*.yml`: `method: ldap`, `password: env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD')` from a `secretKeyRef` on `trino-credential`, `cert:` the mounted CA, FQDN host, port 8443. `impersonation_user` is there for #179 |
-| OpenMetadata | the bootstrap Job creates the service with `authType: {password}` and `verify:` the CA path; the ingestion pods must mount the CA (**to verify**) |
+| OpenMetadata | the bootstrap Job creates the service with `authType: {password}` and `verify:` the CA path. The Trino metadata ingestion runs as an **OLF-owned Kubernetes Job** (pinned `ingestion-base` image, `metadata ingest`, `olf-local-ca` mounted), not through the OpenMetadata pipeline client, whose pods accept no volumes in 1.13.6 |
 | `olf e2e` | the CLI in the coordinator pod: `--server https://localhost:8443 --truststore-path <CA> --user <principal>`, password in `TRINO_PASSWORD`, never on a command line. `_isolation.py` gains the direct-request cases below |
 
 ### Rotation
@@ -131,7 +133,7 @@ callers cannot be given credentials first. Order:
 | --- | --- | --- |
 | 1. Contract carries the credential reference, scheme and CA | platform | none |
 | 2. Job creates and replicates credentials; Trino gets the certificate and HTTPS listener, authentication still off | platform | none |
-| 3. Callers move to HTTPS and the CA, still sending only the user name (accepted, case 0b) | platform, artifacts | none; proves trust from every caller |
+| 3. Callers move to HTTPS and the CA, still sending only the user name (accepted, case 0b). OpenMetadata's Trino ingestion moves by becoming an OLF-owned Job (consumer table) | platform, artifacts | none; proves trust from every caller |
 | 4. Cutover: enable `PASSWORD` and `principals`, ship the passwords in the same deploy | platform, then artifacts | Trino already restarts (`Recreate`); callers fail until their password lands, in-flight runs retry |
 | 5. `olf e2e` runs the isolation cases, an unattended pipeline and a dashboard query | e2e | none |
 
@@ -248,5 +250,15 @@ database URI on the `tls_port` with `engine_params.connect_args`
 `http_scheme: https` and `verify` set to the `olf-local-ca` ConfigMap, which
 the superset module mounts in the Superset pods. This mounts the CA where the
 driver runs instead of storing it as `server_cert`, which step 4 may still
-choose. OpenMetadata ingestion remains: the ingestion pods' CA mount is
-unresolved.
+choose. OpenMetadata ingestion remains and is blocked: in 1.13.6 the Trino
+connection has no `sslConfig` or CA-content field, only a `verify` string that
+the ingestion passes to `requests` as a file path, and the k8s pipeline client
+(`K8sPipelineClientConfig`) accepts no volumes, only plain-string
+`extraEnvVars`. No supported way puts the CA file in pods the OpenMetadata
+server creates. **Chosen (maintainer review):** OLF runs the Trino metadata
+ingestion itself as a Kubernetes Job, with the same pinned `ingestion-base`
+image and `metadata ingest` workflow, the `olf-local-ca` ConfigMap mounted and
+`verify` pointing at it, instead of deploying it through the OpenMetadata
+pipeline client. Rejected: an image carrying the CA (the CA is per cluster), an
+OpenMetadata upgrade (an unknown, larger change) and `verify: false`.
+`password` stays unusable until that Job lands.

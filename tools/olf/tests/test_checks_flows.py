@@ -6,7 +6,7 @@ from olf.commands.checks._flows import ADR_PATH, FLOWS_PATH, flow_errors
 
 ROOT = Path(__file__).resolve().parents[3]
 VALID = (
-    "flows:\n  - id: F6\n    from: {scope: stage}\n"
+    "workloads:\n  pg: {app.kubernetes.io/name: postgresql}\nflows:\n  - id: F6\n    from: {scope: stage}\n"
     "    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql}}\n    ports: [5432]\n    tag: V\n"
 )
 
@@ -37,3 +37,7 @@ def test_rejects_unknown_flow_id_port_scope_and_tag(tmp_path: Path) -> None:
 
 def test_rejects_pods_on_a_stage_endpoint(tmp_path: Path) -> None:
     assert _errors(tmp_path, VALID.replace("from: {scope: stage}", "from: {scope: stage, pods: {a: b}}"))
+
+
+def test_rejects_missing_or_empty_workloads(tmp_path: Path) -> None:
+    assert _errors(tmp_path, VALID.replace("  pg: {app.kubernetes.io/name: postgresql}\n", ""))

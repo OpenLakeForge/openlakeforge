@@ -11,6 +11,7 @@ spec:
   stages:
     dev:
       enabled: true
+  access: {}
   identity:
     smtp:
       host: smtp.example.org

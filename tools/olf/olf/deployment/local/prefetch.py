@@ -73,7 +73,9 @@ def polaris_images(server_arch: str) -> tuple[str, str]:
     return _POLARIS_IMAGES.get(server_arch, _POLARIS_IMAGES_FALLBACK)
 
 
-def selected_images(features: DeploymentFeatures, *, server_arch: str, keycloak: bool = True) -> tuple[str, ...]:
+def selected_images(
+    features: DeploymentFeatures, *, server_arch: str, keycloak: bool = True, perimeter: bool = True
+) -> tuple[str, ...]:
     polaris_image, polaris_admin_image = polaris_images(server_arch)
     images: list[str] = []
     if features.governance_enabled:
@@ -81,7 +83,9 @@ def selected_images(features: DeploymentFeatures, *, server_arch: str, keycloak:
     images += [polaris_image, polaris_admin_image]
     if features.governance_enabled:
         images += [_OPENMETADATA_SERVER_IMAGE, _OPENMETADATA_INGESTION_IMAGE]
-    images += [_POSTGRES_IMAGE, _OAUTH2_PROXY_IMAGE]
+    images.append(_POSTGRES_IMAGE)
+    if perimeter:
+        images.append(_OAUTH2_PROXY_IMAGE)
     if keycloak:
         images += [_KEYCLOAK_IMAGE, _KEYCLOAK_CONFIG_CLI_IMAGE]
     if features.analytics_enabled:
@@ -120,8 +124,12 @@ def prefetch_images(
     work_dir: Path | None = None,
 ) -> None:
     server_arch = tools.docker.server_arch(env=env) or _platform.machine()
+    identity = config.context.topology.identity
     images = selected_images(
-        config.features, server_arch=server_arch, keycloak=config.context.topology.identity.issuer == "keycloak"
+        config.features,
+        server_arch=server_arch,
+        keycloak=identity is not None and identity.issuer == "keycloak",
+        perimeter=identity is not None,
     )
 
     nodes = tools.kind.get_nodes(config.cluster.name, env=env)
@@ -138,6 +146,15 @@ def prefetch_images(
                 _prefetch_one_image(image, tools, nodes=nodes, env=env, scratch_dir=Path(scratch), config=config)
 
     log.step("All images pre-loaded.")
+
+
+def load_image_into_nodes(config: LocalDeploymentConfig, tools: Toolkit, image: str, *, env: Mapping[str, str]) -> None:
+    """Prefetch a single image, for callers that run before the prefetch phase."""
+    nodes = tools.kind.get_nodes(config.cluster.name, env=env)
+    if not nodes:
+        raise DeploymentPreconditionError(f"kind cluster '{config.cluster.name}' has no nodes.")
+    with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
+        _prefetch_one_image(image, tools, nodes=nodes, env=env, scratch_dir=Path(scratch), config=config)
 
 
 def _prefetch_one_image(
