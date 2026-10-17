@@ -494,13 +494,13 @@ def bundle_schema_perms(bundle_path: Path) -> set[str]:
             if not isinstance(document, dict):
                 continue
             if parts[1] == "databases":
-                databases[str(document["uuid"])] = str(document["database_name"])
+                databases[_canonical_uuid(document["uuid"]) or ""] = str(document["database_name"])
             else:
                 datasets.append(document)
     return {
-        f"[{databases[d['database_uuid']]}].[{d['schema']}]"
+        f"[{databases[ref]}].[{d['schema']}]"
         for d in datasets
-        if d.get("schema") and d.get("database_uuid") in databases
+        if d.get("schema") and (ref := _canonical_uuid(d.get("database_uuid"))) in databases
     }
 
 

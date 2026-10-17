@@ -242,6 +242,8 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             return self._reply(200, {"message": "OK"})
         role_grant = re.fullmatch(r"/api/v1/security/roles/(\d+)/permissions", self.path)
         if role_grant and self._authorized():
+            if self.headers.get("X-CSRFToken") != "csrf-1":
+                return self._reply(400, {"errors": "The CSRF token is missing."})
             name = sorted(self.server.roles)[int(role_grant[1])]
             self.server.roles[name] = set(json.loads(body)["permission_view_menu_ids"])
             return self._reply(200, {"result": "ok"})

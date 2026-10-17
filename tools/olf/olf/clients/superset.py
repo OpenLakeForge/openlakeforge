@@ -66,7 +66,7 @@ class SupersetClient(JsonHttpClient):
         # Flask-WTF CSRF protection covers the REST API too; the token is tied to
         # the session cookie the csrf_token call sets. Referer is checked once
         # Superset is served over HTTPS (WTF_CSRF_SSL_STRICT).
-        csrf_token = self.request("GET", "/api/v1/security/csrf_token/")["result"]
+        csrf_token = self._csrf_token()
         with bundle.open("rb") as body:
             self.send(
                 "POST",
@@ -74,6 +74,9 @@ class SupersetClient(JsonHttpClient):
                 files={"bundle": (bundle.name, body, "application/zip")},
                 headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
             )
+
+    def _csrf_token(self) -> str:
+        return str(self.request("GET", "/api/v1/security/csrf_token/")["result"])
 
     def grant_permissions(self, role: str, permission: str, view_menus: Sequence[str]) -> bool:
         """Add `permission` on each view menu to `role`, keeping what the role already holds.
@@ -103,10 +106,11 @@ class SupersetClient(JsonHttpClient):
                 raise ServiceClientError(f"Superset has no {permission} permission on {view_menu!r}; was it imported?")
             wanted.update(ids)
         held = self.request("GET", f"/api/v1/security/roles/{role_id}/permissions/").get("result", [])
-        self.request(
+        self.send(
             "POST",
             f"/api/v1/security/roles/{role_id}/permissions",
-            json_body={"permission_view_menu_ids": sorted(wanted | {int(r["id"]) for r in held})},
+            json={"permission_view_menu_ids": sorted(wanted | {int(r["id"]) for r in held})},
+            headers={"X-CSRFToken": self._csrf_token(), "Referer": self.base_url},
         )
         return True
 

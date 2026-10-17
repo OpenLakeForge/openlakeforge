@@ -881,3 +881,13 @@ def test_deploy_reports_without_sign_in_imports_and_grants_nothing(
 
     assert len(fake_superset.imported) == 1
     assert fake_superset.roles == {}
+
+
+def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_path: Path) -> None:
+    _write_report_bundle(tmp_path, database_uuid=_DATABASE_UUID.upper())
+    dataset = tmp_path / _REPORT_DIR / "datasets" / "mart.yaml"
+    dataset.write_text(dataset.read_text().replace(_DATABASE_UUID.upper(), _DATABASE_UUID.lower()))
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg")
+
+    assert superset.bundle_schema_perms(bundle_path) == {"[Trino].[order_revenue_gold]"}
