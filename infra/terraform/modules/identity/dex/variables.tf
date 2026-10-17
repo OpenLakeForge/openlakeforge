@@ -64,3 +64,9 @@ variable "database_key" {
   type        = string
   default     = "dex"
 }
+
+variable "scheme" {
+  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https: the scheme of the issuer URL."
+  type        = string
+  default     = "https"
+}

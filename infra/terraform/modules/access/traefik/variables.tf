@@ -57,9 +57,16 @@ variable "dynamic_config" {
   default     = null
 }
 
+variable "route_tls" {
+  description = "Whether routes terminate TLS on the websecure entrypoint. False serves them over plain HTTP on web (spec.access.issuer none): no certificate, no tls block."
+  type        = bool
+  default     = true
+}
+
 variable "cluster_issuer_name" {
-  description = "cert-manager ClusterIssuer that signs the one wildcard route certificate."
+  description = "cert-manager ClusterIssuer that signs the one wildcard route certificate. Null when route_tls is false."
   type        = string
+  default     = null
 }
 
 variable "backend_transports" {

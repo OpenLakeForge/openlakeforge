@@ -113,6 +113,20 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
+9. **Development mode: `issuer: none`, plain HTTP on `*.localhost`.** The
+   local provider accepts `spec.access.issuer: none` only for a `base_domain`
+   ending in `.localhost`, so a first-time user reaches every service, and
+   tests sign-in, without trusting a certificate. Browsers resolve
+   `*.localhost` to loopback and treat it as a secure context, so the
+   perimeter cookie and the OIDC redirects work over HTTP, and Traefik's
+   `127.0.0.1:80` mapping is the only exposure. Routes and the contract use
+   `http://`, `tls_mode` is `none` (accepted exactly with this issuer), Traefik
+   serves the `web` entrypoint with no `tls` block and publishes no host port
+   443. cert-manager and the local CA stay deployed: Trino's internal
+   certificate (ADR 0016) and the CA ConfigMap the pods mount are
+   independent of the routes. Not for any other provider or a public domain;
+   the validator rejects both, and public exposure (#340) must reject it too.
+
 ## Consequences
 
 - `olf` rejects a contract whose `base_domain` or `issuer` differs from the
@@ -136,6 +150,8 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+#403 added decision 9 (`issuer: none`).
 
 New record (#264). No prior ADR covered service access. #265 added the local
 Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.

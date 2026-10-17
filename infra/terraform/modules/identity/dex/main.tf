@@ -18,7 +18,7 @@ locals {
   }
 
   database = var.postgresql_contract.databases[var.database_key]
-  issuer   = "https://${var.hostname}"
+  issuer   = "${var.scheme}://${var.hostname}"
 
   # `groups` carries `<organisation>:<team-slug>` (teamNameField: slug).
   role_mapping = {

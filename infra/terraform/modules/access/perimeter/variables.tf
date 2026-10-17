@@ -42,6 +42,12 @@ variable "scope" {
   default     = "openid email profile"
 }
 
+variable "route_scheme" {
+  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https. Fixes the callback URL and whether the session cookie is Secure."
+  type        = string
+  default     = "https"
+}
+
 variable "ca_configmap_name" {
   description = "ConfigMap in `namespace` whose ca.crt signs the issuer's certificate (modules/access/in-cluster-resolution). Null when the issuer's certificate chains to a public root."
   type        = string

@@ -220,8 +220,8 @@ whose `Ready` condition is not `True`, with that condition's reason and
 message; `none` means every route certificate is issued and current.
 
 `olf deploy` checks the ingress's needs before it creates the kind cluster:
-`spec.access.issuer` must be `local-ca`, the only issuer the local provider
-ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
+`spec.access.issuer` must be `local-ca` or `none` (plain HTTP, see ADR 0013),
+the only issuers the local provider ships, and nothing else may listen on `127.0.0.1:80` or `:443`.
 
 The full local e2e suite restarts Traefik and forces a renewal of the
 shared route certificate, then requires the route to answer again and the

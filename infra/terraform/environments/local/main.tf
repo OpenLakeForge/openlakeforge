@@ -237,7 +237,7 @@ module "cert_manager" {
   source = "../../modules/access/cert-manager"
   # Also for Trino's internal certificate (ADR 0016), which needs an issuer
   # even when no route is TLS-terminated.
-  count = local.route_tls || var.trino_workload_authentication != "off" ? 1 : 0
+  count = local.access_enabled || var.trino_workload_authentication != "off" ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
@@ -261,7 +261,8 @@ module "traefik" {
   base_values_file    = "${path.root}/../../../helm/values/local/traefik.yaml"
   chart_package_path  = var.traefik_chart_package_path
   routes              = local.ingress_routes
-  cluster_issuer_name = try(module.cert_manager[0].cluster_issuer_name, null)
+  route_tls           = local.route_tls
+  cluster_issuer_name = local.route_tls ? module.cert_manager[0].cluster_issuer_name : null
   group_middlewares   = local.identity_enabled ? module.perimeter[0].group_middlewares : {}
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
   backend_transports  = module.trino.traefik_backends
@@ -280,7 +281,8 @@ module "perimeter" {
   namespace         = kubernetes_namespace_v1.shared.metadata[0].name
   base_domain       = local.base_domain
   callback_host     = local.perimeter_callback_host
-  portal_url        = "https://${local.base_domain}"
+  portal_url        = "${local.route_scheme}://${local.base_domain}"
+  route_scheme      = local.route_scheme
   ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
   identity_roles    = local.identity_roles
   role_mapping      = local.identity_oidc.role_mapping
@@ -302,9 +304,9 @@ removed {
   }
 }
 
-# Pods reach https://<service>.<base_domain> through Traefik and trust the
-# local CA, so a back-channel call sees the same URL (and token `iss`) as a
-# browser. ADR 0013.
+# Pods reach <scheme>://<service>.<base_domain> through Traefik and, over
+# HTTPS, trust the local CA, so a back-channel call sees the same URL (and
+# token `iss`) as a browser. ADR 0013.
 module "in_cluster_resolution" {
   source = "../../modules/access/in-cluster-resolution"
   count  = local.access_enabled ? 1 : 0
@@ -331,6 +333,7 @@ module "keycloak" {
 
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   hostname            = "auth.${local.base_domain}"
+  scheme              = local.route_scheme
   roles               = local.identity_roles.precedence
   clients             = local.identity_client_redirects
   smtp                = var.identity_smtp
@@ -347,6 +350,7 @@ module "dex" {
 
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   hostname            = "auth.${local.base_domain}"
+  scheme              = local.route_scheme
   github              = var.identity_github
   clients             = local.identity_client_redirects
   postgresql_contract = module.postgresql.contract

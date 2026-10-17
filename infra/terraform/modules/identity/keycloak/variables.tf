@@ -92,3 +92,9 @@ variable "smtp" {
   })
   default = null
 }
+
+variable "scheme" {
+  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https: the scheme of the issuer URL."
+  type        = string
+  default     = "https"
+}
