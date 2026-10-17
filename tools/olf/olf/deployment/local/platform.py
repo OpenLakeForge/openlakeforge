@@ -516,6 +516,48 @@ def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
     return _predicate
 
 
+# The kubeadm Corefile the foundation's CoreDNS starts with: the same as
+# modules/access/in-cluster-resolution minus its `rewrite` line. Destroying that
+# module removes the whole key, so a platform-only teardown, and a
+# platform apply that drops spec.access, put this back.
+_STOCK_COREFILE = """.:53 {
+    errors
+    health {
+       lameduck 5s
+    }
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+       pods insecure
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }
+    prometheus :9153
+    forward . /etc/resolv.conf {
+       max_concurrent 1000
+    }
+    cache 30 {
+       disable success cluster.local
+       disable denial cluster.local
+    }
+    loop
+    reload
+    loadbalance
+}
+"""
+
+
+def restore_stock_corefile(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    log.step("Restoring the stock CoreDNS Corefile...")
+    tools.kubectl.patch(
+        "configmap",
+        "coredns",
+        json.dumps({"data": {"Corefile": _STOCK_COREFILE}}),
+        namespace="kube-system",
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+    )
+
 def platform_up(
     config: LocalDeploymentConfig,
     tools: Toolkit,
@@ -617,7 +659,11 @@ def platform_up(
     # Neither Helm nor Terraform waits on a Certificate's status, so a local CA
     # that cannot sign would otherwise surface only when the first route fails.
     # A quickstart (no spec.access) deploys no local CA at all.
-    if config.context.topology.access is not None:
+    if config.context.topology.access is None:
+        # Dropping spec.access destroys the in-cluster resolution module, which
+        # deletes the whole Corefile key; CoreDNS would fail on its next reload.
+        restore_stock_corefile(config, tools, env=env)
+    else:
         log.step("Waiting for the local CA to issue its probe certificate...")
         tools.kubectl.wait(
             "certificate/local-ca-probe",

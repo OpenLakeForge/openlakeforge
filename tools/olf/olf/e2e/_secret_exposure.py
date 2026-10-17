@@ -91,9 +91,7 @@ def scan(credentials: Mapping[str, str], surfaces: Surfaces, *, link_surfaces: S
 def check_secret_exposure(cfg: E2EConfig) -> None:
     contracts = load_provider_contracts_or_raise(cfg)
     identity = contracts["shared"]["identity"]
-    if "clients" not in identity:
-        log.info("Skipping the identity credential scan: the contract declares no issuer.")
-        return
+    # Without an issuer the Trino credentials are still deployed and scanned.
     keycloak = identity.get("adapter") == "keycloak"
     log.step("Scanning state, ConfigMaps, diagnostics and logs for identity credentials...")
     namespaces = scan_namespaces(cfg, contracts)
@@ -120,7 +118,7 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any], *, keycloak: bool 
         # secret_value puts the key in a JSONPath, where `.` separates fields.
         return k8s.secret_value(name, key.replace(".", "\\."), namespace, kube_context=cfg.kube_context)
 
-    clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity["clients"].values()]
+    clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity.get("clients", {}).values()]
     # An external issuer's client Secrets are operator-provided, so they may be absent or short.
     required = [(KEYCLOAK_ADMIN_SECRET, "password"), *clients] if keycloak else []
     optional = [COOKIE_SECRET, *([] if keycloak else clients), *_smtp_password_refs(cfg), *_trino_secret_refs(cfg)]

@@ -235,7 +235,9 @@ module "seaweedfs" {
 
 module "cert_manager" {
   source = "../../modules/access/cert-manager"
-  count  = local.route_tls ? 1 : 0
+  # Also for Trino's internal certificate (ADR 0016), which needs an issuer
+  # even when no route is TLS-terminated.
+  count = local.route_tls || var.trino_workload_authentication != "off" ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"

@@ -82,6 +82,9 @@ def render_profile(*, name: str, stages: Sequence[StageName], preset: Preset) ->
             "provider": {"type": "local"},
             "preset": preset.value,
             "stages": {stage.value: {"enabled": True} for stage in StageName if stage in stages},
+            # The documented onboarding (README, getting-started) uses the
+            # ingress; the default moves to plain HTTP with #403 and #399 slice b.
+            "access": {},
         },
     }
     try:

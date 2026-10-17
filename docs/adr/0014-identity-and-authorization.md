@@ -43,7 +43,7 @@ each have their own adapter and none leaks into another:
 ### Seam 1 — the role model (built)
 
 A profile with no `spec.identity` block deploys no issuer and no perimeter
-(#399); `spec.identity` requires `spec.access` (ADR 0013). The role model does
+(#399); on the local provider, `spec.identity` requires `spec.access` (ADR 0013); the cloud roots read no `spec.access`. The role model does
 not depend on an issuer, so the contract still carries `shared.identity.roles`
 and validates it, with `implementation: identity.none` and no `issuer_url`,
 `role_claim`, `role_mapping` or `clients`. `shared.access` then has no

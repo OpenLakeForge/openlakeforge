@@ -396,6 +396,9 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: b
     # certificate; a quickstart deploys no local CA to wait for.
     waited = any("wait" in c.argv and "certificate/local-ca-probe" in c.argv for c in runner.calls)
     assert waited is with_access
+    # Dropping spec.access destroys the module that owns the Corefile key.
+    restored = any("patch" in c.argv and "coredns" in c.argv for c in runner.calls)
+    assert restored is not with_access
 
 
 def test_platform_up_recovers_from_drifted_state(tmp_path: Path) -> None:
