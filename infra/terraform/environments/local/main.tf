@@ -481,6 +481,7 @@ module "superset" {
   trino_ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   # Only with an issuer deployed (spec.identity); without one Superset keeps
   # its local login. Nothing here names an issuer product.
+  bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   oidc = !local.identity_deployed ? null : {
     issuer_url        = local.identity_oidc.issuer_url
     role_claim        = local.identity_oidc.role_claim

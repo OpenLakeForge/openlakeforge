@@ -94,3 +94,58 @@ def test_the_superset_client_redirects_to_the_exact_callback() -> None:
     contracts = (ROOT / "infra/terraform/environments/local/contracts.tf").read_text()
 
     assert '/oauth-authorized/olf"]' in contracts
+
+
+def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """Load olf_security with Superset and Flask stubbed out."""
+    import sys
+    import types
+
+    session: dict[str, Any] = {}
+    flask = types.ModuleType("flask")
+    flask.session = session  # type: ignore[attr-defined]
+    base = types.ModuleType("superset.security")
+
+    class SupersetSecurityManager:
+        def auth_user_oauth(self, userinfo: dict[str, Any]) -> str:
+            return str(userinfo["username"])
+
+    base.SupersetSecurityManager = SupersetSecurityManager  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "flask", flask)
+    monkeypatch.setitem(sys.modules, "superset", types.ModuleType("superset"))
+    monkeypatch.setitem(sys.modules, "superset.security", base)
+    monkeypatch.setitem(sys.modules, "olf_oidc", olf_oidc)
+    spec = importlib.util.spec_from_file_location("olf_security", ROOT / "images/superset/olf_security.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    manager = module.OlfSecurityManager()
+    config = {"OLF_ROLE_CLAIM": "groups", "AUTH_ROLES_MAPPING": {"acme:admins": ["Admin"]}}
+    manager.appbuilder = types.SimpleNamespace(app=types.SimpleNamespace(config=config))
+    manager.oauth_remotes = {"olf": types.SimpleNamespace(userinfo=lambda: claims)}
+    return manager, session
+
+
+def test_a_user_with_no_mapped_role_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, session = _security(monkeypatch, {})
+
+    assert manager.auth_user_oauth({"username": "oidc-eve", "role_keys": ["acme:other"]}) is None
+    assert manager.auth_user_oauth({"username": "oidc-eve", "role_keys": []}) is None
+    assert "olf_login_at" not in session
+
+
+def test_a_mapped_user_signs_in_and_starts_the_session_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, session = _security(monkeypatch, {})
+
+    assert manager.auth_user_oauth({"username": "oidc-ann", "role_keys": ["acme:admins"]}) == "oidc-ann"
+    assert isinstance(session["olf_login_at"], float)
+
+
+def test_user_info_reads_the_contract_claim_and_prefixes_the_username(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, _ = _security(monkeypatch, {"preferred_username": "admin", "email": "a@x", "groups": "acme:admins"})
+
+    info = manager.get_oauth_user_info("olf")
+
+    assert info["username"] == "oidc-admin"
+    assert info["role_keys"] == ["acme:admins"]

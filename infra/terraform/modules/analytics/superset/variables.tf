@@ -104,9 +104,8 @@ variable "postgresql_ssl_mode" {
 }
 
 variable "bootstrap_job_image" {
-  description = "Image of the Job that copies the OIDC client Secret into this namespace, pinned by digest (release/component-catalog.yaml)."
+  description = "Image of the Job that copies the OIDC client Secret into this namespace (release/component-catalog.yaml, k8s_bootstrap)."
   type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
 }
 
 variable "oidc" {
