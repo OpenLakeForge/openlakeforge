@@ -83,6 +83,9 @@ def github_stub(cfg: E2EConfig, users: Mapping[str, list[str]]) -> Iterator[None
                 # The logins are throwaway test names, not credentials.
                 "env": [{"name": "STUB_USERS", "value": json.dumps(users)}],
                 "volumeMounts": [{"name": "tls", "mountPath": "/tls"}],
+                # Ready only once the server listens: without it the pod is
+                # Ready at container start and Dex's first exchange is refused.
+                "readinessProbe": {"tcpSocket": {"port": 8443}, "periodSeconds": 1},
             }
         ],
         "volumes": [{"name": "tls", "secret": {"secretName": f"{STUB_NAME}-tls"}}],
