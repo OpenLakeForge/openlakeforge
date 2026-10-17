@@ -75,17 +75,18 @@ class SupersetClient(JsonHttpClient):
                 headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
             )
 
-    def grant_permissions(self, role: str, permission: str, view_menus: Sequence[str]) -> None:
+    def grant_permissions(self, role: str, permission: str, view_menus: Sequence[str]) -> bool:
         """Add `permission` on each view menu to `role`, keeping what the role already holds.
 
         Superset's role-permission endpoint replaces the whole set, so the
         grant is the union with the current set: repeating it changes nothing,
         and a partial import never revokes the schemas of another bundle.
+        Returns False, granting nothing, when the role does not exist.
         """
         found = self.request("GET", "/api/v1/security/roles/search/", params={"q": _filter("name", role)})
         role_id = next((r["id"] for r in found.get("result", []) if r["name"] == role), None)
         if role_id is None:
-            raise ServiceClientError(f"Superset role {role!r} does not exist; `superset init` creates it")
+            return False
         wanted: set[int] = set()
         for view_menu in view_menus:
             rows = self.request(
@@ -107,6 +108,7 @@ class SupersetClient(JsonHttpClient):
             f"/api/v1/security/roles/{role_id}/permissions",
             json_body={"permission_view_menu_ids": sorted(wanted | {int(r["id"]) for r in held})},
         )
+        return True
 
 
 def _filter(column: str, value: str) -> str:

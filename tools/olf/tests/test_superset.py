@@ -859,3 +859,25 @@ def test_deploy_reports_grants_imported_schemas_once_and_keeps_other_grants(
         )
 
     assert fake_superset.roles == {"olf_data_access": {1, 7}, "Gamma": {8}}
+
+
+def test_deploy_reports_without_sign_in_imports_and_grants_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_superset: FakeSuperset
+) -> None:
+    _write_report_bundle(tmp_path)
+    _serve(monkeypatch, fake_superset)
+    fake_superset.roles.clear()
+
+    superset.deploy_reports(
+        tmp_path,
+        "openlakeforge-dev",
+        "trino://olf-dev@trino:8080/lakehouse_dev",
+        report_source_dir=None,
+        declared_report_dirs=(_REPORT_DIR,),
+        work_dir=tmp_path / "work",
+        admin_username="admin",
+        admin_password="secret",
+    )
+
+    assert len(fake_superset.imported) == 1
+    assert fake_superset.roles == {}

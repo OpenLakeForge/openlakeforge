@@ -76,9 +76,8 @@ def test_grant_permissions_fails_when_the_schema_was_not_imported(fake_superset:
         client.grant_permissions("olf_data_access", "schema_access", ["[Trino].[missing]"])
 
 
-def test_grant_permissions_fails_for_a_role_superset_never_created(fake_superset: FakeSuperset) -> None:
+def test_grant_permissions_skips_a_role_superset_never_created(fake_superset: FakeSuperset) -> None:
     client = _client(fake_superset)
     client.login()
 
-    with pytest.raises(ServiceClientError, match="does not exist"):
-        client.grant_permissions("nope", "schema_access", ["[Trino].[x]"])
+    assert client.grant_permissions("nope", "schema_access", ["[Trino].[x]"]) is False

@@ -560,7 +560,9 @@ def deploy_reports(
         # Analysts and viewers read nothing until olf_data_access holds the
         # imported schemas (images/superset/olf_oidc.py creates it empty).
         if schema_perms:
-            client.grant_permissions("olf_data_access", "schema_access", sorted(schema_perms))
+            # The role exists only when Superset runs with sign-in (identity.oidc).
+            if not client.grant_permissions("olf_data_access", "schema_access", sorted(schema_perms)):
+                log.info("Superset sign-in is off; no data-access role to grant")
 
 
 def export_report(
