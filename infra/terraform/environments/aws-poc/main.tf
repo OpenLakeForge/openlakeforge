@@ -591,9 +591,8 @@ module "openmetadata" {
   # Empty by design: the database schemas mirror Glue databases, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
-  catalog_schema_names    = []
-  catalog_refresh_enabled = false
-  workload_namespaces     = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
+  catalog_schema_names = []
+  workload_namespaces  = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
   revoked_namespaces = [
     for name in keys(local.enabled_stages) : local.stage_namespaces[name]
     if !contains(keys(local.governed_stages), name)

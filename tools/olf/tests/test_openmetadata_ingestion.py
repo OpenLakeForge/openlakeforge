@@ -1,9 +1,10 @@
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
-from olf.openmetadata._ingestion import ingestion_job
+from olf.openmetadata._ingestion import ingestion_cronjob, ingestion_job
 
 BASE = {
     "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",
@@ -52,3 +53,19 @@ def test_bot_token_is_a_secret_reference_never_a_value(environ):
     assert "value" not in env["OM_BOT_JWT"]
     assert workflow["source"]["sourceConfig"]["config"]["databaseFilterPattern"] == {"includes": ["^lakehouse_dev$"]}
     assert "eyJ" not in json.dumps(job)
+
+
+@pytest.mark.parametrize("environ", [BASE, TLS])
+def test_hourly_refresh_runs_the_same_pod_as_the_job(environ):
+    job, _, _, _ = _build(environ)
+    cron = ingestion_cronjob(job)
+    assert cron["kind"] == "CronJob"
+    assert cron["spec"]["schedule"] == "0 * * * *"
+    assert cron["spec"]["jobTemplate"]["spec"] == job["spec"]
+    assert job["spec"]["template"]["metadata"]["labels"] == {"openlakeforge.io/job": "openmetadata-trino-ingestion"}
+
+
+def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
+    module = Path(__file__).parents[3] / "infra/terraform/modules/governance/openmetadata"
+    assert not (module / "refresh.tf").exists()
+    assert "$catalog_service-metadata-ingestion" not in (module / "templates/bootstrap.sh.tftpl").read_text()

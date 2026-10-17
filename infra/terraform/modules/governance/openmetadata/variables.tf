@@ -196,18 +196,6 @@ variable "catalog_schema_names" {
   default     = ["silver", "gold"]
 }
 
-variable "catalog_refresh_schedule" {
-  description = "Cron schedule for the independent OpenMetadata Polaris catalog refresh job."
-  type        = string
-  default     = "0 * * * *"
-}
-
-variable "catalog_refresh_enabled" {
-  description = "Whether to run an independent scheduled OpenMetadata catalog refresh for Polaris."
-  type        = bool
-  default     = true
-}
-
 variable "superset_username" {
   description = "Superset API username used by OpenMetadata dashboard metadata ingestion."
   type        = string
