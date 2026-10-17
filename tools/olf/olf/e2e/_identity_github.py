@@ -53,8 +53,10 @@ def dex_points_at_stub(cfg: E2EConfig) -> bool:
 def _remove(cfg: E2EConfig) -> None:
     kubectl(
         cfg,
-        ["delete", "pod,service,certificate,secret", STUB_NAME, f"{STUB_NAME}-tls", "-n", cfg.platform_namespace]
-        + ["--ignore-not-found"],
+        # Explicit type/name pairs: `delete a,b x y` deletes every name for every
+        # type, which would also remove an operator Secret named like the stub.
+        ["delete", f"pod/{STUB_NAME}", f"service/{STUB_NAME}", f"certificate/{STUB_NAME}"]
+        + [f"secret/{STUB_NAME}-tls", "-n", cfg.platform_namespace, "--ignore-not-found"],
     )
 
 
@@ -153,10 +155,13 @@ def _wait_until_dex_reaches(cfg: E2EConfig, *, attempts: int = 30, delay: float 
     """A Ready pod is not yet routable: kube-proxy programs the Service a moment
     later and rejects connections until then, which Dex reports as a refused
     token exchange. Wait until Dex itself gets any HTTP answer through it."""
-    probe = f"wget -q -O /dev/null --no-check-certificate https://{stub_host(cfg)}/api/v3/user 2>&1 || true"
+    # The stub answers 401 without a token: busybox wget reports that as
+    # "server returned error", which proves the Service routes. A refused or
+    # unrouted connection prints neither that nor rc=0.
+    probe = f"wget -O /dev/null --no-check-certificate https://{stub_host(cfg)}/api/v3/user 2>&1; echo rc=$?"
     for _ in range(attempts):
         out = kubectl(cfg, ["exec", "-n", cfg.platform_namespace, "deploy/dex", "--", "sh", "-c", probe], capture=True)
-        if "refused" not in out and "timed out" not in out and "bad address" not in out:
+        if "rc=0" in out or "server returned error" in out:
             return
         time.sleep(delay)
     raise E2EError(f"Dex could not reach {stub_host(cfg)} within {attempts * delay:.0f}s")
