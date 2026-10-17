@@ -6,8 +6,9 @@ release/component-catalog.yaml (`superset_base`).
 
 from __future__ import annotations
 
+import json
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,3 +74,40 @@ class SupersetClient(JsonHttpClient):
                 files={"bundle": (bundle.name, body, "application/zip")},
                 headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
             )
+
+    def grant_permissions(self, role: str, permission: str, view_menus: Sequence[str]) -> None:
+        """Add `permission` on each view menu to `role`, keeping what the role already holds.
+
+        Superset's role-permission endpoint replaces the whole set, so the
+        grant is the union with the current set: repeating it changes nothing,
+        and a partial import never revokes the schemas of another bundle.
+        """
+        found = self.request("GET", "/api/v1/security/roles/search/", params={"q": _filter("name", role)})
+        role_id = next((r["id"] for r in found.get("result", []) if r["name"] == role), None)
+        if role_id is None:
+            raise ServiceClientError(f"Superset role {role!r} does not exist; `superset init` creates it")
+        wanted: set[int] = set()
+        for view_menu in view_menus:
+            rows = self.request(
+                "GET",
+                "/api/v1/security/permissions-resources/",
+                params={"q": _filter("view_menu.name", view_menu)},
+            ).get("result", [])
+            ids = [
+                int(r["id"])
+                for r in rows
+                if r["permission"]["name"] == permission and r["view_menu"]["name"] == view_menu
+            ]
+            if not ids:
+                raise ServiceClientError(f"Superset has no {permission} permission on {view_menu!r}; was it imported?")
+            wanted.update(ids)
+        held = self.request("GET", f"/api/v1/security/roles/{role_id}/permissions/").get("result", [])
+        self.request(
+            "POST",
+            f"/api/v1/security/roles/{role_id}/permissions",
+            json_body={"permission_view_menu_ids": sorted(wanted | {int(r["id"]) for r in held})},
+        )
+
+
+def _filter(column: str, value: str) -> str:
+    return json.dumps({"filters": [{"col": column, "opr": "eq", "value": value}], "page_size": 100})

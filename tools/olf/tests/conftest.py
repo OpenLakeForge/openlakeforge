@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import email.policy
 import json
+import re
 import shutil
 import threading
 import urllib.parse
@@ -187,6 +188,8 @@ class FakeSuperset(ThreadingHTTPServer):
         self.dashboards: dict[str, int] = {}  # uuid or slug -> id
         self.exports: dict[int, bytes] = {}  # id -> export zip
         self.imported: list[bytes] = []
+        self.roles: dict[str, set[int]] = {"olf_data_access": set()}  # role name -> permission-view-menu ids
+        self.permissions: dict[int, tuple[str, str]] = {}  # id -> (permission, view menu)
 
 
 class _FakeSupersetHandler(BaseHTTPRequestHandler):
@@ -237,6 +240,11 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
                 return self._reply(400, {"message": "Request is not valid"})
             self.server.imported.append(bundles[0].get_payload(decode=True))
             return self._reply(200, {"message": "OK"})
+        role_grant = re.fullmatch(r"/api/v1/security/roles/(\d+)/permissions", self.path)
+        if role_grant and self._authorized():
+            name = sorted(self.server.roles)[int(role_grant[1])]
+            self.server.roles[name] = set(json.loads(body)["permission_view_menu_ids"])
+            return self._reply(200, {"result": "ok"})
         self._reply(404, {"message": "Not found"})
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
@@ -245,6 +253,28 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             return self._reply(401, {"msg": "Missing Authorization Header"})
         if url.path == "/api/v1/security/csrf_token/":
             return self._reply(200, {"result": "csrf-1"}, {"Set-Cookie": "session=csrf-session; Path=/"})
+        query = (
+            json.loads(urllib.parse.parse_qs(url.query).get("q", ["{}"])[0])
+            if url.path != "/api/v1/dashboard/export/"
+            else {}
+        )
+        filters = query.get("filters", [{}])[0]
+        if url.path == "/api/v1/security/roles/search/":
+            names = sorted(self.server.roles)
+            return self._reply(
+                200, {"result": [{"id": names.index(n), "name": n} for n in names if n == filters["value"]]}
+            )
+        if url.path == "/api/v1/security/permissions-resources/":
+            rows = [
+                {"id": i, "permission": {"name": p}, "view_menu": {"name": v}}
+                for i, (p, v) in self.server.permissions.items()
+                if v == filters["value"]
+            ]
+            return self._reply(200, {"result": rows})
+        role_perms = re.fullmatch(r"/api/v1/security/roles/(\d+)/permissions/", url.path)
+        if role_perms:
+            held = self.server.roles[sorted(self.server.roles)[int(role_perms[1])]]
+            return self._reply(200, {"result": [{"id": i} for i in sorted(held)]})
         if url.path == "/api/v1/dashboard/export/":
             (query,) = urllib.parse.parse_qs(url.query)["q"]
             dashboard_id = int(query.removeprefix("!(").removesuffix(")"))

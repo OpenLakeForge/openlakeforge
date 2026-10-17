@@ -472,6 +472,38 @@ def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list
     ]
 
 
+def bundle_schema_perms(bundle_path: Path) -> set[str]:
+    """The `[database].[schema]` view menus of every dataset the bundle imports.
+
+    Report datasets are the Gold marts a dashboard reads, so the bundle (after
+    `build_report_bundle` applied any schema prefix) is the source of truth for
+    which schemas an import exposes.
+    """
+    databases: dict[str, str] = {}
+    datasets: list[dict[str, Any]] = []
+    with ZipFile(bundle_path) as bundle:
+        for name in bundle.namelist():
+            parts = PurePosixPath(name).parts
+            if (
+                len(parts) < 3
+                or parts[1] not in {"databases", "datasets"}
+                or not name.lower().endswith((".yaml", ".yml"))
+            ):
+                continue
+            document = yaml.safe_load(bundle.read(name))
+            if not isinstance(document, dict):
+                continue
+            if parts[1] == "databases":
+                databases[str(document["uuid"])] = str(document["database_name"])
+            else:
+                datasets.append(document)
+    return {
+        f"[{databases[d['database_uuid']]}].[{d['schema']}]"
+        for d in datasets
+        if d.get("schema") and d.get("database_uuid") in databases
+    }
+
+
 def deploy_reports(
     repo_root: Path,
     namespace: str,
@@ -509,6 +541,7 @@ def deploy_reports(
     with superset_base_url(namespace) as base_url:
         client = SupersetClient(base_url, username=admin_username, password=admin_password)
         client.login()
+        schema_perms: set[str] = set()
         for report_dir in report_dirs:
             source_dir = repo_root / report_dir
             if not (source_dir / "metadata.yaml").is_file():
@@ -523,6 +556,11 @@ def deploy_reports(
             log.step(f"Importing Superset report assets from {bundle_path}")
             client.import_assets(bundle_path)
             log.info(f"Deployed Superset report assets from {report_dir}")
+            schema_perms |= bundle_schema_perms(bundle_path)
+        # Analysts and viewers read nothing until olf_data_access holds the
+        # imported schemas (images/superset/olf_oidc.py creates it empty).
+        if schema_perms:
+            client.grant_permissions("olf_data_access", "schema_access", sorted(schema_perms))
 
 
 def export_report(

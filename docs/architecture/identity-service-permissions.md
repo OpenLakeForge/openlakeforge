@@ -13,9 +13,14 @@ Built for Superset: `images/superset/olf_oidc.py` (settings derived from the
 contract), `olf_security.py` (user info from `role_claim`, `olf_viewer`,
 `olf_no_access`, the session bound), `modules/analytics/superset` (client
 Secret copy, wiring), and the exact `/oauth-authorized/olf` redirect URI.
-Not yet built: the `olf_data_access` schema grants (the role exists empty, so
-analysts and viewers see no data until the import step fills it), the
-auto-redirect login view, the native 403 page, and the `olf-automation` users.
+Also built: the `olf_data_access` schema grants. `olf report import` adds
+`schema_access` on `[<database>].[<schema>]` for every dataset in the imported
+bundle (`superset.bundle_schema_perms`, `SupersetClient.grant_permissions`),
+unioned with what the role holds, so a re-import changes nothing. The endpoints
+(`roles/search`, `permissions-resources`, `roles/<id>/permissions`) are
+unverified against the pinned Superset until the runtime check: SS-1 and SS-3
+must show the Gold dashboards to an analyst and a viewer, and no other schema.
+Not yet built: the auto-redirect login view, the native 403 page, and the `olf-automation` users.
 
 | Mark | Meaning |
 | --- | --- |
@@ -59,7 +64,7 @@ chart 0.15.5; OpenMetadata chart and server 1.13.6. Read: Superset 6.1.0
 | `Gamma` | `Alpha` minus alpha-only items. Writes charts and dashboards, reads datasets, sees only data granted to it | **V** `_is_gamma_pvm`, `GAMMA_READ_ONLY_MODEL_VIEWS` |
 | `sql_lab` | SQL Lab only (`SQLLAB_ONLY_PERMISSIONS`) | **V** |
 | `olf_viewer` (custom) | `PUBLIC_ROLE_PERMISSIONS`: read dashboards and charts, dashboard filter state, chart data. Excludes SQL Lab, saved queries, security, import, annotation layers, CSS templates, alerts | **V** `PUBLIC_ROLE_PERMISSIONS`, `PUBLIC_EXCLUDED_VIEW_MENUS` |
-| `olf_data_access` (custom) | Only `schema_access` grants for the product Gold schemas. Held by `analyst` and `viewer` | **D** |
+| `olf_data_access` (custom) | Only `schema_access` grants for the product Gold schemas. Held by `analyst` and `viewer` | **D**, built |
 | `olf_no_access` (custom) | No permissions. The registration role for users with no recognised role | **D** |
 
 `Admin` and `Alpha` see all data. `Gamma` and `olf_viewer` see a dashboard only

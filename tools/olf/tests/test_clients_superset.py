@@ -66,3 +66,19 @@ def test_import_assets_uploads_the_bundle_with_the_csrf_token(fake_superset: Fak
     client.import_assets(bundle)
 
     assert fake_superset.imported == [b"PK-bundle-bytes"]
+
+
+def test_grant_permissions_fails_when_the_schema_was_not_imported(fake_superset: FakeSuperset) -> None:
+    client = _client(fake_superset)
+    client.login()
+
+    with pytest.raises(ServiceClientError, match="was it imported"):
+        client.grant_permissions("olf_data_access", "schema_access", ["[Trino].[missing]"])
+
+
+def test_grant_permissions_fails_for_a_role_superset_never_created(fake_superset: FakeSuperset) -> None:
+    client = _client(fake_superset)
+    client.login()
+
+    with pytest.raises(ServiceClientError, match="does not exist"):
+        client.grant_permissions("nope", "schema_access", ["[Trino].[x]"])
