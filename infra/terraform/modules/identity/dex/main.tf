@@ -279,7 +279,9 @@ resource "kubernetes_deployment_v1" "dex" {
     }
   }
 
-  wait_for_rollout = true
+  # With a private CA the pod waits for the olf-local-ca ConfigMap, which the root publishes only after the
+  # routes that depend on this Deployment: waiting here would deadlock a fresh apply. The kubelet retries the mount.
+  wait_for_rollout = !local.trust_ca
 
   timeouts {
     create = "5m"

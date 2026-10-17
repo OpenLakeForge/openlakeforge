@@ -39,6 +39,12 @@ def make_handler(users: dict[str, list[str]]) -> type[BaseHTTPRequestHandler]:
                 return self._send(404)
             form = parse_qs(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode())
             code = form.get("code", [""])[0]
+            # Dex sends the OAuth App credentials in the form or as Basic auth; either must be present.
+            has_credentials = self.headers.get("Authorization", "").startswith("Basic ") or (
+                form.get("client_id", [""])[0] and form.get("client_secret", [""])[0]
+            )
+            if not has_credentials:
+                return self._send(401, {"error": "incorrect_client_credentials"})
             if code not in users:
                 return self._send(400, {"error": "bad_verification_code"})
             self._send(200, {"access_token": f"tok-{code}", "token_type": "bearer"})

@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from olf.e2e import github_stub
-from olf.e2e._identity_github import sign_in_with_stub
+from olf.e2e._identity_github import StubAuthorize
 
 USERS = {"alice": ["Acme:analysts"], "bob": ["Acme:unmapped"]}
 AUTHORIZE = "https://stub.ns.svc/login/oauth/authorize?state=s&redirect_uri=https://auth.olf.localhost/callback"
@@ -23,7 +23,8 @@ def stub() -> Iterator[str]:
 
 
 def test_the_code_is_the_login_and_the_token_reads_back_as_that_user(stub: str) -> None:
-    token = requests.post(f"{stub}/login/oauth/access_token", data={"code": "alice"}, timeout=5).json()
+    form = {"code": "alice", "client_id": "i", "client_secret": "s"}
+    token = requests.post(f"{stub}/login/oauth/access_token", data=form, timeout=5).json()
     auth = {"Authorization": f"Bearer {token['access_token']}"}
     assert requests.get(f"{stub}/api/v3/user", headers=auth, timeout=5).json()["login"] == "alice"
     teams = requests.get(f"{stub}/api/v3/user/teams", headers=auth, timeout=5).json()
@@ -32,29 +33,16 @@ def test_the_code_is_the_login_and_the_token_reads_back_as_that_user(stub: str) 
 
 
 def test_an_unknown_code_or_token_is_refused(stub: str) -> None:
-    assert requests.post(f"{stub}/login/oauth/access_token", data={"code": "mallory"}, timeout=5).status_code == 400
+    token_url = f"{stub}/login/oauth/access_token"
+    wrong_code = {"code": "mallory", "client_id": "i", "client_secret": "s"}
+    assert requests.post(token_url, data=wrong_code, timeout=5).status_code == 400
+    assert requests.post(token_url, data={"code": "alice"}, timeout=5).status_code == 401
     assert requests.get(f"{stub}/api/v3/user", timeout=5).status_code == 401
 
 
-def test_the_walk_answers_the_stub_hop_with_the_login(monkeypatch: pytest.MonkeyPatch) -> None:
-    hops = {
-        "https://olf.localhost": (302, "https://auth.olf.localhost/auth"),
-        "https://auth.olf.localhost/auth": (302, AUTHORIZE),
-        "https://auth.olf.localhost/callback?code=alice&state=s": (200, ""),
-    }
-    seen: list[str] = []
-
-    def get(_self: requests.Session, url: str, **_kwargs: object) -> requests.Response:
-        seen.append(url)
-        status, location = hops[url]
-        reply = requests.Response()
-        reply.status_code = status
-        reply.url = url
-        if location:
-            reply.headers["Location"] = location
-        return reply
-
-    monkeypatch.setattr(requests.Session, "get", get)
-    _, last = sign_in_with_stub("https://olf.localhost", "alice", "stub.ns.svc")
-    assert last.status_code == 200
-    assert not any("stub.ns.svc" in url for url in seen)
+def test_every_authorize_redirect_in_the_session_is_answered_with_the_login() -> None:
+    adapter = StubAuthorize("alice")
+    for _ in range(2):  # a later sign-in, after the proxy cleared its cookie, is answered the same way
+        request = requests.Request("GET", AUTHORIZE).prepare()
+        reply = adapter.send(request)
+        assert reply.headers["Location"] == "https://auth.olf.localhost/callback?code=alice&state=s"

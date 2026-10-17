@@ -6,6 +6,9 @@ the length of the check: a throwaway pod serving `github_stub.py` over a
 cert-manager certificate from the local CA, which Dex trusts as `rootCA`. The
 stub's users are fixed at pod start, so no control endpoint exists.
 
+The stub pod carries the label `openlakeforge.io/e2e=github-stub`, which is what
+the network policy names to let Dex reach it.
+
 The browser walk is the real one except the hop to GitHub's authorize page: the
 stub's name resolves only in the cluster, so the walk answers that redirect
 itself, as the stub would, with `code=<login>`.
@@ -14,11 +17,13 @@ itself, as the stub would, with `code=<login>`.
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import tempfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
+from typing import Any
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import requests
 import yaml
@@ -28,8 +33,9 @@ from olf.e2e._identity import REQUEST_TIMEOUT
 from olf.e2e._shell import E2EConfig, E2EError, kubectl
 
 STUB_NAME = "olf-e2e-github"
+# What the Dex NetworkPolicy names to allow egress to the stub (port 8443).
+LABEL = "openlakeforge.io/e2e=github-stub"
 LOCAL_CA_ISSUER = "local-ca"  # modules/access/cert-manager
-MAX_REDIRECTS = 20
 
 
 def stub_host(cfg: E2EConfig) -> str:
@@ -89,7 +95,8 @@ def github_stub(cfg: E2EConfig, users: Mapping[str, list[str]]) -> Iterator[None
             kubectl(cfg, ["apply", "-f", str(manifest)])
         kubectl(cfg, ["wait", "--for=condition=Ready", f"certificate/{STUB_NAME}", "-n", namespace, "--timeout=120s"])
         overrides = json.dumps({"spec": spec})
-        run = ["run", STUB_NAME, "-n", namespace, "--restart=Never", f"--image={image}", f"--overrides={overrides}"]
+        run = ["run", STUB_NAME, "-n", namespace, "--restart=Never", f"--image={image}", f"--labels={LABEL}"]
+        run.append(f"--overrides={overrides}")
         kubectl(cfg, run)
         kubectl(cfg, ["expose", "pod", STUB_NAME, "-n", namespace, "--port=443", "--target-port=8443"])
         kubectl(cfg, ["wait", "--for=condition=Ready", f"pod/{STUB_NAME}", "-n", namespace, "--timeout=180s"])
@@ -98,28 +105,53 @@ def github_stub(cfg: E2EConfig, users: Mapping[str, list[str]]) -> Iterator[None
         _remove(cfg)
 
 
+class StubAuthorize(requests.adapters.BaseAdapter):
+    """Answers the redirect to the stub's authorize page as the stub would: straight back with `code=<login>`.
+
+    The stub's name resolves only in the cluster, so the host cannot fetch the
+    page. Mounted on the session, it also answers every later sign-in the
+    session is sent through, e.g. after the proxy clears its cookie on a denial.
+    """
+
+    def __init__(self, login: str) -> None:
+        super().__init__()
+        self.login = login
+
+    def send(
+        self,
+        request: requests.PreparedRequest,
+        stream: bool = False,
+        timeout: Any = None,
+        verify: Any = True,
+        cert: Any = None,
+        proxies: Any = None,
+    ) -> requests.Response:
+        query = parse_qs(urlsplit(str(request.url)).query)
+        try:
+            back = f"{query['redirect_uri'][0]}?{urlencode({'code': self.login, 'state': query['state'][0]})}"
+        except KeyError as exc:
+            raise E2EError(f"the authorize redirect to the stub lacks {exc}: {request.url}") from exc
+        reply = requests.Response()
+        reply.status_code = 302
+        reply.headers["Location"] = back
+        reply.url = str(request.url)
+        reply.request = request
+        reply.raw = io.BytesIO(b"")
+        return reply
+
+    def close(self) -> None:
+        pass
+
+
 def sign_in_with_stub(url: str, login: str, stub: str) -> tuple[requests.Session, requests.Response]:
-    """Open `url` and follow redirects to the end, answering the stub's authorize hop as `login`.
+    """Open `url` and follow redirects to the end, signing in as `login` at the stub.
 
     The response is the last one: the page `url` serves once signed in, or
     Dex's error page when the connector refused the login.
     """
     browser = requests.Session()
-    reply = browser.get(url, allow_redirects=False, timeout=REQUEST_TIMEOUT)
-    for _ in range(MAX_REDIRECTS):
-        if not reply.is_redirect:
-            return browser, reply
-        target = urljoin(reply.url, reply.headers["Location"])
-        parts = urlsplit(target)
-        if parts.hostname == stub:
-            query = parse_qs(parts.query)
-            try:
-                back = f"{query['redirect_uri'][0]}?{urlencode({'code': login, 'state': query['state'][0]})}"
-            except KeyError as exc:
-                raise E2EError(f"the authorize redirect to the stub lacks {exc}: {target}") from exc
-            target = back
-        reply = browser.get(target, allow_redirects=False, timeout=REQUEST_TIMEOUT)
-    raise E2EError(f"{url} redirected more than {MAX_REDIRECTS} times signing in as {login}")
+    browser.mount(f"https://{stub}", StubAuthorize(login))
+    return browser, browser.get(url, timeout=REQUEST_TIMEOUT)
 
 
 def log_skip() -> None:
