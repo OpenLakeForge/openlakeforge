@@ -90,21 +90,27 @@ class SupersetClient(JsonHttpClient):
         role_id = next((r["id"] for r in found.get("result", []) if r["name"] == role), None)
         if role_id is None:
             return False
-        wanted: set[int] = set()
-        for view_menu in view_menus:
-            rows = self.request(
+        # permissions-resources defines no searchable columns (a filter is an HTTP 400),
+        # so the pages are walked and matched here.
+        found_ids: dict[str, int] = {}
+        page = 0
+        while True:
+            body = self.request(
                 "GET",
                 "/api/v1/security/permissions-resources/",
-                params={"q": _filter("view_menu.name", view_menu)},
-            ).get("result", [])
-            ids = [
-                int(r["id"])
-                for r in rows
-                if r["permission"]["name"] == permission and r["view_menu"]["name"] == view_menu
-            ]
-            if not ids:
-                raise ServiceClientError(f"Superset has no {permission} permission on {view_menu!r}; was it imported?")
-            wanted.update(ids)
+                params={"q": json.dumps({"page": page, "page_size": 100})},
+            )
+            rows = body.get("result", [])
+            for r in rows:
+                if r["permission"]["name"] == permission:
+                    found_ids[r["view_menu"]["name"]] = int(r["id"])
+            page += 1
+            if not rows or page * 100 >= body.get("count", 0):
+                break
+        missing = [v for v in view_menus if v not in found_ids]
+        if missing:
+            raise ServiceClientError(f"Superset has no {permission} permission on {missing[0]!r}; was it imported?")
+        wanted = {found_ids[v] for v in view_menus}
         held = self.request("GET", f"/api/v1/security/roles/{role_id}/permissions/").get("result", [])
         self.send(
             "POST",

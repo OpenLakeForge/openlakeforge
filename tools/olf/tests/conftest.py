@@ -267,12 +267,15 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
                 200, {"result": [{"id": names.index(n), "name": n} for n in names if n == filters["value"]]}
             )
         if url.path == "/api/v1/security/permissions-resources/":
+            if "filters" in query:  # the real endpoint has no searchable columns
+                return self._reply(400, {"message": "Filter column not allowed"})
             rows = [
                 {"id": i, "permission": {"name": p}, "view_menu": {"name": v}}
-                for i, (p, v) in self.server.permissions.items()
-                if v == filters["value"]
+                for i, (p, v) in sorted(self.server.permissions.items())
             ]
-            return self._reply(200, {"result": rows})
+            size = query["page_size"]
+            page = rows[query["page"] * size : (query["page"] + 1) * size]
+            return self._reply(200, {"result": page, "count": len(rows)})
         role_perms = re.fullmatch(r"/api/v1/security/roles/(\d+)/permissions/", url.path)
         if role_perms:
             held = self.server.roles[sorted(self.server.roles)[int(role_perms[1])]]
