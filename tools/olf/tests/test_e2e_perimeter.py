@@ -70,3 +70,27 @@ def test_a_user_with_no_role_is_refused_at_sign_in(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(_perimeter, "_sign_in", lambda *_args: (None, _reply(200)))
     with pytest.raises(E2EError, match="no role"):
         _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, None, "u", "p")
+
+
+def test_a_user_in_no_team_must_be_refused_by_the_issuer_not_signed_in() -> None:
+    def refused(*_args: Any) -> Any:
+        reply = _reply(500)
+        reply.url = "https://auth.olf.localhost/callback?code=x"
+        return SimpleNamespace(cookies=[SimpleNamespace(name="_oauth2_proxy_csrf")]), reply
+
+    def denied_by_proxy(*_args: Any) -> Any:
+        reply = _reply(403)
+        reply.url = "https://olf.localhost/"
+        return SimpleNamespace(cookies=[]), reply
+
+    def signed_in(*_args: Any) -> Any:
+        return SimpleNamespace(cookies=[]), _reply(200)
+
+    _perimeter.check_role_decisions(
+        IDENTITY, list(ROUTES), ROUTES, None, "u", "", sign_in=refused, refused_at_login=True
+    )
+    for wrong in (signed_in, denied_by_proxy):
+        with pytest.raises(E2EError, match="not refused by the issuer"):
+            _perimeter.check_role_decisions(
+                IDENTITY, list(ROUTES), ROUTES, None, "u", "", sign_in=wrong, refused_at_login=True
+            )

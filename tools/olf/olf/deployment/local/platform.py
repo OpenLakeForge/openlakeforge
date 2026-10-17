@@ -106,6 +106,7 @@ def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
                 "organization": identity.github.organization,
                 "teams": {role: list(slugs) for role, slugs in identity.github.teams.items()},
                 "oauth_app_secret_ref": asdict(identity.github.oauth_app_secret_ref),
+                **({"host": identity.github.host} if identity.github.host else {}),
             },
             sort_keys=True,
             separators=(",", ":"),

@@ -96,6 +96,7 @@
               "description": "GitHub organisation teams as the source of roles. role_claim and role_mapping are derived: groups and <organization>:<slug>.",
               "properties": {
                 "organization": {"type": "string", "pattern": "^[A-Za-z0-9-]+$", "description": "The organisation login exactly as GitHub shows it, case included: Dex compares it exactly."},
+                "host": {"type": "string", "maxLength": 253, "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$", "description": "GitHub Enterprise Server hostname; absent means github.com. Dex then trusts the platform CA (olf-local-ca) for it."},
                 "teams": {
                   "type": "object",
                   "minProperties": 1,
