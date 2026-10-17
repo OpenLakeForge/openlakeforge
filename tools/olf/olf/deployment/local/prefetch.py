@@ -140,6 +140,15 @@ def prefetch_images(
     log.step("All images pre-loaded.")
 
 
+def load_image_into_nodes(config: LocalDeploymentConfig, tools: Toolkit, image: str, *, env: Mapping[str, str]) -> None:
+    """Prefetch a single image, for callers that run before the prefetch phase."""
+    nodes = tools.kind.get_nodes(config.cluster.name, env=env)
+    if not nodes:
+        raise DeploymentPreconditionError(f"kind cluster '{config.cluster.name}' has no nodes.")
+    with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
+        _prefetch_one_image(image, tools, nodes=nodes, env=env, scratch_dir=Path(scratch), config=config)
+
+
 def _prefetch_one_image(
     image: str,
     tools: Toolkit,

@@ -18,6 +18,7 @@ import yaml
 from olf import log
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.local import prefetch
 from olf.deployment.local.config import LocalDeploymentConfig
 
 _NAMESPACE = "olf-netpol-canary"
@@ -107,6 +108,9 @@ def require_policy_enforcement(config: LocalDeploymentConfig, tools: Toolkit, *,
 
     log.step("Checking that the cluster enforces NetworkPolicy...")
     kubectl.delete("namespace", _NAMESPACE, **target)
+    # The gate runs before the prefetch phase, so without this the kubelet
+    # pulls the image itself and the readiness wait below times out on a slow network.
+    prefetch.load_image_into_nodes(config, tools, image, env=env)
     try:
         kubectl.create_from_manifest(_pods(image), **target)
         for pod in ("server", "client"):
