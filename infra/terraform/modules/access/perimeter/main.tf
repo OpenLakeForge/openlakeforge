@@ -301,6 +301,9 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--upstream=static://202",
               "--http-address=0.0.0.0:${local.port}",
               "--skip-provider-button=true",
+              # oauth2-proxy defaults to approval_prompt=force, which makes Dex
+              # show its consent page on every sign-in despite skipApprovalScreen.
+              "--approval-prompt=auto",
               "--set-xauthrequest=true",
               # Unattended callers get 401 JSON, never a login page.
               "--api-route=^/(api|graphql|v1)(/|$)",

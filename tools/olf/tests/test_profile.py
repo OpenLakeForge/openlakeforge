@@ -625,3 +625,11 @@ def test_plain_http_issuer_is_rejected_outside_local_localhost(provider: str, ba
 
     with pytest.raises(DeploymentProfileError, match="issuer 'none' .* requires provider 'local'"):
         validate_deployment_profile(document)
+
+
+def test_github_host_is_optional_and_must_be_a_bare_hostname() -> None:
+    github = _github_profile()["spec"]["identity"]["github"]
+    assert validate_deployment_profile(_github_profile(github=github | {"host": "ghe.example.com"})) is not None
+    for bad in ("https://ghe.example.com", "ghe.example.com/api", 3):
+        with pytest.raises(DeploymentProfileError, match="github.host"):
+            validate_deployment_profile(_github_profile(github=github | {"host": bad}))

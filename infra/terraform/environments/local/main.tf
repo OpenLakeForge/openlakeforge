@@ -348,10 +348,12 @@ module "dex" {
   source = "../../modules/identity/dex"
   count  = local.identity_dex ? 1 : 0
 
-  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  hostname            = "auth.${local.base_domain}"
-  scheme              = local.route_scheme
-  github              = var.identity_github
+  namespace = kubernetes_namespace_v1.shared.metadata[0].name
+  hostname  = "auth.${local.base_domain}"
+  scheme    = local.route_scheme
+  github    = var.identity_github
+  # A literal, as in the query contract: module.in_cluster_resolution waits on Traefik, a cycle through the routes.
+  ca_configmap_name   = "olf-local-ca"
   clients             = local.identity_client_redirects
   postgresql_contract = module.postgresql.contract
 
