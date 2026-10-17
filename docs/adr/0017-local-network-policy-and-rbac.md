@@ -185,7 +185,7 @@ port [D]).
 | F8 | Trino | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
 | F10 | stage namespace | Trino | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
-| F11 | Traefik (the Trino UI), OpenMetadata, and the OLF-owned ingestion Job (`openlakeforge.io/job=metadata-ingestion`, #26-c1b) | Trino 8080, 8443 | 8080, 8443 | OpenMetadata to Trino row | V (the Job's label is defined here, **T** until #26-c1b creates it) |
+| F11 | Traefik (the Trino UI), OpenMetadata, and the OLF-owned ingestion Job (`openlakeforge.io/job=openmetadata-trino-ingestion`, #410) | Trino 8080, 8443 | 8080, 8443 | OpenMetadata to Trino row | V (the Job's label is defined here, **T** until #410 creates it) |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
 | F13 | OpenMetadata ingestion Jobs, bootstrap and refresh Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V |
 | F14 | OpenMetadata ingestion Jobs, bootstrap Job | Superset (stage) | 8088 | `superset_url` registered by the bootstrap | V; whether ingestion runs today **T** |
@@ -449,7 +449,7 @@ only; F21 allows the API server and node addresses to the webhook on 10250,
 **[T]**: the source address kindnet shows for the API server's call is not read,
 and a wrong rule fails `terraform apply`. F11 is narrowed from any `olf-system`
 pod to Traefik, OpenMetadata and the OLF-owned ingestion Job; the Job label
-`metadata-ingestion` is defined here and depends on #26-c1b creating it, so
+`openmetadata-trino-ingestion` is the label #410 gives the Job, so
 until that merges the OpenMetadata pipeline client's ingestion pods (labels not
 read) cannot reach Trino. F14 is narrowed the same way. Dex gets F28, 443 on any
 address, scoped to its pods. F22 (Keycloak to the profile's SMTP port) and F23

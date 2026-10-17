@@ -570,7 +570,7 @@ locals {
   workload_deployed = merge(
     { for name in ["keycloak", "keycloak-credentials", "keycloak-realm"] : name => local.identity_keycloak },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
-    { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "catalog-refresh", "metadata-ingestion"] : name => local.governance_enabled },
+    { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "catalog-refresh", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
   )
 
   # ipBlock cannot name a host, so profile-driven egress is any address on the
