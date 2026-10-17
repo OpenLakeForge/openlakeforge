@@ -15,6 +15,7 @@ import json
 import os
 import socket
 import subprocess
+import tempfile
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -378,3 +379,18 @@ def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
         except requests.RequestException:
             time.sleep(delay)
     return False
+
+
+def run_job(job: dict, *, timeout: str) -> None:
+    """Replace the named Job (its spec is immutable), wait for it, and surface its log on failure."""
+    name, namespace = job["metadata"]["name"], job["metadata"]["namespace"]
+    _kubectl(["delete", "job", name, "-n", namespace, "--ignore-not-found"])
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as manifest:
+        json.dump(job, manifest)
+        manifest.flush()
+        _kubectl(["create", "-f", manifest.name])
+    try:
+        _kubectl(["wait", f"job/{name}", "-n", namespace, "--for=condition=complete", f"--timeout={timeout}"])
+    except KubectlError as exc:
+        log_tail = _kubectl(["logs", f"job/{name}", "-n", namespace, "--tail=40"], capture=True, check=False)
+        raise KubectlError(f"Job {name} did not complete: {exc}\n{log_tail}") from exc
