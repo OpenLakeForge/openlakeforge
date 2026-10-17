@@ -791,3 +791,32 @@ def test_building_the_local_provider_scrubs_the_smtp_login_before_any_phase_can_
 
     assert "OLF_SMTP_PASSWORD" not in os.environ
     assert "s3cr3t-value" not in repr(provider)
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_status_renders_certificates_only_when_access_is_declared(
+    declared: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from olf.deployment.local.provider import LocalProvider
+    from olf.profile import AccessSpec
+
+    topology = replace(_topology(), access=AccessSpec() if declared else None)
+    context = SimpleNamespace(
+        topology=topology, shared_namespace="olf-system", namespace_for=lambda stage: "olf-dev", enabled_stages=()
+    )
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("olf.deployment.status.collect_status", lambda *_a, **kw: seen.update(kw))
+    fake = SimpleNamespace(
+        _contracts=lambda: None,
+        context=context,
+        config=SimpleNamespace(kube_context="c", paths=SimpleNamespace(kubeconfig_path="k")),
+        tools=SimpleNamespace(kubectl=None),
+        env={},
+    )
+
+    LocalProvider.status(fake)  # type: ignore[arg-type]
+
+    assert seen["certificates"] is declared

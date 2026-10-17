@@ -159,7 +159,7 @@ class LocalProvider:
             kubeconfig=self.config.paths.kubeconfig_path,
             env=self.env,
             urls=urls,
-            certificates=True,
+            certificates=self.context.topology.access is not None,  # a quickstart has no cert-manager
         )
 
     def _contract_dir(self) -> Path:

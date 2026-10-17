@@ -103,14 +103,14 @@ def _require_ingress_preconditions(config: LocalDeploymentConfig, tools: Toolkit
     inside kind's create.
     """
     access = config.context.topology.access
-    if access is None:
-        return
-    issuer = access.issuer
+    issuer = access.issuer if access is not None else LOCAL_CA_ISSUER
     if issuer != LOCAL_CA_ISSUER:
         raise DeploymentPreconditionError(
             f"spec.access.issuer is {issuer!r}, but the local provider ships only the {LOCAL_CA_ISSUER!r} issuer. "
             f"Set spec.access.issuer to {LOCAL_CA_ISSUER} (ACME issuers arrive with #274)."
         )
+    # Every local profile: kind-cluster.yaml maps 80/443 whether or not spec.access
+    # is declared. Make this depend on access once the mappings do.
     busy = [port for port in (80, 443) if _listening(port)]
     if busy and config.cluster.name not in tools.kind.get_clusters(env=env):
         ports = " and ".join(f"127.0.0.1:{port}" for port in busy)
