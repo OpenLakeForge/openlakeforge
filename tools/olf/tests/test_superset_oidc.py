@@ -149,3 +149,10 @@ def test_user_info_reads_the_contract_claim_and_prefixes_the_username(monkeypatc
 
     assert info["username"] == "oidc-admin"
     assert info["role_keys"] == ["acme:admins"]
+
+
+def test_superset_makes_anonymous_visitors_admin_only_without_an_issuer() -> None:
+    main = (ROOT / "infra/terraform/modules/analytics/superset/main.tf").read_text()
+
+    assert 'var.oidc != null ? [] :' in main
+    assert 'AUTH_ROLE_PUBLIC = \\"Admin\\"' in main

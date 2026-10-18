@@ -417,6 +417,12 @@ is not.
 
 ## History
 
+#418 made a profile without `spec.identity` the explicit "authentication off"
+mode: accepted only for `provider: local` with no `spec.access` or a
+`*.localhost` base domain. Superset then grants anonymous visitors the `Admin`
+role (`AUTH_ROLE_PUBLIC`); OpenMetadata has no anonymous mode, so `olf status`
+shows its default admin login. With `spec.identity` nothing changes.
+
 #403 added the http issuer exception to `issuer_url` for `spec.access.issuer: none`.
 
 New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,

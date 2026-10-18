@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -149,7 +149,7 @@ class LocalProvider:
         except ProviderContractError as exc:
             log.warn(f"no service URLs: {exc}")
             urls = None
-        return collect_status(
+        report = collect_status(
             self.tools.kubectl,
             namespaces=(
                 self.context.shared_namespace,
@@ -161,6 +161,10 @@ class LocalProvider:
             urls=urls,
             certificates=self.context.topology.access is not None,  # a quickstart has no cert-manager
         )
+        # Authentication off (ADR 0014): Superset opens as Admin, but OpenMetadata has no anonymous mode.
+        if self.context.topology.identity is None and self.config.features.governance_enabled:
+            report = replace(report, notes=("Authentication is off. OpenMetadata login: admin@open-metadata.org / admin",))
+        return report
 
     def _contract_dir(self) -> Path:
         return Path(

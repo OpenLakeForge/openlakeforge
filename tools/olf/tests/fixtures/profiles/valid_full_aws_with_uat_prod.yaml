@@ -19,3 +19,4 @@ spec:
       capabilities:
         analytics: true
         governance: false
+  identity: {}

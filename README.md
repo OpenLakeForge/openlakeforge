@@ -94,6 +94,11 @@ there is no certificate step. To sign in with GitHub, or to serve HTTPS, see
 The first deploy takes several minutes while Kubernetes and the container
 images download. Tear it down with `olf destroy --provider local`.
 
+Authentication is off by default locally; add `spec.identity` to turn it on.
+With it off, Superset opens as Admin and OpenMetadata keeps its
+`admin@open-metadata.org` / `admin` login (shown by `olf status`). A profile
+without `spec.identity` is accepted only for `provider: local` on `*.localhost`.
+
 **What you get:** a local lakehouse with three example data products already
 wired end to end, `sales/order_revenue`, `sales/customer_health` and
 `supply_chain/inventory_reliability`. Each one loads CSV files into Bronze,

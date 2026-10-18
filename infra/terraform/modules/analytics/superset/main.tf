@@ -115,6 +115,15 @@ resource "helm_release" "superset" {
       extraVolumes      = [for v in local.trust_volumes : { name = v.name, configMap = { name = v.configmap } }]
       extraVolumeMounts = [for v in local.trust_volumes : { name = v.name, mountPath = v.path, readOnly = true }]
     })
+    ], var.oidc != null ? [] : [
+    # Authentication off (no spec.identity; local-only, enforced by profile
+    # validation): anonymous visitors are Admin. The local admin account stays
+    # for `olf report import` and the e2e.
+    yamlencode({
+      configOverrides = {
+        openlakeforge_public_admin = "AUTH_ROLE_PUBLIC = \"Admin\"\n"
+      }
+    })
     ], var.oidc == null ? [] : [
     yamlencode({
       configOverrides = {

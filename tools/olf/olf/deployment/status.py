@@ -33,14 +33,19 @@ class StatusReport:
     urls: Mapping[str, str] = field(default_factory=dict)
     """User-facing URLs by contract ref, from the contract's ingress routes."""
 
+    notes: tuple[str, ...] = ()
+    """Lines printed before everything else, e.g. the sign-in hint of authentication-off mode."""
+
     def render(self) -> str:
         blocks = [f"=== {section.title} ===\n{section.output}" for section in self.sections]
+        if self.notes:
+            blocks.insert(0, "\n".join(self.notes))
         if self.urls:
             blocks.insert(0, "=== URLs ===\n" + "\n".join(f"{ref}: {url}" for ref, url in sorted(self.urls.items())))
         return "\n\n".join(blocks)
 
     def as_dict(self) -> dict[str, object]:
-        return {"urls": dict(self.urls), "sections": {section.title: section.output for section in self.sections}}
+        return {"urls": dict(self.urls), "notes": list(self.notes), "sections": {section.title: section.output for section in self.sections}}
 
 
 def collect_status(
