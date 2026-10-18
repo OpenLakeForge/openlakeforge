@@ -60,7 +60,7 @@ flows:
     tag: V
   - id: F4
     from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: traefik}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     ports: [8443, 8000] # Superset's OIDC calls to the issuer's public URL, rewritten to Traefik: websecure, or web with issuer none
     tag: V
   - id: F5
@@ -182,8 +182,8 @@ flows:
   - id: F1
     from: {scope: any}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443]
-    tag: T # host to hostPort 443 through the CNI portmap; 8000 is not allowed
+    ports: [8443, 8000] # websecure, or web (hostPort 80) when the issuer is none
+    tag: T # host to hostPort 443 and 80 through the CNI portmap
   - id: F2
     from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     to: {scope: shared, pods: {openlakeforge.io/workload: oauth2-proxy}}
@@ -212,7 +212,7 @@ flows:
   - id: F4
     from: {scope: shared, pods: {openlakeforge.io/workload: oauth2-proxy}}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443]
+    ports: [8443, 8000] # web when the issuer is none
     tag: V
   - id: F13
     from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-refresh}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]

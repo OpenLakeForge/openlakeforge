@@ -175,7 +175,7 @@ port [D]).
 
 | # | From | To | Port | Source | Tag |
 | --- | --- | --- | --- | --- | --- |
-| F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 not allowed | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
+| F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `issuer: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Keycloak, portal, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` in `contracts.tf` | V |
 | F4 | oauth2-proxy | Traefik 8443 | 8443 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands |
@@ -445,8 +445,7 @@ Keycloak, Dex, the three cert-manager pods and the `startupapicheck` Job,
 OpenMetadata, OpenSearch and fourteen Jobs (selected by `openlakeforge.io/job`).
 The module gives every workload DNS egress itself, adds the peer scopes `node`,
 `apiserver` (as a source) and `any` (outside the pod and Service ranges, kind's
-defaults), and lets one row list several sources. F1 is `any` to Traefik 8443
-only; F21 allows the API server and node addresses to the webhook on 10250,
+defaults), and lets one row list several sources. F1 is `any` to Traefik 8443 and, for plain-HTTP mode (`issuer: none`), 8000; F21 allows the API server and node addresses to the webhook on 10250,
 **[T]**: the source address kindnet shows for the API server's call is not read,
 and a wrong rule fails `terraform apply`. F11 is narrowed from any `olf-system`
 pod to Traefik, OpenMetadata and the OLF-owned ingestion Job; the Job label
@@ -457,9 +456,11 @@ address, scoped to its pods. F22 (Keycloak to the profile's SMTP port) and F23
 (oauth2-proxy to the issuer URL's port, 443 by default, when the issuer is `external`) are rendered from the
 profile in `environments/local/main.tf`. Policies are rendered only for
 deployed workloads: the local root drops Keycloak, Dex and the governance
-workloads when the profile does not deploy them, and #406 must extend
-`workload_deployed` for Traefik, cert-manager, the perimeter and the portal when
-it makes them optional. Decision 3 is amended (above): F26 and F27 are rows
+workloads when the profile does not deploy them, and, following #406's
+switches, Traefik, the portal and the CA-publishing Job with `access_enabled`,
+cert-manager with its module count, and oauth2-proxy and its cookie Job with
+`identity_enabled`, so a quickstart or an access-without-identity profile plans
+no policy for an absent workload. Decision 3 is amended (above): F26 and F27 are rows
 keyed on a label the e2e sets. Still **[T]**: OpenSearch's and OpenMetadata's
 pod labels (the dependencies chart is not rendered here), OpenMetadata's own
 Service hairpin, whether OpenMetadata calls Polaris or SeaweedFS (no row

@@ -615,6 +615,9 @@ locals {
   # profile without Keycloak, Dex or governance plans no policy for them. Names
   # not listed are always deployed.
   workload_deployed = merge(
+    { for name in ["traefik", "portal", "publish-local-ca"] : name => local.access_enabled },
+    { for name in ["cert-manager-controller", "cert-manager-cainjector", "cert-manager-webhook", "cert-manager-startupapicheck"] : name => length(module.cert_manager) > 0 },
+    { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
     { for name in ["keycloak", "keycloak-credentials", "keycloak-realm"] : name => local.identity_keycloak },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "catalog-refresh", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
