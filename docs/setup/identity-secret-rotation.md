@@ -1,204 +1,68 @@
 # Rotating an identity client secret
 
-Each OIDC client of the local Keycloak adapter (`perimeter`, `superset`,
+Each OIDC client of the local Dex adapter (`perimeter`, `superset`,
 `openmetadata`, `trino`) authenticates to the issuer with a secret that an
 in-cluster bootstrap Job creates once, only if the Secret is missing (ADR 0014,
 [`identity-credentials.md`](../architecture/identity-credentials.md)). Terraform
 never holds the value: it knows the Secret name and key, and the consumers read
 the value from the Secret at runtime. A redeploy reuses the Secrets; it is not a
 rotation. This procedure replaces one. It applies to the local and on-premises
-Keycloak adapter; with `spec.identity.issuer: external` the issuer and the
-Secrets belong to the operator, who rotates them in the issuer and in the
-Secrets named by the contract (`oidc-client-<consumer>`, key `client-secret`).
+Dex adapter (`spec.identity.issuer: github`); with `issuer: external` the issuer
+and the Secrets belong to the operator, who rotates them in the issuer and in
+the Secrets named by the contract (`oidc-client-<consumer>`, key
+`client-secret`). The GitHub OAuth App's own client secret is rotated in GitHub
+and in the Secret that `spec.identity.github.oauth_app_secret_ref` names
+([`github-oauth-app.md`](github-oauth-app.md)), followed by a Dex restart.
 
 ## When
 
 Rotate after a suspected leak, when someone who could read the Secret leaves,
-or on a schedule you set. A rotation has no downtime for logins in progress;
-a service that has already loaded the old value fails its next token request
-until it restarts.
+or on a schedule you set. A service that has already loaded the old value fails
+its next token request until it restarts.
 
 ## Procedure
 
-1. Keep the value being retired, to test it afterwards:
+Not yet exercised on a cluster since Dex replaced Keycloak; the steps follow
+the Job and Deployment names in `modules/identity/dex`.
+
+1. Delete the Secret. The bootstrap Job never overwrites an existing one:
 
    ```bash
-   OLD=$(kubectl -n olf-system get secret keycloak-client-perimeter -o jsonpath='{.data.client-secret}' | base64 -d)
+   kubectl -n olf-system delete secret dex-client-perimeter
    ```
 
-2. Delete the Secret. The bootstrap Job never overwrites an existing one:
+2. Re-run the platform phase with the bootstrap Job replaced. The Job
+   (`dex-credentials-<revision>`) recreates every missing Secret and leaves the
+   others alone. Terraform reads extra arguments from `TF_CLI_ARGS_apply`:
 
    ```bash
-   kubectl -n olf-system delete secret keycloak-client-perimeter
-   ```
-
-3. Re-run the platform phase with the bootstrap Job replaced. The Job
-   (`keycloak-credentials-<revision>`) recreates every missing Secret and
-   leaves the others alone; replacing it also replaces the realm Job
-   (`keycloak-realm-<revision>`), so `keycloak-config-cli` pushes the new value
-   into the client. Terraform reads extra arguments from `TF_CLI_ARGS_apply`:
-
-   ```bash
-   TF_CLI_ARGS_apply='-replace=module.keycloak[0].kubernetes_job_v1.credentials' \
+   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials' \
      uv run --project tools/olf --locked olf deploy --provider local --phase platform
    ```
 
-4. Restart every workload that reads the Secret, so it loads the new value.
-   Environment variables from a Secret are read at container start.
-   The `perimeter` client is read by the oauth2-proxy Deployments
-   (`kubectl -n olf-system rollout restart deployment -l openlakeforge.io/component=perimeter`).
-   Services that consume the other clients (#25, #26) are not wired yet; when
-   they are, list their restart here.
-
-5. Confirm. The old value must be refused and the new one accepted. The token
-   endpoint answers `unauthorized_client` for a wrong secret and
-   `invalid_grant` for a right secret with a bad code, so no login is needed.
-   Test the retired value itself, then the new one:
+3. Restart Dex and every workload that reads the Secret, so each loads the new
+   value. Environment variables from a Secret are read at container start.
+   Dex holds all four client secrets; the `perimeter` client is also read by
+   the oauth2-proxy Deployments:
 
    ```bash
-   NEW=$(kubectl -n olf-system get secret keycloak-client-perimeter -o jsonpath='{.data.client-secret}' | base64 -d)
-   for s in "$OLD" "$NEW"; do
-     curl -sk -d grant_type=authorization_code -d code=invalid -d client_id=perimeter \
-       -d redirect_uri=https://oauth2.olf.localhost/oauth2/callback --data-urlencode "client_secret=$s" \
-       https://auth.olf.localhost/realms/openlakeforge/protocol/openid-connect/token; echo
-   done   # first: unauthorized_client, second: invalid_grant
+   kubectl -n olf-system rollout restart deployment dex
+   kubectl -n olf-system rollout restart deployment -l openlakeforge.io/component=perimeter
    ```
 
-   (Use the issuer URL and client id from the identity contract; `olf e2e run
-   --env local` also asserts that each Secret authenticates its client.)
+   Services that consume the other clients (Superset, OpenMetadata, Trino) read
+   theirs the same way and need their own restart.
+
+4. Confirm by signing in through the portal: the sign-in completes only when
+   Dex and the consumer hold the same value.
 
 ## Failure recovery
 
-- The bootstrap Job fails with `Secret <name> exists without key <key>` when
-  something else created that Secret. It changes nothing; fix or delete the
-  Secret and re-run step 3.
+- The bootstrap Job fails with `Secret <name> exists without key client-secret`
+  when something else created that Secret. It changes nothing; fix or delete
+  the Secret and re-run step 2.
 - An interrupted bootstrap is safe to re-run: each Secret is created in one
   call, so no half-written Secret exists, and Secrets already created are kept.
-- If the apply stops after step 3 recreated the Secret but before the realm Job
-  ran, Keycloak still holds the old value. Re-run step 3; the realm Job applies
-  the Secret.
-
-## Exercise
-
-Performed on the local stack (kind, Keycloak 26.6.4) while landing the
-bootstrap Job, for the `perimeter` client, following steps 2, 3 and 5:
-
-| Step | Observed |
-| --- | --- |
-| Delete `keycloak-client-perimeter`, then `TF_CLI_ARGS_apply='-replace=module.keycloak[0].kubernetes_job_v1.credentials' olf deploy --provider local --phase platform` | `Apply complete! Resources: 2 added, 0 changed, 2 destroyed` (the bootstrap Job and the realm Job); the Job log shows `Created Secret keycloak-client-perimeter` and `exists; keeping it` for the other four |
-| After: the old value at the token endpoint | `unauthorized_client` (refused) |
-| After: the Secret's new value | `invalid_grant` (accepted) |
-| A foreign `keycloak-client-trino` Secret without `client-secret` | The Job fails with `exists without key client-secret; refusing to modify it` and leaves the Secret as it was |
-| `keycloak-admin-creds` deleted while Keycloak is deployed | The Job fails with the pointer to the admin recovery and creates nothing |
-| `olf e2e run --env local` after the drill | Passes, including each client's Secret authenticating it |
-
-Step 4 (restarting consumers) was not exercised, including the oauth2-proxy
-restart above.
-
-## The bootstrap admin
-
-`keycloak-admin-creds` (keys `username`, `password`) is created by the same Job
-and survives switching `spec.identity.issuer` to `external` and back. Keycloak
-reads it on its first start against an empty database and ignores a changed
-Secret once the admin exists; the realm Job authenticates with it on every run.
-Deleting the Secret and re-running the Job is therefore not a rotation: while
-the Keycloak Deployment exists the Job refuses to create a new value, because
-it would not match the stored admin. To rotate it (unverified):
-
-1. Sign in to the Keycloak console as `admin` and set a new password (master
-   realm, Users, admin, Credentials).
-2. Update the Secret to that value, then re-run the platform phase so the realm
-   Job proves it authenticates:
-
-   ```bash
-   kubectl -n olf-system create secret generic keycloak-admin-creds \
-     --from-literal=username=admin --from-literal=password='<new>' \
-     --dry-run=client -o yaml | kubectl -n olf-system apply -f -
-   ```
-
-## The SMTP login
-
-Mail for account setup and password reset is optional. Without
-`spec.identity.smtp` the realm offers neither password reset nor email
-verification. With it, the profile holds the relay's address and the *name* of
-a Secret; the username and password stay in that Secret and are never in the
-profile, Terraform variables, outputs or state:
-
-```yaml
-spec:
-  identity:
-    smtp:
-      host: smtp.example.com
-      port: 587
-      from_address: noreply@example.com
-      from_name: OpenLakeForge      # optional
-      security: starttls            # none | starttls (default) | ssl
-      auth: true                    # default false; true needs the reference below
-      credentials_secret_ref:
-        name: smtp-credentials      # keys default to username / password
-```
-
-The Secret lives in the shared namespace (`olf-system`), which the platform
-apply creates. **On a first deploy** put the login in two environment
-variables for that one command; `olf deploy` then applies the namespace alone,
-creates the Secret, and runs the full apply, so the realm Job finds it:
-
-```bash
-read -rp 'SMTP username: ' OLF_SMTP_USERNAME; read -rsp 'SMTP password: ' OLF_SMTP_PASSWORD; echo
-export OLF_SMTP_USERNAME OLF_SMTP_PASSWORD
-olf deploy --provider local
-unset OLF_SMTP_USERNAME OLF_SMTP_PASSWORD
-```
-
-`olf` removes both variables from its own environment as it starts, so no
-Docker, Helm, Terraform or kubectl child process inherits them, and the login
-travels only to `kubectl create` on stdin: it is in no argument list, log,
-Terraform variable or state. It is read only when the Secret is missing:
-an existing Secret is never replaced from the environment (rotate it as below).
-Without the variables, on a cluster that does not have the Secret yet, the
-deploy stops before the apply and names both options. The alternative is the
-manual two-step flow: deploy once without `smtp`, create the Secret yourself,
-then add `smtp` and re-run the platform phase:
-
-```bash
-read -rp 'SMTP username: ' SMTP_USERNAME; read -rsp 'SMTP password: ' SMTP_PASSWORD; echo
-kubectl -n olf-system create secret generic smtp-credentials \
-  --from-literal=username="$SMTP_USERNAME" --from-literal=password="$SMTP_PASSWORD"
-unset SMTP_USERNAME SMTP_PASSWORD
-```
-
-`olf deploy` stops before the apply, naming this command shape, if the Secret
-exists but lacks either key. It reads key names only. Do not create the
-namespace by hand before the first deploy: Terraform cannot import it into an
-empty state, and a namespace it does not know is what the drift reset deletes.
-
-To change the login, recreate the Secret, then delete the realm Job so the next
-platform apply recreates it and `keycloak-config-cli` pushes the new value
-(Terraform does not hash the Secret, so it would not re-run the Job on its own):
-
-```bash
-kubectl -n olf-system delete job -l app.kubernetes.io/name=keycloak
-```
-
-`olf e2e run --env local` also sends a Keycloak action email to a throwaway
-mail sink in a throwaway realm and asserts delivery, and that an unreachable
-SMTP server is reported as a failure (see ADR 0014). It does not test your
-relay: it never uses the credentials in your Secret.
-
-Run on a kind cluster (#331): a first deploy with `smtp` (authenticated, to a
-Mailpit pod) and the two environment variables created the namespace, the
-Secret and the realm, with the password in no log, and a later deploy without
-the variables reused the Secret. A hand-made namespace with an empty Terraform
-state failed the import and was reset by the next deploy. Not yet exercised on
-a cluster: the login-change step above against a real relay. What was run
-earlier: the module's rendered realm file, applied with the pinned
-`keycloak-config-cli` to the pinned Keycloak 26.6.4 on a Docker network with a
-Mailpit sink, produced the `smtpServer` with the username from the environment
-and a masked password, and Keycloak's `execute-actions-email` delivered through
-it with that login (Mailpit recorded the SMTP username). Removing `smtp` from
-the profile emptied `smtpServer` and turned `resetPasswordAllowed` and
-`verifyEmail` off. The e2e check's Keycloak and Mailpit calls were run the same
-way, with Mailpit on Docker instead of in kind.
 
 ## The perimeter cookie secret
 

@@ -84,7 +84,7 @@ def _dagster_answers(url: str, *, attempts: int, delay: float) -> bool:
     # any HTTP status is not recovery: only Dagster's own endpoint returning 200,
     # or, behind the perimeter, the proxy's redirect to the issuer's login. The
     # redirect is recognised by the proxy's own callback in `redirect_uri`, not
-    # by a path that only Keycloak serves.
+    # by a path that only one issuer serves.
     for _ in range(attempts):
         try:
             reply = requests.get(f"{url}/server_info", allow_redirects=False, timeout=5)

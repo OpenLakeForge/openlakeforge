@@ -8,7 +8,7 @@ Only the local-kind mechanics are replaced:
 - AKS provides Kubernetes.
 - ACR distributes the Superset and project-code images.
 - Access remains `kubectl port-forward`; there is no public ingress, DNS, TLS,
-  Keycloak, or Vault.
+  identity issuer, or Vault.
 
 This POC is not production hardened. It still uses in-cluster storage,
 databases, generated Terraform state credentials, and Kubernetes Secrets. Future

@@ -35,7 +35,7 @@ every caller, and whether it is worth doing in v0.5-alpha.
 | Chart support | Chart 1.4.1 exposes `authentication.type`, `authentication.realmOverrides` and an `oidc` block (`authServeUrl`, `client.id`, `client.secret`, `principalMapper`, `principalRolesMapper`); defaults are `internal` and an empty `oidc.authServeUrl`. Only one default OIDC tenant is supported through values |
 | What does this deployment set? | Nothing: `infra/helm/values/local/polaris.yaml` has no `authentication` or `oidc` key, so Polaris runs `internal`, and `release.tf` passes only persistence and storage settings |
 | Issuer reachability | **To verify.** The issuer URL is `https://auth.<base_domain>` behind Traefik with the local CA (ADR 0014). The Polaris pod would need to resolve that host and trust the CA in its JVM trust store, as the other back-channel consumers do (`in-cluster-resolution`). Whether the 1.4.0 image honours a mounted CA bundle was not checked |
-| Which claim names the principal for an issuer service-account token? | **To verify** against the pinned Keycloak. A client-credentials token's `sub` is a UUID, which cannot be the numeric id claim. A name claim can be a protocol mapper with a fixed value, or Keycloak's service-account `preferred_username`; which fits the existing principal names (`trino-<stage>`, `floe-<stage>`, ... in `environments/local/main.tf`) was not tested |
+| Which claim names the principal for an issuer service-account token? | **To verify** against Dex (this row was written against Keycloak, since removed). A client-credentials token's `sub` is a UUID, which cannot be the numeric id claim. A name claim can be a protocol mapper with a fixed value, or the issuer's own name claim; which fits the existing principal names (`trino-<stage>`, `floe-<stage>`, ... in `environments/local/main.tf`) was not tested |
 
 ## How the Polaris credential is consumed today
 
@@ -65,7 +65,7 @@ their own beyond the Floe Secret above.
 | `olf` deployer | `olf/polaris.py` assumes the Polaris token path and Basic client credentials, so it needs an issuer-aware login |
 | Bootstrap Job | It authenticates to the internal token endpoint as root. Under `external` that endpoint is disabled and the Job fails; `mixed` keeps it. Principal rotation (`/principals/<name>/rotate`) stops mattering for migrated callers, and their secrets are then rotated at the issuer |
 | Principals and grants | Unchanged and still required: every migrated caller needs a Polaris principal whose name the token's name claim matches, with the same catalog-role grants |
-| Availability | Today Polaris is self-contained. With an external issuer, Trino and Floe cannot obtain a catalog token while Keycloak is down, which conflicts with the "recovery works with Keycloak down" bound in `identity-sessions-and-recovery.md` for every pipeline and query |
+| Availability | Today Polaris is self-contained. With an external issuer, Trino and Floe cannot obtain a catalog token while the issuer is down, which conflicts with the "recovery works with the issuer down" bound in `identity-sessions-and-recovery.md` for every pipeline and query |
 | Local trust | Polaris must reach and trust `https://auth.<base_domain>` (see above) |
 | AWS | None. AWS uses Glue; no Polaris is deployed |
 

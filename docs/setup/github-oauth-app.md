@@ -55,3 +55,14 @@ kubectl -n olf-system create secret generic github-oauth-app \
 
 Re-run `olf deploy`. The key names are `client_id_key` and `client_secret_key`
 under `oauth_app_secret_ref` (`client-id` and `client-secret` by default).
+
+## CI and the nightly
+
+No real GitHub is involved. `openlakeforge.conformance.yaml` selects
+`issuer: github` with `github.host: olf-e2e-github.olf-system.svc`, the host of
+the GitHub stub `olf e2e run` starts in the cluster (`olf/e2e/_identity_github.py`).
+Dex still reads the Secret named by `oauth_app_secret_ref`, so the nightly
+(`.github/workflows/local-full-e2e.yml`) runs `olf platform apply`, which
+creates the foundation and the `olf-system` namespace and stops at the missing
+Secret, creates `github-oauth-app` with the dummy values `olf-e2e` / `olf-e2e`,
+and applies again. The stub accepts any client id and secret.

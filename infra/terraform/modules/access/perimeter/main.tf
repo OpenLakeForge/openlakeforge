@@ -277,8 +277,8 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--oidc-issuer-url=${var.issuer_url}",
               "--client-id=${var.client_id}",
               "--oidc-groups-claim=${var.role_claim}",
-              # The default adds a `groups` scope, which Keycloak has no client
-              # scope for; the group mapper puts the claim in regardless.
+              # Overrides the default scopes: Dex needs `groups` and
+              # `offline_access` asked for, an external issuer may not.
               "--scope=${var.scope}",
               "--code-challenge-method=S256",
               "--email-domain=*",
@@ -295,7 +295,7 @@ resource "kubernetes_deployment_v1" "proxy" {
               # 30 min idle: the cookie is re-issued on every refresh, so it
               # lapses only after 30 min with no request. The 10 h absolute
               # bound is the issuer's SSO session maximum, which ends the
-              # refresh chain (modules/identity/keycloak).
+              # refresh chain (modules/identity/dex).
               "--cookie-expire=30m",
               "--cookie-refresh=4m",
               "--reverse-proxy=true",

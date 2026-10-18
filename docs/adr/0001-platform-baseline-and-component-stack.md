@@ -99,8 +99,9 @@ for cache and workers.
 
 ### Deferred
 
-Keycloak (IAM/SSO), Vault or External Secrets, Traefik, and cert-manager are
-production requirements the platform does not yet meet. Local and POC
+Vault or External Secrets is a production requirement the platform does not
+yet meet; Traefik, cert-manager and the identity issuer (Dex, ADR 0014) are
+built for the local profile only. Local and POC
 deployments use development credentials, Kubernetes Secrets, and
 `kubectl port-forward`. These are named here so their absence reads as a known
 gap rather than an oversight; the roadmap schedules them for the secure beta

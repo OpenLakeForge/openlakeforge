@@ -46,7 +46,7 @@ chart 0.15.5; OpenMetadata chart and server 1.13.6. Read: Superset 6.1.0
 | 1 | Superset has no read-only dashboard role. `Gamma` can create and edit its own charts and dashboards | **V** `manager.py` `_is_gamma_pvm` | `viewer` is a custom role: Superset's own `Public` permission set under another name |
 | 2 | `superset init` rewrites `Admin`, `Alpha`, `Gamma` and `sql_lab` permissions from code. Data-access grants (`schema_access`) added by hand to `Gamma` are dropped | **V** `set_role`, `_is_user_defined_permission` | Data scope for `analyst` and `viewer` lives in a separate custom role |
 | 3 | `Alpha` has no SQL Lab. SQL Lab permissions belong to the `sql_lab` role only | **V** `_is_alpha_pvm` excludes `_is_sql_lab_only` | The yaml maps `data-engineer` to `Alpha`, so data engineers have no SQL Lab. Decision 1 |
-| 4 | Flask-AppBuilder's built-in `keycloak` provider reads the `groups` claim by name | **V** `get_oauth_user_info` | Unusable: it is the Keycloak-specific claim the contract forbids. A custom user-info method reads `role_claim` |
+| 4 | Flask-AppBuilder's built-in `keycloak` provider reads the `groups` claim by name | **V** `get_oauth_user_info` | Unusable: it is a Keycloak-specific provider and claim the contract forbids. A custom user-info method reads `role_claim` |
 | 5 | The login page waits for a click: FAB's `AuthOAuthView.login` lists providers, and Superset registers its own `SupersetAuthView` at `/login/` unless a subclass sets `register_superset_auth_view = False` | **V** `AuthOAuthView`, `views/auth.py`, `register_views` | Silent renewal needs a small auth-view subclass registered through `authoauthview` |
 | 6 | OpenMetadata has no roles named `read` or `write`; `Admin` is a user flag. `DataConsumer`, which every user inherits, is not read-only | **V** `UserUtil`, `TeamRepository.initOrganization`, seed policies | `read` and `write` are defined below; the default baseline must be tightened |
 | 7 | OpenMetadata's provider role sync reads a claim literally named `roles` whose values are OpenMetadata role names. It grants `Admin` but never removes it, and an empty claim changes nothing | **V** `JwtFilter`, `UserUtil.reSyncUserRolesFromToken` | Cannot consume the canonical claim, and cannot demote. The fix to remove roles is on `main` after 1.13.6 |
@@ -200,7 +200,7 @@ baseline only; `useRolesFromProvider` stays `false`. `olf` owns the grant:
 
 | Step | Detail |
 | --- | --- |
-| Command | `olf openmetadata sync-roles [--user]`: for each issuer user, set `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer`. **Reopened by [ADR 0018](../adr/0018-github-is-the-forge.md):** the canonical role was read from the Keycloak admin API, which goes; reading the mapped GitHub teams' members is the candidate source, decided with the Dex adapter |
+| Command | `olf openmetadata sync-roles [--user]`: for each issuer user, set `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer`. **Reopened by [ADR 0018](../adr/0018-github-is-the-forge.md):** the canonical role was read from the (since removed) Keycloak admin API; reading the mapped GitHub teams' members is the candidate source, decided with the Dex adapter |
 | Called by | `olf deploy`; `olf e2e run`; creating the OpenMetadata user first if it has never logged in (login finds an existing user by name, **V**) |
 | Identity | The class-2 OpenMetadata automation bot below, over the RBAC-authorized port-forward |
 | Gap | Every role change is now a GitHub team change (ADR 0018), so a changed role reaches OpenMetadata only at the next `sync-roles`. This is the normal path, not an exception (test OM-7); a scheduled run is therefore required, not a follow-up (decision 2) |
@@ -228,14 +228,14 @@ refresh-token grant (**V** `getUserCredentialsFromSession`, `renewOidcCredential
 | `oidcConfiguration.sessionExpiry` | Leave default. Values under 3600 are ignored and the 7-day default applies (**V**). It is an idle timeout (**V** `setMaxInactiveInterval`) | 15 min is not reachable here, and the session holds no authority of its own |
 | `oidcConfiguration.tokenValidity` | `"900"` | Only used when a refresh response has no `id_token`, when OpenMetadata mints a token itself (**V**). Default is 3600 s, which would exceed 15 min |
 | `oidcConfiguration.maxAge` | `""` | Default `"0"` is sent as `max_age=0` (**V** `buildLoginParams`), which asks the issuer to re-authenticate every time (OIDC Core 3.1.2.1), defeating silent renewal |
-| `oidcConfiguration.promptType` | `""` | Default `consent`; **T** Keycloak ignores it for a client without consent |
+| `oidcConfiguration.promptType` | `""` | Default `consent`; **T** the issuer ignores it for a client without consent (checked against Keycloak, since removed; Dex shows no approval screen, `skipApprovalScreen`) |
 | `authentication.enableAutoRedirect` | `true` (env `AUTHENTICATION_ENABLE_AUTO_REDIRECT`, via `extraEnvs`) | No provider button |
 | Client secret | `oidcConfiguration.clientSecret.secretRef/secretKey` from the contract | **V** chart renders `OIDC_CLIENT_SECRET` from a Secret |
 
 Bounds for OpenMetadata: **disable** or session end: the next refresh at the
 issuer is refused, and the ID token (5 min) and perimeter (5 min) expire first,
-so at most 5 min. **T**: that Keycloak refuses the refresh for a disabled user
-and that its refresh response includes `id_token`. Role **change**: bounded by
+so at most 5 min. **T**: that Dex refuses the refresh for a user no longer in a
+mapped team and that its refresh response includes `id_token` (the perimeter side was measured, see `identity-sessions-and-recovery.md`). Role **change**: bounded by
 `sync-roles`, not by the session (above). This is the documented exception to the 15 min native bound, and the
 reason is that authorization lives in the OpenMetadata database, not in the
 token.
@@ -304,6 +304,6 @@ Maintainer decisions for v0.5-alpha.
 No behaviour in this document was run. Marked **V** items were read in the
 named source at the pinned version, not executed; the OpenMetadata role-sync
 decision record on `main` (2026-10-13) was read for context only, because it
-postdates 1.13.6. The Keycloak side (refusing a refresh for a disabled user,
-returning `id_token` on refresh, emitting the role claim in the ID token the
-way each client reads it) is unverified, as it is in the session policy.
+postdates 1.13.6. The Dex side for these consumers (returning `id_token` on refresh, emitting
+the role claim in the ID token the way each client reads it) is unverified;
+only the perimeter was measured, in the session policy.

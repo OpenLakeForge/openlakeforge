@@ -10,7 +10,6 @@ import pytest
 from conftest import e2e_cfg
 
 from olf.e2e import _ingress
-from olf.e2e._identity import pod_discovery_script
 from olf.e2e._shell import E2EError
 
 _URL = "https://dagster-dev.olf.localhost"
@@ -130,11 +129,11 @@ def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     callback = "redirect_uri=https%3A%2F%2Foauth2.olf.localhost%2Foauth2%2Fcallback"
-    keycloak = f"https://auth.olf.localhost/realms/openlakeforge/protocol/openid-connect/auth?{callback}"
+    dex = f"https://auth.olf.localhost/auth?{callback}"
     external = f"https://login.example/authorize?client_id=perimeter&{callback}"
     cases = (
         (200, "", True),
-        (302, keycloak, True),
+        (302, dex, True),
         (302, external, True),
         (302, "https://elsewhere.example", False),
         (404, "", False),
@@ -156,11 +155,3 @@ def test_renewal_drill_skips_when_routes_are_plain_http(monkeypatch: pytest.Monk
     _ingress.check_certificate_renewal(e2e_cfg(tmp_path))
 
     assert commands == []
-
-
-def test_pod_discovery_probe_uses_no_ca_and_port_80_over_plain_http() -> None:
-    plain = pod_discovery_script("auth.olf.localhost", "http://auth.olf.localhost/x", tls=False)
-    secure = pod_discovery_script("auth.olf.localhost", "https://auth.olf.localhost/x", tls=True)
-
-    assert "--cacert" not in plain and "auth.olf.localhost:80:" in plain
-    assert "--cacert /ca/ca.crt" in secure and "auth.olf.localhost:443:" in secure

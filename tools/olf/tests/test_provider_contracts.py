@@ -104,7 +104,7 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                         else {}
                     ),
                     **(
-                        {"identity": identity or {}}
+                        {"identity": identity or (_GITHUB_IDENTITY if deployment["provider"] == "local" else _EXTERNAL_IDENTITY)}
                         if identity
                         or deployment["provider"] != "local"
                         or contract["shared"]["identity"]["implementation"] == "identity.oidc"
@@ -1437,6 +1437,13 @@ def _oidc_contract(name: str) -> dict:
 _OIDC_FIXTURES = sorted(p.stem.removeprefix("identity-oidc-") for p in FIXTURES.glob("identity-oidc-*.json"))
 
 
+_EXTERNAL_IDENTITY = {
+    "issuer": "external",
+    "issuer_url": "https://login.example.com/",
+    "role_claim": "groups",
+    "role_mapping": {"platform-admin": ["olf-admins"]},
+}
+
 _GITHUB_IDENTITY = {
     "issuer": "github",
     "github": {
@@ -1456,8 +1463,8 @@ _GITHUB_IDENTITY = {
 def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     contract = _oidc_contract(name)
     shared = contract["shared"]["identity"]
-    # Keycloak is the default issuer, Dex serves `github`; any other adapter needs an external spec.
-    external = {"keycloak": None, "dex": _GITHUB_IDENTITY}.get(name) or {
+    # Dex serves `github`; any other adapter needs an external spec.
+    external = _GITHUB_IDENTITY if name == "dex" else {
         "issuer": "external",
         "issuer_url": shared["issuer_url"],
         "role_claim": shared["role_claim"],
@@ -1476,11 +1483,9 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
 
 
 def test_identity_oidc_adapter_must_correlate_with_the_profiles_issuer() -> None:
-    dex, keycloak = _oidc_contract("dex"), _oidc_contract("keycloak")
-    with pytest.raises(ProviderContractError, match="keycloak adapter when spec.identity is keycloak"):
-        parse_provider_contracts(dex, _topology(dex))
+    cognito = _oidc_contract("cognito")
     with pytest.raises(ProviderContractError, match="dex adapter when spec.identity is github"):
-        parse_provider_contracts(keycloak, _topology(keycloak, _GITHUB_IDENTITY))
+        parse_provider_contracts(cognito, _topology(cognito, _GITHUB_IDENTITY))
 
 
 def test_identity_oidc_dex_mapping_must_match_the_profiles_github_teams() -> None:
@@ -1543,37 +1548,18 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
     ],
 )
 def test_identity_oidc_fails_closed(mutate, match: str) -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     mutate(contract["shared"]["identity"])
 
     with pytest.raises(ProviderContractError, match=match):
         parse_provider_contracts(contract, _topology(contract))
 
 
-def test_identity_oidc_external_binding_is_rejected_for_default_keycloak() -> None:
-    contract = _oidc_contract("cognito")
-    with pytest.raises(ProviderContractError, match="keycloak adapter"):
-        parse_provider_contracts(contract, _topology(contract))
-
-
-def test_identity_oidc_keycloak_profile_compares_only_supplied_fields() -> None:
-    contract = _oidc_contract("keycloak")
-    shared = contract["shared"]["identity"]
-    parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak"}))
-    parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "issuer_url": shared["issuer_url"]}))
-    with pytest.raises(ProviderContractError, match="must match the profile's"):
-        parse_provider_contracts(
-            contract, _topology(contract, {"issuer": "keycloak", "issuer_url": "https://other.example.com/t"})
-        )
-    with pytest.raises(ProviderContractError, match="must match the profile's"):
-        parse_provider_contracts(contract, _topology(contract, {"issuer": "keycloak", "role_claim": "other"}))
-
-
 @pytest.mark.parametrize(
     "issuer_url", ["https://idp.example/a b", "https://idp.example/a\tb", "https://idp.example/a\x00b"]
 )
 def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["identity"]["issuer_url"] = issuer_url
     with pytest.raises(ProviderContractError, match="whitespace or control"):
         parse_provider_contracts(contract, _topology(contract))
@@ -1584,14 +1570,14 @@ def test_issuer_url_rejects_whitespace(issuer_url: str) -> None:
     ["https://idp.example/<a>", 'https://idp.example/"', "https://idp.example/a\\b", "https://idp.example/%ZZ"],
 )
 def test_issuer_url_rejects_non_uri_characters(issuer_url: str) -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["identity"]["issuer_url"] = issuer_url
     with pytest.raises(ProviderContractError, match="RFC 3986"):
         parse_provider_contracts(contract, _topology(contract))
 
 
 def test_secret_ref_name_rejects_label_over_63() -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     client = next(iter(contract["shared"]["identity"]["clients"].values()))
     client["secret_ref"]["name"] = "a" * 64 + ".b"
     with pytest.raises(ProviderContractError, match="valid Kubernetes Secret name"):
@@ -1611,7 +1597,7 @@ def test_secret_ref_name_rejects_label_over_63() -> None:
     ],
 )
 def test_identity_oidc_secret_ref_must_be_kubernetes_valid(field: str, value: str) -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["identity"]["clients"]["trino"]["secret_ref"][field] = value
     with pytest.raises(ProviderContractError, match="valid Kubernetes Secret"):
         parse_provider_contracts(contract, _topology(contract))
@@ -1620,30 +1606,17 @@ def test_identity_oidc_secret_ref_must_be_kubernetes_valid(field: str, value: st
 
 
 def test_malformed_issuer_authority_is_a_contract_error() -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["identity"]["issuer_url"] = "https://[bad]/"
     with pytest.raises(ProviderContractError, match="not a valid URI"):
         parse_provider_contracts(contract, _topology(contract))
 
 
 def test_issuer_url_requires_a_host() -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["identity"]["issuer_url"] = "https://:443/"
     with pytest.raises(ProviderContractError, match="with a host"):
         parse_provider_contracts(contract, _topology(contract))
-
-
-def test_identity_oidc_email_delivery_is_declared_exactly_when_the_profile_configures_smtp() -> None:
-    smtp = {"smtp": {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com"}}
-    configured = _oidc_contract("keycloak")
-    configured["shared"]["identity"]["capabilities"]["email_delivery"] = True
-    parse_provider_contracts(configured, _topology(configured, smtp))
-    jsonschema.validate(configured, SCHEMA)
-
-    with pytest.raises(ProviderContractError, match="email_delivery must be true exactly when"):
-        parse_provider_contracts(configured, _topology(configured))
-    with pytest.raises(ProviderContractError, match="email_delivery must be true exactly when"):
-        parse_provider_contracts(_oidc_contract("keycloak"), _topology(configured, smtp))
 
 
 def _quickstart_contract() -> dict:
@@ -1702,7 +1675,7 @@ def _plain_http(contract: dict) -> dict:
 
 
 def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
-    contract = _plain_http(_oidc_contract("keycloak"))
+    contract = _plain_http(_oidc_contract("dex"))
 
     parsed = parse_provider_contracts(contract, _topology(contract, access={"issuer": "none"}))
 
@@ -1727,7 +1700,7 @@ def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
     ],
 )
 def test_plain_http_access_contract_fails_closed(mutate, match: str) -> None:
-    contract = _plain_http(_oidc_contract("keycloak"))
+    contract = _plain_http(_oidc_contract("dex"))
     topology = _topology(contract, access={"issuer": "none"})
     mutate(contract["shared"]["access"])
 
@@ -1736,7 +1709,7 @@ def test_plain_http_access_contract_fails_closed(mutate, match: str) -> None:
 
 
 def test_tls_mode_none_is_rejected_with_a_tls_issuer() -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["access"]["tls_mode"] = "none"
 
     with pytest.raises(ProviderContractError, match="tls_mode is 'none' exactly"):
@@ -1744,7 +1717,7 @@ def test_tls_mode_none_is_rejected_with_a_tls_issuer() -> None:
 
 
 def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:
-    contract = _oidc_contract("keycloak")
+    contract = _oidc_contract("dex")
     contract["shared"]["identity"]["issuer_url"] = contract["shared"]["identity"]["issuer_url"].replace("https", "http")
 
     with pytest.raises(ProviderContractError, match="must be an https URL"):

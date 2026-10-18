@@ -194,13 +194,13 @@ variable "manage_user_deployments" {
 }
 
 variable "identity_issuer" {
-  description = "Deployment Profile spec.identity.issuer (ADR 0014): `keycloak` and `github` (Dex) deploy an adapter, `external` takes the contract from identity_external. null (no spec.identity) deploys no issuer and no perimeter."
+  description = "Deployment Profile spec.identity.issuer (ADR 0014): `github` (Dex) deploys an adapter, `external` takes the contract from identity_external. null (no spec.identity) deploys no issuer and no perimeter."
   type        = string
   default     = null
 
   validation {
-    condition     = var.identity_issuer == null || contains(["keycloak", "external", "github"], coalesce(var.identity_issuer, "keycloak"))
-    error_message = "spec.identity.issuer must be keycloak, external or github."
+    condition     = var.identity_issuer == null || contains(["external", "github"], var.identity_issuer)
+    error_message = "spec.identity.issuer must be external or github."
   }
 
   validation {
@@ -231,24 +231,6 @@ variable "identity_github" {
       client_id_key     = string
       client_secret_key = string
     })
-  })
-  default = null
-}
-
-variable "identity_smtp" {
-  description = "Deployment Profile spec.identity.smtp (ADR 0014): outbound mail for the Keycloak adapter. Non-secret settings plus a Secret reference; the login itself never passes through Terraform."
-  type = object({
-    host         = string
-    port         = number
-    from_address = string
-    from_name    = optional(string)
-    security     = string
-    auth         = bool
-    credentials_secret_ref = optional(object({
-      name         = string
-      username_key = string
-      password_key = string
-    }))
   })
   default = null
 }

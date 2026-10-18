@@ -206,4 +206,4 @@ an initial user. Local access is `kubectl port-forward` through
 `uv run --project tools/olf --locked olf forward --provider local`.
 
 Future provider profiles should satisfy equivalent secrets, identity, and access
-contracts without forcing local to run Vault, Keycloak, or ingress/TLS services.
+contracts without forcing local to run Vault, an identity issuer, or ingress/TLS services.

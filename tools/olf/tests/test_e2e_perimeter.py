@@ -8,7 +8,7 @@ import pytest
 from olf.e2e import _perimeter
 from olf.e2e._shell import E2EError
 
-ISSUER = "https://auth.olf.localhost/realms/openlakeforge"
+ISSUER = "https://auth.olf.localhost"
 ROUTES = {"shared/portal": "https://olf.localhost", "stage/dev/orchestration": "https://dagster-dev.olf.localhost"}
 IDENTITY = {
     "issuer_url": ISSUER,
@@ -27,17 +27,18 @@ def test_a_route_is_granted_by_the_role_model_and_the_portal_to_every_role() -> 
 
 
 def test_unauthenticated_requests_must_be_redirected_to_the_issuer_or_get_401(monkeypatch: pytest.MonkeyPatch) -> None:
-    login = f"{ISSUER}/protocol/openid-connect/auth?client_id=perimeter"
+    login_url = f"{ISSUER}/auth"
+    login = f"{login_url}?client_id=perimeter"
 
     def answer(_url: str, headers: dict[str, str], **_kwargs: Any) -> Any:
         return _reply(401) if headers.get("Accept") == "application/json" else _reply(302, login)
 
     monkeypatch.setattr(_perimeter.requests, "get", answer)
-    _perimeter.check_unauthenticated_requests(IDENTITY, list(ROUTES), ROUTES)
+    _perimeter.check_unauthenticated_requests(IDENTITY, list(ROUTES), ROUTES, login_url)
 
     monkeypatch.setattr(_perimeter.requests, "get", lambda *_a, **_k: _reply(200))
     with pytest.raises(E2EError, match="expected a redirect"):
-        _perimeter.check_unauthenticated_requests(IDENTITY, list(ROUTES), ROUTES)
+        _perimeter.check_unauthenticated_requests(IDENTITY, list(ROUTES), ROUTES, login_url)
 
 
 def test_a_denial_needs_the_status_the_heading_and_the_portal_link() -> None:
@@ -49,27 +50,21 @@ def test_a_denial_needs_the_status_the_heading_and_the_portal_link() -> None:
             _perimeter._require_denial(bad, "analyst", "https://olf.localhost")
 
 
-def _signed_in(monkeypatch: pytest.MonkeyPatch, pages: dict[str, Any], direct: Any) -> None:
+def _signed_in(monkeypatch: pytest.MonkeyPatch, pages: dict[str, Any], direct: Any) -> Any:
     browser = SimpleNamespace(cookies=SimpleNamespace(copy=dict), get=lambda url, **_kwargs: pages[url])
-    monkeypatch.setattr(_perimeter, "_sign_in", lambda *_args: (browser, _reply(200)))
     monkeypatch.setattr(_perimeter.requests, "get", lambda *_args, **_kwargs: direct)
+    return lambda *_args: (browser, _reply(200))
 
 
 def test_a_denied_route_must_also_refuse_a_direct_api_call_with_the_session(monkeypatch: pytest.MonkeyPatch) -> None:
     denial = _reply(403, text=f'<h1>{_perimeter.DENIAL_HEADING}</h1><a href="https://olf.localhost">Return</a>')
     pages = {"https://olf.localhost": _reply(200), "https://dagster-dev.olf.localhost": denial}
-    _signed_in(monkeypatch, pages, denial)
-    _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, "analyst", "u", "p")
+    sign_in = _signed_in(monkeypatch, pages, denial)
+    _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, "analyst", "u", sign_in)
 
-    _signed_in(monkeypatch, pages, _reply(200))
+    sign_in = _signed_in(monkeypatch, pages, _reply(200))
     with pytest.raises(E2EError, match="directly"):
-        _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, "analyst", "u", "p")
-
-
-def test_a_user_with_no_role_is_refused_at_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_perimeter, "_sign_in", lambda *_args: (None, _reply(200)))
-    with pytest.raises(E2EError, match="no role"):
-        _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, None, "u", "p")
+        _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, "analyst", "u", sign_in)
 
 
 def test_a_user_in_no_team_must_be_refused_by_the_issuer_not_signed_in() -> None:
@@ -86,11 +81,7 @@ def test_a_user_in_no_team_must_be_refused_by_the_issuer_not_signed_in() -> None
     def signed_in(*_args: Any) -> Any:
         return SimpleNamespace(cookies=[]), _reply(200)
 
-    _perimeter.check_role_decisions(
-        IDENTITY, list(ROUTES), ROUTES, None, "u", "", sign_in=refused, refused_at_login=True
-    )
+    _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, None, "u", refused)
     for wrong in (signed_in, denied_by_proxy):
         with pytest.raises(E2EError, match="not refused by the issuer"):
-            _perimeter.check_role_decisions(
-                IDENTITY, list(ROUTES), ROUTES, None, "u", "", sign_in=wrong, refused_at_login=True
-            )
+            _perimeter.check_role_decisions(IDENTITY, list(ROUTES), ROUTES, None, "u", wrong)

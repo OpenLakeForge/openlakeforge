@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import tarfile
 from pathlib import Path
-from typing import Any
 
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
@@ -146,26 +144,15 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
 def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_issuer(tmp_path: Path) -> None:
     from dataclasses import replace
 
-    from olf.profile import AccessSpec, IdentitySpec
+    from olf.profile import AccessSpec
 
     assert "identity_issuer" not in platform.platform_apply_variables(
         _config(tmp_path, topology=replace(_topology(), access=AccessSpec()))
     )
-    secured = replace(_topology(), access=AccessSpec(), identity=IdentitySpec())
+    secured = replace(_github_config(tmp_path).context.topology, access=AccessSpec())
     variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
     assert (variables["access_base_domain"], variables["access_issuer"]) == ("olf.localhost", "local-ca")
-    assert variables["identity_issuer"] == "keycloak"
-
-
-def test_the_default_identity_issuer_deploys_keycloak_and_passes_no_claim_mapping(tmp_path: Path) -> None:
-    from dataclasses import replace
-
-    from olf.profile import AccessSpec, IdentitySpec
-
-    secured = replace(_topology(), access=AccessSpec(), identity=IdentitySpec())
-    variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
-
-    assert variables["identity_issuer"] == "keycloak"
+    assert variables["identity_issuer"] == "github"
     assert "identity_external" not in variables
 
 
@@ -571,30 +558,6 @@ def test_a_stage_named_by_both_signals_is_reported_once(tmp_path: Path) -> None:
     ) == ("prod",)
 
 
-_SMTP_ARGS = {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com", "from_name": None}
-
-
-def _smtp_config(tmp_path: Path, *, auth: bool = True):  # noqa: ANN202
-    from dataclasses import replace
-
-    from olf.profile import IdentitySpec, SmtpCredentialsRef, SmtpSpec
-
-    ref = SmtpCredentialsRef(name="smtp-creds") if auth else None
-    smtp = SmtpSpec(**_SMTP_ARGS, security="starttls", auth=auth, credentials_secret_ref=ref)
-    return _config(tmp_path, topology=replace(_topology(), identity=IdentitySpec(smtp=smtp)))
-
-
-def test_smtp_reaches_the_root_as_settings_and_a_secret_reference_only(tmp_path: Path) -> None:
-    variables = platform.platform_apply_variables(_smtp_config(tmp_path))
-
-    assert json.loads(variables["identity_smtp"]) == _SMTP_ARGS | {
-        "security": "starttls",
-        "auth": True,
-        "credentials_secret_ref": {"name": "smtp-creds", "username_key": "username", "password_key": "password"},
-    }
-    assert "identity_smtp" not in platform.platform_apply_variables(_config(tmp_path))
-
-
 class _SecretRunner(RecordingRunner):
     def __init__(self, *, namespace: bool = True, keys: str | None = "username\npassword\n", stderr: str = "") -> None:
         super().__init__()
@@ -610,10 +573,6 @@ class _SecretRunner(RecordingRunner):
                 return CommandResult(argv=(), returncode=1, stdout="", stderr=self._stderr, duration_seconds=0.0)
             return _ok(self._keys)
         return _ok()
-
-
-def _require_smtp(tmp_path: Path, runner: RecordingRunner, **kwargs) -> None:  # noqa: ANN003
-    platform.require_smtp_credentials(_smtp_config(tmp_path, **kwargs), _toolkit(runner), env={})
 
 
 def _github_config(tmp_path: Path):  # noqa: ANN202
@@ -676,124 +635,6 @@ def test_no_github_means_no_oauth_secret_check(tmp_path: Path) -> None:
     runner = _SecretRunner(namespace=False)
     platform.require_github_oauth_secret(_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None)
     assert runner.calls == []
-
-
-def test_smtp_credentials_present_with_both_keys_pass_and_only_key_names_are_read(tmp_path: Path) -> None:
-    runner = _SecretRunner()
-    _require_smtp(tmp_path, runner)
-
-    read = next(c.argv for c in runner.calls if "secret" in c.argv)
-    assert "go-template" in " ".join(read) and "jsonpath" not in " ".join(read) and "yaml" not in read
-
-
-def test_smtp_without_auth_needs_no_secret(tmp_path: Path) -> None:
-    runner = _SecretRunner(namespace=False)
-    _require_smtp(tmp_path, runner, auth=False)
-    assert runner.calls == []
-
-
-@pytest.mark.parametrize(
-    ("runner", "match"),
-    [
-        (_SecretRunner(keys=None), "could not read it"),
-        (_SecretRunner(keys="username\n"), r"lacks key\(s\) \['password'\]"),
-        (_SecretRunner(namespace=False), "has not created yet"),
-    ],
-)
-def test_missing_smtp_credentials_fail_before_deploy_with_the_create_command_shape(
-    tmp_path: Path, runner: RecordingRunner, match: str
-) -> None:
-    with pytest.raises(DeploymentPreconditionError, match=match) as error:
-        _require_smtp(tmp_path, runner)
-
-    assert 'create secret generic smtp-creds --from-literal=username="$SMTP_USERNAME"' in str(error.value)
-
-
-def test_a_first_deploy_without_the_secret_or_the_environment_login_names_the_one_shot_path(tmp_path: Path) -> None:
-    with pytest.raises(DeploymentPreconditionError, match="OLF_SMTP_USERNAME and OLF_SMTP_PASSWORD"):
-        _require_smtp(tmp_path, _SecretRunner(namespace=False))
-
-
-@pytest.fixture(autouse=True)
-def _no_ambient_smtp_login(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OLF_SMTP_USERNAME", raising=False)
-    monkeypatch.delenv("OLF_SMTP_PASSWORD", raising=False)
-
-
-def _creates(runner: RecordingRunner) -> list[Any]:
-    return [call for call in runner.calls if call.argv[-3:] == ["create", "-f", "-"]]
-
-
-@pytest.mark.parametrize(
-    ("runner", "namespaces_created"),
-    [
-        (_SecretRunner(namespace=False), 1),
-        (_SecretRunner(keys=None, stderr='secrets "smtp-creds" not found (NotFound)'), 0),
-    ],
-)
-def test_the_smtp_login_from_the_environment_creates_the_missing_secret_without_putting_it_in_argv(
-    tmp_path: Path, runner: RecordingRunner, namespaces_created: int
-) -> None:
-    login = ("mailer", "s3cr3t-value")
-    platform.require_smtp_credentials(_smtp_config(tmp_path), _toolkit(runner), env={}, login=login)
-    assert _creates(runner) == []  # the early check only tolerates the gap; it creates nothing
-
-    order: list[str] = []
-    platform.require_smtp_credentials(
-        _smtp_config(tmp_path),
-        _toolkit(runner),
-        env={},
-        login=login,
-        create_namespace=lambda: order.append("namespace"),
-    )
-
-    (call,) = _creates(runner)
-    secret = json.loads(call.kwargs["input_text"])
-    assert (secret["kind"], secret["data"]) == ("Secret", {"username": "bWFpbGVy", "password": "czNjcjN0LXZhbHVl"})
-    assert order == ["namespace"] * namespaces_created  # the namespace is made only when absent
-    assert "s3cr3t-value" not in " ".join(call.argv)
-
-
-def test_an_existing_smtp_secret_is_never_replaced_from_the_environment(tmp_path: Path) -> None:
-    runner = _SecretRunner()
-
-    platform.require_smtp_credentials(
-        _smtp_config(tmp_path), _toolkit(runner), env={}, login=("mailer", "x"), create_namespace=lambda: None
-    )
-
-    assert _creates(runner) == []
-
-
-def test_the_smtp_login_leaves_the_process_environment_so_no_child_process_inherits_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
-    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
-
-    assert platform.take_smtp_login() == ("mailer", "s3cr3t-value")
-    assert "OLF_SMTP_USERNAME" not in os.environ and "OLF_SMTP_PASSWORD" not in os.environ
-    assert platform.take_smtp_login() is None
-
-
-def test_a_half_set_smtp_login_is_dropped_not_left_in_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
-
-    assert platform.take_smtp_login() is None
-    assert "OLF_SMTP_USERNAME" not in os.environ
-
-
-def test_building_the_local_provider_scrubs_the_smtp_login_before_any_phase_can_spawn_a_child(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from olf.deployment.local.provider import LocalProvider
-
-    monkeypatch.setenv("OLF_SMTP_USERNAME", "mailer")
-    monkeypatch.setenv("OLF_SMTP_PASSWORD", "s3cr3t-value")
-
-    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(RecordingRunner()), environ={})
-
-    assert "OLF_SMTP_PASSWORD" not in os.environ
-    assert "s3cr3t-value" not in repr(provider)
 
 
 @pytest.mark.parametrize("declared", [False, True])

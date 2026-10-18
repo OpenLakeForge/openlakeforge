@@ -151,6 +151,9 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
 ## History
 
+The `shared/identity` route serves Dex since Keycloak was removed (#384, ADR 0014);
+the entries below that name Keycloak describe the adapter that existed then.
+
 #403 added decision 9 (`issuer: none`).
 
 New record (#264). No prior ADR covered service access. #265 added the local
@@ -159,7 +162,7 @@ Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.
 clients onto the routes, added `olf access trust`, and lists the URLs in
 `olf status`. #268 added the deploy preflight, the not-Ready Certificate
 section in `olf status`, and the e2e Traefik restart and renewal drills.
-#24 added the `shared/identity` route (`auth.<base_domain>`, Keycloak) to the
+#24 added the `shared/identity` route (`auth.<base_domain>`, then Keycloak, now Dex) to the
 local routes; it is never behind the perimeter (ADR 0014). Decision 8 (in-cluster
 resolution of the routes and the CA ConfigMap) was added with it.
 #330 added the portal (decisions 2, 3, 4, 6 and 7): the apex route, its

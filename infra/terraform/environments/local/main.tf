@@ -131,15 +131,6 @@ locals {
         namespaces              = [var.shared_namespace]
       }
     } : {},
-    local.identity_keycloak ? {
-      keycloak = {
-        key                     = "keycloak"
-        db_name                 = "keycloak"
-        db_user                 = "keycloak"
-        credentials_secret_name = "postgresql-keycloak-creds"
-        namespaces              = [var.shared_namespace]
-      }
-    } : {},
     local.identity_dex ? {
       dex = {
         key                     = "dex"
@@ -294,16 +285,6 @@ module "perimeter" {
   scope             = local.identity_scope
 }
 
-# The admin Secret is created by the keycloak module's credentials Job and
-# outlives it, so the password survives `external` and back again. Existing
-# clusters keep their Secret: state forgets it, nothing deletes it.
-removed {
-  from = random_password.keycloak_admin
-  lifecycle {
-    destroy = false
-  }
-}
-
 # Pods reach <scheme>://<service>.<base_domain> through Traefik and, over
 # HTTPS, trust the local CA, so a back-channel call sees the same URL (and
 # token `iss`) as a browser. ADR 0013.
@@ -327,23 +308,6 @@ module "in_cluster_resolution" {
 
 # ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
 # profile and the operator supplies the client Secrets it references.
-module "keycloak" {
-  source = "../../modules/identity/keycloak"
-  count  = local.identity_keycloak ? 1 : 0
-
-  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  hostname            = "auth.${local.base_domain}"
-  scheme              = local.route_scheme
-  roles               = local.identity_roles.precedence
-  clients             = local.identity_client_redirects
-  smtp                = var.identity_smtp
-  postgresql_contract = module.postgresql.contract
-
-  depends_on = [
-    module.postgresql,
-  ]
-}
-
 module "dex" {
   source = "../../modules/identity/dex"
   count  = local.identity_dex ? 1 : 0
@@ -613,27 +577,19 @@ locals {
   network_flows = yamldecode(file("${path.root}/../../../../release/network-flows.yaml"))
 
   # A workload's policy is rendered only if the workload is deployed, so a
-  # profile without Keycloak, Dex or governance plans no policy for them. Names
+  # profile without Dex or governance plans no policy for them. Names
   # not listed are always deployed.
   workload_deployed = merge(
     { for name in ["traefik", "portal", "publish-local-ca"] : name => local.access_enabled },
     { for name in ["cert-manager-controller", "cert-manager-cainjector", "cert-manager-webhook", "cert-manager-startupapicheck"] : name => length(module.cert_manager) > 0 },
     { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
-    { for name in ["keycloak", "keycloak-credentials", "keycloak-realm"] : name => local.identity_keycloak },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
   )
 
   # ipBlock cannot name a host, so profile-driven egress is any address on the
-  # port the profile names (F22, F23).
+  # port the profile names (F23).
   profile_flows = concat(
-    var.identity_smtp != null && local.identity_keycloak ? [{
-      id    = "F22"
-      from  = { scope = "shared", pods = { "app.kubernetes.io/name" = "keycloak", "app.kubernetes.io/instance" = "keycloak" } }
-      to    = { scope = "any" }
-      ports = [var.identity_smtp.port]
-      tag   = "T"
-    }] : [],
     var.identity_issuer == "external" ? [{
       id    = "F23"
       from  = { scope = "shared", pods = { "openlakeforge.io/workload" = "oauth2-proxy" } }
