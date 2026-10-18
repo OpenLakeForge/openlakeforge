@@ -606,13 +606,50 @@ data "kubernetes_endpoints_v1" "apiserver" {
   }
 }
 
+data "kubernetes_nodes" "all" {}
+
+locals {
+  network_flows = yamldecode(file("${path.root}/../../../../release/network-flows.yaml"))
+
+  # A workload's policy is rendered only if the workload is deployed, so a
+  # profile without Keycloak, Dex or governance plans no policy for them. Names
+  # not listed are always deployed.
+  workload_deployed = merge(
+    { for name in ["keycloak", "keycloak-credentials", "keycloak-realm"] : name => local.identity_keycloak },
+    { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
+    { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "catalog-refresh", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
+  )
+
+  # ipBlock cannot name a host, so profile-driven egress is any address on the
+  # port the profile names (F22, F23).
+  profile_flows = concat(
+    var.identity_smtp != null && local.identity_keycloak ? [{
+      id    = "F22"
+      from  = { scope = "shared", pods = { "app.kubernetes.io/name" = "keycloak", "app.kubernetes.io/instance" = "keycloak" } }
+      to    = { scope = "any" }
+      ports = [var.identity_smtp.port]
+      tag   = "T"
+    }] : [],
+    var.identity_issuer == "external" ? [{
+      id    = "F23"
+      from  = { scope = "shared", pods = { "openlakeforge.io/workload" = "oauth2-proxy" } }
+      to    = { scope = "any" }
+      ports = [try(tonumber(regex("^https://[^/:?#]+:([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
+      tag   = "T"
+    }] : [],
+  )
+}
+
 module "network_policy" {
   source = "../../modules/security/network-policy"
 
   stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
   shared_namespace = kubernetes_namespace_v1.shared.metadata[0].name
-  flows            = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).flows
-  workloads        = yamldecode(file("${path.root}/../../../../release/network-flows.yaml")).workloads
+  flows            = concat(local.network_flows.flows, local.profile_flows)
+  workloads        = { for name, labels in local.network_flows.workloads : name => labels if lookup(local.workload_deployed, name, true) }
+  node_cidrs = [
+    for node in data.kubernetes_nodes.all.nodes : "${one([for a in node.status[0].addresses : a.address if a.type == "InternalIP"])}/32"
+  ]
   apiserver_cidrs = [
     for ip in concat(
       [data.kubernetes_service_v1.apiserver.spec[0].cluster_ip],

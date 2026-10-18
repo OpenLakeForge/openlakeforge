@@ -13,7 +13,8 @@ from olf.commands.checks._shared import _root
 
 FLOWS_PATH = "release/network-flows.yaml"
 ADR_PATH = "docs/adr/0017-local-network-policy-and-rbac.md"
-SCOPES = {"stage", "shared", "kube-system", "apiserver"}
+SCOPES = {"stage", "shared", "kube-system", "apiserver", "node", "any"}
+UNNARROWABLE = SCOPES - {"shared", "kube-system"}
 PROTOCOLS = {"TCP", "UDP"}
 
 
@@ -23,7 +24,7 @@ def _endpoint_errors(label: str, endpoint: object) -> list[str]:
     pods = endpoint.get("pods", {})
     if not isinstance(pods, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in pods.items()):
         return [f"{label}: pods must map label names to string values"]
-    if pods and endpoint["scope"] in {"stage", "apiserver"}:
+    if pods and endpoint["scope"] in UNNARROWABLE:
         return [f"{label}: pods cannot narrow scope {endpoint['scope']}"]
     return []
 
@@ -49,7 +50,9 @@ def flow_errors(flows_file: Path, adr_file: Path) -> list[str]:
         label = f"flows[{index}] {row.get('id')}"
         if row.get("id") not in adr_ids:
             errors.append(f"{label}: id is not a row of the ADR 0017 flow table")
-        errors += _endpoint_errors(f"{label} from", row.get("from"))
+        sources = row.get("from")
+        for source in sources if isinstance(sources, list) and sources else [sources]:
+            errors += _endpoint_errors(f"{label} from", source)
         errors += _endpoint_errors(f"{label} to", row.get("to"))
         ports = row.get("ports")
         if not isinstance(ports, list) or not ports or not all(

@@ -22,3 +22,14 @@ variable "workloads" {
   description = "Workload name to the pod labels that select it in the shared namespace; each gets a default-deny policy plus the flow rows that name it."
   type        = map(map(string))
 }
+
+variable "node_cidrs" {
+  description = "Addresses (/32) of the cluster nodes, for rows whose peer scope is node (F21: the API server calls the cert-manager webhook from a node)."
+  type        = list(string)
+}
+
+variable "internal_cidrs" {
+  description = "Pod and Service ranges excluded from the any scope, so a row for external hosts cannot reach a pod by IP. kind's defaults, which infra/kind/local/kind-cluster.yaml does not override."
+  type        = list(string)
+  default     = ["10.244.0.0/16", "10.96.0.0/16"]
+}

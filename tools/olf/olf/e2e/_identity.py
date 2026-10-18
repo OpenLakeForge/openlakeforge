@@ -137,6 +137,7 @@ def check_discovery_from_pod(cfg: E2EConfig, identity: dict[str, Any]) -> None:
             "--rm",
             "-i",
             "--restart=Never",
+            "--labels=openlakeforge.io/e2e=issuer-probe",
             f"--image={image}",
             f"--overrides={json.dumps({'spec': spec})}",
         ],
