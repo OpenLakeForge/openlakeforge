@@ -52,6 +52,7 @@ _OPENSEARCH_IMAGE = "opensearchproject/opensearch:2.11.0"
 _OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
 _OPENMETADATA_INGESTION_IMAGE = "docker.getcollate.io/openmetadata/ingestion-base:1.13.6"
 _POSTGRES_IMAGE = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
+_DEX_IMAGE = "ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777"
 _OAUTH2_PROXY_IMAGE = (
     "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5"
     "@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916"
@@ -67,7 +68,7 @@ def polaris_images(server_arch: str) -> tuple[str, str]:
 
 
 def selected_images(
-    features: DeploymentFeatures, *, server_arch: str, perimeter: bool = True
+    features: DeploymentFeatures, *, server_arch: str, perimeter: bool = True, dex: bool = False
 ) -> tuple[str, ...]:
     polaris_image, polaris_admin_image = polaris_images(server_arch)
     images: list[str] = []
@@ -79,6 +80,8 @@ def selected_images(
     images.append(_POSTGRES_IMAGE)
     if perimeter:
         images.append(_OAUTH2_PROXY_IMAGE)
+    if dex:
+        images.append(_DEX_IMAGE)
     if features.analytics_enabled:
         images += [_SUPERSET_DOCKERIZE_IMAGE, _SUPERSET_IMAGE, _REDIS_IMAGE]
     images.append(_FLOE_IMAGE)
@@ -120,6 +123,7 @@ def prefetch_images(
         config.features,
         server_arch=server_arch,
         perimeter=identity is not None,
+        dex=identity is not None and identity.issuer == "github",
     )
 
     nodes = tools.kind.get_nodes(config.cluster.name, env=env)

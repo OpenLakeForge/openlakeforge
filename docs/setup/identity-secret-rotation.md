@@ -50,8 +50,12 @@ the Job and Deployment names in `modules/identity/dex`.
    kubectl -n olf-system rollout restart deployment -l openlakeforge.io/component=perimeter
    ```
 
-   Services that consume the other clients (Superset, OpenMetadata, Trino) read
-   theirs the same way and need their own restart.
+   Superset does not read the shared Secret directly: each stage holds a copy
+   made by the one-shot `oidc_secret` Job of its Superset module, which keeps
+   the old value. To rotate `dex-client-superset`, also replace that Job in
+   every stage (a `-replace` on `kubernetes_job_v1.oidc_secret` of each
+   `module.superset`) before restarting Superset. OpenMetadata and Trino are not
+   yet wired to their clients.
 
 4. Confirm by signing in through the portal: the sign-in completes only when
    Dex and the consumer hold the same value.
