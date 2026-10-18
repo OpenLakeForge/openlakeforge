@@ -56,6 +56,11 @@ _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project de
 # set provider.type: azure (its region comes from the foundation tfvars,
 # AZURE_TFVARS_FILE).
 # Check it with: olf profile validate --project .
+# access.issuer: none is local-only (plain HTTP); remove it for aws or azure.
+# Sign-in: add spec.identity (issuer: github, see
+# https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md;
+# OAuth App callback http://auth.olf.localhost/callback). HTTPS: drop
+# spec.access.issuer and run `olf access trust`.
 """
 
 
@@ -82,9 +87,8 @@ def render_profile(*, name: str, stages: Sequence[StageName], preset: Preset) ->
             "provider": {"type": "local"},
             "preset": preset.value,
             "stages": {stage.value: {"enabled": True} for stage in StageName if stage in stages},
-            # The documented onboarding (README, getting-started) uses the
-            # ingress; the default moves to plain HTTP with #403 and #399 slice b.
-            "access": {},
+            # Plain HTTP on *.olf.localhost: no certificate step (ADR 0013).
+            "access": {"issuer": "none"},
         },
     }
     try:

@@ -11,3 +11,17 @@ spec:
   stages:
     dev:
       enabled: true
+  # Plain HTTP on *.olf.localhost: no certificate step (ADR 0013). Remove
+  # `issuer: none` for the HTTPS stack (`olf access trust`).
+  access:
+    issuer: none
+  # Sign-in through GitHub and Dex. Create the OAuth App first
+  # (docs/setup/github-oauth-app.md; callback http://auth.olf.localhost/callback):
+  # identity:
+  #   issuer: github
+  #   github:
+  #     organization: <your-org>
+  #     teams:
+  #       platform-admin: [<team-slug>]
+  #     oauth_app_secret_ref:
+  #       name: github-oauth-app

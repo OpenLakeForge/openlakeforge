@@ -82,10 +82,14 @@ olf deploy --provider local   # builds the kind cluster and the whole platform
 Open the services and run the example data products end to end:
 
 ```bash
-olf access trust              # trust the local CA once
-olf status --provider local   # lists every service URL, e.g. https://dagster-dev.olf.localhost
+olf status --provider local   # lists every service URL, e.g. http://dagster-dev.olf.localhost
 olf e2e run --env local --suite full
 ```
+
+The default profile serves plain HTTP on `*.olf.localhost` (Dagster at
+`http://dagster-dev.olf.localhost`, the portal at `http://olf.localhost`), so
+there is no certificate step. To sign in with GitHub, or to serve HTTPS, see
+[Access OpenLakeForge](docs/setup/local.md#access-openlakeforge).
 
 The first deploy takes several minutes while Kubernetes and the container
 images download. Tear it down with `olf destroy --provider local`.

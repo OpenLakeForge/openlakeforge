@@ -207,9 +207,11 @@ A successful end-to-end run is the best way to confirm that your installation is
 # Access OpenLakeForge
 
 The local stack publishes its user-facing services through one ingress
-(Traefik on `127.0.0.1:80/443`, ADR 0013) at stable HTTPS URLs under
-`spec.access.base_domain`, `olf.localhost` by default. With `issuer: none`
-the same routes are plain `http://` URLs and no route certificate exists. `olf status` lists them:
+(Traefik on `127.0.0.1:80/443`, ADR 0013) under `spec.access.base_domain`,
+`olf.localhost` by default. The default profile (and `olf init`) sets
+`spec.access.issuer: none`: the routes are plain `http://` URLs and there is
+no certificate step. Remove `issuer` for the HTTPS stack, see
+[Secured local stack (HTTPS)](#secured-local-stack-https). `olf status` lists them:
 
 ```bash
 olf status --provider local          # a "URLs" section, keyed by contract ref
@@ -230,13 +232,21 @@ renewal of the shared route certificate (skipped with `issuer: none`), then requ
 served certificate's serial to change with no failed TLS handshake. Each
 drill writes its observations to `.tmp/e2e-evidence/` in the project.
 
-Every route except `auth.<base_domain>` sits behind the authentication
+With `spec.identity` enabled, every route except `auth.<base_domain>` sits behind the authentication
 perimeter ([#176](https://github.com/OpenLakeForge/openlakeforge/issues/176),
 ADR 0014). The stack is still local evaluation infrastructure: do not expose
 it beyond your workstation.
 
-## Trust the local CA once
+## Add sign-in
 
+The default profile has no sign-in. To require it, create a GitHub OAuth App
+with the callback `http://auth.olf.localhost/callback` and enable
+`spec.identity` as in [Sign in with GitHub](github-oauth-app.md); it works over
+plain HTTP.
+
+## Secured local stack (HTTPS)
+
+Remove `issuer: none` from `spec.access` (`access: {}`) and re-deploy. Then
 cert-manager signs every route from a local CA that `olf deploy` creates once;
 a re-deploy keeps it. Export it and print the trust commands for your machine:
 
@@ -274,11 +284,11 @@ without systemd-resolved, macOS); `olf`'s own clients pin `*.localhost` to
 `127.0.0.1` themselves. For `curl`, pass `--resolve`:
 
 ```bash
-curl --resolve dagster-dev.olf.localhost:443:127.0.0.1 https://dagster-dev.olf.localhost/server_info
+curl --resolve dagster-dev.olf.localhost:80:127.0.0.1 http://dagster-dev.olf.localhost/server_info
 ```
 
-Every route except `auth.<base_domain>` sits behind the authentication
-perimeter (ADR 0014), so that request answers `302` to the sign-in page, and
+With `spec.identity` enabled, every route except `auth.<base_domain>` sits behind the authentication
+perimeter (ADR 0014), so that request then answers `302` to the sign-in page, and
 `401` with `-H 'Accept: application/json'`. A signed-in role the service does
 not permit gets a `403` page saying access is role-restricted.
 
@@ -301,7 +311,7 @@ OLF_PORT_FORWARD=1 olf e2e run --env local
 ### Dagster
 
 ```text
-https://dagster-dev.olf.localhost
+http://dagster-dev.olf.localhost
 ```
 
 Dagster is the main interface for inspecting and running OpenLakeForge data pipelines.
@@ -317,7 +327,7 @@ From the Dagster UI you can:
 ### Trino
 
 ```text
-https://trino.olf.localhost
+http://trino.olf.localhost
 ```
 
 Trino is the query engine used by OpenLakeForge and by dbt to build Gold models.
@@ -376,8 +386,8 @@ The additional services are then available at:
 
 | Service      | URL                                  | Development credentials           |
 | ------------ | ------------------------------------ | --------------------------------- |
-| OpenMetadata | `https://openmetadata.olf.localhost` | `admin@open-metadata.org / admin` |
-| Superset     | `https://superset-dev.olf.localhost` | `admin / admin`                   |
+| OpenMetadata | `http://openmetadata.olf.localhost` | `admin@open-metadata.org / admin` |
+| Superset     | `http://superset-dev.olf.localhost` | `admin / admin`                   |
 
 These credentials are intended for the local development environment only.
 
