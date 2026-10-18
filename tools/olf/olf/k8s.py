@@ -385,6 +385,13 @@ def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
 
 
 
+def apply_manifest(manifest: dict) -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+        json.dump(manifest, handle)
+        handle.flush()
+        _kubectl(["apply", "-f", handle.name])
+
+
 def run_job(job: dict, *, timeout_seconds: int, poll_seconds: float = 5.0) -> None:
     """Replace the named Job (its spec is immutable) and wait for Complete or Failed.
 

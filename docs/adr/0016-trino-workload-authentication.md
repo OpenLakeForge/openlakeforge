@@ -265,3 +265,7 @@ a `secretKeyRef`, and with a TLS query contract the HTTPS port with `verify` on
 the mounted `olf-local-ca`. The bootstrap Job no longer deploys or triggers
 that pipeline. The service it registers still has no password, so `password`
 stays unusable until step 4.
+The hourly catalog refresh is the same pod as a CronJob per governed stage
+(`openmetadata-trino-ingestion-<catalog>`), applied by `deploy-metadata` from
+the same builder. The pipeline-client CronJob and the
+`<service>-metadata-ingestion` pipeline registration are gone.

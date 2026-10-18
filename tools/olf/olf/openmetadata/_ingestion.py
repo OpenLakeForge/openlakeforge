@@ -1,4 +1,4 @@
-"""The Trino metadata ingestion, run as a Kubernetes Job OLF owns.
+"""The Trino metadata ingestion, run as a Kubernetes Job and hourly CronJob OLF owns.
 
 OpenMetadata's pipeline client would generate the same workflow, but its
 ingestion pods cannot mount the Trino CA (ADR 0016), so OLF builds the config
@@ -16,6 +16,7 @@ import yaml
 from olf import config, k8s
 
 JOB_NAME = "openmetadata-trino-ingestion"
+REFRESH_SCHEDULE = "0 * * * *"
 _CA_DIR = "/etc/olf/query-ca"
 # The bot JWT is the only secret. It reaches the container through a
 # secretKeyRef and is substituted into the config inside the pod, so neither
@@ -119,6 +120,28 @@ def ingestion_job(
     }
 
 
+def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
+    """The hourly refresh: `job`'s pod, spec and labels, so the two cannot diverge.
+
+    Built here rather than in Terraform so the workflow config exists once; the
+    TLS and bot-Secret facts it needs are the deployed contracts', which
+    `deploy-metadata` already holds. The workflow crawls one stage's catalog,
+    so each governed stage gets its own CronJob, named by that catalog.
+    """
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "CronJob",
+        "metadata": {**job["metadata"], "name": f"{JOB_NAME}-{catalog.replace('_', '-')}"},
+        "spec": {
+            "schedule": REFRESH_SCHEDULE,
+            "concurrencyPolicy": "Forbid",
+            "successfulJobsHistoryLimit": 3,
+            "failedJobsHistoryLimit": 3,
+            "jobTemplate": {"spec": job["spec"]},
+        },
+    }
+
+
 def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: str) -> None:
     catalog = yaml.safe_load((config.distribution_root() / "release/component-catalog.yaml").read_text())
     om_host = f"{config.env('OPENMETADATA_SERVICE', 'openmetadata')}:{config.env('OPENMETADATA_SERVICE_PORT', '8585')}"
@@ -129,4 +152,6 @@ def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: 
         service=service,
         om_api=f"http://{om_host}/api",
     )
+    # Applied first so the schedule survives a failed first crawl.
+    k8s.apply_manifest(ingestion_cronjob(job, catalog=environ["OPENLAKEFORGE_CATALOG_NAME"]))
     k8s.run_job(job, timeout_seconds=1800)

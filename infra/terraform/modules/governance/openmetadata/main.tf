@@ -16,7 +16,6 @@ locals {
   # and so one database. The service keeps its name, so FQNs and the lineage
   # namespace mapping are unchanged.
   trino_host_port       = trimprefix(var.trino_lineage_namespace, "trino://")
-  governed_catalogs     = join("|", sort([for stage in values(var.stages) : stage.catalog_database_name]))
   catalog_database_name = var.stages[var.canonical_stage].catalog_database_name
   catalog_database_fqn  = "${local.catalog_service_name}.${local.catalog_database_name}"
   postgresql_ssl_mode   = var.postgresql_ssl_mode != "" ? var.postgresql_ssl_mode : coalesce(try(var.postgresql_contract.ssl_mode, null), "disable")
@@ -31,7 +30,6 @@ locals {
     ingestion_bot_secret_name     = var.ingestion_bot_secret_name
     trino_lineage_namespace       = var.trino_lineage_namespace
     trino_host_port               = local.trino_host_port
-    governed_catalogs             = local.governed_catalogs
     ingestion_bot_jwt_key         = var.ingestion_bot_jwt_key
     catalog_schema_names_json_b64 = local.catalog_schema_names_json_b64
     stages_json_b64               = base64encode(jsonencode(var.stages))
