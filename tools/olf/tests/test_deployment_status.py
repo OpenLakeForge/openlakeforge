@@ -155,3 +155,12 @@ def test_certificate_section_does_not_call_a_missing_route_certificate_healthy()
     report = _certificate_report(CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0))
 
     assert report.sections[-1].output == "no Certificates found in the platform namespaces"
+
+
+def test_notes_lead_the_rendered_report() -> None:
+    from olf.deployment.status import StatusReport
+
+    report = StatusReport(sections=(), notes=("Authentication is off.",))
+
+    assert report.render().startswith("Authentication is off.")
+    assert report.as_dict()["notes"] == ["Authentication is off."]
