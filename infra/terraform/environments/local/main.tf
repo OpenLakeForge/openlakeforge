@@ -319,10 +319,10 @@ module "in_cluster_resolution" {
     [for ns in kubernetes_namespace_v1.stage : ns.metadata[0].uid],
   )
 
-  depends_on = [
-    module.cert_manager,
-    module.traefik,
-  ]
+  # Not on Traefik: the CoreDNS rewrite only names its Service, and Superset
+  # and Dex mount olf-local-ca, which this module publishes. Waiting on Traefik,
+  # which waits on their routes, left a fresh cluster waiting forever.
+  depends_on = [module.cert_manager]
 }
 
 # ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
@@ -352,7 +352,7 @@ module "dex" {
   hostname  = "auth.${local.base_domain}"
   scheme    = local.route_scheme
   github    = var.identity_github
-  # A literal, as in the query contract: module.in_cluster_resolution waits on Traefik, a cycle through the routes.
+  # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
   ca_configmap_name   = "olf-local-ca"
   clients             = local.identity_client_redirects
   postgresql_contract = module.postgresql.contract
@@ -527,7 +527,7 @@ module "superset" {
     client_id         = local.identity_oidc.clients.superset.client_id
     secret_ref        = local.identity_oidc.clients.superset.secret_ref
     secret_namespace  = kubernetes_namespace_v1.shared.metadata[0].name
-    ca_configmap_name = "olf-local-ca" # literal, as for Trino above: the module output would close a cycle through the routes
+    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
   }
 
   depends_on = [
@@ -566,8 +566,7 @@ module "dagster" {
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
     tls_port                   = module.trino.tls_port
-    # A literal, not module.in_cluster_resolution's output: that module waits on
-    # Traefik, which waits on the Dagster route, so the reference is a cycle.
+    # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
     ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   })
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
