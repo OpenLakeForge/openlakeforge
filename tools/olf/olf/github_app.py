@@ -33,7 +33,7 @@ def build_manifest(*, name: str, callback_url: str, redirect_url: str, homepage:
         "redirect_url": redirect_url,
         "public": False,
         # members: team listing and membership for the sign-in filter; emails: Dex reads the primary address.
-        "default_permissions": {"members": "read", "emails": "read"},
+        "default_permissions": {"members": "read", "email_addresses": "read"},
     }
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import webbrowser
 from typing import Any
 
@@ -24,7 +25,7 @@ def connect(
     no_browser: bool = typer.Option(False, "--no-browser", help="Print the URL instead of opening a browser."),
 ) -> None:
     """Create the GitHub App for spec.identity.github in your browser and store it as the Secret
-    `oauth_app_secret_ref` names. Re-running replaces the Secret (and so rotates the credentials).
+    `oauth_app_secret_ref` names. Re-running registers a new App and replaces the Secret; delete the old App yourself.
     """
     from olf import github_app
     from olf.deployment.engine import Toolkit
@@ -59,7 +60,7 @@ def connect(
 
     def manifest_for(redirect_url: str) -> dict[str, Any]:
         return github_app.build_manifest(
-            name=f"openlakeforge-{topology.profile_name}",
+            name=f"openlakeforge-{topology.profile_name[:13]}-{secrets.token_hex(3)}",  # App names are unique on GitHub
             callback_url=callback,
             redirect_url=redirect_url,
             homepage=f"{scheme}://{access.base_domain}",

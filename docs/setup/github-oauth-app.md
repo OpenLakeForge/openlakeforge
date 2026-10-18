@@ -23,11 +23,10 @@ your own session (SSO and 2FA as the organisation enforces), stores the app's
 organisation. Install it: the app's *Members: read* permission only applies
 to organisations it is installed on. Then re-run `olf deploy`. Credentials are
 never printed. `--no-browser` prints the URL instead; after 5 minutes without
-a click it exits with nothing written. Re-running replaces the Secret (new
-credentials), which is also how you rotate them.
-
-One GitHub App serves both Dex sign-in and, later, the OpenMetadata role sync
-(ADR 0014).
+a click it exits with nothing written. Re-running registers a new
+GitHub App and replaces the Secret; delete the previous app and its private key
+in the organisation settings yourself, because GitHub keeps their access until
+you do. The `private-key` entry is kept for the OpenMetadata role sync (ADR 0014).
 
 ## 1. Create the OAuth App (manual fallback)
 
