@@ -80,7 +80,9 @@ def mail_sink(cfg: E2EConfig) -> Iterator[None]:
     namespace = cfg.platform_namespace
     _remove_sink(cfg)
     try:
-        kubectl(cfg, ["run", SINK, "-n", namespace, "--restart=Never", f"--image={image}", f"--port={SMTP_PORT}"])
+        # The label is what the flow file's F27 row names, so the isolated Keycloak may reach the sink.
+        run = ["run", SINK, "-n", namespace, "--restart=Never", "--labels=openlakeforge.io/e2e=mail-sink"]
+        kubectl(cfg, [*run, f"--image={image}", f"--port={SMTP_PORT}"])
         kubectl(cfg, ["expose", "pod", SINK, "-n", namespace, f"--port={SMTP_PORT}"])
         kubectl(cfg, ["wait", "--for=condition=Ready", f"pod/{SINK}", "-n", namespace, "--timeout=180s"])
         yield
