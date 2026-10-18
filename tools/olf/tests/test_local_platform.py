@@ -815,7 +815,11 @@ def test_status_renders_certificates_only_when_access_is_declared(
     fake = SimpleNamespace(
         _contracts=lambda: None,
         context=context,
-        config=SimpleNamespace(kube_context="c", paths=SimpleNamespace(kubeconfig_path="k")),
+        config=SimpleNamespace(
+            kube_context="c",
+            paths=SimpleNamespace(kubeconfig_path="k"),
+            features=SimpleNamespace(governance_enabled=False),
+        ),
         tools=SimpleNamespace(kubectl=None),
         env={},
     )

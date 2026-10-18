@@ -281,6 +281,8 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
                     },
                     "preset": "slim",
                     **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    # Authentication off is local-only, so cloud fixtures carry an identity block.
+                    **({"identity": {}} if deployment["provider"] != "local" else {}),
                     "stages": {
                         name: {
                             "enabled": True,
@@ -313,6 +315,8 @@ def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]
                     },
                     "preset": "slim",
                     **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    # Authentication off is local-only, so cloud fixtures carry an identity block.
+                    **({"identity": {}} if deployment["provider"] != "local" else {}),
                     "stages": {stage.value: {"enabled": True} for stage in enabled},
                 },
             }

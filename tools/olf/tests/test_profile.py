@@ -234,6 +234,7 @@ def test_access_accepts_a_real_domain() -> None:
     document = _load_fixture("valid_slim_local.yaml")
 
     document["spec"]["access"] = {"base_domain": "olf.example.com", "issuer": "letsencrypt"}
+    document["spec"]["identity"] = {}
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
         "olf.example.com", "letsencrypt"
     )
@@ -633,3 +634,27 @@ def test_github_host_is_optional_and_must_be_a_bare_hostname() -> None:
     for bad in ("https://ghe.example.com", "ghe.example.com/api", 3):
         with pytest.raises(DeploymentProfileError, match="github.host"):
             validate_deployment_profile(_github_profile(github=github | {"host": bad}))
+
+
+@pytest.mark.parametrize(
+    ("provider", "access"),
+    [("aws", None), ("azure", None), ("local", {"base_domain": "olf.example.com", "issuer": "letsencrypt"})],
+)
+def test_authentication_off_is_rejected_outside_local_localhost(provider: str, access: dict | None) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["provider"] = {"type": provider, **({"region": "x"} if provider != "local" else {})}
+    document["spec"].pop("access", None)
+    if access:
+        document["spec"]["access"] = access
+
+    with pytest.raises(DeploymentProfileError, match="without spec.identity .* requires provider 'local'"):
+        validate_deployment_profile(document)
+
+
+def test_authentication_off_is_allowed_on_local_with_or_without_access() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"].pop("identity", None)
+    document["spec"].pop("access", None)
+    assert validate_deployment_profile(document).identity is None
+    document["spec"]["access"] = {}
+    assert validate_deployment_profile(document).identity is None

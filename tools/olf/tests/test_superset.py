@@ -41,6 +41,8 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
                     },
                     "preset": "slim",
                     **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    # Authentication off is local-only, so cloud fixtures carry an identity block.
+                    **({"identity": {}} if deployment["provider"] != "local" else {}),
                     "stages": {
                         name: {
                             "enabled": True,

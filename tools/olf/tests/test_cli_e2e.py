@@ -54,7 +54,7 @@ def _write_profile(
         f"{provider_block}"
         f"  preset: {preset}\n"
         "  stages:\n"
-        f"{stage_block}",
+        f"{stage_block}" + ("" if provider == "local" else "  identity: {}\n"),
         encoding="utf-8",
     )
 

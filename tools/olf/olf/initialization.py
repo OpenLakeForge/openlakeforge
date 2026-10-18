@@ -55,6 +55,7 @@ _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project de
 # capabilities. For AWS, set provider.type: aws and provider.region; for Azure,
 # set provider.type: azure (its region comes from the foundation tfvars,
 # AZURE_TFVARS_FILE).
+# Authentication is off until you add spec.identity (local only; ADR 0014).
 # Check it with: olf profile validate --project .
 # access.issuer: none is local-only (plain HTTP); remove it for aws or azure.
 # Sign-in: add spec.identity (issuer: github, see

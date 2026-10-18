@@ -123,3 +123,9 @@ variable "oidc" {
   })
   default = null
 }
+
+variable "public_admin" {
+  description = "Authentication off: every visitor is signed in as the local admin. Ignored when oidc is set."
+  type        = bool
+  default     = false
+}

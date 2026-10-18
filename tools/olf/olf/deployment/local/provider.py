@@ -26,6 +26,11 @@ if TYPE_CHECKING:
     from olf.deployment.status import StatusReport
 
 
+def _auth_off_notes(governance: bool) -> tuple[str, ...]:
+    login = " OpenMetadata login: admin@open-metadata.org / admin" if governance else ""
+    return (f"Authentication is off.{login}",)
+
+
 @dataclass
 class LocalProvider:
     config: LocalDeploymentConfig
@@ -160,6 +165,8 @@ class LocalProvider:
             env=self.env,
             urls=urls,
             certificates=self.context.topology.access is not None,  # a quickstart has no cert-manager
+            # Authentication off (ADR 0014): Superset opens as Admin, but OpenMetadata has no anonymous mode.
+            notes=() if self.context.topology.identity else _auth_off_notes(self.config.features.governance_enabled),
         )
 
     def _contract_dir(self) -> Path:

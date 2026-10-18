@@ -249,7 +249,7 @@ def _write_profile(root: Path, *, provider: str = "local", stages: str = "    de
         "spec:\n"
         f"  provider:\n    type: {provider}\n"
         "  preset: slim\n"
-        "  stages:\n" + stages
+        "  stages:\n" + stages + ("" if provider == "local" else "  identity: {}\n")
     )
 
 

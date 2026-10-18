@@ -105,7 +105,9 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                     ),
                     **(
                         {"identity": identity or {}}
-                        if identity or contract["shared"]["identity"]["implementation"] == "identity.oidc"
+                        if identity
+                        or deployment["provider"] != "local"
+                        or contract["shared"]["identity"]["implementation"] == "identity.oidc"
                         else {}
                     ),
                 },

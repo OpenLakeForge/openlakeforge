@@ -645,6 +645,15 @@ def validate_deployment_profile(
         raise DeploymentProfileError(
             f"{source}: spec.identity requires spec.access on the local provider (sign-in needs the route hostnames)"
         )
+    # No identity block means authentication off (ADR 0014): admin on every
+    # service, so it is allowed only where nothing is reachable beyond the host.
+    if identity is None and (
+        provider.type != Provider.LOCAL or (access is not None and not access.base_domain.endswith(".localhost"))
+    ):
+        raise DeploymentProfileError(
+            f"{source}: a profile without spec.identity (authentication off) requires provider 'local' "
+            "and either no spec.access or a base_domain ending in '.localhost'"
+        )
     return DeploymentProfile(
         name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity
     )

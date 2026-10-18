@@ -115,6 +115,27 @@ resource "helm_release" "superset" {
       extraVolumes      = [for v in local.trust_volumes : { name = v.name, configMap = { name = v.configmap } }]
       extraVolumeMounts = [for v in local.trust_volumes : { name = v.name, mountPath = v.path, readOnly = true }]
     })
+    ], var.oidc != null || !var.public_admin ? [] : [
+    # Authentication off (no spec.identity; local-only, enforced by profile
+    # validation). Not derived from oidc == null: an external issuer also
+    # deploys no oidc here but does authenticate. Every visitor is signed in as
+    # the local admin; an anonymous Admin role is not enough, since Superset
+    # needs a real user for the welcome page and as the owner of saved objects.
+    yamlencode({
+      configOverrides = {
+        openlakeforge_public_admin = <<-EOT
+          def FLASK_APP_MUTATOR(app):
+              from flask_login import current_user, login_user
+
+              @app.before_request
+              def _olf_sign_in_as_local_admin():
+                  if not current_user.is_authenticated:
+                      user = app.appbuilder.sm.find_user(username="${var.admin_username}")
+                      if user is not None:
+                          login_user(user)
+        EOT
+      }
+    })
     ], var.oidc == null ? [] : [
     yamlencode({
       configOverrides = {
