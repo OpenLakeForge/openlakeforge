@@ -2,10 +2,34 @@
 
 With `spec.identity.issuer: github`, people and roles live in your GitHub
 organisation and Dex signs them in ([ADR 0014](../adr/0014-identity-and-authorization.md)).
-Two things are needed before `olf deploy`: a GitHub OAuth App and a Secret
-holding its credentials.
+Before `olf deploy` can start the issuer it needs a GitHub app and a Secret
+holding its credentials. `olf github connect` does both; the manual OAuth App
+below is the fallback.
 
-## 1. Create the OAuth App
+## Quick path: `olf github connect`
+
+With the profile below in `openlakeforge.yaml` and the kind cluster up (run
+`olf deploy --provider local` once; it creates the `olf-system` namespace and
+stops asking for the Secret):
+
+```bash
+olf github connect --project .
+```
+
+It opens your browser on GitHub, where you click **Create GitHub App** with
+your own session (SSO and 2FA as the organisation enforces), stores the app's
+`client-id`, `client-secret` and `private-key` in the Secret named by
+`oauth_app_secret_ref`, and opens the page to install the app on the
+organisation. Install it: the app's *Members: read* permission only applies
+to organisations it is installed on. Then re-run `olf deploy`. Credentials are
+never printed. `--no-browser` prints the URL instead; after 5 minutes without
+a click it exits with nothing written. Re-running replaces the Secret (new
+credentials), which is also how you rotate them.
+
+One GitHub App serves both Dex sign-in and, later, the OpenMetadata role sync
+(ADR 0014).
+
+## 1. Create the OAuth App (manual fallback)
 
 In the organisation: Settings, Developer settings, OAuth Apps, New OAuth App.
 Use an organisation-owned app, not a personal one.
@@ -41,7 +65,7 @@ spec:
 Team values are slugs as they appear in the team URL. Only members of these
 teams can sign in; organisation ownership grants nothing.
 
-## 3. Create the Secret
+## 3. Create the Secret (manual fallback)
 
 The Secret lives in the shared namespace (`olf-system` by default). The first
 `olf deploy` creates that namespace and then stops with the exact command if

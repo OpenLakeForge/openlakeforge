@@ -73,6 +73,24 @@ class Kubectl:
         """`kubectl create -f -`: the manifest travels on stdin, so a Secret's data never appears in argv."""
         return self._run(["create", "-f", "-"], context=context, kubeconfig=kubeconfig, env=env, input_text=manifest)
 
+    def apply_from_manifest(
+        self,
+        manifest: str,
+        *,
+        context: str | None = None,
+        kubeconfig: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        """`kubectl apply --server-side -f -`: create or replace from stdin. Server-side apply keeps a Secret's
+        data out of the last-applied annotation that client-side apply would write."""
+        return self._run(
+            ["apply", "--server-side", "--force-conflicts", "-f", "-"],
+            context=context,
+            kubeconfig=kubeconfig,
+            env=env,
+            input_text=manifest,
+        )
+
     def config_get_contexts(
         self,
         *,
