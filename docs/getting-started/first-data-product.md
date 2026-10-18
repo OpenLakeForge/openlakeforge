@@ -850,11 +850,12 @@ No Terraform product registration is required.
 
 # 16. Run the pipeline
 
-Open Dagster (run `olf access trust` once first if your browser warns about
-the certificate):
+Open Dagster (the default profile serves plain HTTP, so there is no
+certificate step; with the HTTPS stack, see
+[Secured local stack](../setup/local.md#secured-local-stack-https)):
 
 ```text
-https://dagster-dev.olf.localhost
+http://dagster-dev.olf.localhost
 ```
 
 In Dagster, look for:

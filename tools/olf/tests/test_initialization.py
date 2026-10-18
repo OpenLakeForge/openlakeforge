@@ -160,6 +160,7 @@ def test_default_init_writes_a_dev_only_slim_profile_named_after_the_directory(t
     assert profile.name == "project"
     assert profile.preset is Preset.SLIM
     assert {stage.name.value for stage in profile.stages if stage.enabled} == {"dev"}
+    assert "issuer: none" in (layout.project_root / "openlakeforge.yaml").read_text()
 
 
 def test_init_renders_the_requested_stages_preset_and_name(tmp_path: Path) -> None:
