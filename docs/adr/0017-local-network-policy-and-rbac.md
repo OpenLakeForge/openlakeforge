@@ -194,7 +194,7 @@ port [D]).
 | F17 | SeaweedFS pods among themselves; bucket Job | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; `bucket` Job waits on 9333 and 8888 | V |
 | F18 | Keycloak realm Job; `olf e2e run` (port-forward) | Keycloak | 8080 | `keycloak-config-cli` URL in `modules/identity/keycloak` | V |
 | F19 | Polaris bootstrap, metastore bootstrap and replication Jobs | Polaris | 8181 | `bootstrap.sh.tftpl` | V |
-| F20 | Jobs: `keycloak-credentials`, `perimeter-cookie-secret`, `publish-local-ca`, `catalog-bootstrap`, `catalog-credential-replication`, `governance-bootstrap`, `governance-credential-replication`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `libs/k8s_log_archive.py`]) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
+| F20 | Jobs: `keycloak-credentials`, `dex-credentials`, `trino-credentials`, `perimeter-cookie-secret`, `publish-local-ca`, `catalog-bootstrap`, `catalog-credential-replication`, `governance-bootstrap`, `governance-credential-replication`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `libs/k8s_log_archive.py`]) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
 | F21 | API server (control-plane node) | cert-manager webhook | 10250 | admission webhook | node-sourced traffic **T** |
 | F22 | Keycloak | the SMTP host and port of `spec.identity.smtp` | profile-driven | rendered from the profile; `ipBlock` cannot name a host, so `0.0.0.0/0` minus the pod and Service CIDRs on that port | T |
 | F23 | oauth2-proxy and, later, OIDC clients | an `issuer: external` host | 443 | profile-driven, same rendering | T |
@@ -442,7 +442,7 @@ Slice 3b built: `release/network-flows.yaml` gains workloads for Traefik, the
 oauth2-proxy floors (a constant pod label `openlakeforge.io/workload` that the
 perimeter module now sets, because the floors differ in name), the portal,
 Keycloak, Dex, the three cert-manager pods and the `startupapicheck` Job,
-OpenMetadata, OpenSearch and fourteen Jobs (selected by `openlakeforge.io/job`).
+OpenMetadata, OpenSearch and thirteen Jobs (selected by `openlakeforge.io/job`).
 The module gives every workload DNS egress itself, adds the peer scopes `node`,
 `apiserver` (as a source) and `any` (outside the pod and Service ranges, kind's
 defaults), and lets one row list several sources. F1 is `any` to Traefik 8443 and, for plain-HTTP mode (`issuer: none`), 8000; F21 allows the API server and node addresses to the webhook on 10250,

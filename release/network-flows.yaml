@@ -50,7 +50,6 @@ workloads:
   trino-credentials: {openlakeforge.io/job: trino-credentials}
   governance-bootstrap: {openlakeforge.io/job: governance-bootstrap}
   governance-credential-replication: {openlakeforge.io/job: governance-credential-replication}
-  catalog-refresh: {openlakeforge.io/job: catalog-refresh}
   openmetadata-trino-ingestion: {openlakeforge.io/job: openmetadata-trino-ingestion}
 flows:
   - id: F3
@@ -220,7 +219,7 @@ flows:
     ports: [8443, 8000] # web when the issuer is none
     tag: V
   - id: F13
-    from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-refresh}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
+    from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
     tag: T # openmetadata-trino-ingestion: the OLF-owned Job (#410)
