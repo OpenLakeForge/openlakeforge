@@ -125,7 +125,7 @@ variable "oidc" {
 }
 
 variable "public_admin" {
-  description = "Authentication off: anonymous visitors get the Admin role. Ignored when oidc is set."
+  description = "Authentication off: every visitor is signed in as the local admin. Ignored when oidc is set."
   type        = bool
   default     = false
 }
