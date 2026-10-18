@@ -637,7 +637,7 @@ locals {
       id    = "F23"
       from  = { scope = "shared", pods = { "openlakeforge.io/workload" = "oauth2-proxy" } }
       to    = { scope = "any" }
-      ports = [try(tonumber(regex("^https://[^/:?#]+:([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
+      ports = [try(tonumber(regex("^(?i:https)://(?:\\[[^]]*\\]|[^/:?#]+):([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
       tag   = "T"
     }] : [],
   )

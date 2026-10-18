@@ -170,6 +170,11 @@ flows:
     ports: [9333, 19333, 8888, 18888]
     tag: V
   - id: F19
+    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-metastore-bootstrap}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    ports: [8181] # its first step probes the token endpoint
+    tag: V
+  - id: F19
     from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-bootstrap}}
     to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     ports: [8181]
@@ -252,7 +257,7 @@ flows:
   - id: F26
     from: {scope: shared, pods: {openlakeforge.io/e2e: issuer-probe}}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443]
+    ports: [8443, 8000] # 8000 when the issuer is none
     tag: V # the e2e issuer probe pod; the e2e sets the label
   - id: F27
     from: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
