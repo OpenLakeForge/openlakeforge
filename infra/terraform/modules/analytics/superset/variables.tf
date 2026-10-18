@@ -123,3 +123,9 @@ variable "oidc" {
   })
   default = null
 }
+
+variable "public_admin" {
+  description = "Authentication off: anonymous visitors get the Admin role. Ignored when oidc is set."
+  type        = bool
+  default     = false
+}

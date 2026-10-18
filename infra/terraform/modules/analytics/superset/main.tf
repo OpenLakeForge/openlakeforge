@@ -115,9 +115,10 @@ resource "helm_release" "superset" {
       extraVolumes      = [for v in local.trust_volumes : { name = v.name, configMap = { name = v.configmap } }]
       extraVolumeMounts = [for v in local.trust_volumes : { name = v.name, mountPath = v.path, readOnly = true }]
     })
-    ], var.oidc != null ? [] : [
+    ], var.oidc != null || !var.public_admin ? [] : [
     # Authentication off (no spec.identity; local-only, enforced by profile
-    # validation): anonymous visitors are Admin. The local admin account stays
+    # validation). Not derived from oidc == null: an external issuer also
+    # deploys no oidc here but does authenticate: anonymous visitors are Admin. The local admin account stays
     # for `olf report import` and the e2e.
     yamlencode({
       configOverrides = {

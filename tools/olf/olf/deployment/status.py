@@ -38,10 +38,10 @@ class StatusReport:
 
     def render(self) -> str:
         blocks = [f"=== {section.title} ===\n{section.output}" for section in self.sections]
-        if self.notes:
-            blocks.insert(0, "\n".join(self.notes))
         if self.urls:
             blocks.insert(0, "=== URLs ===\n" + "\n".join(f"{ref}: {url}" for ref, url in sorted(self.urls.items())))
+        if self.notes:
+            blocks.insert(0, "\n".join(self.notes))
         return "\n\n".join(blocks)
 
     def as_dict(self) -> dict[str, object]:
