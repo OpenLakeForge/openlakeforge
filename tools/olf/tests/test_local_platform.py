@@ -343,6 +343,9 @@ class _PlatformScriptedRunner(RecordingRunner):
             return _ok() if self._namespace_exists else _fail()
         if argv[0] == "terraform" and "state" in argv and "module.seaweedfs.helm_release.seaweedfs" in argv:
             return _ok() if self._seaweedfs_in_state else _fail()
+        if argv[0] == "terraform" and "state" in argv and "kubernetes_namespace_v1.shared" in argv:
+            # Lost state has neither; a state that kept the namespace is only behind.
+            return _ok() if self._seaweedfs_in_state else _fail()
         if argv[0] == "terraform" and "apply" in argv:
             self._apply_attempts += 1
             if self._apply_attempts <= self._apply_failures:
@@ -668,3 +671,22 @@ def test_status_renders_certificates_only_when_access_is_declared(
     LocalProvider.status(fake)  # type: ignore[arg-type]
 
     assert seen["certificates"] is declared
+
+
+@pytest.mark.parametrize(("state", "resets"), [(set(), True), ({"kubernetes_namespace_v1.shared"}, False)])
+def test_a_state_holding_the_shared_namespace_is_resumed_not_reset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: set[str], resets: bool
+) -> None:
+    # A first apply that stopped at the GitHub Secret preflight leaves only the namespace in state; resetting
+    # would delete the namespace and the Secret created in it before the second apply.
+    from olf.deployment import kube_ops
+    from olf.deployment.local import teardown
+
+    torn_down: list[bool] = []
+    monkeypatch.setattr(kube_ops, "namespace_exists", lambda *_a, **_k: True)
+    monkeypatch.setattr(kube_ops, "state_has_resource", lambda _tf, _dir, addr, **_k: addr in state)
+    monkeypatch.setattr(teardown, "platform_down", lambda *_a, **_k: torn_down.append(True))
+    tools = _toolkit(RecordingRunner())
+
+    assert platform.reset_drifted_platform_if_needed(_config(tmp_path), tools, env={}) is resets
+    assert bool(torn_down) is resets
