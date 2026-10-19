@@ -28,9 +28,12 @@ _PROBE = 'wget -q -T 5 -O /dev/null "$0" || SSL_CERT_FILE=/etc/olf/oidc-ca/ca.cr
 
 def _wait_for_issuer(service: str, namespace: str, url: str) -> None:
     """Probe from the OpenMetadata pod: the operator's machine may not resolve the issuer."""
-    for _ in range(PROBE_ATTEMPTS):
+    deadline = time.monotonic() + PROBE_ATTEMPTS * PROBE_DELAY
+    while True:
         if k8s.exec_succeeds(service, namespace, ["sh", "-c", _PROBE, url]):
             return
+        if time.monotonic() >= deadline:
+            break
         time.sleep(PROBE_DELAY)
     raise OpenMetadataError(
         f"The identity issuer's discovery URL {url} did not answer from inside the cluster within "

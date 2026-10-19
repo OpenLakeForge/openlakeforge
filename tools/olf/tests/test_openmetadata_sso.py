@@ -51,7 +51,9 @@ def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(_sso.k8s, "secret_value", lambda *_a: "client-secret")
     monkeypatch.setattr(_sso.k8s, "exec_succeeds", lambda *_a: state["probe"].pop(0) if state["probe"] else False)
     monkeypatch.setattr(_sso.k8s, "restart_deployment", restart)
+    clock = iter(range(0, 10_000, 5))
     monkeypatch.setattr(_sso.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(_sso.time, "monotonic", lambda: float(next(clock)))
     return state
 
 
