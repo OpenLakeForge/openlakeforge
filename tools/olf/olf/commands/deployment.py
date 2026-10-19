@@ -68,6 +68,11 @@ def deploy(
             "namespace ('lakehouse') with the current one, destroying its SeaweedFS/PostgreSQL/Polaris state."
         ),
     ),
+    no_github_connect: bool = typer.Option(
+        False,
+        "--no-github-connect",
+        help="With issuer: github, fail on a missing OAuth Secret instead of creating the GitHub App inline.",
+    ),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
     from olf.deployment.errors import DeploymentError
@@ -81,6 +86,7 @@ def deploy(
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
         allow_stage_removal=allow_stage_removal,
+        github_connect=not no_github_connect,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "prefetch", "platform", "artifacts"))

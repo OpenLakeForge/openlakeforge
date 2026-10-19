@@ -179,6 +179,8 @@ class DeploymentContext:
     stage: StageName
     shared_namespace: str = SHARED_NAMESPACE
     allow_stage_removal: bool = False
+    # Only `olf deploy` sets this (unless `--no-github-connect`): the inline GitHub connect is a deploy feature.
+    github_connect: bool = False
     # Which lifecycle owns Dagster user code. `olf deploy` (deprecated, single
     # stage) leaves Terraform owning it; the #115 commands, which resolve a
     # Deployment Profile, hand it to `olf project deploy` instead.

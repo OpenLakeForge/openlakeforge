@@ -641,6 +641,67 @@ def test_no_github_means_no_oauth_secret_check(tmp_path: Path) -> None:
     assert runner.calls == []
 
 
+def _github_connect_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, tty: bool, ci: str, flag: bool):  # noqa: ANN202
+    from dataclasses import replace
+
+    from olf import github_app
+
+    config = _github_config(tmp_path)
+    config = replace(config, context=replace(config.context, github_connect=flag))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: tty, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: tty, raising=False)
+    monkeypatch.setenv("CI", ci)
+    calls: list[object] = []
+
+    def connect(context: object) -> str:
+        calls.append(context)
+        return "https://github.com/apps/x/installations/new"
+
+    class Runner(_SecretRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            if calls and "secret" in list(getattr(command, "argv", command)):
+                return _ok("id\nsecret\n")  # the connect flow stored it
+            return super().run(command, **kwargs)
+
+    monkeypatch.setattr(github_app, "connect_github", connect)
+    return config, _toolkit(Runner(keys=None, stderr="NotFound")), calls
+
+
+def test_interactive_missing_github_secret_connects_inline_then_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, tools, calls = _github_connect_setup(tmp_path, monkeypatch, tty=True, ci="", flag=True)
+    got = platform.require_github_oauth_secret(config, tools, env={}, create_namespace=lambda: None)
+    assert got == "https://github.com/apps/x/installations/new"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("tty", "ci", "flag"), [(False, "", True), (True, "1", True), (True, "", False)], ids=["piped", "ci", "flag"]
+)
+def test_missing_github_secret_still_errors_when_not_interactive_or_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tty: bool, ci: str, flag: bool
+) -> None:
+    config, tools, calls = _github_connect_setup(tmp_path, monkeypatch, tty=tty, ci=ci, flag=flag)
+    with pytest.raises(DeploymentPreconditionError, match="olf github connect"):
+        platform.require_github_oauth_secret(config, tools, env={}, create_namespace=lambda: None)
+    assert calls == []
+
+
+def test_present_github_secret_never_connects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf import github_app
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(github_app, "connect_github", lambda c: pytest.fail("connected"))
+    runner = _SecretRunner(keys="id\nsecret\n")
+    got = platform.require_github_oauth_secret(
+        _github_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+    )
+    assert got is None
+
+
 @pytest.mark.parametrize("declared", [False, True])
 def test_status_renders_certificates_only_when_access_is_declared(
     declared: bool, monkeypatch: pytest.MonkeyPatch

@@ -4,7 +4,9 @@ With `spec.identity.issuer: github`, people and roles live in your GitHub
 organisation and Dex signs them in ([ADR 0014](../adr/0014-identity-and-authorization.md)).
 Before `olf deploy` can start the issuer it needs a GitHub app and a Secret
 holding its credentials. `olf github connect` does both; the manual OAuth App
-below is the fallback.
+below is the fallback. In an interactive terminal `olf deploy` asks for the
+GitHub confirmation itself when the Secret is missing; `--no-github-connect`
+turns that off, and CI or piped runs never prompt.
 
 ## Quick path: `olf github connect`
 

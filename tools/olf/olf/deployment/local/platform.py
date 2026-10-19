@@ -8,6 +8,8 @@ semantics of the shell script.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
@@ -111,14 +113,15 @@ def require_github_oauth_secret(
     *,
     env: Mapping[str, str],
     create_namespace: Callable[[], None],
-) -> None:
+) -> str | None:
     """Dex reads the GitHub OAuth App through `secretKeyRef` and would otherwise sit in
     CreateContainerConfigError. Only key names are read. The shared namespace is made first when absent,
-    so the operator has somewhere to create the Secret."""
+    so the operator has somewhere to create the Secret. When the Secret is missing and the run is interactive,
+    the `olf github connect` flow runs inline and its install link is returned."""
     identity = config.context.topology.identity
     github = identity.github if identity else None
     if github is None:
-        return
+        return None
     ref, namespace = github.oauth_app_secret_ref, config.context.shared_namespace
     command = (
         f"kubectl -n {namespace} create secret generic {ref.name} "
@@ -129,23 +132,37 @@ def require_github_oauth_secret(
         tools.kubectl, namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
     ):
         create_namespace()
-    result = tools.kubectl.get(
-        "secret",
-        name=ref.name,
-        namespace=namespace,
-        output=r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}',
-        context=config.kube_context,
-        kubeconfig=config.paths.kubeconfig_path,
-        env=env,
-        check=False,
-    )
+
+    def read_secret():  # noqa: ANN202 - CommandResult
+        return tools.kubectl.get(
+            "secret",
+            name=ref.name,
+            namespace=namespace,
+            output=r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}',
+            context=config.kube_context,
+            kubeconfig=config.paths.kubeconfig_path,
+            env=env,
+            check=False,
+        )
+
+    result, install = read_secret(), None
+    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CI")
+    if not result.ok and "NotFound" in result.stderr and interactive and config.context.github_connect:
+        from olf import github_app
+
+        try:
+            install = github_app.connect_github(config.context)
+        except github_app.GitHubConnectError as exc:
+            raise DeploymentPreconditionError(str(exc)) from exc
+        result = read_secret()
     if not result.ok:
         raise DeploymentPreconditionError(
             f"spec.identity.github needs the GitHub OAuth App Secret '{ref.name}' in namespace '{namespace}' "
             f"(docs/setup/github-oauth-app.md); kubectl could not read it: "
             f"{result.stderr.strip() or 'non-zero status'}. Run `olf github connect` to create the GitHub App "
             f"and store it, or create a hand-made OAuth App's Secret (set GITHUB_CLIENT_ID and "
-            f"GITHUB_CLIENT_SECRET first): {command}"
+            f"GITHUB_CLIENT_SECRET first): {command}. In a terminal, `olf deploy` does this itself unless "
+            f"--no-github-connect is set."
         )
     missing = {ref.client_id_key, ref.client_secret_key} - set(result.stdout.split())
     if missing:
@@ -154,6 +171,7 @@ def require_github_oauth_secret(
             f"spec.identity.github.oauth_app_secret_ref names them. "
             f"Re-run `olf github connect`, or recreate it (kubectl delete secret {ref.name} first): {command}"
         )
+    return install
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -518,7 +536,7 @@ def platform_up(
             env=env,
         )
 
-    require_github_oauth_secret(config, tools, env=env, create_namespace=_create_shared_namespace)
+    github_install = require_github_oauth_secret(config, tools, env=env, create_namespace=_create_shared_namespace)
 
     def _apply_once() -> None:
         for prefix in _POLARIS_JOB_PREFIXES:
@@ -559,3 +577,5 @@ def platform_up(
         )
 
     log.step("Static OpenLakeForge local platform is applied.")
+    if github_install:
+        log.info(f"Sign-in needs the GitHub App installed on your organisation: {github_install}")

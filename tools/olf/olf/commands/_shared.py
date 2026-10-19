@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,7 @@ def deployment_context(
     project_root: str = "",
     stage: str = "",
     allow_stage_removal: bool = False,
+    github_connect: bool = False,
 ):  # noqa: ANN202
     """Resolve the installed-vs-source runtime layout into a `DeploymentContext`.
 
@@ -153,7 +155,7 @@ def deployment_context(
     if kubeconfig_path:
         kwargs["kubeconfig_path"] = Path(kubeconfig_path)
     try:
-        return DeploymentContext.for_provider(resolved_provider, **kwargs)
+        return replace(DeploymentContext.for_provider(resolved_provider, **kwargs), github_connect=github_connect)
     except DeploymentPreconditionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 

@@ -42,7 +42,7 @@ are discarded.
 | --- | --- |
 | A client Secret is deleted | When the bootstrap Job is next replaced it regenerates it. This is a rotation of that client: Dex and the consumers restart, and the Job logs that it created the Secret. |
 | A Secret exists but lacks the expected key | Fail with the Secret and key named; never patch a foreign Secret. |
-| Operator-provided Secret (the GitHub OAuth App, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. The GitHub OAuth App Secret is enforced today by `olf deploy` before the platform apply; the external-client Secrets are not yet. |
+| Operator-provided Secret (the GitHub OAuth App, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. The GitHub OAuth App Secret is enforced today by `olf deploy` before the platform apply (an interactive run creates the GitHub App inline instead, #428); the external-client Secrets are not yet. |
 
 ### Interrupted bootstrap
 
