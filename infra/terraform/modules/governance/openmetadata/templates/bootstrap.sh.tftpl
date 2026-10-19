@@ -406,6 +406,32 @@
   # The stored copy of the security configuration wins over Helm values on every
   # boot after the first, so this is also what moves an existing install.
   if [ -n "$oidc_config_b64" ]; then
+    # Self-signup makes every admitted person a user, and every user inherits
+    # the Organization default role (DataConsumer, which edits descriptions,
+    # tags and tiers) and may take ownership of unowned assets. Read-only is
+    # the Organization policy without either (identity-service-permissions.md).
+    json_patch() {
+      patch_code="$(curl -sS -o /tmp/om-patch-body -w '%%{http_code}' -X PATCH "$om_url/api/v1/$1" \
+        -H "Authorization: Bearer $ADMIN_JWT" \
+        -H "Content-Type: application/json-patch+json" \
+        -d "$2")"
+      if [ "$patch_code" != "200" ]; then
+        echo "Failed to patch $1 (HTTP $patch_code)" >&2
+        cat /tmp/om-patch-body >&2
+        exit 1
+      fi
+    }
+    org="$(curl -sS "$om_url/api/v1/teams/name/Organization?fields=defaultRoles" -H "Authorization: Bearer $ADMIN_JWT")"
+    patch="$(echo "$org" | jq -c '[(.defaultRoles // []) | length as $n | range($n - 1; -1; -1) | {op: "remove", path: ("/defaultRoles/" + tostring)}]')"
+    if [ "$patch" != "[]" ]; then
+      json_patch teams/name/Organization "$patch"
+    fi
+    policy="$(curl -sS "$om_url/api/v1/policies/name/OrganizationPolicy" -H "Authorization: Bearer $ADMIN_JWT")"
+    patch="$(echo "$policy" | jq -c '[.rules | to_entries | map(select(.value.name == "OrganizationPolicy-NoOwner-Rule")) | reverse | .[] | {op: "remove", path: ("/rules/" + (.key | tostring))}]')"
+    if [ "$patch" != "[]" ]; then
+      json_patch policies/name/OrganizationPolicy "$patch"
+    fi
+
     security_config="$(printf '%s' "$oidc_config_b64" | base64 -d \
       | jq --arg secret "$OIDC_CLIENT_SECRET" '.authenticationConfiguration.oidcConfiguration.secret = $secret')"
     sso_code="$(curl -sS -o /tmp/om-security-body -w '%%{http_code}' \

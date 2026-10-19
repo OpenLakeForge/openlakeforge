@@ -41,8 +41,9 @@ in the design below:
   `admin` would be an admin (OM-11); Dex admits only members of the mapped teams.
 - **Not done.** Removing `spec.identity` from an install that already has SSO does
   not restore basic login (the stored provider stays); rebuild the metadata
-  database. The `Organization` baseline patch (OM-12) and `sync-roles` are the
-  next slice.
+  database. `sync-roles` is the next slice. The Job removes the `Organization`
+  default roles and `NoOwner-Rule` before it enables SSO (OM-12); the payloads are
+  unverified at runtime.
 
 Built for Superset: `images/superset/olf_oidc.py` (settings derived from the
 contract), `olf_security.py` (user info from `role_claim`, `olf_viewer`,
@@ -331,7 +332,9 @@ Maintainer decisions for v0.5-alpha.
    the patch is still in place, so an upgrade that re-seeds them fails loudly.
 6. **First-boot automation credential: option (a).** Install with
    `provider: basic`, let the Job create the automation bot and its Secret,
-   then flip the release to `custom-oidc`. Decrypting the seeded bot token with
+   then flip the release to `custom-oidc`. **Superseded by #25 slice b:** the
+   release stays `basic` and the Job applies `custom-oidc` through the security
+   configuration API (top of this file). Decrypting the seeded bot token with
    `fernetkey` is rejected.
 
 ## Not claimed

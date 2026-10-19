@@ -96,7 +96,7 @@ images download. Tear it down with `olf destroy --provider local`.
 
 Authentication is off by default locally; add `spec.identity` to turn it on.
 With it off, Superset opens as Admin and OpenMetadata keeps its
-`admin@open-metadata.org` / `admin` login (shown by `olf status`); with it on, OpenMetadata signs people in through the issuer instead. A profile
+`admin@open-metadata.org` / `admin` login (shown by `olf status`); with the Dex issuer on, OpenMetadata signs people in through it instead. A profile
 without `spec.identity` is accepted only for `provider: local` on `*.localhost`.
 
 **What you get:** a local lakehouse with three example data products already
