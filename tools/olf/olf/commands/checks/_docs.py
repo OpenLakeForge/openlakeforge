@@ -21,7 +21,7 @@ from olf.commands.checks._shared import _root
 
 MANIFEST = "docs/navigation.yaml"
 
-_FENCE = re.compile(r"^\s*(```|~~~)")
+_FENCE = re.compile(r"^ {0,3}(```|~~~)")
 _HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 _CODE_SPAN = re.compile(r"`+[^`]*`+")
 # `](target)` rather than a full `[text](target)` match: link text can itself
@@ -29,8 +29,8 @@ _CODE_SPAN = re.compile(r"`+[^`]*`+")
 _INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]*)>?")
 _REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)")
 # Quoted or bare values: HTML allows `<img src=chart.svg>`.
-_HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""")
-_EXPLICIT_ANCHOR = re.compile(r"""<a\s+(?:[^>]*\s)?(?:id|name)\s*=\s*["']([^"']+)["']""")
+_HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""", re.IGNORECASE)
+_EXPLICIT_ANCHOR = re.compile(r"""<a\s+(?:[^>]*\s)?(?:id|name)\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
@@ -166,14 +166,18 @@ def _link_errors(root: Path, source: str) -> list[str]:
 
 def _links(path: Path) -> list[tuple[int, str]]:
     links: list[tuple[int, str]] = []
+    carried = ""
     for line_number, line in _prose_lines(path):
-        text = _CODE_SPAN.sub("", line)
+        # Hard-wrapped prose can break a link right after `](`, leaving its
+        # destination at the start of the next line.
+        text = carried + _CODE_SPAN.sub("", line).lstrip()
+        carried = "](" if text.rstrip().endswith("](") else ""
         links.extend((line_number, match) for match in _INLINE_LINK.findall(text))
         links.extend((line_number, match) for match in _REFERENCE_DEFINITION.findall(text))
         for attribute, *quoted_or_bare in _HTML_ATTRIBUTE.findall(text):
             value = next(part for part in quoted_or_bare if part)
             candidates = [value]
-            if attribute == "srcset":
+            if attribute.lower() == "srcset":
                 candidates = [part.split()[0] for part in value.split(",") if part.split()]
             links.extend((line_number, candidate) for candidate in candidates)
     return [(line_number, target) for line_number, target in links if target and not _SCHEME.match(target)]
@@ -217,17 +221,21 @@ def _resolve(root: Path, source: str, target: str) -> str | None:
 
 def _anchors(path: Path) -> set[str]:
     anchors: set[str] = set()
-    counts: dict[str, int] = {}
+    headings: set[str] = set()
     for _, line in _prose_lines(path):
         anchors.update(anchor.lower() for anchor in _EXPLICIT_ANCHOR.findall(line))
         heading = _HEADING.match(line)
         if not heading:
             continue
-        slug = _github_slug(heading.group(2))
-        seen = counts.get(slug, 0)
-        counts[slug] = seen + 1
-        anchors.add(slug if seen == 0 else f"{slug}-{seen}")
-    return anchors
+        # GitHub skips a suffix an earlier heading already took: `Notes`,
+        # `Notes-1`, `Notes` gives notes, notes-1, notes-2.
+        base = slug = _github_slug(heading.group(2))
+        suffix = 0
+        while slug in headings:
+            suffix += 1
+            slug = f"{base}-{suffix}"
+        headings.add(slug)
+    return anchors | headings
 
 
 def _github_slug(heading: str) -> str:
