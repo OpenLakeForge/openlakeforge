@@ -67,10 +67,10 @@ def test_puts_the_config_with_the_secret_then_restarts(env: dict[str, Any]) -> N
     assert env["restarts"] == 1
 
 
-def test_an_applied_config_is_left_alone(env: dict[str, Any]) -> None:
+def test_an_applied_config_is_reput_without_a_restart(env: dict[str, Any]) -> None:
     FakeClient.current = dict(AUTH)
     run()
-    assert [c[0] for c in FakeClient.calls] == ["GET"]
+    assert [c[0] for c in FakeClient.calls] == ["GET", "PUT"]
     assert env["restarts"] == 0
 
 

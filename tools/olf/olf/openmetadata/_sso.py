@@ -40,7 +40,7 @@ def _wait_for_issuer(service: str, namespace: str, url: str) -> None:
 
 
 def apply_sso(namespace: str, *, service: str, remote_port: int, log_path: str) -> None:
-    """Apply the published security configuration if it differs, then restart the server."""
+    """Apply the published security configuration, restarting the server on its first application."""
     data = k8s.configmap_data(CONFIGMAP, namespace)
     if data is None:  # no spec.identity: basic login stays
         return
@@ -61,11 +61,13 @@ def apply_sso(namespace: str, *, service: str, remote_port: int, log_path: str) 
     ) as base_url:
         client = OpenMetadataClient(base_url, token=token)
         current: Mapping[str, object] = client.request("GET", "/api/v1/system/config/auth")
-        if all(current.get(key) == value for key, value in desired.items()):
-            return
+        # Always PUT: the client secret is not readable back, and a rotation
+        # changes nothing else. Only a first application needs the restart.
+        first = not all(current.get(key) == value for key, value in desired.items())
         _wait_for_issuer(service, namespace, oidc["oidcConfiguration"]["discoveryUri"])
         oidc["oidcConfiguration"]["secret"] = k8s.secret_value(data["secret_name"], data["secret_key"], namespace)
         client.request("PUT", "/api/v1/system/security/config", json_body=config, ok_statuses=(200, 201))
     # The handler is built from the stored configuration at startup, and the
     # one the PUT built may predate the issuer answering.
-    k8s.restart_deployment(service, namespace)
+    if first:
+        k8s.restart_deployment(service, namespace)

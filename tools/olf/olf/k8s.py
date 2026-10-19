@@ -113,7 +113,7 @@ def secret_value(
 
 def configmap_data(name: str, namespace: str) -> dict[str, str] | None:
     """The ConfigMap's data, or None when it does not exist."""
-    raw = _kubectl(["get", "configmap", name, "-n", namespace, "-o", "json"], capture=True, check=False)
+    raw = _kubectl(["get", "configmap", name, "-n", namespace, "-o", "json", "--ignore-not-found"], capture=True)
     return (json.loads(raw).get("data") or {}) if raw else None
 
 
