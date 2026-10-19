@@ -16,14 +16,18 @@ class OlfAuthOAuthView(AuthOAuthView):
     @expose("/login/<provider>")
     def login(self, provider=None):
         # One provider: skip the login page and go straight to the issuer.
-        # A pending flash means the callback just refused the user and sent
-        # them back here; the page must show that, not bounce into a loop.
-        if provider is None and not session.get("_flashes"):
+        # The callback flashes invalid_login_message when it refuses a user
+        # and sends them back here; the page must show that, not loop. Other
+        # flashes (Flask-Login's "Please log in") must still redirect.
+        refused = any(m == self.invalid_login_message for _, m in session.get("_flashes", []))
+        if provider is None and not refused:
             provider = self.appbuilder.sm.oauth_providers[0]["name"]
         return super().login(provider)
 
 
 class OlfSecurityManager(SupersetSecurityManager):
+    # Superset's own /login/ view would shadow the OAuth one.
+    register_superset_auth_view = False
     authoauthview = OlfAuthOAuthView
 
     def sync_role_definitions(self) -> None:

@@ -176,9 +176,12 @@ def test_the_login_page_goes_straight_to_the_only_provider(monkeypatch: pytest.M
 
     cls = type(manager).authoauthview
     view = cls()
+    view.invalid_login_message = "refused"
     view.appbuilder = types.SimpleNamespace(sm=types.SimpleNamespace(oauth_providers=[{"name": "olf"}]))
 
     assert view.login() == "olf"
     assert view.login("other") == "other"
+    session["_flashes"] = [("message", "Please log in")]  # ordinary unauthorized redirect
+    assert view.login() == "olf"
     session["_flashes"] = [("warning", "refused")]  # a refused user must not loop
     assert view.login() is None
