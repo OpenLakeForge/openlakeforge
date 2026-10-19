@@ -143,15 +143,16 @@ def require_github_oauth_secret(
         raise DeploymentPreconditionError(
             f"spec.identity.github needs the GitHub OAuth App Secret '{ref.name}' in namespace '{namespace}' "
             f"(docs/setup/github-oauth-app.md); kubectl could not read it: "
-            f"{result.stderr.strip() or 'non-zero status'}. Create it (set GITHUB_CLIENT_ID and "
+            f"{result.stderr.strip() or 'non-zero status'}. Run `olf github connect` to create the GitHub App "
+            f"and store it, or create a hand-made OAuth App's Secret (set GITHUB_CLIENT_ID and "
             f"GITHUB_CLIENT_SECRET first): {command}"
         )
     missing = {ref.client_id_key, ref.client_secret_key} - set(result.stdout.split())
     if missing:
         raise DeploymentPreconditionError(
             f"Secret '{ref.name}' in namespace '{namespace}' lacks key(s) {sorted(missing)}; "
-            f"spec.identity.github.oauth_app_secret_ref names them. Recreate it (kubectl delete secret {ref.name} "
-            f"first): {command}"
+            f"spec.identity.github.oauth_app_secret_ref names them. "
+            f"Re-run `olf github connect`, or recreate it (kubectl delete secret {ref.name} first): {command}"
         )
 
 
