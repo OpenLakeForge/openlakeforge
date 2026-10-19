@@ -21,9 +21,17 @@ from olf.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
 CLIENT_SECRET, PEM = "s3cr3t-client-secret", "-----BEGIN RSA PRIVATE KEY-----\nkey-material\n"
 
 
+class _Stay(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a: Any, **k: Any) -> None:
+        return None  # surface the 302 as an HTTPError
+
+
+_no_redirects = urllib.request.build_opener(_Stay)
+
+
 def _get(url: str) -> tuple[int, str]:
     try:
-        with urllib.request.urlopen(url, timeout=5) as response:  # noqa: S310
+        with _no_redirects.open(url, timeout=5) as response:
             return response.status, response.read().decode()
     except urllib.error.HTTPError as exc:
         return exc.code, ""
@@ -52,19 +60,21 @@ def test_the_state_is_checked_and_the_code_returned() -> None:
             state = re.search(r"state=([\w-]+)", page).group(1)  # type: ignore[union-attr]
             done = url + "done"
             seen["wrong"] = str(_get(f"{done}?code=evil&state=nope")[0])
-            _get(f"{done}?code=good&state={state}")
+            seen["redirect"] = _get(f"{done}?code=good&state={state}")[0]
 
         threading.Thread(target=run).start()
 
-    code = github_app.wait_for_code(
+    nxt = github_app.wait_for_code(
         host="github.com",
         organization="acme",
         open_url=browser,
         manifest_for=lambda redirect: github_app.build_manifest(
             name="n", callback_url="c", redirect_url=redirect, homepage="h"
         ),
+        on_code=lambda code: "http://127.0.0.1:1/install" if code == "good" else "bad",
     )
-    assert code == "good" and seen["wrong"] == "404"
+    assert nxt == "http://127.0.0.1:1/install" and seen["wrong"] == "404"
+    assert seen["redirect"] == 302
     assert "https://github.com/organizations/acme/settings/apps/new?state=" in seen["form"]
     assert "127.0.0.1" in html.unescape(seen["form"])
 
@@ -72,8 +82,33 @@ def test_the_state_is_checked_and_the_code_returned() -> None:
 def test_a_timeout_writes_nothing() -> None:
     with pytest.raises(github_app.GitHubConnectError, match="nothing was written"):
         github_app.wait_for_code(
-            host="github.com", organization="acme", manifest_for=lambda _r: {}, open_url=lambda _u: None, timeout=0.2
+            host="github.com",
+            organization="acme",
+            manifest_for=lambda _r: {},
+            open_url=lambda _u: None,
+            on_code=lambda _c: "",
+            timeout=0.2,
         )
+
+
+def test_a_failed_conversion_shows_an_error_page_and_is_raised() -> None:
+    seen: dict[str, Any] = {}
+
+    def browser(url: str) -> None:
+        def run() -> None:
+            state = re.search(r"state=([\w-]+)", _get(url)[1]).group(1)  # type: ignore[union-attr]
+            seen["got"] = _get(f"{url}done?code=c&state={state}")
+
+        threading.Thread(target=run).start()
+
+    def boom(_code: str) -> str:
+        raise github_app.GitHubConnectError("GitHub rejected the manifest code")
+
+    with pytest.raises(github_app.GitHubConnectError, match="rejected"):
+        github_app.wait_for_code(
+            host="github.com", organization="acme", manifest_for=lambda _r: {}, open_url=browser, on_code=boom
+        )
+    assert seen["got"][0] == 500
 
 
 def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
@@ -101,7 +136,7 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
 
     def wait(**kw: Any) -> str:
         seen["manifest"] = kw["manifest_for"]("http://127.0.0.1:9/done")
-        return "code123"
+        return str(kw["on_code"]("code123"))
 
     monkeypatch.setattr("olf.commands.github.deployment_context", lambda *a, **k: context)
     monkeypatch.setattr("olf.deployment.engine.Toolkit.default", lambda **k: SimpleNamespace(kubectl=kubectl))

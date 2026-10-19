@@ -283,6 +283,8 @@ module "perimeter" {
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
   protected_refs    = local.perimeter_protected_refs
   scope             = local.identity_scope
+
+  github_organization = try(var.identity_github.organization, null)
 }
 
 # Pods reach <scheme>://<service>.<base_domain> through Traefik and, over
