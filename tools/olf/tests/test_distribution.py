@@ -196,3 +196,16 @@ def _catalog_version(root: Path) -> str:
     catalog = (root / "release" / "component-catalog.yaml").read_text()
     pattern = re.compile(r"^distribution:\s*$.*?^\s+version:\s*['\"]?([^'\"\s#]+)", re.MULTILINE | re.DOTALL)
     return pattern.search(catalog).group(1)
+
+
+def test_the_payload_ships_every_repo_file_a_terraform_root_reads() -> None:
+    import re
+
+    from olf.distribution import _PAYLOAD_FILES, _PAYLOAD_ROOTS
+
+    repo_root = Path(__file__).resolve().parents[3]
+    read = re.compile(r'file\("\$\{path\.root\}/\.\./\.\./\.\./\.\./([^"]+)"\)')
+    for tf in (repo_root / "infra/terraform/environments").glob("*/*.tf"):
+        for path in read.findall(tf.read_text()):
+            shipped = path in _PAYLOAD_FILES or path.startswith(_PAYLOAD_ROOTS)
+            assert shipped, f"{tf.name} reads {path}, not in the payload"
