@@ -5,11 +5,32 @@ from __future__ import annotations
 import time
 
 from flask import session
+from flask_appbuilder import expose
+from flask_appbuilder.security.views import AuthOAuthView
 from olf_oidc import DATA_ROLE, NO_ACCESS_ROLE, SESSION_SECONDS, VIEWER_ROLE
 from superset.security import SupersetSecurityManager
 
 
+class OlfAuthOAuthView(AuthOAuthView):
+    @expose("/login/")
+    @expose("/login/<provider>")
+    def login(self, provider=None):
+        # One provider: skip the login page and go straight to the issuer.
+        # Every FAB callback failure (refused user, denied consent, bad state)
+        # flashes with category "warning" and returns here; the page must show
+        # it, not loop. Flask-Login's "Please log in" is category "message"
+        # and must still redirect.
+        refused = any(c == "warning" for c, _ in session.get("_flashes", []))
+        if provider is None and not refused:
+            provider = self.appbuilder.sm.oauth_providers[0]["name"]
+        return super().login(provider)
+
+
 class OlfSecurityManager(SupersetSecurityManager):
+    # Superset's own /login/ view would shadow the OAuth one.
+    register_superset_auth_view = False
+    authoauthview = OlfAuthOAuthView
+
     def sync_role_definitions(self) -> None:
         super().sync_role_definitions()
         # Superset has no read-only dashboard role. Public's permission set
