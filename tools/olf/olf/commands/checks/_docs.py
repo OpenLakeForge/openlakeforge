@@ -28,7 +28,8 @@ _CODE_SPAN = re.compile(r"`+[^`]*`+")
 # hold brackets, as a badge image nested inside a link does.
 _INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]*)>?")
 _REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)")
-_HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*["']([^"']+)["']""")
+# Quoted or bare values: HTML allows `<img src=chart.svg>`.
+_HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""")
 _EXPLICIT_ANCHOR = re.compile(r"""<a\s+(?:[^>]*\s)?(?:id|name)\s*=\s*["']([^"']+)["']""")
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
@@ -36,6 +37,7 @@ _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 @dataclass(frozen=True)
 class _Manifest:
     pages: tuple[str, ...]
+    slugs: dict[str, str]
     autogenerate: tuple[str, ...]
     exclude: tuple[str, ...]
 
@@ -50,11 +52,12 @@ def docs(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to
 
 def docs_errors(root: Path) -> list[str]:
     manifest, errors = _load_manifest(root)
-    sources = sorted({*_markdown_under(root, "docs"), "README.md"})
+    sources = {*_markdown_under(root, "docs"), "README.md"}
     if manifest is not None:
-        errors.extend(_coverage_errors(root, manifest))
-        sources = sorted({*sources, *(page for page in manifest.pages if page.endswith(".md"))})
-    for source in sources:
+        published = _published_pages(root, manifest)
+        errors.extend(_coverage_errors(root, manifest, published))
+        sources.update(page for page in published if page.endswith(".md"))
+    for source in sorted(sources):
         if (root / source).is_file():
             errors.extend(_link_errors(root, source))
     return errors
@@ -70,6 +73,7 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
         return None, [f"{MANIFEST}: must be a mapping with a `sections` list"]
     errors: list[str] = []
     pages: list[str] = []
+    slugs: dict[str, str] = {}
     autogenerate: list[str] = []
     for index, section in enumerate(document["sections"]):
         where = f"{MANIFEST}: sections[{index}]"
@@ -80,18 +84,31 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
             autogenerate.append(section["autogenerate"].rstrip("/"))
         for item in section.get("items") or []:
             page = item.get("path") if isinstance(item, dict) else item
-            if isinstance(page, str):
-                pages.append(page)
-            else:
+            if not isinstance(page, str):
                 errors.append(f"{where}: an item must be a path or a mapping with `path`")
+                continue
+            pages.append(page)
+            if isinstance(item, dict) and isinstance(item.get("slug"), str):
+                slugs[page] = item["slug"].strip("/")
     exclude = document.get("exclude") or []
     if not isinstance(exclude, list) or not all(isinstance(entry, str) for entry in exclude):
         errors.append(f"{MANIFEST}: `exclude` must be a list of paths")
         exclude = []
-    return _Manifest(tuple(pages), tuple(autogenerate), tuple(exclude)), errors
+    return _Manifest(tuple(pages), slugs, tuple(autogenerate), tuple(exclude)), errors
 
 
-def _coverage_errors(root: Path, manifest: _Manifest) -> list[str]:
+def _published_pages(root: Path, manifest: _Manifest) -> list[str]:
+    """Every page the site renders, explicit items first, in manifest order."""
+    generated = [
+        page
+        for directory in manifest.autogenerate
+        if (root / directory).is_dir()
+        for page in _markdown_under(root, directory)
+    ]
+    return [*manifest.pages, *generated]
+
+
+def _coverage_errors(root: Path, manifest: _Manifest, published: list[str]) -> list[str]:
     errors = [
         f"{MANIFEST}: listed path does not exist: {entry}"
         for entry in (*manifest.pages, *manifest.exclude)
@@ -103,12 +120,18 @@ def _coverage_errors(root: Path, manifest: _Manifest) -> list[str]:
         if not (root / directory).is_dir()
     )
     seen: set[str] = set()
-    for page in manifest.pages:
+    routes: dict[str, str] = {}
+    for page in published:
         if page in seen:
-            errors.append(f"{MANIFEST}: page listed twice: {page}")
+            errors.append(f"{MANIFEST}: page published twice: {page}")
+            continue
         seen.add(page)
+        route = manifest.slugs.get(page) or _default_slug(page)
+        if route in routes:
+            errors.append(f"{MANIFEST}: {page} and {routes[route]} publish to the same slug: {route}")
+        routes.setdefault(route, page)
     for page in _markdown_under(root, "docs"):
-        listed = page in seen or any(_within(page, directory) for directory in manifest.autogenerate)
+        listed = page in seen
         excluded = any(_within(page, entry) for entry in manifest.exclude)
         if listed and excluded:
             errors.append(f"{MANIFEST}: page is both published and excluded: {page}")
@@ -117,6 +140,12 @@ def _coverage_errors(root: Path, manifest: _Manifest) -> list[str]:
     return errors
 
 
+def _default_slug(page: str) -> str:
+    """The site route a page gets without an override: its path under docs/, README as the folder index."""
+    path = page.removeprefix("docs/").removesuffix(".md")
+    if path == "README" or path.endswith("/README"):
+        path = path.removesuffix("README").rstrip("/")
+    return path
 def _within(page: str, entry: str) -> bool:
     entry = entry.rstrip("/")
     return page == entry or page.startswith(entry + "/")
@@ -141,7 +170,8 @@ def _links(path: Path) -> list[tuple[int, str]]:
         text = _CODE_SPAN.sub("", line)
         links.extend((line_number, match) for match in _INLINE_LINK.findall(text))
         links.extend((line_number, match) for match in _REFERENCE_DEFINITION.findall(text))
-        for attribute, value in _HTML_ATTRIBUTE.findall(text):
+        for attribute, *quoted_or_bare in _HTML_ATTRIBUTE.findall(text):
+            value = next(part for part in quoted_or_bare if part)
             candidates = [value]
             if attribute == "srcset":
                 candidates = [part.split()[0] for part in value.split(",") if part.split()]
