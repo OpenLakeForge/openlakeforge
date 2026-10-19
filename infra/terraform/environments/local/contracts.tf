@@ -362,7 +362,7 @@ locals {
   # is Flask-AppBuilder's /oauth-authorized/<provider>, provider `olf`.
   identity_consumer_redirects = {
     superset     = [for name in keys(local.analytics_stages) : "${local.route_scheme}://superset-${name}.${local.base_domain}/oauth-authorized/olf"]
-    openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/*"] : []
+    openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/callback"] : [] # OpenMetadata's code-flow callback
     trino        = ["${local.route_scheme}://trino.${local.base_domain}/*"]
   }
   identity_client_redirects = {

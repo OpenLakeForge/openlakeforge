@@ -205,6 +205,11 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     ports: [8443, 8000] # web when the issuer is none
     tag: V
+  - id: F4
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443, 8000] # OpenMetadata's OIDC calls to the issuer's public URL (discovery, token, keys), rewritten to Traefik: websecure, or web with issuer none
+    tag: T # needs a sign-in on a running cluster
   - id: F13
     from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}

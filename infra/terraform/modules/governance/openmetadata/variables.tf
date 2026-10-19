@@ -226,3 +226,28 @@ variable "service_account_annotations" {
   type        = map(string)
   default     = {}
 }
+
+variable "oidc" {
+  description = "identity.oidc fields for OpenMetadata (ADR 0014): the issuer, the scope to request, the openmetadata client id, the client Secret reference (in this module's namespace, created in cluster, never in state, #181), OpenMetadata's public base URL and the ConfigMap with the CA that signs the issuer certificate. Null keeps OpenMetadata's basic login."
+  type = object({
+    issuer_url        = string
+    scope             = string
+    client_id         = string
+    secret_ref        = object({ name = string, key = string })
+    base_url          = string
+    ca_configmap_name = string
+  })
+  default = null
+}
+
+variable "automation_secret_name" {
+  description = "Kubernetes Secret the bootstrap job writes the admin automation bot's JWT to. Basic login is unusable once SSO is on, so every later run of the job and every olf command authenticates with this token."
+  type        = string
+  default     = "openmetadata-automation-bot"
+}
+
+variable "automation_jwt_key" {
+  description = "Key within the automation Secret that holds the JWT token."
+  type        = string
+  default     = "OPENMETADATA_AUTOMATION_JWT"
+}

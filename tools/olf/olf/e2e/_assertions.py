@@ -18,6 +18,7 @@ from olf.clients.superset import SupersetClient
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.e2e._trino import stage_catalog_name
+from olf.openmetadata._auth import automation_token
 
 
 def check_superset_dashboards(cfg: E2EConfig) -> None:
@@ -113,7 +114,8 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
     ) as base_url:
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
-        client = OpenMetadataClient(base_url)
+        token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context)
+        client = OpenMetadataClient(base_url, token=token)
         assert_openmetadata_assets(client, cfg.inventory)
         stages = load_provider_contracts_or_raise(cfg).get("stages")
         if not stages:
@@ -208,6 +210,8 @@ def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseI
 
 
 def _openmetadata_e2e_login(client: OpenMetadataClient) -> None:
+    if client.token:  # the automation bot's: with SSO on, basic login answers 403
+        return
     last_error: Exception | None = None
     for _ in range(60):
         try:

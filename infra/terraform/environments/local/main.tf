@@ -445,6 +445,16 @@ module "openmetadata" {
     if !contains(keys(local.governed_stages), name)
   ]
   canonical_stage = local.governance_dagster_stage
+  # Only with an issuer deployed (spec.identity); without one OpenMetadata keeps
+  # its basic login. The client Secret is in this namespace, made by the issuer.
+  oidc = !local.identity_deployed ? null : {
+    issuer_url        = local.identity_oidc.issuer_url
+    scope             = local.identity_scope
+    client_id         = local.identity_oidc.clients.openmetadata.client_id
+    secret_ref        = local.identity_oidc.clients.openmetadata.secret_ref
+    base_url          = "${local.route_scheme}://openmetadata.${local.base_domain}"
+    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
+  }
   stages = {
     for name in keys(local.governed_stages) : name => {
       catalog_database_name  = local.stage_catalog_contracts[name].catalog_name
@@ -463,6 +473,7 @@ module "openmetadata" {
     module.postgresql,
     module.seaweedfs,
     kubernetes_namespace_v1.stage,
+    module.in_cluster_resolution, # publishes olf-local-ca, which the server mounts with SSO on
   ]
 }
 

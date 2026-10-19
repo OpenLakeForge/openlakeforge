@@ -43,6 +43,7 @@ def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
     from olf import access, k8s
     from olf import openmetadata as om
+    from olf.openmetadata._auth import automation_token
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
     # OpenMetadata is deployed once per cluster, in the shared namespace -
@@ -85,7 +86,8 @@ def deploy_openmetadata_metadata() -> None:
             # it replaces was deployed paused and never scheduled.
             log_step("Crawling Trino into OpenMetadata...")
             run_trino_ingestion(os.environ, namespace=namespace, service=cfg.catalog_service)
-            om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url)).deploy()
+            client = om.OpenMetadataClient(cfg.base_url, token=automation_token(namespace))
+            om.OpenMetadataDeployer(cfg, client).deploy()
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo("Deployed OpenMetadata governance metadata.")

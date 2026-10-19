@@ -37,6 +37,31 @@ resource "kubernetes_job_v1" "bootstrap" {
             }
           }
 
+          # Written by the job itself on the run that turns SSO on; absent
+          # before that, and basic login is used instead.
+          env {
+            name = "AUTOMATION_JWT"
+            value_from {
+              secret_key_ref {
+                name     = var.automation_secret_name
+                key      = var.automation_jwt_key
+                optional = true
+              }
+            }
+          }
+
+          dynamic "env" {
+            for_each = var.oidc == null ? [] : [var.oidc.secret_ref]
+            content {
+              name = "OIDC_CLIENT_SECRET"
+              value_from {
+                secret_key_ref {
+                  name = env.value.name
+                  key  = env.value.key
+                }
+              }
+            }
+          }
         }
       }
     }
