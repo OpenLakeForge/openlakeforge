@@ -44,6 +44,7 @@ def deploy_openmetadata_metadata() -> None:
     from olf import access, k8s
     from olf import openmetadata as om
     from olf.openmetadata._auth import automation_token
+    from olf.openmetadata._sso import apply_sso
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
     # OpenMetadata is deployed once per cluster, in the shared namespace -
@@ -57,6 +58,11 @@ def deploy_openmetadata_metadata() -> None:
 
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     log_path = f"{log_prefix}-openmetadata-port-forward.log"
+    # Before anything talks to the server: it restarts when SSO is applied.
+    try:
+        apply_sso(namespace, service=service, remote_port=remote_port, log_path=log_path)
+    except (om.OpenMetadataError, k8s.KubectlError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
     with access.service_url(
         "shared/governance_service",
         service=service,

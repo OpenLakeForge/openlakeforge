@@ -111,6 +111,23 @@ def secret_value(
     return base64.b64decode(raw).decode("utf-8")
 
 
+def configmap_data(name: str, namespace: str) -> dict[str, str] | None:
+    """The ConfigMap's data, or None when it does not exist."""
+    raw = _kubectl(["get", "configmap", name, "-n", namespace, "-o", "json"], capture=True, check=False)
+    return (json.loads(raw).get("data") or {}) if raw else None
+
+
+def exec_succeeds(deployment: str, namespace: str, argv: list[str]) -> bool:
+    """Whether `argv` exits 0 inside the deployment's pod."""
+    command = _resolved_kubectl_argv(["exec", f"deploy/{deployment}", "-n", namespace, "--", *argv])
+    return subprocess.run(command, capture_output=True, check=False).returncode == 0
+
+
+def restart_deployment(deployment: str, namespace: str) -> None:
+    _kubectl(["rollout", "restart", f"deployment/{deployment}", "-n", namespace])
+    wait_for_rollout(f"deployment/{deployment}", namespace)
+
+
 def _free_local_port() -> int:
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.bind(("127.0.0.1", 0))
