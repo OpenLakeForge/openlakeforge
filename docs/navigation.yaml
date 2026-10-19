@@ -1,0 +1,55 @@
+# Published documentation: the sidebar of openlakeforge.dev, in order.
+#
+# The website syncs this file from a release tag and renders exactly the pages
+# listed here. Paths are relative to the repository root. An item is a path, or
+# a mapping with `path` and optional `slug` and `title` overrides; a section
+# with `autogenerate` publishes every page in that directory, sorted by name.
+#
+# Every Markdown file under docs/ must be published or excluded:
+# `olf check docs` fails otherwise, and on any relative link that does not
+# resolve.
+sections:
+  - label: Get started
+    items:
+      - docs/README.md
+      - docs/setup/local.md
+      - docs/getting-started/first-data-product.md
+  - label: Guides
+    items:
+      - docs/setup/github-oauth-app.md
+      - docs/setup/identity-secret-rotation.md
+      - docs/reference/ci-cd.md
+      - docs/setup/cloud-poc-setup.md
+      - docs/setup/aws.md
+      - docs/setup/azure.md
+  - label: Reference
+    items:
+      - { path: tools/olf/README.md, slug: reference/cli, title: olf CLI }
+      - docs/reference/domain-descriptor.md
+      - docs/release/component-catalog.md
+      - docs/release/compatibility-matrix.md
+  - label: Architecture
+    items:
+      - docs/architecture/README.md
+      - docs/architecture/overview.md
+      - docs/architecture/provider-contracts.md
+      - docs/architecture/local-stack-contracts.md
+      - docs/architecture/project-revisions.md
+      - docs/architecture/floe-validation.md
+      - docs/architecture/identity-callers.md
+      - docs/architecture/identity-credentials.md
+      - docs/architecture/identity-service-permissions.md
+      - docs/architecture/identity-sessions-and-recovery.md
+      - docs/architecture/aws-eks-poc.md
+      - docs/architecture/azure-aks-poc.md
+      - docs/architecture/diagrams/README.md
+      - docs/architecture/diagrams/chart3-ephemeral-job-lifecycle.md
+  - label: Decisions
+    autogenerate: docs/adr
+
+# Maintainer material: kept in the repository, never published.
+exclude:
+  - docs/release/releasing.md
+  - docs/technical-debt.md
+  - docs/testing/
+  - docs/architecture/diagrams/src/

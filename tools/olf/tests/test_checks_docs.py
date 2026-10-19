@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import typer
+
+from olf.commands.checks import _docs
+
+MANIFEST = """\
+sections:
+  - label: Get started
+    items:
+      - docs/README.md
+      - { path: tools/cli.md, slug: reference/cli, title: CLI }
+  - label: Decisions
+    autogenerate: docs/adr
+exclude:
+  - docs/internal/
+"""
+
+
+def _write(root: Path, files: dict[str, str]) -> None:
+    for relative, text in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+@pytest.fixture
+def tree(tmp_path: Path) -> Path:
+    _write(
+        tmp_path,
+        {
+            "docs/navigation.yaml": MANIFEST,
+            "README.md": (
+                "# Project\n\n[Docs](docs/README.md) · [Decision](/docs/adr/0001-first.md#context)\n"
+                '<picture><source srcset="docs/assets/chart-dark.svg 1x"><img src="docs/assets/chart.svg"></picture>\n'
+            ),
+            "docs/assets/chart.svg": "<svg/>",
+            "docs/assets/chart-dark.svg": "<svg/>",
+            "docs/README.md": (
+                "# Docs\n\n## Set up `olf` (local)\n\n## Notes\n\n## Notes\n\n"
+                "See [setup](#set-up-olf-local), [the second notes](#notes-1), "
+                "[the CLI](../tools/cli.md) and [GitHub](https://github.com/example).\n\n"
+                "```bash\n# not a heading [nor a link](missing.md)\n```\n"
+            ),
+            "docs/adr/0001-first.md": '# First\n\n## Context\n\n<a id="custom-anchor"></a>\n',
+            "docs/internal/notes.md": "# Notes\n\n[Decision](../adr/0001-first.md#custom-anchor)\n",
+            "tools/cli.md": "# CLI\n\n[Back](../docs/README.md)\n",
+        },
+    )
+    return tmp_path
+
+
+def test_accepts_a_tree_whose_pages_are_listed_and_whose_links_resolve(tree: Path) -> None:
+    assert _docs.docs_errors(tree) == []
+
+
+def test_accepts_the_repository_docs() -> None:
+    root = Path(__file__).resolve().parents[3]
+
+    assert _docs.docs_errors(root) == []
+
+
+@pytest.mark.parametrize(
+    ("relative", "text", "expected"),
+    [
+        ("docs/README.md", "# Docs\n\n[gone](setup/missing.md)\n", "docs/README.md:3: link target does not exist"),
+        ("docs/README.md", "# Docs\n\n[gone](adr/0001-first.md#history)\n", "docs/README.md:3: anchor does not exist"),
+        ("docs/README.md", "# Docs\n\n[here](#nowhere)\n", "anchor does not exist: #nowhere"),
+        ("tools/cli.md", "# CLI\n\n[gone](../docs/old.md)\n", "tools/cli.md:3: link target does not exist"),
+        ("docs/README.md", "# Docs\n\n[out](../../elsewhere.md)\n", "link leaves the repository"),
+    ],
+)
+def test_rejects_a_broken_link(tree: Path, relative: str, text: str, expected: str) -> None:
+    _write(tree, {relative: text})
+
+    assert any(expected in error for error in _docs.docs_errors(tree))
+
+
+def test_rejects_a_page_that_is_neither_published_nor_excluded(tree: Path) -> None:
+    _write(tree, {"docs/guides/new.md": "# New\n"})
+
+    assert _docs.docs_errors(tree) == [
+        "docs/navigation.yaml: page is neither published nor excluded: docs/guides/new.md"
+    ]
+
+
+def test_rejects_a_manifest_entry_that_does_not_exist(tree: Path) -> None:
+    (tree / "tools/cli.md").unlink()
+
+    assert "docs/navigation.yaml: listed path does not exist: tools/cli.md" in _docs.docs_errors(tree)
+
+
+def test_rejects_a_page_both_published_and_excluded(tree: Path) -> None:
+    _write(tree, {"docs/navigation.yaml": MANIFEST + "  - docs/README.md\n"})
+
+    assert "docs/navigation.yaml: page is both published and excluded: docs/README.md" in _docs.docs_errors(tree)
+
+
+def test_rejects_a_missing_manifest(tree: Path) -> None:
+    (tree / "docs/navigation.yaml").unlink()
+
+    errors = _docs.docs_errors(tree)
+
+    assert errors and errors[0].startswith("docs/navigation.yaml: cannot read")
+
+
+def test_command_exits_non_zero_on_errors(tree: Path) -> None:
+    _write(tree, {"docs/README.md": "# Docs\n\n[gone](missing.md)\n"})
+
+    with pytest.raises(typer.Exit) as raised:
+        _docs.docs(str(tree))
+
+    assert raised.value.exit_code == 1

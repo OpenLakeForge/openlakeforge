@@ -100,6 +100,6 @@ resolved only when all of these are true:
 ## References
 
 - [ADR 0007: OpenMetadata Lineage Integration Deferred](../adr/0007-governance-and-lineage.md)
-- [Technical Debt: Resolved Upstream, Pending Verification](../technical-debt.md#resolved-upstream-pending-verification)
+- [Technical Debt: Upstream-Related Debt](../technical-debt.md#upstream-related-debt)
 - [Floe issue #382](https://github.com/malon64/floe/issues/382)
 - [Floe releases](https://github.com/malon64/floe/releases)
