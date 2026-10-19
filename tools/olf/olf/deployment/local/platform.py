@@ -377,6 +377,10 @@ def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolk
         return False
     if kube_ops.state_has_resource(tools.terraform, platform_dir, _SEAWEEDFS_RESOURCE_ADDR, env=env):
         return False
+    # A state that holds the namespace is not lost, only behind: a previous apply stopped after creating it (the
+    # GitHub identity Secret preflight). Resetting would delete the namespace and the Secret the operator just added.
+    if kube_ops.state_has_resource(tools.terraform, platform_dir, _SHARED_NAMESPACE_RESOURCE_ADDR, env=env):
+        return False
 
     log.warn("local platform resources exist in-cluster but Terraform state is missing core objects.")
     log.warn("resetting the local platform before apply to recover from state drift...")
