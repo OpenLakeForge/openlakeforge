@@ -217,7 +217,9 @@ these rules so they read the same on GitHub and on the site:
 - Every command block is copy-pasteable and runs as written.
 - A tutorial lesson opens with *You will* (with a time) and *Start from* (the
   project state it expects), and ends with *Check it worked* (one command and
-  its output), *What you learned* and *Next*.
+  its output, or a browser procedure when the outcome is a person's access),
+  *What you learned* and *Next*. Lessons 1 and 8 may start from a fresh
+  `olf init`; every other lesson continues the previous one.
 
 **Commits.** `type: subject`, imperative, lowercase after the colon. Types in
 use: `feat`, `fix`, `docs`, `refactor`, `chore`. The body explains why.
