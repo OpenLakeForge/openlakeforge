@@ -146,3 +146,34 @@ def test_checks_unquoted_html_attributes(tree: Path) -> None:
     _write(tree, {"docs/README.md": "# Docs\n\n<img src=assets/missing.svg alt=chart>\n"})
 
     assert any("link target does not exist: assets/missing.svg" in error for error in _docs.docs_errors(tree))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('# Docs\n\n<IMG SRC="assets/missing.svg">\n', "link target does not exist: assets/missing.svg"),
+        ("# Docs\n\n    ```\n\n[gone](missing.md)\n", "link target does not exist: missing.md"),
+        (
+            "# Docs\n\nSee [the setup\nguide](\nsetup/missing.md) for more.\n",
+            "link target does not exist: setup/missing.md",
+        ),
+    ],
+)
+def test_finds_links_markdown_and_html_allow(tree: Path, text: str, expected: str) -> None:
+    _write(tree, {"docs/README.md": text})
+
+    assert any(expected in error for error in _docs.docs_errors(tree))
+
+
+def test_accepts_anchors_github_generates_around_taken_suffixes(tree: Path) -> None:
+    _write(
+        tree,
+        {
+            "docs/README.md": (
+                '# Docs\n\n<A ID="Intro"></A>\n\n## Notes\n\n## Notes-1\n\n## Notes\n\n'
+                "[third](#notes-2) and [intro](#intro)\n"
+            )
+        },
+    )
+
+    assert _docs.docs_errors(tree) == []
