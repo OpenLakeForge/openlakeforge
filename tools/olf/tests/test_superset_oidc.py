@@ -176,7 +176,6 @@ def test_the_login_page_goes_straight_to_the_only_provider(monkeypatch: pytest.M
 
     cls = type(manager).authoauthview
     view = cls()
-    view.invalid_login_message = "refused"
     view.appbuilder = types.SimpleNamespace(sm=types.SimpleNamespace(oauth_providers=[{"name": "olf"}]))
 
     assert view.login() == "olf"

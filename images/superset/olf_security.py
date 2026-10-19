@@ -16,10 +16,11 @@ class OlfAuthOAuthView(AuthOAuthView):
     @expose("/login/<provider>")
     def login(self, provider=None):
         # One provider: skip the login page and go straight to the issuer.
-        # The callback flashes invalid_login_message when it refuses a user
-        # and sends them back here; the page must show that, not loop. Other
-        # flashes (Flask-Login's "Please log in") must still redirect.
-        refused = any(m == self.invalid_login_message for _, m in session.get("_flashes", []))
+        # Every FAB callback failure (refused user, denied consent, bad state)
+        # flashes with category "warning" and returns here; the page must show
+        # it, not loop. Flask-Login's "Please log in" is category "message"
+        # and must still redirect.
+        refused = any(c == "warning" for c, _ in session.get("_flashes", []))
         if provider is None and not refused:
             provider = self.appbuilder.sm.oauth_providers[0]["name"]
         return super().login(provider)
