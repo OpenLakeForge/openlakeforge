@@ -10,12 +10,31 @@
       "base_domain": "olf.localhost",
       "implementation": "access.ingress",
       "issuer": "local-ca",
+      "perimeter": {
+        "callback_url": "https://oauth2.olf.localhost/oauth2/callback",
+        "enabled": true,
+        "implementation": "perimeter.oauth2_proxy",
+        "protected_routes": [
+          "shared/governance_service",
+          "shared/portal",
+          "shared/query",
+          "stage/dev/orchestration",
+          "stage/dev/reporting",
+          "stage/prod/orchestration",
+          "stage/prod/reporting"
+        ]
+      },
       "ref": "shared/access",
       "routes": {
         "shared/governance_service": {
           "enabled": true,
           "exposure": "user-facing",
           "url": "https://openmetadata.olf.localhost"
+        },
+        "shared/identity": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://auth.olf.localhost"
         },
         "shared/portal": {
           "enabled": true,
@@ -69,8 +88,60 @@
       "ref": "shared/governance_service"
     },
     "identity": {
-      "implementation": "identity.local_development_credentials",
+      "adapter": "dex",
+      "capabilities": {
+        "email_delivery": false,
+        "groups_in_token": true,
+        "logout_endpoint": false
+      },
+      "clients": {
+        "openmetadata": {
+          "client_id": "openmetadata",
+          "secret_ref": {
+            "key": "client-secret",
+            "name": "dex-client-openmetadata"
+          }
+        },
+        "perimeter": {
+          "client_id": "perimeter",
+          "secret_ref": {
+            "key": "client-secret",
+            "name": "dex-client-perimeter"
+          }
+        },
+        "superset": {
+          "client_id": "superset",
+          "secret_ref": {
+            "key": "client-secret",
+            "name": "dex-client-superset"
+          }
+        },
+        "trino": {
+          "client_id": "trino",
+          "secret_ref": {
+            "key": "client-secret",
+            "name": "dex-client-trino"
+          }
+        }
+      },
+      "implementation": "identity.oidc",
+      "issuer_url": "https://auth.olf.localhost",
       "ref": "shared/identity",
+      "role_claim": "groups",
+      "role_mapping": {
+        "analyst": [
+          "OpenLakeForge:olf-analysts"
+        ],
+        "data-engineer": [
+          "OpenLakeForge:olf-data-engineers"
+        ],
+        "platform-admin": [
+          "OpenLakeForge:olf-platform-admins"
+        ],
+        "viewer": [
+          "OpenLakeForge:olf-viewers"
+        ]
+      },
       "roles": {
         "grants": {
           "governance_service": {
