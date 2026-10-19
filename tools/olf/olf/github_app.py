@@ -64,7 +64,7 @@ def wait_for_code(
     manifest once the port is known."""
     state = secrets.token_urlsafe(24)
     result: dict[str, str] = {}
-    failure: list[GitHubConnectError] = []
+    failure: list[Exception] = []
     server: HTTPServer
 
     class Handler(BaseHTTPRequestHandler):
@@ -80,7 +80,7 @@ def wait_for_code(
                 try:
                     result["next"] = location = on_code(query["code"][0])
                     body, status = b"<p>Redirecting to the app install page...</p>", 302
-                except GitHubConnectError as exc:
+                except Exception as exc:  # re-raised below; the loop would otherwise wait out the timeout
                     failure.append(exc)
                     body, status = f"<p>{html.escape(str(exc))}</p><p>See the terminal.</p>".encode(), 500
             else:

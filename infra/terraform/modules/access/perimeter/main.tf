@@ -74,8 +74,6 @@ locals {
     }
   }
 
-  sign_in_org = var.github_organization == null ? "your GitHub organisation" : var.github_organization
-
   # Replaces oauth2-proxy's error page. A 500 is what the proxy answers when
   # Dex refuses a login (user outside the organisation or its mapped teams, or
   # the GitHub App not installed), so it gets the GitHub hint. The 403 branch keys on the proxy's default
@@ -89,10 +87,12 @@ locals {
     {{if eq .Message "You do not have permission to access this resource."}}
     <h1>Access is role-restricted</h1>
     <p>Your OpenLakeForge role does not permit this service, or your account holds no OpenLakeForge role. A platform-admin assigns roles.</p>
+    %{~ if var.github_organization != null ~}
     {{else if eq .StatusCode 500}}
     <h1>Sign-in was refused</h1>
-    <p>Sign-in was refused. Check that the OpenLakeForge GitHub App is installed on ${local.sign_in_org} and that you are in a mapped team.</p>
+    <p>Sign-in was refused. Check that the OpenLakeForge GitHub App is installed on ${var.github_organization} and that you are in a mapped team.</p>
     <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md">Setup guide</a></p>
+    %{~ endif ~}
     {{else}}
     <h1>{{.Title}}</h1>
     <p>{{.Message}}</p>
