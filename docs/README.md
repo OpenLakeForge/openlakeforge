@@ -4,13 +4,18 @@ Welcome to the OpenLakeForge documentation.
 
 OpenLakeForge is an open-source, self-hosted lakehouse platform designed for small data teams. This documentation covers how to **install the platform, deploy it, build data products, operate it, and understand its architecture**.
 
-If you are discovering OpenLakeForge for the first time, start with the [root README](../README.md).
+If you are discovering OpenLakeForge for the first time, start with the
+[Introduction](get-started/introduction.md), then the
+[Quickstart](get-started/quickstart.md).
 
 ## Choose your path
 
 | I want to...                          | Start here                                                       |
 | ------------------------------------- | ---------------------------------------------------------------- |
-| 🚀 Try OpenLakeForge locally          | [Local installation](setup/local.md)                             |
+| 🧭 Know what OpenLakeForge is         | [Introduction](get-started/introduction.md)                      |
+| 🚀 Try OpenLakeForge locally          | [Quickstart](get-started/quickstart.md)                          |
+| 📖 Learn the vocabulary               | [Concepts](get-started/concepts.md)                              |
+| 🔧 Customise a local install          | [Local installation](setup/local.md)                             |
 | ☁️ Deploy to AWS                      | [AWS deployment](setup/aws.md)               |
 | ☁️ Deploy to Azure                    | [Azure deployment](setup/azure.md)           |
 | 🧱 Build my first data product        | [Your first data product](getting-started/first-data-product.md) |
@@ -292,6 +297,11 @@ It covers the repository structure, architecture rules, development conventions,
 ```text
 docs/
 ├── README.md
+│
+├── get-started/
+│   ├── introduction.md
+│   ├── quickstart.md
+│   └── concepts.md
 │
 ├── getting-started/
 │   └── first-data-product.md

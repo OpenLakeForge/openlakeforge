@@ -2,6 +2,8 @@
 
 This guide explains how to deploy OpenLakeForge on your machine using a local Kubernetes cluster.
 
+For the shortest path to a running platform, follow the [Quickstart](../get-started/quickstart.md); this guide covers the options around it.
+
 The local environment is the easiest way to evaluate OpenLakeForge, develop data products, and work on the platform itself.
 
 OpenLakeForge creates an isolated [`kind`](https://kind.sigs.k8s.io/) cluster backed by your existing Docker engine. It does **not** modify your global Kubernetes context.
