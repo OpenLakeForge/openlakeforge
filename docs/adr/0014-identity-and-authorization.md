@@ -359,6 +359,11 @@ is not.
 
 ## History
 
+Inline GitHub connect (#428): with a missing OAuth App Secret, an interactive
+`olf deploy` runs the `olf github connect` flow itself instead of refusing;
+CI, piped runs and `--no-github-connect` keep the refusal. Bootstraps keep
+their class-2 workload identities.
+
 Keycloak removed (#384 slice c): `modules/identity/keycloak`, its `keycloak`
 database, the `keycloak` and `keycloak-config-cli` catalog pins, `spec.identity.smtp`
 (with its deploy-time Secret check and `OLF_SMTP_*` variables), the
@@ -487,7 +492,8 @@ for `spec.identity.issuer: github` (postgres storage on a `dex` database, the
 GitHub connector limited to the mapped teams, the four static clients with
 secrets from an in-cluster Job) and the root emits `identity.oidc` with
 `adapter: dex`. The perimeter requests `groups offline_access` for it, and
-`olf deploy` refuses to start the platform phase without the OAuth App Secret.
+`olf deploy` refuses to start the platform phase without the OAuth App Secret
+(an interactive run instead creates the GitHub App inline, #428; CI and `--no-github-connect` still refuse).
 Dex's static clients match redirect URIs exactly, so the OpenMetadata and
 Trino clients carry the Keycloak wildcard URIs until each is wired to OIDC
 (#25); the Superset client already has its callback,

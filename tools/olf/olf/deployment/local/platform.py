@@ -147,7 +147,7 @@ def require_github_oauth_secret(
 
     result, install = read_secret(), None
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CI")
-    if not result.ok and interactive and config.context.github_connect:
+    if not result.ok and "NotFound" in result.stderr and interactive and config.context.github_connect:
         from olf import github_app
 
         try:

@@ -88,8 +88,7 @@ def deploy(
         project_root=project_root,
         allow_stage_removal=allow_stage_removal,
     )
-    if no_github_connect:
-        context = replace(context, github_connect=False)
+    context = replace(context, github_connect=not no_github_connect)
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "prefetch", "platform", "artifacts"))
     try:
