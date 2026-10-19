@@ -261,7 +261,7 @@ resource "helm_release" "trino" {
     file(var.base_values_file),
     yamlencode({
       envFrom = local.storage_secret_env_from
-      env     = concat(local.catalog_secret_env, local.internal_secret_env)
+      env     = concat(local.catalog_secret_env, local.internal_secret_env, local.oidc_env)
 
       catalogs = local.iceberg_catalog_properties
 
@@ -279,7 +279,16 @@ resource "helm_release" "trino" {
         annotations = var.service_account_annotations
       }
     }),
-  ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [])
+    ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [],
+    # Last, because Helm replaces a list wholesale: this one carries the list
+    # the levels above settled on, plus the sign-in properties.
+    local.oidc_enabled ? [yamlencode({
+      additionalConfigProperties = concat(
+        local.auth_enabled ? local.auth_values.additionalConfigProperties : ["http-server.process-forwarded=true"],
+        local.oidc_properties,
+      )
+    })] : [],
+  )
 
   lifecycle {
     # The principals rule is built from stage_namespaces and the catalog rules

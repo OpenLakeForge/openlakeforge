@@ -497,9 +497,10 @@ secrets from an in-cluster Job) and the root emits `identity.oidc` with
 `adapter: dex`. The perimeter requests `groups offline_access` for it, and
 `olf deploy` refuses to start the platform phase without the OAuth App Secret
 (an interactive run instead creates the GitHub App inline, #428; CI and `--no-github-connect` still refuse).
-Dex's static clients match redirect URIs exactly, so the OpenMetadata and
-Trino clients carry the Keycloak wildcard URIs until each is wired to OIDC
-(#25); the Superset client already has its callback,
+Dex's static clients match redirect URIs exactly, so the OpenMetadata client
+carries the Keycloak wildcard URI until it is wired to OIDC (#25), and the
+Trino client carries `https://trino.<base_domain>/oauth2/callback` (ADR 0016);
+the Superset client already has its callback,
 `https://superset-<stage>.<base_domain>/oauth-authorized/olf`. Keycloak's removal, the stub-upstream e2e and the
 NetworkPolicy flow are separate slices.
 
