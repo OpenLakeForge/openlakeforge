@@ -373,6 +373,10 @@ Secret (any client id and secret, since the e2e stub never checks them) after a
 first `olf platform apply` has created the shared namespace and stopped, then
 applies again (`docs/setup/github-oauth-app.md`, `local-full-e2e.yml`). The
 entries below that name Keycloak describe the code that existed then.
+Because #421 requires a profile on a cloud provider to declare `spec.identity`,
+the cloud profiles in the tests carry an `external` block; the AWS and Azure
+roots emit no `identity.oidc` yet, so the check that an external profile meets
+an `identity.oidc` contract applies to the local provider only.
 
 #418 made a profile without `spec.identity` the explicit "authentication off"
 mode: accepted only for `provider: local` with no `spec.access` or a

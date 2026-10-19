@@ -104,7 +104,10 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                         else {}
                     ),
                     **(
-                        {"identity": identity or (_GITHUB_IDENTITY if deployment["provider"] == "local" else _EXTERNAL_IDENTITY)}
+                        {
+                            "identity": identity
+                            or (_GITHUB_IDENTITY if deployment["provider"] == "local" else _EXTERNAL_IDENTITY)
+                        }
                         if identity
                         or deployment["provider"] != "local"
                         or contract["shared"]["identity"]["implementation"] == "identity.oidc"

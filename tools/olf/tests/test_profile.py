@@ -237,7 +237,12 @@ def test_access_accepts_a_real_domain() -> None:
     document = _load_fixture("valid_slim_local.yaml")
 
     document["spec"]["access"] = {"base_domain": "olf.example.com", "issuer": "letsencrypt"}
-    document["spec"]["identity"] = {}
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"platform-admin": ["olf-admins"]},
+    }
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
         "olf.example.com", "letsencrypt"
     )

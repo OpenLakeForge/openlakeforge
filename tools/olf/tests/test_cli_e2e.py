@@ -11,6 +11,16 @@ from olf.cli import app
 runner = CliRunner()
 
 
+_EXTERNAL_IDENTITY_YAML = (
+    "  identity:\n"
+    "    issuer: external\n"
+    "    issuer_url: https://login.example.com/\n"
+    "    role_claim: groups\n"
+    "    role_mapping:\n"
+    "      platform-admin: [olf-admins]\n"
+)
+
+
 @pytest.fixture(autouse=True)
 def contract_env_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """`applied_contract_environment` shells out to `terraform output`; every test here mocks
@@ -54,7 +64,7 @@ def _write_profile(
         f"{provider_block}"
         f"  preset: {preset}\n"
         "  stages:\n"
-        f"{stage_block}" + ("" if provider == "local" else "  identity: {}\n"),
+        f"{stage_block}" + ("" if provider == "local" else _EXTERNAL_IDENTITY_YAML),
         encoding="utf-8",
     )
 

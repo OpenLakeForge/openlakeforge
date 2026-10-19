@@ -17,6 +17,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+_EXTERNAL_IDENTITY = {
+    "issuer": "external",
+    "issuer_url": "https://login.example.com/",
+    "role_claim": "groups",
+    "role_mapping": {"platform-admin": ["olf-admins"]},
+}
+
 def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | None = None) -> dict[str, str]:
     """One stage's hydrated contract environment, as the CLI would see it.
 
@@ -42,7 +49,7 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
                     "preset": "slim",
                     **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
-                    **({"identity": {}} if deployment["provider"] != "local" else {}),
+                    **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {
                         name: {
                             "enabled": True,

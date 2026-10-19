@@ -36,6 +36,16 @@ class _FakeEngine:
         self.forward_called = True
 
 
+_EXTERNAL_IDENTITY_YAML = (
+    "  identity:\n"
+    "    issuer: external\n"
+    "    issuer_url: https://login.example.com/\n"
+    "    role_claim: groups\n"
+    "    role_mapping:\n"
+    "      platform-admin: [olf-admins]\n"
+)
+
+
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch) -> _FakeEngine:
     engine = _FakeEngine()
@@ -249,7 +259,7 @@ def _write_profile(root: Path, *, provider: str = "local", stages: str = "    de
         "spec:\n"
         f"  provider:\n    type: {provider}\n"
         "  preset: slim\n"
-        "  stages:\n" + stages + ("" if provider == "local" else "  identity: {}\n")
+        "  stages:\n" + stages + ("" if provider == "local" else _EXTERNAL_IDENTITY_YAML)
     )
 
 
