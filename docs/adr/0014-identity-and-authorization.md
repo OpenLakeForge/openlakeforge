@@ -492,3 +492,12 @@ Trino clients carry the Keycloak wildcard URIs until each is wired to OIDC
 (#25); the Superset client already has its callback,
 `https://superset-<stage>.<base_domain>/oauth-authorized/olf`. Keycloak's removal, the stub-upstream e2e and the
 NetworkPolicy flow are separate slices.
+
+OpenMetadata sign-in (#25 slice b): OpenMetadata authenticates through the
+issuer as a confidential `custom-oidc` client with the principal taken from
+`preferred_username`. The bootstrap Job applies it through the security
+configuration API because 1.13.6 keeps that configuration in its database after
+the first boot; an admin automation bot replaces basic login for `olf`. 1.13.6
+has no claim-based admin mapping, so every signed-in person starts at the read
+baseline until the role sync lands. Details in
+`docs/architecture/identity-service-permissions.md`.

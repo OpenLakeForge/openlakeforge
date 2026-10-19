@@ -285,7 +285,8 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
         return SimpleNamespace(base_url=kwargs["base_url"], catalog_service="polaris")
 
     monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", staticmethod(_config))
-    monkeypatch.setattr(openmetadata, "OpenMetadataClient", lambda _url: object())
+    monkeypatch.setattr(openmetadata, "OpenMetadataClient", lambda _url, **_kwargs: object())
+    monkeypatch.setattr("olf.openmetadata._auth.automation_token", lambda *_args, **_kwargs: None)
     order: list[str] = []
     monkeypatch.setattr(
         openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: order.append("seed"))

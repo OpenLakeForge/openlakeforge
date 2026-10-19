@@ -36,7 +36,7 @@ resource "helm_release" "openmetadata" {
   cleanup_on_fail = true
   upgrade_install = true
 
-  values = [
+  values = concat([
     file(var.base_values_file),
     yamlencode({
       openmetadata = {
@@ -64,7 +64,41 @@ resource "helm_release" "openmetadata" {
         }
       }
     }),
-  ]
+    ], var.oidc == null ? [] : [
+    # The JVM does not read the system CA store, so a copy of its cacerts with
+    # the local CA added is built before the server (and its migration) start.
+    # OpenMetadata reaches the issuer's discovery, token and keys URLs with it.
+    # The provider itself is switched by the bootstrap job, not here (main.tf).
+    yamlencode({
+      extraVolumes = [
+        { name = "olf-oidc-ca", configMap = { name = var.oidc.ca_configmap_name } },
+        { name = "olf-java-trust", emptyDir = {} },
+      ]
+      extraVolumeMounts = [{ name = "olf-java-trust", mountPath = "/etc/olf/java-trust", readOnly = true }]
+      extraEnvs = [{
+        name  = "JAVA_TOOL_OPTIONS"
+        value = "-Djavax.net.ssl.trustStore=/etc/olf/java-trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+      }]
+      preMigrateInitContainers = [{
+        name            = "olf-java-trust"
+        image           = "docker.getcollate.io/openmetadata/server:${var.chart_version}"
+        imagePullPolicy = "IfNotPresent"
+        command         = ["/bin/sh", "-ec"]
+        args = [<<-EOT
+          jhome="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          cp "$jhome/lib/security/cacerts" /etc/olf/java-trust/cacerts
+          chmod u+w /etc/olf/java-trust/cacerts
+          keytool -importcert -noprompt -alias olf-local-ca -file /etc/olf/oidc-ca/ca.crt \
+            -keystore /etc/olf/java-trust/cacerts -storepass changeit
+        EOT
+        ]
+        volumeMounts = [
+          { name = "olf-oidc-ca", mountPath = "/etc/olf/oidc-ca", readOnly = true },
+          { name = "olf-java-trust", mountPath = "/etc/olf/java-trust" },
+        ]
+      }]
+    }),
+  ])
 
   depends_on = [
     helm_release.openmetadata_deps,

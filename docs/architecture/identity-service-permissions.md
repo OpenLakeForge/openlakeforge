@@ -6,8 +6,43 @@ service must allow and deny, the native objects that implement
 service meets the session policy in
 [`identity-sessions-and-recovery.md`](identity-sessions-and-recovery.md).
 The Superset sign-in is built (#25 slice a: issuer client, role mapping,
-registration role, 15 min bound); OpenMetadata is not. No cluster was available
-for either, so every runtime claim stays marked.
+registration role, 15 min bound). The OpenMetadata sign-in is built too (below);
+its role sync is not. No cluster was available for either, so every runtime
+claim stays marked.
+
+OpenMetadata sign-in as built (#25 slice b), with what reading 1.13.6 changed
+in the design below:
+
+- **The stored copy of the security configuration wins.** `SettingsCache` writes
+  `authenticationConfiguration` and `authorizerConfiguration` from the environment
+  only when the database has none, and `SecurityConfigurationManager` reads the
+  database first. Helm values cannot switch an existing install to SSO. The
+  bootstrap Job therefore applies SSO through `PUT /api/v1/system/security/config`
+  as its last step (the server reloads without a restart), and the release stays
+  `provider: basic`. This replaces "install with basic, then upgrade the release
+  to custom-oidc" (decision 6); the client secret is added by the Job from its
+  Secret reference, so it is neither in Helm values nor in Terraform state.
+- **Automation identity.** While basic login still works the Job creates an
+  admin bot `olf-automation` and stores its JWT in the Secret
+  `openmetadata-automation-bot` (key `OPENMETADATA_AUTOMATION_JWT`). Later Job runs,
+  `olf openmetadata deploy-metadata` and `olf e2e` use it. `ingestion-bot`
+  is unchanged (it is replicated into stage namespaces, so it must not be an
+  admin); OpenMetadata's own JWKS stays first in `publicKeyUrls` so both bots
+  validate.
+- **Principal.** `jwtPrincipalClaims: [preferred_username]`: the GitHub login,
+  lower-cased by OpenMetadata, with email `<login>@open-metadata.org`
+  (`principalDomain`, unchanged). A claim mapping would need a non-empty `email`
+  claim, which Dex does not always have.
+- **Admin mapping gap.** 1.13.6 has no claim-based admin mapping. The only
+  claim-driven admin is `useRolesFromProvider` reading a claim named `roles`
+  whose value is `Admin`, which Dex cannot emit. Until `sync-roles` lands nobody
+  who signs in is an admin: `adminPrincipals` stays `admin`, a user no
+  token produces, so every sign-in is the read baseline. A GitHub login named
+  `admin` would be an admin (OM-11); Dex admits only members of the mapped teams.
+- **Not done.** Removing `spec.identity` from an install that already has SSO does
+  not restore basic login (the stored provider stays); rebuild the metadata
+  database. The `Organization` baseline patch (OM-12) and `sync-roles` are the
+  next slice.
 
 Built for Superset: `images/superset/olf_oidc.py` (settings derived from the
 contract), `olf_security.py` (user info from `role_claim`, `olf_viewer`,

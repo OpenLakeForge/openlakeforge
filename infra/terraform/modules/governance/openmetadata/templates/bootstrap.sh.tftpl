@@ -19,17 +19,78 @@
     exit 1
   fi
 
-  # Login as admin. OpenMetadata Basic Auth expects the password base64-encoded.
-  encoded_password="$(printf '%s' "$admin_password" | base64 | tr -d '\n')"
-  login_resp="$(curl -sS -X POST "$om_url/api/v1/users/login" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"$admin_email\",\"password\":\"$encoded_password\"}")"
-  ADMIN_JWT="$(echo "$login_resp" | jq -r '.accessToken // empty')"
+  oidc_config_b64="${oidc_config_b64}"
+  automation_secret="${automation_secret_name}"
+  automation_key="${automation_jwt_key}"
+
+  # Once SSO is on, basic login answers 403, so a later run authenticates with
+  # the admin automation bot token the first run stored. An absent or stale
+  # token (a rebuilt database) falls through to basic login.
+  ADMIN_JWT=""
+  automation_jwt="$${AUTOMATION_JWT:-}"
+  if [ -n "$automation_jwt" ]; then
+    automation_code="$(curl -sS -o /dev/null -w '%%{http_code}' "$om_url/api/v1/users/loggedInUser" \
+      -H "Authorization: Bearer $automation_jwt")"
+    if [ "$automation_code" = "200" ]; then
+      ADMIN_JWT="$automation_jwt"
+    fi
+  fi
 
   if [ -z "$ADMIN_JWT" ]; then
-    echo "Failed to obtain admin JWT" >&2
-    echo "$login_resp" >&2
-    exit 1
+    # Login as admin. OpenMetadata Basic Auth expects the password base64-encoded.
+    encoded_password="$(printf '%s' "$admin_password" | base64 | tr -d '\n')"
+    login_resp="$(curl -sS -X POST "$om_url/api/v1/users/login" \
+      -H "Content-Type: application/json" \
+      -d "{\"email\":\"$admin_email\",\"password\":\"$encoded_password\"}")"
+    ADMIN_JWT="$(echo "$login_resp" | jq -r '.accessToken // empty')"
+
+    if [ -z "$ADMIN_JWT" ]; then
+      echo "Failed to obtain admin JWT" >&2
+      echo "$login_resp" >&2
+      exit 1
+    fi
+  fi
+
+  # With SSO on, create the admin automation bot while basic login still works:
+  # `olf` and later runs of this job need an admin that is not a person.
+  if [ -n "$oidc_config_b64" ] && [ "$ADMIN_JWT" != "$automation_jwt" ]; then
+    auto_user="$(curl -sS -X PUT "$om_url/api/v1/users" \
+      -H "Authorization: Bearer $ADMIN_JWT" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"olf-automation","email":"olf-automation@open-metadata.org","displayName":"OpenLakeForge automation","isBot":true,"isAdmin":true,"botName":"olf-automation","authenticationMechanism":{"authType":"JWT","config":{"JWTTokenExpiry":"Unlimited"}}}')"
+    auto_id="$(echo "$auto_user" | jq -r '.id // empty')"
+    if [ -z "$auto_id" ]; then
+      echo "Failed to create the olf-automation bot user" >&2
+      echo "$auto_user" >&2
+      exit 1
+    fi
+    # Best effort: it only makes the bot visible in the UI.
+    curl -sS -o /dev/null -X PUT "$om_url/api/v1/bots" \
+      -H "Authorization: Bearer $ADMIN_JWT" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"olf-automation","botUser":"olf-automation","displayName":"OpenLakeForge automation"}' || true
+    curl -sS -o /dev/null -X PUT "$om_url/api/v1/users/generateToken/$auto_id" \
+      -H "Authorization: Bearer $ADMIN_JWT" \
+      -H "Content-Type: application/json" \
+      -d '{"JWTTokenExpiry":"Unlimited"}'
+    automation_jwt="$(curl -sS "$om_url/api/v1/users/token/$auto_id" \
+      -H "Authorization: Bearer $ADMIN_JWT" | jq -r '.JWTToken // empty')"
+    case "$automation_jwt" in
+      "" | fernet:*)
+        echo "OpenMetadata did not return a bearer JWT for the olf-automation bot" >&2
+        exit 1
+        ;;
+    esac
+    is_admin="$(curl -sS "$om_url/api/v1/users/loggedInUser" \
+      -H "Authorization: Bearer $automation_jwt" | jq -r '.isAdmin // false')"
+    if [ "$is_admin" != "true" ]; then
+      echo "The olf-automation bot is not an administrator" >&2
+      exit 1
+    fi
+    kubectl delete secret "$automation_secret" -n "$NAMESPACE" --ignore-not-found
+    kubectl create secret generic "$automation_secret" \
+      -n "$NAMESPACE" \
+      --from-literal="$automation_key=$automation_jwt"
   fi
 
   # Generate an unlimited ingestion-bot JWT token for local machine traffic.
@@ -340,5 +401,27 @@
   # The unqualified services every deployment registered before #131.
   remove_service pipelineServices dagster dagster-metadata-ingestion
   remove_service dashboardServices superset superset-metadata-ingestion
+
+  # Last, because this switches the server to SSO and basic login stops working.
+  # The stored copy of the security configuration wins over Helm values on every
+  # boot after the first, so this is also what moves an existing install.
+  if [ -n "$oidc_config_b64" ]; then
+    security_config="$(printf '%s' "$oidc_config_b64" | base64 -d \
+      | jq --arg secret "$OIDC_CLIENT_SECRET" '.authenticationConfiguration.oidcConfiguration.secret = $secret')"
+    sso_code="$(curl -sS -o /tmp/om-security-body -w '%%{http_code}' \
+      -X PUT "$om_url/api/v1/system/security/config" \
+      -H "Authorization: Bearer $ADMIN_JWT" \
+      -H "Content-Type: application/json" \
+      -d "$security_config")"
+    case " 200 201 " in
+      *" $sso_code "*) ;;
+      *)
+        echo "Failed to apply the OpenMetadata SSO configuration (HTTP $sso_code)" >&2
+        cat /tmp/om-security-body >&2
+        exit 1
+        ;;
+    esac
+    echo "OpenMetadata SSO configured."
+  fi
 
   echo "OpenMetadata bootstrap complete."

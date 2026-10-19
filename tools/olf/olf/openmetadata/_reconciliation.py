@@ -24,6 +24,8 @@ class OpenMetadataReconciler:
         self._ensured_schema_fqns: set[str] = set()
 
     def login(self) -> None:
+        if self.client.token:  # the automation bot's, set by the caller (SSO: basic login is off)
+            return
         self.client.login(self.config.admin_email, self.config.admin_password)
 
     def wait_for_openmetadata(self) -> None:
