@@ -39,7 +39,7 @@ def test_manifest_content() -> None:
     assert len(manifest["name"]) == 34
     assert manifest["callback_urls"] == ["http://auth.olf.localhost/callback"]
     assert manifest["public"] is False and "hook_attributes" not in manifest
-    assert manifest["default_permissions"] == {"members": "read", "email_addresses": "read"}
+    assert manifest["default_permissions"] == {"members": "read", "emails": "read"}
 
 
 def test_the_state_is_checked_and_the_code_returned() -> None:

@@ -67,10 +67,10 @@ def connect(
         )
 
     def open_url(url: str) -> None:
-        if no_browser or not webbrowser.open(url):
-            log.info(f"Open this URL in your browser to create the GitHub App: {url}")
-        else:
-            log.step("Opened your browser; click Create GitHub App there (5 minutes).")
+        # Always print it: webbrowser.open reports success when xdg-open merely starts (WSL without a browser).
+        log.info(f"Open this URL in your browser to create the GitHub App (5 minutes): {url}")
+        if not no_browser:
+            webbrowser.open(url)
 
     try:
         code = github_app.wait_for_code(
@@ -93,8 +93,7 @@ def connect(
     )
     log.step(f"Stored the GitHub App credentials in Secret '{ref.name}' (namespace '{namespace}').")
     install = f"https://{host}/apps/{app_data['slug']}/installations/new"
-    if no_browser or not webbrowser.open(install):
-        log.info(f"Install the app on {github.organization}: {install}")
-    else:
-        log.info(f"Install the app on {github.organization} in the browser tab that opened ({install}).")
+    log.info(f"Install the app on {github.organization}: {install}")
+    if not no_browser:
+        webbrowser.open(install)
     log.info("Next: olf deploy --provider local")
