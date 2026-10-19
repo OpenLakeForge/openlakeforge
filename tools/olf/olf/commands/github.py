@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import secrets
 import webbrowser
 from typing import Any
@@ -66,10 +67,13 @@ def connect(
             homepage=f"{scheme}://{access.base_domain}",
         )
 
+    # WSL usually has no Linux browser, and xdg-open's failure is noise on the terminal; the URL is printed anyway.
+    try_browser = not no_browser and "microsoft" not in platform.release().lower()
+
     def open_url(url: str) -> None:
-        # Always print it: webbrowser.open reports success when xdg-open merely starts (WSL without a browser).
+        # Always print it: webbrowser.open reports success when xdg-open merely starts.
         log.info(f"Open this URL in your browser to create the GitHub App (5 minutes): {url}")
-        if not no_browser:
+        if try_browser:
             webbrowser.open(url)
 
     try:
@@ -94,6 +98,6 @@ def connect(
     log.step(f"Stored the GitHub App credentials in Secret '{ref.name}' (namespace '{namespace}').")
     install = f"https://{host}/apps/{app_data['slug']}/installations/new"
     log.info(f"Install the app on {github.organization}: {install}")
-    if not no_browser:
+    if try_browser:
         webbrowser.open(install)
     log.info("Next: olf deploy --provider local")
