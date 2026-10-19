@@ -10,10 +10,13 @@ from __future__ import annotations
 import base64
 import html
 import json
+import os
+import platform
 import secrets
 import time
 import urllib.parse
 import urllib.request
+import webbrowser
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -126,3 +129,66 @@ def secret_manifest(*, name: str, namespace: str, values: Mapping[str, str]) -> 
             "data": {key: base64.b64encode(value.encode()).decode() for key, value in values.items()},
         }
     )
+
+
+def connect_github(context: Any, *, no_browser: bool = False) -> str:
+    """Create the GitHub App for spec.identity.github, store it as the Secret `oauth_app_secret_ref` names, and
+    return the install link. Shared by `olf github connect` and the `olf deploy` preflight."""
+    from olf import log
+    from olf.deployment.engine import Toolkit
+    from olf.deployment.kube_ops import namespace_exists
+
+    topology = context.topology
+    access = topology.access
+    github = topology.identity.github if topology.identity else None
+    if github is None or access is None:
+        raise GitHubConnectError("openlakeforge.yaml has no spec.identity.github (issuer: github); nothing to connect")
+    host = github.host or "github.com"
+    scheme = "http" if access.issuer == "none" else "https"
+    callback = f"{scheme}://auth.{access.base_domain}/callback"
+    ref, namespace = github.oauth_app_secret_ref, context.shared_namespace
+    env = context.command_env(base=os.environ)
+    kube = {"context": context.kube_context, "kubeconfig": context.paths.kubeconfig_path, "env": env}
+    tools = Toolkit.default(environ=env)
+    if not namespace_exists(tools.kubectl, namespace, **kube):
+        raise GitHubConnectError(
+            f"namespace '{namespace}' does not exist; run olf deploy once (it creates it), then re-run this"
+        )
+
+    def manifest_for(redirect_url: str) -> dict[str, Any]:
+        return build_manifest(
+            name=f"openlakeforge-{topology.profile_name[:13]}-{secrets.token_hex(3)}",  # App names are unique on GitHub
+            callback_url=callback,
+            redirect_url=redirect_url,
+            homepage=f"{scheme}://{access.base_domain}",
+        )
+
+    # WSL usually has no Linux browser, and xdg-open's failure is noise on the terminal; the URL is printed anyway.
+    try_browser = not no_browser and "microsoft" not in platform.release().lower()
+
+    def open_url(url: str) -> None:
+        # Always print it: webbrowser.open reports success when xdg-open merely starts.
+        log.info(f"Open this URL in your browser to create the GitHub App (5 minutes): {url}")
+        if try_browser:
+            webbrowser.open(url)
+
+    code = wait_for_code(host=host, organization=github.organization, manifest_for=manifest_for, open_url=open_url)
+    app_data = convert_code(code, host=host)
+    tools.kubectl.apply_from_manifest(
+        secret_manifest(
+            name=ref.name,
+            namespace=namespace,
+            values={
+                ref.client_id_key: app_data["client_id"],
+                ref.client_secret_key: app_data["client_secret"],
+                "private-key": app_data["pem"],
+            },
+        ),
+        **kube,
+    )
+    log.step(f"Stored the GitHub App credentials in Secret '{ref.name}' (namespace '{namespace}').")
+    install = f"https://{host}/apps/{app_data['slug']}/installations/new"
+    log.info(f"Install the app on {github.organization}: {install}")
+    if try_browser:
+        webbrowser.open(install)
+    return install

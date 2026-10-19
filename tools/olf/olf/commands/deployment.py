@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import typer
@@ -68,6 +69,11 @@ def deploy(
             "namespace ('lakehouse') with the current one, destroying its SeaweedFS/PostgreSQL/Polaris state."
         ),
     ),
+    no_github_connect: bool = typer.Option(
+        False,
+        "--no-github-connect",
+        help="With issuer: github, fail on a missing OAuth Secret instead of creating the GitHub App inline.",
+    ),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
     from olf.deployment.errors import DeploymentError
@@ -82,6 +88,8 @@ def deploy(
         project_root=project_root,
         allow_stage_removal=allow_stage_removal,
     )
+    if no_github_connect:
+        context = replace(context, github_connect=False)
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "prefetch", "platform", "artifacts"))
     try:
