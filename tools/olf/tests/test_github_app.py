@@ -99,7 +99,8 @@ def test_a_failed_conversion_shows_an_error_page_and_is_raised() -> None:
             state = re.search(r"state=([\w-]+)", _get(url)[1]).group(1)  # type: ignore[union-attr]
             seen["got"] = _get(f"{url}done?code=c&state={state}")
 
-        threading.Thread(target=run).start()
+        seen["thread"] = thread = threading.Thread(target=run)
+        thread.start()
 
     def boom(_code: str) -> str:
         raise github_app.GitHubConnectError("GitHub rejected the manifest code")
@@ -108,6 +109,7 @@ def test_a_failed_conversion_shows_an_error_page_and_is_raised() -> None:
         github_app.wait_for_code(
             host="github.com", organization="acme", manifest_for=lambda _r: {}, open_url=browser, on_code=boom
         )
+    seen["thread"].join()
     assert seen["got"][0] == 500
 
 

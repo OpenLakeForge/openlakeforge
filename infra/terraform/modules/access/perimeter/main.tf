@@ -87,12 +87,12 @@ locals {
     {{if eq .Message "You do not have permission to access this resource."}}
     <h1>Access is role-restricted</h1>
     <p>Your OpenLakeForge role does not permit this service, or your account holds no OpenLakeForge role. A platform-admin assigns roles.</p>
-    %{~ if var.github_organization != null ~}
+    %{~if var.github_organization != null~}
     {{else if eq .StatusCode 500}}
     <h1>Sign-in was refused</h1>
     <p>Sign-in was refused. Check that the OpenLakeForge GitHub App is installed on ${var.github_organization} and that you are in a mapped team.</p>
     <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md">Setup guide</a></p>
-    %{~ endif ~}
+    %{~endif~}
     {{else}}
     <h1>{{.Title}}</h1>
     <p>{{.Message}}</p>
