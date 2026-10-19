@@ -347,16 +347,15 @@ locals {
   # coalesce() skips "" too, so it fails on a null quickstart domain.
   base_domain = var.access_base_domain == null ? "" : var.access_base_domain
 
-  identity_keycloak = var.identity_issuer == "keycloak"
   identity_dex      = var.identity_issuer == "github"
-  identity_deployed = local.identity_keycloak || local.identity_dex
+  identity_deployed = local.identity_dex
 
   # Every login returns to this one host, which the perimeter proxy answers;
   # the session cookie on .<base_domain> then covers every route.
   perimeter_callback_host = "oauth2.${local.base_domain}"
 
   # Dex returns `groups` only for its scope and a refresh token only for
-  # offline_access (ADR 0014); Keycloak's group mapper needs neither.
+  # offline_access (ADR 0014).
   identity_scope = local.identity_dex ? "openid email profile groups offline_access" : "openid email profile"
 
   # Where each consumer's client may send the browser back. Superset's callback
@@ -378,7 +377,7 @@ locals {
   # assigned its own (client_ids).
   # `cond ? contract : {}` cannot unify the issuer contract with an empty
   # object; try() returns whichever branch succeeds without that constraint.
-  identity_oidc_source = local.identity_enabled ? try(module.keycloak[0].contract, module.dex[0].contract, local.identity_oidc_external) : null
+  identity_oidc_source = local.identity_enabled ? try(module.dex[0].contract, local.identity_oidc_external) : null
   identity_oidc        = try({ for key, value in local.identity_oidc_source : key => value }, {})
   identity_oidc_external = {
     issuer_url   = try(var.identity_external.issuer_url, null)
@@ -395,7 +394,7 @@ locals {
   identity_contract = {
     provider              = local.local_provider_name
     implementation        = local.identity_enabled ? "identity.oidc" : "identity.none"
-    adapter               = !local.identity_enabled ? "identity.none" : local.identity_keycloak ? "identity.keycloak" : local.identity_dex ? "identity.dex" : "identity.external_oidc"
+    adapter               = !local.identity_enabled ? "identity.none" : local.identity_dex ? "identity.dex" : "identity.external_oidc"
     auth_mode             = "oidc"
     oidc_enabled          = true
     workload_identity     = "kubernetes-service-account"
@@ -441,8 +440,8 @@ locals {
         host         = "auth.${local.base_domain}"
         tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
-        service_name = local.identity_dex ? module.dex[0].service_name : module.keycloak[0].service_name
-        service_port = local.identity_dex ? module.dex[0].http_port : module.keycloak[0].http_port
+        service_name = module.dex[0].service_name
+        service_port = module.dex[0].http_port
       }
     } : {},
     local.governance_enabled ? {

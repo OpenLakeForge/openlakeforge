@@ -593,13 +593,6 @@ def test_deployment_profile_schema_conformance_passes_for_a_valid_profile(tmp_pa
     assert contracts_check.profile_schema_errors(repo_root) == []
 
 
-def test_the_schema_accepts_smtp_for_the_keycloak_issuer(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_profile(repo_root, "valid_keycloak_identity.yaml")
-
-    assert contracts_check.profile_schema_errors(repo_root) == []
-
-
 def test_the_schema_accepts_the_github_issuer_and_rejects_a_hand_written_mapping(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_profile(repo_root, "valid_github_identity.yaml")
@@ -644,7 +637,7 @@ def test_deployment_profile_schema_root_resolves_schemas_outside_the_project(tmp
 
 def test_hcl_structured_contracts_rejects_credential_handling_in_an_identity_module(tmp_path: Path) -> None:
     repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
-    module = repo_root / "infra/terraform/modules/identity/keycloak"
+    module = repo_root / "infra/terraform/modules/identity/dex"
     module.mkdir(parents=True)
     (module / "main.tf").write_text(
         'resource "random_password" "admin" {\n  length = 32\n}\n'

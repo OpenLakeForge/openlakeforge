@@ -14,14 +14,14 @@ olf_oidc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(olf_oidc)
 
 GRANTS = yaml.safe_load((ROOT / "release/identity-roles.yaml").read_text())["grants"]["reporting"]
-# Dex: `<organisation>:<team-slug>`. Keycloak: the group named as the role.
+# Dex: `<organisation>:<team-slug>`. A bare issuer: the group named as the role.
 DEX = {
     "platform-admin": ["acme:admins"],
     "data-engineer": ["acme:engineers"],
     "analyst": ["acme:analysts"],
     "viewer": ["acme:viewers"],
 }
-KEYCLOAK = {role: [role] for role in DEX}
+BARE = {role: [role] for role in DEX}
 
 
 def _cfg(role_mapping: dict[str, list[str]]) -> dict[str, Any]:
@@ -47,7 +47,7 @@ def test_each_canonical_role_maps_to_its_native_roles() -> None:
 
 
 def test_the_mapping_follows_the_contract_claim_values_not_the_issuer() -> None:
-    mapping = olf_oidc.settings(_cfg(KEYCLOAK), "s")["AUTH_ROLES_MAPPING"]
+    mapping = olf_oidc.settings(_cfg(BARE), "s")["AUTH_ROLES_MAPPING"]
 
     assert mapping["platform-admin"] == ["Admin"]
     assert mapping["viewer"] == ["olf_data_access", "olf_viewer"]

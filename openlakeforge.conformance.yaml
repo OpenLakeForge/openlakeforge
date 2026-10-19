@@ -16,8 +16,22 @@ spec:
   preset: full
   # Declared explicitly: the nightly keeps testing the secured stack (ingress,
   # TLS, issuer, perimeter). Without these blocks a profile is a quickstart.
+  # The GitHub host is the e2e stub (olf e2e starts it in olf-system), and the
+  # nightly creates a dummy `github-oauth-app` Secret for Dex to read: no real
+  # GitHub or OAuth App is involved (docs/setup/github-oauth-app.md).
   access: {}
-  identity: {}
+  identity:
+    issuer: github
+    github:
+      organization: OpenLakeForge
+      host: olf-e2e-github.olf-system.svc
+      teams:
+        platform-admin: [olf-platform-admins]
+        data-engineer: [olf-data-engineers]
+        analyst: [olf-analysts]
+        viewer: [olf-viewers]
+      oauth_app_secret_ref:
+        name: github-oauth-app
   stages:
     dev:
       enabled: true

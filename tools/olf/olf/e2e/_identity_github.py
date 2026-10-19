@@ -30,9 +30,9 @@ import requests
 import yaml
 
 from olf import log
-from olf.e2e._identity import REQUEST_TIMEOUT
 from olf.e2e._shell import E2EConfig, E2EError, kubectl
 
+REQUEST_TIMEOUT = 15
 STUB_NAME = "olf-e2e-github"
 # What the Dex NetworkPolicy names to allow egress to the stub (port 8443).
 LABEL = "openlakeforge.io/e2e=github-stub"

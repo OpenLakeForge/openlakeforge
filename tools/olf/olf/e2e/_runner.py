@@ -19,7 +19,6 @@ from olf.e2e._artifacts import check_ops_artifacts
 from olf.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
 from olf.e2e._dagster import launch_and_poll_dagster_jobs
 from olf.e2e._health import check_pods_ready
-from olf.e2e._identity import check_identity
 from olf.e2e._ingress import (
     check_certificate_renewal,
     check_portal_lists_routes,
@@ -310,8 +309,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("Traefik restart recovery", check_traefik_restart_recovery))
         assertions.append(FullAssertion("route certificate renewal", check_certificate_renewal))
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
-        assertions.append(FullAssertion("identity issuer and role claims", check_identity))
-        assertions.append(FullAssertion("perimeter authentication and role decisions", check_perimeter))
+        assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
     assertions.extend(
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),

@@ -36,8 +36,6 @@ class LocalProvider:
     config: LocalDeploymentConfig
     tools: Toolkit
     _environ: Mapping[str, str] = field(default_factory=lambda: os.environ)
-    # The one-shot SMTP login, moved out of os.environ at construction so no child process inherits it.
-    _smtp_login: tuple[str, str] | None = field(default=None, repr=False)
 
     @classmethod
     def create(
@@ -47,13 +45,11 @@ class LocalProvider:
         toolkit: Toolkit | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> LocalProvider:
-        from olf.deployment.local import platform
 
         return cls(
             config=config,
             tools=toolkit or Toolkit.default(),
             _environ=environ if environ is not None else os.environ,
-            _smtp_login=platform.take_smtp_login(),
         )
 
     @property
@@ -132,7 +128,7 @@ class LocalProvider:
     def platform_up(self) -> None:
         from olf.deployment.local import platform
 
-        platform.platform_up(self.config, self.tools, env=self.env, smtp_login=self._smtp_login)
+        platform.platform_up(self.config, self.tools, env=self.env)
 
     def platform_down(self) -> None:
         from olf.deployment.local import teardown

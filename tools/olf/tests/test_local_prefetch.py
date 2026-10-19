@@ -73,14 +73,13 @@ def test_selected_images_slim_profile_excludes_governance_and_analytics() -> Non
     assert any(image.startswith("postgres:16-alpine@sha256:57c72fd2") for image in images)
 
 
-def test_keycloak_images_are_prefetched_unless_the_issuer_is_external() -> None:
+def test_dex_is_prefetched_only_for_the_github_issuer() -> None:
     features = DeploymentFeatures(governance_enabled=False, analytics_enabled=False)
 
-    default = prefetch.selected_images(features, server_arch="amd64")
-    assert any(image.startswith("quay.io/keycloak/keycloak:") for image in default)
-    assert any(image.startswith("adorsys/keycloak-config-cli:") for image in default)
-    external = prefetch.selected_images(features, server_arch="amd64", keycloak=False)
-    assert not any("keycloak" in image for image in external)
+    plain = prefetch.selected_images(features, server_arch="amd64")
+    with_dex = prefetch.selected_images(features, server_arch="amd64", dex=True)
+    assert not any("dexidp/dex" in image for image in plain)
+    assert any(image.startswith("ghcr.io/dexidp/dex:") for image in with_dex)
 
 
 def test_polaris_images_arch_mapping() -> None:

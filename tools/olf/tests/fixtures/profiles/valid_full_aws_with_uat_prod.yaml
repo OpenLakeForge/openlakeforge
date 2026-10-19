@@ -19,4 +19,9 @@ spec:
       capabilities:
         analytics: true
         governance: false
-  identity: {}
+  identity:
+    issuer: external
+    issuer_url: https://login.example.com/
+    role_claim: groups
+    role_mapping:
+      platform-admin: [olf-admins]

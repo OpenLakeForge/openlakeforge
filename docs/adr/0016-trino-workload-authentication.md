@@ -52,7 +52,7 @@ Client support is read from the images this repository pins.
 | Option | Outcome |
 | --- | --- |
 | **Password file** | **Selected.** All four clients support it. A leaked DEV password yields only DEV. Revoked by deleting a line, rotated without a restart (case e). No dependency on the issuer or a signing service at query time |
-| JWT | Rejected. Trino has one issuer and one key set and accepts any trusted key for any `sub`, so a per-stage signing key does not stop that key minting `olf-prod-runtime`; the binding lives in the minting job and its key is the crown jewel. Superset, dbt and OpenMetadata cannot refresh a token, so they would hold long-lived bearer tokens that cannot be revoked one by one. Short Keycloak tokens would make every dashboard query depend on the issuer being up |
+| JWT | Rejected. Trino has one issuer and one key set and accepts any trusted key for any `sub`, so a per-stage signing key does not stop that key minting `olf-prod-runtime`; the binding lives in the minting job and its key is the crown jewel. Superset, dbt and OpenMetadata cannot refresh a token, so they would hold long-lived bearer tokens that cannot be revoked one by one. Short issuer tokens would make every dashboard query depend on the issuer being up |
 | Client certificates | Rejected. OpenMetadata's connector has no certificate option, so one caller would need a second mechanism, and Superset would need key files mounted in each pod. Otherwise attractive: cert-manager creates the keys in-cluster |
 | Trusted `X-Trino-User` header | Rejected by #26: a claimed name is not proof |
 | LDAP, Kerberos | Rejected: need a directory or KDC the platform does not run |
@@ -79,7 +79,7 @@ shared-service-account limitation in `identity-callers.md`).
 
 Created by an in-cluster Job owned by `modules/query/trino`, never by Terraform
 ([`identity-credentials.md`](../architecture/identity-credentials.md),
-`modules/identity/keycloak/credentials.tf`); the contract fields are the migration's.
+`modules/identity/dex/credentials.tf`); the contract fields are the migration's.
 
 | Secret | Namespace | Content | Created |
 | --- | --- | --- | --- |

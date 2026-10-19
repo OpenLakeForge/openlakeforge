@@ -1,14 +1,14 @@
 """Perimeter checks (#176): authentication and role authorization at the ingress.
 
 These drive the public hostnames on purpose: they test the perimeter itself,
-signing in over HTTP as per-role throwaway users (docs/architecture/identity-callers.md).
+signing in through Dex's GitHub connector against a stub as per-role users
+(docs/architecture/identity-callers.md).
 Every other e2e path reaches services by port-forward and never sees the
 perimeter (`olf.access.service_url`).
 """
 
 from __future__ import annotations
 
-import html
 import os
 import secrets
 from collections.abc import Callable, Mapping
@@ -18,8 +18,14 @@ from urllib.parse import urlsplit
 import requests
 
 from olf import access, config, log
-from olf.e2e._identity import KEYCLOAK_SERVICE, LOGIN_ACTION, REQUEST_TIMEOUT, throwaway_users
-from olf.e2e._identity_github import dex_points_at_stub, github_stub, log_skip, sign_in_with_stub, stub_host
+from olf.e2e._identity_github import (
+    REQUEST_TIMEOUT,
+    dex_points_at_stub,
+    github_stub,
+    log_skip,
+    sign_in_with_stub,
+    stub_host,
+)
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 
 PORTAL_REF = "shared/portal"
@@ -44,38 +50,30 @@ def check_perimeter(cfg: E2EConfig) -> None:
     if not perimeter or not perimeter["enabled"]:
         log.info("Skipping the perimeter checks: the contract declares no enabled perimeter.")
         return
-    if identity.get("adapter") not in ("keycloak", "dex"):
-        log.info("Skipping the perimeter checks: they need the Keycloak or the Dex adapter.")
+    if identity.get("adapter") != "dex":
+        log.info("Skipping the perimeter checks: they need the Dex adapter.")
         return
     if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
         log.info("Skipping the perimeter checks: OLF_PORT_FORWARD bypasses the ingress they test.")
         return
     routes = {ref: route["url"] for ref, route in access_contract["routes"].items()}
-    dex = identity["adapter"] == "dex"
-    service, port = ("dex", 5556) if dex else (KEYCLOAK_SERVICE, 8080)
-    # The context also trusts the local CA and pins the ingress hostnames, which both adapters' requests need.
+    # The context also trusts the local CA and pins the ingress hostnames the requests need.
     with access.service_url(
         "shared/identity",
-        service=service,
-        remote_port=port,
+        service="dex",
+        remote_port=5556,
         namespace=cfg.platform_namespace,
-        log_path=f"/tmp/openlakeforge-{cfg.env}-{service}-port-forward.log",
+        log_path=f"/tmp/openlakeforge-{cfg.env}-dex-port-forward.log",
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
-    ) as base_url:
-        if dex:
-            _check_dex_perimeter(cfg, identity, perimeter["protected_routes"], routes)
-            return
-        check_unauthenticated_requests(identity, perimeter["protected_routes"], routes)
-        with throwaway_users(cfg, identity, base_url, ["viewer", "analyst", "data-engineer", None]) as users:
-            for role, (username, password) in users.items():
-                check_role_decisions(identity, perimeter["protected_routes"], routes, role, username, password)
+    ):
+        _check_dex_perimeter(cfg, identity, perimeter["protected_routes"], routes)
 
 
 def _check_dex_perimeter(
     cfg: E2EConfig, identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str]
 ) -> None:
-    """The same decisions with Dex as issuer, signing in through its GitHub connector against the stub."""
+    """Sign in through Dex's GitHub connector against the stub and check every role's decisions."""
     if not dex_points_at_stub(cfg):
         log_skip()
         return
@@ -96,20 +94,19 @@ def _check_dex_perimeter(
     teams = {logins[r]: mapping[r] if r else [f"{organization}:olf-e2e-unmapped"] for r in roles}
     check_unauthenticated_requests(identity, protected, routes, login=f"{identity['issuer_url']}/auth")
 
-    def sign_in(url: str, login: str, _password: str) -> tuple[requests.Session, requests.Response]:
+    def sign_in(url: str, login: str) -> tuple[requests.Session, requests.Response]:
         return sign_in_with_stub(url, login, stub_host(cfg))
 
     with github_stub(cfg, teams):
         for role, login in logins.items():
-            check_role_decisions(identity, protected, routes, role, login, "", sign_in=sign_in, refused_at_login=True)
+            check_role_decisions(identity, protected, routes, role, login, sign_in)
 
 
 def check_unauthenticated_requests(
-    identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str], login: str | None = None
+    identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str], login: str
 ) -> None:
     """No session: a browser is sent to the issuer, an API caller gets 401, forged headers change nothing."""
     log.step("Checking unauthenticated requests are refused at every protected route...")
-    login = login or f"{identity['issuer_url']}/protocol/openid-connect/auth"
     for ref in protected:
         for label, headers in (("", {}), (" with forged identity headers", FORGED_HEADERS)):
             reply = requests.get(routes[ref], headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
@@ -131,23 +128,16 @@ def check_role_decisions(
     routes: Mapping[str, str],
     role: str | None,
     username: str,
-    password: str,
-    *,
-    sign_in: Callable[[str, str, str], tuple[requests.Session, requests.Response]] | None = None,
-    refused_at_login: bool = False,
+    sign_in: Callable[[str, str], tuple[requests.Session, requests.Response]],
 ) -> None:
     """Signed in with `role` (None: no role), every protected route answers as the role model says.
 
-    `refused_at_login`: the issuer itself turns away a user with no role (Dex
-    does, before any token exists) instead of the proxy denying them after sign-in.
+    A user with no role is turned away by Dex itself, before any token exists.
     """
     log.step(f"Checking route decisions for {role or 'a user with no role'}...")
-    browser, landing = (sign_in or _sign_in)(routes[PORTAL_REF], username, password)
+    browser, landing = sign_in(routes[PORTAL_REF], username)
     if role is None:
-        if not refused_at_login:
-            _require_denial(landing, f"{username} (no role) signing in", routes[PORTAL_REF])
-        else:
-            _require_refused_by_issuer(identity, browser, landing, username)
+        _require_refused_by_issuer(identity, browser, landing, username)
         return
     # A denied request makes the proxy clear the cookie in the browser; keep the session for the direct calls.
     cookies = browser.cookies.copy()
@@ -201,16 +191,3 @@ def _require_denial(reply: requests.Response, who: str, portal_url: str) -> None
             f"{who}: expected a 403 saying {DENIAL_HEADING!r} with a link to {portal_url}, "
             f"got HTTP {reply.status_code} at {reply.url}"
         )
-
-
-def _sign_in(url: str, username: str, password: str) -> tuple[requests.Session, requests.Response]:
-    """Open `url`, follow the redirect to the issuer's login form and submit it; the session keeps the cookie."""
-    browser = requests.Session()
-    page = browser.get(url, timeout=REQUEST_TIMEOUT)
-    form = LOGIN_ACTION.search(page.text)
-    if form is None:
-        raise E2EError(f"{url} did not lead to the issuer's login form (HTTP {page.status_code} at {page.url})")
-    landing = browser.post(
-        html.unescape(form.group(1)), data={"username": username, "password": password}, timeout=REQUEST_TIMEOUT
-    )
-    return browser, landing

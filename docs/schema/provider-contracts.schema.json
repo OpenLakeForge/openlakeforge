@@ -66,7 +66,7 @@
       "properties": {
         "ref": {"$ref": "#/definitions/nonEmptyString"},
         "implementation": {"$ref": "#/definitions/nonEmptyString"},
-        "adapter": {"$ref": "#/definitions/nonEmptyString", "description": "Provenance only for consumers; the validator requires \"keycloak\" when the profile selects keycloak (the default) to correlate profile and binding. External profiles do not need it."},
+        "adapter": {"$ref": "#/definitions/nonEmptyString", "description": "Provenance only for consumers; the validator requires \"dex\" when the profile selects github to correlate profile and binding. External profiles do not need it."},
         "capabilities": {
           "type": "object",
           "additionalProperties": false,

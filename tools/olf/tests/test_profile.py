@@ -10,7 +10,6 @@ from olf.deployment.context import Provider
 from olf.profile import (
     AccessSpec,
     DeploymentProfileError,
-    IdentitySpec,
     Preset,
     StageName,
     legacy_single_stage_topology,
@@ -209,16 +208,20 @@ def test_no_access_or_identity_block_means_a_quickstart_with_neither() -> None:
     assert rendered["access"] is None and rendered["identity"] is None
 
 
+def _github_identity() -> dict:
+    return _load_fixture("valid_github_identity.yaml")["spec"]["identity"]
+
+
 def test_identity_without_access_is_rejected() -> None:
     document = _load_fixture("valid_slim_local.yaml")
-    document["spec"]["identity"] = {}
+    document["spec"]["identity"] = _github_identity()
     with pytest.raises(DeploymentProfileError, match="spec.identity requires spec.access"):
         validate_deployment_profile(document)
 
 
 def test_a_cloud_profile_may_declare_identity_without_access() -> None:
     document = _load_fixture("valid_full_aws_with_uat_prod.yaml")
-    document["spec"]["identity"] = {}
+    document["spec"]["identity"] = _github_identity()
     assert validate_deployment_profile(document).access is None
 
 
@@ -226,15 +229,20 @@ def test_an_empty_access_block_asks_for_the_defaults_and_identity_may_follow() -
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["access"] = {}
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "local-ca")
-    document["spec"]["identity"] = {}
-    assert resolve_topology(validate_deployment_profile(document)).identity == IdentitySpec()
+    document["spec"]["identity"] = _github_identity()
+    assert resolve_topology(validate_deployment_profile(document)).identity.issuer == "github"
 
 
 def test_access_accepts_a_real_domain() -> None:
     document = _load_fixture("valid_slim_local.yaml")
 
     document["spec"]["access"] = {"base_domain": "olf.example.com", "issuer": "letsencrypt"}
-    document["spec"]["identity"] = {}
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"platform-admin": ["olf-admins"]},
+    }
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
         "olf.example.com", "letsencrypt"
     )
@@ -257,10 +265,17 @@ def test_access_rejects_names_a_route_host_or_issuer_cannot_use(access: dict, ma
         validate_deployment_profile(document)
 
 
-def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
+@pytest.mark.parametrize("identity", [{}, {"issuer": "keycloak"}])
+def test_identity_needs_an_issuer_of_github_or_external(identity: dict) -> None:
     document = _load_fixture("valid_slim_local.yaml")
-    document["spec"] |= {"access": {}, "identity": {}}
-    assert validate_deployment_profile(document).identity.issuer == "keycloak"
+    document["spec"] |= {"access": {}, "identity": identity}
+    with pytest.raises(DeploymentProfileError, match="issuer must be one of"):
+        validate_deployment_profile(document)
+
+
+def test_identity_accepts_an_external_issuer() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"] |= {"access": {}}
 
     document["spec"]["identity"] = {
         "issuer": "external",
@@ -275,7 +290,6 @@ def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
     ("identity", "match"),
     [
         ({"issuer": "okta"}, "issuer must be one of"),
-        ({"issuer": "external"}, "requires"),
         ({"issuer_url": "http://x.example.com"}, "https URL"),
         ({"role_mapping": {"guest": ["g"]}}, "unknown role 'guest'"),
         ({"role_mapping": {"viewer": []}}, "non-empty list"),
@@ -305,9 +319,22 @@ def test_identity_defaults_to_keycloak_and_accepts_an_external_issuer() -> None:
 def test_identity_fails_closed(identity: dict, match: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"].setdefault("access", {})
-    document["spec"]["identity"] = identity
+    external = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"viewer": ["v"]},
+    }
+    document["spec"]["identity"] = external | identity
 
     with pytest.raises(DeploymentProfileError, match=match):
+        validate_deployment_profile(document)
+
+
+def test_external_issuer_requires_its_claim_mapping() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"] |= {"access": {}, "identity": {"issuer": "external"}}
+    with pytest.raises(DeploymentProfileError, match="requires"):
         validate_deployment_profile(document)
 
 
@@ -343,11 +370,8 @@ def test_identity_client_ids_are_validated() -> None:
 
 
 def test_identity_client_ids_require_external_issuer() -> None:
-    document = _load_fixture("valid_slim_local.yaml")
-    document["spec"].setdefault("access", {})
-    document["spec"]["identity"] = {"client_ids": {"trino": "0oa1"}}
     with pytest.raises(DeploymentProfileError, match="client_ids requires issuer 'external'"):
-        validate_deployment_profile(document)
+        validate_deployment_profile(_github_profile(client_ids={"trino": "0oa1"}))
 
 
 def test_render_json_carries_identity() -> None:
@@ -421,90 +445,6 @@ def test_a_missing_role_file_is_a_profile_error(tmp_path: Path) -> None:
         )
 
 
-_SMTP = {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com"}
-_SMTP_AUTH = _SMTP | {"auth": True, "credentials_secret_ref": {"name": "smtp-creds"}}
-
-
-def _smtp_profile(smtp: dict, **identity: object) -> dict:
-    document = _load_fixture("valid_slim_local.yaml")
-    document["spec"].setdefault("access", {})
-    document["spec"]["identity"] = {"smtp": smtp, **identity}
-    return document
-
-
-def test_smtp_defaults_to_starttls_without_auth_and_references_its_secret_by_name_only() -> None:
-    smtp = validate_deployment_profile(_smtp_profile(_SMTP)).identity.smtp
-    assert (smtp.security, smtp.auth, smtp.credentials_secret_ref) == ("starttls", False, None)
-
-    smtp = validate_deployment_profile(_smtp_profile(_SMTP_AUTH | {"from_name": "OLF"})).identity.smtp
-    ref = smtp.credentials_secret_ref
-    assert (ref.name, ref.username_key, ref.password_key) == ("smtp-creds", "username", "password")
-
-
-@pytest.mark.parametrize(
-    ("smtp", "match"),
-    [
-        ({"host": "smtp.example.com", "port": 587}, "missing required field"),
-        (_SMTP | {"host": "smtp.example.com:587"}, "host"),
-        (_SMTP | {"host": "smtp://x"}, "host"),
-        (_SMTP | {"port": 0}, "port"),
-        (_SMTP | {"port": 65536}, "port"),
-        (_SMTP | {"port": "587"}, "port"),
-        (_SMTP | {"port": True}, "port"),
-        (_SMTP | {"from_address": "not-an-address"}, "from_address"),
-        (_SMTP | {"from_name": ""}, "from_name"),
-        (_SMTP | {"security": "tls"}, "security"),
-        (_SMTP | {"auth": "yes"}, "auth must be a boolean"),
-        (_SMTP | {"auth": True}, "auth true requires credentials_secret_ref"),
-        (_SMTP | {"credentials_secret_ref": {"name": "smtp-creds"}}, "requires auth true"),
-        (_SMTP_AUTH | {"security": "none"}, "unencrypted"),
-        (_SMTP_AUTH | {"credentials_secret_ref": {"name": "Not_DNS"}}, "not a valid Kubernetes Secret name"),
-        (_SMTP_AUTH | {"credentials_secret_ref": {"name": "s", "password_key": "a/b"}}, "Secret key"),
-        (_SMTP_AUTH | {"credentials_secret_ref": {"name": "s", "password": "hunter2"}}, "must not contain"),
-        (_SMTP | {"password": "hunter2"}, "must not contain"),
-    ],
-)
-def test_smtp_fails_closed(smtp: dict, match: str) -> None:
-    with pytest.raises(DeploymentProfileError, match=match):
-        validate_deployment_profile(_smtp_profile(smtp))
-
-
-def test_smtp_requires_the_keycloak_issuer_because_an_external_issuer_sends_its_own_mail() -> None:
-    external = {
-        "issuer": "external",
-        "issuer_url": "https://login.example.com/",
-        "role_claim": "groups",
-        "role_mapping": {"viewer": ["v"]},
-    }
-    with pytest.raises(DeploymentProfileError, match="smtp requires issuer 'keycloak'"):
-        validate_deployment_profile(_smtp_profile(_SMTP, **external))
-
-
-def test_bootstrap_admins_are_no_longer_accepted() -> None:
-    document = _smtp_profile(_SMTP)
-    document["spec"].setdefault("access", {})
-    document["spec"]["identity"] = {"bootstrap_admins": ["ada@example.org"]}
-    with pytest.raises(DeploymentProfileError, match="bootstrap_admins"):
-        validate_deployment_profile(document)
-
-
-def test_smtp_credential_keys_must_differ() -> None:
-    ref = {"name": "smtp-creds", "username_key": "k", "password_key": "k"}
-    with pytest.raises(DeploymentProfileError, match="must differ"):
-        validate_deployment_profile(_smtp_profile(_SMTP_AUTH | {"credentials_secret_ref": ref}))
-
-
-def test_render_json_carries_smtp_settings_and_secret_reference_but_no_credentials() -> None:
-    topology = resolve_topology(validate_deployment_profile(_smtp_profile(_SMTP_AUTH)))
-    smtp = json.loads(topology.render_json())["identity"]["smtp"]
-    assert smtp["host"] == "smtp.example.com"
-    assert smtp["credentials_secret_ref"] == {
-        "name": "smtp-creds",
-        "username_key": "username",
-        "password_key": "password",
-    }
-
-
 def _github_profile(**changes: object) -> dict:
     document = _load_fixture("valid_github_identity.yaml")
     document["spec"]["identity"].update(changes)
@@ -562,7 +502,7 @@ def test_github_fails_closed(change: dict, match: str) -> None:
         {"role_claim": "groups"},
         {"role_mapping": {"viewer": ["v"]}},
         {"client_ids": {"trino": "t"}},
-        {"smtp": _SMTP},
+        {"smtp": {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com"}},
         {"bootstrap_admins": ["ada@example.org"]},
     ],
 )
@@ -577,7 +517,7 @@ def test_github_block_and_issuer_go_together() -> None:
     with pytest.raises(DeploymentProfileError, match="requires 'github'"):
         validate_deployment_profile(document)
 
-    with pytest.raises(DeploymentProfileError, match="github requires issuer 'github'"):
+    with pytest.raises(DeploymentProfileError, match="issuer must be one of"):
         validate_deployment_profile(_github_profile(issuer="keycloak"))
 
 

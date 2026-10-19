@@ -124,7 +124,7 @@ _OIDC_OPTIONAL = {"adapter", "capabilities"}
 # email_delivery: the issuer can send account recovery mail.
 _OIDC_CAPABILITIES = frozenset({"email_delivery", "groups_in_token", "logout_endpoint"})
 # The adapter OpenLakeForge deploys for each issuer it deploys; `external` has none.
-_DEPLOYED_ADAPTER = {"keycloak": "keycloak", "github": "dex"}
+_DEPLOYED_ADAPTER = {"github": "dex"}
 _OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
 
 
@@ -135,7 +135,9 @@ def _secret_ref(value: object, *, where: str) -> None:
             raise ProviderContractError(f"{where}.{field} is not a valid Kubernetes Secret {field}")
 
 
-def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | None, *, allow_http: bool) -> None:
+def _check_identity_oidc(
+    identity: Mapping[str, Any], selected: IdentitySpec | None, *, allow_http: bool, oidc_emitted: bool
+) -> None:
     """`identity.oidc`: the issuer seam of ADR 0014. Everything here is keyed by
     a canonical role or a consumer, never by an issuer product; credentials are
     Secret references only."""
@@ -143,7 +145,13 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | N
     if selected is None and identity["implementation"] == _OIDC_IMPLEMENTATION:
         raise ProviderContractError(f"{where} is identity.oidc, but the profile declares no spec.identity")
     present = _OIDC_FIELDS & set(identity)
-    if selected is not None and selected.issuer == "external" and identity["implementation"] != _OIDC_IMPLEMENTATION:
+    # The AWS and Azure roots do not emit identity.oidc yet, so a cloud profile's issuer block cannot be matched.
+    if (
+        oidc_emitted
+        and selected is not None
+        and selected.issuer == "external"
+        and identity["implementation"] != _OIDC_IMPLEMENTATION
+    ):
         raise ProviderContractError(f"{where} must use implementation identity.oidc for an external spec.identity")
     if identity["implementation"] != _OIDC_IMPLEMENTATION:
         present = present | (_OIDC_OPTIONAL & set(identity))
@@ -160,12 +168,6 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | N
             raise ProviderContractError(
                 f"{where}.capabilities.{capability} must be a boolean named one of {sorted(_OIDC_CAPABILITIES)!r}"
             )
-    if selected.issuer == "keycloak" and identity.get("capabilities", {}).get("email_delivery", False) != (
-        selected.smtp is not None
-    ):
-        raise ProviderContractError(
-            f"{where}.capabilities.email_delivery must be true exactly when spec.identity.smtp is set"
-        )
     _oidc_issuer_url(
         identity["issuer_url"],
         where=f"{where}.issuer_url",
@@ -199,7 +201,6 @@ def _check_identity_oidc(identity: Mapping[str, Any], selected: IdentitySpec | N
         )
     deployed = (identity["issuer_url"], identity["role_claim"], {r: tuple(v) for r, v in mapping.items()})
     declared = (selected.issuer_url, selected.role_claim, selected.role_mapping)
-    # keycloak compares only the fields the profile supplied; external compares all
     if any(
         (selected.issuer == "external" or d is not None) and d != c for c, d in zip(deployed, declared, strict=True)
     ):
@@ -373,6 +374,7 @@ def _parse_shared(
         parsed["identity"],
         topology.identity,
         allow_http=topology.access is not None and topology.access.issuer == "none",
+        oidc_emitted=topology.provider == Provider.LOCAL,
     )
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):

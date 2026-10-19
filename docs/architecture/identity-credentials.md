@@ -13,9 +13,9 @@ is a decision for a later change, not code.
 ## Generate outside Terraform
 
 Marking a Terraform value sensitive hides it from output; it does not keep it
-out of state. The Keycloak module therefore has no `random_password` and no
+out of state. The Dex module therefore has no `random_password` and no
 Terraform-managed Secret: an idempotent in-cluster bootstrap Job
-(`keycloak-credentials-<revision>`, `modules/identity/keycloak/credentials.tf`)
+(`dex-credentials-<revision>`, `modules/identity/dex/credentials.tf`)
 creates each identity Secret **only if it is missing**. Terraform handles
 references (`secret_ref{name,key}`, `secretKeyRef`) and never creates, reads or
 hashes the value. `olf check contracts` fails if an identity module declares a
@@ -32,19 +32,17 @@ are discarded.
 | --- | --- |
 | Reuse | An existing Secret with the expected key is kept. Redeploy is not rotation. |
 | Commit point | `kubectl create secret` is the only write, one API call per Secret, and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold and no partial Secret exists. |
-| Direction | The Secret is the source of truth; the realm Job pushes it into Keycloak (it reads client secrets through `secretKeyRef`). Nothing is read back out of Keycloak. |
-| Change detection | Replacing the bootstrap Job replaces the realm Job (`replace_triggered_by`), so the realm re-applies without Terraform hashing a Secret value. |
-| Rotation | Explicit: delete the Secret, replace the bootstrap Job, restart consumers ([runbook](../setup/identity-secret-rotation.md)). |
-| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../adr/0017-local-network-policy-and-rbac.md)); `get` only on the five Secrets it owns (the admin and the four consumer clients). The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
+| Direction | The Secret is the source of truth; Dex reads the client secrets through `secretEnv` at start. Nothing is read back out of Dex. |
+| Rotation | Explicit: delete the Secret, replace the bootstrap Job, restart Dex and the consumers ([runbook](../setup/identity-secret-rotation.md)). |
+| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../adr/0017-local-network-policy-and-rbac.md)); `get` only on the four consumer client Secrets it owns. The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
 
 ### Missing-secret recovery
 
 | Situation | Behaviour |
 | --- | --- |
-| A client Secret is deleted | When the bootstrap Job is next replaced it regenerates it and the realm Job overwrites the client's secret in Keycloak. This is a rotation of that client: consumers restart, and the Job logs that it regenerated. |
-| `keycloak-admin-creds` is deleted, Keycloak's database still has the admin | A new value would not match the stored admin, and Keycloak ignores the Secret once the admin exists. The bootstrap does not regenerate it silently (it refuses while the Keycloak Deployment exists); it fails with a pointer to the admin recovery in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md). |
+| A client Secret is deleted | When the bootstrap Job is next replaced it regenerates it. This is a rotation of that client: Dex and the consumers restart, and the Job logs that it created the Secret. |
 | A Secret exists but lacks the expected key | Fail with the Secret and key named; never patch a foreign Secret. |
-| Operator-provided Secret (SMTP, upstream SSO, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. SMTP is enforced today by `olf deploy` before the platform apply; the SSO and external-client Secrets are not yet. |
+| Operator-provided Secret (the GitHub OAuth App, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. The GitHub OAuth App Secret is enforced today by `olf deploy` before the platform apply; the external-client Secrets are not yet. |
 
 ### Interrupted bootstrap
 
@@ -52,8 +50,8 @@ are discarded.
 | --- | --- |
 | Before a value is stored | Nothing persisted, no consumer saw it; regenerated. |
 | After some Secrets are created | Created ones are reused, the rest created. |
-| After the Secrets, before the realm Job applied them | Keycloak still holds the old values; the realm Job re-run applies the Secrets. Consumers that started early fail token requests until it does, then recover on retry. |
-| During a rotation (Secret deleted, new one created, consumers not restarted) | Same as above; the verification in the rotation runbook (refused old value, accepted new one) is the completion check. |
+| After the Secrets, before Dex restarted | Dex still holds the old values. Consumers that started on the new ones fail token requests until Dex restarts, then recover on retry. |
+| During a rotation (Secret deleted, new one created, consumers not restarted) | Same as above; a completed sign-in, as the rotation runbook says, is the completion check. |
 
 Precedent already in the tree: the Polaris bootstrap Job creates the per-stage
 principal Secrets and handles "principal exists, Secret missing" by rotating
@@ -64,17 +62,14 @@ Both create the Secret in-cluster and Terraform never reads it.
 
 | Credential | Purpose | Generator | Secret reference | Consumer | Rotation / recovery (owner: platform operator) | Terraform observes value |
 | --- | --- | --- | --- | --- | --- | --- |
-| Keycloak admin (exists) | First start on an empty database; realm Job; e2e admin API | Bootstrap Job, 32 random alphanumeric characters | `keycloak-admin-creds`, keys `username`, `password` | Keycloak, `keycloak-config-cli` Job, `olf e2e` | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-bootstrap-admin); lost Secret: see recovery above | No |
-| OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists) | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `keycloak-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Realm Job today; oauth2-proxy (#176), Superset and OpenMetadata (#25), Trino UI (#26) when wired | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md) | No |
+| OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists) | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `dex-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Dex; oauth2-proxy, Superset, OpenMetadata and Trino | [`identity-secret-rotation.md`](../setup/identity-secret-rotation.md) | No |
 | Perimeter cookie secret (exists) | Signs and encrypts oauth2-proxy session cookies | In-cluster Job `oauth2-proxy-cookie-<hash>`, 32 random characters, create-if-missing | `oauth2-proxy-cookie`, key `cookie-secret` | oauth2-proxy | Delete the Secret, replace the Job, restart the proxies; signs out every user once | No |
-| SMTP credentials (exists, optional) | Password-recovery email through the operator's mail relay | Operator | `spec.identity.smtp.credentials_secret_ref`: name, `username_key` (default `username`), `password_key` (default `password`); value in a Secret in `olf-system`, which the operator creates or, on a first deploy, `olf deploy` creates from `OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD` ([how](../setup/identity-secret-rotation.md#the-smtp-login)) | Realm Job, through `secretKeyRef` and `$(env:SMTP_USERNAME)`/`$(env:SMTP_PASSWORD)` substitution into the realm's `smtpServer` | Edit the Secret, delete the realm Job so the next apply recreates it (step not yet exercised on a cluster) | No |
-| Upstream SSO client credentials (planned, optional) | Keycloak brokering to a company IdP | Operator, issued by the upstream IdP | Same: reference in the profile, value in an operator-created Secret | Keycloak identity-provider config | Rotated at the upstream IdP, then the Secret and realm Job | No |
+| GitHub OAuth App (exists) | Dex's GitHub connector authenticates to GitHub | Operator, issued by GitHub | `spec.identity.github.oauth_app_secret_ref`: name, `client_id_key` (default `client-id`), `client_secret_key` (default `client-secret`); a Secret in `olf-system` the operator creates ([how](../setup/github-oauth-app.md)) | Dex, through `secretKeyRef` | Rotated in GitHub, then the Secret, then a Dex restart | No |
 | Trino workload credentials (exists, not yet used, #26) | Authenticate Superset, dbt and OpenMetadata ingestion to Trino, one principal each: `olf-<stage>-runtime` per stage and `openmetadata` | In-cluster Job `trino-credentials-<hash>` (`modules/query/trino/credentials.tf`), create-if-missing, 32 random alphanumeric characters; local root only | `trino-credential-<principal>` in `olf-system`, keys `username`, `password`; each stage's own principal replicated as `trino-credential` into that stage namespace only ([ADR 0016](../adr/0016-trino-workload-authentication.md)) | Nothing yet: Trino authenticates no one until the authentication switch (`trino_workload_authentication`, default `off`) is turned on | Delete the Secret, replace the Job, re-sync consumers (ADR 0016) | No |
 | Trino password file and internal secret (exists, not yet used, #26) | `password.db` is the PBKDF2 derivation of the principal Secrets, rebuilt on every Job run and never a source of truth; the internal secret is Trino's `internal-communication.shared-secret` | Same Job; the file is derived, the internal secret is create-if-missing | `trino-password-file` (key `password.db`) and `trino-internal-secret` (key `internal-communication.shared-secret`) in `olf-system` | Trino, once authentication is on | The file follows its principal Secrets; the internal secret is rotated like a principal Secret | No |
 
 No row serves two classes (#178): the OIDC clients and the perimeter secret are
-class 1 plumbing, the Keycloak admin is operator
-tooling, and the workload credentials below are class 2 and are never members
+class 1 plumbing, and the workload credentials below are class 2 and are never members
 of a canonical role.
 
 ## Existing workload and datastore credentials (residual debt)
@@ -85,7 +80,7 @@ here, not migrated. All are in the debt register
 
 | Credential | Generator | Secret reference | Terraform observes value |
 | --- | --- | --- | --- |
-| PostgreSQL admin, per-service database users (including `keycloak`) | `random_password` | `postgresql-*-creds` Secrets | Yes |
+| PostgreSQL admin, per-service database users (including `dex`) | `random_password` | `postgresql-*-creds` Secrets | Yes |
 | SeaweedFS S3 admin and per-stage keys | `random_id` and `random_password` | Secrets from the SeaweedFS module | Yes |
 | Polaris root client | `random_password` | `var.bootstrap_secret_name` | Yes |
 | Superset `SECRET_KEY` | `random_password` | Helm `extraSecretEnv` | Yes |
@@ -102,17 +97,14 @@ re-runs it was not verified here.
 `olf e2e run --env local` ends with `identity credential exposure`
 (`tools/olf/olf/e2e/_secret_exposure.py`). It reads the **current** values of
 the identity Secrets from the cluster and looks for those exact strings: the
-Keycloak admin password, the four OIDC client secrets (names from the identity
-contract), the perimeter cookie secret (`oauth2-proxy-cookie`), and the SMTP
-password when the realm Job references one (found through its `SMTP_PASSWORD`
-`secretKeyRef`, because the contract does not carry the SMTP Secret name). It
+four OIDC client secrets (names from the identity contract), the perimeter
+cookie secret (`oauth2-proxy-cookie`) and the Trino workload credentials. It
 also looks for each value base64-encoded (the form Kubernetes stores Secret data
 in) and JSON-escaped (the form in `-o json` and Terraform state). A failure names
 the surface and the Secret (`name/key`), never the value.
 
-With an external issuer (`identity.external_oidc`) the Keycloak admin password
-and the action-link check do not apply; the operator-provided client Secrets,
-the cookie secret and any SMTP password are still scanned. When an earlier
+With an external issuer (`identity.external_oidc`) the operator-provided client
+Secrets are scanned when present. When an earlier
 assertion fails, the scan still runs (best effort) and only logs its result, so
 the run reports the original failure.
 
@@ -123,16 +115,11 @@ the run reports the original failure.
 | Diagnostics | The bundle `olf diagnostics collect` writes for each of those namespaces. |
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
 
-The diagnostics bundle is also checked for the shape of what has no known value
-to search for: a Keycloak action link (`login-actions/action-token`) or a `password=`/`token=` query string with a
-value. That is the whole check for member passwords and invitation or
-recovery tokens.
-
 A surface that cannot be read (no state file yet, a failed `kubectl`) is
 logged as skipped, not passed. A value shorter than 16 characters is not
 scanned for, because it would match ordinary text; the generated secrets are 32
-characters, so this only affects a short operator-chosen SMTP password, which
-is then logged as not scanned.
+characters, so this only affects a short operator-chosen secret, which is then
+logged as not scanned.
 
 Not covered:
 
@@ -141,16 +128,13 @@ Not covered:
   ConfigMaps and logs.
 - CI logs and uploaded CI artifacts: the scan sees the cluster's logs, not the
   workflow's own output.
-- Member passwords and action tokens are matched by shape, in diagnostics only.
-  A password a user typed that appears in a log is not found. The query-string
-  shape needs a value of at least 8 characters, so a shorter one is not matched.
 - Pod logs older than the tail, logs of pods that were replaced before the
   scan, logs of a container's previous instance after a restart (`kubectl logs
   --previous` is not collected), and any surface outside the platform and stage
   namespaces.
 - A failure before the assertions start (the pod readiness check) does not run
   the scan.
-- Operator-chosen secrets (external-issuer client secrets, SMTP) containing `<`, `>` or `&` are not matched in Kubernetes JSON output, which Go encodes as `\u003c`, `\u003e`, `\u0026`; generated secrets are alphanumeric and unaffected.
+- Operator-chosen secrets (external-issuer client secrets) containing `<`, `>` or `&` are not matched in Kubernetes JSON output, which Go encodes as `\u003c`, `\u003e`, `\u0026`; generated secrets are alphanumeric and unaffected.
 - Old Terraform state files left from before the bootstrap Job (see "Generate
   outside Terraform"): only the current state is read.
 - Only the current values are searched, so a rotated-out value that leaked
@@ -161,11 +145,8 @@ Not covered:
 ## Not claimed
 
 The bootstrap Job's unit-level guard is the `olf check contracts` rule above.
-Verified on the local kind stack when the Job landed: an upgrade from
-Terraform-generated Secrets and a later redeploy left all five Secrets
-unchanged (uid, resourceVersion and data hash), no Secret value is in Terraform
-state or the realm ConfigMap, and the rotation drill, the missing-key and the
-missing-admin failures behave as the tables above say. Not exercised: the
-upstream SSO row, which nothing consumes yet. The SMTP row is consumed by the
-realm Job; what was and was not run for it is in
-[`identity-secret-rotation.md`](../setup/identity-secret-rotation.md#the-smtp-login).
+The Keycloak-era drills (upgrade from Terraform-generated Secrets, rotation,
+the missing-key and missing-admin failures) were run against the Keycloak
+module that ADR 0014 History records as removed; the same Job shape now lives
+in `modules/identity/dex`, and the rotation runbook says it has not been
+exercised there.

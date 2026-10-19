@@ -202,7 +202,6 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             "infra/terraform/modules/catalog/polaris/variables.tf",
             "infra/terraform/modules/governance/openmetadata/variables.tf",
             "infra/terraform/modules/access/in-cluster-resolution/variables.tf",
-            "infra/terraform/modules/identity/keycloak/variables.tf",
             "infra/terraform/modules/identity/dex/variables.tf",
             "infra/terraform/modules/access/perimeter/variables.tf",
             "infra/terraform/modules/query/trino/variables.tf",
@@ -212,22 +211,10 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             re.DOTALL,
         ),
     ),
-    "keycloak": _ImageDeploymentSource(
-        paths=("infra/terraform/modules/identity/keycloak/variables.tf",),
-        full_ref_pattern=re.compile(
-            r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
-        ),
-    ),
     "dex": _ImageDeploymentSource(
         paths=("infra/terraform/modules/identity/dex/variables.tf",),
         full_ref_pattern=re.compile(
             r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
-        ),
-    ),
-    "keycloak_config_cli": _ImageDeploymentSource(
-        paths=("infra/terraform/modules/identity/keycloak/variables.tf",),
-        full_ref_pattern=re.compile(
-            r'variable\s+"config_cli_image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"', re.DOTALL
         ),
     ),
     "dagster_control_plane": _ImageDeploymentSource(
@@ -325,9 +312,8 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         )
     },
 }
-# Not part of the deployed stack: build bases, and the throwaway mail sink
-# `olf e2e` starts for its email-delivery check (e2e/_identity_mail.py).
-_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base", "e2e_mail_sink"})
+# Not part of the deployed stack: build bases.
+_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
 
 
 def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:

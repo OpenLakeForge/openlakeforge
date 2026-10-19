@@ -93,7 +93,7 @@ owns:
 Terraform state is local and contains generated development credentials. Treat
 state files as sensitive; they are gitignored.
 
-No remote state backend, Keycloak, Vault, ingress/TLS, Lake Formation, or cloud
+No remote state backend, Vault, ingress/TLS, Lake Formation, or cloud
 secret manager integration is implemented yet.
 
 ## Azure AKS POC workflow

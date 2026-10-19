@@ -152,6 +152,13 @@ _PHASE_STEP = {
 _REQUIRED_ROOT_OUTPUTS = ("provider_contracts", "shared_namespace", "stage_names")
 
 
+_EXTERNAL_IDENTITY = {
+    "issuer": "external",
+    "issuer_url": "https://login.example.com/",
+    "role_claim": "groups",
+    "role_mapping": {"platform-admin": ["olf-admins"]},
+}
+
 def _ok(stdout: str = "") -> CommandResult:
     return CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
 
@@ -282,7 +289,7 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
                     "preset": "slim",
                     **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
-                    **({"identity": {}} if deployment["provider"] != "local" else {}),
+                    **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {
                         name: {
                             "enabled": True,
@@ -316,7 +323,7 @@ def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]
                     "preset": "slim",
                     **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
-                    **({"identity": {}} if deployment["provider"] != "local" else {}),
+                    **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {stage.value: {"enabled": True} for stage in enabled},
                 },
             }

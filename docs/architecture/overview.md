@@ -42,7 +42,7 @@ ADR 0007. The OpenMetadata Dagster connector remains deferred.
 | Orchestration | Dagster asset graph |
 | Lineage protocol | Native OpenLineage from Floe and dbt-trino to OpenMetadata |
 | Governance target | OpenMetadata |
-| IAM target | Keycloak later; local uses development credentials |
+| IAM target | Dex with the GitHub connector, or an external OIDC issuer (ADR 0014) |
 | Secret management target | Vault / External Secrets later; local uses Kubernetes Secrets |
 | Ingress and TLS target | Traefik / cert-manager later; local uses port-forwarding |
 

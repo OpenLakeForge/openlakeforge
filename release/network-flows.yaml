@@ -16,7 +16,7 @@
 # to reach a chart pod; a Job shares its workload's name label but not the
 # instance one, so a Job is selected by its own openlakeforge.io/job label.
 # DNS egress is added to every workload by the module and is not a row. The
-# module drops a workload that is not deployed (Keycloak, Dex, governance):
+# module drops a workload that is not deployed (Dex, governance):
 # its rows then render only on the side that is.
 #
 # `from` may be a list of endpoints: one row, several sources.
@@ -30,7 +30,6 @@ workloads:
   traefik: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}
   oauth2-proxy: {openlakeforge.io/workload: oauth2-proxy} # a pod label the perimeter module sets; the floors differ in name
   portal: {app.kubernetes.io/name: portal}
-  keycloak: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}
   dex: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}
   cert-manager-controller: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}
   cert-manager-cainjector: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}
@@ -42,8 +41,6 @@ workloads:
   catalog-metastore-bootstrap: {openlakeforge.io/job: catalog-metastore-bootstrap}
   catalog-bootstrap: {openlakeforge.io/job: catalog-bootstrap}
   catalog-credential-replication: {openlakeforge.io/job: catalog-credential-replication}
-  keycloak-credentials: {openlakeforge.io/job: keycloak-credentials}
-  keycloak-realm: {openlakeforge.io/job: keycloak-realm}
   dex-credentials: {openlakeforge.io/job: dex-credentials}
   perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
@@ -103,11 +100,6 @@ flows:
     to: {scope: apiserver}
     ports: [443, 6443] # Service port and endpoint port; DNAT order is unconfirmed
     tag: T
-  - id: F6
-    from: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
-    ports: [5432]
-    tag: V
   - id: F6
     from: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     to: {scope: shared, pods: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}}
@@ -195,11 +187,6 @@ flows:
     tag: V
   - id: F3
     from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
-    ports: [8080]
-    tag: V
-  - id: F3
-    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     ports: [5556]
     tag: V
@@ -233,13 +220,8 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: opensearch}}
     ports: [9200]
     tag: V
-  - id: F18
-    from: {scope: shared, pods: {openlakeforge.io/job: keycloak-realm}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
-    ports: [8080]
-    tag: V
   - id: F20
-    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: catalog-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-credential-replication}}, {scope: shared, pods: {openlakeforge.io/job: keycloak-credentials}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: trino-credentials}}, {scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: governance-credential-replication}}]
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: catalog-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-credential-replication}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: trino-credentials}}, {scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: governance-credential-replication}}]
     to: {scope: apiserver}
     ports: [443, 6443]
     tag: T # Service port and endpoint port; DNAT order is unconfirmed
@@ -253,16 +235,6 @@ flows:
     to: {scope: any}
     ports: [443]
     tag: T # github.com and api.github.com at every login and refresh; NetworkPolicy cannot name a host
-  - id: F26
-    from: {scope: shared, pods: {openlakeforge.io/e2e: issuer-probe}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443, 8000] # 8000 when the issuer is none
-    tag: V # the e2e issuer probe pod; the e2e sets the label
-  - id: F27
-    from: {scope: shared, pods: {app.kubernetes.io/name: keycloak, app.kubernetes.io/instance: keycloak}}
-    to: {scope: shared, pods: {openlakeforge.io/e2e: mail-sink}}
-    ports: [1025]
-    tag: V # the e2e mail sink; the e2e sets the label
   - id: F29
     from: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     to: {scope: shared, pods: {openlakeforge.io/e2e: github-stub}}
