@@ -105,6 +105,18 @@ def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[
     flask = types.ModuleType("flask")
     flask.session = session  # type: ignore[attr-defined]
     base = types.ModuleType("superset.security")
+    fab = types.ModuleType("flask_appbuilder")
+    fab.expose = lambda *_a, **_k: (lambda f: f)  # type: ignore[attr-defined]
+    views = types.ModuleType("flask_appbuilder.security.views")
+
+    class AuthOAuthView:
+        def login(self, provider: str | None = None) -> str | None:
+            return provider
+
+    views.AuthOAuthView = AuthOAuthView  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "flask_appbuilder", fab)
+    monkeypatch.setitem(sys.modules, "flask_appbuilder.security", types.ModuleType("flask_appbuilder.security"))
+    monkeypatch.setitem(sys.modules, "flask_appbuilder.security.views", views)
 
     class SupersetSecurityManager:
         def auth_user_oauth(self, userinfo: dict[str, Any]) -> str:
@@ -156,3 +168,17 @@ def test_superset_signs_visitors_in_as_admin_only_without_an_issuer() -> None:
 
     assert 'var.oidc != null || !var.public_admin ? [] :' in main
     assert 'login_user(user)' in main
+
+
+def test_the_login_page_goes_straight_to_the_only_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, session = _security(monkeypatch, {})
+    import types
+
+    cls = type(manager).authoauthview
+    view = cls()
+    view.appbuilder = types.SimpleNamespace(sm=types.SimpleNamespace(oauth_providers=[{"name": "olf"}]))
+
+    assert view.login() == "olf"
+    assert view.login("other") == "other"
+    session["_flashes"] = [("warning", "refused")]  # a refused user must not loop
+    assert view.login() is None

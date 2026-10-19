@@ -5,11 +5,27 @@ from __future__ import annotations
 import time
 
 from flask import session
+from flask_appbuilder import expose
+from flask_appbuilder.security.views import AuthOAuthView
 from olf_oidc import DATA_ROLE, NO_ACCESS_ROLE, SESSION_SECONDS, VIEWER_ROLE
 from superset.security import SupersetSecurityManager
 
 
+class OlfAuthOAuthView(AuthOAuthView):
+    @expose("/login/")
+    @expose("/login/<provider>")
+    def login(self, provider=None):
+        # One provider: skip the login page and go straight to the issuer.
+        # A pending flash means the callback just refused the user and sent
+        # them back here; the page must show that, not bounce into a loop.
+        if provider is None and not session.get("_flashes"):
+            provider = self.appbuilder.sm.oauth_providers[0]["name"]
+        return super().login(provider)
+
+
 class OlfSecurityManager(SupersetSecurityManager):
+    authoauthview = OlfAuthOAuthView
+
     def sync_role_definitions(self) -> None:
         super().sync_role_definitions()
         # Superset has no read-only dashboard role. Public's permission set
