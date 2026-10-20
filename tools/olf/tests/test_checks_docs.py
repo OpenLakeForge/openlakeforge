@@ -212,3 +212,18 @@ def test_checks_a_reference_definition_wrapped_onto_the_next_line(tree: Path) ->
     _write(tree, {"docs/README.md": "# Docs\n\nSee [guide].\n\n[guide]:\n  missing.md\n"})
 
     assert any("link target does not exist: missing.md" in error for error in _docs.docs_errors(tree))
+
+
+@pytest.mark.parametrize(
+    ("section", "expected"),
+    [
+        ("  - label: Broken\n    items: 1\n", "sections[2]: `items` must be a list"),
+        ("  - label: Outside\n    autogenerate: ../elsewhere\n", "autogenerate must be a path inside the repository"),
+        ("  - label: Outside\n    items:\n      - /etc/notes.md\n", "an item must be a path inside the repository"),
+    ],
+)
+def test_reports_a_malformed_manifest_instead_of_crashing(tree: Path, section: str, expected: str) -> None:
+    manifest = MANIFEST.replace("exclude:\n", section + "exclude:\n")
+    _write(tree, {"docs/navigation.yaml": manifest})
+
+    assert any(expected in error for error in _docs.docs_errors(tree))
