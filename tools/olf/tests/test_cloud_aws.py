@@ -104,16 +104,16 @@ def test_default_cluster_name_matches_the_e2e_default(tmp_path: Path) -> None:
     """A direct `olf deploy --provider aws` (no AWS_CLUSTER_NAME set)
     creates this cluster; `olf e2e run --env aws` (also unset) must target
     the same one - see the cross-reference comment on
-    AwsBackend/`_DEFAULT_CLUSTER_NAME` and `commands.e2e._default_kube_context`.
+    AwsBackend/`_DEFAULT_CLUSTER_NAME` and `commands._shared.default_kube_context`.
     """
-    from olf.commands.e2e import _default_kube_context
+    from olf.commands._shared import default_kube_context
 
     config = _config(tmp_path)
     backend = AwsBackend()
 
     deployed_cluster_name = backend.foundation_apply_variables(config, {})["cluster_name"]
 
-    assert deployed_cluster_name == _default_kube_context("aws")
+    assert deployed_cluster_name == default_kube_context("aws")
 
 
 def test_foundation_variables_pass_through_a_bracketed_instance_type_list(tmp_path: Path) -> None:

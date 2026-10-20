@@ -219,6 +219,8 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "tools/olf/olf/superset.py",
     "tools/olf/olf/access.py",
     "tools/olf/olf/commands/access.py",
+    "tools/olf/olf/commands/query.py",
+    "tools/olf/olf/trino.py",
     "tools/olf/olf/commands/github.py",
     "tools/olf/olf/github_app.py",
     "tools/olf/olf/openmetadata/__init__.py",

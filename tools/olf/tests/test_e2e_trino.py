@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from conftest import E2E_INVENTORY, e2e_cfg
 
+from olf import trino
 from olf.e2e import _trino
 from olf.e2e._shell import E2EError
 
@@ -143,7 +144,7 @@ def test_trino_query_uses_https_only_when_the_coordinator_serves_it(
     ca = tmp_path / "ca.crt"
     if tls:
         ca.write_text("pem")
-    monkeypatch.setattr(_trino, "_TRINO_CA", str(ca))
+    monkeypatch.setattr(trino, "TRINO_CA", str(ca))
     monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
 
     def _run_in_pod(_cfg, args, **_kwargs):  # noqa: ANN001, ANN202

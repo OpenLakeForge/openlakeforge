@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Callable
 
 from openlakeforge_domain import Product
 
-from olf import log
+from olf import log, trino
 from olf.e2e._shell import E2EConfig, E2EError, kubectl
 
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
@@ -18,43 +17,17 @@ POLARIS_RESTART_TIMEOUT_SECONDS = 300
 POLARIS_QUERY_RETRY_SECONDS = 60
 POLARIS_QUERY_RETRY_INTERVAL_SECONDS = 5
 
-# The coordinator mounts its serving certificate's CA only when workload
-# authentication is on (ADR 0016), so the pod itself says which listener to use
-# - no contract field has to be threaded to the workstation.
-_TRINO_CA = "/etc/trino/tls/ca.crt"
-
-
 def stage_catalog_name(cfg: E2EConfig) -> str:
-    """The Iceberg catalog this run's stage is served under.
+    """The Iceberg catalog this run's stage is served under (see `olf.trino.stage_catalog_name`).
 
-    Reads the already-resolved `OPENLAKEFORGE_QUERY_TRINO_CATALOG`, which
-    `applied_contract_environment` (olf.commands.e2e.e2e_run) sets in
-    `os.environ` before `e2e.run()` - and therefore before any of this
-    module's functions - executes. The local root provisions one Polaris
-    catalog per stage, named `lakehouse_<stage>` (#114), so this resolves
-    correctly per stage without this module re-deriving the name itself.
-    The AWS/Azure roots are not yet stage-aware and still resolve the
-    single legacy `iceberg` catalog, which is this function's default.
-
-    Takes `cfg` for call-site symmetry with the rest of this module even
-    though it is unused here, so a future per-`E2EConfig` override is a
-    signature-compatible change.
+    Takes `cfg` for call-site symmetry with the rest of this module.
     """
     del cfg
-    return os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG") or "iceberg"
+    return trino.stage_catalog_name()
 
 
 def _glue_namespace_prefix(cfg: E2EConfig) -> str:
-    """Physical-namespace prefix for AWS's shared default Glue catalog (#114).
-
-    This account cannot create a custom Glue catalog per stage, so every
-    stage's databases live in the one default catalog and are kept
-    collision-free with a `<stage catalog name>_` prefix (contracts.py,
-    catalog.py). Local's Polaris deployment gives each stage its own
-    catalog, so descriptor namespace names stay bare there.
-    """
-    return f"{stage_catalog_name(cfg)}_" if cfg.env == "aws" else ""
-
+    return trino.glue_namespace_prefix(cfg.env, stage_catalog_name(cfg))
 
 def check_trino_catalog(cfg: E2EConfig) -> None:
     log.step("Checking Trino catalogs...")
@@ -211,49 +184,21 @@ def trino_scalar(cfg: E2EConfig, sql: str) -> str:
     return parse_trino_scalar(trino_query(cfg, sql))
 
 
-def _trino_cli_script() -> str:
-    return (
-        f"if [ -f {_TRINO_CA} ]; then "
-        f'exec trino --server https://localhost:8443 --truststore-path {_TRINO_CA} "$@"; '
-        'else exec trino "$@"; fi'
-    )
-
-
 def trino_query(cfg: E2EConfig, sql: str) -> str:
-    output = kubectl(
+    catalog = stage_catalog_name(cfg)
+    target = trino.TrinoTarget(
+        provider=cfg.env,
+        kube_context=cfg.kube_context,
+        namespace=cfg.platform_namespace,
+        catalog=catalog,
+        stage=trino.stage_from_catalog(catalog),
+    )
+    return kubectl(
         cfg,
-        [
-            "exec",
-            "-n",
-            cfg.platform_namespace,
-            "deploy/trino-coordinator",
-            "--",
-            "sh",
-            "-c",
-            _trino_cli_script(),
-            "trino",
-            "--output-format",
-            "CSV_UNQUOTED",
-            # Trino's file-based access control (modules/query/trino/main.tf)
-            # grants catalog access to "olf-<stage>-runtime", not to
-            # cfg.namespace directly - on local that's the same string
-            # (namespace olf-<stage>), but the cloud POC roots serve every
-            # stage from one shared namespace ("lakehouse"), so cfg.namespace
-            # alone would connect as an unrecognized user there and every
-            # query would be denied by the default-deny catalog rule.
-            # stage_catalog_name resolves to "lakehouse_<stage>" on every
-            # stage-aware root (#114); strip the shared prefix to recover
-            # just the stage.
-            "--user",
-            f"olf-{stage_catalog_name(cfg).removeprefix('lakehouse_')}-runtime",
-            "--execute",
-            sql,
-        ],
+        trino.exec_args(target, sql, output_format="CSV_UNQUOTED"),
         capture=True,
         retry_transient=True,
     )
-    return output
-
 
 def parse_trino_scalar(output: str) -> str:
     values = [line.strip().replace("\r", "") for line in output.splitlines() if line.strip()]

@@ -61,7 +61,7 @@ def run(
                 # path always wraps its own e2e.run() call the same way.
                 # An explicit KUBECONFIG must still win over the context's
                 # own resolved path (commands/e2e.py's
-                # `_resolve_kubeconfig_path`), or this unconditionally
+                # `resolve_kubeconfig_path`), or this unconditionally
                 # overwrites it back to the context default.
                 kubeconfig_override = config.env("KUBECONFIG")
                 contract_terraform_dir = Path(

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import typer
 
-from olf import log
+from olf import config, log
 
 
 def log_step(message: str) -> None:
@@ -222,3 +224,74 @@ def deployment_context_for_profile(
         return DeploymentContext.for_provider(profile.provider.type, **kwargs)
     except DeploymentPreconditionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+def resolve_kubeconfig_path(env: str, default: Path) -> Path:
+    """Mirror `olf.e2e._runner.configure_kubeconfig`'s override precedence.
+
+    This command exports `KUBECONFIG` via `applied_contract_environment`
+    before `e2e.run()` (and thus `_runner.configure_kubeconfig`) ever runs -
+    if it only consulted the bare `KUBECONFIG` env var here, it would shadow
+    the documented per-provider override (`AWS_KUBECONFIG_PATH`/
+    `AZURE_KUBECONFIG_PATH`) with the plain default path before `_runner`
+    gets a chance to fall back to it. `default` is the resolved
+    `DeploymentContext`'s own kubeconfig path - the same one `olf deploy`
+    wrote to, so an installed distribution's `olf e2e run` finds it without
+    the caller having to set `KUBECONFIG` by hand.
+    """
+    provider_override = config.env(f"{env.upper()}_KUBECONFIG_PATH")
+    configured = config.env("KUBECONFIG") or provider_override
+    if configured:
+        return Path(configured)
+    return default
+
+
+def default_kube_context(env: str) -> str:
+    """Mirror `olf.e2e._runner`'s own per-environment `KUBE_CONTEXT` fallback.
+
+    Must match exactly: this value is what `e2e.run()` would derive on its
+    own from `os.environ.get("KUBE_CONTEXT", ...)` if that variable were
+    left unset - but `applied_contract_environment` always sets
+    `KUBE_CONTEXT` in `os.environ` (even to a resolved default), so it has
+    to resolve the same fallback here to avoid exporting an empty string
+    for `aws-e2e`/`azure-e2e`, which don't set `KUBE_CONTEXT` themselves.
+    """
+    if env == "local":
+        cluster_name = config.env("CLUSTER_NAME", "openlakeforge-local")
+        return f"kind-{cluster_name}"
+    if env == "azure":
+        return config.env("AZURE_CLUSTER_NAME", "aks-openlakeforge-poc")
+    # Must match `cloud/aws.py::_DEFAULT_CLUSTER_NAME` - a direct
+    # `olf deploy --provider aws` with no AWS_CLUSTER_NAME set creates this
+    # cluster; e2e (also unset) must target the same one.
+    return config.env("AWS_CLUSTER_NAME", "limited-eks-openlakeforge-poc")
+
+@contextmanager
+def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa: ANN001
+    """Apply the stage's provider-contract environment and yield its kube context.
+
+    What `olf e2e run` and `olf query` both need before talking to the
+    cluster: the in-process equivalent of sourcing the contract exports, with
+    the same installed-vs-source path resolution `olf deploy` used.
+    """
+    from olf.deployment import contract_env
+
+    contract_dir = Path(config.env("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(context.paths.platform_terraform_dir)))
+    kube_context = config.env("KUBE_CONTEXT") or default_kube_context(env)
+    # Fresh contract readers create their own managed-tool resolver and, for
+    # an installed distribution, must resolve the same external Terraform
+    # state/data roots `olf deploy` wrote to (`DeploymentContext.command_env`,
+    # `olf.tooling.terraform.external_state_options`) - without this the
+    # contract read silently targets the payload's absent default state.
+    with contract_env.applied_contract_environment(
+        contract_terraform_dir=contract_dir,
+        repo_root=context.paths.repo_root,
+        namespace=context.namespace,
+        kube_context=kube_context,
+        kubeconfig_path=resolve_kubeconfig_path(env, context.paths.kubeconfig_path),
+        port_forward_log_prefix=Path(
+            config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", str(context.paths.port_forward_log_prefix))
+        ),
+        environ=context.command_env(base=os.environ),
+        topology=context.topology,
+        stage=context.stage,
+    ):
+        yield kube_context

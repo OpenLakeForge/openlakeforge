@@ -21,7 +21,7 @@ from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.floe_manifests import generate_aws_manifests
 from olf.deployment.portforward import ForwardTarget
 
-# Must match the AWS default in `olf.commands.e2e._default_kube_context` and
+# Must match the AWS default in `olf.commands._shared.default_kube_context` and
 # `olf.e2e._runner` - a direct `olf deploy --provider aws` (no
 # AWS_CLUSTER_NAME set) creates this cluster; `olf e2e run --env aws` (also
 # no AWS_CLUSTER_NAME) must target the same one, or e2e looks for a

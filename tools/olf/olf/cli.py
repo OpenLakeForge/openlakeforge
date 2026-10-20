@@ -35,6 +35,7 @@ from olf.commands import (
     product,
     profile,
     project,
+    query,
     release,
     smoke,
     source,
@@ -84,6 +85,7 @@ app.command("destroy")(deployment.destroy)
 app.command("status")(deployment.status)
 app.command("forward")(deployment.forward)
 app.command("init")(init.initialize)
+app.command("query")(query.query)
 
 
 @app.callback()
