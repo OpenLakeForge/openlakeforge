@@ -32,6 +32,7 @@ def query(
     per-user access: every caller of this command is the same Trino user.
     """
     from olf.deployment.errors import DeploymentError
+    from olf.provider_contracts import ProviderContractError
     from olf.tooling.resolver import build_resolver
 
     if output_format not in OUTPUT_FORMATS:
@@ -65,6 +66,6 @@ def query(
             )
             kubectl = str(build_resolver().resolve("kubectl"))
             output = trino.run_sql(target, sql, output_format=OUTPUT_FORMATS[output_format], kubectl=kubectl)
-    except (trino.TrinoQueryError, DeploymentError) as exc:
+    except (trino.TrinoQueryError, DeploymentError, ProviderContractError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(output, nl=False)

@@ -114,3 +114,22 @@ def test_query_refuses_aws_until_glue_prefixes_are_handled(tmp_path: Path, calls
     assert result.exit_code == 1
     assert "does not support the aws provider" in result.output
     assert not calls
+
+
+def test_query_reports_an_invalid_provider_contract_without_a_traceback(
+    tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.provider_contracts import ProviderContractError
+
+    def invalid(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise ProviderContractError("unsupported provider contract schema")
+
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", invalid)
+    profile = tmp_path / "openlakeforge.yaml"
+    _write_profile(profile)
+
+    result = runner.invoke(app, ["query", "-f", str(profile), "SELECT 1"])
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert not calls
