@@ -8,21 +8,24 @@ a time.
 **You will** open the portal, read the Dagster asset graph and run a data
 product from Bronze to Gold, in about 15 minutes.
 
-**Start from** a fresh project deployed as in the
-[Quickstart](../get-started/quickstart.md). If you have not done that yet, you
-need Docker and [uv](https://docs.astral.sh/uv/), then:
+**Start from** a new project on the **Full** preset. Full adds Superset
+(dashboards, lesson 6) and OpenMetadata (governance and lineage, lesson 7) to
+the data path, so the whole tutorial runs on one deployment that no lesson has
+to tear down. You need Docker and [uv](https://docs.astral.sh/uv/). If the
+[Quickstart](../get-started/quickstart.md)'s Slim platform is still running,
+remove it first with `olf destroy --provider local` from its directory. Then:
 
 ```bash
 uv tool install "openlakeforge==0.4.0a1" --python 3.12
 mkdir my-lakehouse && cd my-lakehouse
-olf init
+olf init --preset full
 olf deploy --provider local
 ```
 
-`olf init` writes `openlakeforge.yaml` (the Deployment Profile) and
-`lakehouse_code/` with three demo data products. The first `olf deploy` takes
-several minutes while images download. Run every `olf` command in this
-tutorial from this project directory.
+`olf init` writes `openlakeforge.yaml` (the Deployment Profile, with
+`preset: full`) and `lakehouse_code/` with three demo data products. The first
+`olf deploy` takes several minutes while images download. Run every `olf`
+command in this tutorial from this project directory.
 
 ## 1. Open the portal
 
