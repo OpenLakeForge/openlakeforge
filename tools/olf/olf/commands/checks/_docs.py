@@ -7,6 +7,7 @@ disappears from the site, and a dead relative link becomes a dead site link.
 
 from __future__ import annotations
 
+import html
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -29,8 +30,13 @@ _ESCAPED_LINK = re.compile(r"\\\[[^\]]*\]\([^)]*\)")
 # `](target)` rather than a full `[text](target)` match: link text can itself
 # hold brackets, as a badge image nested inside a link does. The destination
 # may hold one level of balanced parentheses, as `guide_(draft).md` does.
-_INLINE_LINK = re.compile(r"\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?")
-_REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)")
+# An angle-bracket destination may hold spaces: `[guide](<guide draft.md>)`.
+_INLINE_LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|((?:[^()\s<>]|\([^()\s]*\))*))")
+# `[^1]:` is a GitHub footnote, not a link reference definition.
+_REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^<>\n]*)>|(\S+))")
+_OPEN_REFERENCE = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*$")
+_BLOCKQUOTE = re.compile(r"^\s{0,3}(?:>\s?)+")
+_HTML_COMMENT = re.compile(r"<!--.*?-->")
 # Quoted or bare values: HTML allows `<img src=chart.svg>`.
 _HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""", re.IGNORECASE)
 _EXPLICIT_ANCHOR = re.compile(
@@ -178,12 +184,16 @@ def _links(path: Path) -> list[tuple[int, str]]:
     links: list[tuple[int, str]] = []
     carried = ""
     for line_number, line in _prose_lines(path):
-        # Hard-wrapped prose can break a link right after `](`, leaving its
-        # destination at the start of the next line.
+        # Hard-wrapped prose can break a link right after `](`, or a reference
+        # definition right after `[label]:`, leaving the destination at the
+        # start of the next line.
         text = carried + _ESCAPED_LINK.sub("", _CODE_SPAN.sub("", line)).lstrip()
+        if _OPEN_REFERENCE.match(text):
+            carried = text.strip() + " "
+            continue
         carried = "](" if text.rstrip().endswith("](") else ""
-        links.extend((line_number, match) for match in _INLINE_LINK.findall(text))
-        links.extend((line_number, match) for match in _REFERENCE_DEFINITION.findall(text))
+        for pattern in (_INLINE_LINK, _REFERENCE_DEFINITION):
+            links.extend((line_number, angled or bare) for angled, bare in pattern.findall(text))
         for attribute, *quoted_or_bare in _HTML_ATTRIBUTE.findall(text):
             value = next(part for part in quoted_or_bare if part)
             candidates = [value]
@@ -196,7 +206,18 @@ def _links(path: Path) -> list[tuple[int, str]]:
 def _prose_lines(path: Path) -> list[tuple[int, str]]:
     lines: list[tuple[int, str]] = []
     fence: str | None = None
+    in_comment = False
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if fence is None:
+            # HTML comment contents are raw HTML, never parsed as Markdown.
+            if in_comment:
+                end = line.find("-->")
+                if end < 0:
+                    continue
+                line, in_comment = line[end + 3 :], False
+            line = _HTML_COMMENT.sub("", line)
+            if "<!--" in line:
+                line, in_comment = line[: line.index("<!--")], True
         opener = _FENCE.match(line)
         # A fence closes only on the same character, at least as long as the
         # opener: a ```` block can show a ``` block inside it.
@@ -239,7 +260,8 @@ def _anchors(path: Path) -> set[str]:
     anchors: set[str] = set()
     headings: set[str] = set()
     previous = ""
-    for _, line in _prose_lines(path):
+    for _, quoted_line in _prose_lines(path):
+        line = _BLOCKQUOTE.sub("", quoted_line)
         anchors.update(next(part for part in match if part) for match in _EXPLICIT_ANCHOR.findall(line))
         atx = _HEADING.match(line)
         # A paragraph line followed by `===` or `---` is a Setext heading.
@@ -268,6 +290,7 @@ def _github_slug(heading: str) -> str:
     """Reproduce the anchor GitHub generates for a Markdown heading."""
     text = re.sub(r"<[^>]+>", "", heading)
     text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = html.unescape(text)
     text = text.lower()
     kept = "".join(
         char for char in text if char in " -_" or unicodedata.category(char)[0] in {"L", "N"}
