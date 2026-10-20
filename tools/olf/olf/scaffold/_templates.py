@@ -96,7 +96,7 @@ Scaffolded by `olf source new {source}`.
 Replace the placeholder example CSV(s) under `examples/` with real sample
 data for each resource, and point `dlt/{source}.py` at a real ingestion
 adapter when this source moves beyond local CSV examples. See
-[Build your first data product](../../../docs/getting-started/first-data-product.md)
+[Ingest a source](../../../docs/tutorial/02-ingest-a-source.md)
 for the full ownership model this source participates in.
 """
 

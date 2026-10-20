@@ -87,7 +87,7 @@ def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Pa
     domain_link = re.search(r"\]\((\.\./[^)]+)\)", domain_readme.read_text(encoding="utf-8")).group(1)
 
     assert (bronze_readme.parent / bronze_link).resolve().is_relative_to(repo_root.resolve())
-    assert (bronze_readme.parent / bronze_link).resolve() == (repo_root / "docs/getting-started/first-data-product.md")
+    assert (bronze_readme.parent / bronze_link).resolve() == (repo_root / "docs/tutorial/02-ingest-a-source.md")
     assert (domain_readme.parent / domain_link).resolve().is_relative_to(repo_root.resolve())
     assert (domain_readme.parent / domain_link).resolve() == (
         repo_root / "docs/adr/0004-medallion-layout-and-catalog-namespaces.md"

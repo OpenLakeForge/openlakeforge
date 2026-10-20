@@ -17,6 +17,11 @@ sections:
       - docs/get-started/concepts.md
       - docs/setup/local.md
       - docs/getting-started/first-data-product.md
+  - label: Tutorial
+    items:
+      - docs/tutorial/01-tour-the-platform.md
+      - docs/tutorial/02-ingest-a-source.md
+      - docs/tutorial/03-validate-into-silver.md
   - label: Guides
     items:
       - docs/setup/github-oauth-app.md

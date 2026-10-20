@@ -2,6 +2,9 @@
 
 This tutorial walks through adding a new data product to OpenLakeForge and running it end to end.
 
+> [!TIP]
+> A shorter, step-by-step version is the [Discover OpenLakeForge tutorial](../tutorial/01-tour-the-platform.md).
+
 By the end, you will have:
 
 ```text
