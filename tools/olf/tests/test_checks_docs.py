@@ -90,7 +90,7 @@ def test_rejects_a_page_that_is_neither_published_nor_excluded(tree: Path) -> No
 def test_rejects_a_manifest_entry_that_does_not_exist(tree: Path) -> None:
     (tree / "tools/cli.md").unlink()
 
-    assert "docs/navigation.yaml: listed path does not exist: tools/cli.md" in _docs.docs_errors(tree)
+    assert "docs/navigation.yaml: listed page is not a Markdown file: tools/cli.md" in _docs.docs_errors(tree)
 
 
 def test_rejects_a_page_both_published_and_excluded(tree: Path) -> None:
@@ -171,7 +171,7 @@ def test_accepts_anchors_github_generates_around_taken_suffixes(tree: Path) -> N
         {
             "docs/README.md": (
                 '# Docs\n\n<A ID="Intro"></A>\n\n## Notes\n\n## Notes-1\n\n## Notes\n\n'
-                "[third](#notes-2) and [intro](#intro)\n"
+                "[third](#notes-2) and [intro](#Intro)\n"
             )
         },
     )

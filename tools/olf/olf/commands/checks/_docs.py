@@ -21,16 +21,21 @@ from olf.commands.checks._shared import _root
 
 MANIFEST = "docs/navigation.yaml"
 
-_FENCE = re.compile(r"^ {0,3}(```|~~~)")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(=+|-+)\s*$")
 _CODE_SPAN = re.compile(r"`+[^`]*`+")
+_ESCAPED_LINK = re.compile(r"\\\[[^\]]*\]\([^)]*\)")
 # `](target)` rather than a full `[text](target)` match: link text can itself
-# hold brackets, as a badge image nested inside a link does.
-_INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]*)>?")
+# hold brackets, as a badge image nested inside a link does. The destination
+# may hold one level of balanced parentheses, as `guide_(draft).md` does.
+_INLINE_LINK = re.compile(r"\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?")
 _REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)")
 # Quoted or bare values: HTML allows `<img src=chart.svg>`.
 _HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""", re.IGNORECASE)
-_EXPLICIT_ANCHOR = re.compile(r"""<a\s+(?:[^>]*\s)?(?:id|name)\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
+_EXPLICIT_ANCHOR = re.compile(
+    r"""<a\s+(?:[^>]*\s)?(?:id|name)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""", re.IGNORECASE
+)
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
@@ -110,10 +115,15 @@ def _published_pages(root: Path, manifest: _Manifest) -> list[str]:
 
 def _coverage_errors(root: Path, manifest: _Manifest, published: list[str]) -> list[str]:
     errors = [
-        f"{MANIFEST}: listed path does not exist: {entry}"
-        for entry in (*manifest.pages, *manifest.exclude)
-        if not (root / entry).exists()
+        f"{MANIFEST}: listed page is not a Markdown file: {page}"
+        for page in manifest.pages
+        if not (page.endswith(".md") and (root / page).is_file())
     ]
+    errors.extend(
+        f"{MANIFEST}: excluded path does not exist: {entry}"
+        for entry in manifest.exclude
+        if not (root / entry).exists()
+    )
     errors.extend(
         f"{MANIFEST}: autogenerate directory does not exist: {directory}"
         for directory in manifest.autogenerate
@@ -130,7 +140,7 @@ def _coverage_errors(root: Path, manifest: _Manifest, published: list[str]) -> l
         if route in routes:
             errors.append(f"{MANIFEST}: {page} and {routes[route]} publish to the same slug: {route}")
         routes.setdefault(route, page)
-    for page in _markdown_under(root, "docs"):
+    for page in sorted({*seen, *_markdown_under(root, "docs")}):
         listed = page in seen
         excluded = any(_within(page, entry) for entry in manifest.exclude)
         if listed and excluded:
@@ -170,7 +180,7 @@ def _links(path: Path) -> list[tuple[int, str]]:
     for line_number, line in _prose_lines(path):
         # Hard-wrapped prose can break a link right after `](`, leaving its
         # destination at the start of the next line.
-        text = carried + _CODE_SPAN.sub("", line).lstrip()
+        text = carried + _ESCAPED_LINK.sub("", _CODE_SPAN.sub("", line)).lstrip()
         carried = "](" if text.rstrip().endswith("](") else ""
         links.extend((line_number, match) for match in _INLINE_LINK.findall(text))
         links.extend((line_number, match) for match in _REFERENCE_DEFINITION.findall(text))
@@ -188,8 +198,13 @@ def _prose_lines(path: Path) -> list[tuple[int, str]]:
     fence: str | None = None
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         opener = _FENCE.match(line)
-        if opener and (fence is None or opener.group(1) == fence):
-            fence = None if fence else opener.group(1)
+        # A fence closes only on the same character, at least as long as the
+        # opener: a ```` block can show a ``` block inside it.
+        if opener and fence is None:
+            fence = opener.group(1)
+            continue
+        if opener and fence and opener.group(1)[0] == fence[0] and len(opener.group(1)) >= len(fence):
+            fence = None
             continue
         if fence is None:
             lines.append((line_number, line))
@@ -214,28 +229,39 @@ def _resolve(root: Path, source: str, target: str) -> str | None:
     if not resolved.exists():
         return "link target does not exist"
     if anchor and resolved.is_file() and resolved.suffix == ".md":
-        if unquote(anchor).lower() not in _anchors(root / relative):
+        if unquote(anchor) not in _anchors(root / relative):
             return "anchor does not exist"
     return None
 
 
 def _anchors(path: Path) -> set[str]:
+    # Explicit ids keep their case: a fragment must match one exactly.
     anchors: set[str] = set()
     headings: set[str] = set()
+    previous = ""
     for _, line in _prose_lines(path):
-        anchors.update(anchor.lower() for anchor in _EXPLICIT_ANCHOR.findall(line))
-        heading = _HEADING.match(line)
-        if not heading:
+        anchors.update(next(part for part in match if part) for match in _EXPLICIT_ANCHOR.findall(line))
+        atx = _HEADING.match(line)
+        # A paragraph line followed by `===` or `---` is a Setext heading.
+        setext = bool(_SETEXT_UNDERLINE.match(line)) and _is_paragraph_line(previous)
+        text = atx.group(2) if atx else previous
+        previous = line
+        if not (atx or setext):
             continue
         # GitHub skips a suffix an earlier heading already took: `Notes`,
         # `Notes-1`, `Notes` gives notes, notes-1, notes-2.
-        base = slug = _github_slug(heading.group(2))
+        base = slug = _github_slug(text.strip())
         suffix = 0
         while slug in headings:
             suffix += 1
             slug = f"{base}-{suffix}"
         headings.add(slug)
     return anchors | headings
+
+
+def _is_paragraph_line(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not _HEADING.match(line) and not re.match(r"[|>*+<-]|\d+[.)]\s", stripped)
 
 
 def _github_slug(heading: str) -> str:
