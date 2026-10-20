@@ -36,6 +36,7 @@ class LocalProvider:
     config: LocalDeploymentConfig
     tools: Toolkit
     _environ: Mapping[str, str] = field(default_factory=lambda: os.environ)
+    _github_install: str | None = field(default=None, init=False)
 
     @classmethod
     def create(
@@ -128,7 +129,7 @@ class LocalProvider:
     def platform_up(self) -> None:
         from olf.deployment.local import platform
 
-        platform.platform_up(self.config, self.tools, env=self.env)
+        self._github_install = platform.platform_up(self.config, self.tools, env=self.env)
 
     def platform_down(self) -> None:
         from olf.deployment.local import teardown
@@ -139,6 +140,17 @@ class LocalProvider:
         from olf.deployment.local import artifacts
 
         artifacts.artifacts_deploy(self.config, self.tools, env=self.env)
+        self._log_sign_in_steps()
+
+    def _log_sign_in_steps(self) -> None:
+        # Last output of a full deploy, so the install link is not buried under the artifacts phase.
+        topology = self.context.topology
+        if topology.access is None:
+            return
+        scheme = "http" if topology.access.issuer == "none" else "https"
+        log.step(f"OpenLakeForge is ready: {scheme}://{topology.access.base_domain}")
+        if self._github_install and topology.identity and topology.identity.github:
+            log.info(f"Install the GitHub App on {topology.identity.github.organization}: {self._github_install}")
 
     def status(self) -> StatusReport:
         from olf.access import contract_access

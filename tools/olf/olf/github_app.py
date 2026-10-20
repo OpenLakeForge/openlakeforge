@@ -55,28 +55,39 @@ def wait_for_code(
     organization: str,
     manifest_for: Callable[[str], Mapping[str, Any]],
     open_url: Callable[[str], None],
+    on_code: Callable[[str], str],
     timeout: float = TIMEOUT_SECONDS,
 ) -> str:
-    """Serve the manifest on 127.0.0.1, hand the local URL to `open_url`, and return the one-time code
-    GitHub redirects back with. `manifest_for(redirect_url)` builds the manifest once the port is known."""
+    """Serve the manifest on 127.0.0.1, hand the local URL to `open_url`, and pass the one-time code GitHub
+    redirects back with to `on_code`. `on_code` returns the URL the browser is sent on to (the app install page);
+    a GitHubConnectError from it shows an error page and is raised here. `manifest_for(redirect_url)` builds the
+    manifest once the port is known."""
     state = secrets.token_urlsafe(24)
     result: dict[str, str] = {}
+    failure: list[Exception] = []
     server: HTTPServer
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             url = urllib.parse.urlsplit(self.path)
             query = urllib.parse.parse_qs(url.query)
+            location = None
             if url.path == "/":
                 post = f"https://{host}/organizations/{organization}/settings/apps/new?state={state}"
                 redirect = f"http://127.0.0.1:{server.server_port}/done"
                 body, status = _form_page(post, manifest_for(redirect)), 200
             elif url.path == "/done" and query.get("state") == [state] and query.get("code"):
-                result["code"] = query["code"][0]
-                body, status = b"<p>GitHub App created. You can close this tab and return to the terminal.</p>", 200
+                try:
+                    result["next"] = location = on_code(query["code"][0])
+                    body, status = b"<p>Redirecting to the app install page...</p>", 302
+                except Exception as exc:  # re-raised below; the loop would otherwise wait out the timeout
+                    failure.append(exc)
+                    body, status = f"<p>{html.escape(str(exc))}</p><p>See the terminal.</p>".encode(), 500
             else:
                 body, status = b"not found", 404
             self.send_response(status)
+            if location:
+                self.send_header("Location", location)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(body)
@@ -89,13 +100,15 @@ def wait_for_code(
     open_url(f"http://127.0.0.1:{server.server_port}/")
     deadline = time.monotonic() + timeout
     try:
-        while "code" not in result and time.monotonic() < deadline:
+        while "next" not in result and not failure and time.monotonic() < deadline:
             server.handle_request()
     finally:
         server.server_close()
-    if "code" not in result:
+    if failure:
+        raise failure[0]
+    if "next" not in result:
         raise GitHubConnectError(f"no GitHub App was created within {int(timeout)}s; nothing was written")
-    return result["code"]
+    return result["next"]
 
 
 def api_base(host: str) -> str:
@@ -172,23 +185,25 @@ def connect_github(context: Any, *, no_browser: bool = False) -> str:
         if try_browser:
             webbrowser.open(url)
 
-    code = wait_for_code(host=host, organization=github.organization, manifest_for=manifest_for, open_url=open_url)
-    app_data = convert_code(code, host=host)
-    tools.kubectl.apply_from_manifest(
-        secret_manifest(
-            name=ref.name,
-            namespace=namespace,
-            values={
-                ref.client_id_key: app_data["client_id"],
-                ref.client_secret_key: app_data["client_secret"],
-                "private-key": app_data["pem"],
-            },
-        ),
-        **kube,
+    def on_code(code: str) -> str:
+        app_data = convert_code(code, host=host)
+        tools.kubectl.apply_from_manifest(
+            secret_manifest(
+                name=ref.name,
+                namespace=namespace,
+                values={
+                    ref.client_id_key: app_data["client_id"],
+                    ref.client_secret_key: app_data["client_secret"],
+                    "private-key": app_data["pem"],
+                },
+            ),
+            **kube,
+        )
+        log.step(f"Stored the GitHub App credentials in Secret '{ref.name}' (namespace '{namespace}').")
+        return f"https://{host}/apps/{app_data['slug']}/installations/new"
+
+    install = wait_for_code(
+        host=host, organization=github.organization, manifest_for=manifest_for, open_url=open_url, on_code=on_code
     )
-    log.step(f"Stored the GitHub App credentials in Secret '{ref.name}' (namespace '{namespace}').")
-    install = f"https://{host}/apps/{app_data['slug']}/installations/new"
     log.info(f"Install the app on {github.organization}: {install}")
-    if try_browser:
-        webbrowser.open(install)
     return install

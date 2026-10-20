@@ -471,7 +471,8 @@ def platform_up(
     tools: Toolkit,
     *,
     env: Mapping[str, str],
-) -> None:
+) -> str | None:
+    """Apply the static platform; return the GitHub App install link when the connect flow ran this time."""
     platform_dir = config.paths.platform_terraform_dir
 
     if not config.paths.foundation_state_path.is_file():
@@ -577,5 +578,4 @@ def platform_up(
         )
 
     log.step("Static OpenLakeForge local platform is applied.")
-    if github_install:
-        log.info(f"Sign-in needs the GitHub App installed on your organisation: {github_install}")
+    return github_install

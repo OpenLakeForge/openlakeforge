@@ -5,6 +5,7 @@ import socket
 import tempfile
 from pathlib import Path
 
+import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext
@@ -22,6 +23,12 @@ from olf.tooling.resolver import PathExecutableResolver
 from olf.tooling.terraform import Terraform
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
+
+
+def _topology():  # noqa: ANN202
+    from test_local_platform import _topology as topology
+
+    return topology()
 
 
 def _toolkit() -> Toolkit:
@@ -259,3 +266,52 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
     provider.build_project_image(push=False)
 
     assert pushed == []
+
+
+def test_deploy_ends_with_the_portal_and_the_install_link_when_connect_ran(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
+
+    github = GitHubSpec("acme", {}, GitHubOAuthRef(name="github-oauth-app"))
+    topology = replace(
+        _topology(), access=AccessSpec(base_domain="olf.example"), identity=IdentitySpec(issuer="github", github=github)
+    )
+    context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
+    provider = LocalProvider.create(
+        LocalDeploymentConfig.from_environment({}, context=context), toolkit=_toolkit(), environ={}
+    )
+    install = "https://github.com/apps/olf/installations/new"
+    monkeypatch.setattr("olf.deployment.local.platform.platform_up", lambda *a, **k: install)
+    monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: print("artifacts done"))
+
+    provider.platform_up()
+    provider.artifacts_deploy()
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines[0] == "artifacts done"
+    assert "https://olf.example" in lines[-2]
+    assert lines[-1] == f"Install the GitHub App on acme: {install}"
+
+
+def test_deploy_summary_omits_the_install_link_when_connect_did_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import replace
+
+    from olf.profile import AccessSpec
+
+    context = DeploymentContext.local(repo_root=tmp_path, topology=replace(_topology(), access=AccessSpec()))
+    provider = LocalProvider.create(
+        LocalDeploymentConfig.from_environment({}, context=context), toolkit=_toolkit(), environ={}
+    )
+    monkeypatch.setattr("olf.deployment.local.platform.platform_up", lambda *a, **k: None)
+    monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: None)
+
+    provider.platform_up()
+    provider.artifacts_deploy()
+
+    out = capsys.readouterr().out
+    assert "http" in out and "Install the GitHub App" not in out

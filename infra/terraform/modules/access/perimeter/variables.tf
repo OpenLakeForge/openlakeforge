@@ -94,3 +94,9 @@ variable "protected_refs" {
   description = "Contract refs of the routes behind the perimeter. Each needs a grant row in identity_roles, except the portal, which any recognised role may open."
   type        = list(string)
 }
+
+variable "github_organization" {
+  description = "GitHub organisation named on the sign-in failure page; null when the issuer is not GitHub."
+  type        = string
+  default     = null
+}
