@@ -211,6 +211,8 @@ class DeploymentEngine:
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
             self._require_runnable_project()
         phases = self._phase_deploy_order if phase == DeploymentPhase.ALL else (phase,)
+        if phase == DeploymentPhase.ALL and (before := getattr(self.provider, "before_deploy", None)):
+            before()  # interactive questions go first, so the long deploy that follows runs unattended
         for step in phases:
             self._deploy_step(step)
 

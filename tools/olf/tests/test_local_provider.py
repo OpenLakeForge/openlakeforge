@@ -268,9 +268,7 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
     assert pushed == []
 
 
-def test_deploy_ends_with_the_portal_and_the_install_link_when_connect_ran(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def _github_provider(tmp_path: Path) -> LocalProvider:
     from dataclasses import replace
 
     from olf.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
@@ -280,20 +278,72 @@ def test_deploy_ends_with_the_portal_and_the_install_link_when_connect_ran(
         _topology(), access=AccessSpec(base_domain="olf.example"), identity=IdentitySpec(issuer="github", github=github)
     )
     context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
-    provider = LocalProvider.create(
-        LocalDeploymentConfig.from_environment({}, context=context), toolkit=_toolkit(), environ={}
-    )
-    install = "https://github.com/apps/olf/installations/new"
-    monkeypatch.setattr("olf.deployment.local.platform.platform_up", lambda *a, **k: install)
+    config = LocalDeploymentConfig.from_environment({}, context=context)
+    return LocalProvider.create(config, toolkit=_toolkit(), environ={})
+
+
+@pytest.mark.parametrize(
+    ("installed", "expected"),
+    [
+        (True, "GitHub App installed on acme"),
+        (False, "Install the GitHub App on acme: https://github.com/apps/olf/installations/new"),
+        (None, "Install the GitHub App on acme (if not installed; GitHub could not confirm): https://github.com/apps/olf/installations/new"),
+    ],
+    ids=["installed", "not-installed", "unknown"],
+)
+def test_deploy_ends_with_the_portal_and_what_github_says_about_the_install(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    installed: bool | None,
+    expected: str,
+) -> None:
+    provider = _github_provider(tmp_path)
+    secret = {"app-id": "7", "app-slug": "olf", "private-key": "pem-material"}
+    monkeypatch.setattr("olf.deployment.local.platform.read_github_app_secret", lambda *a, **k: secret)
+    monkeypatch.setattr("olf.github_app.app_installed", lambda **k: installed)
     monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: print("artifacts done"))
 
-    provider.platform_up()
     provider.artifacts_deploy()
 
     lines = capsys.readouterr().out.strip().splitlines()
     assert lines[0] == "artifacts done"
     assert "https://olf.example" in lines[-2]
-    assert lines[-1] == f"Install the GitHub App on acme: {install}"
+    assert lines[-1] == expected
+    assert "pem-material" not in "".join(lines)
+
+
+def test_deploy_summary_says_nothing_about_a_secret_without_an_app_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("olf.deployment.local.platform.read_github_app_secret", lambda *a, **k: {})
+    monkeypatch.setattr("olf.github_app.app_installed", lambda **k: pytest.fail("asked GitHub"))
+    monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: None)
+
+    _github_provider(tmp_path).artifacts_deploy()
+
+    assert "GitHub App" not in capsys.readouterr().out
+
+
+def test_the_github_flow_runs_before_the_foundation_and_platform_reuses_its_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf import github_app
+    app = github_app.GitHubApp(7, "olf", "cid", "csecret", "pem")
+    calls: list[str] = []
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("olf.deployment.local.platform.github_connect_needed", lambda *a, **k: True)
+    monkeypatch.setattr(github_app, "create_app", lambda ctx, **k: calls.append("github") or app)
+    monkeypatch.setattr("olf.deployment.local.foundation.foundation_up", lambda *a, **k: calls.append("foundation"))
+    monkeypatch.setattr("olf.deployment.local.network_canary.require_policy_enforcement", lambda *a, **k: None)
+    monkeypatch.setattr("olf.deployment.local.platform.platform_up", lambda *a, **k: seen.update(k))
+    provider = _github_provider(tmp_path)
+
+    provider.before_deploy()
+    provider.foundation_up()
+    provider.platform_up()
+    assert calls == ["github", "foundation"]  # the browser step precedes the cluster work; platform reuses the App
+    assert seen["github_app"] is app
 
 
 def test_deploy_summary_omits_the_install_link_when_connect_did_not_run(

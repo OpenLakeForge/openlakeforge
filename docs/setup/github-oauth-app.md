@@ -20,14 +20,16 @@ olf github connect --project .
 
 It opens your browser on GitHub, where you click **Create GitHub App** with
 your own session (SSO and 2FA as the organisation enforces), stores the app's
-`client-id`, `client-secret` and `private-key` in the Secret named by
+`client-id`, `client-secret`, `private-key`, `app-id` and `app-slug` in the Secret named by
 `oauth_app_secret_ref`, and opens the page to install the app on the
 organisation: the browser goes straight from **Create GitHub App** to the
 install page. Install it, because the app's *Members: read* permission only
-applies to organisations it is installed on. A full `olf deploy` repeats the
-portal URL and the install link as its last lines. If sign-in is refused
+applies to organisations it is installed on. A full `olf deploy` asks for this
+confirmation first (the browser opens by itself on WSL), then runs unattended, and
+its last lines give the portal URL and either "GitHub App installed on <org>" or
+the install link. If sign-in is refused
 (app not installed, or you are in no mapped team) the login shows a page that
-says so. Credentials are never printed. `--no-browser` prints the URL instead; after 5 minutes without
+says so. Credentials are never printed. `--no-browser` prints the URL instead; after 15 minutes without
 a click it exits with nothing written. Re-running registers a new
 GitHub App and replaces the Secret; delete the previous app and its private key
 in the organisation settings yourself, because GitHub keeps their access until

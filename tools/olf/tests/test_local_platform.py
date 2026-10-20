@@ -641,65 +641,82 @@ def test_no_github_means_no_oauth_secret_check(tmp_path: Path) -> None:
     assert runner.calls == []
 
 
-def _github_connect_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, tty: bool, ci: str, flag: bool):  # noqa: ANN202
-    from dataclasses import replace
-
-    from olf import github_app
-
-    config = _github_config(tmp_path)
-    config = replace(config, context=replace(config.context, github_connect=flag))
+def _interactive(monkeypatch: pytest.MonkeyPatch, *, tty: bool = True, ci: str = "") -> None:
     monkeypatch.setattr("sys.stdin.isatty", lambda: tty, raising=False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: tty, raising=False)
     monkeypatch.setenv("CI", ci)
-    calls: list[object] = []
-
-    def connect(context: object) -> str:
-        calls.append(context)
-        return "https://github.com/apps/x/installations/new"
-
-    class Runner(_SecretRunner):
-        def run(self, command, **kwargs):  # type: ignore[override]
-            if calls and "secret" in list(getattr(command, "argv", command)):
-                return _ok("id\nsecret\n")  # the connect flow stored it
-            return super().run(command, **kwargs)
-
-    monkeypatch.setattr(github_app, "connect_github", connect)
-    return config, _toolkit(Runner(keys=None, stderr="NotFound")), calls
 
 
-def test_interactive_missing_github_secret_connects_inline_then_continues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config, tools, calls = _github_connect_setup(tmp_path, monkeypatch, tty=True, ci="", flag=True)
-    got = platform.require_github_oauth_secret(config, tools, env={}, create_namespace=lambda: None)
-    assert got == "https://github.com/apps/x/installations/new"
-    assert len(calls) == 1
+def _needed(tmp_path: Path, runner: RecordingRunner, *, cluster: bool, flag: bool = True) -> bool:
+    from dataclasses import replace
+
+    config = _github_config(tmp_path)
+    config = replace(config, context=replace(config.context, github_connect=flag))
+    tools = _toolkit(runner)
+    tools.kind.get_clusters = lambda **_k: [config.cluster.name] if cluster else []  # type: ignore[method-assign]
+    return platform.github_connect_needed(config, tools, env={})
 
 
 @pytest.mark.parametrize(
-    ("tty", "ci", "flag"), [(False, "", True), (True, "1", True), (True, "", False)], ids=["piped", "ci", "flag"]
+    ("cluster", "runner", "tty", "ci", "flag", "expected"),
+    [
+        (False, _SecretRunner(keys=None), True, "", True, True),  # no cluster yet: it cannot hold the Secret
+        (True, _SecretRunner(keys=None, stderr="NotFound"), True, "", True, True),
+        (True, _SecretRunner(keys="id\nsecret\n"), True, "", True, False),  # already there: ask nothing
+        (False, _SecretRunner(keys=None), False, "", True, False),
+        (False, _SecretRunner(keys=None), True, "1", True, False),
+        (False, _SecretRunner(keys=None), True, "", False, False),
+    ],
+    ids=["no-cluster", "no-secret", "secret", "piped", "ci", "flag"],
 )
-def test_missing_github_secret_still_errors_when_not_interactive_or_disabled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tty: bool, ci: str, flag: bool
+def test_github_connect_is_needed_only_when_interactive_and_the_secret_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cluster, runner, tty, ci, flag, expected  # noqa: ANN001
 ) -> None:
-    config, tools, calls = _github_connect_setup(tmp_path, monkeypatch, tty=tty, ci=ci, flag=flag)
-    with pytest.raises(DeploymentPreconditionError, match="olf github connect"):
-        platform.require_github_oauth_secret(config, tools, env={}, create_namespace=lambda: None)
-    assert calls == []
+    _interactive(monkeypatch, tty=tty, ci=ci)
+    assert _needed(tmp_path, runner, cluster=cluster, flag=flag) is expected
 
 
-def test_present_github_secret_never_connects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_github_app_created_before_the_foundation_is_stored_once_the_namespace_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.github_app import GitHubApp
+
+    stored: list[GitHubApp] = []
+    monkeypatch.setattr(platform, "store_app", lambda _ctx, app, _kubectl: stored.append(app))
+
+    class Runner(_SecretRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(getattr(command, "argv", command))
+            if stored and "secret" in argv:
+                return _ok("id\nsecret\n")  # the Secret now exists
+            return super().run(command, **kwargs)
+
+    app = GitHubApp(7, "olf", "cid", "csecret", "pem")
+    platform.require_github_oauth_secret(
+        _github_config(tmp_path),
+        _toolkit(Runner(keys=None, stderr="NotFound")),
+        env={},
+        create_namespace=lambda: None,
+        github_app=app,
+    )
+    assert stored == [app]
+
+
+def test_a_present_github_secret_is_never_overwritten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from olf import github_app
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
     monkeypatch.delenv("CI", raising=False)
-    monkeypatch.setattr(github_app, "connect_github", lambda c: pytest.fail("connected"))
+    monkeypatch.setattr(platform, "store_app", lambda *a: pytest.fail("stored"))
     runner = _SecretRunner(keys="id\nsecret\n")
-    got = platform.require_github_oauth_secret(
-        _github_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+    platform.require_github_oauth_secret(
+        _github_config(tmp_path),
+        _toolkit(runner),
+        env={},
+        create_namespace=lambda: None,
+        github_app=github_app.GitHubApp(7, "olf", "cid", "csecret", "pem"),
     )
-    assert got is None
 
 
 @pytest.mark.parametrize("declared", [False, True])

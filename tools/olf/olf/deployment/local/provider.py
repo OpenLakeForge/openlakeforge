@@ -24,6 +24,8 @@ from olf.tooling.docker import ambient_registry_env
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
     from olf.deployment.status import StatusReport
+    from olf.github_app import GitHubApp
+    from olf.profile import GitHubSpec
 
 
 def _auth_off_notes(governance: bool) -> tuple[str, ...]:
@@ -36,7 +38,7 @@ class LocalProvider:
     config: LocalDeploymentConfig
     tools: Toolkit
     _environ: Mapping[str, str] = field(default_factory=lambda: os.environ)
-    _github_install: str | None = field(default=None, init=False)
+    _github_app: GitHubApp | None = field(default=None, init=False, repr=False)
 
     @classmethod
     def create(
@@ -126,10 +128,24 @@ class LocalProvider:
         images.load_image_into_kind(image, self.config, self.tools, env=self.env)
         return image
 
+    def before_deploy(self) -> None:
+        """Run the GitHub manifest flow now, while the operator is still at the terminal. The credentials stay in
+        this object until `platform_up` writes the Secret."""
+        from olf import github_app
+        from olf.deployment.errors import DeploymentPreconditionError
+        from olf.deployment.local import platform
+
+        if self._github_app is None and platform.github_connect_needed(self.config, self.tools, env=self.env):
+            try:
+                self._github_app = github_app.create_app(self.context)
+            except github_app.GitHubConnectError as exc:
+                raise DeploymentPreconditionError(str(exc)) from exc
+
     def platform_up(self) -> None:
         from olf.deployment.local import platform
 
-        self._github_install = platform.platform_up(self.config, self.tools, env=self.env)
+        self.before_deploy()
+        platform.platform_up(self.config, self.tools, env=self.env, github_app=self._github_app)
 
     def platform_down(self) -> None:
         from olf.deployment.local import teardown
@@ -143,14 +159,32 @@ class LocalProvider:
         self._log_sign_in_steps()
 
     def _log_sign_in_steps(self) -> None:
-        # Last output of a full deploy, so the install link is not buried under the artifacts phase.
+        # Last output of a full deploy, so the install step is not buried under the artifacts phase.
         topology = self.context.topology
         if topology.access is None:
             return
         scheme = "http" if topology.access.issuer == "none" else "https"
         log.step(f"OpenLakeForge is ready: {scheme}://{topology.access.base_domain}")
-        if self._github_install and topology.identity and topology.identity.github:
-            log.info(f"Install the GitHub App on {topology.identity.github.organization}: {self._github_install}")
+        if topology.identity and topology.identity.github:
+            self._log_github_install(topology.identity.github)
+
+    def _log_github_install(self, github: GitHubSpec) -> None:
+        from olf import github_app
+        from olf.deployment.local import platform
+
+        secret = platform.read_github_app_secret(self.config, self.tools, env=self.env)
+        if "app-id" not in secret:
+            return  # a hand-made OAuth App, or a Secret from before app-id was stored: nothing to check or link
+        host = github.host or "github.com"
+        installed = github_app.app_installed(
+            host=host, organization=github.organization, app_id=secret["app-id"], pem=secret["private-key"]
+        )
+        if installed:
+            log.info(f"GitHub App installed on {github.organization}")
+        else:
+            link = github_app.install_url(host, secret["app-slug"])
+            qualifier = "" if installed is False else " (if not installed; GitHub could not confirm)"
+            log.info(f"Install the GitHub App on {github.organization}{qualifier}: {link}")
 
     def status(self) -> StatusReport:
         from olf.access import contract_access
