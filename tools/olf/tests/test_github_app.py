@@ -52,6 +52,7 @@ def test_manifest_content() -> None:
 
 def test_the_state_is_checked_and_the_code_returned() -> None:
     seen: dict[str, str] = {}
+    threads: list[threading.Thread] = []
 
     def browser(url: str) -> None:
         def run() -> None:
@@ -62,7 +63,8 @@ def test_the_state_is_checked_and_the_code_returned() -> None:
             seen["wrong"] = str(_get(f"{done}?code=evil&state=nope")[0])
             seen["redirect"] = _get(f"{done}?code=good&state={state}")[0]
 
-        threading.Thread(target=run).start()
+        threads.append(threading.Thread(target=run))
+        threads[-1].start()
 
     nxt = github_app.wait_for_code(
         host="github.com",
@@ -73,6 +75,9 @@ def test_the_state_is_checked_and_the_code_returned() -> None:
         ),
         on_code=lambda code: "http://127.0.0.1:1/install" if code == "good" else "bad",
     )
+    # wait_for_code returns once the server has answered; the browser thread
+    # records that answer only after, so read `seen` once it has finished.
+    threads[0].join(timeout=10)
     assert nxt == "http://127.0.0.1:1/install" and seen["wrong"] == "404"
     assert seen["redirect"] == 302
     assert "https://github.com/organizations/acme/settings/apps/new?state=" in seen["form"]
