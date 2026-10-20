@@ -365,17 +365,19 @@ The Full profile adds:
 * **OpenMetadata** for governance, catalog discovery and lineage
 * **Superset** for analytics dashboards
 
-If you currently have a Slim deployment, tear it down first:
-
-```bash
-olf destroy --provider local
-```
-
-Then set `preset: full` in `openlakeforge.yaml` and deploy:
+Set `preset: full` in `openlakeforge.yaml` and deploy:
 
 ```bash
 olf deploy --provider local
 ```
+
+This works on a running Slim deployment: `olf deploy` applies the change in
+place. Terraform adds OpenMetadata and Superset and leaves everything that is
+already deployed as it is, so there is nothing to tear down first. Setting
+`preset: slim` and deploying again removes the two services the same way.
+
+Starting on Slim and switching to Full later keeps the first install short:
+Full deploys and starts two more services.
 
 Validate it — the same profile file decides the topology for both commands,
 so they cannot disagree:
