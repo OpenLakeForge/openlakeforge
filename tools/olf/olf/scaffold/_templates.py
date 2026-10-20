@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from olf.scaffold._csv import InferredColumn
 from olf.scaffold._shared import yaml_dq
+from olf.superset import STAGE_NEUTRAL_SQLALCHEMY_URI
 
 _UUID_NAMESPACE = uuid.UUID("6f2f6c0a-6b0e-4c2a-8f1a-3f7a9e0b6f21")
 
@@ -312,7 +313,7 @@ defs = build_product_definitions(
 
 def render_superset_database_yaml() -> str:
     return f'''database_name: OpenLakeForge Trino
-sqlalchemy_uri: trino://superset@trino:8080/iceberg
+sqlalchemy_uri: {STAGE_NEUTRAL_SQLALCHEMY_URI}
 cache_timeout: null
 expose_in_sqllab: true
 allow_run_async: false
