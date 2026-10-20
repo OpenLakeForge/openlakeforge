@@ -220,6 +220,7 @@ def test_checks_a_reference_definition_wrapped_onto_the_next_line(tree: Path) ->
         ("  - label: Broken\n    items: 1\n", "sections[2]: `items` must be a list"),
         ("  - label: Outside\n    autogenerate: ../elsewhere\n", "autogenerate must be a path inside the repository"),
         ("  - label: Outside\n    items:\n      - /etc/notes.md\n", "an item must be a path inside the repository"),
+        ("  - label: Typo\n    autogenerate: 1\n", "autogenerate must be a path inside the repository: 1"),
     ],
 )
 def test_reports_a_malformed_manifest_instead_of_crashing(tree: Path, section: str, expected: str) -> None:

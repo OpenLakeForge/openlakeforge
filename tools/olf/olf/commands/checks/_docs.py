@@ -36,7 +36,6 @@ _INLINE_LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|((?:[^()\s<>]|\([^()\s]*\))*)
 _REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^<>\n]*)>|(\S+))")
 _OPEN_REFERENCE = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*$")
 _BLOCKQUOTE = re.compile(r"^\s{0,3}(?:>\s?)+")
-_HTML_COMMENT = re.compile(r"<!--.*?-->")
 # Quoted or bare values: HTML allows `<img src=chart.svg>`.
 _HTML_ATTRIBUTE = re.compile(r"""\b(src|href|srcset)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'=<>`]+))""", re.IGNORECASE)
 _EXPLICIT_ANCHOR = re.compile(
@@ -92,11 +91,10 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
             errors.append(f"{where}: needs a `label`")
             continue
         directory = section.get("autogenerate")
-        if isinstance(directory, str):
-            if _inside_repository(directory):
-                autogenerate.append(directory.rstrip("/"))
-            else:
-                errors.append(f"{where}: autogenerate must be a path inside the repository: {directory}")
+        if directory is not None and not (isinstance(directory, str) and _inside_repository(directory)):
+            errors.append(f"{where}: autogenerate must be a path inside the repository: {directory!r}")
+        elif isinstance(directory, str):
+            autogenerate.append(directory.rstrip("/"))
         items = section.get("items") or []
         if not isinstance(items, list):
             errors.append(f"{where}: `items` must be a list")
@@ -231,15 +229,7 @@ def _prose_lines(path: Path) -> list[tuple[int, str]]:
     in_comment = False
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if fence is None:
-            # HTML comment contents are raw HTML, never parsed as Markdown.
-            if in_comment:
-                end = line.find("-->")
-                if end < 0:
-                    continue
-                line, in_comment = line[end + 3 :], False
-            line = _HTML_COMMENT.sub("", line)
-            if "<!--" in line:
-                line, in_comment = line[: line.index("<!--")], True
+            line, in_comment = _strip_html_comments(line, in_comment)
         opener = _FENCE.match(line)
         # A fence closes only on the same character, at least as long as the
         # opener: a ```` block can show a ``` block inside it.
@@ -252,6 +242,29 @@ def _prose_lines(path: Path) -> list[tuple[int, str]]:
         if fence is None:
             lines.append((line_number, line))
     return lines
+
+
+def _strip_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    """Drop HTML comment contents, which are raw HTML and never parsed as Markdown.
+
+    Markers are looked for outside code spans, so prose showing `<!--` as code
+    does not hide the rest of the page.
+    """
+    masked = _CODE_SPAN.sub(lambda span: "\0" * len(span.group()), line)
+    kept: list[str] = []
+    position = 0
+    while position < len(line):
+        marker = "-->" if in_comment else "<!--"
+        found = masked.find(marker, position)
+        if found < 0:
+            if not in_comment:
+                kept.append(line[position:])
+            break
+        if not in_comment:
+            kept.append(line[position:found])
+        position = found + len(marker)
+        in_comment = not in_comment
+    return "".join(kept), in_comment
 
 
 def _resolve(root: Path, source: str, target: str) -> str | None:
