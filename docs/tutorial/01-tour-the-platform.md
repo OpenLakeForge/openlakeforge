@@ -101,7 +101,8 @@ Local OpenLakeForge full e2e validation passed.
   pipelines.
 - A data product is a Bronze, Silver and Gold chain with one
   `<product>_pipeline` job.
-- `olf e2e run` is the end-to-end check you will reuse after every change.
+- `olf e2e run` checks every deployed data product end to end; you will rerun
+  it after each change to a product.
 
 ## Next
 
