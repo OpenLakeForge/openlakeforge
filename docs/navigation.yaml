@@ -22,6 +22,8 @@ sections:
       - docs/tutorial/01-tour-the-platform.md
       - docs/tutorial/02-ingest-a-source.md
       - docs/tutorial/03-validate-into-silver.md
+      - docs/tutorial/04-model-gold-with-dbt.md
+      - docs/tutorial/05-orchestrate-and-schedule.md
   - label: Guides
     items:
       - docs/setup/github-oauth-app.md
