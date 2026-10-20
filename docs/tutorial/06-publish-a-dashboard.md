@@ -1,22 +1,45 @@
 # Publish a dashboard
 
-This lesson treats a dashboard as code: you change a chart in the Superset UI
+This lesson switches the project from Slim to the Full preset, which adds
+Superset, and treats a dashboard as code: you change a chart in the Superset UI
 and export it back into `lakehouse_code/`, where it is versioned like any other
 file.
 
-**You will** edit a demo dashboard in Superset and export it, in about 15
-minutes.
+**You will** turn on Superset, edit a demo dashboard and export it, in about
+20 minutes.
 
 **Start from** the project of [lesson 5](05-orchestrate-and-schedule.md): the
-`campaign_performance` product is deployed on the Full preset, which includes
-Superset, and the end-to-end run of lesson 5 filled every Gold mart. The
-dashboards in this lesson are the ones the demo project ships;
-`campaign_performance` has none yet.
+`campaign_performance` product is deployed on the Slim preset, and the
+end-to-end run of lesson 5 filled every Gold mart. The dashboards in this
+lesson are the ones the demo project ships; `campaign_performance` has none
+yet.
 
-The deploy imports every dashboard under `lakehouse_code/dashboards/superset/`
-into Superset in its artifacts phase, so they are already there.
+## 1. Switch to the Full preset
 
-## 1. Open Superset
+Set `preset: full` under `spec` in `openlakeforge.yaml`:
+
+```yaml
+spec:
+  provider:
+    type: local
+  preset: full
+```
+
+**Full** adds OpenMetadata (governance and lineage, lesson 7) and Superset
+(dashboards) to the Slim data path. The data path itself does not change.
+
+## 2. Deploy the change
+
+```bash
+olf deploy --provider local
+```
+
+`olf deploy` applies the change to the running deployment: Terraform adds
+OpenMetadata and Superset and leaves the data path, your product and its
+tables as they are. The deploy imports every dashboard under
+`lakehouse_code/dashboards/superset/` into Superset in its artifacts phase.
+
+## 3. Open Superset
 
 ```text
 http://superset-dev.olf.localhost
@@ -27,12 +50,12 @@ Open **Dashboards**: the project ships `Sales Customer Health`, `Sales Order
 Revenue` and `Supply Chain Inventory Reliability`, each reading the Gold marts
 of its product through the `OpenLakeForge Trino` database.
 
-## 2. Change a chart
+## 4. Change a chart
 
 Open `Sales Customer Health`, edit the chart `Health Score by Segment`, rename
 it `Health Score by Segment (edited)` and save it.
 
-## 3. Export the dashboard as code
+## 5. Export the dashboard as code
 
 Export the dashboard back into its bundle directory, which `olf report export`
 does for the stage you authored in:
@@ -78,8 +101,8 @@ stage-bound values, and prints:
 
 ## What you learned
 
-- The Full preset's Superset reads the Gold marts through Trino; the deploy
-  imports every dashboard bundle in the project.
+- `spec.preset: full` plus `olf deploy` adds Superset and OpenMetadata in place;
+  the deploy imports every dashboard bundle in the project.
 - Dashboards live in `lakehouse_code/dashboards/superset/<dashboard>/` and are
   declared in `lakehouse.yaml` with the products they read.
 - `olf report export` pulls UI edits into git; `olf report import` and `olf
