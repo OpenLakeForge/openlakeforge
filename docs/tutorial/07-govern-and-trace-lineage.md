@@ -8,8 +8,8 @@ project.
 in OpenMetadata and trace a Gold table back to Bronze, in about 15 minutes.
 
 **Start from** the project of [lesson 6](06-publish-a-dashboard.md): the Full
-preset is deployed and every product's job has run once (the end-to-end run in
-that lesson did it).
+preset is deployed and every product's job has run once (the end-to-end run of
+[lesson 5](05-orchestrate-and-schedule.md) did it).
 
 ## 1. Open OpenMetadata
 
