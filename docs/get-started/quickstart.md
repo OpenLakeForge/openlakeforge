@@ -12,7 +12,7 @@ Docker engine. It does not touch your own `~/.kube/config`.
 | You need | Check |
 | --- | --- |
 | A running Docker engine | `docker ps` succeeds |
-| [uv](https://docs.astral.sh/uv/) (or Python 3.12 and pip) | `uv --version` |
+| [uv](https://docs.astral.sh/uv/) | `uv --version` |
 | Ports 80 and 443 free on `127.0.0.1` | Nothing else serves `http://localhost` |
 
 Terraform, Helm, kubectl and kind are not prerequisites: `olf` provisions
