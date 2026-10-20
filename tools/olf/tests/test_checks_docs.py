@@ -177,3 +177,38 @@ def test_accepts_anchors_github_generates_around_taken_suffixes(tree: Path) -> N
     )
 
     assert _docs.docs_errors(tree) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# Docs\n\n<!-- [old](missing.md) -->\n",
+        "# Docs\n\n<!--\n[old](missing.md)\n-->\n",
+        "# Docs\n\nA note.[^1]\n\n[^1]: Additional context\n",
+    ],
+)
+def test_ignores_comments_and_footnotes(tree: Path, text: str) -> None:
+    _write(tree, {"docs/README.md": text})
+
+    assert _docs.docs_errors(tree) == []
+
+
+def test_accepts_angle_bracket_destinations_quoted_headings_and_entities(tree: Path) -> None:
+    _write(
+        tree,
+        {
+            "docs/README.md": (
+                "# Docs\n\n> ## Details\n\n## Research &amp; Development\n\n"
+                "[guide](<../tools/guide draft.md>), [details](#details), [r&d](#research--development)\n"
+            ),
+            "tools/guide draft.md": "# Draft\n",
+        },
+    )
+
+    assert _docs.docs_errors(tree) == []
+
+
+def test_checks_a_reference_definition_wrapped_onto_the_next_line(tree: Path) -> None:
+    _write(tree, {"docs/README.md": "# Docs\n\nSee [guide].\n\n[guide]:\n  missing.md\n"})
+
+    assert any("link target does not exist: missing.md" in error for error in _docs.docs_errors(tree))
