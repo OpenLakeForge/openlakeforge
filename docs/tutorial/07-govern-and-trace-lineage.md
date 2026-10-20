@@ -28,7 +28,7 @@ reads `lakehouse_code/lakehouse.yaml` and creates:
 | lakehouse.yaml | OpenMetadata |
 | --- | --- |
 | A domain such as `marketing` | A domain, shown as `Marketing` |
-| A product such as `campaign_performance` | A data product named `marketing_campaign_performance`, shown as `Campaign Performance`, inside that domain |
+| A product such as `campaign_performance` | A data product named `campaign_performance`, shown as `Campaign Performance`, inside that domain |
 
 In the left menu, open **Domains** and select `Marketing`. Its data product
 `Campaign Performance` is listed, with the description from `lakehouse.yaml`.
