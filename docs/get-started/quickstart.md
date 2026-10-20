@@ -105,8 +105,9 @@ olf destroy --provider local
 
 ## Next
 
-- [Build your first data product](../getting-started/first-data-product.md):
-  add a source, a contract and a Gold model of your own.
+- [Tutorial: Discover OpenLakeForge](../tutorial/01-tour-the-platform.md):
+  tour the platform, then add a source, a contract and a Gold model of your
+  own.
 - [Concepts](concepts.md): presets, stages, project revisions and roles.
 - [Local installation](../setup/local.md): pip installs, HTTPS, sign-in,
   troubleshooting.

@@ -18,8 +18,7 @@ A **source** is one system you ingest from, declared in
 tables a business area owns. A **data product** belongs to a domain, reads
 Silver tables and publishes Gold tables; each product gets one Dagster job,
 `<product>_pipeline`. `olf source new`, `olf domain new` and `olf product new`
-scaffold them. See
-[Build your first data product](../getting-started/first-data-product.md).
+scaffold them. See [Ingest a source](../tutorial/02-ingest-a-source.md).
 
 ## Descriptors
 
