@@ -105,8 +105,9 @@ It validates each domain's contract and generates its manifest. It prints one
 
 ## What you learned
 
-- `olf domain new` creates the Silver namespace and its Floe contract in one
-  step, inferring column types from the example CSV.
+- `olf domain new` declares the Silver namespace and writes its Floe contract
+  in one step, inferring column types from the example CSV. The next deploy
+  creates the namespace in the catalog.
 - Rows that satisfy the contract reach `marketing_silver.campaigns`; rows that
   do not are quarantined, not dropped and not mixed into Silver.
 - Silver is owned by the domain; products consume it.
