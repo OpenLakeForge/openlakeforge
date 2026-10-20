@@ -11,7 +11,7 @@ import html
 import re
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
 import typer
@@ -91,12 +91,23 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
         if not isinstance(section, dict) or not isinstance(section.get("label"), str):
             errors.append(f"{where}: needs a `label`")
             continue
-        if isinstance(section.get("autogenerate"), str):
-            autogenerate.append(section["autogenerate"].rstrip("/"))
-        for item in section.get("items") or []:
+        directory = section.get("autogenerate")
+        if isinstance(directory, str):
+            if _inside_repository(directory):
+                autogenerate.append(directory.rstrip("/"))
+            else:
+                errors.append(f"{where}: autogenerate must be a path inside the repository: {directory}")
+        items = section.get("items") or []
+        if not isinstance(items, list):
+            errors.append(f"{where}: `items` must be a list")
+            items = []
+        for item in items:
             page = item.get("path") if isinstance(item, dict) else item
             if not isinstance(page, str):
                 errors.append(f"{where}: an item must be a path or a mapping with `path`")
+                continue
+            if not _inside_repository(page):
+                errors.append(f"{where}: an item must be a path inside the repository: {page}")
                 continue
             pages.append(page)
             if isinstance(item, dict) and isinstance(item.get("slug"), str):
@@ -105,7 +116,18 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
     if not isinstance(exclude, list) or not all(isinstance(entry, str) for entry in exclude):
         errors.append(f"{MANIFEST}: `exclude` must be a list of paths")
         exclude = []
+    errors.extend(
+        f"{MANIFEST}: exclude must name paths inside the repository: {entry}"
+        for entry in exclude
+        if not _inside_repository(entry)
+    )
     return _Manifest(tuple(pages), slugs, tuple(autogenerate), tuple(exclude)), errors
+
+
+def _inside_repository(path: str) -> bool:
+    """A repository-relative path: the site syncs only files from the release tag."""
+    parts = PurePosixPath(path).parts
+    return bool(parts) and not path.startswith(("/", "\\")) and ".." not in parts and ":" not in parts[0]
 
 
 def _published_pages(root: Path, manifest: _Manifest) -> list[str]:
