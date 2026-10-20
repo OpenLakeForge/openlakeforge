@@ -2,7 +2,7 @@
 
 **An open-source lakehouse platform for small data teams — self-hosted, modular, and designed to run anywhere.**
 
-[![Release](https://img.shields.io/github/v/release/OpenLakeForge/openlakeforge?include_prereleases)](/releases)  
+[![Release](https://img.shields.io/github/v/release/OpenLakeForge/openlakeforge?include_prereleases)](https://github.com/OpenLakeForge/openlakeforge/releases)  
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](/LICENSE)  
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](/docs/release/releasing.md#lifecycle-stages)
 
@@ -79,34 +79,11 @@ olf init                      # writes openlakeforge.yaml and lakehouse_code/
 olf deploy --provider local   # builds the kind cluster and the whole platform
 ```
 
-Open the services and run the example data products end to end:
-
-```bash
-olf status --provider local   # lists every service URL, e.g. http://dagster-dev.olf.localhost
-olf e2e run --env local --suite full
-```
-
-The default profile serves plain HTTP on `*.olf.localhost` (Dagster at
-`http://dagster-dev.olf.localhost`, the portal at `http://olf.localhost`), so
-there is no certificate step. To sign in with GitHub, or to serve HTTPS, see
-[Access OpenLakeForge](docs/setup/local.md#access-openlakeforge).
-
-The first deploy takes several minutes while Kubernetes and the container
-images download. Tear it down with `olf destroy --provider local`.
-
-Authentication is off by default locally; add `spec.identity` to turn it on.
-With it off, Superset opens as Admin and OpenMetadata keeps its
-`admin@open-metadata.org` / `admin` login (shown by `olf status`); with the Dex issuer on, OpenMetadata signs people in through it instead. A profile
-without `spec.identity` is accepted only for `provider: local` on `*.localhost`.
-
-**What you get:** a local lakehouse with three example data products already
-wired end to end, `sales/order_revenue`, `sales/customer_health` and
-`supply_chain/inventory_reliability`. Each one loads CSV files into Bronze,
-validates them into Silver and builds Gold marts. Open Dagster to see the
-asset graph and launch the pipelines; query the results through Trino.
-
-The [local installation guide](/docs/setup/local.md) covers the rest: `pip`
-installs, toolchain modes, empty projects and access troubleshooting.
+Then open the portal at `http://olf.localhost`, run an example data product in
+Dagster and check it end to end: the
+[Quickstart](docs/get-started/quickstart.md) walks through each step. New to
+the vocabulary? Read the [Introduction](docs/get-started/introduction.md) and
+[Concepts](docs/get-started/concepts.md).
 
 ### Your project
 

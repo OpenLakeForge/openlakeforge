@@ -200,6 +200,28 @@ over prose for anything enumerable. No plain box-and-arrow Mermaid flowcharts â€
 the architecture charts use the Kubernetes-icon SVG toolkit in
 `docs/architecture/diagrams/src/`; sequence diagrams are fine.
 
+**Published docs.** openlakeforge.dev renders the pages listed in
+`docs/navigation.yaml`, synced from a release tag. `olf check docs` fails
+when a Markdown file under `docs/` is neither listed nor excluded there, or
+when a relative link or `#anchor` does not resolve. So a page that moves
+updates the manifest and every link to it in the same change. Pages follow
+these rules so they read the same on GitHub and on the site:
+
+- One `# ` title per page. The first paragraph says what the page is for in
+  one or two sentences; the site uses it as the search snippet.
+- Relative links between docs, never GitHub URLs to files in this repository.
+- Charts as `-light.svg` / `-dark.svg` pairs in `docs/assets/`, embedded with
+  `<picture>`.
+- Callouts as GitHub alerts (`> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`).
+- No emoji in headings; numbered lists for procedures.
+- Every command block is copy-pasteable and runs as written.
+- A tutorial lesson opens with *You will* (with a time) and *Start from* (the
+  project state it expects), and ends with *Check it worked* (one command and
+  its output, or a browser procedure when the outcome is a person's access),
+  *What you learned* and *Next*. Lessons 1 and 8 may start from a fresh
+  `olf init` (lesson 8 with `--preset full`, for Superset); every other
+  lesson continues the previous one.
+
 **Commits.** `type: subject`, imperative, lowercase after the colon. Types in
 use: `feat`, `fix`, `docs`, `refactor`, `chore`. The body explains why.
 
