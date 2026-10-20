@@ -114,4 +114,5 @@ It validates each domain's contract and generates its manifest. It prints one
 
 ## Next
 
-Model Gold with dbt (lesson 4): build a business mart on top of Silver.
+[Model Gold with dbt](04-model-gold-with-dbt.md): build a business mart on top
+of Silver.
