@@ -12,6 +12,9 @@ sections:
   - label: Get started
     items:
       - docs/README.md
+      - docs/get-started/introduction.md
+      - docs/get-started/quickstart.md
+      - docs/get-started/concepts.md
       - docs/setup/local.md
       - docs/getting-started/first-data-product.md
   - label: Guides
