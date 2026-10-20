@@ -160,7 +160,7 @@ class GitHubApp:
 
 
 def install_url(host: str, slug: str) -> str:
-    return f"https://{host}/apps/{slug}/installations/new"
+    return f"https://{host}/{'apps' if host == 'github.com' else 'github-apps'}/{slug}/installations/new"  # GHES path
 
 
 def open_browser(url: str, *, no_browser: bool = False) -> None:

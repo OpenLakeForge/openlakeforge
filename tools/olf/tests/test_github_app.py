@@ -254,3 +254,8 @@ def test_open_browser_uses_explorer_on_wsl_and_webbrowser_elsewhere(
     opened.clear()
     github_app.open_browser("http://127.0.0.1:1/", no_browser=True)
     assert opened == []
+
+
+def test_install_url_uses_the_enterprise_path_on_a_custom_host() -> None:
+    assert github_app.install_url("github.com", "olf") == "https://github.com/apps/olf/installations/new"
+    assert github_app.install_url("ghe.acme.io", "olf") == "https://ghe.acme.io/github-apps/olf/installations/new"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import tarfile
@@ -700,6 +701,19 @@ def test_a_github_app_created_before_the_foundation_is_stored_once_the_namespace
         github_app=app,
     )
     assert stored == [app]
+
+
+def test_the_app_secret_is_read_back_from_kubectl_json_and_empty_without_an_app_id(tmp_path: Path) -> None:
+    def enc(value: str) -> str:
+        return base64.b64encode(value.encode()).decode()
+
+    data = {"app-id": enc("7"), "app-slug": enc("olf"), "private-key": enc("pem"), "client-id": enc("cid")}
+    out = json.dumps({"kind": "Secret", "data": data})
+    read = platform.read_github_app_secret(_github_config(tmp_path), _toolkit(_SecretRunner(keys=out)), env={})
+    assert read == {"app-id": "7", "app-slug": "olf", "private-key": "pem"}
+
+    legacy = json.dumps({"data": {"client-id": enc("cid")}})
+    assert platform.read_github_app_secret(_github_config(tmp_path), _toolkit(_SecretRunner(keys=legacy)), env={}) == {}
 
 
 def test_a_present_github_secret_is_never_overwritten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

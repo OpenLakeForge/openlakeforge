@@ -144,7 +144,8 @@ class LocalProvider:
     def platform_up(self) -> None:
         from olf.deployment.local import platform
 
-        self.before_deploy()
+        if self.config.paths.foundation_state_path.is_file():  # else platform_up refuses; do not spend the App first
+            self.before_deploy()
         platform.platform_up(self.config, self.tools, env=self.env, github_app=self._github_app)
 
     def platform_down(self) -> None:

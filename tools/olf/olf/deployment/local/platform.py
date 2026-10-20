@@ -128,9 +128,9 @@ def _read_github_secret(config: LocalDeploymentConfig, tools: Toolkit, *, env: M
 def read_github_app_secret(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> dict[str, str]:
     """The decoded `app-id`, `app-slug` and `private-key` of a GitHub App Secret; empty when any is absent (a
     hand-made OAuth App, or a Secret from before they were stored) or unreadable."""
-    result = _read_github_secret(config, tools, env=env, output="jsonpath={.data}")
+    result = _read_github_secret(config, tools, env=env, output="json")
     try:
-        data = {key: base64.b64decode(json.loads(result.stdout)[key]).decode() for key in _APP_SECRET_KEYS}
+        data = {key: base64.b64decode(json.loads(result.stdout)["data"][key]).decode() for key in _APP_SECRET_KEYS}
     except (ValueError, KeyError, TypeError):
         return {}
     return data if result.ok else {}
