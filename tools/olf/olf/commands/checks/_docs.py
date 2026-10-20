@@ -95,7 +95,9 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
             errors.append(f"{where}: autogenerate must be a path inside the repository: {directory!r}")
         elif isinstance(directory, str):
             autogenerate.append(directory.rstrip("/"))
-        items = section.get("items") or []
+        items = section.get("items", [])
+        if items is None:
+            items = []
         if not isinstance(items, list):
             errors.append(f"{where}: `items` must be a list")
             items = []
@@ -108,8 +110,11 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
                 errors.append(f"{where}: an item must be a path inside the repository: {page}")
                 continue
             pages.append(page)
-            if isinstance(item, dict) and isinstance(item.get("slug"), str):
-                slugs[page] = item["slug"].strip("/")
+            if isinstance(item, dict) and "slug" in item:
+                if isinstance(item["slug"], str):
+                    slugs[page] = item["slug"].strip("/")
+                else:
+                    errors.append(f"{where}: `slug` must be a string: {page}")
     exclude = document.get("exclude") or []
     if not isinstance(exclude, list) or not all(isinstance(entry, str) for entry in exclude):
         errors.append(f"{MANIFEST}: `exclude` must be a list of paths")
