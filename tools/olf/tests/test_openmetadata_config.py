@@ -273,6 +273,7 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(project))
     monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution))
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)
+    monkeypatch.setattr(k8s, "configmap_data", lambda *_args: None)
 
     @contextmanager
     def _port_forward(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
@@ -306,6 +307,7 @@ def test_openmetadata_command_reports_configuration_errors(
     from olf.commands import openmetadata as command
 
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)
+    monkeypatch.setattr(k8s, "configmap_data", lambda *_args: None)
 
     @contextmanager
     def _port_forward(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202

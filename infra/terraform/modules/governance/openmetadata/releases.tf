@@ -68,13 +68,16 @@ resource "helm_release" "openmetadata" {
     # The JVM does not read the system CA store, so a copy of its cacerts with
     # the local CA added is built before the server (and its migration) start.
     # OpenMetadata reaches the issuer's discovery, token and keys URLs with it.
-    # The provider itself is switched by the bootstrap job, not here (main.tf).
+    # The provider itself is switched by `olf openmetadata deploy-metadata`, not here (main.tf).
     yamlencode({
       extraVolumes = [
         { name = "olf-oidc-ca", configMap = { name = var.oidc.ca_configmap_name } },
         { name = "olf-java-trust", emptyDir = {} },
       ]
-      extraVolumeMounts = [{ name = "olf-java-trust", mountPath = "/etc/olf/java-trust", readOnly = true }]
+      extraVolumeMounts = [
+        { name = "olf-java-trust", mountPath = "/etc/olf/java-trust", readOnly = true },
+        { name = "olf-oidc-ca", mountPath = "/etc/olf/oidc-ca", readOnly = true }, # olf's issuer probe
+      ]
       extraEnvs = [{
         name  = "JAVA_TOOL_OPTIONS"
         value = "-Djavax.net.ssl.trustStore=/etc/olf/java-trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit"

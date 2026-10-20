@@ -17,11 +17,16 @@ in the design below:
   `authenticationConfiguration` and `authorizerConfiguration` from the environment
   only when the database has none, and `SecurityConfigurationManager` reads the
   database first. Helm values cannot switch an existing install to SSO. The
-  bootstrap Job therefore applies SSO through `PUT /api/v1/system/security/config`
-  as its last step (the server reloads without a restart), and the release stays
-  `provider: basic`. This replaces "install with basic, then upgrade the release
-  to custom-oidc" (decision 6); the client secret is added by the Job from its
-  Secret reference, so it is neither in Helm values nor in Terraform state.
+  `olf openmetadata deploy-metadata` therefore applies SSO through
+  `PUT /api/v1/system/security/config` in the dynamic phase, once the issuer's
+  discovery URL answers from inside the cluster (its host resolves only after
+  Traefik exists, and the server never retries a failed discovery, #432), then
+  restarts the server so the handler is built from the stored configuration. The
+  release stays `provider: basic`. This replaces "install with basic, then
+  upgrade the release to custom-oidc" (decision 6); Terraform publishes the
+  configuration in the ConfigMap `openmetadata-sso-config` without the client
+  secret, which `olf` adds from its Secret reference, so it is neither in Helm
+  values nor in Terraform state.
 - **Automation identity.** While basic login still works the Job creates an
   admin bot `olf-automation` and stores its JWT in the Secret
   `openmetadata-automation-bot` (key `OPENMETADATA_AUTOMATION_JWT`). Later Job runs,
