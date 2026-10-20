@@ -115,7 +115,9 @@ def _load_manifest(root: Path) -> tuple[_Manifest | None, list[str]]:
                     slugs[page] = item["slug"].strip("/")
                 else:
                     errors.append(f"{where}: `slug` must be a string: {page}")
-    exclude = document.get("exclude") or []
+    exclude = document.get("exclude", [])
+    if exclude is None:
+        exclude = []
     if not isinstance(exclude, list) or not all(isinstance(entry, str) for entry in exclude):
         errors.append(f"{MANIFEST}: `exclude` must be a list of paths")
         exclude = []

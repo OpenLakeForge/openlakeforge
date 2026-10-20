@@ -230,3 +230,9 @@ def test_reports_a_malformed_manifest_instead_of_crashing(tree: Path, section: s
     _write(tree, {"docs/navigation.yaml": manifest})
 
     assert any(expected in error for error in _docs.docs_errors(tree))
+
+
+def test_rejects_a_falsey_exclude_that_is_not_a_list(tree: Path) -> None:
+    _write(tree, {"docs/navigation.yaml": MANIFEST.replace("exclude:\n  - docs/internal/\n", "exclude: false\n")})
+
+    assert "docs/navigation.yaml: `exclude` must be a list of paths" in _docs.docs_errors(tree)
