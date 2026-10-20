@@ -63,14 +63,16 @@ docker login ghcr.io                     # or docker.io
 ## 3. Build the revision once
 
 ```bash
-olf project image -f openlakeforge.yaml
+IMAGE="$(olf project image -f openlakeforge.yaml)"
 ```
 
 It builds the project-code image, pushes it, loads it into kind and prints a
-digest-pinned reference, `<repository>@sha256:<digest>`. Pass it to the build:
+digest-pinned reference, `<repository>@sha256:<digest>`, which `IMAGE` now
+holds. Build the revision from it:
 
 ```bash
-olf project build --project . --image <repository>@sha256:<digest>
+REVISION="$(olf project build --project . --image "$IMAGE")"
+echo "$REVISION"
 ```
 
 It prints the revision id, `sha256:<rev>`. The revision freezes your
@@ -80,8 +82,8 @@ digest.
 ## 4. Activate it in DEV, then in PROD
 
 ```bash
-olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<rev>
-olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<rev>
+olf project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
+olf project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
 ```
 
 Activation reconciles the stage's catalog namespaces, activates its Floe
@@ -127,11 +129,15 @@ env:
 jobs:
   build:
     runs-on: [self-hosted, olf-platform]  # the machine that ran olf platform apply
+    permissions:
+      contents: read
+      packages: write  # push the project-code image to GHCR
     outputs:
       revision: ${{ steps.build.outputs.revision }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - id: build
         uses: OpenLakeForge/openlakeforge/.github/actions/build-revision@v0.4.0-alpha.1
         with:

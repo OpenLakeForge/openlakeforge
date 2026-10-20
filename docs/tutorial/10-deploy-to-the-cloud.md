@@ -12,8 +12,10 @@ cluster.
 **Start from** the project of [lesson 9](09-add-prod-and-promote.md). Your
 `lakehouse_code/` does not change: only the Deployment Profile and the
 provider do. You need `docker` and `python3` on your `PATH` and permission to
-create a VPC, an EKS cluster, an ECR registry, IAM roles, RDS and S3 in the
-account. `olf` provisions its own Terraform, Helm and kubectl.
+create a VPC, an EKS cluster, an ECR registry, IAM roles, RDS, S3 and AWS Glue
+databases in the account. `olf` provisions its own Terraform, Helm and
+kubectl. You also need an OpenID Connect issuer your organisation already runs,
+because a cloud deployment always requires sign-in.
 
 > [!WARNING]
 > This creates billable AWS resources. It is a proof of concept, not a
@@ -21,17 +23,30 @@ account. `olf` provisions its own Terraform, Helm and kubectl.
 
 ## 1. Point the profile at AWS
 
-In `openlakeforge.yaml`, set the provider and its region, and remove the
-local-only plain-HTTP setting:
+In `openlakeforge.yaml`, set the provider and the region to deploy to, remove
+the local-only plain-HTTP setting, and turn on sign-in:
 
 ```yaml
 spec:
   provider:
     type: aws
     region: eu-west-1
+  identity:
+    issuer: external
+    issuer_url: https://login.example.com/
+    role_claim: groups
+    role_mapping:
+      platform-admin: [olf-admins]
 ```
 
-Delete the `access:` block (`issuer: none` is for `provider: local` only).
+- `region` decides where everything is created. To use another region, change
+  it here.
+- Delete the `access:` block: `issuer: none` is for `provider: local` only.
+- `identity` replaces any `spec.identity` from lesson 8. Set `issuer_url` to
+  your organisation's OIDC issuer, `role_claim` to the token claim that holds
+  group names, and `role_mapping` to the groups that get each role. A profile
+  without `spec.identity` is accepted only for `provider: local`.
+
 Check the profile:
 
 ```bash
@@ -62,10 +77,17 @@ cp "$DIST/infra/terraform/foundations/aws-eks/sandbox.tfvars.example" sandbox.tf
 export AWS_TFVARS_FILE="$(pwd)/sandbox.tfvars"
 ```
 
-The defaults (region `eu-west-1`, cluster `limited-eks-openlakeforge-poc`,
-node type `m7i.large`) can be overridden with `AWS_REGION`,
-`AWS_CLUSTER_NAME` and `AWS_NODE_INSTANCE_TYPES`; see [Deploy to
-AWS](../setup/aws.md) for the full list.
+The defaults (cluster `limited-eks-openlakeforge-poc`, node type
+`m7i.large`) can be overridden with `AWS_CLUSTER_NAME` and
+`AWS_NODE_INSTANCE_TYPES`; see [Deploy to AWS](../setup/aws.md) for the full
+list. The region comes from `spec.provider.region` in the profile.
+
+The cloud pushes your project image to the ECR registry it creates, so clear
+the local registry settings from lesson 9 if this shell still has them:
+
+```bash
+unset PROJECT_CODE_IMAGE_REPOSITORY PROJECT_CODE_IMAGE_TAG
+```
 
 ## 4. Deploy
 
