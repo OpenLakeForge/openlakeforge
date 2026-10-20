@@ -26,6 +26,8 @@ sections:
       - docs/tutorial/05-orchestrate-and-schedule.md
       - docs/tutorial/06-publish-a-dashboard.md
       - docs/tutorial/07-govern-and-trace-lineage.md
+      - docs/tutorial/09-add-prod-and-promote.md
+      - docs/tutorial/10-deploy-to-the-cloud.md
   - label: Guides
     items:
       - docs/setup/github-oauth-app.md
