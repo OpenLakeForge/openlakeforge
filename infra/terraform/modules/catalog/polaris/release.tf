@@ -22,23 +22,67 @@ resource "kubernetes_secret_v1" "bootstrap_credentials" {
 # Polaris signs the OAuth tokens it issues. Without a configured key the chart
 # generates an in-memory one on every start, so a restart invalidates every
 # token Trino (and other clients) hold and writes fail until Trino restarts.
-resource "random_password" "token_broker_key" {
-  length  = 64
-  special = false
+# The key is created in-cluster, only if missing, so Terraform never holds the
+# value (#181, docs/architecture/identity-credentials.md) and a redeploy does
+# not rotate it. Rotation is deleting the Secret and re-running the Job.
+locals {
+  token_broker_secret = "${var.release_name}-token-broker"
+  token_broker_script = <<-SH
+    if kubectl get secret "${local.token_broker_secret}" -n "$NAMESPACE" >/dev/null 2>&1; then
+      echo "Secret ${local.token_broker_secret} exists; keeping it"
+    else
+      kubectl create secret generic "${local.token_broker_secret}" -n "$NAMESPACE" \
+        --from-literal=symmetric.key="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
+    fi
+  SH
 }
 
-resource "kubernetes_secret_v1" "token_broker" {
+resource "kubernetes_job_v1" "token_broker_key" {
   metadata {
-    name      = "${var.release_name}-token-broker"
+    name      = "polaris-token-key-${substr(sha256(local.token_broker_script), 0, 10)}"
     namespace = var.namespace
     labels    = local.labels
   }
 
-  data = {
-    "symmetric.key" = random_password.token_broker_key.result
+  spec {
+    backoff_limit = 3
+
+    template {
+      metadata {
+        labels = merge(local.labels, { "openlakeforge.io/job" = "polaris-token-key" })
+      }
+
+      spec {
+        restart_policy       = "Never"
+        service_account_name = kubernetes_service_account_v1.bootstrap.metadata[0].name
+
+        container {
+          name    = "token-key"
+          image   = var.bootstrap_job_image
+          command = ["/bin/sh", "-ec"]
+          args    = [local.token_broker_script]
+
+          env {
+            name = "NAMESPACE"
+            value_from {
+              field_ref {
+                field_path = "metadata.namespace"
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
-  type = "Opaque"
+  wait_for_completion = true
+
+  timeouts {
+    create = "5m"
+    update = "5m"
+  }
+
+  depends_on = [kubernetes_role_binding_v1.bootstrap]
 }
 
 locals {
@@ -56,6 +100,8 @@ resource "helm_release" "polaris" {
 
   wait    = true
   timeout = 300
+
+  depends_on = [kubernetes_job_v1.token_broker_key]
 
   values = [
     file(var.base_values_file),
@@ -75,7 +121,7 @@ resource "helm_release" "polaris" {
         tokenBroker = {
           type = "symmetric-key"
           secret = {
-            name = kubernetes_secret_v1.token_broker.metadata[0].name
+            name = local.token_broker_secret
             symmetricKey = {
               secretKey = "symmetric.key"
             }

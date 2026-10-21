@@ -30,6 +30,8 @@ MIN_VALUE_LENGTH = 16
 # does not carry (docs/architecture/identity-credentials.md).
 COOKIE_SECRET = ("oauth2-proxy-cookie", "cookie-secret")
 TRINO_INTERNAL_SECRET = ("trino-internal-secret", "internal-communication.shared-secret")
+# Created in-cluster by the Polaris module: "<release>-token-broker", release "polaris".
+POLARIS_TOKEN_KEY_SECRET = ("polaris-token-broker", "symmetric.key")
 TRINO_CREDENTIAL_PREFIX = "trino-credential-"
 LOG_TAIL_LINES = 2000
 
@@ -99,7 +101,7 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
     # An external issuer's client Secrets are operator-provided, so they may be absent or short; without an
     # issuer the Trino credentials are still deployed and scanned.
     found: dict[str, str] = {}
-    for name, key in [COOKIE_SECRET, *clients, *_trino_secret_refs(cfg)]:
+    for name, key in [COOKIE_SECRET, POLARIS_TOKEN_KEY_SECRET, *clients, *_trino_secret_refs(cfg)]:
         try:
             value = read(name, key)
         except k8s.KubectlError:
