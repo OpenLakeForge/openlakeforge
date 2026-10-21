@@ -187,7 +187,7 @@ def check_trino_write(cfg: E2EConfig) -> None:
     """Create and drop a scratch Iceberg table through the long-lived Trino coordinator."""
     catalog = stage_catalog_name(cfg)
     schema = f"{_glue_namespace_prefix(cfg)}{sorted(cfg.inventory.gold_namespace_names)[0]}"
-    table = f"{catalog}.{schema}.olf_restart_probe"
+    table = f"{catalog}.{schema}.zz_olf_e2e_restart_probe_do_not_use"
     trino_query(cfg, f"DROP TABLE IF EXISTS {table}")
     trino_query(cfg, f"CREATE TABLE {table} AS SELECT 1 AS probe")
     trino_query(cfg, f"DROP TABLE {table}")

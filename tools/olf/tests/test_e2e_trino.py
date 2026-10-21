@@ -169,12 +169,20 @@ def test_check_trino_write_creates_then_drops_a_scratch_table(monkeypatch: pytes
     _trino.check_trino_write(e2e_cfg(tmp_path))
 
     assert [s.split(" ")[0] for s in sql] == ["DROP", "CREATE", "DROP"]
-    assert all("olf_restart_probe" in s for s in sql)
+    assert all("zz_olf_e2e_restart_probe_do_not_use" in s for s in sql)
 
 
 def test_polaris_token_key_is_configured_from_a_stable_secret() -> None:
     """#412: without it Polaris signs tokens with a per-start key and a restart voids Trino's token."""
-    release = (Path(__file__).parents[3] / "infra/terraform/modules/catalog/polaris/release.tf").read_text()
-    assert 'type = "symmetric-key"' in release
-    assert "kubernetes_secret_v1.token_broker.metadata[0].name" in release
-    assert 'resource "random_password" "token_broker_key"' in release
+    import hcl2
+
+    path = Path(__file__).parents[3] / "infra/terraform/modules/catalog/polaris/release.tf"
+    doc = hcl2.loads(path.read_text())
+    resources = {(k.split(".")[0], n): v for r in doc["resource"] for k, blocks in r.items() for n, v in blocks.items()}
+    secret = resources[("kubernetes_secret_v1", "token_broker")]
+    assert "symmetric.key" in secret["data"]
+    values = str(resources[("helm_release", "polaris")]["values"])
+    # The yamlencode() body, as HCL text: tokenBroker must nest type + secret.name + symmetricKey.secretKey.
+    assert "tokenBroker" in values and "symmetric-key" in values
+    assert "kubernetes_secret_v1.token_broker.metadata[0].name" in values
+    assert "symmetricKey" in values and "symmetric.key" in values
