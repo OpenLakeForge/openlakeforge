@@ -120,7 +120,13 @@ line in `databases/openlakeforge_trino.yaml` back to:
 sqlalchemy_uri: trino://superset@trino:8080/iceberg
 ```
 
-Then declare the dashboard in `lakehouse.yaml` as shown above if it is new.
+Then declare the new dashboard in `lakehouse.yaml`, next to the demo ones:
+
+```yaml
+dashboards:
+  - name: campaign_summary
+    products: [campaign_summary]
+```
 
 ## 5. Import a bundle
 

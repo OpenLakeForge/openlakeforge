@@ -70,6 +70,7 @@ hand, copying an entity from the same contract for the Floe part:
 | `lakehouse_code/silver/marketing/contracts/floe/marketing.yml` | An `ad_groups` entity, with its columns, under `entities` |
 | `lakehouse_code/gold/<product>/dbt/models/sources.yml` | `- name: ad_groups` under the `silver` source tables |
 | `lakehouse_code/pipelines/dagster/<product>.py` | `"ad_groups"` in the Silver inputs tuple and `("marketing_platform", "ad_groups")` in `bronze_inputs` |
+| `lakehouse_code/gold/<product>/dbt/models/gold/<mart>.sql` | A read of `{{ source('silver', 'ad_groups') }}` in the mart that should use it; until a model reads it, the product stages the table but its Gold output ignores it |
 
 A domain has exactly one Floe contract, `<domain>.yml`. Never add a second one.
 

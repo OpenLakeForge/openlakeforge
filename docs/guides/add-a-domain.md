@@ -43,7 +43,9 @@ to a product.
 ## 2. Read the contract
 
 `marketing.yml` holds the storage definitions and one entity per Silver table.
-This is the `campaigns` entity:
+This is an excerpt of the `campaigns` entity; the generated file also sets the
+CSV `source.options` and `schema.normalize_columns`, which control how the
+file is parsed and its column names normalized:
 
 ```yaml
 entities:

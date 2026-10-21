@@ -35,9 +35,11 @@ Every identifier matches `^[a-z][a-z0-9_]*$`: lowercase letters, digits and
 underscores, starting with a letter. A product id is unique across the whole
 lakehouse. A domain has exactly one Floe contract; never add a
 product-specific one under it. `olf source new`, `olf domain new` and
-`olf product new` create these pieces already aligned, and `olf check
-contracts` rejects a descriptor with an invalid identifier, a duplicate
-product or an unresolved source reference.
+`olf product new` create these pieces already aligned. `olf check contracts`
+rejects a descriptor with an invalid identifier or a duplicate product. It
+reads each descriptor on its own, so a Silver table naming a source that does
+not exist passes it; `olf check project-code` loads the whole inventory and
+catches that.
 
 ## What OpenLakeForge derives
 
