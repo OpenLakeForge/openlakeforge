@@ -24,8 +24,11 @@ locals {
     "${local.oidc_prefix}.jwks-url=${var.web_ui_oidc.issuer_url}/keys",
     "${local.oidc_prefix}.client-id=${var.web_ui_oidc.client_id}",
     "${local.oidc_prefix}.client-secret=$${ENV:TRINO_OIDC_CLIENT_SECRET}",
-    # Dex puts `email` in a token only when the scope asks for it.
-    "${local.oidc_prefix}.scopes=openid,email",
+    # Dex puts `email` in a token only when the scope asks for it, and issues a
+    # refresh token only for `offline_access`; without both the Web UI session
+    # ends with the five-minute Dex token.
+    "${local.oidc_prefix}.scopes=openid,email,offline_access",
+    "${local.oidc_prefix}.refresh-tokens=true",
     "${local.oidc_prefix}.principal-field=email",
     # The issuer's certificate is signed by the local CA. This HTTP client
     # fetches the signing keys and exchanges the code; it is separate from the

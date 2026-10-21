@@ -54,7 +54,8 @@ def test_dex_issuer_renders_oauth2_ui_with_a_secret_reference_only(tmp_path: Pat
     assert properties[f"{prefix}.jwks-url"] == "https://auth.example.test/keys"
     assert properties[f"{prefix}.client-id"] == "trino"
     assert properties[f"{prefix}.principal-field"] == "email"
-    assert "email" in properties[f"{prefix}.scopes"].split(",")
+    assert {"email", "offline_access"} <= set(properties[f"{prefix}.scopes"].split(","))
+    assert properties[f"{prefix}.refresh-tokens"] == "true"
     assert properties["oauth2-jwk.http-client.trust-store-path"] == "/etc/trino/tls/ca.crt"
     # The secret reaches Trino through the environment, never as a literal value.
     assert properties[f"{prefix}.client-secret"] == "${ENV:TRINO_OIDC_CLIENT_SECRET}"
