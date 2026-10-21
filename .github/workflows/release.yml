@@ -9,7 +9,7 @@ name: Release
 #                                     at any time to prove the pipeline works.
 #
 # See docs/release/releasing.md for the consumer verification commands and
-# docs/release/compatibility-matrix.md for the published compatibility matrix.
+# docs/reference/compatibility-matrix.md for the published compatibility matrix.
 
 on:
   push:
