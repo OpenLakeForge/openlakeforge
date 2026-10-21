@@ -45,11 +45,33 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 ## Development
 
+Run these commands from the repository root.
+
+Install the CLI development dependencies:
+
 ```sh
 uv sync --project tools/olf
-uv run --project tools/olf pytest
-uv run --project tools/olf ruff check tools/olf
 ```
 
-Make is optional, deprecated checkout compatibility. Its targets are one-line
-delegates to the same commands and are not the supported product interface.
+Run a focused CLI unit test:
+
+```sh
+uv run --project tools/olf pytest tools/olf/tests/test_cli_contracts.py
+```
+
+Run Ruff on the CLI Python package:
+
+```sh
+uv run --project tools/olf ruff check tools/olf/olf
+```
+
+Before opening a pull request, run all required checks:
+
+```sh
+uv run --project tools/olf olf check all
+uv run --project tools/olf ruff check tools/olf
+uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf
+uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
+```
+
+CLI unit tests can run locally without deploying the platform. Some integration tests may require additional services or infrastructure. The repository's supported development environments are Linux and macOS.
