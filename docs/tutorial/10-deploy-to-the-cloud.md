@@ -110,8 +110,8 @@ olf deploy --provider aws --phase artifacts    # build and push images, upload F
 ```
 
 `olf deploy --provider aws` with no `--phase` runs all three. The cloud has no
-public ingress or DNS: reach the services by port-forwarding them to your
-machine, and leave this running in a second terminal:
+public ingress or DNS. To open the services in a browser, port-forward them to
+your machine; it keeps running until you stop it with Ctrl+C:
 
 ```bash
 olf forward --provider aws
@@ -119,7 +119,8 @@ olf forward --provider aws
 
 ## Check it worked
 
-With `olf forward` running, from the first terminal:
+Stop `olf forward` first: run one `olf` command at a time. The suite opens its
+own port-forwards:
 
 ```bash
 olf e2e run --env aws
@@ -153,10 +154,13 @@ size, export `AZURE_TFVARS_FILE`, then:
 
 ```bash
 olf deploy --provider azure
-olf forward --provider azure
 olf e2e run --env azure
 olf destroy --provider azure
 ```
+
+To open the services in a browser between the deploy and the teardown, run
+`olf forward --provider azure` and stop it with Ctrl+C before the next `olf`
+command.
 
 See [Deploy to Azure](../setup/azure.md).
 

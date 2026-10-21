@@ -105,9 +105,9 @@ olf deploy --provider azure
 
 It runs the foundation (AKS, ACR, resource group resources), the platform and
 the artifacts phases in order. To run them one at a time, add
-`--phase foundation`, `--phase platform` or `--phase artifacts`. The cloud has no
-public ingress or DNS: reach the services by port-forwarding them, and leave
-this running in a second terminal:
+`--phase foundation`, `--phase platform` or `--phase artifacts`. The cloud has
+no public ingress or DNS. To open the services in a browser, port-forward them
+to your machine; it keeps running until you stop it with Ctrl+C:
 
 ```bash
 olf forward --provider azure
@@ -115,7 +115,8 @@ olf forward --provider azure
 
 ## 5. Validate
 
-With `olf forward` running, from the first terminal:
+Stop `olf forward` first: run one `olf` command at a time. The suite opens its
+own port-forwards:
 
 ```bash
 olf e2e run --env azure

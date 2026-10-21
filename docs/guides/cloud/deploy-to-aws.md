@@ -112,13 +112,13 @@ Run the three phases one at a time:
 
 ```bash
 olf deploy --provider aws --phase foundation   # VPC, EKS, ECR, IAM
-olf deploy --provider aws --phase platform     # RDS, S3, Glue, Trino, Dagster, OpenMetadata, Superset
+olf deploy --provider aws --phase platform     # RDS, S3, Glue, Trino, Dagster; OpenMetadata and Superset with Full
 olf deploy --provider aws --phase artifacts    # build and push images, upload Floe manifests, load your code
 ```
 
 `olf deploy --provider aws` with no `--phase` runs all three. The cloud has no
-public ingress or DNS: reach the services by port-forwarding them to your
-machine, and leave this running in a second terminal:
+public ingress or DNS. To open the services in a browser, port-forward them to
+your machine; it keeps running until you stop it with Ctrl+C:
 
 ```bash
 olf forward --provider aws
@@ -126,7 +126,8 @@ olf forward --provider aws
 
 ## 5. Validate
 
-With `olf forward` running, from the first terminal:
+Stop `olf forward` first: run one `olf` command at a time. The suite opens its
+own port-forwards:
 
 ```bash
 olf e2e run --env aws

@@ -229,9 +229,14 @@ jobs:
           revision: ${{ needs.build.outputs.revision }}
 ```
 
-On a local platform, the build job also needs `packages: write` and a
-`docker login ghcr.io` step, and the stage jobs `packages: read`, so the image
-can be pushed and pulled.
+On a local platform with a GHCR registry, give the build job
+`packages: write` and every stage job `packages: read`, and add this step to
+each job before its OpenLakeForge action, so each one can push or pull the
+image on any runner:
+
+```yaml
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+```
 
 ## Protect the `prod` environment
 
