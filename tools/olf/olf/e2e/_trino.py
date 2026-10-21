@@ -177,7 +177,20 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
             f"--timeout={POLARIS_RESTART_TIMEOUT_SECONDS}s",
         ],
     )
+    # Write first: a read-only recheck passed while commits failed with "Not
+    # authorized" (#412) because Polaris signed tokens with a per-start key.
+    retry_until_deadline(lambda: check_trino_write(cfg))
     retry_until_deadline(lambda: check_trino_tables_and_marts(cfg))
+
+
+def check_trino_write(cfg: E2EConfig) -> None:
+    """Create and drop a scratch Iceberg table through the long-lived Trino coordinator."""
+    catalog = stage_catalog_name(cfg)
+    schema = f"{_glue_namespace_prefix(cfg)}{sorted(cfg.inventory.gold_namespace_names)[0]}"
+    table = f"{catalog}.{schema}.olf_restart_probe"
+    trino_query(cfg, f"DROP TABLE IF EXISTS {table}")
+    trino_query(cfg, f"CREATE TABLE {table} AS SELECT 1 AS probe")
+    trino_query(cfg, f"DROP TABLE {table}")
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:

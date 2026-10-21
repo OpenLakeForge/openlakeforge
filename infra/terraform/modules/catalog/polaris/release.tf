@@ -19,6 +19,28 @@ resource "kubernetes_secret_v1" "bootstrap_credentials" {
   type = "Opaque"
 }
 
+# Polaris signs the OAuth tokens it issues. Without a configured key the chart
+# generates an in-memory one on every start, so a restart invalidates every
+# token Trino (and other clients) hold and writes fail until Trino restarts.
+resource "random_password" "token_broker_key" {
+  length  = 64
+  special = false
+}
+
+resource "kubernetes_secret_v1" "token_broker" {
+  metadata {
+    name      = "${var.release_name}-token-broker"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  data = {
+    "symmetric.key" = random_password.token_broker_key.result
+  }
+
+  type = "Opaque"
+}
+
 locals {
   chart_package = var.chart_package_path != null ? var.chart_package_path : "polaris"
   chart_repo    = var.chart_package_path != null ? null : var.chart_repository
@@ -46,6 +68,17 @@ resource "helm_release" "polaris" {
             username = "username"
             password = "password"
             jdbcUrl  = "jdbcUrl"
+          }
+        }
+      }
+      authentication = {
+        tokenBroker = {
+          type = "symmetric-key"
+          secret = {
+            name = kubernetes_secret_v1.token_broker.metadata[0].name
+            symmetricKey = {
+              secretKey = "symmetric.key"
+            }
           }
         }
       }

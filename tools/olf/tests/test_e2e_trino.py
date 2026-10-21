@@ -68,6 +68,7 @@ def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
         return ""
 
     monkeypatch.setattr(_trino, "kubectl", kubectl)
+    monkeypatch.setattr(_trino, "check_trino_write", lambda _cfg: checks.append("write"))
     monkeypatch.setattr(_trino, "check_trino_tables_and_marts", lambda _cfg: checks.append("trino"))
 
     _trino.check_polaris_restart_recovery(e2e_cfg(tmp_path))
@@ -95,7 +96,7 @@ def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
             "--timeout=300s",
         ],
     ]
-    assert checks == ["trino"]
+    assert checks == ["write", "trino"]
 
 
 def test_check_polaris_restart_recovery_requires_a_pod(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -159,3 +160,21 @@ def test_trino_query_uses_https_only_when_the_coordinator_serves_it(
     if tls:
         assert argv[argv.index("--server") + 1] == "https://localhost:8443"
         assert argv[argv.index("--truststore-path") + 1] == str(ca)
+
+
+def test_check_trino_write_creates_then_drops_a_scratch_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sql: list[str] = []
+    monkeypatch.setattr(_trino, "trino_query", lambda _cfg, statement: sql.append(statement) or "")
+
+    _trino.check_trino_write(e2e_cfg(tmp_path))
+
+    assert [s.split(" ")[0] for s in sql] == ["DROP", "CREATE", "DROP"]
+    assert all("olf_restart_probe" in s for s in sql)
+
+
+def test_polaris_token_key_is_configured_from_a_stable_secret() -> None:
+    """#412: without it Polaris signs tokens with a per-start key and a restart voids Trino's token."""
+    release = (Path(__file__).parents[3] / "infra/terraform/modules/catalog/polaris/release.tf").read_text()
+    assert 'type = "symmetric-key"' in release
+    assert "kubernetes_secret_v1.token_broker.metadata[0].name" in release
+    assert 'resource "random_password" "token_broker_key"' in release
