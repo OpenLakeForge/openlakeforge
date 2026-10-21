@@ -81,8 +81,16 @@ digest.
 
 ## 4. Activate it in DEV, then in PROD
 
+Activate it in DEV and validate it there first:
+
 ```bash
 olf project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
+olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
+```
+
+Only when DEV passes, activate the same revision in PROD:
+
+```bash
 olf project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
 ```
 

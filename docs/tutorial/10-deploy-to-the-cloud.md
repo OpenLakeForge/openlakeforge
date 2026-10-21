@@ -14,8 +14,7 @@ cluster.
 provider do. You need `docker` and `python3` on your `PATH` and permission to
 create a VPC, an EKS cluster, an ECR registry, IAM roles, RDS, S3 and AWS Glue
 databases in the account. `olf` provisions its own Terraform, Helm and
-kubectl. You also need an OpenID Connect issuer your organisation already runs,
-because a cloud deployment always requires sign-in.
+kubectl.
 
 > [!WARNING]
 > This creates billable AWS resources. It is a proof of concept, not a
@@ -23,14 +22,20 @@ because a cloud deployment always requires sign-in.
 
 ## 1. Point the profile at AWS
 
-In `openlakeforge.yaml`, set the provider and the region to deploy to, remove
-the local-only plain-HTTP setting, and turn on sign-in:
+In `openlakeforge.yaml`, set the provider and the region to deploy to, keep
+only the DEV stage, remove the local-only plain-HTTP setting, and add an
+identity block:
 
 ```yaml
 spec:
   provider:
     type: aws
     region: eu-west-1
+  stages:
+    dev:
+      enabled: true
+    prod:
+      enabled: false
   identity:
     issuer: external
     issuer_url: https://login.example.com/
@@ -41,11 +46,14 @@ spec:
 
 - `region` decides where everything is created. To use another region, change
   it here.
+- `stages`: the AWS deployment serves one stage today, so this lesson runs
+  your project in DEV. The DEV-to-PROD promotion of lesson 9 stays on your
+  local platform.
 - Delete the `access:` block: `issuer: none` is for `provider: local` only.
-- `identity` replaces any `spec.identity` from lesson 8. Set `issuer_url` to
-  your organisation's OIDC issuer, `role_claim` to the token claim that holds
-  group names, and `role_mapping` to the groups that get each role. A profile
-  without `spec.identity` is accepted only for `provider: local`.
+- `identity` replaces any `spec.identity` from lesson 8. A profile without it
+  is accepted only for `provider: local`, so keep this block as it is. The AWS
+  deployment does not use it for sign-in yet: its services are reached only
+  through `olf forward` on your machine.
 
 Check the profile:
 
