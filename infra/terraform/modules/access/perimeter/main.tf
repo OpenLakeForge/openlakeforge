@@ -306,6 +306,11 @@ resource "kubernetes_deployment_v1" "proxy" {
               # refresh chain (modules/identity/dex).
               "--cookie-expire=30m",
               "--cookie-refresh=4m",
+              # One CSRF/PKCE cookie per login attempt, so two sign-ins started
+              # together (two tabs) do not overwrite each other's code verifier.
+              # https://oauth2-proxy.github.io/oauth2-proxy/7.15.x/configuration/overview#command-line-options
+              "--cookie-csrf-per-request=true",
+              "--cookie-csrf-expire=5m",
               "--reverse-proxy=true",
               "--upstream=static://202",
               "--http-address=0.0.0.0:${local.port}",
