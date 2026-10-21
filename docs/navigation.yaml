@@ -32,6 +32,12 @@ sections:
     items:
       - docs/setup/github-oauth-app.md
       - docs/setup/identity-secret-rotation.md
+      - docs/guides/add-a-source.md
+      - docs/guides/add-a-resource.md
+      - docs/guides/add-a-domain.md
+      - docs/guides/add-a-gold-model.md
+      - docs/guides/dashboards-as-code.md
+      - docs/guides/ownership-identities.md
       - docs/reference/ci-cd.md
       - docs/setup/cloud-poc-setup.md
       - docs/setup/aws.md
