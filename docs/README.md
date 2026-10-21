@@ -25,7 +25,7 @@ If you are discovering OpenLakeForge for the first time, start with the
 | 🏗️ Understand the architecture       | [Architecture documentation](architecture/README.md)             |
 | 🔌 Understand cloud portability       | [Provider contracts](architecture/provider-contracts.md)         |
 | 🧠 Understand architectural decisions | [Architecture Decision Records](adr/README.md)                   |
-| 📦 Check supported versions           | [Compatibility matrix](release/compatibility-matrix.md)          |
+| 📦 Check supported versions           | [Compatibility matrix](reference/compatibility-matrix.md)          |
 | 🗺️ See where the project is going    | [Milestones](https://github.com/OpenLakeForge/openlakeforge/milestones) |
 | 🤝 Contribute to OpenLakeForge        | [Contributor guide](../AGENTS.md)                                |
 
@@ -247,7 +247,7 @@ The compatibility matrix records the versions of:
 * Kubernetes environments
 * cloud services
 
-➡️ [Compatibility matrix](release/compatibility-matrix.md)
+➡️ [Compatibility matrix](reference/compatibility-matrix.md)
 
 ### Release process
 

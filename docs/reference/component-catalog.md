@@ -11,7 +11,7 @@ catalog and its lockfile in the same review, then runs `olf check components`,
 all repository checks, and both runtime image builds. The catalog is included
 unchanged in the release artifact and is the authoritative input manifest.
 
-See [releasing.md](releasing.md) for the full release pipeline — how
+See [releasing.md](../release/releasing.md) for the full release pipeline — how
 `.github/workflows/release.yml` turns this catalog into a signed, SBOM'd,
 provenance-attested release bundle — and [compatibility-matrix.md](compatibility-matrix.md)
 for the matrix rendered from it. `olf check all` is the release-readiness
