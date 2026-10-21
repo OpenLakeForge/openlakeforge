@@ -6,6 +6,7 @@ its values schema) belongs to a future deployment-lifecycle issue, not here.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -86,6 +87,24 @@ class Helm:
             kube_context=kube_context,
             env=env,
         )
+
+    def list_unhealthy_releases(
+        self,
+        *,
+        namespace: str,
+        kube_context: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> list[str]:
+        """Names of releases stuck in `failed` or `pending-install`, which a retried apply cannot reuse."""
+        result = self._run(
+            ["list", "--namespace", namespace, "--all", "--output", "json"],
+            kube_context=kube_context,
+            env=env,
+            check=False,
+        )
+        if not result.ok or not result.stdout.strip():
+            return []
+        return [r["name"] for r in json.loads(result.stdout) if r.get("status") in ("failed", "pending-install")]
 
     def upgrade_install(
         self,

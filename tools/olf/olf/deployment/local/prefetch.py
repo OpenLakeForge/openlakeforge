@@ -19,71 +19,75 @@ from olf.deployment.context import DeploymentFeatures
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
-
-_POLARIS_VERSION = "1.4.0"
+from olf.release._manifest import load_catalog
 
 # arch -> (polaris image, polaris-admin-tool image), verbatim from
 # scripts/local/cluster/prefetch-images.sh. The fallback branch's Polaris
 # image is deliberately left without a digest pin - do not "fix" this.
 _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
     "arm64": (
-        f"apache/polaris:{_POLARIS_VERSION}@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94",
-        f"apache/polaris-admin-tool:{_POLARIS_VERSION}@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f",
+        "apache/polaris:1.4.0@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94",
+        "apache/polaris-admin-tool:1.4.0@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f",
     ),
     "aarch64": (
-        f"apache/polaris:{_POLARIS_VERSION}@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94",
-        f"apache/polaris-admin-tool:{_POLARIS_VERSION}@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f",
+        "apache/polaris:1.4.0@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94",
+        "apache/polaris-admin-tool:1.4.0@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f",
     ),
     "amd64": (
-        f"apache/polaris:{_POLARIS_VERSION}@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41",
-        f"apache/polaris-admin-tool:{_POLARIS_VERSION}@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
+        "apache/polaris:1.4.0@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41",
+        "apache/polaris-admin-tool:1.4.0@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
     ),
     "x86_64": (
-        f"apache/polaris:{_POLARIS_VERSION}@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41",
-        f"apache/polaris-admin-tool:{_POLARIS_VERSION}@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
+        "apache/polaris:1.4.0@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41",
+        "apache/polaris-admin-tool:1.4.0@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
     ),
 }
-_POLARIS_IMAGES_FALLBACK = (
-    f"apache/polaris:{_POLARIS_VERSION}",
-    f"apache/polaris-admin-tool:{_POLARIS_VERSION}@sha256:7ef7557b528964e792caeaef3908434bd99c7d2f994caa654da1d77c6b428a80",
-)
-
-_OPENSEARCH_IMAGE = "opensearchproject/opensearch:2.11.0"
+# ponytail: Floe and the OpenMetadata server are not in the component catalog; pin them here until they are.
 _OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
-_OPENMETADATA_INGESTION_IMAGE = "docker.getcollate.io/openmetadata/ingestion-base:1.13.6"
-_POSTGRES_IMAGE = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
-_DEX_IMAGE = "ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777"
-_OAUTH2_PROXY_IMAGE = (
-    "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5"
-    "@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916"
-)
-_SUPERSET_DOCKERIZE_IMAGE = "apache/superset:dockerize"
-_SUPERSET_IMAGE = "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
-_REDIS_IMAGE = "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
 _FLOE_IMAGE = "ghcr.io/malon64/floe:0.6.11"
 
+_ALWAYS = (
+    "seaweedfs",
+    "traefik",
+    "cert_manager_controller",
+    "cert_manager_webhook",
+    "cert_manager_cainjector",
+    "postgres",
+    "trino",
+)
 
-def polaris_images(server_arch: str) -> tuple[str, str]:
-    return _POLARIS_IMAGES.get(server_arch, _POLARIS_IMAGES_FALLBACK)
+
+def polaris_images(server_arch: str, catalog_images: Mapping[str, str]) -> tuple[str, str]:
+    # kind imports a single-platform image, so known arches use their per-arch digest; the catalog pins the index.
+    return _POLARIS_IMAGES.get(server_arch) or (catalog_images["polaris"], catalog_images["polaris_admin_tool"])
+
+
+def load_catalog_images(config: LocalDeploymentConfig) -> dict[str, str]:
+    catalog = load_catalog(config.paths.distribution_root / "release" / "component-catalog.yaml")
+    return dict(catalog["components"]["images"])
 
 
 def selected_images(
-    features: DeploymentFeatures, *, server_arch: str, perimeter: bool = True, dex: bool = False
+    features: DeploymentFeatures,
+    *,
+    server_arch: str,
+    catalog_images: Mapping[str, str],
+    perimeter: bool = True,
+    dex: bool = False,
 ) -> tuple[str, ...]:
-    polaris_image, polaris_admin_image = polaris_images(server_arch)
-    images: list[str] = []
+    names = list(_ALWAYS)
     if features.governance_enabled:
-        images.append(_OPENSEARCH_IMAGE)
-    images += [polaris_image, polaris_admin_image]
-    if features.governance_enabled:
-        images += [_OPENMETADATA_SERVER_IMAGE, _OPENMETADATA_INGESTION_IMAGE]
-    images.append(_POSTGRES_IMAGE)
-    if perimeter:
-        images.append(_OAUTH2_PROXY_IMAGE)
-    if dex:
-        images.append(_DEX_IMAGE)
+        names += ["opensearch", "openmetadata_ingestion"]
     if features.analytics_enabled:
-        images += [_SUPERSET_DOCKERIZE_IMAGE, _SUPERSET_IMAGE, _REDIS_IMAGE]
+        names += ["superset_base", "superset_init", "superset_redis"]
+    if perimeter:
+        names.append("oauth2_proxy")
+    if dex:
+        names.append("dex")
+    images = [catalog_images[name] for name in names]
+    images += polaris_images(server_arch, catalog_images)
+    if features.governance_enabled:
+        images.append(_OPENMETADATA_SERVER_IMAGE)
     images.append(_FLOE_IMAGE)
     return tuple(images)
 
@@ -122,6 +126,7 @@ def prefetch_images(
     images = selected_images(
         config.features,
         server_arch=server_arch,
+        catalog_images=load_catalog_images(config),
         perimeter=identity is not None,
         dex=identity is not None and identity.issuer == "github",
     )
