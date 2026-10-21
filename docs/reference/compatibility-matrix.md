@@ -2,7 +2,7 @@
 This file is generated from release/component-catalog.yaml. Do not hand-edit
 the tables below -- regenerate with:
 
-    olf release compatibility-matrix --output docs/release/compatibility-matrix.md
+    olf release compatibility-matrix --output docs/reference/compatibility-matrix.md
 
 (or `uv run --project tools/olf olf release compatibility-matrix --output ...`
 from the repo root). The same command produces the copy embedded in every
@@ -14,7 +14,7 @@ regenerate it whenever release/component-catalog.yaml changes.
 
 # OpenLakeForge 0.4.0-alpha.1 compatibility matrix
 
-Generated from `release/component-catalog.yaml`. Every version below is the exact input pinned for this release; see [docs/release/component-catalog.md](component-catalog.md) for the update process.
+Generated from `release/component-catalog.yaml`. Every version below is the exact input pinned for this release; see [docs/reference/component-catalog.md](component-catalog.md) for the update process.
 
 ## Platform
 
@@ -110,4 +110,4 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 
 ## Supported upgrade paths
 
-OpenLakeForge is in the Alpha lifecycle stage (see [releasing.md](releasing.md#lifecycle-stages)): breaking changes are allowed between alpha releases, with migration notes published in `CHANGELOG.md` for every tag. Until Beta, only the latest alpha tag is maintained; there is no supported upgrade path guarantee prior to `v0.1.0-alpha.1`.
+OpenLakeForge is in the Alpha lifecycle stage (see [releasing.md](../release/releasing.md#lifecycle-stages)): breaking changes are allowed between alpha releases, with migration notes published in `CHANGELOG.md` for every tag. Until Beta, only the latest alpha tag is maintained; there is no supported upgrade path guarantee prior to `v0.1.0-alpha.1`.
