@@ -66,6 +66,9 @@ olf project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
 olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
 ```
 
+`--env` is the profile's provider: use `--env aws` or `--env azure` on a cloud
+platform.
+
 Only when DEV passes, activate the same revision in PROD:
 
 ```bash
