@@ -217,7 +217,7 @@ def test_compatibility_matrix_doc_is_up_to_date_on_real_repo() -> None:
 
 def test_compatibility_matrix_doc_flags_drift(tmp_path: Path) -> None:
     catalog = load_catalog(_write_catalog(tmp_path))
-    docs_dir = tmp_path / "docs" / "release"
+    docs_dir = tmp_path / "docs" / "reference"
     docs_dir.mkdir(parents=True)
     (docs_dir / "compatibility-matrix.md").write_text("stale content from before the last catalog bump\n")
 

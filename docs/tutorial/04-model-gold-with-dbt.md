@@ -138,10 +138,22 @@ including `mart_campaign_performance`. It ends with:
 Local OpenLakeForge full e2e validation passed.
 ```
 
+Then look at the rows themselves. `olf query` runs SQL against the DEV
+stage's catalog, so a table is named `<schema>.<table>`:
+
+```bash
+olf query "SELECT * FROM campaign_performance_gold.mart_campaign_performance ORDER BY channel"
+```
+
+It prints one row per marketing channel, with its `campaign_count`,
+`total_spend` and `total_conversions`. Add `--format csv` or `--format json`
+for other output.
+
 ## What you learned
 
 - `olf product new` creates a product-owned dbt project and a Dagster module
   and registers the product in `lakehouse.yaml`.
+- `olf query` reads any Silver or Gold table of a stage from your machine.
 - Gold is plain SQL over declared Silver sources; tests run as part of the
   build.
 - `olf deploy --phase artifacts` ships code changes without touching the
