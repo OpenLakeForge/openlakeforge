@@ -305,14 +305,19 @@ them are GitHub team and organisation changes, made in GitHub's web UI, with
 the organisation's 2FA policy. They need no `olf` command and no apply. The
 first `platform-admin` is whoever is in the team mapped to it. OpenMetadata
 cannot read roles from the token (`identity-service-permissions.md`), so its
-roles follow a scheduled `olf openmetadata sync-roles` (#25). Until that lands,
-OpenMetadata roles are not reconciled from GitHub. What #25 builds:
+roles follow a role sync, built by #25 as a
+CronJob that `olf openmetadata deploy-metadata` applies. It runs only for
+`issuer: github`: an `external` issuer or authentication off does not sync (OIDC
+alone cannot enumerate members), so those users stay at the read baseline.
 
 | Piece | Decision |
 | --- | --- |
-| Credential | an organisation-owned GitHub App with *Members: read*, installed on the organisation. Its App ID and private key are in an operator-created Secret named by `spec.identity.github.members_app_secret_ref` `{name, app_id_key, private_key_key}` (defaults `app-id`, `private-key`), required when governance is enabled, validated like `oauth_app_secret_ref`; the sync mints a short-lived installation token per run |
-| User key | the GitHub `login`. Dex emits it as `preferred_username`, OpenMetadata is configured to derive its principal from that claim, and the team-members API returns the same `login`, so the sync joins on it; email is never the key |
-| Interval | every 5 minutes, inside the 15 min native-service revocation bound of `identity-sessions-and-recovery.md`; the #25 runtime verification measures a demotion |
+| Credential | the GitHub App `olf github connect` created, read from the `oauth_app_secret_ref` Secret (`app-id`, `private-key`), so there is no second Secret reference; a hand-made OAuth App has neither key and gets no sync. The job mints a short-lived installation token per run and reads each mapped team's members with it (*Members: read*) |
+| Where it runs | `openmetadata-role-sync`, a CronJob in `olf-system` on the pinned `openmetadata_ingestion` image, the OLF-owned ingestion CronJob's image. The Python script is mounted from a ConfigMap because that image has no `olf`; it imports the standard library only and carries a copy of `github_app.app_jwt`'s signing, using the image's `cryptography` or else the `openssl` CLI, and exits naming what is missing. The App Secret and the `olf-automation` token reach it as secretKeyRefs, so the Secret read needs no RBAC. A project-code image was rejected: it is stage-scoped and exists only with user code |
+| GitHub Enterprise | the job calls `https://<host>/api/v3` and trusts only the image's public CAs; a server behind a private CA is not supported by the sync yet |
+| Reconciliation | for every non-bot OpenMetadata user except `admin` and `olf-automation`: `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, neither otherwise, including a user in no mapped team. Other roles are left alone. A person who has not signed in yet has no user and starts at the baseline |
+| Interval | every 5 minutes (`*/5 * * * *`), inside the 15 min native-service revocation bound of `identity-sessions-and-recovery.md`; removing someone from a team revokes within one interval plus the job's run. The #25 runtime verification measures a demotion |
+| Network | one flow, F30 in `release/network-flows.yaml`: the job to `api.github.com` on 443; its calls to OpenMetadata ride F13 |
 
 | Action | In GitHub |
 | --- | --- |
@@ -358,6 +363,8 @@ is not.
   cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
 
 ## History
+
+OpenMetadata role sync (#25): a CronJob reads the mapped teams' members with the GitHub App's installation token and patches `isAdmin` and `DataSteward`. The `members_app_secret_ref` field and the `olf openmetadata sync-roles` command this ADR planned were dropped: the App's credentials are already in `oauth_app_secret_ref`.
 
 Inline GitHub connect (#428): with a missing OAuth App Secret, an interactive
 `olf deploy` runs the `olf github connect` flow itself instead of refusing;
