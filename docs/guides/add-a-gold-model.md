@@ -50,7 +50,9 @@ lakehouse_code/
 └── pipelines/dagster/campaign_performance.py
 ```
 
-You do not edit `dbt_project.yml`, `packages.yml` or `sources.yml`.
+You do not edit `dbt_project.yml` or `packages.yml`. Leave `sources.yml` as
+generated too, until the product reads another Silver table: then add that
+table under the `silver` source there.
 `dbt_project.yml` materializes every model as an Iceberg table in the catalog
 of the stage being deployed, so do not hard-code Trino hosts or catalogs in it.
 `sources.yml` declares the Silver tables as the dbt source `silver`, in the

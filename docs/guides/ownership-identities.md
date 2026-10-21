@@ -5,8 +5,10 @@ OpenLakeForge derives from them. Read it before you add a source, domain or
 product, so each piece lands where `olf` looks for it.
 
 Ownership follows the medallion layer: a source owns Bronze, a domain owns
-Silver and a product owns Gold. There is no central registry; `olf` assembles
-the platform by discovering these directories and files.
+Silver and a product owns Gold. `lakehouse_code/lakehouse.yaml` is the central
+inventory: it declares the sources, domains, products and dashboards, and
+`olf` loads the directory that belongs to each entry. A directory that has no
+entry in `lakehouse.yaml` is not part of the platform.
 
 ## Keep these names aligned
 
@@ -67,5 +69,7 @@ identities above, never written into the descriptors.
 olf check contracts
 ```
 
-It prints one `[PASS]` line per check; a misaligned or invalid identity fails
-the descriptor checks with the file and field named.
+It prints one `[PASS]` line per check. An invalid or inconsistent identity in
+the descriptors fails with the file and field named. It does not compare
+directory and module names with the product id, so keep those aligned as
+shown above.

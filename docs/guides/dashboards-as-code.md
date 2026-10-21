@@ -54,19 +54,24 @@ bundle directories.
 
 ## 3. Start a new dashboard
 
-`olf product new` accepts `--with-report`:
+`olf product new` accepts `--with-report` when it creates a product. Use it
+for a new product, not one that already exists:
 
 ```bash
-olf product new marketing/campaign_performance \
-  --silver-input campaigns --gold-table mart_campaign_performance \
+olf product new marketing/campaign_summary \
+  --silver-input campaigns --gold-table mart_campaign_summary \
   --with-report
 ```
 
-It writes a draft under `lakehouse_code/dashboards/superset/campaign_performance/`:
+It writes a draft under `lakehouse_code/dashboards/superset/campaign_summary/`:
 the Trino database, one dataset per Gold mart and a README. It adds no
 `metadata.yaml` and no `dashboards:` entry, so the draft is neither declared
-nor promotable yet. Build the dashboard in Superset on those datasets, then
-export it.
+nor promotable yet, and the deploy does not import it into Superset.
+
+Build the dashboard in Superset instead. After the product's job has run once,
+open **Datasets**, add a dataset from the `OpenLakeForge Trino` database, the
+`campaign_summary_gold` schema and the `mart_campaign_summary` table, chart it
+and save a dashboard. Then export it.
 
 ## 4. Export a dashboard
 

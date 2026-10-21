@@ -41,7 +41,8 @@ resource to the entity tuple:
 MARKETING_PLATFORM_ENTITIES = ("campaigns", "ad_groups")
 ```
 
-The loader rejects any resource that is not in this tuple.
+The tuple lists what `load_all_entities_to_bronze` loads. The platform takes
+the resources it runs from `source.yaml`, so keep the two in step.
 
 ## 4. Carry it into Silver
 
