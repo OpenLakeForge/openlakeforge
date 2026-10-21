@@ -1,3 +1,25 @@
+# Every principal Secret and pending marker the bootstrap and replication Jobs
+# touch is named at plan time (ADR 0017, RBAC inventory). `create` cannot be
+# limited by resourceNames, so it stays namespace-wide; every other verb is
+# pinned to these names. One set serves every namespace.
+locals {
+  bootstrap_secret_names = distinct(concat(
+    [
+      var.trino_credentials_secret_name,
+      var.floe_credentials_secret_name,
+      var.om_credentials_secret_name,
+      var.deployer_credentials_secret_name,
+      "polaris-dbt-creds", # removed on every run: pre-migration leftover
+    ],
+    flatten([for stage in values(var.stage_catalogs) : [
+      stage.trino_credentials_secret_name,
+      stage.floe_credentials_secret_name,
+      stage.deployer_credentials_secret_name,
+    ]]),
+  ))
+  bootstrap_marker_names = [for name in local.bootstrap_secret_names : "${name}-bootstrap-pending"]
+}
+
 resource "kubernetes_service_account_v1" "bootstrap" {
   metadata {
     name      = "polaris-bootstrap"
@@ -16,7 +38,21 @@ resource "kubernetes_role_v1" "bootstrap" {
   rule {
     api_groups = [""]
     resources  = ["configmaps", "secrets"]
-    verbs      = ["create", "delete", "get", "patch", "update"]
+    verbs      = ["create"]
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = local.bootstrap_secret_names
+    verbs          = ["delete", "get", "patch", "update"]
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["configmaps"]
+    resource_names = local.bootstrap_marker_names
+    verbs          = ["delete", "get", "patch", "update"]
   }
 }
 
@@ -55,7 +91,21 @@ resource "kubernetes_role_v1" "bootstrap_workload" {
   rule {
     api_groups = [""]
     resources  = ["configmaps", "secrets"]
-    verbs      = ["create", "delete", "get", "patch", "update"]
+    verbs      = ["create"]
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = local.bootstrap_secret_names
+    verbs          = ["delete", "get", "patch", "update"]
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["configmaps"]
+    resource_names = local.bootstrap_marker_names
+    verbs          = ["delete", "get", "patch", "update"]
   }
 }
 
