@@ -33,7 +33,11 @@ sections:
       - docs/setup/github-oauth-app.md
       - docs/setup/identity-secret-rotation.md
       - docs/reference/ci-cd.md
+      - docs/guides/promote-dev-to-prod.md
       - docs/setup/cloud-poc-setup.md
+      - docs/guides/cloud/prepare-a-cloud-account.md
+      - docs/guides/cloud/deploy-to-aws.md
+      - docs/guides/cloud/deploy-to-azure.md
       - docs/setup/aws.md
       - docs/setup/azure.md
   - label: Reference
