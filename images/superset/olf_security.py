@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from flask import session
+from flask import current_app, redirect, session
 from flask_appbuilder import expose
 from flask_appbuilder.security.views import AuthOAuthView
 from olf_oidc import DATA_ROLE, NO_ACCESS_ROLE, SESSION_SECONDS, VIEWER_ROLE
@@ -24,6 +24,13 @@ class OlfAuthOAuthView(AuthOAuthView):
         if provider is None and not refused:
             provider = self.appbuilder.sm.oauth_providers[0]["name"]
         return super().login(provider)
+
+    @expose("/logout/")
+    def logout(self):
+        # FAB ends Superset's own session; the perimeter cookie would sign the
+        # user straight back in, so end that one too (ADR 0014).
+        super().logout()
+        return redirect(current_app.config["OLF_SIGN_OUT_URL"])
 
 
 class OlfSecurityManager(SupersetSecurityManager):

@@ -501,6 +501,7 @@ module "superset" {
     role_claim        = local.identity_oidc.role_claim
     role_mapping      = local.identity_oidc.role_mapping
     grants            = local.identity_roles.grants.reporting
+    sign_out_url      = "${local.route_scheme}://${local.perimeter_callback_host}/oauth2/sign_out?rd=${urlencode("${local.route_scheme}://${local.base_domain}")}"
     scope             = local.identity_scope
     client_id         = local.identity_oidc.clients.superset.client_id
     secret_ref        = local.identity_oidc.clients.superset.secret_ref

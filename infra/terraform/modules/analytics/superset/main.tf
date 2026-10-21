@@ -17,6 +17,7 @@ locals {
     role_claim   = var.oidc.role_claim
     role_mapping = var.oidc.role_mapping
     grants       = var.oidc.grants
+    sign_out_url = var.oidc.sign_out_url
   }
 }
 

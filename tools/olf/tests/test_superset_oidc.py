@@ -21,6 +21,7 @@ DEX = {
     "analyst": ["acme:analysts"],
     "viewer": ["acme:viewers"],
 }
+SIGN_OUT = "https://oauth2.olf.localhost/oauth2/sign_out?rd=https%3A%2F%2Folf.localhost"
 BARE = {role: [role] for role in DEX}
 
 
@@ -32,6 +33,7 @@ def _cfg(role_mapping: dict[str, list[str]]) -> dict[str, Any]:
         "role_claim": "groups",
         "role_mapping": role_mapping,
         "grants": GRANTS,
+        "sign_out_url": SIGN_OUT,
     }
 
 
@@ -79,6 +81,7 @@ def test_login_goes_through_the_issuer_with_least_privilege_and_a_bounded_sessio
     assert cfg["AUTH_ROLES_SYNC_AT_LOGIN"] is True
     assert cfg["PERMANENT_SESSION_LIFETIME"] == 15 * 60
     assert cfg["SESSION_REFRESH_EACH_REQUEST"] is False
+    assert cfg["OLF_SIGN_OUT_URL"] == SIGN_OUT
 
 
 def test_the_superset_module_keeps_local_login_unless_an_issuer_is_given() -> None:
@@ -104,6 +107,8 @@ def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[
     session: dict[str, Any] = {}
     flask = types.ModuleType("flask")
     flask.session = session  # type: ignore[attr-defined]
+    flask.redirect = lambda url: ("redirect", url)  # type: ignore[attr-defined]
+    flask.current_app = types.SimpleNamespace(config={"OLF_SIGN_OUT_URL": SIGN_OUT})  # type: ignore[attr-defined]
     base = types.ModuleType("superset.security")
     fab = types.ModuleType("flask_appbuilder")
     fab.expose = lambda *_a, **_k: (lambda f: f)  # type: ignore[attr-defined]
@@ -112,6 +117,10 @@ def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[
     class AuthOAuthView:
         def login(self, provider: str | None = None) -> str | None:
             return provider
+
+        def logout(self) -> str:
+            session["olf_login_at"] = None  # FAB's logout_user ends the session
+            return "index"
 
     views.AuthOAuthView = AuthOAuthView  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "flask_appbuilder", fab)
@@ -168,6 +177,13 @@ def test_superset_signs_visitors_in_as_admin_only_without_an_issuer() -> None:
 
     assert 'var.oidc != null || !var.public_admin ? [] :' in main
     assert 'login_user(user)' in main
+
+
+def test_logout_ends_the_perimeter_session_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, session = _security(monkeypatch, {})
+
+    assert type(manager).authoauthview().logout() == ("redirect", SIGN_OUT)
+    assert session["olf_login_at"] is None  # FAB's own logout still ran first
 
 
 def test_the_login_page_goes_straight_to_the_only_provider(monkeypatch: pytest.MonkeyPatch) -> None:
