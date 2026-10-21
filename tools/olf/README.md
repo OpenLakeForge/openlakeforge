@@ -43,13 +43,14 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf release manifest\|checksums\|compatibility-matrix\|check\|build-bundle\|verify-install` | Build release metadata, run the release-readiness gate, assemble the release bundle, and verify a clean-checkout install. |
 | `olf distribution list\|path\|verify\|clean` | Inspect or verify the embedded platform payload shipped inside the `openlakeforge` wheel/sdist. |
 
-## Development
+## Development & Local Testing
 
-```sh
-uv sync --project tools/olf
-uv run --project tools/olf pytest
-uv run --project tools/olf ruff check tools/olf
-```
+You do not need a running Kubernetes cluster or full platform deployment to develop and test CLI commands locally. You can run Python unit tests directly from the repository root using [`uv`](https://docs.astral.sh/uv/).
 
-Make is optional, deprecated checkout compatibility. Its targets are one-line
-delegates to the same commands and are not the supported product interface.
+### Fast Iteration Workflow
+
+Run all commands from the repository root:
+
+1. **Sync dependencies:**
+   ```sh
+   uv sync --project tools/olf
