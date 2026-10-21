@@ -185,9 +185,7 @@ for the current direction.
 
 ## Contributing
 
-Contributions, experiments and feedback are welcome. [AGENTS.md](/AGENTS.md)
-contains the repository map, architectural rules, development workflow and
-validation gates.
+Contributions, experiments and feedback are welcome. Start with [CONTRIBUTING.md](/CONTRIBUTING.md); [AGENTS.md](/AGENTS.md) contains the repository map, architectural rules, development workflow and validation gates.
 
 ## License
 
