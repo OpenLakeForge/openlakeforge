@@ -242,6 +242,8 @@ module "portal" {
 
   namespace = kubernetes_namespace_v1.shared.metadata[0].name
   links     = local.portal_links
+  # GitHub owns accounts and teams; Dex has no account page, so the identity route is not listed.
+  account_url = var.identity_issuer == "github" ? "https://${coalesce(try(var.identity_github.host, null), "github.com")}/orgs/${var.identity_github.organization}/teams" : null
 }
 
 module "traefik" {

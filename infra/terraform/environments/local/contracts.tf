@@ -455,14 +455,15 @@ locals {
     } : {},
   )
 
-  # The landing page lists every route above and is itself one. The shared
-  # wildcard does not cover the apex, so its certificate names it explicitly.
+  # The landing page lists the routes above, minus the identity login surface
+  # (Dex has no account page) and never itself: shared/portal is added only in
+  # access_routes, with a certificate naming the apex explicitly.
   portal_links = {
     for ref, route in local.service_routes : ref => {
       stage = startswith(ref, "stage/") ? split("/", ref)[1] : "shared"
       name  = element(split("/", ref), length(split("/", ref)) - 1)
       url   = "${local.route_scheme}://${route.host}"
-    }
+    } if ref != "shared/identity"
   }
 
   access_routes = !local.access_enabled ? {} : merge(local.service_routes, {
