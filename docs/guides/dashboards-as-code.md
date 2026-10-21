@@ -75,13 +75,21 @@ and save a dashboard. Then export it.
 
 ## 4. Export a dashboard
 
-After you change a dashboard in the Superset UI, export it back into its
-bundle. `olf report export` takes the stage you authored in; author in DEV:
+After you build or change a dashboard in the Superset UI, export it back into
+its bundle. `olf report export` takes the stage you authored in; author in
+DEV. For the `campaign_summary` draft of step 3, which has nothing exported
+yet, name the dashboard by the slug you gave it in Superset (its
+**Properties**):
 
 ```bash
-SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/sales_customer_health \
+SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/campaign_summary \
+SUPERSET_DASHBOARD="campaign-summary" \
   olf report export --stage dev
 ```
+
+For a dashboard that is already in a bundle, such as the demo
+`sales_customer_health`, set only `SUPERSET_REPORT_SOURCE_DIR` to its
+directory.
 
 - `SUPERSET_REPORT_SOURCE_DIR` picks the bundle. It must be a directory
   directly under `lakehouse_code/dashboards/superset/`. Without it the command
