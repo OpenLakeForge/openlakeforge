@@ -19,7 +19,7 @@ COMPATIBILITY_MATRIX_HEADER = """<!--
 This file is generated from release/component-catalog.yaml. Do not hand-edit
 the tables below -- regenerate with:
 
-    olf release compatibility-matrix --output docs/release/compatibility-matrix.md
+    olf release compatibility-matrix --output docs/reference/compatibility-matrix.md
 
 (or `uv run --project tools/olf olf release compatibility-matrix --output ...`
 from the repo root). The same command produces the copy embedded in every
@@ -61,7 +61,7 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append(
         "Generated from `release/component-catalog.yaml`. Every version below is "
         "the exact input pinned for this release; see "
-        "[docs/release/component-catalog.md](component-catalog.md) for the update process."
+        "[docs/reference/component-catalog.md](component-catalog.md) for the update process."
     )
     lines.append("")
 
@@ -153,7 +153,7 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append("")
     lines.append(
         "OpenLakeForge is in the Alpha lifecycle stage (see "
-        "[releasing.md](releasing.md#lifecycle-stages)): breaking changes are allowed between alpha "
+        "[releasing.md](../release/releasing.md#lifecycle-stages)): breaking changes are allowed between alpha "
         "releases, with migration notes published in `CHANGELOG.md` for every "
         "tag. Until Beta, only the latest alpha tag is maintained; there is no "
         "supported upgrade path guarantee prior to `v0.1.0-alpha.1`."
@@ -164,10 +164,10 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
 
 
 def _check_compatibility_matrix_up_to_date(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
-    """The checked-in docs/release/compatibility-matrix.md must match a fresh
+    """The checked-in docs/reference/compatibility-matrix.md must match a fresh
     render of the catalog exactly.
     """
-    doc_path = repo_root / "docs/release/compatibility-matrix.md"
+    doc_path = repo_root / "docs/reference/compatibility-matrix.md"
     if not doc_path.is_file():
         return CheckResult("compatibility matrix doc is up to date", False, f"{doc_path} does not exist")
     expected = render_compatibility_matrix(catalog, repo_root)
@@ -176,8 +176,8 @@ def _check_compatibility_matrix_up_to_date(repo_root: Path, catalog: dict[str, A
         return CheckResult(
             "compatibility matrix doc is up to date",
             False,
-            "docs/release/compatibility-matrix.md does not match a fresh render of release/component-catalog.yaml "
-            "-- regenerate with 'olf release compatibility-matrix --output docs/release/compatibility-matrix.md'",
+            "docs/reference/compatibility-matrix.md does not match a fresh render of release/component-catalog.yaml "
+            "-- regenerate with 'olf release compatibility-matrix --output docs/reference/compatibility-matrix.md'",
         )
     return CheckResult("compatibility matrix doc is up to date", True)
 
