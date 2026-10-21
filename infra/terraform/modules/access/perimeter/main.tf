@@ -310,7 +310,7 @@ resource "kubernetes_deployment_v1" "proxy" {
               # together (two tabs) do not overwrite each other's code verifier.
               # https://oauth2-proxy.github.io/oauth2-proxy/7.15.x/configuration/overview#command-line-options
               "--cookie-csrf-per-request=true",
-              "--cookie-csrf-expire=5m",
+              "--cookie-csrf-expire=15m",
               "--reverse-proxy=true",
               "--upstream=static://202",
               "--http-address=0.0.0.0:${local.port}",
