@@ -105,7 +105,7 @@ locals {
       <h2 class="theme-heading">{{ .ErrType }}</h2>
       <p>{{ .ErrMsg }}</p>
       {{ if eq .ErrType "Internal Server Error" }}
-      <p>Sign-in was refused by the GitHub check. The two likely causes:</p>
+      <p>Sign-in was likely refused by the GitHub check. The two likely causes:</p>
       <ul>
         <li>The OpenLakeForge GitHub App is not installed on ${var.github.organization}.</li>
         <li>You are not in a GitHub team mapped to an OpenLakeForge role.</li>
