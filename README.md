@@ -172,7 +172,7 @@ The same platform runs on managed infrastructure:
   📊 [Architecture diagrams](/docs/architecture/diagrams/README.md) ·
   🔌 [Provider contracts](/docs/architecture/provider-contracts.md)
 - 🧠 [Architecture Decision Records](/docs/adr/README.md)
-- 📦 [Release compatibility](/docs/release/compatibility-matrix.md) ·
+- 📦 [Release compatibility](/docs/reference/compatibility-matrix.md) ·
   📝 [Changelog](/CHANGELOG.md) ·
   🗺️ [Roadmap](https://github.com/OpenLakeForge/openlakeforge/milestones)
 
