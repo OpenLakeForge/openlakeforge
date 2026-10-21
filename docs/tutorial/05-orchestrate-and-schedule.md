@@ -103,5 +103,5 @@ Local OpenLakeForge full e2e validation passed.
 
 ## Next
 
-Publish a dashboard (lesson 6): put the Gold mart in front of analysts in
-Superset.
+[Publish a dashboard](06-publish-a-dashboard.md): put Gold marts in front of
+analysts in Superset.
