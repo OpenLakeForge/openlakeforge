@@ -1096,3 +1096,26 @@ def test_stage_query_tls_fields_of_a_real_contract_reach_the_code_server() -> No
     env = {e["name"]: e.get("value") for e in deployment["env"]}
     assert env["OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"] == "https"
     assert deployment["volumes"][0]["configMap"]["name"] == "olf-local-ca"
+
+
+def test_a_password_contract_gives_dbt_the_stage_secret_by_reference() -> None:
+    values = _values(
+        {
+            "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443",
+            "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca",
+            "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential",
+        }
+    )
+    env = {e["name"]: e for e in values["deployments"][0]["env"]}
+
+    assert env["OPENLAKEFORGE_DBT_TRINO_METHOD"]["value"] == "ldap"
+    assert env["OPENLAKEFORGE_DBT_TRINO_PASSWORD"] == {
+        "name": "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
+        "valueFrom": {"secretKeyRef": {"name": "trino-credential", "key": "password"}},
+    }
+
+
+def test_without_a_password_contract_dbt_gets_no_trino_password() -> None:
+    names = {e["name"] for e in _values()["deployments"][0]["env"]}
+
+    assert not names & {"OPENLAKEFORGE_DBT_TRINO_METHOD", "OPENLAKEFORGE_DBT_TRINO_PASSWORD"}

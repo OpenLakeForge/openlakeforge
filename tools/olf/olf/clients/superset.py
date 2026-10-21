@@ -10,9 +10,10 @@ import json
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
+from zipfile import ZipFile
 
 from .base import JsonHttpClient, ServiceClientError, TransientServiceError
 
@@ -55,23 +56,35 @@ class SupersetClient(JsonHttpClient):
         dashboard_id = self.request("GET", f"/api/v1/dashboard/{quote(dashboard, safe='')}")["result"]["id"]
         return self.send("GET", "/api/v1/dashboard/export/", params={"q": f"!({int(dashboard_id)})"}).content
 
-    def import_assets(self, bundle: Path) -> None:
+    def import_assets(self, bundle: Path, *, database_password: str = "") -> None:
         """Import a `type: assets` bundle, overwriting every asset it carries.
 
         `/assets/import/` runs ImportAssetsCommand, which always overwrites and
         accepts the `type: assets` metadata report bundles declare;
         `/dashboard/import/` validates the metadata type as `Dashboard` and
         would refuse them.
+
+        `database_password` is sent in the `passwords` form field, which Superset
+        applies to each database in the bundle and stores encrypted, so the
+        password is never written into the zip.
         """
         # Flask-WTF CSRF protection covers the REST API too; the token is tied to
         # the session cookie the csrf_token call sets. Referer is checked once
         # Superset is served over HTTPS (WTF_CSRF_SSL_STRICT).
         csrf_token = self._csrf_token()
+        form: dict[str, str] = {}
+        if database_password:
+            with ZipFile(bundle) as archive:
+                names = [PurePosixPath(*PurePosixPath(n).parts[1:]).as_posix() for n in archive.namelist()]
+            form["passwords"] = json.dumps(
+                {name: database_password for name in names if name.startswith("databases/")}
+            )
         with bundle.open("rb") as body:
             self.send(
                 "POST",
                 "/api/v1/assets/import/",
                 files={"bundle": (bundle.name, body, "application/zip")},
+                data=form,
                 headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
             )
 

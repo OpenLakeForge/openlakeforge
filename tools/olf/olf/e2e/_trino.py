@@ -207,20 +207,36 @@ def trino_scalar(cfg: E2EConfig, sql: str) -> str:
     return parse_trino_scalar(trino_query(cfg, sql))
 
 
-def trino_query(cfg: E2EConfig, sql: str) -> str:
+def trino_query(
+    cfg: E2EConfig,
+    sql: str,
+    *,
+    stage: str | None = None,
+    password: str | None = None,
+    session_user: str | None = None,
+) -> str:
+    """Run `sql` as a stage's runtime principal, with its password read from its Secret.
+
+    The overrides are for the isolation probes: another stage's principal,
+    a password that is not the principal's (`""` sends none), and a claimed
+    session user apart from the authenticated principal.
+    """
     catalog = stage_catalog_name(cfg)
     target = trino.TrinoTarget(
         provider=cfg.env,
         kube_context=cfg.kube_context,
         namespace=cfg.platform_namespace,
         catalog=catalog,
-        stage=trino.stage_from_catalog(catalog),
+        stage=stage or trino.stage_from_catalog(catalog),
     )
+    if password is None:
+        password = trino.decode_password(kubectl(cfg, trino.password_args(target), capture=True, retry_transient=True))
     return kubectl(
         cfg,
-        trino.exec_args(target, sql, output_format="CSV_UNQUOTED"),
+        trino.exec_args(target, sql, output_format="CSV_UNQUOTED", session_user=session_user),
         capture=True,
         retry_transient=True,
+        input_text=f"{password}\n",
     )
 
 def parse_trino_scalar(output: str) -> str:

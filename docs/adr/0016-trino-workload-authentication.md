@@ -13,8 +13,9 @@ and `password` (the HTTP listener is replaced, `PASSWORD` authentication and the
 `principals` rules turn on, and Traefik gets a verified HTTPS transport to
 Trino: step 4). The OpenMetadata Trino crawl is an OLF-owned Job (its
 server-created ingestion pods cannot receive the CA) that verifies the HTTPS
-listener at `tls`. No caller sends its password yet, so `password` must not
-be used until step 4. What binds is
+listener at `tls`. At `password` every caller reads its own credential from a
+Secret (step 4, clients: below); the default flip and the isolation probes are
+the last part. What binds is
 the selection, the principal mapping and the migration order. Until the migration lands Trino
 runs unauthenticated and its row in `docs/technical-debt.md` stays open.
 
@@ -298,3 +299,15 @@ Plain-HTTP mode (`issuer: none`): the Trino Web UI uses
 Web UI sign-in through Dex behind `tls` or `password`, over HTTPS routes with the
 `github` issuer (#26): properties above; the `trino` Dex client's redirect URI
 is exact.
+Step 4, clients: the query contract carries `credential_secret_name`
+(`trino-credential`) only while `password` is on. With it, dbt run pods get
+`method: ldap` and `OPENLAKEFORGE_DBT_TRINO_PASSWORD` from a `secretKeyRef` on
+the stage Secret (the Dagster module and the activation both set them);
+`olf report import` reads the stage Secret and sends it in the `passwords`
+form field of the Superset import, so it is in neither the zip nor the URI; the
+OpenMetadata crawl Job reads `trino-credential-openmetadata` from `olf-system`
+into `authType.password`; `olf e2e` and `olf query` read
+`trino-credential-olf-<stage>-runtime` and pass it to the in-pod CLI on stdin,
+which exports `TRINO_PASSWORD` only when the pod mounts `password.db`. The
+service the OpenMetadata bootstrap registers still carries no password, so the
+Fernet-key item of the checklist stays open until that is persisted.

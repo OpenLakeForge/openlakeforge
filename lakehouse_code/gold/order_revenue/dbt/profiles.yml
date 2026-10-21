@@ -3,10 +3,11 @@ order_revenue:
   outputs:
     local:
       type: trino
-      method: none
+      method: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_METHOD', 'none') }}"
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
       port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_TLS_PORT', env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080')) | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      password: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD', '') or none }}"
       http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
       cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
@@ -14,10 +15,11 @@ order_revenue:
       threads: 1
     local_runtime:
       type: trino
-      method: none
+      method: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_METHOD', 'none') }}"
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
       port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_TLS_PORT', env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080')) | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      password: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD', '') or none }}"
       http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
       cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"

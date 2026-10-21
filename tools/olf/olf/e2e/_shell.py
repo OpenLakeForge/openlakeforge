@@ -91,15 +91,18 @@ def kubectl(
     *,
     capture: bool = False,
     retry_transient: bool = False,
+    input_text: str | None = None,
 ) -> str:
     command = [_kubectl_executable(), "--context", cfg.kube_context, *args]
     if retry_transient:
-        return _run_retry_transient_kubectl(command, capture=capture)
-    return _run(command, capture=capture)
+        return _run_retry_transient_kubectl(command, capture=capture, input_text=input_text)
+    return _run(command, capture=capture, input_text=input_text)
 
 
-def _run(args: list[str], *, capture: bool = False, env: Mapping[str, str] | None = None) -> str:
-    result = subprocess.run(args, capture_output=capture, text=True, check=False, env=env)
+def _run(
+    args: list[str], *, capture: bool = False, env: Mapping[str, str] | None = None, input_text: str | None = None
+) -> str:
+    result = subprocess.run(args, capture_output=capture, text=True, check=False, env=env, input=input_text)
     if result.returncode != 0:
         detail = (result.stderr if capture else "") or ""
         raise E2EError(f"{' '.join(args)} failed: {detail.strip()}")
@@ -127,10 +130,11 @@ def _run_retry_transient_kubectl(
     capture: bool = False,
     attempts: int = KUBECTL_READ_RETRY_ATTEMPTS,
     delay: float = KUBECTL_READ_RETRY_DELAY_SECONDS,
+    input_text: str | None = None,
 ) -> str:
     for attempt in range(1, attempts + 1):
         try:
-            return _run(args, capture=capture)
+            return _run(args, capture=capture, input_text=input_text)
         except E2EError as exc:
             if attempt == attempts or not is_transient_kubectl_error(exc):
                 raise

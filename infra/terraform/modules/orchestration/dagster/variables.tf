@@ -189,6 +189,8 @@ variable "query_contract" {
     # use and the ConfigMap holding the CA that signed its certificate.
     tls_port          = optional(number)
     ca_configmap_name = optional(string)
+    # The Secret holding this stage's Trino username and password; set when Trino requires one.
+    credential_secret_name = optional(string)
   })
 }
 

@@ -558,6 +558,8 @@ module "dagster" {
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
     tls_port                   = module.trino.tls_port
+    # A fixed name like the CA ConfigMap; the credential Job writes it to every stage namespace.
+    credential_secret_name = module.trino.credential_secret_name
     # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
     ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   })

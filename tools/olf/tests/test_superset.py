@@ -982,3 +982,15 @@ def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_
     superset.build_report_bundle(tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg")
 
     assert superset.bundle_schema_perms(bundle_path) == {"[Trino].[order_revenue_gold]"}
+
+
+def test_a_password_contract_names_the_stage_secret_the_import_reads_and_never_the_password() -> None:
+    tls = {"OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca"}
+    plain = superset.resolve_stage_report_target(_applied_environment(**tls), stage="dev")
+    password = superset.resolve_stage_report_target(
+        _applied_environment(**tls, OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET="trino-credential"), stage="dev"
+    )
+
+    assert plain.credential_secret == ""
+    assert password.credential_secret == "trino-credential"
+    assert password.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"

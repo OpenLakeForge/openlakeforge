@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -51,7 +52,7 @@ def test_exec_args_set_the_stage_catalog_as_the_session_default() -> None:
     ],
 )
 def test_run_sql_explains_failures(stderr: str, expected: str) -> None:
-    def runner(command):  # noqa: ANN001, ANN202
+    def runner(command, stdin):  # noqa: ANN001, ANN202
         return subprocess.CompletedProcess(command, 1, stdout="", stderr=stderr)
 
     with pytest.raises(trino.TrinoQueryError, match=expected):
@@ -61,9 +62,51 @@ def test_run_sql_explains_failures(stderr: str, expected: str) -> None:
 def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
     seen: list[list[str]] = []
 
-    def runner(command):  # noqa: ANN001, ANN202
+    def runner(command, stdin):  # noqa: ANN001, ANN202
         seen.append(list(command))
-        return subprocess.CompletedProcess(command, 0, stdout="42\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="" if "get" in command else "42\n", stderr="")
 
     assert trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner) == "42\n"
-    assert seen[0][:3] == ["kubectl", "--context", "kind-openlakeforge-local"]
+    assert all(command[:3] == ["kubectl", "--context", "kind-openlakeforge-local"] for command in seen)
+
+
+def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv() -> None:
+    import base64
+
+    calls: list[tuple[list[str], str]] = []
+
+    def runner(command, stdin):  # noqa: ANN001, ANN202
+        calls.append((list(command), stdin))
+        stdout = base64.b64encode(b"s3cret").decode() if "get" in command else "1\n"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
+
+    (lookup, _), (query, stdin) = calls
+    assert "trino-credential-olf-prod-runtime" in lookup
+    assert stdin == "s3cret\n"
+    assert not any("s3cret" in part for part in query)
+
+
+def test_the_pod_script_reads_the_password_only_when_the_pod_enforces_one(tmp_path: Path) -> None:
+    import subprocess as sp
+
+    (tmp_path / "trino").write_text('#!/bin/sh\nprintf "%s|%s\\n" "$TRINO_PASSWORD" "$*"\n')
+    (tmp_path / "trino").chmod(0o755)
+    password_file = tmp_path / "password.db"
+
+    def run(stdin: str) -> str:
+        script = trino.cli_script(str(tmp_path / "absent-ca")).replace(trino.TRINO_PASSWORD_FILE, str(password_file))
+        return sp.run(
+            ["sh", "-c", script, "trino", "--user", "u"],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=True,
+            env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        ).stdout.strip()
+
+    assert run("ignored\n") == "|--user u"
+    password_file.write_text("u hash")
+    assert run("pw\n") == "pw|--password --user u"
+    assert run("\n") == "|--user u"

@@ -503,6 +503,7 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     # Not OPENLAKEFORGE_QUERY_TRINO_PORT, which Superset still pairs with http.
     emit("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", query.get("tls_port"))
     emit("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", query.get("ca_configmap_name"))
+    emit("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", query.get("credential_secret_name"))
     governance_enabled = governance.get("enabled", True)
     emit("OPENLAKEFORGE_GOVERNANCE_ENABLED", governance_enabled)
     emit("OPENLAKEFORGE_ANALYTICS_ENABLED", reporting.get("enabled", True))

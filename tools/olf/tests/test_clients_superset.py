@@ -91,3 +91,25 @@ def test_grant_permissions_finds_a_permission_beyond_the_first_page(fake_superse
 
     assert client.grant_permissions("olf_data_access", "schema_access", ["[Trino].[late_gold]"]) is True
     assert fake_superset.roles["olf_data_access"] == {777}
+
+
+def test_import_assets_sends_the_database_password_as_a_form_field_not_in_the_zip(
+    fake_superset: FakeSuperset, tmp_path: Path
+) -> None:
+    import json
+    from zipfile import ZipFile
+
+    bundle = tmp_path / "bundle.zip"
+    with ZipFile(bundle, "w") as archive:
+        archive.writestr("root/databases/trino.yaml", "sqlalchemy_uri: trino://u@h:8443/c")
+        archive.writestr("root/datasets/d.yaml", "schema: s")
+    client = _client(fake_superset)
+    client.login()
+    sent: dict = {}
+    client.send = lambda method, path, **kwargs: sent.update(kwargs)  # type: ignore[method-assign]
+    client._csrf_token = lambda: "t"  # type: ignore[method-assign]
+
+    client.import_assets(bundle, database_password="pw")
+
+    assert json.loads(sent["data"]["passwords"]) == {"databases/trino.yaml": "pw"}
+    assert b"pw" not in bundle.read_bytes()
