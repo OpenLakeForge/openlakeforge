@@ -165,7 +165,8 @@ See [Deploy to Azure](../setup/azure.md).
 
 ## Next
 
-- [Reference CI/CD](../reference/ci-cd.md): run lesson 9's promotion from CI
-  against the cloud platform.
+- [Reference CI/CD](../reference/ci-cd.md): build and deploy revisions from
+  CI. On AWS today, deploy them to the `dev` stage only; leave out the PROD
+  job.
 - [Architecture overview](../architecture/overview.md): how the provider
   contracts keep the project portable.

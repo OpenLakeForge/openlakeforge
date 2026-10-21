@@ -63,15 +63,16 @@ docker login ghcr.io                     # or docker.io
 ## 3. Build the revision once
 
 ```bash
-IMAGE="$(olf project image -f openlakeforge.yaml)"
+IMAGE="$(olf project image -f openlakeforge.yaml | tee /dev/stderr | tail -n 1)"
 ```
 
-It builds the project-code image, pushes it, loads it into kind and prints a
-digest-pinned reference, `<repository>@sha256:<digest>`, which `IMAGE` now
-holds. Build the revision from it:
+It builds the project-code image, pushes it and loads it into kind, showing its
+progress, and ends with a digest-pinned reference,
+`<repository>@sha256:<digest>`. `tail -n 1` keeps only that last line in
+`IMAGE`. Build the revision from it the same way:
 
 ```bash
-REVISION="$(olf project build --project . --image "$IMAGE")"
+REVISION="$(olf project build --project . --image "$IMAGE" | tee /dev/stderr | tail -n 1)"
 echo "$REVISION"
 ```
 
