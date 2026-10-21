@@ -167,3 +167,9 @@ variable "tls_issuer_name" {
   type        = string
   default     = null
 }
+
+variable "web_ui_fixed_user" {
+  description = "When set, the Web UI signs in as this user (web-ui.authentication.type=fixed) instead of showing its form. For a plain-HTTP route, where OAuth2 is unavailable."
+  type        = string
+  default     = null
+}

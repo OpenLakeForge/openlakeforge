@@ -213,7 +213,9 @@ The local stack publishes its user-facing services through one ingress
 `olf.localhost` by default. The default profile (and `olf init`) sets
 `spec.access.issuer: none`: the routes are plain `http://` URLs and there is
 no certificate step. Remove `issuer` for the HTTPS stack, see
-[Secured local stack (HTTPS)](#secured-local-stack-https). `olf status` lists them:
+[Secured local stack (HTTPS)](#secured-local-stack-https). In plain-HTTP mode the
+Trino Web UI shows a fixed user (`olf-web`) instead of a login form: the perimeter
+controls access, and per-person UI identity needs HTTPS (#425). `olf status` lists them:
 
 ```bash
 olf status --provider local          # a "URLs" section, keyed by contract ref

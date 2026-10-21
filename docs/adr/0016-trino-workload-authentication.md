@@ -269,3 +269,5 @@ The hourly catalog refresh is the same pod as a CronJob per governed stage
 (`openmetadata-trino-ingestion-<catalog>`), applied by `deploy-metadata` from
 the same builder. The pipeline-client CronJob and the
 `<service>-metadata-ingestion` pipeline registration are gone.
+Plain-HTTP mode (`issuer: none`): the Trino Web UI uses `web-ui.authentication.type=fixed` with user
+`olf-web` instead of its form; `/v1` workload authentication is unchanged.
