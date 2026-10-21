@@ -21,6 +21,10 @@ from olf.tooling.resolver import ExecutableResolver
 DEFAULT_ATOMIC_TIMEOUT = "20m"
 
 
+# Statuses that lock a release against the next apply.
+_BLOCKING_STATUSES = ("failed", "pending-install", "pending-upgrade", "pending-rollback")
+
+
 class Helm:
     def __init__(self, runner: ProcessRunner, resolver: ExecutableResolver) -> None:
         self._runner = runner
@@ -95,7 +99,7 @@ class Helm:
         kube_context: str | None = None,
         env: Mapping[str, str] | None = None,
     ) -> list[str]:
-        """Names of releases stuck in `failed` or `pending-install`, which a retried apply cannot reuse."""
+        """Names of releases stuck in a failed or pending state, which a retried apply cannot reuse."""
         result = self._run(
             ["list", "--namespace", namespace, "--all", "--output", "json"],
             kube_context=kube_context,
@@ -104,7 +108,7 @@ class Helm:
         )
         if not result.ok or not result.stdout.strip():
             return []
-        return [r["name"] for r in json.loads(result.stdout) if r.get("status") in ("failed", "pending-install")]
+        return [r["name"] for r in json.loads(result.stdout) if r.get("status") in _BLOCKING_STATUSES]
 
     def upgrade_install(
         self,

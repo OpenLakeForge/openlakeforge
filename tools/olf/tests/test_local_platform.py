@@ -354,7 +354,7 @@ class _PlatformScriptedRunner(RecordingRunner):
         if argv[0] == "helm" and "list" in argv:
             return _ok(
                 '[{"name":"stuck","status":"failed"},{"name":"half","status":"pending-install"},'
-                '{"name":"ok","status":"deployed"}]'
+                '{"name":"ok","status":"deployed"},{"name":"openlakeforge-project","status":"failed"}]'
             )
         if argv[0] == "helm" and "show" in argv:
             return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
