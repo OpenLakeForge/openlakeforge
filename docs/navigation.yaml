@@ -39,6 +39,8 @@ sections:
   - label: Reference
     items:
       - { path: tools/olf/README.md, slug: reference/cli, title: olf CLI }
+      - docs/reference/lakehouse-descriptor.md
+      - docs/reference/source-descriptor.md
       - docs/reference/domain-descriptor.md
       - docs/release/component-catalog.md
       - docs/release/compatibility-matrix.md
