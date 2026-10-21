@@ -156,9 +156,13 @@ jobs:
     needs: build
     runs-on: [self-hosted, olf-platform]
     environment: dev
+    permissions:
+      contents: read
+      packages: read  # activation pulls the revision's image
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.4.0-alpha.1
         with:
           stage: dev
@@ -169,9 +173,13 @@ jobs:
     needs: [build, dev]
     runs-on: [self-hosted, olf-platform]
     environment: prod
+    permissions:
+      contents: read
+      packages: read  # activation pulls the revision's image
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.4.0-alpha.1
         with:
           stage: prod

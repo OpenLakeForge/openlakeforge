@@ -68,10 +68,12 @@ Sign in with IAM Identity Center; no AWS CLI is needed:
 ```bash
 olf auth login --provider aws \
   --start-url "https://your-company.awsapps.com/start" \
-  --sso-region eu-west-1
+  --sso-region "<identity-center-region>"
 ```
 
-It opens an AWS-hosted device authorization page. If the browser cannot open,
+Use your AWS access portal URL and the region where your IAM Identity Center
+instance is configured, which can differ from the region you deploy to. It
+opens an AWS-hosted device authorization page. If the browser cannot open,
 add `--no-browser` and enter the printed code.
 
 ## 3. Provide your tags
@@ -134,17 +136,20 @@ passed.`
 olf destroy --provider aws
 ```
 
-This removes the platform, then the foundation. `--phase platform` or
-`--phase foundation` removes only one of them.
+This removes the platform, then the foundation. To remove one phase at a time,
+run `--phase platform` first: `--phase foundation` refuses to run while the
+platform still exists.
 
 ## Azure (preview)
 
 Azure runs the same platform on AKS and ACR, with the in-cluster SeaweedFS,
-Polaris and PostgreSQL. Set `provider.type: azure`, authenticate with `olf
-auth login --provider azure` (add `--device-code` on a headless machine),
-copy `infra/terraform/foundations/azure-aks/sandbox.tfvars.example` from `olf
-distribution path` to `sandbox.tfvars` with your resource group and VM size,
-export `AZURE_TFVARS_FILE`, then:
+Polaris and PostgreSQL. Set `provider.type: azure` and delete
+`provider.region`: Azure takes its region from `location` in `sandbox.tfvars`.
+Authenticate with `olf auth login --provider azure` (add `--device-code` on a
+headless machine), copy
+`infra/terraform/foundations/azure-aks/sandbox.tfvars.example` from `olf
+distribution path` to `sandbox.tfvars` with your resource group, region and VM
+size, export `AZURE_TFVARS_FILE`, then:
 
 ```bash
 olf deploy --provider azure
