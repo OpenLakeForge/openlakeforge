@@ -1,13 +1,15 @@
 # Prepare a cloud account
 
 What to have ready before you deploy OpenLakeForge to your own AWS or Azure
-account: tools, permissions, local Terraform state, and where account-specific
-values live so they never reach git. The deployments themselves are in
-[Deploy to AWS](deploy-to-aws.md) and [Deploy to Azure](deploy-to-azure.md).
+account: tools, permissions, local Terraform state, and where account values
+live. The deployments themselves are in [Deploy to AWS](deploy-to-aws.md) and
+[Deploy to Azure](deploy-to-azure.md).
 
-Nothing account-specific is committed to the repository. `olf` authenticates
-through the cloud SDKs, and your configuration stays in local, gitignored files
-or environment variables.
+Credentials never reach git: `olf` authenticates through the cloud SDKs, and
+the `sandbox.tfvars` file and your environment variables stay local and
+gitignored. The Deployment Profile, `openlakeforge.yaml`, is committed with
+your project and holds the provider, region and identity settings, so keep
+secrets out of it.
 
 > [!WARNING]
 > A cloud deployment creates billable resources, and it is a proof of concept,
@@ -15,7 +17,8 @@ or environment variables.
 
 ## Install the tools
 
-Installed from PyPI (`pip install openlakeforge`, or `uv tool install`), you need
+Installed from PyPI (`pip install openlakeforge`, or
+`uv tool install "openlakeforge==0.4.0a1" --python 3.12`), you need
 `docker` and `python3` (3.12 or newer) on your `PATH`. `olf` provisions its own
 versioned Terraform, kubectl and Helm under `OLF_HOME` (default
 `~/.openlakeforge`). Neither the `aws` nor the `az` CLI is required. Set
@@ -64,22 +67,24 @@ export REQUESTS_CA_BUNDLE=/path/to/ca-bundle.pem   # Azure
 
 ## Run providers side by side
 
-The local, AWS and Azure deployments can run at the same time. Each uses its
-own kubeconfig, Helm cache, Docker credential directory, report work directory
-and port-forward logs, all scoped by provider, and none switches the current
-context in your global kubeconfig. That scoping is per provider, not per
-invocation: two concurrent deployments of the same provider are not supported,
-because they would share the same default kubeconfig, Terraform state and work
-directories.
+A local, an AWS and an Azure platform can all exist at the same time. Each
+uses its own kubeconfig, Helm cache, Docker credential directory, report work
+directory and port-forward logs, scoped by provider, and none switches the
+current context in your global kubeconfig. Run one `olf` command at a time,
+though: `olf` is a single-operator tool, and two invocations running together
+are not supported, whatever their providers.
 
 ## Check it worked
 
 ```bash
 olf toolchain list
 olf doctor --provider aws --phase foundation
+docker ps
 ```
 
 The first lists the managed tools (or fails with the reason). The second
-reports `PASS` for the project, the tools and the Docker engine, and it checks
-your cloud authentication; use `--provider azure` for Azure. Authenticate first
+reports `PASS` for the project and the tools, and it checks your cloud
+authentication; use `--provider azure` for Azure. It does not check Docker,
+which the artifacts phase needs to build images, so the third confirms the
+engine is running. Authenticate first
 if it reports a failed login, as described in the deploy guide.

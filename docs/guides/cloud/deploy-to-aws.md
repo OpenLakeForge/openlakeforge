@@ -133,8 +133,9 @@ olf e2e run --env aws
 ```
 
 It launches every product's job on EKS, verifies the Silver and Gold tables
-through Trino and Glue, and checks the dashboards and OpenMetadata assets. It
-ends with a line of the form `<Env> OpenLakeForge <suite> e2e validation
+through Trino and Glue, and, when the profile enables analytics and governance
+(the Full preset), checks the dashboards and OpenMetadata assets. It ends with
+a line of the form `<Env> OpenLakeForge <suite> e2e validation
 passed.`
 
 ## 6. Tear down

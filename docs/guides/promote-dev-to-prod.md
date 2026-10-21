@@ -36,8 +36,8 @@ catalog. The platform services in `olf-system` are shared.
 
 ## Promote by hand
 
-A revision is identified by an image digest, and an image built straight into
-kind has none. A local platform therefore pushes to a registry you control:
+A revision has its own id, and it must reference a digest-pinned image; an
+image built straight into kind has no digest. A local platform therefore pushes to a registry you control:
 
 ```bash
 export PROJECT_CODE_IMAGE_REPOSITORY=ghcr.io/your-account/project-code
@@ -119,6 +119,12 @@ actions to the OpenLakeForge release your `openlakeforge` package matches, and
 every third-party action to a commit SHA: these jobs hold cloud credentials.
 This version targets AWS; for a local platform, drop the credentials step and
 use `e2e-env: local`.
+
+> [!NOTE]
+> The AWS deployment serves one stage today, and the profile in
+> [Deploy to AWS](cloud/deploy-to-aws.md) enables only `dev`. With that profile,
+> keep the `build` and `dev` jobs and delete the `uat` and `prod` jobs. A
+> stage job only works for a stage the profile enables.
 
 ```yaml
 name: Promote

@@ -121,8 +121,9 @@ With `olf forward` running, from the first terminal:
 olf e2e run --env azure
 ```
 
-It launches every product's job, verifies the Silver and Gold tables and checks
-the dashboards and OpenMetadata assets, and ends with a line of the form
+It launches every product's job and verifies the Silver and Gold tables. When
+the profile enables analytics and governance (the Full preset), it also checks
+the dashboards and OpenMetadata assets. It ends with a line of the form
 `<Env> OpenLakeForge <suite> e2e validation passed.`
 
 ## 6. Tear down
