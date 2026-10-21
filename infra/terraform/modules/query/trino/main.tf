@@ -282,8 +282,8 @@ resource "helm_release" "trino" {
       }
     }),
     ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [],
-    # With auth on, ui_properties ride in auth_values (a later values file replaces a list).
-  !local.auth_enabled && length(local.ui_properties) > 0 ? [yamlencode({ additionalConfigProperties = local.ui_properties })] : [])
+    # With auth on, ui_properties ride in auth_values (a later values file replaces a list, so the base process-forwarded line is repeated here).
+  !local.auth_enabled && length(local.ui_properties) > 0 ? [yamlencode({ additionalConfigProperties = concat(["http-server.process-forwarded=true"], local.ui_properties) })] : [])
 
   lifecycle {
     # The principals rule is built from stage_namespaces and the catalog rules
