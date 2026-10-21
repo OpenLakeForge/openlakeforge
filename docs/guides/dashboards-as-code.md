@@ -55,7 +55,11 @@ bundle directories.
 ## 3. Start a new dashboard
 
 `olf product new` accepts `--with-report` when it creates a product. Use it
-for a new product, not one that already exists:
+for a new product, not one that already exists. The example reads the
+`campaigns` Silver table of a `marketing` domain, which must already exist; if
+it does not, create the `marketing_platform` source as in the *Add a source*
+guide, then the domain as in the *Add a domain* guide
+(`olf domain new marketing --input marketing_platform/campaigns`).
 
 ```bash
 olf product new marketing/campaign_summary \
@@ -68,10 +72,18 @@ the Trino database, one dataset per Gold mart and a README. It adds no
 `metadata.yaml` and no `dashboards:` entry, so the draft is neither declared
 nor promotable yet, and the deploy does not import it into Superset.
 
-Build the dashboard in Superset instead. After the product's job has run once,
-open **Datasets**, add a dataset from the `OpenLakeForge Trino` database, the
-`campaign_summary_gold` schema and the `mart_campaign_summary` table, chart it
-and save a dashboard. Then export it.
+Deploy the new product so the platform knows it, then build its table:
+
+```bash
+olf deploy --provider local --phase artifacts
+```
+
+In Dagster, launch `campaign_summary_pipeline` once, so
+`campaign_summary_gold.mart_campaign_summary` has rows.
+
+Then build the dashboard in Superset: open **Datasets**, add a dataset from the
+`OpenLakeForge Trino` database, the `campaign_summary_gold` schema and the
+`mart_campaign_summary` table, chart it and save a dashboard. Then export it.
 
 ## 4. Export a dashboard
 
@@ -128,10 +140,11 @@ olf report validate
 ```
 
 It checks every bundle for stable identities, resolvable references and no
-stage-bound values. With the three demo dashboards it prints:
+stage-bound values. With the three demo dashboards and `campaign_summary`
+declared, it prints:
 
 ```text
-3 report bundle(s) are promotable.
+4 report bundle(s) are promotable.
 ```
 
 Pass a dashboard name to check only that one. Without a name, the command also
