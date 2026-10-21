@@ -38,6 +38,7 @@ sections:
       - docs/setup/azure.md
   - label: Reference
     items:
+      - docs/reference/deployment-profile.md
       - { path: tools/olf/README.md, slug: reference/cli, title: olf CLI }
       - docs/reference/domain-descriptor.md
       - docs/release/component-catalog.md
