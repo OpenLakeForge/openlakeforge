@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from olf.e2e._network import PROTECTED, positive_probes, rbac_denials, workload_port
+from olf.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_port
 
 FLOWS = yaml.safe_load((Path(__file__).parents[3] / "release/network-flows.yaml").read_text())
 
@@ -30,3 +30,7 @@ def test_rbac_denials_exempt_only_documented_cluster_secret_readers() -> None:
     assert ("list", "secrets", "--all-namespaces") not in rbac_denials("olf-system", "traefik")
     assert ("create", "pods", "-n", "olf-dev") in rbac_denials("olf-dev", "default")
     assert ("escalate", "clusterroles") in rbac_denials("olf-system", "traefik")
+
+
+def test_stage_wide_backends_are_the_f6_f9_f10_f12_destinations() -> None:
+    assert stage_wide(FLOWS) == {"postgresql", "polaris", "trino", "openmetadata"}

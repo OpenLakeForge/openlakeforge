@@ -73,6 +73,16 @@ def positive_probes(document: dict[str, Any]) -> list[tuple[str, dict[str, str],
     return probes
 
 
+def stage_wide(document: dict[str, Any]) -> set[str]:
+    """Protected workloads that every stage pod may reach: the rows whose source is the whole stage namespace."""
+    return {
+        workload
+        for workload in PROTECTED
+        for row in document["flows"]
+        if row["from"] == {"scope": "stage"} and row["to"].get("pods") == document["workloads"][workload]
+    }
+
+
 def workload_port(document: dict[str, Any], workload: str) -> int:
     labels = document["workloads"][workload]
     for row in document["flows"]:
@@ -85,10 +95,11 @@ def _pod_ip(cfg: E2EConfig, namespace: str, labels: dict[str, str]) -> str | Non
     out = kubectl(
         cfg,
         ["get", "pod", "-n", namespace, "-l", _selector(labels), "--field-selector=status.phase=Running",
-         "-o", "jsonpath={.items[0].status.podIP}"],
+         "-o", "jsonpath={.items[*].status.podIP}"],
         capture=True,
-    ).strip()
-    return out or None
+    ).split()
+    # `items[0]` on an empty list is a kubectl error; a workload that is not deployed is not one.
+    return out[0] if out else None
 
 
 def _apiserver(cfg: E2EConfig) -> str:
@@ -161,10 +172,10 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
     kubectl(cfg, ["create", "namespace", UNTRUSTED_NAMESPACE])
     problems: list[str] = []
     try:
-        # (namespace, name, allowed): the probes are unlabelled, so only F6 (stage to PostgreSQL) applies.
+        # (namespace, name, allowed): the probes are unlabelled, so only the stage-wide rows (F6, F9, F10, F12) apply.
         cases = [
             (UNTRUSTED_NAMESPACE, "outside", set()),
-            (cfg.namespace, "stage", {"postgresql"}),
+            (cfg.namespace, "stage", stage_wide(document)),
             (cfg.platform_namespace, "platform", set()),
         ]
         for namespace, name, allowed in cases:
@@ -264,12 +275,12 @@ def _undocumented_grants(cfg: E2EConfig) -> list[str]:
         if ref["kind"] != "Role":
             args = ["get", "clusterrole", ref["name"]]
         role = json.loads(kubectl(cfg, [*args, "-o", "json"], capture=True))
-        if ref["name"].startswith(DOCUMENTED_ROLES):
+        if ref["name"].startswith(DOCUMENTED_ROLES) and ref["name"] != "openmetadata-bootstrap":
             continue
         for rule in role.get("rules") or []:
             resources, verbs = set(rule.get("resources") or []), set(rule.get("verbs") or [])
             unpinned = not rule.get("resourceNames")
-            reads_secrets = unpinned and "secrets" in resources and verbs & SECRET_VERBS
+            reads_secrets = unpinned and resources & {"secrets", "*"} and verbs & SECRET_VERBS
             runs_workloads = resources & WORKLOADS and verbs & {"create", "*"}
             if reads_secrets or runs_workloads:
                 where = role_namespace or "cluster"
