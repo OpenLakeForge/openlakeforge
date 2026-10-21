@@ -7,6 +7,7 @@ semantics of the shell script.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -23,8 +24,10 @@ from olf.deployment.engine import DeploymentConfig, Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.retry import RetryPolicy, run_with_retry
+from olf.github_app import GitHubApp, store_app
 from olf.tooling.kubectl import KubeContextUnreachableError
 
+_APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
 _SHARED_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = (
@@ -107,21 +110,62 @@ def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return variables
 
 
+def _read_github_secret(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str], output: str):  # noqa: ANN202
+    identity = config.context.topology.identity
+    assert identity is not None and identity.github is not None
+    return tools.kubectl.get(
+        "secret",
+        name=identity.github.oauth_app_secret_ref.name,
+        namespace=config.context.shared_namespace,
+        output=output,
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+        check=False,
+    )
+
+
+def read_github_app_secret(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> dict[str, str]:
+    """The decoded `app-id`, `app-slug` and `private-key` of a GitHub App Secret; empty when any is absent (a
+    hand-made OAuth App, or a Secret from before they were stored) or unreadable."""
+    result = _read_github_secret(config, tools, env=env, output="json")
+    try:
+        data = {key: base64.b64decode(json.loads(result.stdout)["data"][key]).decode() for key in _APP_SECRET_KEYS}
+    except (ValueError, KeyError, TypeError):
+        return {}
+    return data if result.ok else {}
+
+
+def github_connect_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
+    """Whether `olf deploy` must run the GitHub manifest flow: interactive, enabled, and no Secret yet. A cluster
+    that does not exist yet cannot hold one."""
+    identity = config.context.topology.identity
+    if identity is None or identity.github is None or not config.context.github_connect:
+        return False
+    if not (sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CI")):
+        return False
+    if config.cluster.name not in tools.kind.get_clusters(env=env):
+        return True
+    result = _read_github_secret(config, tools, env=env, output="name")
+    return not result.ok and "NotFound" in result.stderr
+
+
 def require_github_oauth_secret(
     config: LocalDeploymentConfig,
     tools: Toolkit,
     *,
     env: Mapping[str, str],
     create_namespace: Callable[[], None],
-) -> str | None:
+    github_app: GitHubApp | None = None,
+) -> None:
     """Dex reads the GitHub OAuth App through `secretKeyRef` and would otherwise sit in
     CreateContainerConfigError. Only key names are read. The shared namespace is made first when absent,
-    so the operator has somewhere to create the Secret. When the Secret is missing and the run is interactive,
-    the `olf github connect` flow runs inline and its install link is returned."""
+    so the operator has somewhere to create the Secret. A missing Secret is written from `github_app`, the App
+    the manifest flow created (in memory) before the foundation apply."""
     identity = config.context.topology.identity
     github = identity.github if identity else None
     if github is None:
-        return None
+        return
     ref, namespace = github.oauth_app_secret_ref, config.context.shared_namespace
     command = (
         f"kubectl -n {namespace} create secret generic {ref.name} "
@@ -133,28 +177,11 @@ def require_github_oauth_secret(
     ):
         create_namespace()
 
-    def read_secret():  # noqa: ANN202 - CommandResult
-        return tools.kubectl.get(
-            "secret",
-            name=ref.name,
-            namespace=namespace,
-            output=r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}',
-            context=config.kube_context,
-            kubeconfig=config.paths.kubeconfig_path,
-            env=env,
-            check=False,
-        )
-
-    result, install = read_secret(), None
-    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CI")
-    if not result.ok and "NotFound" in result.stderr and interactive and config.context.github_connect:
-        from olf import github_app
-
-        try:
-            install = github_app.connect_github(config.context)
-        except github_app.GitHubConnectError as exc:
-            raise DeploymentPreconditionError(str(exc)) from exc
-        result = read_secret()
+    keys = r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}'
+    result = _read_github_secret(config, tools, env=env, output=keys)
+    if not result.ok and "NotFound" in result.stderr and github_app is not None:
+        store_app(config.context, github_app, tools.kubectl)
+        result = _read_github_secret(config, tools, env=env, output=keys)
     if not result.ok:
         raise DeploymentPreconditionError(
             f"spec.identity.github needs the GitHub OAuth App Secret '{ref.name}' in namespace '{namespace}' "
@@ -171,7 +198,6 @@ def require_github_oauth_secret(
             f"spec.identity.github.oauth_app_secret_ref names them. "
             f"Re-run `olf github connect`, or recreate it (kubectl delete secret {ref.name} first): {command}"
         )
-    return install
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -471,8 +497,10 @@ def platform_up(
     tools: Toolkit,
     *,
     env: Mapping[str, str],
-) -> str | None:
-    """Apply the static platform; return the GitHub App install link when the connect flow ran this time."""
+    github_app: GitHubApp | None = None,
+) -> None:
+    """Apply the static platform. `github_app` is the App `olf deploy` created before the foundation apply; it is
+    written as the identity Secret once the shared namespace exists."""
     platform_dir = config.paths.platform_terraform_dir
 
     if not config.paths.foundation_state_path.is_file():
@@ -537,7 +565,9 @@ def platform_up(
             env=env,
         )
 
-    github_install = require_github_oauth_secret(config, tools, env=env, create_namespace=_create_shared_namespace)
+    require_github_oauth_secret(
+        config, tools, env=env, create_namespace=_create_shared_namespace, github_app=github_app
+    )
 
     def _apply_once() -> None:
         for prefix in _POLARIS_JOB_PREFIXES:
@@ -578,4 +608,3 @@ def platform_up(
         )
 
     log.step("Static OpenLakeForge local platform is applied.")
-    return github_install

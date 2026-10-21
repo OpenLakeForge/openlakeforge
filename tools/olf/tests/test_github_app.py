@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import html
 import json
 import re
@@ -152,7 +153,13 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
     monkeypatch.setattr(
         github_app,
         "convert_code",
-        lambda code, host: {"client_id": "Iv1.abc", "client_secret": CLIENT_SECRET, "pem": PEM, "slug": "olf-demo"},
+        lambda code, host: {
+            "id": 42,
+            "client_id": "Iv1.abc",
+            "client_secret": CLIENT_SECRET,
+            "pem": PEM,
+            "slug": "olf-demo",
+        },
     )
     result = CliRunner().invoke(app, ["github", "connect", "--no-browser"])
 
@@ -160,8 +167,100 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
     assert seen["manifest"]["callback_urls"] == ["http://auth.olf.localhost/callback"]
     (secret,) = applied
     data = {k: base64.b64decode(v).decode() for k, v in json.loads(secret)["data"].items()}
-    assert data == {"client-id": "Iv1.abc", "client-secret": CLIENT_SECRET, "private-key": PEM}
+    assert data == {
+        "client-id": "Iv1.abc",
+        "client-secret": CLIENT_SECRET,
+        "private-key": PEM,
+        "app-id": "42",
+        "app-slug": "olf-demo",
+    }
     assert "https://github.com/apps/olf-demo/installations/new" in result.output
     everything = result.output + capsys.readouterr().out + caplog.text
-    for value in ("Iv1.abc", CLIENT_SECRET, "key-material", "code123"):
+    for value in ("Iv1.abc", CLIENT_SECRET, "key-material", "code123", "BEGIN RSA"):
         assert value not in everything
+
+
+def _rsa_pem() -> tuple[str, Any]:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()
+    )
+    return pem.decode(), key.public_key()
+
+
+def test_app_jwt_is_an_rs256_token_issued_by_the_app_and_valid_for_ten_minutes() -> None:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    pem, public = _rsa_pem()
+    head, claims, signature = github_app.app_jwt(42, pem, now=1_000_000).split(".")
+    pad = lambda part: part + "=" * (-len(part) % 4)  # noqa: E731
+    assert json.loads(base64.urlsafe_b64decode(pad(head))) == {"alg": "RS256", "typ": "JWT"}
+    payload = json.loads(base64.urlsafe_b64decode(pad(claims)))
+    assert payload["iss"] == "42" and payload["exp"] - payload["iat"] == 600
+    signed = f"{head}.{claims}".encode()
+    public.verify(base64.urlsafe_b64decode(pad(signature)), signed, padding.PKCS1v15(), hashes.SHA256())
+
+
+@pytest.mark.parametrize(("status", "expected"), [(200, True), (404, False), (401, None), (500, None)])
+def test_app_installed_maps_the_installation_lookup(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: int, expected: bool | None
+) -> None:
+    pem, _ = _rsa_pem()
+    seen: dict[str, Any] = {}
+
+    def urlopen(request: urllib.request.Request, timeout: float) -> Any:
+        seen["url"], seen["auth"] = request.full_url, request.get_header("Authorization")
+        if status != 200:
+            raise urllib.error.HTTPError(request.full_url, status, "x", {}, None)  # type: ignore[arg-type]
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    assert github_app.app_installed(host="github.com", organization="acme", app_id=42, pem=pem) is expected
+    assert seen["url"] == "https://api.github.com/orgs/acme/installation"
+    out = capsys.readouterr()
+    assert seen["auth"].removeprefix("Bearer ") not in out.out + out.err
+
+
+def test_an_unreadable_key_or_network_failure_is_unknown_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert github_app.app_installed(host="github.com", organization="acme", app_id=1, pem="not a key") is None
+    pem, _ = _rsa_pem()
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("down")))
+    assert github_app.app_installed(host="github.com", organization="acme", app_id=1, pem=pem) is None
+
+
+@pytest.mark.parametrize(
+    ("release", "explorer", "expected"),
+    [
+        ("5.15.0-microsoft-standard-WSL2", "/mnt/c/Windows/explorer.exe", "explorer"),
+        ("5.15.0-microsoft-standard-WSL2", None, "nothing"),
+        ("6.1.0-generic", "/mnt/c/Windows/explorer.exe", "webbrowser"),
+    ],
+)
+def test_open_browser_uses_explorer_on_wsl_and_webbrowser_elsewhere(
+    monkeypatch: pytest.MonkeyPatch, release: str, explorer: str | None, expected: str
+) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr(github_app.platform, "release", lambda: release)
+    monkeypatch.setattr(github_app.shutil, "which", lambda _name: explorer)
+    monkeypatch.setattr(github_app.subprocess, "Popen", lambda argv, **k: opened.append(f"explorer {argv[1]}"))
+    monkeypatch.setattr(github_app.webbrowser, "open", lambda url: opened.append(f"webbrowser {url}"))
+
+    github_app.open_browser("http://127.0.0.1:1/")
+
+    assert opened == {
+        "explorer": ["explorer http://127.0.0.1:1/"],
+        "nothing": [],
+        "webbrowser": ["webbrowser http://127.0.0.1:1/"],
+    }[expected]
+    opened.clear()
+    github_app.open_browser("http://127.0.0.1:1/", no_browser=True)
+    assert opened == []
+
+
+def test_install_url_uses_the_enterprise_path_on_a_custom_host() -> None:
+    assert github_app.install_url("github.com", "olf") == "https://github.com/apps/olf/installations/new"
+    assert github_app.install_url("ghe.acme.io", "olf") == "https://ghe.acme.io/github-apps/olf/installations/new"

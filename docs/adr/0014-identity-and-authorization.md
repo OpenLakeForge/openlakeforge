@@ -361,7 +361,10 @@ is not.
 
 Inline GitHub connect (#428): with a missing OAuth App Secret, an interactive
 `olf deploy` runs the `olf github connect` flow itself instead of refusing;
-CI, piped runs and `--no-github-connect` keep the refusal. Bootstraps keep
+CI, piped runs and `--no-github-connect` keep the refusal. The flow runs
+before the foundation apply (#448), so the rest of the deploy is unattended; the
+converted App stays in memory until the Secret is written, and the end-of-deploy
+summary asks GitHub whether the App is installed. Bootstraps keep
 their class-2 workload identities.
 
 Keycloak removed (#384 slice c): `modules/identity/keycloak`, its `keycloak`

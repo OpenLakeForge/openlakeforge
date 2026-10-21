@@ -26,6 +26,9 @@ class _FakeProvider:
         self.calls: list[str] = []
         self.context = DeploymentContext.local(repo_root=repo_root)
 
+    def before_deploy(self) -> None:
+        self.calls.append("before_deploy")
+
     def foundation_up(self) -> None:
         self.calls.append("foundation_up")
 
@@ -58,7 +61,7 @@ def test_deploy_all_runs_phases_in_adr_0008_order(tmp_path: Path) -> None:
 
     engine.deploy()
 
-    assert provider.calls == ["foundation_up", "prepare_images", "platform_up", "artifacts_deploy"]
+    assert provider.calls == ["before_deploy", "foundation_up", "prepare_images", "platform_up", "artifacts_deploy"]
 
 
 @pytest.mark.parametrize(
