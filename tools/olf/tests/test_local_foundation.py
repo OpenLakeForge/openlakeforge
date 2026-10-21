@@ -385,3 +385,41 @@ def test_listening_detects_a_bound_loopback_port() -> None:
         port = server.getsockname()[1]
         assert _REAL_LISTENING(port)
     assert not _REAL_LISTENING(port)
+
+
+class _FlakyClusterInfoRunner(_ScriptedRunner):
+    """`cluster-info` fails (RBAC not synced yet) `failures` times, then succeeds."""
+
+    def __init__(self, failures: int) -> None:
+        contexts = (lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n"))
+        super().__init__(rules=[contexts], default=_ok())
+        self.failures = failures
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        if "cluster-info" in argv and self.failures > 0:
+            self.failures -= 1
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            from olf.deployment.errors import CommandExecutionError
+
+            raise CommandExecutionError(argv, 1, stderr="Error from server (Forbidden)")
+        return super().run(command, **kwargs)
+
+
+def test_foundation_up_retries_the_reachability_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("olf.retry.time.sleep", lambda _s: None)
+    runner = _FlakyClusterInfoRunner(failures=2)
+
+    foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
+
+    assert sum("cluster-info" in c.argv for c in runner.calls) == 3
+
+
+def test_foundation_up_gives_up_after_the_retry_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("olf.retry.time.sleep", lambda _s: None)
+    runner = _FlakyClusterInfoRunner(failures=999)
+
+    with pytest.raises(DeploymentPreconditionError, match="not reachable after applying the foundation"):
+        foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
+
+    assert sum("cluster-info" in c.argv for c in runner.calls) == 21
