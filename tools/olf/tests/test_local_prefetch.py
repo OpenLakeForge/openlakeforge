@@ -10,14 +10,16 @@ from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local import prefetch
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.release._manifest import load_catalog
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+_CATALOG = load_catalog(_REPO_ROOT / "release" / "component-catalog.yaml")["components"]["images"]
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:
-    context = DeploymentContext.local(repo_root=tmp_path, profile=profile)
+    context = DeploymentContext.local(repo_root=tmp_path, profile=profile, distribution_root=_REPO_ROOT)
     return LocalDeploymentConfig.from_environment({}, context=context)
 
 
@@ -48,27 +50,27 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
 
 def test_selected_images_full_profile_includes_governance_and_analytics() -> None:
     features = DeploymentFeatures(governance_enabled=True, analytics_enabled=True)
-    images = prefetch.selected_images(features, server_arch="amd64")
+    images = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG)
 
-    assert images[0] == "opensearchproject/opensearch:2.11.0"
-    assert images[1].startswith("apache/polaris:1.4.0@sha256:f4676e56")
-    assert images[2].startswith("apache/polaris-admin-tool:1.4.0@sha256:3b13addc")
+    assert _CATALOG["opensearch"] in images
+    assert any(i.startswith("apache/polaris:1.4.0@sha256:f4676e56") for i in images)
+    assert any(i.startswith("apache/polaris-admin-tool:1.4.0@sha256:3b13addc") for i in images)
     assert "docker.getcollate.io/openmetadata/server:1.13.6" in images
-    assert "docker.getcollate.io/openmetadata/ingestion-base:1.13.6" in images
+    assert _CATALOG["openmetadata_ingestion"] in images
     assert images[-1] == "ghcr.io/malon64/floe:0.6.11"
-    assert "apache/superset:dockerize" in images
-    assert "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4" in images
+    assert "apache/superset:dockerize" in "".join(images)
+    assert _CATALOG["superset_redis"] in images
 
 
 def test_selected_images_slim_profile_excludes_governance_and_analytics() -> None:
     features = DeploymentFeatures(governance_enabled=False, analytics_enabled=False)
-    images = prefetch.selected_images(features, server_arch="amd64")
+    images = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG)
 
-    assert "opensearchproject/opensearch:2.11.0" not in images
+    assert "opensearchproject/opensearch:3.3.2" not in images
     assert not any("openmetadata" in image for image in images)
     assert not any("superset" in image for image in images)
     assert not any("redis" in image for image in images)
-    assert images[0].startswith("apache/polaris:1.4.0")
+    assert any(i.startswith("apache/polaris:1.4.0") for i in images)
     assert images[-1] == "ghcr.io/malon64/floe:0.6.11"
     assert any(image.startswith("postgres:16-alpine@sha256:57c72fd2") for image in images)
 
@@ -76,22 +78,22 @@ def test_selected_images_slim_profile_excludes_governance_and_analytics() -> Non
 def test_dex_is_prefetched_only_for_the_github_issuer() -> None:
     features = DeploymentFeatures(governance_enabled=False, analytics_enabled=False)
 
-    plain = prefetch.selected_images(features, server_arch="amd64")
-    with_dex = prefetch.selected_images(features, server_arch="amd64", dex=True)
+    plain = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG)
+    with_dex = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG, dex=True)
     assert not any("dexidp/dex" in image for image in plain)
     assert any(image.startswith("ghcr.io/dexidp/dex:") for image in with_dex)
 
 
 def test_polaris_images_arch_mapping() -> None:
-    arm_image, arm_admin = prefetch.polaris_images("arm64")
+    arm_image, arm_admin = prefetch.polaris_images("arm64", _CATALOG)
     assert arm_image.startswith("apache/polaris:1.4.0@sha256:705f7c02")
     assert arm_admin.startswith("apache/polaris-admin-tool:1.4.0@sha256:c5313c03")
 
-    amd_image, amd_admin = prefetch.polaris_images("x86_64")
+    amd_image, amd_admin = prefetch.polaris_images("x86_64", _CATALOG)
     assert amd_image.startswith("apache/polaris:1.4.0@sha256:f4676e56")
 
-    fallback_image, fallback_admin = prefetch.polaris_images("riscv64")
-    assert fallback_image == "apache/polaris:1.4.0"  # no digest pin in the fallback branch
+    fallback_image, fallback_admin = prefetch.polaris_images("riscv64", _CATALOG)
+    assert fallback_image == _CATALOG["polaris"]
     assert fallback_admin.startswith("apache/polaris-admin-tool:1.4.0@sha256:7ef7557b")
 
 
@@ -136,7 +138,7 @@ class _ScriptedRunner(RecordingRunner):
 
 def test_prefetch_images_skips_images_already_present_on_every_node(tmp_path: Path) -> None:
     config = _config(tmp_path, profile=Profile.SLIM)
-    images = prefetch.selected_images(config.features, server_arch="amd64")
+    images = prefetch.selected_images(config.features, server_arch="amd64", catalog_images=_CATALOG)
     runner = _ScriptedRunner(image_already_present=set(images))
     tools = _toolkit(runner)
 
@@ -153,7 +155,7 @@ def test_prefetch_images_pulls_saves_and_imports_digest_pinned_image(tmp_path: P
 
     prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
 
-    polaris_image = prefetch.polaris_images("amd64")[0]
+    polaris_image = prefetch.polaris_images("amd64", _CATALOG)[0]
     tag_calls = [c for c in runner.calls if c.argv[:2] == ["docker", "tag"] and c.argv[2] == polaris_image]
     assert len(tag_calls) == 1
     assert tag_calls[0].argv[3] == prefetch.archive_reference(polaris_image)
@@ -203,3 +205,22 @@ def test_canary_image_is_loaded_into_nodes_before_its_pods_are_created() -> None
     argvs = [c.argv for c in runner.calls]
     loaded = next(i for i, a in enumerate(argvs) if "import" in a and "ctr" in a)
     assert loaded < argvs.index(["kubectl", "create"])
+
+
+def test_full_identity_selection_matches_the_catalog_pins() -> None:
+    features = DeploymentFeatures(governance_enabled=True, analytics_enabled=True)
+    images = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG, dex=True)
+    tags = {prefetch.archive_reference(i) for i in images}
+
+    for name in (
+        "seaweedfs", "traefik", "cert_manager_controller", "cert_manager_webhook", "cert_manager_cainjector",
+        "postgres", "trino", "polaris", "polaris_admin_tool", "opensearch", "openmetadata_ingestion",
+        "superset_base", "superset_init", "superset_redis", "oauth2_proxy", "dex",
+    ):  # fmt: skip
+        assert prefetch.archive_reference(_CATALOG[name]) in tags, name
+    # no preloaded tag drifts from the catalog; only Floe and the OpenMetadata server are pinned outside it
+    pinned = {prefetch.archive_reference(v) for v in _CATALOG.values()}
+    assert tags - pinned == {
+        prefetch.archive_reference(prefetch._OPENMETADATA_SERVER_IMAGE),
+        prefetch.archive_reference(prefetch._FLOE_IMAGE),
+    }

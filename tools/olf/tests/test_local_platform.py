@@ -352,6 +352,11 @@ class _PlatformScriptedRunner(RecordingRunner):
             if self._apply_attempts <= self._apply_failures:
                 raise CommandExecutionError(argv, 1, stderr="apply failed")
             return _ok()
+        if argv[0] == "helm" and "list" in argv:
+            return _ok(
+                '[{"name":"stuck","status":"failed"},{"name":"half","status":"pending-install"},'
+                '{"name":"ok","status":"deployed"},{"name":"openlakeforge-project","status":"failed"}]'
+            )
         if argv[0] == "helm" and "show" in argv:
             return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
         if argv[0] == "helm" and "pull" in argv and "dagster/dagster" in argv:
@@ -783,3 +788,25 @@ def test_a_state_holding_the_shared_namespace_is_resumed_not_reset(
 
     assert platform.reset_drifted_platform_if_needed(_config(tmp_path), tools, env={}) is resets
     assert bool(torn_down) is resets
+
+
+def test_platform_up_uninstalls_failed_and_pending_releases_before_each_apply(tmp_path: Path) -> None:
+    context = DeploymentContext.local(repo_root=tmp_path, profile=Profile.SLIM)
+    config = LocalDeploymentConfig.from_environment(
+        {"LOCAL_UP_RETRY_ATTEMPTS": "3", "LOCAL_UP_RETRY_DELAY_SECONDS": "0"}, context=context
+    )
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    runner = _PlatformScriptedRunner(apply_failures=1)
+    tools = _toolkit(runner)
+
+    platform.platform_up(config, tools, env={})
+
+    uninstalled = [
+        (c.argv[c.argv.index("uninstall") + 1], c.argv[c.argv.index("-n") + 1])
+        for c in runner.calls
+        if "uninstall" in c.argv
+    ]
+    namespaces = config.context.owned_namespaces
+    expected = [(r, ns) for _ in range(2) for ns in namespaces for r in ("stuck", "half")]
+    assert sorted(uninstalled) == sorted(expected)

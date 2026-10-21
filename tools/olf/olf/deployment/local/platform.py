@@ -570,6 +570,14 @@ def platform_up(
     )
 
     def _apply_once() -> None:
+        for namespace in config.context.owned_namespaces:
+            for release in tools.helm.list_unhealthy_releases(
+                namespace=namespace, kube_context=config.kube_context, env=env
+            ):
+                if release == "openlakeforge-project":  # activation's release, not the platform's
+                    continue
+                log.step(f"Uninstalling stuck Helm release {namespace}/{release} before the apply...")
+                tools.helm.uninstall(release, namespace=namespace, kube_context=config.kube_context, env=env)
         for prefix in _POLARIS_JOB_PREFIXES:
             kube_ops.cleanup_failed_jobs_by_prefix(
                 tools.kubectl,
