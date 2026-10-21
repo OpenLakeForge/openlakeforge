@@ -30,12 +30,17 @@ sections:
       - docs/tutorial/10-deploy-to-the-cloud.md
   - label: Guides
     items:
+      - docs/guides/install-options.md
+      - docs/guides/local-access.md
       - docs/setup/github-oauth-app.md
       - docs/setup/identity-secret-rotation.md
       - docs/reference/ci-cd.md
       - docs/setup/cloud-poc-setup.md
       - docs/setup/aws.md
       - docs/setup/azure.md
+      - docs/guides/status-and-diagnostics.md
+      - docs/guides/troubleshooting.md
+      - docs/guides/tear-down.md
   - label: Reference
     items:
       - { path: tools/olf/README.md, slug: reference/cli, title: olf CLI }
