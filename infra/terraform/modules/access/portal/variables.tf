@@ -16,10 +16,16 @@ variable "image" {
 }
 
 variable "links" {
-  description = "Routes the landing page links to, keyed by contract ref: the group heading (stage name or shared), the service name and its URL."
+  description = "Routes the landing page links to, keyed by contract ref: the group heading (stage name; refs outside stage/ list under Shared), the service name and its URL."
   type = map(object({
     stage = string
     name  = string
     url   = string
   }))
+}
+
+variable "account_url" {
+  description = "Where members manage their account and teams. Set only when the issuer has an account page of its own (GitHub); Dex has none. null shows no link."
+  type        = string
+  default     = null
 }
