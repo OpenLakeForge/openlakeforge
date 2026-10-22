@@ -4,6 +4,8 @@ FROM ${SUPERSET_BASE_IMAGE}
 USER root
 
 RUN uv pip install --python /app/.venv/bin/python --no-cache \
+    # GHSA-6q48-6c7w-9gw2: base image ships a certifi with compromised emSign roots.
+    "certifi>=2026.10.19" \
     "authlib>=1.3,<2" \
     "psycopg2-binary>=2.9,<3" \
     "trino>=0.336,<1"
