@@ -10,9 +10,9 @@ variable "release_name" {
 }
 
 variable "image" {
-  description = "Static file server image, pinned by digest (release/component-catalog.yaml, portal_static_server)."
+  description = "openlakeforge-portal image, pinned by digest (release/component-catalog.yaml, portal)."
   type        = string
-  default     = "busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
+  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.2.0@sha256:516cef1b03421f8f407899e534d18374233d5391fda841a7775d5b29666c2eca"
 }
 
 variable "links" {
@@ -25,7 +25,7 @@ variable "links" {
 }
 
 variable "account_url" {
-  description = "Where members manage their account and teams. Set only when the issuer has an account page of its own (GitHub); Dex has none. null shows no link."
+  description = "Where admins manage members and teams, listed as the portal's Admin link. Set only when the issuer has an account page of its own (GitHub); Dex has none. null shows no link."
   type        = string
   default     = null
 }

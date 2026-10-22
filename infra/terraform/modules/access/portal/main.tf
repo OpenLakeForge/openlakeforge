@@ -1,60 +1,15 @@
 locals {
   port   = 8080
   labels = { "app.kubernetes.io/name" = var.release_name }
-  groups = {
-    for stage in distinct([for ref, link in var.links : link.stage if startswith(ref, "stage/")]) : stage => [
-      for ref, link in var.links : link if startswith(ref, "stage/") && link.stage == stage
-    ]
-  }
-  shared = [for ref, link in var.links : link if !startswith(ref, "stage/")]
 
-  # Rendered from the contract's routes, never listed by hand. The values are
-  # hostnames and service names Terraform derived itself, so nothing is escaped.
-  index_html = <<-EOT
-    <!doctype html>
-    <html lang="en">
-    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenLakeForge</title></head>
-    <body>
-    <h1>OpenLakeForge</h1>
-    %{for stage in sort(keys(local.groups))~}
-    <h2>${stage}</h2>
-    <ul>
-    %{for link in local.groups[stage]~}
-    <li><a href="${link.url}">${link.name}</a></li>
-    %{endfor~}
-    </ul>
-    %{endfor~}
-    %{if length(local.shared) > 0~}
-    <h2>Shared</h2>
-    <ul>
-    %{for link in local.shared~}
-    <li><a href="${link.url}">${link.name}</a></li>
-    %{endfor~}
-    </ul>
-    %{endif~}
-    %{if var.account_url != null~}
-    <p><a href="${var.account_url}">Manage your account and teams on GitHub</a></p>
-    %{endif~}
-    </body>
-    </html>
-  EOT
-
-  # Served outside the perimeter (ADR 0014 Logout): the perimeter cookie is
-  # gone, but the identity provider's own session is not touched.
-  signed_out_html = <<-EOT
-    <!doctype html>
-    <html lang="en">
-    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Signed out</title></head>
-    <body>
-    <h1>You are signed out of OpenLakeForge</h1>
-    <p>Your GitHub session is still active. Sign out of GitHub too on a shared browser.</p>
-    <p><a href="https://github.com/logout">Sign out of GitHub</a> | <a href="/">Sign in again</a></p>
-    </body>
-    </html>
-  EOT
+  # The image reads this on every request (openlakeforge-portal README). Admin
+  # is a link, not a contract route: with GitHub, members and roles are teams.
+  routes = merge(var.links, var.account_url == null ? {} : {
+    "shared/admin" = { stage = "shared", name = "admin", url = var.account_url }
+  })
 }
 
-resource "kubernetes_config_map_v1" "site" {
+resource "kubernetes_config_map_v1" "routes" {
   metadata {
     name      = var.release_name
     namespace = var.namespace
@@ -62,9 +17,13 @@ resource "kubernetes_config_map_v1" "site" {
   }
 
   data = {
-    "index.html"      = local.index_html
-    "signed-out.html" = local.signed_out_html
+    "routes.json" = jsonencode(local.routes)
   }
+}
+
+moved {
+  from = kubernetes_config_map_v1.site
+  to   = kubernetes_config_map_v1.routes
 }
 
 resource "kubernetes_deployment_v1" "portal" {
@@ -84,18 +43,12 @@ resource "kubernetes_deployment_v1" "portal" {
     template {
       metadata {
         labels = local.labels
-        # A changed page rolls the pod; projected ConfigMaps refresh lazily.
-        annotations = {
-          "openlakeforge.io/site-checksum" = sha256("${local.index_html}${local.signed_out_html}")
-        }
       }
 
       spec {
         container {
-          name  = "httpd"
+          name  = "portal"
           image = var.image
-          # busybox's built-in server: no config, well under 1 MiB of heap.
-          command = ["httpd", "-f", "-p", tostring(local.port), "-h", "/www"]
 
           port {
             name           = "http"
@@ -103,14 +56,15 @@ resource "kubernetes_deployment_v1" "portal" {
           }
 
           volume_mount {
-            name       = "site"
-            mount_path = "/www"
+            name       = "routes"
+            mount_path = "/config"
             read_only  = true
           }
 
           readiness_probe {
-            tcp_socket {
-              port = local.port
+            http_get {
+              path = "/healthz"
+              port = "http"
             }
             period_seconds = 10
           }
@@ -118,10 +72,10 @@ resource "kubernetes_deployment_v1" "portal" {
           resources {
             requests = {
               cpu    = "5m"
-              memory = "8Mi"
+              memory = "48Mi"
             }
             limits = {
-              memory = "32Mi"
+              memory = "128Mi"
             }
           }
 
@@ -137,9 +91,9 @@ resource "kubernetes_deployment_v1" "portal" {
         }
 
         volume {
-          name = "site"
+          name = "routes"
           config_map {
-            name = kubernetes_config_map_v1.site.metadata[0].name
+            name = kubernetes_config_map_v1.routes.metadata[0].name
           }
         }
       }

@@ -90,13 +90,16 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    and names the TLS Secret. The `Ingress` without a group holds the routes
    behind no middleware: the identity route and the perimeter's login
    callback.
-7. **The portal is a static page at the base domain.** It lists every route
+7. **The portal is a page at the base domain.** It lists every route
    of `shared.access.routes` that is enabled and `user-facing`, grouped by
-   stage. Terraform renders the HTML from the same route data that feeds
-   the contract and stores it in a ConfigMap, so the page cannot list a
-   service the contract does not route. A pinned BusyBox `httpd` serves it
-   from the `olf-system` namespace in the platform phase: the route set is
-   static infrastructure (ADR 0002). Links are not filtered by role;
+   stage, plus an Admin link to the GitHub organisation's teams when the
+   issuer is GitHub. Terraform writes those links as `routes.json` in a
+   ConfigMap from the same route data that feeds the contract, so the page
+   cannot list a service the contract does not route. The pinned
+   [openlakeforge-portal](https://github.com/OpenLakeForge/openlakeforge-portal)
+   image renders it, and the page Logout lands on, from the `olf-system`
+   namespace in the platform phase: the route set is static infrastructure
+   (ADR 0002). Links are not filtered by role;
    the perimeter (#176) denies what a role cannot open and sends an
    unauthenticated request to login, and the portal sits behind it like
    every other route.
@@ -147,7 +150,7 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   | cert-manager controller | 10m | 64Mi / 256Mi |
   | cert-manager cainjector | 10m | 64Mi / 256Mi |
   | cert-manager webhook | 10m | 32Mi / 128Mi |
-  | Portal (BusyBox httpd) | 5m | 8Mi / 32Mi |
+  | Portal (openlakeforge-portal) | 5m | 48Mi / 128Mi |
 
 - Mapping 80/443 changed the kind cluster shape: an existing local cluster
   must be recreated (`olf destroy` then `olf deploy`), and those host ports
@@ -173,6 +176,8 @@ resolution of the routes and the CA ConfigMap) was added with it.
 #330 added the portal (decisions 2, 3, 4, 6 and 7): the apex route, its
 certificate name, and the landing page; a follow-up split out the Shared
 section and dropped the identity link.
+The portal then moved from a BusyBox-served Terraform page to the
+openlakeforge-portal image, with the GitHub teams page as its Admin link.
 #176 put every route except the identity route behind the perimeter (ADR 0014
 seam 3): decision 6 now renders one `Ingress` per namespace and access group,
 and `olf`'s clients port-forward to a protected route instead of taking its
