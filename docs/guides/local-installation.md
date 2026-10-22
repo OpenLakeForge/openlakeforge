@@ -20,6 +20,22 @@ evaluation infrastructure: do not expose it beyond your workstation.
 Terraform, Helm, kubectl and kind are not prerequisites: `olf` downloads the
 versions pinned in the release and keeps them under `~/.openlakeforge`.
 
+### Hardware
+
+The resources Docker can use, not the whole machine:
+
+| Deployment | CPU | Memory | Free disk |
+| --- | --- | --- | --- |
+| Slim, one stage (the Quickstart) | 4 | 16 GB | not yet measured; less than Full |
+| Full, DEV and PROD | 4 | 16 GB | 100 GB |
+
+These are the tested sizes; smaller machines are untested. The CI Slim smoke test and the nightly Full
+DEV+PROD deployment both pass on a GitHub-hosted runner with 4 vCPUs and 16 GB
+of memory. With Full and two stages running, the host used about 9 GB of
+memory and Docker held about 100 GB: about 15 GB of images and about 84 GB in
+the three kind nodes' volumes, which keep a copy of every image. On Docker
+Desktop, raise its memory and disk limits to these values.
+
 ## Install `olf`
 
 With uv, which fetches Python 3.12 if your machine has none:

@@ -77,6 +77,11 @@ Superset, its own buckets and its own catalog `lakehouse_<stage>`. A change is
 built once into an immutable project revision and promoted between stages
 unchanged; see [CI/CD and environment promotion](../guides/promote-dev-to-prod.md).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/stage-promotion-dark.svg">
+  <img alt="Stage promotion: a merged pull request builds one image and one project revision, which is activated in the DEV namespace, tested, approved, and then activated unchanged in PROD" src="../assets/stage-promotion-light.svg">
+</picture>
+
 ## Providers
 
 The platform components talk to infrastructure through provider-neutral
@@ -96,9 +101,21 @@ provider:
 On AWS, every stage shares the account's Glue catalog, with stage-prefixed
 database names scoped by IAM.
 
-## Design records
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/architecture-aws-dark.svg">
+  <img alt="OpenLakeForge on AWS: Dagster on EKS orchestrates dlt, Floe and dbt-trino over per-stage S3 buckets registered in the Glue Data Catalog, with RDS PostgreSQL for service state, ECR for images, and Route 53, an ALB with ACM, oauth2-proxy and Dex for sign-in" src="../assets/architecture-aws-light.svg">
+</picture>
 
-The decisions behind this design, with their trade-offs, are recorded as
-[Architecture Decision Records](../adr/README.md). Implementation detail for
-contributors, such as the provider contracts and the Kubernetes topology, is
-indexed in [architecture/README.md](README.md).
+The AWS chart shows the target shape. Its access path (Route 53, an ALB with
+ACM, oauth2-proxy and Dex) is not built yet: today the AWS services are reached
+with `olf forward`.
+
+## Further reading
+
+- [Kubernetes runtime charts](diagrams/README.md): every pod, the service
+  wiring, the jobs of one pipeline run, the data path and the provider
+  contracts.
+- [Architecture Decision Records](../adr/README.md): the decisions behind this
+  design, with their trade-offs.
+- [Maintainer architecture pages](README.md): provider contracts, Terraform
+  roots and identity policy, for contributors.
