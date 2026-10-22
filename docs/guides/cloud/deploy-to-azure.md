@@ -53,20 +53,15 @@ spec:
   stages:
     dev:
       enabled: true
-  identity:
-    issuer: external
-    issuer_url: https://login.example.com/
-    role_claim: groups
-    role_mapping:
-      platform-admin: [olf-admins]
 ```
 
 - Do not set `region`: Azure takes its region from `location` in the variables
   file below.
-- Delete any `access:` block: plain HTTP (`issuer: none`) is local only.
-- `spec.identity` is required for every provider except `local`. The cloud
-  deployment does not use it for sign-in yet, because it publishes no routes,
-  so placeholder values are accepted.
+- Delete any `access:` block: the cloud publishes no routes, and an `access:`
+  block would require `spec.identity`.
+- Leave out `spec.identity`. The cloud deployment publishes no routes, so
+  there is nothing to sign in to: you reach the services with `olf forward`
+  from your machine, and authentication stays off.
 - Keep DEV as the only stage: the cloud guides are validated with one stage.
 
 ```bash
@@ -162,7 +157,7 @@ same `AZURE_TFVARS_FILE`. With `--phase`, destroy `platform` before
 
 | Area | Today |
 | --- | --- |
-| Access | No ingress, DNS, TLS or sign-in: services are reached with `olf forward` only. |
+| Access | No ingress, DNS, TLS or sign-in. Services are reached with `olf forward` only, by whoever has credentials to the cluster, with no OpenLakeForge sign-in in front of them. |
 | Stages | Validated with DEV only. |
 | Services | SeaweedFS, Polaris and PostgreSQL run inside the cluster on its disks, with no backups or high availability. Azure Blob Storage and managed PostgreSQL are not used. |
 | State | Terraform state stays on your machine under `~/.openlakeforge`. There is no remote backend. |

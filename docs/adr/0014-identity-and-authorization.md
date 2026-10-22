@@ -44,7 +44,12 @@ each have their own adapter and none leaks into another:
 ### Seam 1 — the role model (built)
 
 A profile with no `spec.identity` block deploys no issuer and no perimeter
-(#399); on the local provider, `spec.identity` requires `spec.access` (ADR 0013); the cloud roots read no `spec.access`. The role model does
+(#399); on the local provider, `spec.identity` requires `spec.access` (ADR 0013); the cloud roots read no `spec.access`.
+Authentication off is allowed only where nothing is published beyond the
+operator's machine: on `local` with no `spec.access` or a `*.localhost` base
+domain, and on `aws` or `azure` with no `spec.access`, since those roots
+publish no routes and are reached only through `olf forward`. A cloud
+`spec.access` asks for routes, so it requires `spec.identity`. The role model does
 not depend on an issuer, so the contract still carries `shared.identity.roles`
 and validates it, with `implementation: identity.none` and no `issuer_url`,
 `role_claim`, `role_mapping` or `clients`. `shared.access` then has no
@@ -364,6 +369,13 @@ is not.
   cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
 
 ## History
+
+Authentication off on the clouds: #421 required `spec.identity` on `aws` and
+`azure`, but their roots publish no routes and emit no `identity.oidc`, so a
+cloud profile carried a placeholder `external` block nothing read. The rule is
+now "nothing published beyond the operator's machine": a cloud profile may
+omit `spec.identity` while it declares no `spec.access`, and needs it again
+once it asks for routes.
 
 OpenMetadata role sync (#25): a CronJob reads the mapped teams' members with the GitHub App's installation token and patches `isAdmin` and `DataSteward`. The `members_app_secret_ref` field and the `olf openmetadata sync-roles` command this ADR planned were dropped: the App's credentials are already in `oauth_app_secret_ref`.
 

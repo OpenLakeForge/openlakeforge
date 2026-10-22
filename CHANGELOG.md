@@ -19,6 +19,14 @@ for how a release is cut and verified.
      sentence against main then: NetworkPolicy (#46) and the Trino connection
      model (#26) are still open. -->
 
+### Changed
+
+- **AWS and Azure profiles no longer need `spec.identity`.** The cloud
+  deployments publish no routes and are reached with `olf forward`, so the
+  placeholder `external` block they had to carry is gone; existing profiles
+  that keep it still validate. A cloud profile that declares `spec.access`
+  still requires `spec.identity`.
+
 ### Known limitations: identity and authorization (draft, v0.5-alpha)
 
 v0.5-alpha adds **service-level** access control: a person signs in through

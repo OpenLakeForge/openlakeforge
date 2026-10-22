@@ -547,13 +547,17 @@ def validate_deployment_profile(
             f"{source}: spec.identity requires spec.access on the local provider (sign-in needs the route hostnames)"
         )
     # No identity block means authentication off (ADR 0014): admin on every
-    # service, so it is allowed only where nothing is reachable beyond the host.
-    if identity is None and (
-        provider.type != Provider.LOCAL or (access is not None and not access.base_domain.endswith(".localhost"))
-    ):
+    # service, so it is allowed only where nothing is reachable beyond the
+    # operator's machine. The AWS and Azure roots publish no routes, so
+    # without spec.access they are reached only through `olf forward`; a
+    # cloud spec.access asks for routes and so needs identity first.
+    published = access is not None and (
+        provider.type != Provider.LOCAL or not access.base_domain.endswith(".localhost")
+    )
+    if identity is None and published:
         raise DeploymentProfileError(
-            f"{source}: a profile without spec.identity (authentication off) requires provider 'local' "
-            "and either no spec.access or a base_domain ending in '.localhost'"
+            f"{source}: a profile without spec.identity (authentication off) publishes nothing beyond this machine: "
+            "use no spec.access, or on provider 'local' a base_domain ending in '.localhost'"
         )
     return DeploymentProfile(
         name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity

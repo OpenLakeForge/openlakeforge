@@ -200,7 +200,7 @@ Secrets the contract names, as described in ADR 0014.
 | DEV gates the others | `uat` or `prod` is enabled while `dev` is disabled or absent: every promotion sources from DEV. |
 | Region is cloud-only | `spec.provider.region` is set with `type: local`. |
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
-| Authentication off is local-only | There is no `spec.identity` and the provider is not `local`, or `spec.access.base_domain` does not end in `.localhost`. Without identity every service is admin, so it is allowed only where nothing is reachable beyond the machine. |
+| Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf forward`. |
 | Plain HTTP is local-only | `spec.access.issuer` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
 | Issuer shape | `external` lacks `issuer_url`, `role_claim` or `role_mapping`; `github` lacks `github` or sets `issuer_url`, `role_claim` or `role_mapping`; `github` is set without `issuer: github`; `client_ids` is set without `issuer: external`. |
 
