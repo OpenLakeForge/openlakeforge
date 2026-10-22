@@ -122,11 +122,16 @@ resource "helm_release" "openmetadata" {
 locals {
   fernet_secret = "${var.release_name}-fernet-key"
   fernet_script = <<-SH
-    if kubectl get secret "${local.fernet_secret}" -n "$NAMESPACE" >/dev/null 2>&1; then
+    # `create` is the only Secret verb the bootstrap Role grants without a name
+    # (ADR 0017), so an existing Secret is detected by the create failing.
+    if out="$(kubectl create secret generic "${local.fernet_secret}" -n "$NAMESPACE" \
+      --from-literal=fernet-key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')" 2>&1)"; then
+      echo "Created Secret ${local.fernet_secret}"
+    elif echo "$out" | grep -q AlreadyExists; then
       echo "Secret ${local.fernet_secret} exists; keeping it"
     else
-      kubectl create secret generic "${local.fernet_secret}" -n "$NAMESPACE" \
-        --from-literal=fernet-key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
+      echo "$out" >&2
+      exit 1
     fi
   SH
 }

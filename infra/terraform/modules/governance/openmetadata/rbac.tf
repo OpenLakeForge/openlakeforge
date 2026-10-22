@@ -29,14 +29,6 @@ resource "kubernetes_role_v1" "bootstrap" {
     resource_names = [var.automation_secret_name, var.ingestion_bot_secret_name]
     verbs          = ["delete", "get", "patch", "update"]
   }
-
-  # The Fernet key Job only checks for existence; it never rewrites the key.
-  rule {
-    api_groups     = [""]
-    resources      = ["secrets"]
-    resource_names = ["${var.release_name}-fernet-key"]
-    verbs          = ["get"]
-  }
 }
 
 resource "kubernetes_role_binding_v1" "bootstrap" {
