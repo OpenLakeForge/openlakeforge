@@ -254,7 +254,9 @@ in-cluster-resolution module owns). A second assertion lists every Role and
 ClusterRole bound to a ServiceAccount in the OLF namespaces that grants a
 Secret verb, or create on pods, Jobs, CronJobs or workload controllers (which
 reads Secrets by mounting them), and compares the set with E1 to E6: a new one fails the run until
-this ADR names it.
+this ADR names it. The comparison is by role kind, role, subject and resources, not by name prefix; bindings to the
+`system:serviceaccounts[:<ns>]` groups apply to every ServiceAccount in the OLF namespaces. A Secret pinned by
+`resourceNames` must match the pins in `E1_PINS` (`tools/olf/olf/e2e/_network.py`), the one list of the documented names.
 
 ## Conformance test
 

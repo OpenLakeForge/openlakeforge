@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,3 +55,99 @@ def test_can_i_fails_instead_of_reading_an_error_as_no(
             _network._can_i(cfg, "system:serviceaccount:olf-dev:x", "list", "secrets")  # type: ignore[arg-type]
     else:
         assert _network._can_i(cfg, "system:serviceaccount:olf-dev:x", "list", "secrets") is expected  # type: ignore[arg-type]
+
+
+def _grants(rules: list[dict], subject: tuple[str, str], kind: str = "Role", role: str = "r") -> list[str]:
+    binding = {
+        "metadata": {"namespace": "olf-system"},
+        "roleRef": {"kind": kind, "name": role},
+        "subjects": [{"kind": "ServiceAccount", "namespace": subject[0], "name": subject[1]}],
+    }
+    return _network.grant_problems([binding], lambda *_: {"rules": rules}, [subject, ("olf-dev", "default")])
+
+
+def _rule(resources: list[str], verbs: list[str], names: list[str] | None = None) -> dict:
+    return {"resources": resources, "verbs": verbs, **({"resourceNames": names} if names else {})}
+
+
+def test_create_secrets_and_replicasets_count() -> None:
+    sa = ("olf-system", "worker")
+    assert _grants([_rule(["secrets"], ["create"])], sa)
+    assert _grants([_rule(["replicasets"], ["create"])], sa)
+    assert _grants([_rule(["replicationcontrollers"], ["create"])], sa)
+
+
+def test_exception_is_compared_by_tuple_not_name_prefix() -> None:
+    risky = [_rule(["secrets"], ["get"])]
+    assert not _grants(risky, ("olf-system", "traefik"), "ClusterRole", "traefik")
+    assert _grants(risky, ("olf-system", "worker"), "ClusterRole", "traefik-evil")  # wrong subject
+    assert _grants(risky, ("olf-system", "traefik"), "Role", "traefik")  # wrong kind
+    assert _grants([_rule(["secrets", "deployments"], ["create"])], ("olf-system", "traefik"), "ClusterRole", "traefik")
+
+
+def test_escalate_and_bind_probed_on_roles_and_clusterroles() -> None:
+    denied = rbac_denials("olf-dev", "worker")
+    for verb in ("escalate", "bind"):
+        assert (verb, "roles", "-n", "olf-dev") in denied
+        assert (verb, "clusterroles") in denied
+
+
+def test_serviceaccount_groups_reach_every_olf_account() -> None:
+    accounts = [("olf-system", "a"), ("olf-dev", "default"), ("other", "x")]
+    binding = {"subjects": [{"kind": "Group", "name": "system:serviceaccounts"}]}
+    assert _network._subjects(binding, accounts) == sorted(accounts)
+    binding = {"subjects": [{"kind": "Group", "name": "system:serviceaccounts:olf-dev"}]}
+    assert _network._subjects(binding, accounts) == [("olf-dev", "default")]
+
+
+def test_secret_pins_must_match_the_documented_names() -> None:
+    sa = ("olf-system", "polaris-bootstrap")
+    assert not _grants([_rule(["secrets"], ["create"]), _rule(["secrets"], ["get"], ["polaris-dev-trino-creds"])], sa)
+    assert _grants([_rule(["secrets"], ["get"], ["postgresql"])], sa)
+    assert _grants([_rule(["secrets"], ["get"], ["anything"])], ("olf-system", "worker"))
+
+
+def test_service_accounts_cover_every_deployed_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake(_cfg: object, argv: list[str], **_k: object) -> str:
+        if argv[:2] == ["get", "namespace"]:
+            return "" if argv[2] == "olf-prod" else f"namespace/{argv[2]}"
+        return json.dumps({"items": [{"metadata": {"name": f"sa-{argv[argv.index('-n') + 1]}"}}]})
+
+    monkeypatch.setattr(_network, "kubectl", fake)
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
+    found = {ns for ns, _ in _network._service_accounts(cfg)}  # type: ignore[arg-type]
+    assert "olf-uat" in found
+    assert "olf-prod" not in found
+
+
+def test_untrusted_namespace_is_deleted_and_awaited_before_create(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake(_cfg: object, argv: list[str], **_k: object) -> str:
+        calls.append(argv)
+        return ""
+
+    def stop(*_a: object) -> None:
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(_network, "kubectl", fake)
+    monkeypatch.setattr(_network, "_pod_ip", lambda *_a: "10.0.0.1")
+    monkeypatch.setattr(_network, "workload_port", lambda *_a: 80)
+    monkeypatch.setattr(_network, "_probe_pod", stop)
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
+    with pytest.raises(RuntimeError):
+        _network.check_negative_flows(cfg, FLOWS)  # type: ignore[arg-type]
+    delete = next(i for i, c in enumerate(calls) if c[:3] == ["delete", "namespace", _network.UNTRUSTED_NAMESPACE])
+    assert "--wait=false" not in calls[delete]
+    assert calls[delete + 1][:2] == ["create", "namespace"]
+
+
+def test_label_drift_flags_pods_missing_flow_labels() -> None:
+    workloads = {"trino": {"app": "trino", "component": "coordinator"}}
+
+    def pod(labels: dict[str, str]) -> dict:
+        return {"metadata": {"labels": labels}}
+
+    assert _network.label_drift(workloads, [pod({"app": "trino", "component": "worker"})])
+    assert not _network.label_drift(workloads, [pod({"app": "trino", "component": "coordinator", "x": "y"})])
+    assert not _network.label_drift(workloads, [])

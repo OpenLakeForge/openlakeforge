@@ -16,15 +16,18 @@ exists.
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import yaml
 
 from olf import k8s, log
+from olf.deployment.context import stage_namespace
 from olf.e2e._shell import E2EConfig, E2EError, kubectl
+from olf.profile import StageName
 
 FLOWS_FILE = "release/network-flows.yaml"
 UNTRUSTED_NAMESPACE = "olf-e2e-untrusted"
@@ -36,10 +39,31 @@ NOT_REACHED = {6, 7, 28}
 PROTECTED = ("postgresql", "polaris", "trino", "openmetadata", "dex")
 # ADR 0017 exceptions E4 and E5 read Secrets cluster-wide by design.
 CLUSTER_SECRET_READERS = ("traefik", "cert-manager")
-# Roles that may grant Secret reads without resourceNames or create workloads: E2 to E5.
-SECRET_VERBS = {"get", "list", "watch", "update", "patch", "delete", "*"}
-WORKLOADS = {"pods", "jobs", "cronjobs", "deployments", "daemonsets", "statefulsets", "*"}
-DOCUMENTED_ROLES = ("openmetadata", "traefik", "cert-manager", "dagster")
+SERVICE_ACCOUNT_GROUP = "system:serviceaccounts"
+# Rules that touch Secrets or create workloads. `create` cannot be limited by resourceNames, so it counts.
+SECRET_VERBS = {"get", "list", "watch", "create", "update", "patch", "delete", "*"}
+WORKLOADS = {
+    "pods", "jobs", "cronjobs", "deployments", "daemonsets", "statefulsets", "replicasets",
+    "replicationcontrollers", "*",
+}  # fmt: skip
+# ADR 0017 E1: these ServiceAccounts may `create` Secrets namespace-wide and touch only the Secrets named here
+# (fnmatch, first matching subject wins). The one place to change when the ADR's pins change.
+E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file")),
+    ("*-credentials", ("*-client-*",)),  # dex-credentials
+    ("*-cookie", ("*-cookie",)),
+    ("*-oidc-secret", ("oidc-client-*", "*-client-*")),
+    ("polaris-bootstrap", ("polaris-*",)),
+    ("openmetadata-bootstrap", ("openmetadata-automation-bot", "openmetadata-ingestion-bot")),
+    ("publish-local-ca", ("local-ca",)),
+)
+# ADR 0017 E2 to E5: (role kind, role glob, subject glob, the only resources a risky rule may name).
+EXCEPTIONS: tuple[tuple[str, str, str, frozenset[str]], ...] = (
+    ("Role", "openmetadata*", "openmetadata*", frozenset({"pods", "configmaps", "secrets", "jobs", "cronjobs"})),  # E2
+    ("Role", "dagster*", "dagster*", frozenset({"pods", "jobs"})),  # E3
+    ("ClusterRole", "traefik*", "traefik*", frozenset({"secrets"})),  # E4
+    ("ClusterRole", "cert-manager*", "cert-manager*", frozenset({"secrets"})),  # E5
+)
 
 
 def _selector(labels: dict[str, str]) -> str:
@@ -169,6 +193,8 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
         targets[workload] = (ip, workload_port(document, workload))
     if not targets:
         raise E2EError("no protected backend is running, so the negative flows prove nothing")
+    # An interrupted run leaves the namespace behind, possibly terminating; wait for it to go.
+    kubectl(cfg, ["delete", "namespace", UNTRUSTED_NAMESPACE, "--ignore-not-found", "--timeout=180s"])
     kubectl(cfg, ["create", "namespace", UNTRUSTED_NAMESPACE])
     problems: list[str] = []
     try:
@@ -204,9 +230,20 @@ def _can_i(cfg: E2EConfig, subject: str, *args: str) -> bool:
     return answer == "yes"
 
 
+def _olf_namespaces(cfg: E2EConfig) -> list[str]:
+    """The platform namespace, the selected stage, and every other deployed stage."""
+    found = list(dict.fromkeys((cfg.platform_namespace, cfg.namespace)))
+    for stage in StageName:
+        namespace = stage_namespace(stage)
+        get = ["get", "namespace", namespace, "--ignore-not-found", "-o", "name"]
+        if namespace not in found and kubectl(cfg, get, capture=True).strip():
+            found.append(namespace)
+    return found
+
+
 def _service_accounts(cfg: E2EConfig) -> list[tuple[str, str]]:
     found = []
-    for namespace in dict.fromkeys((cfg.platform_namespace, cfg.namespace)):
+    for namespace in _olf_namespaces(cfg):
         get = ["get", "serviceaccount", "-n", namespace, "-o", "json"]
         items = json.loads(kubectl(cfg, get, capture=True))["items"]
         found += [(namespace, item["metadata"]["name"]) for item in items]
@@ -216,8 +253,8 @@ def _service_accounts(cfg: E2EConfig) -> list[tuple[str, str]]:
 def rbac_denials(namespace: str, name: str) -> list[tuple[str, ...]]:
     """can-i arguments that must answer no for this ServiceAccount (ADR 0017, "Denied")."""
     denied: list[tuple[str, ...]] = [
-        ("escalate", "clusterroles"),
-        ("bind", "roles", "-n", namespace),
+        *[(verb, "roles", "-n", namespace) for verb in ("escalate", "bind")],
+        *[(verb, "clusterroles") for verb in ("escalate", "bind")],
         ("patch", "configmap/coredns", "-n", "kube-system"),
     ]
     if not name.startswith(CLUSTER_SECRET_READERS):
@@ -256,43 +293,106 @@ def check_rbac(cfg: E2EConfig) -> None:
     leftover = kubectl(cfg, get, capture=True).strip()
     if leftover:
         problems.append("ClusterRole seaweedfs-rw-cr exists: it grants pod writes in every namespace")
-    problems += _undocumented_grants(cfg)
+    problems += _undocumented_grants(cfg, accounts)
+    problems += _label_drift(cfg)
     if problems:
         raise E2EError("service-account RBAC exceeds the documented operations:\n" + "\n".join(problems))
 
 
-def _undocumented_grants(cfg: E2EConfig) -> list[str]:
-    """Roles bound to OLF ServiceAccounts that touch Secrets without resourceNames or create workloads."""
-    namespaces = set(dict.fromkeys((cfg.platform_namespace, cfg.namespace)))
+def _subjects(binding: dict[str, Any], accounts: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The OLF ServiceAccounts a binding reaches, expanding the `system:serviceaccounts[:<ns>]` groups."""
+    found: set[tuple[str, str]] = set()
+    for subject in binding.get("subjects") or []:
+        name = subject.get("name", "")
+        if subject.get("kind") == "ServiceAccount":
+            if subject.get("namespace") in {a[0] for a in accounts}:
+                found.add((subject["namespace"], name))
+        elif subject.get("kind") == "Group" and name == SERVICE_ACCOUNT_GROUP:
+            found |= set(accounts)
+        elif subject.get("kind") == "Group" and name.startswith(SERVICE_ACCOUNT_GROUP + ":"):
+            found |= {a for a in accounts if a[0] == name.removeprefix(SERVICE_ACCOUNT_GROUP + ":")}
+    return sorted(found)
+
+
+def _rule_problem(kind: str, role: str, subject: str, rule: dict[str, Any]) -> bool:
+    """True when this rule is not covered by ADR 0017 for the subject (E1 pins, E2 to E5 tuples)."""
+    resources, verbs = set(rule.get("resources") or []), set(rule.get("verbs") or [])
+    names = rule.get("resourceNames") or []
+    pins = next((patterns for glob, patterns in E1_PINS if fnmatch.fnmatch(subject, glob)), None)
+    if pins is not None:
+        if resources & WORKLOADS:
+            return bool(verbs & {"create", "*"})
+        if not resources & {"secrets", "*"}:
+            return False
+        if not names:  # namespace-wide: only the E1 `create`
+            return not (verbs == {"create"} and resources <= {"secrets", "configmaps"})
+        return not all(any(fnmatch.fnmatch(n, p) for p in pins) for n in names)
+    reads_secrets = resources & {"secrets", "*"} and verbs & SECRET_VERBS
+    runs_workloads = resources & WORKLOADS and verbs & {"create", "*"}
+    if not (reads_secrets or runs_workloads):
+        return False
+    return not any(
+        kind == k and fnmatch.fnmatch(role, r) and fnmatch.fnmatch(subject, s) and resources <= allowed
+        for k, r, s, allowed in EXCEPTIONS
+    )
+
+
+def grant_problems(
+    bindings: list[dict[str, Any]],
+    get_role: Callable[[dict[str, Any], str | None], dict[str, Any]],
+    accounts: list[tuple[str, str]],
+) -> list[str]:
+    """Each (role, subject, rule) tuple reaching an OLF ServiceAccount that ADR 0017 does not name."""
+    problems = []
+    for binding in bindings:
+        subjects = _subjects(binding, accounts)
+        if not subjects:
+            continue
+        ref, role_namespace = binding["roleRef"], binding["metadata"].get("namespace")
+        role = get_role(ref, role_namespace)
+        for namespace, name in subjects:
+            for rule in role.get("rules") or []:
+                if _rule_problem(ref["kind"], ref["name"], name, rule):
+                    problems.append(
+                        f"{ref['kind']} {ref['name']} (bound in {role_namespace or 'cluster'}) gives "
+                        f"{namespace}/{name} what ADR 0017 does not name: {rule.get('resources')} "
+                        f"{rule.get('verbs')} {rule.get('resourceNames') or ''}".rstrip()
+                    )
+    return problems
+
+
+def _undocumented_grants(cfg: E2EConfig, accounts: list[tuple[str, str]]) -> list[str]:
     bindings = [
         *json.loads(kubectl(cfg, ["get", "rolebinding", "-A", "-o", "json"], capture=True))["items"],
         *json.loads(kubectl(cfg, ["get", "clusterrolebinding", "-o", "json"], capture=True))["items"],
     ]
-    problems = []
-    for binding in bindings:
-        subjects = binding.get("subjects") or []
-        if not any(s.get("kind") == "ServiceAccount" and s.get("namespace") in namespaces for s in subjects):
-            continue
-        ref = binding["roleRef"]
-        role_namespace = binding["metadata"].get("namespace")
-        args = ["get", "role", ref["name"], "-n", role_namespace]
+
+    def get_role(ref: dict[str, Any], namespace: str | None) -> dict[str, Any]:
+        args = ["get", "role", ref["name"], "-n", namespace or ""]
         if ref["kind"] != "Role":
             args = ["get", "clusterrole", ref["name"]]
-        role = json.loads(kubectl(cfg, [*args, "-o", "json"], capture=True))
-        if ref["name"].startswith(DOCUMENTED_ROLES) and ref["name"] != "openmetadata-bootstrap":
-            continue
-        for rule in role.get("rules") or []:
-            resources, verbs = set(rule.get("resources") or []), set(rule.get("verbs") or [])
-            unpinned = not rule.get("resourceNames")
-            reads_secrets = unpinned and resources & {"secrets", "*"} and verbs & SECRET_VERBS
-            runs_workloads = resources & WORKLOADS and verbs & {"create", "*"}
-            if reads_secrets or runs_workloads:
-                where = role_namespace or "cluster"
-                problems.append(
-                    f"{ref['kind']} {ref['name']} (bound in {where}) is not in ADR 0017: "
-                    f"{sorted(resources)} {sorted(verbs)}"
-                )
+        return json.loads(kubectl(cfg, [*args, "-o", "json"], capture=True))
+
+    return grant_problems(bindings, get_role, accounts)
+
+
+def label_drift(workloads: dict[str, dict[str, str]], pods: list[dict[str, Any]]) -> list[str]:
+    """Workloads with a deployed pod under their first label but none carrying all the flow file's labels.
+
+    A policy selecting labels no pod carries matches nothing, so the probes would skip it silently.
+    """
+    problems = []
+    for workload, labels in workloads.items():
+        key, value = next(iter(labels.items()))
+        deployed = [p for p in pods if p["metadata"].get("labels", {}).get(key) == value]
+        if deployed and not any(labels.items() <= p["metadata"].get("labels", {}).items() for p in deployed):
+            problems.append(f"workload {workload}: deployed pods do not carry the flow file's labels {labels}")
     return problems
+
+
+def _label_drift(cfg: E2EConfig) -> list[str]:
+    pods = json.loads(kubectl(cfg, ["get", "pods", "-n", cfg.platform_namespace, "-o", "json"], capture=True))
+    return label_drift(load_flows(cfg)["workloads"], pods["items"])
 
 
 def check_network_and_rbac(cfg: E2EConfig) -> None:
