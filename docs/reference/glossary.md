@@ -39,7 +39,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Provider contract | A provider-neutral description of a capability (catalog, storage, access, identity), so local, AWS and Azure expose the same shape with different implementations. |
 | Provider | The deployment target: `local` (kind), `aws` or `azure`. |
 | Resource | A table-like entity a source exposes in Bronze, declared under `resources` in `source.yaml`. |
-| Route | A published URL for a user-facing service, defined in `contracts.tf`. See [Services and routes](services-and-routes.md). |
+| Route | A published URL for a user-facing service, defined in `contracts.tf`. See [Components and services](components.md#service-urls). |
 | Silver | The validated layer: Iceberg tables Floe writes per domain. Namespace `<domain>_silver`. |
 | Source | One system you ingest from, declared in `lakehouse_code/bronze/<source>/source.yaml`. |
 | Stage | A lifecycle boundary: `dev`, `uat` or `prod`. Stages share one cluster; each has its own namespace, Dagster, buckets and catalog. |
@@ -50,6 +50,6 @@ alphabetical order. Each entry names the file or command that defines it.
 
 ## Related
 
-* [Components](components.md)
+* [Components and services](components.md)
 * [Concepts](../get-started/concepts.md)
 * [Architecture overview](../architecture/overview.md)

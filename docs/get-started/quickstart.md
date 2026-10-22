@@ -70,8 +70,9 @@ no sign-in: authentication stays off until you add `spec.identity`.
 > A profile without `spec.identity` is accepted only for `provider: local` on
 > `*.localhost`. With the Full preset and sign-in off, Superset opens as Admin
 > and OpenMetadata keeps its `admin@open-metadata.org` / `admin` login, which
-> `olf status` shows. To sign in with GitHub or serve HTTPS, see
-> [Access OpenLakeForge](../setup/local.md#access-openlakeforge).
+> `olf status` shows. To serve HTTPS, see
+> [Serve HTTPS](../guides/local-installation.md#serve-https); to sign in with
+> GitHub, see [Authentication and permissions](../setup/github-oauth-app.md).
 
 ## 4. Run a data product
 
@@ -115,6 +116,7 @@ olf destroy --provider local
   tour the platform, then add a source, a contract and a Gold model of your
   own.
 - [Concepts](concepts.md): presets, stages, project revisions and roles.
-- [Local installation](../setup/local.md): pip installs, HTTPS, sign-in,
-  troubleshooting.
-- Deploy for real: [AWS](../setup/aws.md) or [Azure](../setup/azure.md).
+- [Install and configure a local deployment](../guides/local-installation.md):
+  pip installs, presets, HTTPS and teardown.
+- Deploy for real: [AWS](../guides/cloud/deploy-to-aws.md) or
+  [Azure](../guides/cloud/deploy-to-azure.md).

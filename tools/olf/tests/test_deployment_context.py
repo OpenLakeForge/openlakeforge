@@ -73,7 +73,7 @@ def test_foundation_state_path_override_applies_to_every_provider(
 
 
 def test_aws_kubeconfig_path_override(tmp_path: Path) -> None:
-    """The concurrent-deployment workflow in docs/setup/cloud-poc-setup.md isolates a
+    """A kubeconfig override isolates a
     parallel `olf deploy --provider aws --kubeconfig-path "$AWS_KUBECONFIG_PATH"` run with its own kubeconfig.
     """
     override = tmp_path / "custom" / "aws-smoke.yaml"

@@ -4,7 +4,7 @@ description: >
   project revision from it. Build once; promote the revision this outputs to
   every stage with deploy-stage, never rebuilding. Needs `olf` on PATH, a
   registry login, and a runner holding the platform's OLF_HOME: the revision
-  is published to the platform's ops bucket (see docs/reference/ci-cd.md).
+  is published to the platform's ops bucket (see docs/guides/promote-dev-to-prod.md).
 
 inputs:
   profile:

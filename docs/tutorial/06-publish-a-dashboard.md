@@ -73,15 +73,9 @@ charts, datasets and the Trino database, are rewritten under that directory:
 grep -rl "(edited)" lakehouse_code/dashboards/superset/sales_customer_health
 ```
 
-The export also writes DEV's live connection into the database file, and a
-bundle must stay stage-neutral so it can be promoted to PROD. Set it back to
-the neutral value the deploy rewrites for each stage. In
-`lakehouse_code/dashboards/superset/sales_customer_health/databases/openlakeforge_trino.yaml`,
-make the `sqlalchemy_uri` line read:
-
-```yaml
-sqlalchemy_uri: trino://superset@trino:8080/iceberg
-```
+The export keeps the bundle stage-neutral: it replaces DEV's live Trino
+connection with a placeholder that each deploy rewrites, so the same bundle can
+be promoted to PROD.
 
 A bundle only exists as a promotable report once `lakehouse.yaml` declares it
 and the products it reads:

@@ -15,8 +15,6 @@ sections:
       - docs/get-started/introduction.md
       - docs/get-started/quickstart.md
       - docs/get-started/concepts.md
-      - docs/setup/local.md
-      - docs/getting-started/first-data-product.md
   - label: Tutorial
     items:
       - docs/tutorial/01-tour-the-platform.md
@@ -30,61 +28,44 @@ sections:
       - docs/tutorial/10-deploy-to-the-cloud.md
   - label: Guides
     items:
-      - docs/guides/install-options.md
-      - docs/guides/local-access.md
-      - docs/setup/github-oauth-app.md
-      - docs/setup/identity-secret-rotation.md
-      - docs/guides/add-a-source.md
-      - docs/guides/add-a-resource.md
-      - docs/guides/add-a-domain.md
-      - docs/guides/add-a-gold-model.md
+      - docs/guides/local-installation.md
+      - docs/guides/data-products.md
       - docs/guides/dashboards-as-code.md
-      - docs/guides/ownership-identities.md
-      - docs/reference/ci-cd.md
-      - docs/guides/promote-dev-to-prod.md
-      - docs/setup/cloud-poc-setup.md
-      - docs/guides/cloud/prepare-a-cloud-account.md
       - docs/guides/cloud/deploy-to-aws.md
       - docs/guides/cloud/deploy-to-azure.md
-      - docs/setup/aws.md
-      - docs/setup/azure.md
-      - docs/guides/status-and-diagnostics.md
+      # Dex and the perimeter's error pages link to this path on GitHub: keep it.
+      - docs/setup/github-oauth-app.md
+      - docs/guides/promote-dev-to-prod.md
       - docs/guides/troubleshooting.md
-      - docs/guides/tear-down.md
   - label: Reference
     items:
+      - docs/reference/cli.md
       - docs/reference/deployment-profile.md
-      - { path: tools/olf/README.md, slug: reference/cli, title: olf CLI }
-      - docs/reference/lakehouse-descriptor.md
-      - docs/reference/source-descriptor.md
-      - docs/reference/domain-descriptor.md
-      - docs/reference/component-catalog.md
-      - docs/reference/compatibility-matrix.md
-      - docs/reference/services-and-routes.md
+      - docs/reference/descriptors.md
       - docs/reference/components.md
+      - docs/reference/compatibility-matrix.md
       - docs/reference/glossary.md
   - label: Architecture
     items:
-      - docs/architecture/README.md
       - docs/architecture/overview.md
-      - docs/architecture/provider-contracts.md
-      - docs/architecture/local-stack-contracts.md
-      - docs/architecture/project-revisions.md
-      - docs/architecture/floe-validation.md
-      - docs/architecture/identity-callers.md
-      - docs/architecture/identity-credentials.md
-      - docs/architecture/identity-service-permissions.md
-      - docs/architecture/identity-sessions-and-recovery.md
-      - docs/architecture/aws-eks-poc.md
-      - docs/architecture/azure-aks-poc.md
-      - docs/architecture/diagrams/README.md
-      - docs/architecture/diagrams/chart3-ephemeral-job-lifecycle.md
-  - label: Decisions
-    autogenerate: docs/adr
 
-# Maintainer material: kept in the repository, never published.
+# Maintainer material: kept in the repository, never published. Public pages
+# may link to it; the site turns those links into GitHub links.
 exclude:
+  - docs/adr/
+  - docs/architecture/README.md
+  - docs/architecture/aws-eks-poc.md
+  - docs/architecture/azure-aks-poc.md
+  - docs/architecture/diagrams/
+  - docs/architecture/floe-validation.md
+  - docs/architecture/identity-callers.md
+  - docs/architecture/identity-credentials.md
+  - docs/architecture/identity-service-permissions.md
+  - docs/architecture/identity-sessions-and-recovery.md
+  - docs/architecture/local-stack-contracts.md
+  - docs/architecture/project-revisions.md
+  - docs/architecture/provider-contracts.md
+  - docs/reference/component-catalog.md
   - docs/release/releasing.md
   - docs/technical-debt.md
   - docs/testing/
-  - docs/architecture/diagrams/src/

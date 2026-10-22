@@ -57,9 +57,8 @@ bundle directories.
 `olf product new` accepts `--with-report` when it creates a product. Use it
 for a new product, not one that already exists. The example reads the
 `campaigns` Silver table of a `marketing` domain, which must already exist; if
-it does not, create the `marketing_platform` source as in the *Add a source*
-guide, then the domain as in the *Add a domain* guide
-(`olf domain new marketing --input marketing_platform/campaigns`).
+it does not, create the source and the domain as in
+[Build and manage data products](data-products.md).
 
 ```bash
 olf product new marketing/campaign_summary \
@@ -112,13 +111,9 @@ directory.
 - `SUPERSET_ADMIN_USERNAME` and `SUPERSET_ADMIN_PASSWORD` default to `admin`
   and `admin`.
 
-The export writes DEV's live connection into the database file, and a bundle
-must stay stage-neutral so it can be promoted to PROD. Set the `sqlalchemy_uri`
-line in `databases/openlakeforge_trino.yaml` back to:
-
-```yaml
-sqlalchemy_uri: trino://superset@trino:8080/iceberg
-```
+The export writes a stage-neutral bundle: it replaces DEV's live Trino
+connection with the placeholder each deploy rewrites, so the same bundle can be
+promoted to PROD.
 
 Then declare the new dashboard in `lakehouse.yaml`, next to the demo ones:
 

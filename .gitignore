@@ -38,7 +38,7 @@ site/
 *.tfvars.json
 # Cloud/account config (account IDs, mandatory tags, owner email) is user-specific
 # and stays out of git. Copy the tracked *.tfvars.example templates to your own
-# sandbox.tfvars — see docs/setup/cloud-poc-setup.md.
+# sandbox.tfvars — see docs/guides/cloud/deploy-to-aws.md and deploy-to-azure.md.
 !*.tfvars.example
 # The checked-in local slim profile contains no environment-specific values.
 !infra/terraform/environments/local/slim.tfvars

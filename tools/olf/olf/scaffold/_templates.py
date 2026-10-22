@@ -1,7 +1,7 @@
 """File-content renderers for `olf source|domain|product new`.
 
 Every renderer produces the exact shape documented in
-`docs/getting-started/first-data-product.md` -- that tutorial is the
+the tutorial lessons `docs/tutorial/02-*` to `05-*` -- that tutorial is the
 specification these functions implement. Plain string templates only (no
 Jinja2/ruamel): the repository's dependency footprint stays what it is today.
 """

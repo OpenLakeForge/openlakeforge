@@ -1,31 +1,28 @@
-# Architecture Documentation
+# Architecture: maintainer documentation
 
-This directory contains the repo-local architecture source of truth for OpenLakeForge.
+Implementation detail for people changing OpenLakeForge. These pages are kept
+in the repository and are not published on openlakeforge.dev; the user-facing
+summary is [overview.md](overview.md).
 
-- `diagrams/` contains five technical charts drawn with the official Kubernetes
-  iconography — the cluster pod census, namespace runtime topology, the ephemeral
-  job lifecycle, the medallion/catalog data path, and the Terraform contract flow —
-  plus reference tables for portability, deploy phases, identity, and observability.
-  Start at `diagrams/README.md`.
-- `overview.md` describes the initial v1 platform shape and ownership boundaries.
-- `floe-validation.md` explains Floe's Bronze-to-Silver validation, reject
-  handling, materialization, and Kubernetes runner boundary.
-- `project-revisions.md` explains the build-once, content-addressed
-  `ProjectRevision` promoted unchanged across stages.
-- `azure-aks-poc.md` describes the first Azure deployment target and test flow.
-- `aws-eks-poc.md` describes the AWS EKS managed-services POC and compatibility
-  gate.
-- `local-stack-contracts.md` describes the Terraform-managed local service interfaces.
-- `provider-contracts.md` describes the provider-neutral contract boundary that
-  keeps the local implementation cloud-ready.
-- `identity-credentials.md`, `identity-sessions-and-recovery.md` and
-  `identity-callers.md` are the identity policy gates (ADR 0014): credential
-  inventory, session policy with administrator recovery, and the caller
-  inventory.
-- `identity-service-permissions.md` specifies what each canonical role may do
-  in Superset and OpenMetadata, the native roles that implement it, and how
-  both services meet the session policy (#25).
-- `../technical-debt.md` tracks known weaknesses, mitigations, and fix paths.
-- `../testing/floe-openlineage-capture-test-plan.md` describes the capture-based
-  validation path for Floe OpenLineage events.
-- Architecture decision records live in `../adr/`.
+| Page | Covers |
+| --- | --- |
+| [diagrams/README.md](diagrams/README.md) | Pod census, namespace topology, job lifecycle, medallion data path and provider-contract charts, with reference tables |
+| [provider-contracts.md](provider-contracts.md) | The provider-neutral contract boundary, its v3 shape and validation |
+| [local-stack-contracts.md](local-stack-contracts.md) | How the local Terraform root implements each contract |
+| [aws-eks-poc.md](aws-eks-poc.md) | The AWS Terraform roots, contract implementations and compatibility gate |
+| [azure-aks-poc.md](azure-aks-poc.md) | The Azure Terraform roots, image flow and e2e checks |
+| [project-revisions.md](project-revisions.md) | The content-addressed `ProjectRevision`, stage activation and the report bundle contract |
+| [floe-validation.md](floe-validation.md) | Floe's contract, runner boundary and alternatives at the Bronze-to-Silver step |
+| [identity-credentials.md](identity-credentials.md), [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md), [identity-callers.md](identity-callers.md) | Identity policy gates (ADR 0014): credential inventory, session policy, caller inventory |
+| [identity-service-permissions.md](identity-service-permissions.md) | What each canonical role may do in Superset and OpenMetadata |
+
+Related maintainer material:
+
+- [../adr/README.md](../adr/README.md): the decision log.
+- [../technical-debt.md](../technical-debt.md): known weaknesses and their fix
+  paths.
+- [../release/releasing.md](../release/releasing.md) and
+  [../reference/component-catalog.md](../reference/component-catalog.md): the
+  release pipeline and its pinned inputs.
+- [../testing/floe-openlineage-capture-test-plan.md](../testing/floe-openlineage-capture-test-plan.md):
+  the Floe OpenLineage capture test plan.

@@ -77,5 +77,6 @@ Local OpenLakeForge full e2e validation passed.
 
 ## Next
 
-Sign in with GitHub (lesson 8) controls who may open which of these services.
-Then [add PROD and promote a revision](09-add-prod-and-promote.md).
+[Add PROD and promote a revision](09-add-prod-and-promote.md). To control who
+may open these services, see
+[Authentication and permissions](../setup/github-oauth-app.md).

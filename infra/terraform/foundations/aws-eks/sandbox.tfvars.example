@@ -9,7 +9,7 @@
 #
 # `sandbox.tfvars` is gitignored so your account details never land in the repo.
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.
-# See docs/setup/cloud-poc-setup.md for the full walkthrough.
+# See docs/guides/cloud/deploy-to-aws.md for the full walkthrough.
 
 # NOTE: the cluster name is NOT set here. It comes from the AWS_CLUSTER_NAME
 # environment variable (olf defaults it to a "limited-"-prefixed name for

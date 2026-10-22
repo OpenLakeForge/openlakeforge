@@ -49,7 +49,7 @@ image has; a local image's config Id is not one. Cloud providers use the
 foundation's own ECR/ACR. Local has no registry of its own and deliberately
 does not stand one up: it pushes to whatever `PROJECT_CODE_IMAGE_REPOSITORY`
 names, GHCR or Docker Hub by default. See
-[docs/setup/local.md](../setup/local.md) for that loop.
+[CI/CD and environment promotion](../guides/promote-dev-to-prod.md) for that loop.
 
 Activation verifies every object of the published `ProjectRevision`, restores it
 to a temporary root, and renders Floe only from that root and the selected v3

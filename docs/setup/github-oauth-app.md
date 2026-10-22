@@ -1,98 +1,218 @@
-# Sign in with GitHub (`issuer: github`)
+# Authentication and permissions
 
-With `spec.identity.issuer: github`, people and roles live in your GitHub
-organisation and Dex signs them in ([ADR 0014](../adr/0014-identity-and-authorization.md)).
-Before `olf deploy` can start the issuer it needs a GitHub app and a Secret
-holding its credentials. `olf github connect` does both; the manual OAuth App
-below is the fallback. In an interactive terminal `olf deploy` asks for the
-GitHub confirmation itself when the Secret is missing; `--no-github-connect`
-turns that off, and CI or piped runs never prompt.
+How to turn on sign-in for a local OpenLakeForge deployment, map GitHub teams
+to the four OpenLakeForge roles, see what each role may open, and rotate the
+secrets sign-in depends on.
 
-## Quick path: `olf github connect`
+Without `spec.identity` in `openlakeforge.yaml`, authentication is off and
+every service opens with administrator rights. `olf` allows that only on the
+local provider with a `*.localhost` domain. With `spec.identity`, every
+service sits behind a sign-in perimeter, and each person gets the role their
+GitHub team grants.
 
-With the profile below in `openlakeforge.yaml` and the kind cluster up (run
-`olf deploy --provider local` once; it creates the `olf-system` namespace and
-stops asking for the Secret):
+> [!NOTE]
+> Sign-in is implemented for the local provider. The AWS and Azure
+> deployments publish no routes yet, so they are reached with `olf forward`
+> and never ask anyone to sign in.
 
-```bash
-olf github connect --project .
-```
+## Roles
 
-It opens your browser on GitHub, where you click **Create GitHub App** with
-your own session (SSO and 2FA as the organisation enforces), stores the app's
-`client-id`, `client-secret`, `private-key`, `app-id` and `app-slug` in the Secret named by
-`oauth_app_secret_ref`, and opens the page to install the app on the
-organisation: the browser goes straight from **Create GitHub App** to the
-install page. Install it, because the app's *Members: read* permission only
-applies to organisations it is installed on. A full `olf deploy` asks for this
-confirmation first (the browser opens by itself on WSL), then runs unattended, and
-its last lines give the portal URL and either "GitHub App installed on <org>" or
-the install link. If sign-in is refused
-(app not installed, or you are in no mapped team) the login shows a page that
-says so. Credentials are never printed. `--no-browser` prints the URL instead; after 15 minutes without
-a click it exits with nothing written. Re-running registers a new
-GitHub App and replaces the Secret; delete the previous app and its private key
-in the organisation settings yourself, because GitHub keeps their access until
-you do. The `private-key` entry is kept for the OpenMetadata role sync (ADR 0014).
+People hold one of four canonical roles, highest first. A role decides which
+services a person can open and the role they get inside each service:
 
-## 1. Create the OAuth App (manual fallback)
+| Service | `platform-admin` | `data-engineer` | `analyst` | `viewer` |
+| --- | --- | --- | --- | --- |
+| Portal | opens | opens | opens | opens |
+| Dagster | full | full | denied | denied |
+| Trino UI | opens | opens | denied | denied |
+| Superset | `Admin` | `Alpha` | `Gamma` | read-only |
+| OpenMetadata | `Admin` | `write` | `read` | `read` |
 
-In the organisation: Settings, Developer settings, OAuth Apps, New OAuth App.
-Use an organisation-owned app, not a personal one.
+A grant applies on every enabled stage. A person refused a service sees an
+"Access is role-restricted" page. Membership is managed in GitHub: adding
+someone to a mapped team gives them the role, and removing them takes it away.
+OpenLakeForge roles are never cloud IAM permissions.
+
+## Turn on sign-in with GitHub
+
+1. Add an identity block to `openlakeforge.yaml`. Each role maps to one or
+   more team slugs, as they appear in the team URL; a role you leave out is
+   held by nobody:
+
+   ```yaml
+   spec:
+     access:
+       issuer: none
+     identity:
+       issuer: github
+       github:
+         organization: my-org
+         teams:
+           platform-admin: [olf-platform-admins]
+           data-engineer: [olf-data-engineers]
+           analyst: [olf-analysts]
+           viewer: [olf-viewers]
+         oauth_app_secret_ref:
+           name: github-oauth-app
+   ```
+
+   `organization` is the login exactly as GitHub shows it, case included.
+   Only members of the mapped teams can sign in; organization ownership grants
+   nothing. Sign-in works over plain HTTP or HTTPS.
+
+2. Deploy:
+
+   ```bash
+   olf deploy --provider local
+   ```
+
+   In an interactive terminal, `olf deploy` notices the missing GitHub
+   credentials and offers to create them: it opens GitHub in your browser,
+   where you select **Create GitHub App** with your own session, and stores the
+   app's credentials in the Kubernetes Secret named by `oauth_app_secret_ref`.
+   You can also run this step on its own, once the cluster exists:
+
+   ```bash
+   olf github connect --project .
+   ```
+
+3. Install the app on the organization when GitHub shows the install page.
+   The app reads team membership only in organizations it is installed on.
+   The deploy ends with the portal URL and either "GitHub App installed on
+   <org>" or the install link.
+
+`--no-browser` prints the URL instead of opening it; without a click within
+15 minutes, nothing is written. Credentials are never printed. Running
+`olf github connect` again registers a new app and replaces the Secret: delete
+the old app and its private key in the organization settings yourself.
+
+### Use an OAuth App instead
+
+When you cannot create a GitHub App, create an organization-owned OAuth App
+(Settings, Developer settings, OAuth Apps, New OAuth App):
 
 | Field | Value |
 | --- | --- |
-| Homepage URL | `https://<base_domain>` |
-| Authorization callback URL | `https://auth.<base_domain>/callback` |
+| Homepage URL | `https://olf.localhost`, or `http://olf.localhost` with `issuer: none` |
+| Authorization callback URL | `https://auth.olf.localhost/callback`, or `http://auth.olf.localhost/callback` with `issuer: none` |
 
-`<base_domain>` is `spec.access.base_domain` (`olf.localhost` by default).
-With `spec.access.issuer: none` (plain HTTP on `*.localhost`, development
-only) use `http://<base_domain>` and `http://auth.<base_domain>/callback`.
-Generate a client secret. An organisation that restricts third-party access
-must approve the app.
-
-## 2. Profile
-
-```yaml
-spec:
-  identity:
-    issuer: github
-    github:
-      organization: OpenLakeForge
-      teams:
-        platform-admin: [olf-platform-admins]
-        data-engineer: [olf-data-engineers]
-        analyst: [olf-analysts]
-        viewer: [olf-viewers]
-      oauth_app_secret_ref:
-        name: github-oauth-app
-```
-
-Team values are slugs as they appear in the team URL. Only members of these
-teams can sign in; organisation ownership grants nothing.
-
-## 3. Create the Secret (manual fallback)
-
-The Secret lives in the shared namespace (`olf-system` by default). The first
-`olf deploy` creates that namespace and then stops with the exact command if
-the Secret is missing:
+Replace `olf.localhost` with your `spec.access.base_domain` if you changed it.
+Generate a client secret, then store both values. The first `olf deploy`
+creates the `olf-system` namespace and stops with the exact command; run it
+with the managed kubectl:
 
 ```bash
-kubectl -n olf-system create secret generic github-oauth-app \
+export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
+"$(olf toolchain path kubectl)" -n olf-system create secret generic github-oauth-app \
   --from-literal=client-id="$GITHUB_CLIENT_ID" \
   --from-literal=client-secret="$GITHUB_CLIENT_SECRET"
 ```
 
-Re-run `olf deploy`. The key names are `client_id_key` and `client_secret_key`
-under `oauth_app_secret_ref` (`client-id` and `client-secret` by default).
+Then run `olf deploy --provider local` again, with `--no-github-connect` so it
+does not offer to create a GitHub App.
 
-## CI and the nightly
+## Use another OIDC issuer
 
-No real GitHub is involved. `openlakeforge.conformance.yaml` selects
-`issuer: github` with `github.host: olf-e2e-github.olf-system.svc`, the host of
-the GitHub stub `olf e2e run` starts in the cluster (`olf/e2e/_identity_github.py`).
-Dex still reads the Secret named by `oauth_app_secret_ref`, so the nightly
-(`.github/workflows/local-full-e2e.yml`) runs `olf platform apply`, which
-creates the foundation and the `olf-system` namespace and stops at the missing
-Secret, creates `github-oauth-app` with the dummy values `olf-e2e` / `olf-e2e`,
-and applies again. The stub accepts any client id and secret.
+`issuer: external` uses an identity provider you run, such as Okta, Entra ID or
+Keycloak. OpenLakeForge then deploys no issuer of its own:
+
+```yaml
+spec:
+  identity:
+    issuer: external
+    issuer_url: https://login.example.com/
+    role_claim: groups
+    role_mapping:
+      platform-admin: [olf-admins]
+      analyst: [analysts]
+```
+
+`role_claim` is the token claim that holds group values, and `role_mapping`
+maps each role to the values that grant it. You register four OIDC clients in
+your issuer (`perimeter`, `superset`, `openmetadata` and `trino`, or the ids
+you set under `client_ids`) and store each client secret in a Secret
+`oidc-client-<consumer>` with the key `client-secret`. Every field is in the
+[Deployment Profile reference](../reference/deployment-profile.md#specidentity).
+
+## Rotate secrets
+
+Rotate after a suspected leak, when someone who could read the Secrets leaves,
+or on a schedule. With `issuer: external`, rotate the client secrets in your
+issuer and in the `oidc-client-<consumer>` Secrets, then restart the
+consumers. The steps below are for `issuer: github`. They follow the
+deployed Jobs but have not been exercised as a drill yet.
+
+The commands use the managed kubectl and kubeconfig:
+
+```bash
+export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
+KUBECTL="$(olf toolchain path kubectl)"
+```
+
+**The GitHub app's secret.** Generate a new client secret in GitHub, update
+the Secret named by `oauth_app_secret_ref`, and restart Dex:
+
+```bash
+"$KUBECTL" -n olf-system rollout restart deployment dex
+```
+
+**An OIDC client secret.** Dex holds one secret per client (`perimeter`,
+`superset`, `openmetadata`, `trino`), created once by a bootstrap Job that
+never overwrites an existing Secret. To replace one, for example `perimeter`:
+
+1. Delete it:
+
+   ```bash
+   "$KUBECTL" -n olf-system delete secret dex-client-perimeter
+   ```
+
+2. Re-run the platform phase with the bootstrap Job replaced, so it recreates
+   the missing Secret:
+
+   ```bash
+   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials' \
+     olf deploy --provider local --phase platform
+   ```
+
+3. Restart Dex and the workloads that read the secret:
+
+   ```bash
+   "$KUBECTL" -n olf-system rollout restart deployment dex
+   "$KUBECTL" -n olf-system rollout restart deployment -l openlakeforge.io/component=perimeter
+   ```
+
+   For `trino`, also restart the `trino-coordinator` Deployment. For
+   `superset`, each stage keeps its own copy, made by the one-shot
+   `kubernetes_job_v1.oidc_secret` of that stage's `module.superset`: add a
+   `-replace` of that Job for each stage in step 2, then restart Superset.
+
+4. Sign in through the portal: it succeeds only when Dex and the service hold
+   the same secret.
+
+**The session cookie secret.** Rotating it signs everyone out:
+
+```bash
+"$KUBECTL" -n olf-system delete secret oauth2-proxy-cookie --ignore-not-found
+TF_CLI_ARGS_apply='-replace=module.perimeter.kubernetes_job_v1.cookie_secret' \
+  olf deploy --provider local --phase platform
+"$KUBECTL" -n olf-system rollout restart deployment -l openlakeforge.io/role-floor
+```
+
+If the bootstrap Job fails with `Secret <name> exists without key
+client-secret`, something else created that Secret: fix or delete it and
+re-run step 2. An interrupted bootstrap is safe to re-run.
+
+## Troubleshoot sign-in
+
+| Symptom | Cause |
+| --- | --- |
+| "Sign-in was refused" | The GitHub App is not installed on the organization, or you are in no mapped team. |
+| "Access is role-restricted" | Your role does not open this service; see [Roles](#roles). A platform-admin changes team membership in GitHub. |
+| `olf deploy` stops on a missing Secret | Run `olf github connect --project .`, or create the OAuth App Secret as above. |
+| A request from `curl` answers `302` or `401` | Every route except `auth.<base_domain>` requires a browser session; `olf`'s own commands port-forward instead. |
+
+## Check it worked
+
+Open the portal, `http://olf.localhost`. It sends you to sign in with GitHub,
+then shows the portal. With the Full preset, a person in the `analyst` team
+reaches Superset and is refused Dagster.
