@@ -578,17 +578,30 @@ def test_github_host_is_optional_and_must_be_a_bare_hostname() -> None:
 
 @pytest.mark.parametrize(
     ("provider", "access"),
-    [("aws", None), ("azure", None), ("local", {"base_domain": "olf.example.com", "issuer": "letsencrypt"})],
+    [
+        ("aws", {}),
+        ("azure", {"base_domain": "olf.example.com"}),
+        ("local", {"base_domain": "olf.example.com", "issuer": "letsencrypt"}),
+    ],
 )
-def test_authentication_off_is_rejected_outside_local_localhost(provider: str, access: dict | None) -> None:
+def test_authentication_off_is_rejected_when_routes_would_leave_the_machine(provider: str, access: dict) -> None:
     document = _load_fixture("valid_slim_local.yaml")
-    document["spec"]["provider"] = {"type": provider, **({"region": "x"} if provider != "local" else {})}
-    document["spec"].pop("access", None)
-    if access:
-        document["spec"]["access"] = access
+    document["spec"]["provider"] = {"type": provider, **({"region": "x"} if provider == "aws" else {})}
+    document["spec"].pop("identity", None)
+    document["spec"]["access"] = access
 
-    with pytest.raises(DeploymentProfileError, match="without spec.identity .* requires provider 'local'"):
+    with pytest.raises(DeploymentProfileError, match="without spec.identity .* publishes nothing beyond this machine"):
         validate_deployment_profile(document)
+
+
+@pytest.mark.parametrize("provider", ["aws", "azure"])
+def test_authentication_off_is_allowed_on_a_cloud_without_routes(provider: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["provider"] = {"type": provider, **({"region": "x"} if provider == "aws" else {})}
+    document["spec"].pop("identity", None)
+    document["spec"].pop("access", None)
+
+    assert validate_deployment_profile(document).identity is None
 
 
 def test_authentication_off_is_allowed_on_local_with_or_without_access() -> None:

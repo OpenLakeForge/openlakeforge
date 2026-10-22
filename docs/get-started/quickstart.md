@@ -69,8 +69,8 @@ It links to each service the profile enables. Browsers resolve every
 no sign-in: authentication stays off until you add `spec.identity`.
 
 > [!NOTE]
-> A profile without `spec.identity` is accepted only for `provider: local` on
-> `*.localhost`. With the Full preset and sign-in off, Superset opens as Admin
+> A profile without `spec.identity` publishes nothing beyond your machine:
+> locally, only on `*.localhost`. With the Full preset and sign-in off, Superset opens as Admin
 > and OpenMetadata keeps its `admin@open-metadata.org` / `admin` login, which
 > `olf status` shows. To serve HTTPS, see
 > [Serve HTTPS](../guides/local-installation.md#serve-https); to sign in with

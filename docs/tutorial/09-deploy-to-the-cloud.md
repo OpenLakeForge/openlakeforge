@@ -21,8 +21,7 @@ Your `lakehouse_code/` does not change: only the Deployment Profile does.
 ## 1. Point the profile at AWS
 
 In `openlakeforge.yaml`, set the provider and the region, keep only the DEV
-stage, remove the `access:` block, and replace any `identity:` block with this
-one:
+stage, and remove the `access:` and `identity:` blocks:
 
 ```yaml
 spec:
@@ -32,18 +31,12 @@ spec:
   stages:
     dev:
       enabled: true
-  identity:
-    issuer: external
-    issuer_url: https://login.example.com/
-    role_claim: groups
-    role_mapping:
-      platform-admin: [olf-admins]
 ```
 
 The cloud deployment is validated with one stage, so the DEV-to-PROD promotion
-of lesson 8 stays on your local platform. The `identity` block is required for
-every provider but `local`; the cloud deployment publishes no routes yet, so
-these placeholder values are enough.
+of lesson 8 stays on your local platform. The cloud deployment publishes no
+routes, so there is no sign-in: you reach its services with `olf forward`, and
+an `access:` block would require `identity:`.
 
 ```bash
 olf profile validate --project .

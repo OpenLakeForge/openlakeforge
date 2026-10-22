@@ -26,6 +26,11 @@ for how a release is cut and verified.
   required. With `AWS_CLUSTER_NAME` unset, `olf` keeps the name an existing
   foundation's Terraform state records, so a deployment created under the old
   default keeps its cluster: no migration is needed.
+- **AWS and Azure profiles no longer need `spec.identity`.** The cloud
+  deployments publish no routes and are reached with `olf forward`, so the
+  placeholder `external` block they had to carry is gone; existing profiles
+  that keep it still validate. A cloud profile that declares `spec.access`
+  still requires `spec.identity`.
 
 ### Known limitations: identity and authorization (draft, v0.5-alpha)
 

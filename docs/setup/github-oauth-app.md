@@ -5,8 +5,9 @@ to the four OpenLakeForge roles, see what each role may open, and rotate the
 secrets sign-in depends on.
 
 Without `spec.identity` in `openlakeforge.yaml`, authentication is off and
-every service opens with administrator rights. `olf` allows that only on the
-local provider with a `*.localhost` domain. With `spec.identity`, every
+every service opens with administrator rights. `olf` allows that only when
+nothing is published beyond your machine: locally on a `*.localhost` domain,
+and on AWS or Azure without `spec.access`. With `spec.identity`, every
 service sits behind a sign-in perimeter, and each person gets the role their
 GitHub team grants.
 
