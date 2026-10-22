@@ -25,7 +25,7 @@ def test_collect_status_queries_pods_services_and_pvcs_in_order() -> None:
     )
 
     resources = [call.argv[call.argv.index("get") + 1] for call in runner.calls]
-    assert resources == ["pods", "svc", "pvc", "pods", "svc", "pvc"]
+    assert resources == ["pods", "svc", "pvc", "pods", "svc", "pvc", "configmap"]
     assert [section.title for section in report.sections] == [
         "Pods (olf-system)",
         "Services (olf-system)",
@@ -33,6 +33,7 @@ def test_collect_status_queries_pods_services_and_pvcs_in_order() -> None:
         "Pods (olf-dev)",
         "Services (olf-dev)",
         "PVCs (olf-dev)",
+        "Recent break-glass use",
     ]
     assert all(call.kwargs["check"] is False for call in runner.calls)
 

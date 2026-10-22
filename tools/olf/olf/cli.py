@@ -15,6 +15,7 @@ from olf.commands import (
     access,
     artifacts,
     auth,
+    break_glass,
     catalog,
     checks,
     contracts,
@@ -84,6 +85,7 @@ app.command("doctor")(deployment.doctor)
 app.command("destroy")(deployment.destroy)
 app.command("status")(deployment.status)
 app.command("forward")(deployment.forward)
+app.command("break-glass")(break_glass.break_glass_command)
 app.command("init")(init.initialize)
 app.command("query")(query.query)
 

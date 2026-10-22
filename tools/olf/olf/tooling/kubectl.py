@@ -219,6 +219,19 @@ class Kubectl:
             args += ["--timeout", timeout]
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
 
+    def config_user(
+        self, *, context: str, kubeconfig: Path | None = None, env: Mapping[str, str] | None = None
+    ) -> CommandResult:
+        """The kubeconfig user behind `context`."""
+        jsonpath = "jsonpath={.contexts[0].context.user}"
+        args = ["config", "view", "--minify", "-o", jsonpath]
+        return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
+
+    def exec_shell_argv(self, resource: str, *, namespace: str, context: str) -> list[str]:
+        """An interactive `sh` in the resource's pod, for a caller that owns the process."""
+        argv = [str(self._executable()), "--context", context, "exec", "-it", resource, "-n", namespace, "--", "sh"]
+        return argv
+
     def port_forward_argv(
         self,
         resource: str,
