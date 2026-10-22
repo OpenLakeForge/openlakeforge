@@ -23,19 +23,22 @@ DATA = {"config.json": json.dumps(CONFIG), "secret_name": "s", "secret_key": "k"
 class FakeClient:
     calls: list[tuple[str, str, Any]] = []
     current: dict[str, str] = {}
+    admin: dict[str, bool] = {"isAdmin": True}
 
     def __init__(self, _url: str, token: str) -> None:
         assert token == "jwt"
 
-    def request(self, method: str, path: str, json_body: Any = None, ok_statuses: Any = None) -> dict[str, str]:
+    def request(self, method: str, path: str, json_body: Any = None, ok_statuses: Any = None, **_k: Any) -> Any:
         FakeClient.calls.append((method, path, json_body))
+        if path == "/api/v1/users/name/admin" and method == "GET":
+            return FakeClient.admin
         return FakeClient.current if method == "GET" else {}
 
 
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state: dict[str, Any] = {"data": DATA, "probe": [True], "restarts": 0}
-    FakeClient.calls, FakeClient.current = [], {}
+    FakeClient.calls, FakeClient.current, FakeClient.admin = [], {}, {"isAdmin": True}
 
     @contextmanager
     def service_url(*_a: Any, **_k: Any):  # noqa: ANN202
@@ -72,7 +75,7 @@ def test_puts_the_config_with_the_secret_then_restarts(env: dict[str, Any]) -> N
 def test_an_applied_config_is_reput_without_a_restart(env: dict[str, Any]) -> None:
     FakeClient.current = dict(AUTH)
     run()
-    assert [c[0] for c in FakeClient.calls] == ["GET", "PUT"]
+    assert [c[0] for c in FakeClient.calls][:2] == ["GET", "PUT"]
     assert env["restarts"] == 0
 
 
@@ -102,3 +105,14 @@ def test_configmap_data(monkeypatch: pytest.MonkeyPatch) -> None:
     assert k8s.configmap_data("c", "ns") is None
     monkeypatch.setattr(k8s, "_kubectl", lambda *_a, **_k: '{"data": {"a": "b"}}')
     assert k8s.configmap_data("c", "ns") == {"a": "b"}
+
+
+def test_the_local_admin_is_demoted_once(env: dict[str, Any]) -> None:
+    run()
+    patch = [c for c in FakeClient.calls if c[0] == "PATCH"]
+    assert patch == [("PATCH", "/api/v1/users/name/admin", [{"op": "add", "path": "/isAdmin", "value": False}])]
+    FakeClient.calls.clear()
+    FakeClient.admin = {"isAdmin": False}
+    env["probe"] = [True]
+    run()
+    assert not [c for c in FakeClient.calls if c[0] == "PATCH"]

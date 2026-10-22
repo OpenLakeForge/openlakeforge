@@ -40,10 +40,10 @@ in the design below:
   claim, which Dex does not always have.
 - **Admin mapping gap.** 1.13.6 has no claim-based admin mapping. The only
   claim-driven admin is `useRolesFromProvider` reading a claim named `roles`
-  whose value is `Admin`, which Dex cannot emit. `adminPrincipals` stays `admin`, a user no
-  token produces, so every sign-in starts at the read baseline until the role
-  sync grants more. A GitHub login named
-  `admin` would be an admin (OM-11); Dex admits only members of the mapped teams.
+  whose value is `Admin`, which Dex cannot emit. `adminPrincipals` is empty, and
+  `olf openmetadata deploy-metadata` clears `isAdmin` on the local `admin` user (kept, not deleted) after
+  every restart, so a GitHub login named `admin` resolves to it and stays at the read baseline (OM-11,
+  closed); every sign-in starts there until the role sync grants more.
 - **Not done.** Removing `spec.identity` from an install that already has SSO does
   not restore basic login (the stored provider stays); rebuild the metadata
   database. The Job removes the `Organization`

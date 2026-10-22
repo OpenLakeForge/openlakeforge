@@ -72,9 +72,10 @@ locals {
       }
     }
     authorizerConfiguration = {
-      className                       = local.base_authorizer.className
-      containerRequestFilter          = local.base_authorizer.containerRequestFilter
-      adminPrincipals                 = local.base_authorizer.initialAdmins
+      className              = local.base_authorizer.className
+      containerRequestFilter = local.base_authorizer.containerRequestFilter
+      # Empty: the local admin has no login under SSO, and a listed name is made an admin at every start (OM-11).
+      adminPrincipals                 = []
       allowedEmailRegistrationDomains = local.base_authorizer.allowedEmailRegistrationDomains
       principalDomain                 = local.base_authorizer.principalDomain
       allowedDomains                  = local.base_authorizer.allowedDomains

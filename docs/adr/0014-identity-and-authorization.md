@@ -313,7 +313,7 @@ cannot read roles from the token (`identity-service-permissions.md`), so its
 roles follow a role sync, built by #25 as a
 CronJob that `olf openmetadata deploy-metadata` applies. It runs only for
 `issuer: github`: an `external` issuer or authentication off does not sync (OIDC
-alone cannot enumerate members), so those users stay at the read baseline.
+alone cannot enumerate members), so those users stay at the read baseline. With SSO on, OpenMetadata's `adminPrincipals` is empty and `deploy-metadata` clears `isAdmin` on the local `admin` user, so an issuer login named `admin` is not an admin (OM-11, closed by #25).
 
 | Piece | Decision |
 | --- | --- |

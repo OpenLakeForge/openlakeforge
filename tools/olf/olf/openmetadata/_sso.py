@@ -42,6 +42,17 @@ def _wait_for_issuer(service: str, namespace: str, url: str) -> None:
     )
 
 
+def _demote_local_admin(client: OpenMetadataClient) -> None:
+    """The local admin has no login under SSO, but an issuer user named `admin` would resolve to it (OM-11)."""
+    if client.request("GET", "/api/v1/users/name/admin").get("isAdmin"):
+        client.request(
+            "PATCH",
+            "/api/v1/users/name/admin",
+            json_body=[{"op": "add", "path": "/isAdmin", "value": False}],
+            content_type="application/json-patch+json",
+        )
+
+
 def apply_sso(namespace: str, *, service: str, remote_port: int, log_path: str) -> None:
     """Apply the published security configuration, restarting the server on its first application."""
     data = k8s.configmap_data(CONFIGMAP, namespace)
@@ -74,3 +85,13 @@ def apply_sso(namespace: str, *, service: str, remote_port: int, log_path: str) 
     # one the PUT built may predate the issuer answering.
     if first:
         k8s.restart_deployment(service, namespace)
+    # After the restart: startup re-promotes anything in the configured admin list.
+    with access.service_url(
+        "shared/governance_service",
+        service=service,
+        remote_port=remote_port,
+        namespace=namespace,
+        log_path=log_path,
+        shared_namespace=namespace,
+    ) as base_url:
+        _demote_local_admin(OpenMetadataClient(base_url, token=token))
