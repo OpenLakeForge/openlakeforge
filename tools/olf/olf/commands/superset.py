@@ -231,6 +231,7 @@ def export_superset_reports(stage: str = "") -> None:
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
         admin_password=config.env("SUPERSET_ADMIN_PASSWORD", "admin"),
         dashboard=os.environ.get("SUPERSET_DASHBOARD") or _default_dashboard(),
+        schema_prefix=target.schema_prefix,
     )
 
 

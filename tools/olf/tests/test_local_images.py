@@ -48,6 +48,9 @@ def _ok(stdout: str = "") -> CommandResult:
     return CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
 
 
+_INSPECT = '[{"Id": "sha256:0123456789abcdef0123"}]'
+
+
 class _ScriptedRunner(RecordingRunner):
     def __init__(self, *, image_exists: bool = True, cluster_exists: bool = True) -> None:
         super().__init__()
@@ -59,7 +62,7 @@ class _ScriptedRunner(RecordingRunner):
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
         if argv[1:3] == ["image", "inspect"]:
             code = 0 if self._image_exists else 1
-            return CommandResult(argv=(), returncode=code, stdout="", stderr="", duration_seconds=0.0)
+            return CommandResult(argv=(), returncode=code, stdout=_INSPECT, stderr="", duration_seconds=0.0)
         if argv[1:3] == ["get", "clusters"]:
             stdout = "openlakeforge-local\n" if self._cluster_exists else ""
             return CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
@@ -191,10 +194,14 @@ def test_prepare_superset_image_builds_and_loads_when_enabled_and_local(tmp_path
     runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
     tools = _toolkit(runner)
 
-    images.prepare_superset_image(config, tools, env={})
+    tag = images.prepare_superset_image(config, tools, env={})
 
-    assert any(c.argv[1] == "build" for c in runner.calls)
-    assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)
+    assert tag == "local-0123456789ab"
+    argvs = [c.argv for c in runner.calls]
+    repo = "ghcr.io/openlakeforge/superset"
+    assert any(a[1] == "build" for a in argvs)
+    assert ["docker", "tag", f"{repo}:local", f"{repo}:{tag}"] in argvs
+    assert ["kind", "load", "docker-image", f"{repo}:{tag}", "--name", "openlakeforge-local"] in argvs
 
 
 def test_prepare_project_code_image_skips_when_tag_is_not_local(tmp_path: Path) -> None:

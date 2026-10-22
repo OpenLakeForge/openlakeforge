@@ -31,6 +31,10 @@ class ReportStageError(RuntimeError):
 # Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
 SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
 _TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
+# The placeholder a checked-in database YAML carries. `build_report_bundle`
+# replaces it with the target stage's connection, and `unpack_export_bundle`
+# puts it back so an exported bundle promotes unchanged.
+STAGE_NEUTRAL_SQLALCHEMY_URI = "trino://superset@trino:8080/iceberg"
 
 
 @dataclass(frozen=True)
@@ -188,8 +192,46 @@ def build_report_bundle(
             bundle.writestr(archive_name, yaml.safe_dump(document, sort_keys=False))
 
 
-def unpack_export_bundle(bundle_path: Path, target_dir: Path) -> None:
-    """Replace managed report assets in the source tree from an export zip."""
+def _neutral_database(document: dict[str, Any]) -> None:
+    document["sqlalchemy_uri"] = STAGE_NEUTRAL_SQLALCHEMY_URI
+    extra = document.get("extra")
+    engine_params = extra.get("engine_params") if isinstance(extra, dict) else None
+    connect_args = engine_params.get("connect_args") if isinstance(engine_params, dict) else None
+    if not isinstance(engine_params, dict) or not isinstance(connect_args, dict):
+        return
+    for key, value in _TLS_EXTRA["engine_params"]["connect_args"].items():
+        if connect_args.get(key) == value:
+            del connect_args[key]
+    if not connect_args:
+        del engine_params["connect_args"]
+
+
+def _export_member(relative: PurePosixPath, content: bytes, schema_prefix: str) -> bytes:
+    """Undo `build_report_bundle`'s stage rewrite on one exported asset."""
+    kind = relative.parts[0]
+    if kind not in {"databases", "datasets"}:
+        return content
+    document = yaml.safe_load(content.decode("utf-8"))
+    if not isinstance(document, dict):
+        return content
+    if kind == "databases":
+        _neutral_database(document)
+    else:
+        schema = document.get("schema")
+        if not (schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix)):
+            return content
+        document["schema"] = schema.removeprefix(schema_prefix)
+    return yaml.safe_dump(document, sort_keys=False).encode("utf-8")
+
+
+def unpack_export_bundle(bundle_path: Path, target_dir: Path, *, schema_prefix: str = "") -> None:
+    """Replace managed report assets in the source tree from an export zip.
+
+    Superset exports what it holds, which is the stage connection and, on AWS,
+    the stage-prefixed schemas that `build_report_bundle` imported. Both are
+    put back to their stage-neutral form, or the next `olf report validate`
+    rejects the bundle as stage-bound.
+    """
     managed_names = {"metadata.yaml", "databases", "datasets", "charts", "dashboards"}
     target_dir.mkdir(parents=True, exist_ok=True)
     for name in managed_names:
@@ -211,7 +253,7 @@ def unpack_export_bundle(bundle_path: Path, target_dir: Path) -> None:
             relative = PurePosixPath(*member_path.parts[1:])
             destination = target_dir / Path(relative.as_posix())
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(bundle.read(member))
+            destination.write_bytes(_export_member(relative, bundle.read(member), schema_prefix))
 
 
 @contextlib.contextmanager
@@ -575,6 +617,7 @@ def export_report(
     admin_username: str,
     admin_password: str,
     dashboard: str,
+    schema_prefix: str = "",
 ) -> None:
     work_dir.mkdir(parents=True, exist_ok=True)
     local_bundle = work_dir / bundle_name
@@ -586,7 +629,7 @@ def export_report(
         local_bundle.write_bytes(client.export_dashboard(dashboard))
 
     target_dir = repo_root / report_source_dir
-    unpack_export_bundle(local_bundle, target_dir)
+    unpack_export_bundle(local_bundle, target_dir, schema_prefix=schema_prefix)
     # A dashboard export declares `type: Dashboard`; the bundle is imported as
     # assets (see `report_bundle_errors`).
     metadata_path = target_dir / "metadata.yaml"

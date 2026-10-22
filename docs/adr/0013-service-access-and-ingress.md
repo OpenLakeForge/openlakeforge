@@ -100,6 +100,11 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    the perimeter (#176) denies what a role cannot open and sends an
    unauthenticated request to login, and the portal sits behind it like
    every other route.
+   Stage services sit under their stage; shared services (query, governance)
+   sit under a final "Shared" heading. The page omits itself and the identity
+   route: Dex has no account page and GitHub owns accounts, so when the issuer
+   is `github` it links to `https://<host>/orgs/<org>/teams` ("Manage your
+   account and teams on GitHub") instead.
 
 8. **Pods reach the same URLs.** A service that validates a token calls the
    issuer's public URL from inside the cluster, and `*.localhost` must not
@@ -166,7 +171,8 @@ section in `olf status`, and the e2e Traefik restart and renewal drills.
 local routes; it is never behind the perimeter (ADR 0014). Decision 8 (in-cluster
 resolution of the routes and the CA ConfigMap) was added with it.
 #330 added the portal (decisions 2, 3, 4, 6 and 7): the apex route, its
-certificate name, and the landing page.
+certificate name, and the landing page; a follow-up split out the Shared
+section and dropped the identity link.
 #176 put every route except the identity route behind the perimeter (ADR 0014
 seam 3): decision 6 now renders one `Ingress` per namespace and access group,
 and `olf`'s clients port-forward to a protected route instead of taking its

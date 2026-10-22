@@ -242,6 +242,8 @@ module "portal" {
 
   namespace = kubernetes_namespace_v1.shared.metadata[0].name
   links     = local.portal_links
+  # GitHub owns accounts and teams; Dex has no account page, so the identity route is not listed.
+  account_url = var.identity_issuer == "github" ? "https://${coalesce(try(var.identity_github.host, null), "github.com")}/orgs/${var.identity_github.organization}/teams" : null
 }
 
 module "traefik" {
@@ -405,6 +407,14 @@ module "trino" {
   # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
   web_ui_fixed_user = local.route_tls ? null : "olf-web"
+  # Trino refuses OAuth2 on a request that is not secure, so a plain-HTTP route
+  # (`issuer: none`) keeps the UI's own login. Dex only: the module sets Dex's
+  # endpoints rather than discovering them (modules/query/trino/oidc.tf).
+  web_ui_oidc = local.identity_dex && local.route_tls && var.trino_workload_authentication != "off" ? {
+    issuer_url = local.identity_oidc.issuer_url
+    client_id  = local.identity_oidc.clients.trino.client_id
+    secret_ref = local.identity_oidc.clients.trino.secret_ref
+  } : null
 
   depends_on = [
     module.polaris,

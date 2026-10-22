@@ -263,7 +263,7 @@ resource "helm_release" "trino" {
     file(var.base_values_file),
     yamlencode({
       envFrom = local.storage_secret_env_from
-      env     = concat(local.catalog_secret_env, local.internal_secret_env)
+      env     = concat(local.catalog_secret_env, local.internal_secret_env, local.oidc_env)
 
       catalogs = local.iceberg_catalog_properties
 
@@ -283,7 +283,17 @@ resource "helm_release" "trino" {
     }),
     ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [],
     # With auth on, ui_properties ride in auth_values (a later values file replaces a list, so the base process-forwarded line is repeated here).
-  !local.auth_enabled && length(local.ui_properties) > 0 ? [yamlencode({ additionalConfigProperties = concat(["http-server.process-forwarded=true"], local.ui_properties) })] : [])
+    !local.auth_enabled && length(local.ui_properties) > 0 ? [yamlencode({ additionalConfigProperties = concat(["http-server.process-forwarded=true"], local.ui_properties) })] : [],
+    # Last, because Helm replaces a list wholesale: this one carries the list
+    # the levels above settled on, plus the sign-in properties. Never set
+    # together with ui_properties: fixed is plain-HTTP only, OAuth2 HTTPS only.
+    local.oidc_enabled ? [yamlencode({
+      additionalConfigProperties = concat(
+        local.auth_enabled ? local.auth_values.additionalConfigProperties : ["http-server.process-forwarded=true"],
+        local.oidc_properties,
+      )
+    })] : [],
+  )
 
   lifecycle {
     # The principals rule is built from stage_namespaces and the catalog rules

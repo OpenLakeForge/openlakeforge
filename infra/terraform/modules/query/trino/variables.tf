@@ -173,3 +173,18 @@ variable "web_ui_fixed_user" {
   type        = string
   default     = null
 }
+
+variable "web_ui_oidc" {
+  description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret, in this namespace). null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication tls or password."
+  type = object({
+    issuer_url = string
+    client_id  = string
+    secret_ref = object({ name = string, key = string })
+  })
+  default = null
+
+  validation {
+    condition     = var.web_ui_oidc == null || var.workload_authentication != "off"
+    error_message = "web_ui_oidc needs workload_authentication tls or password: Trino OAuth2 needs the HTTPS listener and its CA."
+  }
+}

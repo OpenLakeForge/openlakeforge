@@ -72,8 +72,10 @@ def check_portal_lists_routes(cfg: E2EConfig) -> None:
 
 
 def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
-    others = {ref: route for ref, route in routes.items() if ref != PORTAL_REF}
-    listed = set(re.findall(r'href="([^"]*)"', page))
+    # The page omits itself and the identity login surface, and may end with the
+    # issuer's account link (GitHub's /orgs/<org>/teams), which is no route.
+    others = {ref: route for ref, route in routes.items() if ref not in (PORTAL_REF, "shared/identity")}
+    listed = {u for u in re.findall(r'href="([^"]*)"', page) if not re.search(r"/orgs/[^/]+/teams$", u)}
     wanted = {route["url"] for route in others.values() if route["enabled"] and route["exposure"] == "user-facing"}
     if listed != wanted:
         raise E2EError(f"Landing page links {sorted(listed)}, expected {sorted(wanted)}.")
