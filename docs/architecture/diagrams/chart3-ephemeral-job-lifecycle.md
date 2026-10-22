@@ -37,7 +37,7 @@ sequenceDiagram
         participant S3 as Object storage
     end
 
-    User->>UI: Launch sales_order_revenue_pipeline
+    User->>UI: Launch order_revenue_pipeline
     UI->>Daemon: enqueue run
     Daemon->>API: create Job 1 — the run pod
     Note over Run: image project-code · SA dagster · TTL 1h

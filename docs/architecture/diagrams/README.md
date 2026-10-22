@@ -1,16 +1,13 @@
-# OpenLakeForge — Architecture Charts
+# Kubernetes runtime charts
 
-*How the platform is actually built, and how it actually runs — drawn the way Kubernetes
-projects draw themselves.*
+Five charts of how OpenLakeForge runs on Kubernetes: every pod, how the services
+talk to each other, the short-lived jobs of a pipeline run, the medallion data
+path through the catalog, and the provider contracts that let the same platform
+run on kind, EKS and AKS.
 
-A cloud-agnostic, self-hostable lakehouse assembled on Kubernetes with Terraform and
-Helm. Five charts in the official Kubernetes icon language: the pod-by-pod census, the
-runtime wiring, the nested ephemeral jobs that do orchestration and ingestion (Bronze,
-Silver — Gold executes as SQL in the long-lived Trino coordinator, not in a Job), the
-medallion data path, and the provider contracts that make the platform modular. They
-complement the product chart in
-[the README architecture chart](../../assets/architecture-local-light.svg), which shows
-*what* the platform does; these show *how*.
+They use the official Kubernetes icon language and complement the
+[Architecture](../overview.md) page, which shows *what* the platform does; these
+show *how* it runs.
 
 | **20** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
@@ -105,51 +102,10 @@ concurrently. Ingestion upgrades without rebuilding the orchestrator image; fail
 isolate per entity; TTL returns the per-run footprint to zero (Gold SQL executes in the
 standing Trino service, not a per-run pod).
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    box rgb(228,235,248) Control plane
-        participant UI as Dagster webserver
-        participant Daemon as Dagster daemon
-        participant API as Kubernetes API
-    end
-    box rgb(240,232,245) Ephemeral · per run
-        participant Run as Run pod (Job 1)
-        participant Floe as Floe runner (1 Job per entity)
-    end
-    box rgb(233,233,237) Data plane
-        participant Trino
-        participant Polaris as Iceberg catalog
-        participant S3 as Object storage
-    end
-
-    User->>UI: Launch sales_order_revenue_pipeline
-    UI->>Daemon: enqueue run
-    Daemon->>API: create Job 1 — the run pod
-    Note over Run: image project-code · SA dagster · TTL 1h
-
-    Note over Run: ① Bronze — dlt
-    Run->>S3: land raw entities in lakehouse-dev-bronze
-
-    Note over Run: ② Silver — Floe, out of process
-    loop once per entity, sequential (5 for order_revenue)
-        Run->>API: create Floe Job — image from the manifest
-        Floe->>S3: read Bronze, validate against the contract
-        Floe->>Polaris: commit validated Iceberg tables (OAuth)
-        Note over Floe: rejects → quarantined CSV · timeout 600s
-        Floe-->>Run: run_finished + report URI
-        Note over Floe: this Job TTL-collected
-    end
-
-    Note over Run: ③ Gold — dbt, SQL runs in Trino
-    Run->>Trino: dbt build (dbt-trino)
-    Trino->>Polaris: resolve Silver, commit Gold marts
-    Trino->>S3: write Gold Iceberg data
-
-    Run-->>Daemon: run succeeded · logs + artifacts already in S3
-    Note over Run: Job 1 TTL-collected — no run pods remain (Trino stays up)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/chart3-ephemeral-job-lifecycle-dark.svg">
+  <img alt="Ephemeral job lifecycle: the user launches a product job in Dagster; the daemon creates the run pod, which lands Bronze with dlt, creates one Floe Job per entity in sequence to validate and commit Silver through the catalog, then runs dbt-trino so Trino builds Gold; every run and Floe pod is garbage-collected after the run" src="../../assets/chart3-ephemeral-job-lifecycle-light.svg">
+</picture>
 
 > Observe it live: `kubectl -n olf-dev get jobs -w` — the run Job appears, then one
 > Floe Job per entity while it is still Running, then all of them vanish an hour later.
@@ -183,8 +139,8 @@ The modularity chart. The engines across the top are byte-identical in every dep
 Provider-contract v3 supplies shared platform bindings plus a selected stage's endpoint,
 storage, catalog, and identity bindings. The matrix records the stable capability fields
 (`catalog_type`, buckets, Secret references) and the adapter selected in each target.
-Terraform roots still emit v2 while #133 and #114 provision v3; the chart is the binding
-contract shape, not a claim that multi-stage infrastructure already exists.
+Every root (local, AWS, Azure) emits this v3 shape, with one stage entry per enabled
+stage.
 
 Cell colour is the argument: grey means the module is the same one `local` uses, orange
 means it was swapped. **`azure-poc` instantiates the same seven platform modules as
@@ -222,9 +178,9 @@ different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-gl
 `catalog_type` is the one field consumers branch on: `rest` selects the Polaris runtime
 profile, `glue` the native Glue profile. Naming stays stable across Glue's two-level
 model, so SQL and dbt models are unchanged. Not implemented (declared future adapters):
-an identity issuer, Vault/External Secrets, Athena, Lake Formation, remote Terraform state.
-Traefik + cert-manager run on the local profile only (ADR 0013); AWS and Azure
-still use port-forward. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
+Vault/External Secrets, Athena, Lake Formation and remote Terraform state.
+Traefik, cert-manager and the Dex identity issuer run on the local profile only
+(ADR 0013, ADR 0014); AWS and Azure still use port-forward. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
 [ADR 0007](../../adr/0007-governance-and-lineage.md) covers the full history:
@@ -306,7 +262,7 @@ prefix.
 Everything in Phase ③ is **user code under `lakehouse_code/`**, and nothing about the
 platform changes when a source, domain, or product is added. This is the "dynamic" half
 of the platform (the artifacts phase); the charts above are the static half. Unlike the
-pre-ADR-0026 layout, ownership is no longer domain-vertical: Bronze is source-owned,
+earlier layout, ownership is no longer domain-vertical: Bronze is source-owned,
 Silver is domain-owned, Gold is product-owned, dashboards are consumption-owned, and each
 concern still maps to exactly one engine:
 
@@ -344,6 +300,10 @@ is the canonical, human- and machine-readable descriptor of every domain and pro
 
 **About these charts.** Charts 1, 2, 4, 5 are self-contained SVGs (official CNCF
 Kubernetes icons embedded, no external references) generated by the Python sources in
-[src/](src/) — regenerate with `python3 src/spec_chartN.py`. Chart 3 is a Mermaid
-sequence diagram rendered natively by GitHub. Every count and identifier is traceable to
-a cited source file; nothing aspirational is drawn as existing.
+[src/](src/) — regenerate with `python3 src/spec_chartN.py`. Chart 3 is the Mermaid
+sequence diagram in
+[chart3-ephemeral-job-lifecycle.md](chart3-ephemeral-job-lifecycle.md), rendered
+to the light and dark SVGs in `docs/assets/` with `@mermaid-js/mermaid-cli`
+11.4.2; the dark copy swaps the three box tints for dark ones. Every count and
+identifier is traceable to a cited source file; nothing aspirational is drawn as
+existing.

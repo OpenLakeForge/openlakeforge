@@ -77,7 +77,7 @@ A product's job has no recurring trigger of its own in DEV. The shared
 It is created stopped, and enabling it is a deliberate act in the Dagster UI.
 DEV and UAT stay manual on purpose: the same immutable revision is deployed to
 every stage, and a schedule there would be a production-shaped workload on a
-development catalog. You add PROD in lesson 9, and the schedule appears in
+development catalog. You add PROD in lesson 8, and the schedule appears in
 that stage's Dagster.
 
 ## Check it worked
@@ -99,7 +99,7 @@ Local OpenLakeForge full e2e validation passed.
 - Each product has one `<product>_pipeline` job that runs Bronze, Silver and
   Gold in order.
 - Rerunning a job is safe; Silver and Gold are overwritten.
-- Recurring schedules belong to PROD, which you add in lesson 9.
+- Recurring schedules belong to PROD, which you add in lesson 8.
 
 ## Next
 

@@ -2,11 +2,11 @@
 
 Implementation detail for people changing OpenLakeForge. These pages are kept
 in the repository and are not published on openlakeforge.dev; the user-facing
-summary is [overview.md](overview.md).
+summary is [overview.md](overview.md), with the published
+[Kubernetes runtime charts](diagrams/README.md).
 
 | Page | Covers |
 | --- | --- |
-| [diagrams/README.md](diagrams/README.md) | Pod census, namespace topology, job lifecycle, medallion data path and provider-contract charts, with reference tables |
 | [provider-contracts.md](provider-contracts.md) | The provider-neutral contract boundary, its v3 shape and validation |
 | [local-stack-contracts.md](local-stack-contracts.md) | How the local Terraform root implements each contract |
 | [aws-eks-poc.md](aws-eks-poc.md) | The AWS Terraform roots, contract implementations and compatibility gate |
