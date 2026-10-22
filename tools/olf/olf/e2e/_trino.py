@@ -188,9 +188,15 @@ def check_trino_write(cfg: E2EConfig) -> None:
     catalog = stage_catalog_name(cfg)
     schema = f"{_glue_namespace_prefix(cfg)}{sorted(cfg.inventory.gold_namespace_names)[0]}"
     table = f"{catalog}.{schema}.zz_olf_e2e_restart_probe_do_not_use"
-    trino_query(cfg, f"DROP TABLE IF EXISTS {table}")
-    trino_query(cfg, f"CREATE TABLE {table} AS SELECT 1 AS probe")
-    trino_query(cfg, f"DROP TABLE {table}")
+    try:
+        trino_query(cfg, f"DROP TABLE IF EXISTS {table}")
+        trino_query(cfg, f"CREATE TABLE {table} AS SELECT 1 AS probe")
+        trino_query(cfg, f"DROP TABLE {table}")
+    except E2EError as exc:
+        # The CLI's own stderr does not survive `kubectl exec`; the coordinator log names the cause.
+        args = ["logs", "-n", cfg.platform_namespace, "deploy/trino-coordinator", "--tail=60"]
+        tail = kubectl(cfg, args, capture=True)
+        raise E2EError(f"{exc}\nTrino coordinator log tail:\n{tail}") from exc
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:
