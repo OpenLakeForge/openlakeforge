@@ -172,7 +172,7 @@ The same platform runs on managed infrastructure:
   📊 [Architecture diagrams](/docs/architecture/diagrams/README.md) ·
   🔌 [Provider contracts](/docs/architecture/provider-contracts.md)
 - 🧠 [Architecture Decision Records](/docs/adr/README.md)
-- 📦 [Release compatibility](/docs/release/compatibility-matrix.md) ·
+- 📦 [Release compatibility](/docs/reference/compatibility-matrix.md) ·
   📝 [Changelog](/CHANGELOG.md) ·
   🗺️ [Roadmap](https://github.com/OpenLakeForge/openlakeforge/milestones)
 
@@ -185,9 +185,7 @@ for the current direction.
 
 ## Contributing
 
-Contributions, experiments and feedback are welcome. [AGENTS.md](/AGENTS.md)
-contains the repository map, architectural rules, development workflow and
-validation gates.
+Contributions, experiments and feedback are welcome. Start with [CONTRIBUTING.md](/CONTRIBUTING.md); [AGENTS.md](/AGENTS.md) contains the repository map, architectural rules, development workflow and validation gates.
 
 ## License
 

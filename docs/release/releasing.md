@@ -4,8 +4,8 @@ A tagged OpenLakeForge release must be independently verifiable and
 installable from a clean checkout. This document covers both sides of that
 contract: how a maintainer cuts a release, and how a consumer verifies one.
 
-See also [component-catalog.md](component-catalog.md) for how the input
-inventory is maintained, and [compatibility-matrix.md](compatibility-matrix.md)
+See also [component-catalog.md](../reference/component-catalog.md) for how the input
+inventory is maintained, and [compatibility-matrix.md](../reference/compatibility-matrix.md)
 for the published compatibility matrix.
 
 ## Pipeline shape
@@ -96,7 +96,7 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
   `FROM ${...}` build-arg indirection.
 - Any Terraform root's `terraform.required_version` differs from
   `components.terraform.required_version` in the catalog.
-- `docs/release/compatibility-matrix.md` doesn't match a fresh render of the
+- `docs/reference/compatibility-matrix.md` doesn't match a fresh render of the
   catalog.
 - Any Python lockfile declared in `components.python` is missing, or is out
   of sync with its sibling `pyproject.toml` -- checked with `uv lock --check`
