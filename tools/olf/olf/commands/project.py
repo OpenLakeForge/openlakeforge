@@ -53,6 +53,22 @@ def validate(
         raise typer.Exit(code=1)
 
 
+@app.command("graph")
+def graph(
+    project: str = typer.Option(..., "--project", help="Explicit writable project root."),
+) -> None:
+    """Print the Source -> Domain -> Product -> Dashboard lineage as a Mermaid flowchart."""
+    from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+
+    from olf.lineage_graph import render_lineage_graph
+
+    try:
+        inventory = load_lakehouse_inventory(project)
+    except LakehouseDescriptorError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(render_lineage_graph(inventory), nl=False)
+
+
 @app.command("build")
 def build(
     project: str = typer.Option(..., "--project", help="Explicit writable project root."),
