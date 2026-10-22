@@ -24,8 +24,11 @@ sections:
       - docs/tutorial/05-orchestrate-and-schedule.md
       - docs/tutorial/06-publish-a-dashboard.md
       - docs/tutorial/07-govern-and-trace-lineage.md
-      - docs/tutorial/09-add-prod-and-promote.md
-      - docs/tutorial/10-deploy-to-the-cloud.md
+  # The core tutorial ends at lesson 7; these continue the same project.
+  - label: "Tutorial: stages and cloud"
+    items:
+      - docs/tutorial/08-add-prod-and-promote.md
+      - docs/tutorial/09-deploy-to-the-cloud.md
   - label: Guides
     items:
       - docs/guides/local-installation.md
@@ -48,6 +51,7 @@ sections:
   - label: Architecture
     items:
       - docs/architecture/overview.md
+      - { path: docs/architecture/diagrams/README.md, title: Kubernetes runtime charts }
 
 # Maintainer material: kept in the repository, never published. Public pages
 # may link to it; the site turns those links into GitHub links.
@@ -56,7 +60,8 @@ exclude:
   - docs/architecture/README.md
   - docs/architecture/aws-eks-poc.md
   - docs/architecture/azure-aks-poc.md
-  - docs/architecture/diagrams/
+  - docs/architecture/diagrams/chart3-ephemeral-job-lifecycle.md
+  - docs/architecture/diagrams/src/
   - docs/architecture/floe-validation.md
   - docs/architecture/identity-callers.md
   - docs/architecture/identity-credentials.md

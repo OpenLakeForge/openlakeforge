@@ -116,82 +116,11 @@ commands, so any CI can run the same ones:
 | `OpenLakeForge/openlakeforge/.github/actions/deploy-stage` | `olf project deploy --stage <s> --revision <r>`, fails unless `olf project status` records exactly `<r>`, and optionally runs `olf e2e run --suite full` |
 
 Behaviour follows the stage and revision you pass, never the branch name. A
-minimal `.github/workflows/promote.yml` for the local platform builds once,
-deploys DEV, then PROD behind a GitHub environment with required reviewers:
-
-```yaml
-name: Promote
-
-on:
-  push:
-    branches: [main]
-
-concurrency:
-  group: promote
-  cancel-in-progress: false
-
-env:
-  OLF_VERSION: "0.4.0a1"
-
-jobs:
-  build:
-    runs-on: [self-hosted, olf-platform]  # the machine that ran olf platform apply
-    permissions:
-      contents: read
-      packages: write  # push the project-code image to GHCR
-    outputs:
-      revision: ${{ steps.build.outputs.revision }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
-      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - id: build
-        uses: OpenLakeForge/openlakeforge/.github/actions/build-revision@v0.4.0-alpha.1
-        with:
-          image-repository: ghcr.io/<your-account>/project-code
-
-  dev:
-    needs: build
-    runs-on: [self-hosted, olf-platform]
-    environment: dev
-    permissions:
-      contents: read
-      packages: read  # activation pulls the revision's image
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
-      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.4.0-alpha.1
-        with:
-          stage: dev
-          revision: ${{ needs.build.outputs.revision }}
-          e2e-env: local
-
-  prod:
-    needs: [build, dev]
-    runs-on: [self-hosted, olf-platform]
-    environment: prod
-    permissions:
-      contents: read
-      packages: read  # activation pulls the revision's image
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - run: python3.12 -m pip install "openlakeforge==${OLF_VERSION}" && olf toolchain install
-      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.4.0-alpha.1
-        with:
-          stage: prod
-          revision: ${{ needs.build.outputs.revision }}
-```
-
-> [!WARNING]
-> Create the `prod` GitHub environment with required reviewers before the
-> first run. A workflow that names an environment GitHub has not seen creates
-> it without protection and would promote to PROD without waiting.
-
-The self-hosted runner holds the platform's `OLF_HOME` (its Terraform state
-and kubeconfig). Cloud runs additionally need cloud credentials and registry
-access; see [CI/CD and environment promotion](../guides/promote-dev-to-prod.md).
+workflow runs `build-revision` once, then `deploy-stage` for DEV, then for PROD
+behind a GitHub environment with required reviewers, so the PROD activation
+waits for approval. The complete workflow, the runner it needs and how to
+protect the `prod` environment are in
+[CI/CD and environment promotion](../guides/promote-dev-to-prod.md#automate-with-github-actions).
 
 ## Check it worked
 
@@ -218,4 +147,4 @@ Local OpenLakeForge full e2e validation passed.
 
 ## Next
 
-[Deploy to the cloud](10-deploy-to-the-cloud.md): run the same project on AWS.
+[Deploy to the cloud](09-deploy-to-the-cloud.md): run the same project on AWS.

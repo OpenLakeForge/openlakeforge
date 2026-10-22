@@ -12,6 +12,7 @@ from typing import Any
 import typer
 
 from olf import config, log
+from olf.deployment.cloud.cluster_name import aws_cluster_name
 
 
 def log_step(message: str) -> None:
@@ -244,7 +245,7 @@ def resolve_kubeconfig_path(env: str, default: Path) -> Path:
     return default
 
 
-def default_kube_context(env: str) -> str:
+def default_kube_context(env: str, foundation_state_path: Path | None = None) -> str:
     """Mirror `olf.e2e._runner`'s own per-environment `KUBE_CONTEXT` fallback.
 
     Must match exactly: this value is what `e2e.run()` would derive on its
@@ -259,10 +260,7 @@ def default_kube_context(env: str) -> str:
         return f"kind-{cluster_name}"
     if env == "azure":
         return config.env("AZURE_CLUSTER_NAME", "aks-openlakeforge-poc")
-    # Must match `cloud/aws.py::_DEFAULT_CLUSTER_NAME` - a direct
-    # `olf deploy --provider aws` with no AWS_CLUSTER_NAME set creates this
-    # cluster; e2e (also unset) must target the same one.
-    return config.env("AWS_CLUSTER_NAME", "limited-eks-openlakeforge-poc")
+    return aws_cluster_name(os.environ, foundation_state_path)
 
 @contextmanager
 def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa: ANN001
@@ -275,7 +273,7 @@ def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa:
     from olf.deployment import contract_env
 
     contract_dir = Path(config.env("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(context.paths.platform_terraform_dir)))
-    kube_context = config.env("KUBE_CONTEXT") or default_kube_context(env)
+    kube_context = config.env("KUBE_CONTEXT") or default_kube_context(env, context.paths.foundation_state_path)
     # Fresh contract readers create their own managed-tool resolver and, for
     # an installed distribution, must resolve the same external Terraform
     # state/data roots `olf deploy` wrote to (`DeploymentContext.command_env`,

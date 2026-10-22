@@ -11,8 +11,8 @@
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.
 # See docs/guides/cloud/deploy-to-aws.md for the full walkthrough.
 #
-# Most values are inherited from the foundation contract (region, cluster, the
-# "limited-" naming), so this environment only needs the mandatory tags.
+# Most values are inherited from the foundation contract (region, cluster
+# name), so this environment only needs the tags.
 
 # Tags applied to every resource. Many managed accounts REQUIRE a specific set of
 # tags (case-sensitive) and delete untagged resources. Adjust keys/values to match

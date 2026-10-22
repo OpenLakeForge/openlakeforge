@@ -14,6 +14,8 @@ Docker engine. It does not touch your own `~/.kube/config`.
 | A running Docker engine | `docker ps` succeeds |
 | [uv](https://docs.astral.sh/uv/) | `uv --version` |
 | Ports 80 and 443 free on `127.0.0.1` | Nothing else serves `http://localhost` |
+| 4 CPUs and 16 GB of memory available to Docker | `docker info` shows `CPUs` and `Total Memory` |
+| Free disk for Docker's images and volumes | 100 GB covers the Full preset with two stages ([details](../guides/local-installation.md#hardware)) |
 
 Terraform, Helm, kubectl and kind are not prerequisites: `olf` provisions
 pinned copies under `~/.openlakeforge`.

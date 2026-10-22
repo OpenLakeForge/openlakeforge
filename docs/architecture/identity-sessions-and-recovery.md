@@ -108,10 +108,12 @@ every 4 min.
 
 ## Cluster-administrator recovery (break-glass)
 
-Designed, not implemented, not drilled. The drill ("issuer-outage recovery
-drill") is an acceptance criterion of #177. It was written against Keycloak;
-Dex has no admin console or admin account, so the rows below that depended on
-one are dropped and the rest stand.
+`olf break-glass <service> --reason "..."` implements this (local provider).
+`olf e2e run` exercises one recorded use to Dex with the perimeter enabled; the
+full issuer-outage drill (an acceptance criterion of #177) has not been run.
+The design was written against Keycloak; Dex has no admin console or admin
+account, so the rows below that depended on one are dropped and the rest
+stand.
 
 ### Principles
 
@@ -127,15 +129,15 @@ one are dropped and the rest stand.
 | Item | Design |
 | --- | --- |
 | Required RBAC | A namespaced Role, bound to the recovering operator only: `get`/`list` on pods, services and events; `create` on `pods/portforward`; `get` on `pods/log`; `delete` on pods (to restart Dex). No Secret read and no `exec`. On the local kind cluster the kubeconfig is cluster-admin, so the Role matters for a non-admin operator and for #46. |
-| Enabling | `kubectl port-forward` to the Dex Service in `olf-system`, bound to `127.0.0.1`. Dagster and the Trino UI are reached the same way, directly on their internal Services, because they have no native authentication to bypass. |
-| Expiry | The port-forward ends with its process; the operator-side wrapper takes a TTL (default 30 min) and exits at the end of it. There is no object to remove for access itself. |
-| Superset and OpenMetadata UIs | Not reachable during an issuer outage by design: they only accept issuer login. Administrative work on them during an outage goes through their CLI inside the pod. **Open question** for the maintainer: accept that, or require a local-admin fallback in each. |
+| Enabling | `olf break-glass dex\|trino\|dagster` runs `kubectl port-forward` to the Dex Service in `olf-system`, bound to `127.0.0.1`. Dagster and the Trino UI are reached the same way, directly on their internal Services, because they have no native authentication to bypass. |
+| Expiry | The port-forward ends with its process; `--ttl-minutes` (default 30) stops it at the end of that time. There is no object to remove for access itself. |
+| Superset and OpenMetadata UIs | Not reachable during an issuer outage by design: they only accept issuer login. `olf break-glass superset\|openmetadata` opens a shell in the pod instead, for their CLIs. **Open question** for the maintainer: accept that, or require a local-admin fallback in each. |
 
 ### Observability without Grafana
 
 | Signal | Where |
 | --- | --- |
-| Recovery in progress | The wrapper creates a labelled ConfigMap (`openlakeforge.io/break-glass`) in `olf-system` recording service, start, TTL and the kubeconfig user, and deletes it on exit. One left behind means an unclean exit and is itself the alert. `olf diagnostics collect` includes it. |
+| Recovery use | One ConfigMap per use, `break-glass-<time>-<id>`, labelled `openlakeforge.io/break-glass` in `olf-system`: service, reason, kubeconfig user, start, TTL, and on exit the end and duration. It is never deleted. One with no `ended` is an unclean exit. A ConfigMap rather than an Event because Events expire after an hour. `olf status` lists the latest. |
 | Dex sign-ins | Dex logs each login and refresh: `kubectl logs`. |
 | API-level proof | Kubernetes audit logging. kind does not enable it by default; the follow-up decides whether to add it to the kind config. Until then the ConfigMap's user is advisory, because a claimed username is not proof of identity. |
 

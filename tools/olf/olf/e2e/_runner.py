@@ -15,8 +15,10 @@ from pathlib import Path
 from openlakeforge_domain import inventory_for
 
 from olf import log
+from olf.deployment.cloud.cluster_name import aws_cluster_name
 from olf.e2e._artifacts import check_ops_artifacts
 from olf.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
+from olf.e2e._break_glass import check_break_glass
 from olf.e2e._dagster import launch_and_poll_dagster_jobs
 from olf.e2e._health import check_pods_ready
 from olf.e2e._ingress import (
@@ -159,7 +161,7 @@ def prepare_config(
             seaweedfs_local_port=int(os.environ.get("SEAWEEDFS_LOCAL_PORT", "19000")),
         )
     if env == "aws":
-        cluster_name = os.environ.get("AWS_CLUSTER_NAME", "limited-eks-openlakeforge-poc")
+        cluster_name = aws_cluster_name(os.environ)
         return E2EConfig(
             env=env,
             suite=actual_suite,
@@ -312,6 +314,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("network flows and service-account RBAC", check_network_and_rbac))
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
         assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
+        assertions.append(FullAssertion("recorded break-glass access", check_break_glass))
     assertions.extend(
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),

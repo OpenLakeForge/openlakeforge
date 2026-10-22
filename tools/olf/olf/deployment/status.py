@@ -83,6 +83,11 @@ def collect_status(
                 raise DeploymentPreconditionError(f"failed to query {title} in namespace '{namespace}': {detail}")
             output = result.stdout.strip() or result.stderr.strip()
             sections.append(StatusSection(title=f"{title} ({namespace})", output=output))
+    if namespaces:
+        from olf import break_glass
+
+        records = break_glass.recent(kubectl, namespaces[0], context=context, kubeconfig=kubeconfig, env=env)
+        sections.append(StatusSection(title="Recent break-glass use", output=break_glass.render(records)))
     if certificates:
         sections.append(_certificate_section(kubectl, namespaces, context=context, kubeconfig=kubeconfig, env=env))
     return StatusReport(sections=tuple(sections), urls=urls or {}, notes=notes)
