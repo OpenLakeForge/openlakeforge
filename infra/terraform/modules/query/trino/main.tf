@@ -214,14 +214,16 @@ locals {
       }
     }
     auth = { passwordAuthSecret = "trino-password-file" }
-    additionalConfigProperties = [
+    additionalConfigProperties = concat([
       "http-server.process-forwarded=true",
       "http-server.http.enabled=false",
       "discovery.uri=https://localhost:8443",
       "internal-communication.https.required=true",
       "internal-communication.https.truststore.path=/etc/trino/tls/ca.crt",
       "internal-communication.shared-secret=$${ENV:TRINO_INTERNAL_SECRET}",
-    ]
+      ],
+      local.ui_properties,
+    )
     additionalNodeProperties = ["node.internal-address=localhost"]
     # Traefik reaches Trino over HTTPS, trusting the CA through the file-provider
     # transport of the same name (modules/access/traefik).
@@ -280,8 +282,11 @@ resource "helm_release" "trino" {
       }
     }),
     ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [],
+    # With auth on, ui_properties ride in auth_values (a later values file replaces a list, so the base process-forwarded line is repeated here).
+    !local.auth_enabled && length(local.ui_properties) > 0 ? [yamlencode({ additionalConfigProperties = concat(["http-server.process-forwarded=true"], local.ui_properties) })] : [],
     # Last, because Helm replaces a list wholesale: this one carries the list
-    # the levels above settled on, plus the sign-in properties.
+    # the levels above settled on, plus the sign-in properties. Never set
+    # together with ui_properties: fixed is plain-HTTP only, OAuth2 HTTPS only.
     local.oidc_enabled ? [yamlencode({
       additionalConfigProperties = concat(
         local.auth_enabled ? local.auth_values.additionalConfigProperties : ["http-server.process-forwarded=true"],
