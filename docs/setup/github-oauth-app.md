@@ -140,18 +140,26 @@ you set under `client_ids`) and store each client secret in a Secret
 Rotate after a suspected leak, when someone who could read the Secrets leaves,
 or on a schedule. With `issuer: external`, rotate the client secrets in your
 issuer and in the `oidc-client-<consumer>` Secrets, then restart the
-consumers. The steps below are for `issuer: github`. They follow the
-deployed Jobs but have not been exercised as a drill yet.
+consumers. The steps below are for `issuer: github`.
 
-The commands use the managed kubectl and kubeconfig:
+`olf secrets rotate <target>` does the whole job for the local provider and
+prints what it rotated and restarted. It never prints a secret value. The
+targets are `dex-client-perimeter`, `dex-client-trino` and `github-app`.
+The `superset` and `openmetadata` Dex clients are not targets yet: Superset
+keeps a copy per stage and OpenMetadata has no documented consumer step. Polaris
+token-key rotation has no documented procedure and is not covered.
+
+The manual commands below use the managed kubectl and kubeconfig:
 
 ```bash
 export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
 KUBECTL="$(olf toolchain path kubectl)"
 ```
 
-**The GitHub app's secret.** Generate a new client secret in GitHub, update
-the Secret named by `oauth_app_secret_ref`, and restart Dex:
+**The GitHub app.** `olf secrets rotate github-app` registers a new GitHub
+App through `olf github connect` and replaces the Secret. To rotate only the
+client secret by hand, generate a new one in GitHub, update the Secret named
+by `oauth_app_secret_ref`, and restart Dex:
 
 ```bash
 "$KUBECTL" -n olf-system rollout restart deployment dex
@@ -160,6 +168,13 @@ the Secret named by `oauth_app_secret_ref`, and restart Dex:
 **An OIDC client secret.** Dex holds one secret per client (`perimeter`,
 `superset`, `openmetadata`, `trino`), created once by a bootstrap Job that
 never overwrites an existing Secret. To replace one, for example `perimeter`:
+
+```bash
+olf secrets rotate dex-client-perimeter
+```
+
+The command runs these steps (the sign-in in step 4 is yours to try, and the
+e2e does it):
 
 1. Delete it:
 

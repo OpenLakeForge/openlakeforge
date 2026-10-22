@@ -38,6 +38,7 @@ from olf.commands import (
     project,
     query,
     release,
+    secrets,
     smoke,
     source,
     superset,
@@ -53,6 +54,7 @@ app = typer.Typer(
 
 app.add_typer(access.app, name="access")
 app.add_typer(github.app, name="github")
+app.add_typer(secrets.app, name="secrets")
 app.add_typer(contracts.app, name="contracts")
 app.add_typer(checks.app, name="check")
 app.add_typer(dbt.app, name="dbt")

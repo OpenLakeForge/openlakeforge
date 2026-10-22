@@ -33,7 +33,7 @@ are discarded.
 | Reuse | An existing Secret with the expected key is kept. Redeploy is not rotation. |
 | Commit point | `kubectl create secret` is the only write, one API call per Secret, and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold and no partial Secret exists. |
 | Direction | The Secret is the source of truth; Dex reads the client secrets through `secretEnv` at start. Nothing is read back out of Dex. |
-| Rotation | Explicit: delete the Secret, replace the bootstrap Job, restart Dex and the consumers ([runbook](../setup/github-oauth-app.md#rotate-secrets)). |
+| Rotation | Explicit: `olf secrets rotate dex-client-<client>` deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers ([runbook](../setup/github-oauth-app.md#rotate-secrets)). |
 | Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../adr/0017-local-network-policy-and-rbac.md)); `get` only on the four consumer client Secrets it owns. The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
 
 ### Missing-secret recovery
@@ -149,5 +149,6 @@ The bootstrap Job's unit-level guard is the `olf check contracts` rule above.
 The Keycloak-era drills (upgrade from Terraform-generated Secrets, rotation,
 the missing-key and missing-admin failures) were run against the Keycloak
 module that ADR 0014 History records as removed; the same Job shape now lives
-in `modules/identity/dex`, and the rotation runbook says it has not been
-exercised there.
+in `modules/identity/dex`. Rotation there is exercised by the local e2e's
+workload secret rotation drill (`dex-client-perimeter`); the `superset` and
+`openmetadata` clients and the Polaris token key are not.

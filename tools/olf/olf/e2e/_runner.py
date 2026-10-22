@@ -7,10 +7,12 @@ imports from every capability module, to sequence them into `run()`.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from openlakeforge_domain import inventory_for
 
@@ -32,6 +34,7 @@ from olf.e2e._network import check_network_and_rbac
 from olf.e2e._perimeter import check_perimeter
 from olf.e2e._perimeter_latency import check_perimeter_latency
 from olf.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.e2e._rotation import check_secret_rotation
 from olf.e2e._secret_exposure import check_secret_exposure
 from olf.e2e._shell import (
     E2EConfig,
@@ -71,6 +74,7 @@ def run(
     kube_context: str = "",
     repo_root: Path | None = None,
     distribution_root: Path | None = None,
+    deployment: Any = None,
 ) -> None:
     cfg = prepare_config(
         env,
@@ -81,6 +85,7 @@ def run(
         repo_root=repo_root,
         distribution_root=distribution_root,
     )
+    cfg = dataclasses.replace(cfg, deployment=deployment)
     check_commands(cfg)
     prepare_kube_context(cfg)
     check_pods_ready(cfg)
@@ -316,6 +321,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
         assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
         assertions.append(FullAssertion("recorded break-glass access", check_break_glass))
+        assertions.append(FullAssertion("workload secret rotation", check_secret_rotation))
         assertions.append(FullAssertion("perimeter dashboard latency", check_perimeter_latency, layer="analytics"))
     assertions.extend(
         [
