@@ -25,7 +25,7 @@ STAGE_CATALOG_PREFIX = "lakehouse_"
 
 # The coordinator mounts its password file here when password authentication is
 # on (the chart's auth.passwordAuthSecret), which is how the pod says so.
-TRINO_PASSWORD_FILE = "/etc/trino/auth/password.db"
+TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
 
 # Called with the argv and the text for the process's stdin.
 Runner = Callable[[Sequence[str], str], "subprocess.CompletedProcess[str]"]
