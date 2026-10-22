@@ -19,6 +19,14 @@ for how a release is cut and verified.
      sentence against main then: NetworkPolicy (#46) and the Trino connection
      model (#26) are still open. -->
 
+### Changed
+
+- **The default AWS cluster name is `eks-openlakeforge`.** It was
+  `limited-eks-openlakeforge-poc`, a prefix the AWS test account's IAM policy
+  required. With `AWS_CLUSTER_NAME` unset, `olf` keeps the name an existing
+  foundation's Terraform state records, so a deployment created under the old
+  default keeps its cluster: no migration is needed.
+
 ### Known limitations: identity and authorization (draft, v0.5-alpha)
 
 v0.5-alpha adds **service-level** access control: a person signs in through

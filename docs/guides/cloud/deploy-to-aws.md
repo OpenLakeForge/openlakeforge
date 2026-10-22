@@ -86,7 +86,7 @@ that runs `olf`:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AWS_CLUSTER_NAME` | `limited-eks-openlakeforge-poc` | EKS cluster name, also the prefix of the IAM roles |
+| `AWS_CLUSTER_NAME` | `eks-openlakeforge`, or the name an existing deployment already uses | EKS cluster name, also the prefix of the IAM roles |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node instance type(s) |
 | `AWS_NODE_DESIRED_SIZE`, `AWS_NODE_MIN_SIZE`, `AWS_NODE_MAX_SIZE` | `3`, `1`, `4` | Node group size |
 | `AWS_TFVARS_FILE` | none | A Terraform variables file, for resource tags |
@@ -176,14 +176,11 @@ The main running costs are the EKS control plane, three `m7i.large` nodes and
 the RDS instance, plus S3 storage and data transfer. They accrue until
 `olf destroy` finishes.
 
-Two defaults come from the restricted test account the AWS deployment was
-built in, and are still in the code:
-
-- The cluster name `limited-eks-openlakeforge-poc` carries a `limited-` prefix
-  that account's IAM policy required. It works in any account; set
-  `AWS_CLUSTER_NAME` to choose your own.
-- Workload identity uses EKS Pod Identity rather than IRSA, because that
-  account denied creating an OIDC provider.
+Workload identity uses EKS Pod Identity rather than IRSA, because the
+restricted test account the AWS deployment was built in denied creating an
+OIDC provider. Deployments created before 0.5 keep their
+`limited-eks-openlakeforge-poc` cluster name: `olf` reads it from the
+foundation state.
 
 ## Troubleshooting
 

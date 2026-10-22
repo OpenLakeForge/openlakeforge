@@ -13,6 +13,7 @@ from pathlib import Path
 from olf import log
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
+from olf.deployment.cloud.cluster_name import aws_cluster_name
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import topology_variables
 from olf.deployment.engine import Toolkit
@@ -20,17 +21,6 @@ from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.floe_manifests import generate_aws_manifests
 from olf.deployment.portforward import ForwardTarget
-
-# Must match the AWS default in `olf.commands._shared.default_kube_context` and
-# `olf.e2e._runner` - a direct `olf deploy --provider aws` (no
-# AWS_CLUSTER_NAME set) creates this cluster; `olf e2e run --env aws` (also
-# no AWS_CLUSTER_NAME) must target the same one, or e2e looks for a
-# kubeconfig context the deployment never created. The removed
-# foundation/up.sh's own bare default was "eks-openlakeforge-poc" (no
-# "limited-" prefix), but that default was never actually reachable - the
-# Makefile (#222) always passed AWS_CLUSTER_NAME explicitly - so this is a
-# rename to the value that was already load-bearing everywhere else.
-_DEFAULT_CLUSTER_NAME = "limited-eks-openlakeforge-poc"
 
 
 class AwsBackend:
@@ -48,7 +38,7 @@ class AwsBackend:
         return "aws_eks_cluster.this"
 
     def _foundation_variables(self, config: CloudDeploymentConfig, environ: Mapping[str, str]) -> dict[str, str]:
-        cluster_name = _env(environ, "AWS_CLUSTER_NAME", _DEFAULT_CLUSTER_NAME)
+        cluster_name = aws_cluster_name(environ, config.paths.foundation_state_path)
         instance_types_raw = _env(environ, "AWS_NODE_INSTANCE_TYPES", "m7i.large")
         instance_types = instance_types_raw if instance_types_raw.startswith("[") else f'["{instance_types_raw}"]'
         region = config.context.topology.region or _env(environ, "AWS_REGION", "eu-west-1")
