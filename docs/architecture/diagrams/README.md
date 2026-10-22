@@ -52,7 +52,7 @@ Twenty pods run at steady state: Dagster runs three (webserver, daemon, and the 
 runs two, and PostgreSQL, Polaris, and Trino run one each. Trino is deliberately
 coordinator-only. The ingress adds five single-replica Deployments in
 `olf-system`: Traefik, the cert-manager controller, cainjector, and webhook,
-and the portal, a static server for the landing page at the base domain.
+and the portal, which serves the landing page at the base domain.
 
 The purple band underneath is everything that is *not* in that 20, split by what creates
 it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
