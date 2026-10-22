@@ -1725,3 +1725,12 @@ def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:
 
     with pytest.raises(ProviderContractError, match="must be an https URL"):
         parse_provider_contracts(contract, _topology(contract))
+
+
+def test_a_credential_secret_requires_both_tls_fields() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["query"].update(credential_secret_name="trino-credential", tls_port="8443")
+
+    with pytest.raises(ProviderContractError, match="credential_secret_name requires tls_port and ca_configmap_name"):
+        parse_provider_contracts(contract, topology)

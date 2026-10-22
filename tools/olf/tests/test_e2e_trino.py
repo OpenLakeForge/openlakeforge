@@ -124,6 +124,7 @@ def test_shared_services_are_queried_in_the_shared_namespace(
         return "" if args[0] == "get" else "trino-coordinator-1\n"
 
     monkeypatch.setattr(_trino, "kubectl", _fake_kubectl)
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
 
     _trino.trino_query(cfg, "SELECT 1")
@@ -190,3 +191,21 @@ def test_polaris_token_key_is_created_in_cluster_and_wired_by_name() -> None:
     helm = next(b["polaris"] for r in doc["resource"] for k, b in r.items() if k == "helm_release")
     values = str(helm["values"])
     assert "tokenBroker" in values and "symmetric-key" in values and "local.token_broker_secret" in values
+
+
+def test_trino_query_reads_no_credential_unless_the_contract_names_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    calls: list[tuple[list[str], dict]] = []
+
+    def _fake_kubectl(_cfg, args, **kwargs):  # noqa: ANN001, ANN202
+        calls.append((args, kwargs))
+        return "trino-coordinator-1\n"
+
+    monkeypatch.setattr(_trino, "kubectl", _fake_kubectl)
+
+    _trino.trino_query(e2e_cfg(tmp_path), "SELECT 1")
+
+    assert all(args[:2] != ["get", "secret"] for args, _ in calls)
+    assert calls[-1][1]["input_text"] is None

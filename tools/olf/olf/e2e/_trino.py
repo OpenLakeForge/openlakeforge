@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 
@@ -229,14 +230,18 @@ def trino_query(
         catalog=catalog,
         stage=stage or trino.stage_from_catalog(catalog),
     )
-    if password is None:
+    # Only a contract that carries the credential name is at the password level; the principal
+    # Secrets exist at `off` and `tls` too, but nothing there asks for them.
+    if not os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
+        password = None
+    elif password is None:
         password = trino.decode_password(kubectl(cfg, trino.password_args(target), capture=True, retry_transient=True))
     return kubectl(
         cfg,
         trino.exec_args(target, sql, output_format="CSV_UNQUOTED", session_user=session_user),
         capture=True,
         retry_transient=True,
-        input_text=f"{password}\n",
+        input_text=None if password is None else f"{password}\n",
     )
 
 def parse_trino_scalar(output: str) -> str:
