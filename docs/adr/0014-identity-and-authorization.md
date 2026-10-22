@@ -39,7 +39,7 @@ each have their own adapter and none leaks into another:
 | --- | --- | --- | --- |
 | 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
 | 2. Issuer: who you are, which roles you hold (Dex **built** for local, #384) | `shared.identity` as `identity.oidc` | Dex with the GitHub connector, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
-| 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180) |
+| 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180). Measured on kind, CI runner: a Superset dashboard load (3 charts) adds 8-13 ms median and 132-149 ms p95 (e2e bound 100 / 250 ms) |
 
 ### Seam 1 — the role model (built)
 
