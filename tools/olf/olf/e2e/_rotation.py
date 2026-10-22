@@ -38,7 +38,10 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
     log.step(f"Rotating {TARGET} with `olf secrets rotate`, then signing in...")
     started = time.monotonic()
     kubectl = Toolkit.default().kubectl
-    secrets_rotation.rotate_client(cfg.deployment, TARGET, kubectl=kubectl)
+    try:
+        secrets_rotation.rotate_client(cfg.deployment, TARGET, kubectl=kubectl)
+    except secrets_rotation.RotationError as exc:
+        raise E2EError(str(exc)) from exc
     mapping = identity["role_mapping"]
     role = next((r for r in identity["roles"]["precedence"] if r in mapping), None)
     if role is None:

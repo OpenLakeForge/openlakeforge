@@ -132,11 +132,15 @@ def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(command, "deployment_context", lambda *a, **k: context(tmp_path))
     seen: list[bool] = []
     monkeypatch.setattr(github_app, "connect_github", lambda _ctx, *, no_browser: seen.append(no_browser) or "url")
+    kubectl = FakeKubectl([])
+    monkeypatch.setattr("olf.deployment.engine.Toolkit.default", lambda **_: SimpleNamespace(kubectl=kubectl))
 
     result = CliRunner().invoke(app, ["secrets", "rotate", "github-app", "--no-browser"])
 
     assert result.exit_code == 0, result.output
     assert seen == [True]
+    assert ("restart", "deployment/dex", None) in kubectl.calls
+    assert ("status", "deployment/dex", None) in kubectl.calls
 
 
 def test_the_replace_flag_is_in_the_process_environment_only_while_the_platform_applies(

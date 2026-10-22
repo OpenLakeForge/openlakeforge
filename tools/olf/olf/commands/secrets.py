@@ -39,13 +39,17 @@ def rotate(
         project_root=project_root,
     )
     try:
-        if target == secrets_rotation.GITHUB_APP:
-            github_app.connect_github(context, no_browser=no_browser)
-            return
         kube = secrets_rotation.kube_args(context)
-        rotation = secrets_rotation.rotate_client(
-            context, target, kubectl=Toolkit.default(environ=kube["env"]).kubectl
-        )
+        kubectl = Toolkit.default(environ=kube["env"]).kubectl
+        if target == secrets_rotation.GITHUB_APP:
+            # Dex reads the Secret through secretKeyRef at start, so the new App is live only after a restart.
+            install = github_app.connect_github(context, no_browser=no_browser)
+            secrets_rotation.restart_and_wait(context, (secrets_rotation.DEX,), kubectl=kubectl)
+            log.info("Rotated the GitHub App Secret and restarted deployment/dex.")
+            log.info(f"Still to do: install the new app: {install}")
+            log.info("Still to do: delete the old GitHub App in GitHub.")
+            return
+        rotation = secrets_rotation.rotate_client(context, target, kubectl=kubectl)
     except (secrets_rotation.RotationError, github_app.GitHubConnectError, DeploymentError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     log.info(f"Rotated Secret '{rotation.secret}' (namespace '{rotation.namespace}').")
