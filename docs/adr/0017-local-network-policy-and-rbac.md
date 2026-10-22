@@ -476,6 +476,7 @@ sets with `terraform console`; not applied.
 Slice 4 (RBAC): `create` stays namespace-wide (E1) while every other verb of the Polaris and
 OpenMetadata bootstrap Roles is pinned by `resourceNames`; the SeaweedFS ClusterRole is
 not created; E2 is accepted as a named exception rather than narrowed, because
-pod and Job creation cannot be confined without breaking the UI pipeline client;
+pod and Job creation cannot be confined without breaking the UI pipeline client.
+Exceptions E1 to E6 are the accepted, named set, each pinned by the e2e check (slice 5);
 default-ServiceAccount token automounting is deferred hardening, since those
 accounts hold no Role. Decision 2 is amended to match. Not applied on kind.
