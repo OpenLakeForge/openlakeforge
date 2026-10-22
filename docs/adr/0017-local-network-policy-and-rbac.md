@@ -178,7 +178,7 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `issuer: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Dex, portal, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` in `contracts.tf` | V |
-| F4 | oauth2-proxy | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands |
+| F4 | oauth2-proxy; the Trino coordinator (8443 only: its Web UI sign-in is HTTPS routes only) | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite; Trino's token and key requests to the same URL | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands; the Trino row **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
@@ -187,7 +187,7 @@ port [D]).
 | F10 | stage namespace | Trino | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
 | F11 | Traefik (the Trino UI), OpenMetadata, and the OLF-owned ingestion Job and its hourly CronJob pods (`openlakeforge.io/job=openmetadata-trino-ingestion`, #410) | Trino 8080, 8443 | 8080, 8443 | OpenMetadata to Trino row | V (the Job and its label exist since #410; its pods on a cluster **T**) |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
-| F13 | OpenMetadata ingestion Jobs (the hourly refresh included), bootstrap Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
+| F13 | OpenMetadata ingestion Jobs (the hourly refresh included), the role-sync CronJob, bootstrap Jobs | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
 | F14 | OpenMetadata ingestion Jobs, bootstrap Job | Superset (stage) | 8088 | `superset_url` registered by the bootstrap | V; whether ingestion runs today **T** |
 | F15 | OpenMetadata | OpenSearch | 9200 | `elasticsearch.host` in `openmetadata.yaml` | V |
 | F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |
@@ -200,6 +200,7 @@ port [D]).
 | F25 | `kubectl port-forward`, `exec`, `logs` | any pod | none | the kubelet's runtime stream enters the pod's own network namespace, loopback, never crossing the policy hooks [D] | T |
 | F28 | Dex | any address outside the pod and Service ranges | 443 | Dex calls `github.com` and `api.github.com` at every login and refresh ([ADR 0014](0014-identity-and-authorization.md), "Network"); NetworkPolicy has no FQDN selector, so the rule is the port on any address, on the Dex pods only | T |
 | F29 | Dex | the Dex e2e's stub GitHub pod (`olf-system`, label `openlakeforge.io/e2e=github-stub`, #405) | 8443 | the connector `hostName` is `olf-e2e-github.olf-system.svc`; F28 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port) | T; a flow-file row keyed on the label the e2e sets |
+| F30 | OpenMetadata role-sync CronJob (`openlakeforge.io/job=openmetadata-role-sync`) | any address outside the pod and Service ranges | 443 | the sync reads team members from `api.github.com` ([ADR 0014](0014-identity-and-authorization.md), "OpenMetadata role sync"); no FQDN selector, so the port on any address, on that Job's pods only. Its calls to OpenMetadata ride F13 | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -224,21 +225,21 @@ the route is the follow-up that ADR already names.
 
 ## RBAC inventory
 
-Rows are what the tree grants today. "Tighten" is within #46; "exception" is
-recorded and pinned by the e2e check.
+Rows are what the tree grants after slice 4. "Done" was tightened in that
+slice; "exception" is recorded and pinned by the e2e check.
 
 | Subject | Grant | Used for | Verdict |
 | --- | --- | --- | --- |
-| `default` ServiceAccount, every namespace | no Role [V] | token auto-mounted into Postgres, Dex, portal, oauth2-proxy, Trino and Superset pods; only `log_archive.tf` sets `automount_service_account_token` [V] | Tighten: `automount_service_account_token = false` on the module-owned workloads that never call the API. Chart-owned pods: **T** |
+| `default` ServiceAccount, every namespace | no Role [V] | token auto-mounted into Postgres, Dex, portal, oauth2-proxy, Trino and Superset pods; only `log_archive.tf` sets `automount_service_account_token` [V] | No Role, so a mounted token authorizes nothing beyond discovery. `automount_service_account_token = false` on module-owned workloads is deferred hardening, not an RBAC grant; the e2e asserts the denials below |
 | `dex-credentials`, `<perimeter>-cookie` | `create` Secrets (namespace-wide) + `get` by `resourceNames` | create-if-missing credentials | Exception E1: `create` cannot be limited by `resourceNames` [V: comment in `credentials.tf`] |
 | `publish-local-ca` (each trust namespace) | ConfigMaps `create/get/patch/update` (namespace-wide); `get` on the CA Secret by name | publishes `olf-local-ca` | Exception E1 (ConfigMaps only) |
-| `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create/delete/get/patch/update`, namespace-wide [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Tighten (slice 4)**: every Secret and marker name is known at plan time (`*_credentials_secret_name`, `<name>-bootstrap-pending`, `polaris-dbt-creds`); `get/update/patch/delete` by `resourceNames`, `create` stays |
-| `openmetadata-bootstrap` (`olf-system`, governed and revoked stage namespaces) | Secrets `create/delete/get/patch/update`, namespace-wide [V] | the ingestion-bot Secret | **Tighten**: by the bot Secret's name |
-| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; slice 4 narrows it, it is not accepted by default.** A compromised OpenMetadata can read the PostgreSQL admin and the Polaris root Secret. Limiting Secret verbs by `resourceNames` is not enough while the same Role can create pods, Jobs or CronJobs in `olf-system`: a workload mounts any Secret in its namespace and can run as any ServiceAccount there, including Traefik's and cert-manager's [D: Kubernetes RBAC good practices]. Slice 4 therefore counts workload creation as Secret access. It sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role only if pod and Job creation can be confined (for example to a dedicated ingestion namespace or ServiceAccount); the server also creates Secrets with generated names [T]. Otherwise E2 is recorded as a named exception with this exact exposure, asserted by the pin check |
-| `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3: no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
+| `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create`, namespace-wide; `delete/get/patch/update` on named Secrets and marker ConfigMaps only [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Done (slice 4)**: `create` stays namespace-wide (E1); `get/update/patch/delete` are pinned by `resourceNames` to the plan-time Secret names (`*_credentials_secret_name`, `polaris-dbt-creds`) and their `<name>-bootstrap-pending` markers (`rbac.tf`) |
+| `openmetadata-bootstrap` (`olf-system`, governed and revoked stage namespaces) | Secrets `create`, namespace-wide; `delete/get/patch/update` on two named Secrets only [V] | the ingestion-bot Secret | **Done (slice 4)**: `create` stays (E1); `get/update/patch/delete` by `resourceNames` on the automation and ingestion-bot Secrets |
+| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; recorded as a named exception by slice 4.** A compromised OpenMetadata can read the PostgreSQL admin and the Polaris root Secret. Limiting Secret verbs by `resourceNames` is not enough while the same Role can create pods, Jobs or CronJobs in `olf-system`: a workload mounts any Secret in its namespace and can run as any ServiceAccount there, including Traefik's and cert-manager's [D: Kubernetes RBAC good practices]. Slice 4 therefore counts workload creation as Secret access. It sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role only if pod and Job creation can be confined (for example to a dedicated ingestion namespace or ServiceAccount); the server also creates Secrets with generated names [T]. Slice 4 could not confine pod and Job creation, and the UI-triggered pipeline client needs the grant, so E2 is accepted with this exact exposure, asserted by the pin check; the chart-owned Role is not rewritten here |
+| `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3 (also in [`identity-callers.md`](../architecture/identity-callers.md), Dagster run launcher): no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
 | `traefik` ClusterRole | Secrets `get/list/watch` in **all** namespaces; Ingress status update [V] | TLS Secrets | Exception E4; narrowing to namespaces is a chart option, **T** |
 | cert-manager ClusterRoles | Secrets `get/list/watch/create/update/delete` cluster-wide [V] | issuing certificates | Exception E5, inherent |
-| `seaweedfs` ClusterRole `seaweedfs-rw-cr` | pods `get/list/watch/create/update/patch/delete` in **all** namespaces [V] | the chart's "hack for delete pod master after migration" | **Tighten**: `global.seaweedfs.createClusterRole: false` [V: values key]; that nothing needs it is **T** |
+| `seaweedfs` ClusterRole `seaweedfs-rw-cr` | pods `get/list/watch/create/update/patch/delete` in **all** namespaces [V] | the chart's "hack for delete pod master after migration" | **Done (slice 4)**: `global.seaweedfs.createClusterRole: false` in `seaweedfs.yaml` [V: chart 4.23 template]; the slice 5 e2e asserts the ClusterRole is gone |
 | `tigera-operator`, `calico-node` (Option B) | cluster-wide, privileged | the CNI | Exception E6, inherent |
 | `olf` operator and CI | the kind kubeconfig is cluster-admin | everything | Trusted (#46). The non-admin recovery Role is in [`identity-sessions-and-recovery.md`](../architecture/identity-sessions-and-recovery.md): no Secret read, no `exec` |
 
@@ -329,10 +330,12 @@ each as an edit to the flow file in that PR.
    only if the canary proves kindnet does not enforce. kube-network-policies is
    a reference implementation, so the conformance e2e tests the semantics the
    flow table relies on (`ipBlock`, node-sourced traffic, DNAT order).
-2. **E2 and the over-broad Roles are narrowed, not accepted.** Slice 4 limits
-   OpenMetadata's Secret and workload-creation access, the Polaris and OpenMetadata bootstrap Roles
-   (`resourceNames`) and the SeaweedFS cluster role (`createClusterRole:
-   false`); a grant that cannot be removed becomes a named, tested exception.
+2. **The over-broad Roles are narrowed; E2 is accepted as a named exception.** Slice 4 pins the Polaris
+   and OpenMetadata bootstrap Roles (`resourceNames`) and drops the SeaweedFS
+   cluster role (`createClusterRole: false`). OpenMetadata's chart Role (E2)
+   stays: its pod and Job creation cannot be confined without breaking the
+   UI pipeline client, so it is recorded with its exposure and pinned by the
+   slice 5 check.
 3. **The e2e's own probe pods carry a label the flow file names** (F29)
    instead of getting temporary policies: both flows end or start at a
    default-deny workload (Traefik, Dex), so a policy removed in a `finally`
@@ -470,3 +473,11 @@ exists; the Iceberg crawl was not traced), the Job labels of the OpenMetadata
 pipeline client, and the new-pod window above, which now covers these pods
 too. Validated with `terraform validate` and by evaluating the module's rule
 sets with `terraform console`; not applied.
+
+Slice 4 (RBAC): `create` stays namespace-wide (E1) while every other verb of the Polaris and
+OpenMetadata bootstrap Roles is pinned by `resourceNames`; the SeaweedFS ClusterRole is
+not created; E2 is accepted as a named exception rather than narrowed, because
+pod and Job creation cannot be confined without breaking the UI pipeline client.
+Exceptions E1 to E6 are the accepted, named set, each pinned by the e2e check (slice 5);
+default-ServiceAccount token automounting is deferred hardening, since those
+accounts hold no Role. Decision 2 is amended to match. Not applied on kind.

@@ -8,6 +8,7 @@ export, `kind get nodes` during prefetch).
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 from olf import log
@@ -112,15 +113,24 @@ def load_digest_image_into_kind(
         )
 
 
-def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str | None:
+    """Build and load the Superset image; return the content tag the Superset module must deploy, or None.
+
+    `:local` never changes, so a rebuilt image would leave the pod spec identical and Helm would not roll the
+    pods. Re-tagging by image ID makes a changed image a changed spec.
+    """
     if not config.features.analytics_enabled:
-        return
+        return None
     if config.images.superset_tag != "local":
-        return
+        return None
     log.step("Building local Superset platform image...")
     image = build_superset_image(config, tools, env=env)
+    image_id = json.loads(tools.docker.image_inspect(image, env=env, check=True).stdout)[0]["Id"]
+    tagged = f"{config.images.superset_repository}:local-{image_id.removeprefix('sha256:')[:12]}"
+    tools.docker.tag(image, tagged, env=env)
     log.step("Ensuring local Superset platform image is available to kind...")
-    load_image_into_kind(image, config, tools, env=env)
+    load_image_into_kind(tagged, config, tools, env=env)
+    return tagged.rsplit(":", 1)[1]
 
 
 def prepare_project_code_image(

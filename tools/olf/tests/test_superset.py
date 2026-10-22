@@ -358,6 +358,88 @@ def test_unpack_export_bundle_replaces_managed_assets(tmp_path: Path) -> None:
     assert not (target / "dashboards" / "stale.yaml").exists()
 
 
+def _bundle_documents(bundle: Path) -> dict[str, object]:
+    return {
+        path.relative_to(bundle).as_posix(): yaml.safe_load(path.read_text())
+        for path in sorted(bundle.rglob("*.yaml"))
+    }
+
+
+@pytest.mark.parametrize(
+    ("stage_uri", "schema_prefix", "extra"),
+    [
+        ("trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev", "", None),
+        (
+            "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev",
+            "lakehouse_dev_",
+            {"engine_params": {"connect_args": {"http_scheme": "https", "verify": superset.SUPERSET_QUERY_CA}}},
+        ),
+    ],
+    ids=("local", "aws-with-tls"),
+)
+def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_superset: FakeSuperset,
+    stage_uri: str,
+    schema_prefix: str,
+    extra: dict[str, object] | None,
+) -> None:
+    """Superset exports what was imported into it: the stage's own connection
+    and physical schemas. Exporting must hand back the bundle that was checked
+    in, which `olf report validate` accepts without hand edits."""
+    checked_in = _write_report_bundle(tmp_path)
+    (checked_in / "databases" / "trino.yaml").write_text(
+        "database_name: Trino\n"
+        f"sqlalchemy_uri: {superset.STAGE_NEUTRAL_SQLALCHEMY_URI}\n"
+        "extra:\n  metadata_params: {}\n  engine_params: {}\n"
+        f"uuid: {_DATABASE_UUID}\n"
+    )
+    expected = _bundle_documents(checked_in)
+    imported = tmp_path / "imported.zip"
+    superset.build_report_bundle(
+        checked_in, imported, "dashboard_export_20261020T000000", stage_uri, schema_prefix=schema_prefix, extra=extra
+    )
+    with ZipFile(imported) as bundle:
+        assert any("lakehouse_dev" in bundle.read(name).decode() for name in bundle.namelist())
+    fake_superset.dashboards[_DASHBOARD_UUID] = 9
+    fake_superset.exports[9] = imported.read_bytes()
+    _serve(monkeypatch, fake_superset)
+
+    superset.export_report(
+        tmp_path,
+        "olf-dev",
+        report_source_dir=_REPORT_DIR,
+        bundle_name="demo.zip",
+        work_dir=tmp_path / "work",
+        admin_username="admin",
+        admin_password="secret",
+        dashboard=_DASHBOARD_UUID,
+        schema_prefix=schema_prefix,
+    )
+
+    assert _bundle_documents(checked_in) == expected
+    assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == []
+
+
+def test_unpack_export_bundle_keeps_connect_args_it_did_not_add(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "export.zip"
+    with ZipFile(bundle_path, "w") as bundle:
+        bundle.writestr(
+            "root/databases/trino.yaml",
+            "sqlalchemy_uri: trino://u@h:8443/lakehouse_prod\n"
+            "extra:\n  engine_params:\n    connect_args:\n      http_scheme: https\n      timezone: UTC\n",
+        )
+        bundle.writestr("root/datasets/mart.yaml", "table_name: mart\nschema: order_revenue_gold\n")
+
+    superset.unpack_export_bundle(bundle_path, tmp_path / "out", schema_prefix="lakehouse_prod_")
+
+    database = yaml.safe_load((tmp_path / "out" / "databases" / "trino.yaml").read_text())
+    assert database["sqlalchemy_uri"] == superset.STAGE_NEUTRAL_SQLALCHEMY_URI
+    assert database["extra"] == {"engine_params": {"connect_args": {"timezone": "UTC"}}}
+    assert yaml.safe_load((tmp_path / "out" / "datasets" / "mart.yaml").read_text())["schema"] == "order_revenue_gold"
+
+
 def test_a_stage_without_an_applied_contract_is_refused() -> None:
     """Values alone prove nothing: `build_contract_env` synthesizes a
     dev-shaped environment and keeps caller-exported values when the

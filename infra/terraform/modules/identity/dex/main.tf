@@ -93,6 +93,29 @@ locals {
     ]
   }
   config_yaml = jsonencode(local.config)
+
+  # Overrides only the stock error.html (the image ships the full web dir at
+  # /srv/dex/web, so no frontend.dir is needed). Dex answers a refused GitHub
+  # login (app not installed on the org, or user in no mapped team) with a bare
+  # "Internal Server Error"; the stock header and footer are kept.
+  error_html = <<-EOT
+    {{ template "header.html" . }}
+
+    <div class="theme-panel">
+      <h2 class="theme-heading">{{ .ErrType }}</h2>
+      <p>{{ .ErrMsg }}</p>
+      {{ if eq .ErrType "Internal Server Error" }}
+      <p>Sign-in was likely refused by the GitHub check. The two likely causes:</p>
+      <ul>
+        <li>The OpenLakeForge GitHub App is not installed on ${var.github.organization}.</li>
+        <li>You are not in a GitHub team mapped to an OpenLakeForge role.</li>
+      </ul>
+      <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md">GitHub setup guide</a></p>
+      {{ end }}
+    </div>
+
+    {{ template "footer.html" . }}
+  EOT
 }
 
 resource "kubernetes_config_map_v1" "dex" {
@@ -103,6 +126,7 @@ resource "kubernetes_config_map_v1" "dex" {
   }
   data = {
     "config.yaml" = local.config_yaml
+    "error.html"  = local.error_html
   }
 }
 
@@ -145,7 +169,7 @@ resource "kubernetes_deployment_v1" "dex" {
         labels = local.pod_labels
         # Dex reads its config once at start: a changed ConfigMap restarts it.
         annotations = {
-          "openlakeforge.io/config-sha" = substr(sha256(local.config_yaml), 0, 12)
+          "openlakeforge.io/config-sha" = substr(sha256("${local.config_yaml}${local.error_html}"), 0, 12)
         }
       }
 
@@ -210,6 +234,13 @@ resource "kubernetes_deployment_v1" "dex" {
           volume_mount {
             name       = "config"
             mount_path = "/etc/dex"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "config"
+            mount_path = "/srv/dex/web/templates/error.html"
+            sub_path   = "error.html"
             read_only  = true
           }
 

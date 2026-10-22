@@ -104,7 +104,29 @@ bcrypt). A stage namespace never receives another stage's Secret. Chart wiring:
 | Workload trust | callers use `trino.olf-system.svc.cluster.local:8443` and mount ConfigMap `olf-local-ca` (`ca.crt`, already in `olf-system` and every stage namespace, ADR 0013 decision 8) |
 | HTTP port | **Disabled** (`http-server.http.enabled=false`) when authentication is on, so no cleartext listener exists (k2). Without that, the HTTP port refuses a password only until a pod spoofs `X-Forwarded-Proto: https` (k0). The server then reaches itself at `https://localhost:8443` (a name in the certificate) with the CA as its internal truststore, `node.internal-address=localhost` and `internal-communication.https.required=true`; without those the node's calls to itself fail the handshake on its pod IP, which the certificate cannot name. That is single-node only, as local is (`workers: 0`) |
 | Probes | The image's `health-check`, which the chart runs for readiness and startup, uses HTTPS once HTTP is disabled, and `GET /v1/info` on HTTPS needs no credential (h2). The chart's **liveness** probe is hardwired to the named HTTP port and takes only timings, so with HTTP off it can only fail; the module sets it to once an hour with 1000 failures, which makes it inert. A hung coordinator is therefore pulled from service by readiness but not restarted. A chart that lets the liveness probe be replaced would restore it |
-| Ingress hop | Traefik re-encrypts to Trino's HTTPS port and verifies it against the local CA. `http-server.process-forwarded=true` stays, since the forwarded headers Traefik adds are otherwise refused with `406`; with no HTTP listener a spoofed `X-Forwarded-Proto` has nothing to downgrade (k0 against k2). The Trino Service carries `traefik.ingress.kubernetes.io/service.serversscheme: https` and `...service.serverstransport: trino@file`; the transport is in Traefik's file provider with `rootCAs` and `serverName` (the Service FQDN), and the CA comes from a Secret that cert-manager issues for that purpose (`trino-ca-bundle`) so that Traefik does not mount Trino's private key. Cases t1 and t2 run the pinned Traefik image with that transport against the proof server; the Kubernetes annotations that select it were not run. The human OAuth2 change adds `OAUTH2` beside `PASSWORD` for the UI |
+| Ingress hop | Traefik re-encrypts to Trino's HTTPS port and verifies it against the local CA. `http-server.process-forwarded=true` stays, since the forwarded headers Traefik adds are otherwise refused with `406`; with no HTTP listener a spoofed `X-Forwarded-Proto` has nothing to downgrade (k0 against k2). The Trino Service carries `traefik.ingress.kubernetes.io/service.serversscheme: https` and `...service.serverstransport: trino@file`; the transport is in Traefik's file provider with `rootCAs` and `serverName` (the Service FQDN), and the CA comes from a Secret that cert-manager issues for that purpose (`trino-ca-bundle`) so that Traefik does not mount Trino's private key. Cases t1 and t2 run the pinned Traefik image with that transport against the proof server; the Kubernetes annotations that select it were not run. The Web UI sign-in is below (it is `web-ui.authentication.type`, not an addition to `PASSWORD`) |
+
+### Web UI sign-in (human OAuth2)
+
+Trino 480 (docs: <https://trino.io/docs/480/security/oauth2.html>,
+<https://trino.io/docs/480/admin/properties-web-interface.html>; the filter is
+`io.trino.server.ui.OAuth2WebUiAuthenticationFilter`, read at tag `480`).
+
+| Question | Finding |
+| --- | --- |
+| Coexistence with workloads | `web-ui.authentication.type=oauth2` is chosen apart from `http-server.authentication.type`: `OAuth2WebUiModule` installs the OAuth2 service itself, and Trino's own `TestOAuth2WebUiAuthenticationFilterWithJwt` sets no `http-server.authentication.type`. `/v1` stays `PASSWORD` (or none at `off`/`tls`); dbt, Superset, the ingestion Job and `olf e2e` do not touch the UI. No `PASSWORD,OAUTH2` list is needed, and none is used, because that would also let API clients present Dex bearer tokens |
+| Secure request | The filter redirects any request whose `isSecure()` is false to the "UI disabled" page. Behind Traefik, `isSecure()` is true when `process-forwarded` is on and the request carries `X-Forwarded-Proto: https`. So the ingress must be HTTPS (`spec.access.issuer` not `none`); the coordinator's own listener may be either. **With `issuer: none` the UI cannot sign in through Dex: it keeps its own login** (the module receives no `web_ui_oidc`) |
+| Redirect URI | `request.getUriInfo().getBaseUri().resolve("/oauth2/callback")`; with `process-forwarded` that is `https://trino.<base_domain>/oauth2/callback` from `X-Forwarded-Host` and `-Proto`. The `trino` static Dex client carried `https://trino.<base_domain>/*` (a Keycloak leftover; Dex matches exactly), now the exact callback. Not run: whether Jetty adds `:443` to the URI from `X-Forwarded-Port` |
+| Issuer reachability | Trino loads the issuer's metadata at startup and fails after 30 seconds, and `https://auth.<base_domain>` is served by Traefik, which is created after Trino (it takes Trino's backend transport). So the module turns discovery off and sets `auth-url`, `token-url`, `jwks-url` from Dex's fixed paths (`/auth`, `/token`, `/keys`): **Dex only**; an `issuer: external` issuer needs discovery and an egress flow, and is not wired. Trino reaches Dex by the public URL through the CoreDNS rewrite (flow F4) and trusts the local CA through `oauth2-jwk.http-client.trust-store-path` (the file already mounted for the internal truststore) |
+| Principal | `principal-field=email` with `scopes=openid,email` (Dex adds `email` to the token only when asked; Trino requires the field in the access token). The Trino user is the e-mail address, with the default user mapping |
+| Client secret | `TRINO_OIDC_CLIENT_SECRET` from the Secret the `identity.oidc` contract names (`dex-client-trino`), read in `config.properties` as `${ENV:...}`; never in Terraform |
+| When it is on | `spec.identity` with the `github` issuer, an HTTPS route, and `trino_workload_authentication` `tls` or `password`. Off otherwise, so authentication-off mode (#421) is unchanged |
+
+A signed-in person is user `<email>`, to which the catalog rules give no
+catalog: the sign-in restricts who opens the UI, not what a person may query,
+and at `password` the final `principals` rule would also refuse that user as a
+query submitter. Data access for people is #179. Rendered config is tested in
+`tools/olf/tests/test_trino_oidc_config.py`; the browser flow is not proved.
 
 ### Consumer configuration
 
@@ -158,7 +180,7 @@ Found in review; the migration must settle each before step 4.
   disables the HTTP listener and keeps `process-forwarded` for Traefik's
   re-encrypted requests (k2, k3, t1). `olf e2e`'s perimeter check that a role
   granted `query` reaches the route (`check_role_decisions`, status below 400)
-  also needs the human `OAUTH2` authenticator beside `PASSWORD`, which the caller
+  is met by the Web UI sign-in redirect (below), which the caller
   migration adds; the route itself no longer fails at the transport.
 - OpenMetadata stores the Trino password encrypted with its Fernet key, which
   `infra/helm/values/local/openmetadata.yaml` sets to the public upstream
@@ -269,3 +291,6 @@ The hourly catalog refresh is the same pod as a CronJob per governed stage
 (`openmetadata-trino-ingestion-<catalog>`), applied by `deploy-metadata` from
 the same builder. The pipeline-client CronJob and the
 `<service>-metadata-ingestion` pipeline registration are gone.
+Web UI sign-in through Dex behind `tls` or `password`, over HTTPS routes with the
+`github` issuer (#26): properties above; the `trino` Dex client's redirect URI
+is exact.
