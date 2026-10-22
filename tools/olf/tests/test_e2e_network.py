@@ -132,7 +132,7 @@ def test_untrusted_namespace_is_deleted_and_awaited_before_create(monkeypatch: p
 
     monkeypatch.setattr(_network, "kubectl", fake)
     monkeypatch.setattr(_network, "_pod_ip", lambda *_a: "10.0.0.1")
-    monkeypatch.setattr(_network, "workload_port", lambda *_a: 80)
+    monkeypatch.setattr(_network, "workload_ports", lambda *_a: [80])
     monkeypatch.setattr(_network, "_probe_pod", stop)
     cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
     with pytest.raises(RuntimeError):
