@@ -485,6 +485,17 @@ locals {
   ingress_routes = merge(
     { for ref, route in local.access_routes : ref => merge(route, { group = local.identity_enabled ? lookup(module.perimeter[0].route_group, ref, "") : "" }) },
     !local.identity_enabled ? {} : {
+      # The page Logout lands on: an unprotected route to the portal service,
+      # so it loads with no perimeter session.
+      "portal/signed-out" = {
+        host         = local.base_domain
+        tls_host     = local.base_domain
+        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+        service_name = module.portal[0].service_name
+        service_port = module.portal[0].service_port
+        path         = "/signed-out.html"
+        group        = ""
+      }
       "perimeter/callback" = {
         host         = local.perimeter_callback_host
         tls_host     = "*.${local.base_domain}"
