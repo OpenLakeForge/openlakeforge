@@ -188,3 +188,44 @@ descriptors that does not resolve.
 `olf init --empty` writes a `lakehouse.yaml` with empty `sources` and
 `domains`. Only the scaffolding commands accept it; every check and deploy
 needs at least one product.
+
+## Graph the lineage
+
+```bash
+olf project graph --project .
+```
+
+This prints the ownership chain the descriptors declare as Mermaid text:
+
+| Edge | Read from |
+| --- | --- |
+| Source → Domain | `domains[].silver_tables.tables[].source` |
+| Domain → Product | `domains[].products[]` |
+| Product → Dashboard | `dashboards[].products` |
+
+Nodes and edges are sorted, so the same descriptors always print the same text.
+Paste it into a `mermaid` code block on GitHub or into the
+[Mermaid Live Editor](https://mermaid.live) to see it drawn. For the CRM/ERP
+demo it prints:
+
+```text
+flowchart LR
+    dashboard_sales_customer_health["sales_customer_health"]
+    dashboard_sales_order_revenue["sales_order_revenue"]
+    dashboard_supply_chain_inventory_reliability["supply_chain_inventory_reliability"]
+    domain_sales["Sales"]
+    domain_supply_chain["Supply Chain"]
+    product_customer_health["Sales Customer Health"]
+    product_inventory_reliability["Supply Chain Inventory Reliability"]
+    product_order_revenue["Sales Order Revenue"]
+    source_crm["CRM"]
+    source_erp["ERP"]
+    domain_sales --> product_customer_health
+    domain_sales --> product_order_revenue
+    domain_supply_chain --> product_inventory_reliability
+    product_customer_health --> dashboard_sales_customer_health
+    product_inventory_reliability --> dashboard_supply_chain_inventory_reliability
+    product_order_revenue --> dashboard_sales_order_revenue
+    source_crm --> domain_sales
+    source_erp --> domain_supply_chain
+```
