@@ -58,16 +58,13 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
         kube_context=cfg.kube_context,
     ):
         with github_stub(cfg, {login: mapping[role]}):
-            browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))
-    session = [c.name for c in browser.cookies if c.name.startswith("_oauth2_proxy") and "csrf" not in c.name]
+            _browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))
+    # An unauthenticated request to the portal is redirected to the issuer, so the portal's own page here
+    # means the proxy accepted the token Dex issued with the rotated client secret.
     if (
-        landing.status_code >= 400
+        landing.status_code != 200
         or urlsplit(landing.url).hostname != urlsplit(portal).hostname
         or DENIAL_HEADING in landing.text
-        or not session
     ):
-        raise E2EError(
-            f"sign-in after rotating {TARGET} failed: HTTP {landing.status_code} at {landing.url}, "
-            f"session cookie set: {bool(session)}"
-        )
+        raise E2EError(f"sign-in after rotating {TARGET} failed: HTTP {landing.status_code} at {landing.url}")
     log.info(f"Rotated {TARGET} and signed in through the portal in {time.monotonic() - started:.0f}s.")
