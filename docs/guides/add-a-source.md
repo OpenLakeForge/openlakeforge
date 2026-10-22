@@ -7,6 +7,15 @@ from, owned by its own directory under `lakehouse_code/bronze/`.
 You need an initialized project (`olf init`). The commands run from the
 project directory.
 
+> [!NOTE]
+> This guide uses a CSV file because it is the fastest example, and a fixed
+> CSV gives the same result on every run, which is why the demo products use
+> them as test seeds. CSV is not a limit of the platform: dlt can extract from
+> APIs and databases, and Floe reads CSV, TSV, JSON, Parquet, ORC, Avro, XLSX,
+> XML and fixed-width files into Iceberg. Sources of those kinds are being
+> added in [#110](https://github.com/OpenLakeForge/openlakeforge/issues/110),
+> and this guide will cover them once they land.
+
 ## 1. Scaffold the source
 
 ```bash
