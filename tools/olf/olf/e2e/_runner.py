@@ -26,6 +26,7 @@ from olf.e2e._ingress import (
 )
 from olf.e2e._isolation import check_stage_isolation
 from olf.e2e._layers import Layer, configured_layers
+from olf.e2e._network import check_network_and_rbac
 from olf.e2e._perimeter import check_perimeter
 from olf.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
 from olf.e2e._secret_exposure import check_secret_exposure
@@ -308,6 +309,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("Polaris restart recovery", check_polaris_restart_recovery))
         assertions.append(FullAssertion("Traefik restart recovery", check_traefik_restart_recovery))
         assertions.append(FullAssertion("route certificate renewal", check_certificate_renewal))
+        assertions.append(FullAssertion("network flows and service-account RBAC", check_network_and_rbac))
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
         assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
     assertions.extend(
