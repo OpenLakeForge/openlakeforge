@@ -39,7 +39,7 @@ locals {
 
 resource "kubernetes_job_v1" "token_broker_key" {
   metadata {
-    name      = "polaris-token-key-${substr(sha256(local.token_broker_script), 0, 10)}"
+    name      = "polaris-token-key-${substr(sha256("${local.token_broker_script}${var.bootstrap_job_image}"), 0, 10)}"
     namespace = var.namespace
     labels    = local.labels
   }
