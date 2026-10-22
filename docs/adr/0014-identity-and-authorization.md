@@ -370,6 +370,9 @@ is not.
 
 ## History
 
+OpenMetadata's local `admin` (#25): with SSO on, `adminPrincipals` is empty and the local `admin` user is
+demoted, so an issuer login named `admin` is not an admin (OM-11 closed).
+
 Authentication off on the clouds: #421 required `spec.identity` on `aws` and
 `azure`, but their roots publish no routes and emit no `identity.oidc`, so a
 cloud profile carried a placeholder `external` block nothing read. The rule is
