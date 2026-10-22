@@ -1,0 +1,190 @@
+# Descriptor reference
+
+The fields and rules of the two descriptors that declare a project's data:
+`lakehouse_code/lakehouse.yaml`, one per project, and
+`lakehouse_code/bronze/<source>/source.yaml`, one per source. It also lists the
+names OpenLakeForge derives from them.
+
+Both are validated against JSON Schemas,
+[`lakehouse.schema.json`](../schema/lakehouse.schema.json) and
+[`source.schema.json`](../schema/source.schema.json), and by the canonical
+inventory, with `olf check contracts`. Unknown fields are rejected at every
+level, and every identifier matches `^[a-z][a-z0-9_]*$`.
+
+Descriptors are provider-neutral: they name logical things only. They never
+contain Polaris, Glue, S3 or SeaweedFS names, endpoints, Kubernetes resources,
+account ids or credentials; OpenLakeForge derives those from the active
+provider.
+
+## `source.yaml`
+
+```yaml
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: marketing_platform
+displayName: Marketing Platform
+description: Marketing campaign performance source system.
+status: active
+resources:
+  - name: campaigns
+    description: Raw CSV marketing campaign performance data.
+```
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `apiVersion` | string | yes | `openlakeforge.io/v1alpha3` |
+| `kind` | string | yes | `Source` |
+| `name` | identifier | yes | Must equal the directory name and be unique in the lakehouse. |
+| `displayName` | string, non-empty | yes | Human-readable name. |
+| `description` | string | yes | May be empty. |
+| `status` | string, non-empty | yes | Free text; typically `planned`, `active` or `deprecated`. |
+| `resources` | array, at least one | yes | The source's table-like inputs. |
+| `resources[].name` | identifier | yes | Unique within the source. |
+| `resources[].description` | string | no | Human-readable description. |
+
+A resource has no schema here: its columns belong to the Floe contract of each
+domain that reads it.
+
+## `lakehouse.yaml`
+
+```yaml
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Example lakehouse.
+status: active
+sources:
+  - marketing_platform
+domains:
+  - name: marketing
+    displayName: Marketing
+    description: Marketing analytics data products.
+    status: active
+    silver_tables:
+      tables:
+        - name: campaigns
+          source: marketing_platform
+          resource: campaigns
+          description: Validated campaign data.
+    products:
+      - id: campaign_performance
+        displayName: Campaign Performance
+        description: Campaign spend and conversion performance.
+        status: active
+        silver_inputs:
+          - campaigns
+        gold_tables:
+          tables:
+            - name: mart_campaign_performance
+              description: Campaign performance aggregated by channel.
+dashboards: []
+```
+
+### Top level
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `apiVersion` | string | yes | `openlakeforge.io/v1alpha3` |
+| `kind` | string | yes | `Lakehouse` |
+| `name` | identifier | yes | The lakehouse's machine name. |
+| `displayName`, `description`, `status` | as for a source | yes | Metadata. |
+| `sources` | array of identifiers, at least one, unique | yes | Must match the `bronze/*/source.yaml` files on disk exactly. |
+| `domains` | array, at least one | yes | At least one domain in the lakehouse must declare a product. |
+| `dashboards` | array, may be empty | yes | Superset dashboards. |
+
+### `domains[]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | identifier | yes | Unique across the lakehouse. |
+| `displayName`, `description`, `status` | | yes | Metadata. |
+| `silver_tables.tables` | array, at least one, unique | yes | The domain's Silver tables. |
+| `silver_tables.tables[].name` | identifier | yes | Unique within the domain. |
+| `silver_tables.tables[].source` | identifier | yes | A source listed in `sources`. |
+| `silver_tables.tables[].resource` | identifier | yes | A resource that source declares. |
+| `silver_tables.tables[].description` | string | no | |
+| `products` | array, may be empty | yes | The domain's data products. |
+
+A domain may declare Silver tables before any product reads them; they still
+get their namespace and Floe assets.
+
+### `domains[].products[]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | identifier | yes | Unique across the whole lakehouse, not only the domain. |
+| `displayName`, `description`, `status` | | yes | Metadata. |
+| `domain` | string | no | If written, must equal the enclosing domain's `name`. |
+| `silver_inputs` | array of identifiers, at least one, unique | yes | Silver tables of this domain the product reads. |
+| `gold_tables.tables` | array, at least one, unique | yes | The Gold tables the product publishes. |
+| `gold_tables.tables[].name` | identifier | yes | Unique within the product. |
+| `gold_tables.tables[].description` | string | no | |
+
+A table must not carry `fqn` or `fullyQualifiedName`, and `gold_tables` must
+not carry `schema`: physical names would tie the descriptor to one provider.
+
+### `dashboards[]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | identifier | yes | Unique; also the bundle directory under `dashboards/superset/`. |
+| `products` | array of identifiers, at least one, unique | yes | Declared product ids the dashboard reads. |
+
+## Implementation files
+
+Each identity selects the files that implement it:
+
+| Identity | Files |
+| --- | --- |
+| Source `name` | `lakehouse_code/bronze/<source>/` |
+| Domain `name` | `lakehouse_code/silver/<domain>/contracts/floe/<domain>.yml`, the domain's only Floe contract |
+| Product `id` | `lakehouse_code/gold/<id>/dbt/` and `lakehouse_code/pipelines/dagster/<id>.py` |
+| Dashboard `name` | `lakehouse_code/dashboards/superset/<name>/` |
+
+## Derived names
+
+For a `crm` source, a `sales` domain and an `order_revenue` product:
+
+| Name | Value |
+| --- | --- |
+| Bronze namespace | `crm_bronze` |
+| Silver namespace | `sales_silver`, shared by every product of the domain |
+| Gold namespace | `order_revenue_gold` |
+| Dagster job | `order_revenue_pipeline` |
+| Dagster module | `lakehouse_code.pipelines.dagster.order_revenue` |
+| Floe manifest key | `floe/manifests/sales/sales.manifest.json` |
+| Floe report prefix | `floe/reports/sales/` |
+| dbt artifact prefix | `run-artifacts/dbt/sales/order_revenue/` |
+
+Tables are addressed as `<stage catalog>.<namespace>.<table>`, for example
+`lakehouse_dev.order_revenue_gold.mart_order_revenue_by_day`. The stage
+catalog is `lakehouse_<stage>`.
+
+Renaming a source, resource, domain, product or table changes these names, so
+on a deployed stage plan it as a data migration. `displayName`, `description`
+and `status` are metadata only.
+
+## Validation errors
+
+```bash
+olf check contracts
+```
+
+| Error | Cause |
+| --- | --- |
+| Source list does not match discovered descriptors | `sources` lists a source with no `source.yaml`, or a `source.yaml` exists that `sources` does not list. |
+| Name must match source directory | `bronze/marketing_platform/source.yaml` says `name: marketing`. |
+| Invalid identifier | A name such as `campaign-performance`; use `campaign_performance`. |
+| Duplicate product id | Two products declare the same `id`, even in different domains. |
+| Silver mapping names an undeclared resource | A Silver table maps to a resource its source does not declare. |
+| Empty table group | `silver_tables: {tables: []}`, a product without `silver_inputs`, or one without Gold tables. |
+| Physical name in a descriptor | `fullyQualifiedName` or `gold_tables.schema` is set. |
+
+`olf check contracts` reads each descriptor on its own. `olf check
+project-code` loads the whole inventory, and catches a reference between
+descriptors that does not resolve.
+
+`olf init --empty` writes a `lakehouse.yaml` with empty `sources` and
+`domains`. Only the scaffolding commands accept it; every check and deploy
+needs at least one product.

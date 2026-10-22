@@ -19,9 +19,7 @@ or on Azure.
   <img alt="OpenLakeForge architecture: Dagster orchestrates dlt, Floe and dbt-trino over Bronze, Silver and Gold Iceberg tables in object storage, queried by Trino and Superset and governed by OpenMetadata" src="docs/assets/architecture-local-light.svg">
 </picture>
 
-> Looking for the implementation details? See the
-> [architecture documentation](/docs/architecture/README.md) and the
-> [technical diagrams](/docs/architecture/diagrams/README.md).
+> How the pieces fit together: [Architecture](/docs/architecture/overview.md).
 
 ## Why OpenLakeForge?
 
@@ -55,7 +53,7 @@ Dagster orchestrates every run. Around that path sit the shared services:
 
 Infrastructure sits behind provider-neutral contracts, so local, AWS and Azure
 expose the same platform capabilities with different implementations.
-→ [How provider portability works](/docs/architecture/provider-contracts.md)
+→ [How the providers differ](/docs/architecture/overview.md#providers)
 
 ### Is it a good fit?
 
@@ -103,18 +101,10 @@ my-lakehouse/
     └── dashboards/superset/
 ```
 
-Add your own with `olf source new` and `olf product new`, or follow
-[Build your first data product](/docs/getting-started/first-data-product.md).
-
-### Slim or Full?
-
-|Preset|Includes|Use it when|
-|---|---|---|
-|**Slim** _(default)_|Ingestion, validation, Iceberg, catalog, Trino, dbt and Dagster|You want the shortest path to a working lakehouse|
-|**Full**|Slim + OpenMetadata + Superset|You also want governance, lineage and dashboards|
-
-Set `preset: full` in `openlakeforge.yaml` and run `olf deploy --provider local`
-again. The optional layers do not change the ingestion-to-Gold data path.
+Add your own with `olf source new`, `olf domain new` and `olf product new`; the
+[Tutorial](/docs/tutorial/01-tour-the-platform.md) builds one step by step.
+The default **Slim** preset runs the ingestion-to-Gold path; `preset: full`
+adds OpenMetadata and Superset.
 
 ## Stages: from a commit to PROD
 
@@ -123,56 +113,28 @@ again. The optional layers do not change the ingestion-to-Gold data path.
   <img alt="Stage promotion: a merged pull request builds one image and one project revision, which is activated in the DEV namespace, tested, approved, and then activated unchanged in PROD" src="docs/assets/stage-promotion-light.svg">
 </picture>
 
-A Deployment Profile can enable `dev`, an optional `uat`, and `prod`
-(`olf init --stages dev,prod`). Every stage runs in the same cluster, in its
-own `olf-<stage>` namespace with its own Dagster (and Superset with the full
-preset), buckets and `lakehouse_<stage>` catalog. The platform services in
-`olf-system` are shared.
-
-A change is built **once** into an immutable project revision: the project's
-code plus one image pinned by digest, pushed to a registry such as GHCR (ECR on
-AWS). That revision is activated in DEV, validated, and then activated
-unchanged in PROD.
-PROD never rebuilds, and no data is copied between stages.
-
-```bash
-olf platform apply -f openlakeforge.yaml          # namespaces, buckets, catalogs per stage
-olf project image  -f openlakeforge.yaml          # -> <repository>@sha256:<digest>
-olf project build  --project . --image <repository>@sha256:<digest>
-olf project deploy -f openlakeforge.yaml --stage dev  --revision sha256:<rev>
-olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<rev>
-```
-
-`olf project image` pushes to a registry you must be able to write to: locally,
-set `PROJECT_CODE_IMAGE_REPOSITORY` (for example your own GHCR repository) and
-log in to it first; cloud providers use their own ECR or ACR.
-
-In CI, the `build-revision` and `deploy-stage` GitHub Actions run these steps.
-The PROD approval is yours to configure: protect the `prod` GitHub environment
-with required reviewers before the first run. See
-[Reference CI/CD](/docs/reference/ci-cd.md) and
-[Project revisions](/docs/architecture/project-revisions.md).
+A profile can enable `dev`, an optional `uat`, and `prod`, each with its own
+namespace, Dagster, buckets and catalog in one cluster. A change is built
+**once** into an immutable project revision, activated in DEV, validated, then
+activated unchanged in PROD; PROD never rebuilds. Two GitHub Actions automate
+it: [CI/CD and environment promotion](/docs/guides/promote-dev-to-prod.md).
 
 ## Deploy to the cloud
 
-The same platform runs on managed infrastructure:
+The same project runs in your own cloud account:
 
 - ☁️ **AWS** — EKS, ECR, S3, RDS PostgreSQL and Glue:
-  [AWS deployment](/docs/setup/aws.md) ·
-  [AWS architecture](/docs/architecture/aws-eks-poc.md)
-- ☁️ **Azure** — AKS and ACR with the in-cluster platform services:
-  [Azure deployment](/docs/setup/azure.md)
+  [Deploy to AWS](/docs/guides/cloud/deploy-to-aws.md)
+- ☁️ **Azure** _(preview)_ — AKS and ACR with the in-cluster platform services:
+  [Deploy to Azure](/docs/guides/cloud/deploy-to-azure.md)
 
 ## Documentation
 
-- 🚀 [Local installation guide](/docs/setup/local.md)
-- 🧱 [Build your first data product](/docs/getting-started/first-data-product.md)
-- 📚 [Full documentation](/docs/README.md)
-- 🏗️ [Architecture overview](/docs/architecture/overview.md) ·
-  📊 [Architecture diagrams](/docs/architecture/diagrams/README.md) ·
-  🔌 [Provider contracts](/docs/architecture/provider-contracts.md)
-- 🧠 [Architecture Decision Records](/docs/adr/README.md)
-- 📦 [Release compatibility](/docs/reference/compatibility-matrix.md) ·
+- 📚 [Documentation home](/docs/README.md): Introduction → Quickstart → Tutorial
+- 🧭 [Guides](/docs/guides/local-installation.md) ·
+  📖 [CLI reference](/docs/reference/cli.md) ·
+  🏗️ [Architecture](/docs/architecture/overview.md)
+- 📦 [Compatibility matrix](/docs/reference/compatibility-matrix.md) ·
   📝 [Changelog](/CHANGELOG.md) ·
   🗺️ [Roadmap](https://github.com/OpenLakeForge/openlakeforge/milestones)
 

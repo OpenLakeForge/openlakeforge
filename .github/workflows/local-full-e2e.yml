@@ -7,7 +7,7 @@ name: Local full e2e (nightly and manual)
 # #208 widened it to prove v0.3's actual product: a project revision built
 # once, activated in DEV, validated with the full assertion suite, promoted
 # unchanged to PROD, and validated there too -- the developer lifecycle
-# `docs/setup/local.md`'s "Promote a project revision between stages" section
+# `docs/guides/promote-dev-to-prod.md`'s "Promote by hand" section
 # documents. The schedule below is that gate; the dispatch trigger
 # additionally lets a maintainer select any branch in the UI, or a DEV-only
 # run for faster iteration, from GitHub Actions instead of a local machine.
@@ -27,7 +27,7 @@ name: Local full e2e (nightly and manual)
 # Promoting a revision needs a real container registry: `olf project build`
 # rejects a mutable tag, and a kind-only image has no pullable digest to
 # identify an immutable revision by (see the `_DIGEST_TAG_PATTERN` gate in
-# `olf.project_revision` and docs/setup/local.md's promotion walkthrough).
+# `olf.project_revision` and docs/guides/promote-dev-to-prod.md).
 # This job pushes the nightly project-code image to this repository's own
 # GHCR namespace, under its own package name (`project-code-nightly`, never
 # `release.yml`'s `project-code`) and a fixed `nightly` tag: reusing one tag
@@ -190,7 +190,7 @@ jobs:
       # from this commit and installed outside the checkout, the project is
       # one `olf init` created in its own directory, and the revision is built
       # and promoted by the same composite actions a project repository's CI
-      # uses (.github/actions, docs/reference/ci-cd.md). After the platform is
+      # uses (.github/actions, docs/guides/promote-dev-to-prod.md). After the platform is
       # applied, every step reads the provider contract from the file
       # `olf platform contract` exported, as a CI runner without the
       # platform's Terraform state would.
@@ -296,8 +296,8 @@ jobs:
 
       - name: Name the project-code image repository
         # A promotable revision needs a registry digest, and local stands up
-        # no registry of its own (docs/setup/local.md, "Promote a project
-        # revision between stages"): push to this repository's own GHCR
+        # no registry of its own (docs/guides/promote-dev-to-prod.md, "Promote
+        # by hand"): push to this repository's own GHCR
         # namespace. Registry names must be lowercase and the owner
         # (OpenLakeForge) is not.
         if: (inputs.suite || 'full') != 'smoke'

@@ -2,8 +2,8 @@
 
 This lesson runs the same project on AWS: EKS for Kubernetes, ECR for images,
 S3 for storage, RDS PostgreSQL for service state and AWS Glue as the Iceberg
-catalog. Azure (AKS and ACR) is a preview and follows the same steps with
-different values, listed at the end.
+catalog. Azure follows the same steps with different values, listed at the
+end.
 
 **You will** deploy the project you built to your own AWS account and
 validate it, in about 60 minutes plus the time AWS needs to create the
@@ -11,20 +11,20 @@ cluster.
 
 **Start from** the project of [lesson 9](09-add-prod-and-promote.md). Your
 `lakehouse_code/` does not change: only the Deployment Profile and the
-provider do. You need `docker` and `python3` on your `PATH` and permission to
-create a VPC, an EKS cluster, an ECR registry, IAM roles, RDS, S3 and AWS Glue
-databases in the account. `olf` provisions its own Terraform, Helm and
-kubectl.
+provider do. You need a running Docker engine and an AWS identity allowed to
+create a VPC, an EKS cluster, ECR repositories, IAM roles, RDS, S3 buckets and
+Glue databases; administrator access in a dedicated account is the simplest.
 
 > [!WARNING]
-> This creates billable AWS resources. It is a proof of concept, not a
-> production-hardened platform. Run the teardown step when you are done.
+> This creates billable AWS resources and is not production-hardened. Run the
+> teardown step when you are done. The limits are listed in
+> [Deploy to AWS](../guides/cloud/deploy-to-aws.md#limitations-and-costs).
 
 ## 1. Point the profile at AWS
 
-In `openlakeforge.yaml`, set the provider and the region to deploy to, keep
-only the DEV stage, remove the local-only plain-HTTP setting, and add an
-identity block:
+In `openlakeforge.yaml`, set the provider and the region, keep only the DEV
+stage, remove the `access:` block, and replace any `identity:` block with this
+one:
 
 ```yaml
 spec:
@@ -34,8 +34,6 @@ spec:
   stages:
     dev:
       enabled: true
-    prod:
-      enabled: false
   identity:
     issuer: external
     issuer_url: https://login.example.com/
@@ -44,18 +42,13 @@ spec:
       platform-admin: [olf-admins]
 ```
 
-- `region` decides where everything is created. To use another region, change
-  it here.
-- `stages`: the AWS deployment serves one stage today, so this lesson runs
-  your project in DEV. The DEV-to-PROD promotion of lesson 9 stays on your
-  local platform.
-- Delete the `access:` block: `issuer: none` is for `provider: local` only.
-- `identity` replaces any `spec.identity` from lesson 8. A profile without it
-  is accepted only for `provider: local`, so keep this block as it is. The AWS
-  deployment does not use it for sign-in yet: its services are reached only
-  through `olf forward` on your machine.
-
-Check the profile:
+- `region` decides where everything is created.
+- The cloud deployment is validated with one stage, so it runs your project in
+  DEV. The DEV-to-PROD promotion of lesson 9 stays on your local platform.
+- `access: {issuer: none}` (plain HTTP) is for `provider: local` only.
+- A profile without `identity` is accepted only for `provider: local`. The
+  cloud deployment does not use it for sign-in yet, because its services are
+  reached through `olf forward`, so these placeholder values are enough.
 
 ```bash
 olf profile validate --project .
@@ -63,59 +56,51 @@ olf profile validate --project .
 
 ## 2. Authenticate
 
-Sign in with IAM Identity Center; no AWS CLI is needed:
+If you already use an AWS profile, adopt it:
+
+```bash
+olf auth login --provider aws --profile "<your-profile>"
+```
+
+With IAM Identity Center (SSO), pass your AWS access portal URL and the region
+of your Identity Center instance instead:
 
 ```bash
 olf auth login --provider aws \
-  --start-url "https://your-company.awsapps.com/start" \
+  --start-url "https://<your-portal>.awsapps.com/start" \
   --sso-region "<identity-center-region>"
 ```
 
-Use your AWS access portal URL and the region where your IAM Identity Center
-instance is configured, which can differ from the region you deploy to. It
-opens an AWS-hosted device authorization page. If the browser cannot open,
-add `--no-browser` and enter the printed code.
+No AWS CLI is needed. `olf auth status --provider aws` shows the identity `olf`
+will use.
 
-## 3. Provide your tags
-
-Copy the tfvars template and set the `Owner` and `Requester` tags to your
-email. The file stays on your machine:
-
-```bash
-DIST="$(olf distribution path)"
-cp "$DIST/infra/terraform/foundations/aws-eks/sandbox.tfvars.example" sandbox.tfvars
-export AWS_TFVARS_FILE="$(pwd)/sandbox.tfvars"
-```
-
-The defaults (cluster `limited-eks-openlakeforge-poc`, node type
-`m7i.large`) can be overridden with `AWS_CLUSTER_NAME` and
-`AWS_NODE_INSTANCE_TYPES`; see [Deploy to AWS](../setup/aws.md) for the full
-list. The region comes from `spec.provider.region` in the profile.
-
-The cloud pushes your project image to the ECR registry it creates, so clear
-the local registry settings from lesson 9 if this shell still has them:
+The cloud pushes your project image to its own ECR registry, so clear the
+local registry settings from lesson 9 if this shell still has them:
 
 ```bash
 unset PROJECT_CODE_IMAGE_REPOSITORY PROJECT_CODE_IMAGE_TAG
 ```
 
-## 4. Deploy
+## 3. Deploy
 
-The same three phases you used locally, one at a time:
+The same phases you used locally, one at a time:
 
 ```bash
 olf deploy --provider aws --phase foundation   # VPC, EKS, ECR, IAM
-olf deploy --provider aws --phase platform     # RDS, S3, Glue, Trino, Dagster, OpenMetadata, Superset
-olf deploy --provider aws --phase artifacts    # build and push images, upload Floe manifests, load your code
+olf deploy --provider aws --phase platform     # S3, Glue, RDS, Trino, Dagster, Superset, OpenMetadata
+olf deploy --provider aws --phase artifacts    # build and push images, load your code
 ```
 
 `olf deploy --provider aws` with no `--phase` runs all three. The cloud has no
-public ingress or DNS. To open the services in a browser, port-forward them to
-your machine; it keeps running until you stop it with Ctrl+C:
+public endpoint. To open the services in a browser, port-forward them to your
+machine, then stop with Ctrl-C:
 
 ```bash
 olf forward --provider aws
 ```
+
+Dagster is then at `http://localhost:3000` and Superset at
+`http://localhost:8088`.
 
 ## Check it worked
 
@@ -137,32 +122,31 @@ passed.`
 olf destroy --provider aws
 ```
 
-This removes the platform, then the foundation. To remove one phase at a time,
-run `--phase platform` first: `--phase foundation` refuses to run while the
-platform still exists.
+This removes the platform, then the foundation, including the ECR images.
 
-## Azure (preview)
+## Azure
 
-Azure runs the same platform on AKS and ACR, with the in-cluster SeaweedFS,
-Polaris and PostgreSQL. Set `provider.type: azure` and delete
-`provider.region`: Azure takes its region from `location` in `sandbox.tfvars`.
-Authenticate with `olf auth login --provider azure` (add `--device-code` on a
-headless machine), copy
-`infra/terraform/foundations/azure-aks/sandbox.tfvars.example` from `olf
-distribution path` to `sandbox.tfvars` with your resource group, region and VM
-size, export `AZURE_TFVARS_FILE`, then:
+Azure runs the same platform on AKS and ACR, keeping SeaweedFS, Polaris and
+PostgreSQL inside the cluster. Set `provider.type: azure` and delete
+`provider.region`, then authenticate and describe the resource group and node
+size in a variables file:
 
 ```bash
+olf auth login --provider azure
+cat > azure.tfvars <<'HCL'
+create_resource_group = true
+resource_group_name   = "rg-openlakeforge"
+location              = "westeurope"
+node_vm_size          = "Standard_D4s_v5"
+HCL
+export AZURE_TFVARS_FILE="$(pwd)/azure.tfvars"
 olf deploy --provider azure
 olf e2e run --env azure
 olf destroy --provider azure
 ```
 
-To open the services in a browser between the deploy and the teardown, run
-`olf forward --provider azure` and stop it with Ctrl+C before the next `olf`
-command.
-
-See [Deploy to Azure](../setup/azure.md).
+Pick a `node_vm_size` your subscription offers in that region. The options are
+in [Deploy to Azure](../guides/cloud/deploy-to-azure.md).
 
 ## What you learned
 
@@ -174,8 +158,9 @@ See [Deploy to Azure](../setup/azure.md).
 
 ## Next
 
-- [Reference CI/CD](../reference/ci-cd.md): build and deploy revisions from
-  CI. On AWS today, deploy them to the `dev` stage only; leave out the PROD
-  job.
-- [Architecture overview](../architecture/overview.md): how the provider
-  contracts keep the project portable.
+- [Deploy to AWS](../guides/cloud/deploy-to-aws.md): every option, the
+  limitations and the costs.
+- [CI/CD and environment promotion](../guides/promote-dev-to-prod.md): build
+  and deploy revisions from CI.
+- [Architecture](../architecture/overview.md): how the same project runs on
+  each provider.

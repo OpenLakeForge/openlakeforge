@@ -8,7 +8,7 @@ description: >
   data or service state is copied between stages, and no Dagster product
   schedule is started (the stage's log-archive CronJob is housekeeping).
   Optionally runs the e2e suite against the stage. Needs `olf` on PATH and a
-  runner holding the platform's OLF_HOME (see docs/reference/ci-cd.md).
+  runner holding the platform's OLF_HOME (see docs/guides/promote-dev-to-prod.md).
 inputs:
   profile:
     description: Path to the project's Deployment Profile, named openlakeforge.yaml.

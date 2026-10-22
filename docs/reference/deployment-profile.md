@@ -10,8 +10,8 @@ then by `tools/olf/olf/profile.py`, which is the authority where the two differ.
 Check a profile without deploying:
 
 ```bash
-uv run --project tools/olf --locked olf profile validate --project .
-uv run --project tools/olf --locked olf profile resolve --project . --json
+olf profile validate --project .
+olf profile resolve --project . --json
 ```
 
 Every object rejects fields it does not list. The decisions behind the model are
@@ -218,4 +218,4 @@ On `local`, `olf deploy` also refuses a `spec.access.issuer` other than
 * [ADR 0011: Deployment Profile and stages](../adr/0011-deployment-profile-and-stages.md)
 * [ADR 0013: service access](../adr/0013-service-access-and-ingress.md)
 * [ADR 0014: identity and authorization](../adr/0014-identity-and-authorization.md)
-* [`olf` CLI](../../tools/olf/README.md)
+* [`olf` CLI](cli.md)

@@ -7,10 +7,8 @@ and shows the GitHub Actions that automate those steps.
 **You will** run a project through DEV and PROD and see the PROD-only
 schedule, in about 30 minutes.
 
-**Start from** the project of lesson 8 (sign in with GitHub) or, if you
-skipped sign-in, the project of
-[lesson 7](07-govern-and-trace-lineage.md): the Full preset on a local
-deployment. You also need an account on a container registry such as GHCR or
+**Start from** the project of [lesson 7](07-govern-and-trace-lineage.md): the
+Full preset on a local deployment, with or without sign-in. You also need an account on a container registry such as GHCR or
 Docker Hub.
 
 ## How stages work
@@ -193,7 +191,7 @@ jobs:
 
 The self-hosted runner holds the platform's `OLF_HOME` (its Terraform state
 and kubeconfig). Cloud runs additionally need cloud credentials and registry
-access; see [Reference CI/CD](../reference/ci-cd.md).
+access; see [CI/CD and environment promotion](../guides/promote-dev-to-prod.md).
 
 ## Check it worked
 

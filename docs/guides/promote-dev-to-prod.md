@@ -1,4 +1,4 @@
-# Promote DEV to PROD
+# CI/CD and environment promotion
 
 How to build a project once into an immutable revision, activate it in DEV and
 then unchanged in PROD, by hand and with GitHub Actions, and how to protect the
@@ -106,6 +106,9 @@ follows the stage and revision you pass, never the branch name.
   `~/.openlakeforge`) and reads the cluster, region and registry from them.
   Until remote state lands (#132), run these jobs on a self-hosted runner that
   holds that directory, for example the machine that ran `olf platform apply`.
+  `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`, the JSON that
+  `olf platform contract` prints, can stand in for the platform's contract,
+  but not for the foundation state or the kubeconfig.
 - **`olf`**: `python3.12 -m pip install openlakeforge==<version>`, then
   `olf toolchain install` for the pinned Terraform, Helm and kubectl.
 - **Cloud credentials** on AWS or Azure (for example
@@ -124,7 +127,7 @@ This version targets AWS; for a local platform, drop the credentials step and
 use `e2e-env: local`.
 
 > [!NOTE]
-> The AWS deployment serves one stage today, and the profile in
+> The cloud deployments are validated with one stage, and the profile in
 > [Deploy to AWS](cloud/deploy-to-aws.md) enables only `dev`. With that profile,
 > keep the `build` and `dev` jobs and delete the `uat` and `prod` jobs. A
 > stage job only works for a stage the profile enables.
