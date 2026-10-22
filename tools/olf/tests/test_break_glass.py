@@ -89,3 +89,25 @@ def test_every_target_builds_an_argv(service: str) -> None:
     argvs: list[list[str]] = []
     break_glass.open_session(cluster, service, "r", 1, run=lambda argv, **_: argvs.append(argv))
     assert "--context" in argvs[0]
+
+
+def test_trino_forwards_the_tls_port_when_the_contract_carries_it() -> None:
+    contracts = {"stages": {"dev": {"query": {"tls_port": "8443"}}}}
+    tls = break_glass.trino_tls_port(contracts, "dev")
+    assert tls == 8443
+    assert "https" in break_glass.scheme("trino", tls)
+    cluster, _ = _cluster()
+    argvs: list[list[str]] = []
+    break_glass.open_session(cluster, "trino", "r", 1, tls_port=tls, run=lambda argv, **_: argvs.append(argv))
+    assert "8443:8443" in argvs[0]
+
+
+def test_trino_falls_back_to_plain_http_without_a_tls_port() -> None:
+    contracts = {"stages": {"dev": {"query": {"catalog_name": "c"}}}}
+    tls = break_glass.trino_tls_port(contracts, "dev")
+    assert tls is None
+    assert break_glass.scheme("trino", tls) == "http"
+    cluster, _ = _cluster()
+    argvs: list[list[str]] = []
+    break_glass.open_session(cluster, "trino", "r", 1, tls_port=tls, run=lambda argv, **_: argvs.append(argv))
+    assert "8080:8080" in argvs[0]

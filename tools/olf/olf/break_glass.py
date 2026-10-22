@@ -47,6 +47,22 @@ TARGETS: Mapping[str, Target] = {
 }
 
 
+def trino_tls_port(contracts: Mapping[str, Any] | None, stage: str) -> int | None:
+    """The stage's `query.tls_port`: present only while Trino serves HTTPS and no longer plain HTTP (ADR 0016)."""
+    port = (((contracts or {}).get("stages") or {}).get(stage) or {}).get("query", {}).get("tls_port")
+    return int(port) if port else None
+
+
+def remote_port(service: str, tls_port: int | None = None) -> int | None:
+    return tls_port if service == "trino" and tls_port else TARGETS[service].port
+
+
+def scheme(service: str, tls_port: int | None = None) -> str:
+    if service == "trino" and tls_port:
+        return "https (verify with the local CA: olf access trust)"
+    return "http"
+
+
 @dataclass(frozen=True)
 class Cluster:
     kubectl: Kubectl
@@ -72,6 +88,7 @@ def open_session(
     ttl_minutes: int,
     *,
     local_port: int = 0,
+    tls_port: int | None = None,
     run: Callable[..., Any] = subprocess.run,
 ) -> str:
     """Record the use, open the path until it exits or the TTL passes, then complete the record."""
@@ -93,10 +110,11 @@ def open_session(
         },
     }
     cluster.kubectl.create_from_manifest(json.dumps(record), **cluster.kw)
-    if target.port is None:
+    port = remote_port(service, tls_port)
+    if port is None:
         argv = cluster.kubectl.exec_shell_argv(target.resource, namespace=namespace, context=cluster.context)
     else:
-        ports = [f"{local_port or target.port}:{target.port}"]
+        ports = [f"{local_port or port}:{port}"]
         argv = cluster.kubectl.port_forward_argv(target.resource, ports, namespace=namespace, context=cluster.context)
     try:
         run(argv, timeout=ttl_minutes * 60, check=False, env=_env(cluster))

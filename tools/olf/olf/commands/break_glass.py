@@ -39,14 +39,26 @@ def break_glass_command(
         project_root=project_root,
     )
     env = context.command_env(base=os.environ)
+    tools = Toolkit.default(environ=env)
     cluster = break_glass.Cluster(
-        Toolkit.default(environ=env).kubectl,
+        tools.kubectl,
         context=context.kube_context,
         kubeconfig=context.paths.kubeconfig_path,
         shared_namespace=context.shared_namespace,
         namespace=context.namespace,
         env=env,
     )
-    typer.echo(f"break-glass: {service} for at most {ttl_minutes} min; recorded in {cluster.shared_namespace}.")
-    name = break_glass.open_session(cluster, service, reason, ttl_minutes, local_port=local_port)
+    tls_port = None
+    if service == "trino":
+        from pathlib import Path
+
+        from olf.contracts import load_provider_contracts
+
+        contract_dir = Path(env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir))
+        contracts = load_provider_contracts(str(contract_dir.resolve()), environ=env, resolver=tools.resolver)
+        tls_port = break_glass.trino_tls_port(contracts, context.stage.value)
+    port = break_glass.remote_port(service, tls_port)
+    where = f"127.0.0.1:{local_port or port}, {break_glass.scheme(service, tls_port)}" if port else "a shell in the pod"
+    typer.echo(f"break-glass: {service} on {where}; at most {ttl_minutes} min; recorded in {cluster.shared_namespace}.")
+    name = break_glass.open_session(cluster, service, reason, ttl_minutes, local_port=local_port, tls_port=tls_port)
     typer.echo(f"break-glass: ended; record {cluster.shared_namespace}/{name}")
