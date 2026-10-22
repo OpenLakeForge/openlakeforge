@@ -151,3 +151,11 @@ def test_label_drift_flags_pods_missing_flow_labels() -> None:
     assert _network.label_drift(workloads, [pod({"app": "trino", "component": "worker"})])
     assert not _network.label_drift(workloads, [pod({"app": "trino", "component": "coordinator", "x": "y"})])
     assert not _network.label_drift(workloads, [])
+
+
+def test_cert_manager_documented_grants_pass() -> None:
+    cm = ("olf-system", "cert-manager")
+    wh = ("olf-system", "cert-manager-webhook")
+    pods = [_rule(["pods", "services"], ["create"])]
+    assert not _grants(pods, cm, "ClusterRole", "cert-manager-controller-challenges")
+    assert not _grants([_rule(["secrets"], ["create"])], wh, "Role", "cert-manager-webhook:dynamic-serving")

@@ -62,7 +62,8 @@ EXCEPTIONS: tuple[tuple[str, str, str, frozenset[str]], ...] = (
     ("Role", "openmetadata*", "openmetadata*", frozenset({"pods", "configmaps", "secrets", "jobs", "cronjobs"})),  # E2
     ("Role", "dagster*", "dagster*", frozenset({"pods", "jobs"})),  # E3
     ("ClusterRole", "traefik*", "traefik*", frozenset({"secrets"})),  # E4
-    ("ClusterRole", "cert-manager*", "cert-manager*", frozenset({"secrets"})),  # E5
+    ("Role", "cert-manager*", "cert-manager*", frozenset({"secrets"})),  # E5: the webhook's dynamic-serving Role
+    ("ClusterRole", "cert-manager*", "cert-manager*", frozenset({"secrets", "pods", "services"})),  # E5 + solvers
 )
 
 
