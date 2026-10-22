@@ -2,10 +2,11 @@ locals {
   port   = 8080
   labels = { "app.kubernetes.io/name" = var.release_name }
   groups = {
-    for stage in distinct([for link in values(var.links) : link.stage]) : stage => [
-      for link in values(var.links) : link if link.stage == stage
+    for stage in distinct([for ref, link in var.links : link.stage if startswith(ref, "stage/")]) : stage => [
+      for ref, link in var.links : link if startswith(ref, "stage/") && link.stage == stage
     ]
   }
+  shared = [for ref, link in var.links : link if !startswith(ref, "stage/")]
 
   # Rendered from the contract's routes, never listed by hand. The values are
   # hostnames and service names Terraform derived itself, so nothing is escaped.
@@ -23,6 +24,17 @@ locals {
     %{endfor~}
     </ul>
     %{endfor~}
+    %{if length(local.shared) > 0~}
+    <h2>Shared</h2>
+    <ul>
+    %{for link in local.shared~}
+    <li><a href="${link.url}">${link.name}</a></li>
+    %{endfor~}
+    </ul>
+    %{endif~}
+    %{if var.account_url != null~}
+    <p><a href="${var.account_url}">Manage your account and teams on GitHub</a></p>
+    %{endif~}
     </body>
     </html>
   EOT

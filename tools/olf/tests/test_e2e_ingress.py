@@ -110,9 +110,13 @@ def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
         "shared/portal": {"url": "https://olf.localhost", "enabled": True, "exposure": "user-facing"},
         "shared/query": {"url": "https://trino.olf.localhost", "enabled": True, "exposure": "user-facing"},
         "shared/catalog_service": {"url": "https://polaris.olf.localhost", "enabled": True, "exposure": "internal"},
+        "shared/identity": {"url": "https://auth.olf.localhost", "enabled": True, "exposure": "user-facing"},
         "stage/dev/reporting": {"url": "https://bi-dev.olf.localhost", "enabled": False, "exposure": "user-facing"},
     }
     _ingress.assert_portal_lists_routes('<a href="https://trino.olf.localhost">query</a>', routes)
+    _ingress.assert_portal_lists_routes(
+        '<a href="https://trino.olf.localhost">q</a><a href="https://github.com/orgs/acme/teams">t</a>', routes
+    )
     with pytest.raises(E2EError, match="expected"):
         _ingress.assert_portal_lists_routes("<html></html>", routes)
     with pytest.raises(E2EError, match="polaris"):

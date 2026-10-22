@@ -519,8 +519,9 @@ def platform_up(
     if config.platform_features.analytics_enabled:
         from olf.deployment.local import images
 
-        images.prepare_superset_image(config, tools, env=env)
+        superset_tag = images.prepare_superset_image(config, tools, env=env)
     else:
+        superset_tag = None
         log.step("Skipping Superset image build: no enabled stage has analytics.")
 
     prepare_charts(config, tools, env=env)
@@ -533,6 +534,8 @@ def platform_up(
     reset_drifted_platform_if_needed(config, tools, env=env)
 
     variables = platform_apply_variables(config)
+    if superset_tag:
+        variables["superset_image_tag"] = superset_tag
     var_files = platform_var_files(config)
 
     namespace_resources = {_SHARED_NAMESPACE_RESOURCE_ADDR: config.context.shared_namespace} | {
