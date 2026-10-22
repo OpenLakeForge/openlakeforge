@@ -77,6 +77,8 @@ def test_reconcile_grants_demotes_and_revokes() -> None:
 
 def test_team_roles_takes_the_highest_role_and_follows_pagination() -> None:
     pages = {
+        "https://gh/orgs/acme/teams/admins/teams?per_page=1": ([], ""),
+        "https://gh/orgs/acme/teams/eng/teams?per_page=1": ([], ""),
         "https://gh/orgs/acme/teams/admins/members?per_page=100": ([{"login": "Alice"}], ""),
         "https://gh/orgs/acme/teams/eng/members?per_page=100": (
             [{"login": "alice"}, {"login": "Bob"}],
@@ -86,9 +88,23 @@ def test_team_roles_takes_the_highest_role_and_follows_pagination() -> None:
     }
     teams = {"platform-admin": ["admins"], "viewer": ["eng"], "data-engineer": []}
 
-    held = script.team_roles("https://gh", "tok", "acme", teams, lambda _m, url, _t, *_a: pages[url])
+    http = lambda _m, url, _t, *_a: pages[url]  # noqa: E731
+    precedence = ["platform-admin", "data-engineer", "analyst", "viewer"]
+
+    held = script.team_roles("https://gh", "tok", "acme", teams, precedence, http)
 
     assert held == {"alice": "platform-admin", "bob": "viewer", "carol": "viewer"}
+    # The order comes from the caller, not the script: reversed, alice's two teams resolve the other way.
+    assert script.team_roles("https://gh", "tok", "acme", teams, precedence[::-1], http)["alice"] == "viewer"
+
+
+def test_a_mapped_team_with_child_teams_stops_the_sync() -> None:
+    def http(_method: str, url: str, _token: str, *_a):  # noqa: ANN002, ANN202
+        assert url.endswith("/teams?per_page=1"), "members must not be read for a parent team"
+        return [{"slug": "interns"}], ""
+
+    with pytest.raises(SystemExit, match="map direct teams only; admins has child teams"):
+        script.team_roles("https://gh", "tok", "acme", {"platform-admin": ["admins"]}, ["platform-admin"], http)
 
 
 def test_app_jwt_is_a_verifiable_rs256_token() -> None:
@@ -136,7 +152,11 @@ def test_main_names_what_is_missing_without_leaking_values() -> None:
 
 def test_manifests_carry_secret_references_not_values() -> None:
     configmap, cronjob = _role_sync.role_sync_manifests(
-        GITHUB, image="img@sha256:x", namespace="olf-system", om_url="http://openmetadata:8585"
+        GITHUB,
+        image="img@sha256:x",
+        namespace="olf-system",
+        om_url="http://openmetadata:8585",
+        precedence=["platform-admin", "data-engineer", "analyst", "viewer"],
     )
 
     assert "def reconcile" in configmap["data"]["role_sync.py"]
@@ -146,6 +166,7 @@ def test_manifests_carry_secret_references_not_values() -> None:
     assert env["OM_JWT"]["valueFrom"]["secretKeyRef"]["key"] == "OPENMETADATA_AUTOMATION_JWT"
     assert env["GITHUB_API"]["value"] == "https://api.github.com"
     assert json.loads(env["ROLE_TEAMS"]["value"])["data-engineer"] == ["eng"]
+    assert json.loads(env["ROLE_PRECEDENCE"]["value"])[0] == "platform-admin"
     assert cronjob["spec"]["schedule"] == "*/5 * * * *"
     assert cronjob["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"] == {
         "openlakeforge.io/job": "openmetadata-role-sync"
@@ -154,6 +175,11 @@ def test_manifests_carry_secret_references_not_values() -> None:
 
 def test_enterprise_host_selects_its_api_prefix() -> None:
     assert _role_sync.github_api("ghe.example.com") == "https://ghe.example.com/api/v3"
+
+
+@pytest.mark.parametrize("host", [None, "github.com"])
+def test_github_dot_com_uses_the_api_subdomain(host: str | None) -> None:
+    assert _role_sync.github_api(host) == "https://api.github.com"
 
 
 def _apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, identity, app_id: str | None) -> tuple[str, list[dict]]:  # noqa: ANN001

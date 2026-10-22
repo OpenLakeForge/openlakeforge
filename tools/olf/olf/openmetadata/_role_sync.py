@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from olf import github_app
 from olf.openmetadata._auth import AUTOMATION_JWT_KEY, AUTOMATION_SECRET
 from olf.profile import GitHubSpec
 
@@ -23,14 +24,16 @@ _SCRIPT_DIR = "/etc/olf/role-sync"
 
 
 def github_api(host: str | None) -> str:
-    return f"https://{host}/api/v3" if host else "https://api.github.com"
+    return github_app.api_base(host or "github.com")
 
 
 def _secret_env(name: str, secret: str, key: str) -> dict[str, Any]:
     return {"name": name, "valueFrom": {"secretKeyRef": {"name": secret, "key": key}}}
 
 
-def role_sync_manifests(github: GitHubSpec, *, image: str, namespace: str, om_url: str) -> list[dict[str, Any]]:
+def role_sync_manifests(
+    github: GitHubSpec, *, image: str, namespace: str, om_url: str, precedence: list[str]
+) -> list[dict[str, Any]]:
     labels = {"openlakeforge.io/job": NAME}
     meta = {"namespace": namespace, "labels": labels}
     app = github.oauth_app_secret_ref.name
@@ -43,6 +46,7 @@ def role_sync_manifests(github: GitHubSpec, *, image: str, namespace: str, om_ur
             {"name": "GITHUB_API", "value": github_api(github.host)},
             {"name": "GITHUB_ORG", "value": github.organization},
             {"name": "ROLE_TEAMS", "value": json.dumps({role: list(slugs) for role, slugs in github.teams.items()})},
+            {"name": "ROLE_PRECEDENCE", "value": json.dumps(precedence)},
             {"name": "OM_URL", "value": om_url},
             _secret_env("OM_JWT", AUTOMATION_SECRET, AUTOMATION_JWT_KEY),
             # Fixed key names `olf github connect` writes.
@@ -106,6 +110,9 @@ def apply_role_sync(namespace: str, *, om_url: str) -> str:
         return "no role sync: the GitHub Secret has no 'app-id' (a hand-made OAuth App); run 'olf github connect'"
     catalog = yaml.safe_load((config.distribution_root() / "release/component-catalog.yaml").read_text())
     image = catalog["components"]["images"]["openmetadata_ingestion"]
-    for manifest in role_sync_manifests(github, image=image, namespace=namespace, om_url=om_url):
+    roles = yaml.safe_load((config.distribution_root() / "release/identity-roles.yaml").read_text())
+    for manifest in role_sync_manifests(
+        github, image=image, namespace=namespace, om_url=om_url, precedence=list(roles["precedence"])
+    ):
         k8s.apply_manifest(manifest)
     return f"OpenMetadata roles sync from GitHub teams every 5 minutes ({NAME})"

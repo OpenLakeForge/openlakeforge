@@ -20,8 +20,6 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from typing import Any
 
-# Highest first (release/identity-roles.yaml); a member of several teams holds the highest.
-PRECEDENCE = ("platform-admin", "data-engineer", "analyst", "viewer")
 WRITE_ROLE = "DataSteward"
 # Never reconciled: the local admin has no credential under SSO, the bot is how this runs.
 PROTECTED = frozenset({"admin", "olf-automation"})
@@ -84,17 +82,25 @@ def _request(
 
 
 def team_roles(
-    api: str, token: str, org: str, teams: Mapping[str, list[str]], http: Http = _request
+    api: str, token: str, org: str, teams: Mapping[str, list[str]], precedence: list[str], http: Http = _request
 ) -> dict[str, str]:
-    """Lowercase GitHub login to its highest canonical role, over every mapped team."""
+    """Lowercase GitHub login to its highest canonical role, over every mapped team.
+
+    `precedence` is release/identity-roles.yaml, highest first: a member of several teams holds the highest.
+    """
     held: dict[str, str] = {}
-    for role in PRECEDENCE:
+    for role in precedence:
         for slug in teams.get(role, []):
+            # The members API includes child teams' people, which would grant them the parent's role. Raising
+            # here, before reconcile runs, changes nothing in OpenMetadata.
+            children, _ = http("GET", f"{api}/orgs/{org}/teams/{slug}/teams?per_page=1", token)
+            if children:
+                raise SystemExit(f"map direct teams only; {slug} has child teams")
             page = f"{api}/orgs/{org}/teams/{slug}/members?per_page=100"
             while page:
                 members, link = http("GET", page, token)
                 for member in members:
-                    held.setdefault(member["login"].lower(), role)  # PRECEDENCE order: first wins
+                    held.setdefault(member["login"].lower(), role)  # precedence order: first wins
                 page = next((part.split(";")[0].strip(" <>") for part in link.split(",") if 'rel="next"' in part), "")
     return held
 
@@ -138,7 +144,9 @@ def reconcile(om: str, token: str, held: Mapping[str, str], http: Http = _reques
 
 
 def main(environ: Mapping[str, str] = os.environ) -> None:
-    required = ("GITHUB_API", "GITHUB_ORG", "ROLE_TEAMS", "OM_URL", "OM_JWT", "APP_ID", "PRIVATE_KEY")
+    required = (
+        "GITHUB_API", "GITHUB_ORG", "ROLE_TEAMS", "ROLE_PRECEDENCE", "OM_URL", "OM_JWT", "APP_ID", "PRIVATE_KEY"
+    )
     missing = [key for key in required if not environ.get(key)]
     if missing:
         raise SystemExit(
@@ -147,7 +155,7 @@ def main(environ: Mapping[str, str] = os.environ) -> None:
         )
     api, org = environ["GITHUB_API"], environ["GITHUB_ORG"]
     github = installation_token(api, org, environ["APP_ID"], environ["PRIVATE_KEY"])
-    held = team_roles(api, github, org, json.loads(environ["ROLE_TEAMS"]))
+    held = team_roles(api, github, org, json.loads(environ["ROLE_TEAMS"]), json.loads(environ["ROLE_PRECEDENCE"]))
     changed = reconcile(environ["OM_URL"], environ["OM_JWT"], held)
     print(f"role sync: {len(held)} GitHub members mapped, {len(changed)} OpenMetadata users changed: {changed}")
 
