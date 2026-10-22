@@ -139,6 +139,32 @@ def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: p
     assert seen == [True]
 
 
+def test_the_replace_flag_is_in_the_process_environment_only_while_the_platform_applies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from olf.deployment import engine
+
+    seen: list[str | None] = []
+
+    class FakeEngine:
+        def __init__(self, _provider: object) -> None: ...
+
+        def deploy(self, _phase: object) -> None:
+            seen.append(os.environ.get("TF_CLI_ARGS_apply"))
+
+    monkeypatch.delenv("TF_CLI_ARGS_apply", raising=False)
+    monkeypatch.setattr(engine, "DeploymentEngine", FakeEngine)
+    monkeypatch.setattr(engine, "build_provider", lambda *a, **k: object())
+    monkeypatch.setattr(engine.Toolkit, "default", classmethod(lambda cls, **_: object()))
+
+    secrets_rotation.apply_platform(context(tmp_path), {"TF_CLI_ARGS_apply": "-replace=x"})
+
+    assert seen == ["-replace=x"]
+    assert "TF_CLI_ARGS_apply" not in os.environ
+
+
 def test_the_drill_skips_without_a_resolved_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
     from olf.e2e import _rotation
 

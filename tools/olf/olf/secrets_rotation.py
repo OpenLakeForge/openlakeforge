@@ -81,9 +81,20 @@ def secret_identity(kubectl: Any, context: Any, name: str) -> str | None:
 def apply_platform(context: Any, extra_env: Mapping[str, str]) -> None:
     from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
 
-    env = context.command_env(base={**os.environ, **extra_env})
+    env = context.command_env(base=os.environ)
     provider = build_provider(context, toolkit=Toolkit.default(environ=env), environ=env)
-    DeploymentEngine(provider).deploy(DeploymentPhase.PLATFORM)
+    # The provider hands Terraform only a scoped overlay, merged over the process environment, so a
+    # flag the plan must see (TF_CLI_ARGS_apply) has to be in the process environment itself.
+    saved = {key: os.environ.get(key) for key in extra_env}
+    os.environ.update(extra_env)
+    try:
+        DeploymentEngine(provider).deploy(DeploymentPhase.PLATFORM)
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def rotate_client(
