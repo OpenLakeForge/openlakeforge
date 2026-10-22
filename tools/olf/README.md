@@ -45,11 +45,49 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 ## Development
 
+You can change and test the `olf` CLI without deploying the platform or
+starting a Kubernetes cluster. The unit tests under `tools/olf/tests/` run
+locally. Not every integration test is offline, so check a test before
+assuming it is.
+
+Run every command from the repository root.
+
+1. Install dependencies:
+
 ```sh
-uv sync --project tools/olf
-uv run --project tools/olf pytest
-uv run --project tools/olf ruff check tools/olf
+   uv sync --project tools/olf
 ```
 
-Make is optional, deprecated checkout compatibility. Its targets are one-line
-delegates to the same commands and are not the supported product interface.
+2. While iterating, run only the test module for the code you changed. This
+   example covers `tools/olf/olf/deployment/cloud/config.py`:
+
+```sh
+   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py
+```
+
+   To list the tests in a module and run one of them:
+
+```sh
+   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py --collect-only -q
+   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py -k test_image_platform_env_var_is_scope_prefixed
+```
+
+3. Lint the file you touched:
+
+```sh
+   uv run --project tools/olf ruff check tools/olf/olf/deployment/cloud/config.py
+```
+
+4. Before opening a pull request, run all the gates from
+   [`AGENTS.md`](../../AGENTS.md):
+
+```sh
+   uv run --project tools/olf olf check all
+   uv run --project tools/olf ruff check tools/olf
+   uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf
+   uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
+```
+
+See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the path from a fresh clone
+to a pull request. [`AGENTS.md`](../../AGENTS.md) covers the architecture
+rules, commit style, and the one-change-per-pull-request rule.
