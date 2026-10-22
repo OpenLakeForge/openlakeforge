@@ -15,6 +15,7 @@ POLARIS_RESTART_TIMEOUT_SECONDS = 300
 # kindnet programs a new pod's policy asynchronously (ADR 0017 History), so a
 # restarted Polaris is briefly unreachable after it reports Ready.
 POLARIS_QUERY_RETRY_SECONDS = 60
+PROBE_SCHEMA = "zz_olf_e2e_probe"
 POLARIS_QUERY_RETRY_INTERVAL_SECONDS = 5
 
 def stage_catalog_name(cfg: E2EConfig) -> str:
@@ -184,17 +185,20 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
 
 
 def check_trino_write(cfg: E2EConfig) -> None:
-    """Create and drop a scratch Iceberg table through the long-lived Trino coordinator."""
+    """Append a row to a scratch Iceberg table through the long-lived Trino coordinator.
+
+    No DROP: Polaris refuses the purge Trino's DROP TABLE requests, and the scratch schema
+    keeps the table out of the Silver and Gold counts.
+    """
     catalog = stage_catalog_name(cfg)
-    schema = f"{_glue_namespace_prefix(cfg)}{sorted(cfg.inventory.gold_namespace_names)[0]}"
-    table = f"{catalog}.{schema}.zz_olf_e2e_restart_probe_do_not_use"
+    schema = f"{catalog}.{_glue_namespace_prefix(cfg)}{PROBE_SCHEMA}"
     try:
-        trino_query(cfg, f"DROP TABLE IF EXISTS {table}")
-        trino_query(cfg, f"CREATE TABLE {table} AS SELECT 1 AS probe")
-        trino_query(cfg, f"DROP TABLE {table}")
+        trino_query(cfg, f"CREATE SCHEMA IF NOT EXISTS {schema}")
+        trino_query(cfg, f"CREATE TABLE IF NOT EXISTS {schema}.probe (probe integer)")
+        trino_query(cfg, f"INSERT INTO {schema}.probe VALUES (1)")
     except E2EError as exc:
         # The CLI's own stderr does not survive `kubectl exec`; the coordinator log names the cause.
-        args = ["logs", "-n", cfg.platform_namespace, "deploy/trino-coordinator", "--tail=60"]
+        args = ["logs", "-n", cfg.platform_namespace, "deploy/trino-coordinator", "--tail=200"]
         tail = kubectl(cfg, args, capture=True)
         raise E2EError(f"{exc}\nTrino coordinator log tail:\n{tail}") from exc
 

@@ -162,14 +162,14 @@ def test_trino_query_uses_https_only_when_the_coordinator_serves_it(
         assert argv[argv.index("--truststore-path") + 1] == str(ca)
 
 
-def test_check_trino_write_creates_then_drops_a_scratch_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_check_trino_write_appends_without_dropping(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     sql: list[str] = []
     monkeypatch.setattr(_trino, "trino_query", lambda _cfg, statement: sql.append(statement) or "")
 
     _trino.check_trino_write(e2e_cfg(tmp_path))
 
-    assert [s.split(" ")[0] for s in sql] == ["DROP", "CREATE", "DROP"]
-    assert all("zz_olf_e2e_restart_probe_do_not_use" in s for s in sql)
+    assert [s.split(" ")[0] for s in sql] == ["CREATE", "CREATE", "INSERT"]
+    assert all("zz_olf_e2e_probe" in s for s in sql)
 
 
 def test_polaris_token_key_is_created_in_cluster_and_wired_by_name() -> None:
