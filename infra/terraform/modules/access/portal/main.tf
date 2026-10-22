@@ -26,6 +26,20 @@ locals {
     </body>
     </html>
   EOT
+
+  # Served outside the perimeter (ADR 0014 Logout): the perimeter cookie is
+  # gone, but the identity provider's own session is not touched.
+  signed_out_html = <<-EOT
+    <!doctype html>
+    <html lang="en">
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Signed out</title></head>
+    <body>
+    <h1>You are signed out of OpenLakeForge</h1>
+    <p>Your GitHub session is still active. Sign out of GitHub too on a shared browser.</p>
+    <p><a href="https://github.com/logout">Sign out of GitHub</a> | <a href="/">Sign in again</a></p>
+    </body>
+    </html>
+  EOT
 }
 
 resource "kubernetes_config_map_v1" "site" {
@@ -36,7 +50,8 @@ resource "kubernetes_config_map_v1" "site" {
   }
 
   data = {
-    "index.html" = local.index_html
+    "index.html"      = local.index_html
+    "signed-out.html" = local.signed_out_html
   }
 }
 
@@ -59,7 +74,7 @@ resource "kubernetes_deployment_v1" "portal" {
         labels = local.labels
         # A changed page rolls the pod; projected ConfigMaps refresh lazily.
         annotations = {
-          "openlakeforge.io/site-checksum" = sha256(local.index_html)
+          "openlakeforge.io/site-checksum" = sha256("${local.index_html}${local.signed_out_html}")
         }
       }
 

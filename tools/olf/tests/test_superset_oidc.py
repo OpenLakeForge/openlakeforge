@@ -21,7 +21,7 @@ DEX = {
     "analyst": ["acme:analysts"],
     "viewer": ["acme:viewers"],
 }
-SIGN_OUT = "https://oauth2.olf.localhost/oauth2/sign_out?rd=https%3A%2F%2Folf.localhost"
+SIGN_OUT = "https://oauth2.olf.localhost/oauth2/sign_out?rd=https%3A%2F%2Folf.localhost%2Fsigned-out.html"
 BARE = {role: [role] for role in DEX}
 
 
@@ -184,6 +184,17 @@ def test_logout_ends_the_perimeter_session_too(monkeypatch: pytest.MonkeyPatch) 
 
     assert type(manager).authoauthview().logout() == ("redirect", SIGN_OUT)
     assert session["olf_login_at"] is None  # FAB's own logout still ran first
+
+
+def test_logout_lands_on_a_signed_out_page_outside_the_perimeter() -> None:
+    contracts = (ROOT / "infra/terraform/environments/local/contracts.tf").read_text()
+    portal = (ROOT / "infra/terraform/modules/access/portal/main.tf").read_text()
+    route = contracts[contracts.index('"portal/signed-out"') :].split("}", 1)[0]
+    protected = contracts[contracts.index("perimeter_protected_refs =") :].split("\n", 1)[0]
+
+    assert 'group        = ""' in route and '"/signed-out.html"' in route
+    assert "signed-out" not in protected  # built from access_routes, which lacks it
+    assert "https://github.com/logout" in portal and '"signed-out.html"' in portal
 
 
 def test_the_login_page_goes_straight_to_the_only_provider(monkeypatch: pytest.MonkeyPatch) -> None:
