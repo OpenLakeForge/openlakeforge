@@ -44,10 +44,11 @@ def _wait_for_issuer(service: str, namespace: str, url: str) -> None:
 
 def _demote_local_admin(client: OpenMetadataClient) -> None:
     """The local admin has no login under SSO, but an issuer user named `admin` would resolve to it (OM-11)."""
-    if client.request("GET", "/api/v1/users/name/admin").get("isAdmin"):
+    user = client.request("GET", "/api/v1/users/name/admin")
+    if user.get("isAdmin"):
         client.request(
             "PATCH",
-            "/api/v1/users/name/admin",
+            f"/api/v1/users/{user['id']}",
             json_body=[{"op": "add", "path": "/isAdmin", "value": False}],
             content_type="application/json-patch+json",
         )

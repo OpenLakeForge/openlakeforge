@@ -23,7 +23,7 @@ DATA = {"config.json": json.dumps(CONFIG), "secret_name": "s", "secret_key": "k"
 class FakeClient:
     calls: list[tuple[str, str, Any]] = []
     current: dict[str, str] = {}
-    admin: dict[str, bool] = {"isAdmin": True}
+    admin: dict[str, bool] = {"id": "u1", "isAdmin": True}
 
     def __init__(self, _url: str, token: str) -> None:
         assert token == "jwt"
@@ -38,7 +38,7 @@ class FakeClient:
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state: dict[str, Any] = {"data": DATA, "probe": [True], "restarts": 0}
-    FakeClient.calls, FakeClient.current, FakeClient.admin = [], {}, {"isAdmin": True}
+    FakeClient.calls, FakeClient.current, FakeClient.admin = [], {}, {"id": "u1", "isAdmin": True}
 
     @contextmanager
     def service_url(*_a: Any, **_k: Any):  # noqa: ANN202
@@ -110,9 +110,9 @@ def test_configmap_data(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_the_local_admin_is_demoted_once(env: dict[str, Any]) -> None:
     run()
     patch = [c for c in FakeClient.calls if c[0] == "PATCH"]
-    assert patch == [("PATCH", "/api/v1/users/name/admin", [{"op": "add", "path": "/isAdmin", "value": False}])]
+    assert patch == [("PATCH", "/api/v1/users/u1", [{"op": "add", "path": "/isAdmin", "value": False}])]
     FakeClient.calls.clear()
-    FakeClient.admin = {"isAdmin": False}
+    FakeClient.admin = {"id": "u1", "isAdmin": False}
     env["probe"] = [True]
     run()
     assert not [c for c in FakeClient.calls if c[0] == "PATCH"]
