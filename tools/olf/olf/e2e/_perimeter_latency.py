@@ -29,8 +29,9 @@ CHARTS_PER_LOAD = 3
 # a forwardAuth hop is a loopback call to oauth2-proxy (a cookie decrypt, no
 # issuer round trip), so a healthy perimeter adds a few ms. These catch a
 # regression to a per-request issuer call or a sync token refresh, not jitter.
+# Only the median gates: with 20 samples the p95 is the single slowest load,
+# which a shared runner can spike on its own, so it is reported, not enforced.
 MAX_ADDED_MEDIAN_MS = 100.0
-MAX_ADDED_P95_MS = 250.0
 
 
 def summarize(seconds: Sequence[float]) -> tuple[float, float]:
@@ -41,10 +42,10 @@ def summarize(seconds: Sequence[float]) -> tuple[float, float]:
 
 def require_acceptable(direct: tuple[float, float], via: tuple[float, float]) -> tuple[float, float]:
     added_median, added_p95 = via[0] - direct[0], via[1] - direct[1]
-    if added_median > MAX_ADDED_MEDIAN_MS or added_p95 > MAX_ADDED_P95_MS:
+    if added_median > MAX_ADDED_MEDIAN_MS:
         raise E2EError(
-            f"the perimeter adds {added_median:.0f} ms (median) / {added_p95:.0f} ms (p95) to a dashboard load, "
-            f"over the {MAX_ADDED_MEDIAN_MS:.0f} / {MAX_ADDED_P95_MS:.0f} ms bound"
+            f"the perimeter adds {added_median:.0f} ms (median) to a dashboard load, "
+            f"over the {MAX_ADDED_MEDIAN_MS:.0f} ms bound (p95 {added_p95:.0f} ms, reported only)"
         )
     return added_median, added_p95
 
