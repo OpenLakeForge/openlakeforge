@@ -54,8 +54,10 @@ the Job and Deployment names in `modules/identity/dex`.
    made by the one-shot `oidc_secret` Job of its Superset module, which keeps
    the old value. To rotate `dex-client-superset`, also replace that Job in
    every stage (a `-replace` on `kubernetes_job_v1.oidc_secret` of each
-   `module.superset`) before restarting Superset. OpenMetadata and Trino are not
-   yet wired to their clients.
+   `module.superset`) before restarting Superset. Trino reads `dex-client-trino`
+   from the Secret at start, so restart its coordinator too (the Deployment
+   named `trino-coordinator`, in `olf-system`) when rotating that
+   client. OpenMetadata is not yet wired to its client.
 
 4. Confirm by signing in through the portal: the sign-in completes only when
    Dex and the consumer hold the same value.
