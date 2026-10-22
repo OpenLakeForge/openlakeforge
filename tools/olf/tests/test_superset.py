@@ -993,4 +993,6 @@ def test_a_password_contract_names_the_stage_secret_the_import_reads_and_never_t
 
     assert plain.credential_secret == ""
     assert password.credential_secret == "trino-credential"
-    assert password.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"
+    # Superset's placeholder keeps the password the import's `passwords` field sets.
+    assert password.sqlalchemy_uri == "trino://olf-dev-runtime:XXXXXXXXXX@trino.olf-system:8443/lakehouse_dev"
+    assert plain.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"

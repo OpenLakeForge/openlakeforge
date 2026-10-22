@@ -30,6 +30,7 @@ class ReportStageError(RuntimeError):
 
 # Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
 SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
+SUPERSET_PASSWORD_MASK = "XXXXXXXXXX"
 _TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
 # The placeholder a checked-in database YAML carries. `build_report_bundle`
 # replaces it with the target stage's connection, and `unpack_export_bundle`
@@ -108,7 +109,13 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     # read -- so none of it is trusted. Same shape `build_contract_env` uses.
     tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
     tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
-    sqlalchemy_uri = "trino://{user}@{host}:{port}/{catalog}".format(
+    credential_secret = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "") if tls else ""
+    # Superset's own placeholder, not a secret. The import's `passwords` field
+    # fills the real value, but Database.set_sqlalchemy_uri then overwrites it
+    # with the URI's password unless that is the placeholder (6.1.0), so a URI
+    # without one wipes the password and the import's first Trino call gets 401.
+    sqlalchemy_uri = "trino://{user}{mask}@{host}:{port}/{catalog}".format(
+        mask=f":{SUPERSET_PASSWORD_MASK}" if credential_secret else "",
         user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
         port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
@@ -120,7 +127,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
         extra=_TLS_EXTRA if tls else None,
-        credential_secret=environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "") if tls else "",
+        credential_secret=credential_secret,
     )
 
 
