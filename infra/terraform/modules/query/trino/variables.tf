@@ -168,6 +168,12 @@ variable "tls_issuer_name" {
   default     = null
 }
 
+variable "web_ui_fixed_user" {
+  description = "When set, the Web UI signs in as this user (web-ui.authentication.type=fixed) instead of showing its form. For a plain-HTTP route, where OAuth2 is unavailable."
+  type        = string
+  default     = null
+}
+
 variable "web_ui_oidc" {
   description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret, in this namespace). null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication tls or password."
   type = object({

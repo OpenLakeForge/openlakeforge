@@ -52,6 +52,7 @@ def settings(cfg: dict, client_secret: str) -> dict:
             }
         ],
         "OLF_ROLE_CLAIM": cfg["role_claim"],
+        "OLF_SIGN_OUT_URL": cfg["sign_out_url"],
         "AUTH_ROLES_MAPPING": roles_mapping(cfg["role_mapping"], cfg["grants"]),
         "AUTH_ROLES_SYNC_AT_LOGIN": True,
         "AUTH_USER_REGISTRATION": True,

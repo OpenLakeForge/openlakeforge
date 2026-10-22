@@ -109,12 +109,13 @@ variable "bootstrap_job_image" {
 }
 
 variable "oidc" {
-  description = "identity.oidc fields for this stage (ADR 0014): the issuer, role claim and mapping, the reporting grants of release/identity-roles.yaml, the scope to request, the superset client id, the client Secret reference and the namespace that holds it, and the ConfigMap with the CA that signs the issuer certificate. Null keeps the local Superset login."
+  description = "identity.oidc fields for this stage (ADR 0014): the issuer, role claim and mapping, the reporting grants of release/identity-roles.yaml, the scope to request, the perimeter sign-out URL that Logout redirects to, the superset client id, the client Secret reference and the namespace that holds it, and the ConfigMap with the CA that signs the issuer certificate. Null keeps the local Superset login."
   type = object({
     issuer_url        = string
     role_claim        = string
     role_mapping      = map(list(string))
     grants            = map(string)
+    sign_out_url      = string
     scope             = string
     client_id         = string
     secret_ref        = object({ name = string, key = string })

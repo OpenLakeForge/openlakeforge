@@ -85,6 +85,7 @@ here, not migrated. All are in the debt register
 | Polaris root client | `random_password` | `var.bootstrap_secret_name` | Yes |
 | Superset `SECRET_KEY` | `random_password` | Helm `extraSecretEnv` | Yes |
 | Superset admin and OpenMetadata admin | Literal default `admin` / `admin` (module variable defaults; the local root does not override them) | Helm values; `olf` reads `SUPERSET_ADMIN_PASSWORD` and `OPENMETADATA_ADMIN_PASSWORD` with the same defaults | Yes (a constant) |
+| Polaris token-signing key | Polaris module Job, in-cluster, create-if-absent | `<release>-token-broker` (`symmetric.key`) | No |
 | Polaris per-stage principals (Trino, Floe, OpenMetadata, deployer) | Polaris, written by its bootstrap Job | `trino_credentials_secret_name` and siblings in the catalog contract | No |
 | OpenMetadata ingestion-bot JWT | OpenMetadata, written by its bootstrap Job | `openmetadata-ingestion-bot`, replicated to governed stage namespaces | No |
 

@@ -404,6 +404,9 @@ module "trino" {
   stage_namespaces        = local.stage_namespaces
   workload_authentication = var.trino_workload_authentication
   tls_issuer_name         = try(module.cert_manager[0].cluster_issuer_name, null)
+  # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
+  # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
+  web_ui_fixed_user = local.route_tls ? null : "olf-web"
   # Trino refuses OAuth2 on a request that is not secure, so a plain-HTTP route
   # (`issuer: none`) keeps the UI's own login. Dex only: the module sets Dex's
   # endpoints rather than discovering them (modules/query/trino/oidc.tf).
@@ -511,6 +514,7 @@ module "superset" {
     role_claim        = local.identity_oidc.role_claim
     role_mapping      = local.identity_oidc.role_mapping
     grants            = local.identity_roles.grants.reporting
+    sign_out_url      = "${local.route_scheme}://${local.perimeter_callback_host}/oauth2/sign_out?rd=${urlencode("${local.route_scheme}://${local.base_domain}/signed-out.html")}"
     scope             = local.identity_scope
     client_id         = local.identity_oidc.clients.superset.client_id
     secret_ref        = local.identity_oidc.clients.superset.secret_ref
