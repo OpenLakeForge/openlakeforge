@@ -196,8 +196,12 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
 def _can_i(cfg: E2EConfig, subject: str, *args: str) -> bool:
     # `can-i` exits 1 on "no"; the answer, not the exit code, is the result.
     argv = ["auth", "can-i", f"--as={subject}", *args]
-    out = k8s._kubectl(argv, capture=True, check=False, kube_context=cfg.kube_context)
-    return out.strip() == "yes"
+    out = k8s._kubectl(argv, capture=True, check=False, kube_context=cfg.kube_context).strip()
+    answer = out.split(maxsplit=1)[0] if out else ""  # some versions print "no - <reason>"
+    if answer not in ("yes", "no"):
+        # An API, auth or impersonation error prints nothing on stdout; reading that as "no" would pass the check.
+        raise E2EError(f"kubectl auth can-i gave no answer for {subject} {' '.join(args)}: {out!r}")
+    return answer == "yes"
 
 
 def _service_accounts(cfg: E2EConfig) -> list[tuple[str, str]]:

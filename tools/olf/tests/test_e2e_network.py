@@ -1,8 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
+from olf.e2e import _network
 from olf.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_port
+from olf.e2e._shell import E2EError
 
 FLOWS = yaml.safe_load((Path(__file__).parents[3] / "release/network-flows.yaml").read_text())
 
@@ -34,3 +38,14 @@ def test_rbac_denials_exempt_only_documented_cluster_secret_readers() -> None:
 
 def test_stage_wide_backends_are_the_f6_f9_f10_f12_destinations() -> None:
     assert stage_wide(FLOWS) == {"postgresql", "polaris", "trino", "openmetadata"}
+
+
+@pytest.mark.parametrize(("stdout", "expected"), [("yes\n", True), ("no\n", False), ("no - RBAC: denied\n", False), ("", None), ("Error", None)])
+def test_can_i_fails_instead_of_reading_an_error_as_no(monkeypatch: pytest.MonkeyPatch, stdout: str, expected) -> None:  # noqa: ANN001
+    monkeypatch.setattr(_network.k8s, "_kubectl", lambda *_a, **_k: stdout)
+    cfg = SimpleNamespace(kube_context="kind-x")
+    if expected is None:
+        with pytest.raises(E2EError, match="no answer"):
+            _network._can_i(cfg, "system:serviceaccount:olf-dev:x", "list", "secrets")  # type: ignore[arg-type]
+    else:
+        assert _network._can_i(cfg, "system:serviceaccount:olf-dev:x", "list", "secrets") is expected  # type: ignore[arg-type]
