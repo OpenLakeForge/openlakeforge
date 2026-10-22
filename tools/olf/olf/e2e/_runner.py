@@ -29,6 +29,7 @@ from olf.e2e._ingress import (
     check_traefik_restart_recovery,
 )
 from olf.e2e._isolation import check_stage_isolation
+from olf.e2e._issuer_outage import check_issuer_outage
 from olf.e2e._layers import Layer, configured_layers
 from olf.e2e._network import check_network_and_rbac
 from olf.e2e._perimeter import check_perimeter
@@ -322,6 +323,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
         assertions.append(FullAssertion("recorded break-glass access", check_break_glass))
         assertions.append(FullAssertion("perimeter dashboard latency", check_perimeter_latency, layer="analytics"))
+        assertions.append(FullAssertion("issuer-outage recovery drill", check_issuer_outage))
     assertions.extend(
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
