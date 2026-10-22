@@ -40,10 +40,10 @@ in the design below:
   claim, which Dex does not always have.
 - **Admin mapping gap.** 1.13.6 has no claim-based admin mapping. The only
   claim-driven admin is `useRolesFromProvider` reading a claim named `roles`
-  whose value is `Admin`, which Dex cannot emit. `adminPrincipals` stays `admin`, a user no
-  token produces, so every sign-in starts at the read baseline until the role
-  sync grants more. A GitHub login named
-  `admin` would be an admin (OM-11); Dex admits only members of the mapped teams.
+  whose value is `Admin`, which Dex cannot emit. `adminPrincipals` is empty, and
+  `olf openmetadata deploy-metadata` clears `isAdmin` on the local `admin` user (kept, not deleted) after
+  every restart, so a GitHub login named `admin` resolves to it and stays at the read baseline (OM-11,
+  closed); every sign-in starts there until the role sync grants more.
 - **Not done.** Removing `spec.identity` from an install that already has SSO does
   not restore basic login (the stored provider stays); rebuild the metadata
   database. The Job removes the `Organization`
@@ -252,7 +252,7 @@ baseline only; `useRolesFromProvider` stays `false`.
 
 | Item | Target |
 | --- | --- |
-| `admin@open-metadata.org` / `admin` | Unusable under `custom-oidc` (**V**, finding 8). The `admin` principal stays in the database with no credential; set `initialAdmins` to a name the issuer cannot produce, because the principal is derived from claims and `initialAdmins` users are re-flagged admin on every start (**V** `UserUtil.createOrUpdateUser`; the exact claim derivation is **T**) |
+| `admin@open-metadata.org` / `admin` | Unusable under `custom-oidc` (**V**, finding 8). The `admin` user stays in the database with no credential and is demoted (`isAdmin` cleared by `deploy-metadata`); `adminPrincipals` is empty, because the principal is derived from claims and listed users are re-flagged admin on every start (**V** `UserUtil.createOrUpdateUser`; the exact claim derivation is **T**) |
 | Bot tokens | `publicKeys` keeps OpenMetadata's own JWKS URL beside the issuer's (**V** `MultiUrlJwkProvider`), so bot JWTs, which are signed by OpenMetadata, keep validating. `ingestion-bot` should keep working for Floe and Dagster (**T**, acceptance item of #25) |
 | `olf` and the bootstrap Job | Replace email and password login with a dedicated admin automation bot (`olf-automation`) whose JWT is stored in a Secret created in cluster if missing (#181). `IngestionBotPolicy` denies `EditDisplayName`, so `ingestion-bot` is not a drop-in (**V**). The bot exists only after OpenMetadata starts, and creating it needs an admin token, which basic login no longer provides. **Prerequisite (T):** OpenMetadata's own JWKS stays trusted, and the local values point `jwtTokenConfiguration` at `./conf/private_key.der`, files the image provides; if they are the image's shared defaults, anyone holding them can sign a token for any user, including this admin bot. Generate a per-deployment RSA keypair in cluster (#181) and mount it before the bot is made admin. **Decided (decision 6):** install with `provider: basic`, let the Job create the bot and Secret, then upgrade the release to `custom-oidc`. Sequencing on a fresh install is the main implementation risk (**T**) |
 | OpenMetadata to Superset | The service connection stores a Superset username and password; it moves to the Superset ingestion user above |
