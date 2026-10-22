@@ -56,6 +56,10 @@ resource "helm_release" "openmetadata" {
             }
             dbParams = "sslmode=${local.postgresql_ssl_mode}"
           }
+          fernetkey = {
+            secretRef = local.fernet_secret
+            secretKey = "fernet-key"
+          }
           pipelineServiceClientConfig = {
             k8s = {
               namespace = var.namespace
@@ -105,7 +109,74 @@ resource "helm_release" "openmetadata" {
 
   depends_on = [
     helm_release.openmetadata_deps,
+    kubernetes_job_v1.fernet_key,
   ]
+}
+
+# OpenMetadata encrypts the credentials it stores (the Trino password, ADR 0016)
+# with a Fernet key, and the chart's default is public. The key is created
+# in-cluster, only if missing, so Terraform never holds it (#181,
+# docs/architecture/identity-credentials.md) and a redeploy does not rotate it:
+# rotating would make every stored credential undecryptable. A Fernet key is 32
+# random bytes, url-safe base64 encoded.
+locals {
+  fernet_secret = "${var.release_name}-fernet-key"
+  fernet_script = <<-SH
+    if kubectl get secret "${local.fernet_secret}" -n "$NAMESPACE" >/dev/null 2>&1; then
+      echo "Secret ${local.fernet_secret} exists; keeping it"
+    else
+      kubectl create secret generic "${local.fernet_secret}" -n "$NAMESPACE" \
+        --from-literal=fernet-key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
+    fi
+  SH
+}
+
+resource "kubernetes_job_v1" "fernet_key" {
+  metadata {
+    name      = "openmetadata-fernet-key-${substr(sha256("${local.fernet_script}${var.bootstrap_job_image}"), 0, 10)}"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    backoff_limit = 3
+
+    template {
+      metadata {
+        labels = merge(local.labels, { "openlakeforge.io/job" = "openmetadata-fernet-key" })
+      }
+
+      spec {
+        restart_policy       = "Never"
+        service_account_name = kubernetes_service_account_v1.bootstrap.metadata[0].name
+
+        container {
+          name    = "fernet-key"
+          image   = var.bootstrap_job_image
+          command = ["/bin/sh", "-ec"]
+          args    = [local.fernet_script]
+
+          env {
+            name = "NAMESPACE"
+            value_from {
+              field_ref {
+                field_path = "metadata.namespace"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  wait_for_completion = true
+
+  timeouts {
+    create = "5m"
+    update = "5m"
+  }
+
+  depends_on = [kubernetes_role_binding_v1.bootstrap]
 }
 
 resource "terraform_data" "openmetadata_release_revision" {

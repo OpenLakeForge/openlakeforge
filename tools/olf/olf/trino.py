@@ -190,8 +190,14 @@ def run_sql(
     base = [kubectl, "--context", target.kube_context]
     run = runner or _subprocess_runner
     try:
-        password = decode_password(run([*base, *password_args(target)], "").stdout or "")
-        result = run([*base, *exec_args(target, sql, output_format=output_format)], f"{password}\n")
+        # Only a contract that names a credential has a password to send; an unauthenticated
+        # coordinator is queried with no Secret read and no stdin.
+        password = ""
+        stdin = ""
+        if os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
+            password = decode_password(run([*base, *password_args(target)], "").stdout or "")
+            stdin = f"{password}\n"
+        result = run([*base, *exec_args(target, sql, output_format=output_format)], stdin)
     except OSError as exc:
         raise TrinoQueryError(f"could not run kubectl: {exc}") from exc
     if result.returncode != 0:

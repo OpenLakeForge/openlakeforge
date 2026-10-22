@@ -571,11 +571,16 @@ def _parse_stage(
         required={"service_ref", "catalog_ref", "catalog_name", "endpoint", "runtime_identity_ref"},
         optional={"tls_port", "ca_configmap_name", "credential_secret_name"},
     )
-    if "credential_secret_name" in query and not ("tls_port" in query and "ca_configmap_name" in query):
-        raise ProviderContractError(
-            f"stages.{name.value}.query.credential_secret_name requires tls_port and ca_configmap_name: "
-            "a password must not be sent over plain HTTP"
-        )
+    if "credential_secret_name" in query:
+        if not is_secret_name(query["credential_secret_name"]):
+            raise ProviderContractError(
+                f"stages.{name.value}.query.credential_secret_name is not a valid Kubernetes Secret name"
+            )
+        if not ("tls_port" in query and "ca_configmap_name" in query):
+            raise ProviderContractError(
+                f"stages.{name.value}.query.credential_secret_name requires tls_port and ca_configmap_name: "
+                "a password must not be sent over plain HTTP"
+            )
     _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
     _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
     if query["service_ref"] not in shared_refs:

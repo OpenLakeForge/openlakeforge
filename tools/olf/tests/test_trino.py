@@ -70,8 +70,25 @@ def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
     assert all(command[:3] == ["kubectl", "--context", "kind-openlakeforge-local"] for command in seen)
 
 
-def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv() -> None:
+def test_run_sql_reads_no_secret_and_sends_no_stdin_without_a_named_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    calls: list[tuple[list[str], str]] = []
+
+    def runner(command, stdin):  # noqa: ANN001, ANN202
+        calls.append((list(command), stdin))
+        return subprocess.CompletedProcess(command, 0, stdout="1\n", stderr="")
+
+    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
+
+    ((query, stdin),) = calls
+    assert "get" not in query
+    assert stdin == ""
+
+
+def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv(monkeypatch: pytest.MonkeyPatch) -> None:
     import base64
+
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
 
     calls: list[tuple[list[str], str]] = []
 

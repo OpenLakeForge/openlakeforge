@@ -21,8 +21,9 @@ openmetadata:
       port: 8585
       adminPort: 8586
 
-    fernetkey:
-      value: "jJ/9sz0g0OHxsfxOoSfdFdmk3ysNmPRnH3TUAbz3IHA="
+    # fernetkey secretRef/secretKey injected by Terraform yamlencode override
+    # (a Job-created per-deployment Secret; the chart's public default key is
+    # never used).
 
     authentication:
       enabled: true
