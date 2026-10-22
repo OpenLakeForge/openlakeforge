@@ -48,6 +48,7 @@ workloads:
   governance-bootstrap: {openlakeforge.io/job: governance-bootstrap}
   governance-credential-replication: {openlakeforge.io/job: governance-credential-replication}
   openmetadata-trino-ingestion: {openlakeforge.io/job: openmetadata-trino-ingestion}
+  openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
   - id: F3
     from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
@@ -213,10 +214,10 @@ flows:
     ports: [8443, 8000] # OpenMetadata's and the Trino Web UI's OIDC calls to the issuer's public URL (discovery, token, keys), rewritten to Traefik: websecure, or web with issuer none (Trino's UI is HTTPS only)
     tag: T # needs a sign-in on a running cluster
   - id: F13
-    from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
+    from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}]
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
-    tag: T # openmetadata-trino-ingestion: the OLF-owned Job (#410)
+    tag: T # openmetadata-trino-ingestion and openmetadata-role-sync: the OLF-owned CronJobs (#410, #25)
   - id: F13
     from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
@@ -247,3 +248,8 @@ flows:
     to: {scope: shared, pods: {openlakeforge.io/e2e: github-stub}}
     ports: [8443] # the stub serves 8443 behind a Service on 443; F28 excludes the pod and Service ranges
     tag: T # the stub GitHub Enterprise pod of the Dex e2e (#405); the e2e sets the label
+  - id: F30
+    from: {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}
+    to: {scope: any}
+    ports: [443]
+    tag: T # api.github.com (or the Enterprise host) every 5 min; NetworkPolicy cannot name a host

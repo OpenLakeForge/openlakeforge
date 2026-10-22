@@ -9,6 +9,7 @@ import typer
 from olf import config
 from olf.commands._shared import fail, log_step
 from olf.openmetadata._ingestion import run_trino_ingestion
+from olf.profile import DeploymentProfileError
 from olf.project import ProjectSpec
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
@@ -44,6 +45,7 @@ def deploy_openmetadata_metadata() -> None:
     from olf import access, k8s
     from olf import openmetadata as om
     from olf.openmetadata._auth import automation_token
+    from olf.openmetadata._role_sync import apply_role_sync
     from olf.openmetadata._sso import apply_sso
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
@@ -62,6 +64,10 @@ def deploy_openmetadata_metadata() -> None:
     try:
         apply_sso(namespace, service=service, remote_port=remote_port, log_path=log_path)
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    try:
+        log_step(apply_role_sync(namespace, om_url=f"http://{service}:{remote_port}"))
+    except (k8s.KubectlError, DeploymentProfileError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     with access.service_url(
         "shared/governance_service",

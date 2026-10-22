@@ -7,7 +7,7 @@ service meets the session policy in
 [`identity-sessions-and-recovery.md`](identity-sessions-and-recovery.md).
 The Superset sign-in is built (#25 slice a: issuer client, role mapping,
 registration role, 15 min bound). The OpenMetadata sign-in is built too (below);
-its role sync is not. No cluster was available for either, so every runtime
+its role sync is built too (below). No cluster was available for either, so every runtime
 claim stays marked.
 
 OpenMetadata sign-in as built (#25 slice b), with what reading 1.13.6 changed
@@ -40,13 +40,13 @@ in the design below:
   claim, which Dex does not always have.
 - **Admin mapping gap.** 1.13.6 has no claim-based admin mapping. The only
   claim-driven admin is `useRolesFromProvider` reading a claim named `roles`
-  whose value is `Admin`, which Dex cannot emit. Until `sync-roles` lands nobody
-  who signs in is an admin: `adminPrincipals` stays `admin`, a user no
-  token produces, so every sign-in is the read baseline. A GitHub login named
+  whose value is `Admin`, which Dex cannot emit. `adminPrincipals` stays `admin`, a user no
+  token produces, so every sign-in starts at the read baseline until the role
+  sync grants more. A GitHub login named
   `admin` would be an admin (OM-11); Dex admits only members of the mapped teams.
 - **Not done.** Removing `spec.identity` from an install that already has SSO does
   not restore basic login (the stored provider stays); rebuild the metadata
-  database. `sync-roles` is the next slice. The Job removes the `Organization`
+  database. The Job removes the `Organization`
   default roles and `NoOwner-Rule` before it enables SSO (OM-12); the payloads are
   unverified at runtime.
 
@@ -234,18 +234,19 @@ assets keeps full control of them until ownership is reassigned (decision 4).
 | Team claim mapping | Adds team membership, never removes it (**V** `assignTeamsFromClaim`), and `conf/openmetadata.yaml` exposes no setting for the claim name |
 | `defaultOAuthRole` | Applies once, to a new user (**V**); the chart does not expose it |
 
-**Proposed: OpenMetadata authenticates through the issuer and `olf` assigns
-roles.** The browser flow creates the user at first login
+**As built (#25): OpenMetadata authenticates through the issuer and a CronJob
+assigns roles.** The browser flow creates the user at first login
 (`enableSelfSignup: true` is required, **V** `getOrCreateOidcUser`) with the
-baseline only; `useRolesFromProvider` stays `false`. `olf` owns the grant:
+baseline only; `useRolesFromProvider` stays `false`.
 
 | Step | Detail |
 | --- | --- |
-| Command | `olf openmetadata sync-roles [--user]`: for each issuer user, set `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer`. **Reopened by [ADR 0018](../adr/0018-github-is-the-forge.md):** the canonical role was read from the (since removed) Keycloak admin API; reading the mapped GitHub teams' members is the candidate source, decided with the Dex adapter |
-| Called by | `olf deploy`; `olf e2e run`; creating the OpenMetadata user first if it has never logged in (login finds an existing user by name, **V**) |
-| Identity | The class-2 OpenMetadata automation bot below, over the RBAC-authorized port-forward |
-| Gap | Every role change is now a GitHub team change (ADR 0018), so a changed role reaches OpenMetadata only at the next `sync-roles`. This is the normal path, not an exception (test OM-7); a scheduled run is therefore required, not a follow-up (decision 2) |
-| External issuer | OIDC alone does not enumerate users, so `sync-roles` only runs per user: `--user <name> --role <canonical>`, invoked by the operator. Otherwise `platform-admin` and `data-engineer` users of such an issuer stay at the read baseline. External-issuer runtime parity is outside v0.5 qualification (#25) |
+| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf openmetadata deploy-metadata` (design and image choice in ADR 0014, "User and role administration"). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
+| Source | the members of the mapped GitHub teams, read with the GitHub App's installation token; the join key is the lower-cased `login` |
+| Identity | the class-2 OpenMetadata automation bot, over the in-cluster Service |
+| Gap | A role change in GitHub reaches OpenMetadata at the next run, at most 5 minutes plus the run (test OM-7); this is the normal path, not an exception |
+| External issuer, authentication off | no sync. OIDC alone does not enumerate users, so `platform-admin` and `data-engineer` users of an `external` issuer stay at the read baseline. Parity is outside v0.5 qualification (#25) |
+| Observe | `kubectl -n olf-system get cronjob openmetadata-role-sync`; the last Job's log lists the logins changed, never a token |
 
 ### Local administrator and automation (class 2)
 
@@ -277,7 +278,7 @@ Bounds for OpenMetadata: **disable** or session end: the next refresh at the
 issuer is refused, and the ID token (5 min) and perimeter (5 min) expire first,
 so at most 5 min. **T**: that Dex refuses the refresh for a user no longer in a
 mapped team and that its refresh response includes `id_token` (the perimeter side was measured, see `identity-sessions-and-recovery.md`). Role **change**: bounded by
-`sync-roles`, not by the session (above). This is the documented exception to the 15 min native bound, and the
+the role sync, not by the session (above). This is the documented exception to the 15 min native bound, and the
 reason is that authorization lives in the OpenMetadata database, not in the
 token.
 
@@ -305,9 +306,9 @@ status (2xx or 403).
 | OM-2 | viewer, analyst | Edit description, tags, tier; set owner on an unowned asset | Deny each (proves baseline change 1 and 2) |
 | OM-3 | data-engineer | Edit description, tags, owner, lineage; create a service; create a role | Allow, allow, allow, allow, deny, deny |
 | OM-4 | platform-admin | Create a role; read a setting | Allow |
-| OM-5 | platform-admin moved to an `analyst` team, then `sync-roles` | Admin-only call, immediately and after 15 min | Deny both |
-| OM-6 | data-engineer moved to a `viewer` team, then `sync-roles` | Edit a description | Deny, with no new login |
-| OM-7 | Role changed in GitHub, before `sync-roles` runs | Read the user's OpenMetadata roles before and after `olf openmetadata sync-roles` | Stale before, correct after; exposure recorded |
+| OM-5 | platform-admin moved to an `analyst` team, then the role sync | Admin-only call, immediately and after 15 min | Deny both |
+| OM-6 | data-engineer moved to a `viewer` team, then the role sync | Edit a description | Deny, with no new login |
+| OM-7 | Role changed in GitHub, before the role sync runs | Read the user's OpenMetadata roles before and after the role sync | Stale before, correct after; exposure recorded |
 | OM-8 | User disabled | Any call after the ID token expires | Refused within 5 min; refresh logged as refused |
 | OM-9 | Anyone | `POST /api/v1/users/login` with `admin@open-metadata.org` / `admin` | 403 |
 | OM-10 | Automation | `olf openmetadata deploy-metadata`, bootstrap Job, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
@@ -321,7 +322,7 @@ Maintainer decisions for v0.5-alpha.
 1. **SQL Lab is Admin-only.** `sql_lab` is not added to `data-engineer`;
    `release/identity-roles.yaml` and ADR 0014 stay unchanged. Revisit through
    the matrix in a later milestone.
-2. **`olf` assigns OpenMetadata roles.** `olf openmetadata sync-roles`, run by
+2. **`olf` assigns OpenMetadata roles.** the role sync, run by
    deploy and e2e. With roles in GitHub (ADR 0018) there is no `olf` command at
    the moment of a change, so a scheduled in-cluster run is needed to bound how
    long a changed role is stale (OM-7); its interval and the GitHub credential
