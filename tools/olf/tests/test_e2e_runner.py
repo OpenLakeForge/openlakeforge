@@ -225,7 +225,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
         "break-glass",
         "artifacts", "isolation", "exposure",
     ]
-    assert "Skipped e2e assertions: perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets" in messages
+    skipped = "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets"
+    assert f"Skipped e2e assertions: {skipped}" in messages
 
 
 def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

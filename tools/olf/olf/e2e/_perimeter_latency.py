@@ -12,6 +12,7 @@ import secrets
 import statistics
 import time
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from typing import Any
 
 import requests
 
@@ -60,15 +61,34 @@ def _timed_loads(load: Callable[[], None]) -> list[float]:
 
 
 def _dashboard_load(
-    base: str, slug: str, chart_ids: Sequence[int], headers: Mapping[str, str], cookies: MutableMapping[str, str]
+    base: str,
+    slug: str,
+    datasets: Sequence[Mapping[str, Any]],
+    headers: Mapping[str, str],
+    cookies: MutableMapping[str, str],
 ) -> Callable[[], None]:
     session = requests.Session()  # keep-alive, as a browser has
+    session.cookies.update(cookies)
+    csrf = session.get(f"{base}/api/v1/security/csrf_token/", headers=headers, timeout=REQUEST_TIMEOUT)
+    csrf.raise_for_status()
+    post_headers = {**headers, "X-CSRFToken": csrf.json()["result"], "Referer": base}
 
     def load() -> None:
-        for path in [f"/api/v1/dashboard/{slug}", *(f"/api/v1/chart/{i}/data/" for i in chart_ids)]:
-            reply = session.get(f"{base}{path}", headers=headers, cookies=cookies, timeout=REQUEST_TIMEOUT)
+        replies = [session.get(f"{base}/api/v1/dashboard/{slug}", headers=headers, timeout=REQUEST_TIMEOUT)]
+        for dataset in datasets:
+            # Imported charts carry no saved query context, so each is queried as a count over its dataset.
+            body = {
+                "datasource": dataset,
+                "queries": [{"metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "count"}]}],
+                "result_format": "json",
+                "result_type": "full",
+            }
+            replies.append(
+                session.post(f"{base}/api/v1/chart/data", json=body, headers=post_headers, timeout=REQUEST_TIMEOUT)
+            )
+        for reply in replies:
             if reply.status_code >= 400:
-                raise E2EError(f"{base}{path}: HTTP {reply.status_code} while measuring latency")
+                raise E2EError(f"{reply.url}: HTTP {reply.status_code} {reply.text[:200]} while measuring latency")
 
     return load
 
@@ -126,8 +146,13 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
         slug = str(dashboards["result"][0]["id"])
         charts = requests.get(f"{direct_url}/api/v1/dashboard/{slug}/charts", headers=headers, timeout=REQUEST_TIMEOUT)
         chart_ids = [c["id"] for c in charts.json()["result"]][:CHARTS_PER_LOAD]
-        direct = summarize(_timed_loads(_dashboard_load(direct_url, slug, chart_ids, headers, {})))
-        via = summarize(_timed_loads(_dashboard_load(routes[ref], slug, chart_ids, headers, cookies)))
+        datasets = []
+        for chart_id in chart_ids:
+            chart = requests.get(f"{direct_url}/api/v1/chart/{chart_id}", headers=headers, timeout=REQUEST_TIMEOUT)
+            result = chart.json()["result"]
+            datasets.append({"id": result["datasource_id"], "type": result["datasource_type"]})
+        direct = summarize(_timed_loads(_dashboard_load(direct_url, slug, datasets, headers, {})))
+        via = summarize(_timed_loads(_dashboard_load(routes[ref], slug, datasets, headers, cookies)))
     added = require_acceptable(direct, via)
     log.info(
         f"Dashboard load ({len(chart_ids)} charts, {SAMPLES} samples): direct {direct[0]:.0f}/{direct[1]:.0f} ms, "
