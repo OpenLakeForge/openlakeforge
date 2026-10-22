@@ -109,10 +109,21 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     def signed_in() -> bool:
         try:
             browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            log.info(f"Drill sign-in failed: {exc}")
             return False
         session = [c for c in browser.cookies if c.name.startswith("_oauth2_proxy") and "csrf" not in c.name]
+        if landing.status_code >= 400 or not session:
+            log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}, session cookies {len(session)}")
         return landing.status_code < 400 and bool(session)
+
+    def logs_of_failure() -> None:
+        for target in ("-l=openlakeforge.io/workload=oauth2-proxy", "deploy/dex"):
+            args = ["logs", "-n", namespace, target, "--tail=20", "--prefix"]
+            try:
+                log.info(kubectl(cfg, args, capture=True))
+            except E2EError as exc:
+                log.info(str(exc))
 
     with tempfile.TemporaryDirectory() as scratch:
         ca = Path(scratch) / "ca.crt"
@@ -130,14 +141,18 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             return break_glass.recent(cluster.kubectl, namespace, limit=20, context=cfg.kube_context) or []
 
         with github_stub(cfg, {login: team}):
-            timings = run_drill(
-                scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
-                wait_dex=wait_dex,
-                signed_in=signed_in,
-                reach=reach,
-                records=records,
-                replicas=replicas,
-            )
+            try:
+                timings = run_drill(
+                    scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
+                    wait_dex=wait_dex,
+                    signed_in=signed_in,
+                    reach=reach,
+                    records=records,
+                    replicas=replicas,
+                )
+            except E2EError:
+                logs_of_failure()
+                raise
     log.info(
         f"Issuer-outage drill: first break-glass answer {timings.outage_to_break_glass_seconds:.0f}s after "
         f"Dex was down; sign-in worked {timings.restore_to_sign_in_seconds:.0f}s after Dex was Ready again."
