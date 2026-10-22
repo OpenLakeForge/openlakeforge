@@ -9,6 +9,7 @@ docs/architecture/identity-sessions-and-recovery.md.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import time
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import requests
 
-from olf import break_glass, log
+from olf import access, break_glass, config, log
 from olf.deployment.engine import Toolkit
 from olf.e2e._identity_github import dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
@@ -82,6 +83,9 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     if not (contracts["shared"]["access"].get("perimeter") or {}).get("enabled") or identity.get("adapter") != "dex":
         log.info("Skipping the issuer-outage drill: it needs the Dex adapter behind an enabled perimeter.")
         return
+    if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
+        log.info("Skipping the issuer-outage drill: OLF_PORT_FORWARD bypasses the ingress it signs in through.")
+        return
     if not dex_points_at_stub(cfg):
         log.info("Skipping the issuer-outage drill: Dex does not point at the GitHub stub.")
         return
@@ -109,6 +113,8 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     def signed_in() -> bool:
         try:
             browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))
+        except requests.exceptions.SSLError:
+            raise  # a broken trust setup must not read as "Dex is down"
         except requests.RequestException as exc:
             log.info(f"Drill sign-in failed: {exc}")
             return False
@@ -140,7 +146,20 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
         def records() -> list[dict[str, str]]:
             return break_glass.recent(cluster.kubectl, namespace, limit=20, context=cfg.kube_context) or []
 
-        with github_stub(cfg, {login: team}):
+        # Trusts the local CA and pins the ingress hostnames for the sign-in; its URL is unused.
+        with (
+            access.service_url(
+                "shared/portal",
+                service="portal",
+                remote_port=80,
+                namespace=namespace,
+                log_path=f"/tmp/openlakeforge-{cfg.env}-outage-port-forward.log",
+                shared_namespace=namespace,
+                kube_context=cfg.kube_context,
+                through_ingress=True,
+            ),
+            github_stub(cfg, {login: team}),
+        ):
             try:
                 timings = run_drill(
                     scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
