@@ -12,8 +12,8 @@
 # See docs/guides/cloud/deploy-to-aws.md for the full walkthrough.
 
 # NOTE: the cluster name is NOT set here. It comes from the AWS_CLUSTER_NAME
-# environment variable (olf defaults it to a "limited-"-prefixed name for
-# sandbox IAM guardrails) so it stays in sync with the kube context and kubeconfig
+# environment variable (default `eks-openlakeforge`, or the name an existing
+# foundation already records) so it stays in sync with the kube context and kubeconfig
 # alias the tooling derives from it. Set AWS_CLUSTER_NAME to change it; a value put
 # here would be overridden by the -var olf passes.
 

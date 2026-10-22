@@ -15,6 +15,7 @@ from pathlib import Path
 from openlakeforge_domain import inventory_for
 
 from olf import log
+from olf.deployment.cloud.cluster_name import aws_cluster_name
 from olf.e2e._artifacts import check_ops_artifacts
 from olf.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
 from olf.e2e._dagster import launch_and_poll_dagster_jobs
@@ -159,7 +160,7 @@ def prepare_config(
             seaweedfs_local_port=int(os.environ.get("SEAWEEDFS_LOCAL_PORT", "19000")),
         )
     if env == "aws":
-        cluster_name = os.environ.get("AWS_CLUSTER_NAME", "limited-eks-openlakeforge-poc")
+        cluster_name = aws_cluster_name(os.environ)
         return E2EConfig(
             env=env,
             suite=actual_suite,

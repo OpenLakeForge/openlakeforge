@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -95,7 +96,7 @@ def test_foundation_apply_and_destroy_variables_are_identical_and_wrap_bare_inst
     destroy_vars = backend.foundation_destroy_variables(config, {})
 
     assert apply_vars == destroy_vars
-    assert apply_vars["cluster_name"] == "limited-eks-openlakeforge-poc"
+    assert apply_vars["cluster_name"] == "eks-openlakeforge"
     assert apply_vars["aws_region"] == "eu-west-1"
     assert apply_vars["node_instance_types"] == '["m7i.large"]'
 
@@ -377,3 +378,15 @@ def test_preflight_wraps_sts_failure() -> None:
 
     with pytest.raises(DeploymentPreconditionError, match="not authenticated"):
         backend.preflight(tools, env={})
+
+
+def test_foundation_variables_keep_the_cluster_an_existing_foundation_recorded(tmp_path: Path) -> None:
+    """Upgrading must not rename, and so replace, a cluster created under the old default."""
+    config = _config(tmp_path)
+    state = config.paths.foundation_state_path
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"outputs": {"cluster_name": {"value": "limited-eks-openlakeforge-poc"}}}))
+
+    apply_vars = AwsBackend().foundation_apply_variables(config, {})
+
+    assert apply_vars["cluster_name"] == "limited-eks-openlakeforge-poc"

@@ -5,7 +5,7 @@ variable "aws_region" {
 }
 
 variable "cluster_name" {
-  description = "EKS cluster name. Sandbox/account-specific naming (e.g. the required limited- prefix) is supplied via a .tfvars file, not hardcoded here."
+  description = "EKS cluster name. olf always passes it, from AWS_CLUSTER_NAME, the name the existing state records, or eks-openlakeforge."
   type        = string
   default     = "eks-openlakeforge-poc"
 }
