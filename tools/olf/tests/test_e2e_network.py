@@ -40,8 +40,13 @@ def test_stage_wide_backends_are_the_f6_f9_f10_f12_destinations() -> None:
     assert stage_wide(FLOWS) == {"postgresql", "polaris", "trino", "openmetadata"}
 
 
-@pytest.mark.parametrize(("stdout", "expected"), [("yes\n", True), ("no\n", False), ("no - RBAC: denied\n", False), ("", None), ("Error", None)])
-def test_can_i_fails_instead_of_reading_an_error_as_no(monkeypatch: pytest.MonkeyPatch, stdout: str, expected) -> None:  # noqa: ANN001
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [("yes\n", True), ("no\n", False), ("no - RBAC: denied\n", False), ("", None), ("Error", None)],
+)
+def test_can_i_fails_instead_of_reading_an_error_as_no(
+    monkeypatch: pytest.MonkeyPatch, stdout: str, expected: bool | None
+) -> None:
     monkeypatch.setattr(_network.k8s, "_kubectl", lambda *_a, **_k: stdout)
     cfg = SimpleNamespace(kube_context="kind-x")
     if expected is None:
