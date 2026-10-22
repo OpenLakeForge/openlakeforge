@@ -30,18 +30,39 @@ sections:
       - docs/tutorial/10-deploy-to-the-cloud.md
   - label: Guides
     items:
+      - docs/guides/install-options.md
+      - docs/guides/local-access.md
       - docs/setup/github-oauth-app.md
       - docs/setup/identity-secret-rotation.md
+      - docs/guides/add-a-source.md
+      - docs/guides/add-a-resource.md
+      - docs/guides/add-a-domain.md
+      - docs/guides/add-a-gold-model.md
+      - docs/guides/dashboards-as-code.md
+      - docs/guides/ownership-identities.md
       - docs/reference/ci-cd.md
+      - docs/guides/promote-dev-to-prod.md
       - docs/setup/cloud-poc-setup.md
+      - docs/guides/cloud/prepare-a-cloud-account.md
+      - docs/guides/cloud/deploy-to-aws.md
+      - docs/guides/cloud/deploy-to-azure.md
       - docs/setup/aws.md
       - docs/setup/azure.md
+      - docs/guides/status-and-diagnostics.md
+      - docs/guides/troubleshooting.md
+      - docs/guides/tear-down.md
   - label: Reference
     items:
+      - docs/reference/deployment-profile.md
       - { path: tools/olf/README.md, slug: reference/cli, title: olf CLI }
+      - docs/reference/lakehouse-descriptor.md
+      - docs/reference/source-descriptor.md
       - docs/reference/domain-descriptor.md
-      - docs/release/component-catalog.md
-      - docs/release/compatibility-matrix.md
+      - docs/reference/component-catalog.md
+      - docs/reference/compatibility-matrix.md
+      - docs/reference/services-and-routes.md
+      - docs/reference/components.md
+      - docs/reference/glossary.md
   - label: Architecture
     items:
       - docs/architecture/README.md

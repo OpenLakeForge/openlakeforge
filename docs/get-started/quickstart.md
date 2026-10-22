@@ -97,6 +97,12 @@ The suite launches every example product's job and checks that each Silver
 and Gold table exists, then queries every Gold mart through Trino and expects
 rows. It ends without an error when the platform works end to end.
 
+To see the Gold rows yourself, query them through Trino:
+
+```bash
+olf query "SELECT * FROM order_revenue_gold.mart_order_revenue_by_day LIMIT 10"
+```
+
 ## Tear down
 
 ```bash

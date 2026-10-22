@@ -195,3 +195,5 @@ def _prefetch_one_image(
         )
         if archive_image != image:
             tools.docker.exec_(node, ["crictl", "pull", image], env=env)
+    # Every node holds its own copy now; keeping the archive until the run ends doubled the disk use.
+    archive.unlink(missing_ok=True)

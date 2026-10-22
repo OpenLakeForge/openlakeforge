@@ -224,3 +224,20 @@ def test_full_identity_selection_matches_the_catalog_pins() -> None:
         prefetch.archive_reference(prefetch._OPENMETADATA_SERVER_IMAGE),
         prefetch.archive_reference(prefetch._FLOE_IMAGE),
     }
+
+
+def test_prefetch_deletes_each_archive_once_every_node_loaded_it(tmp_path: Path) -> None:
+    # The archives used to stay in the scratch dir until the run ended, which filled CI runners.
+    config = _config(tmp_path, profile=Profile.SLIM)
+    tools = _toolkit(_ScriptedRunner(image_already_present=set()))
+    real_save = tools.docker.save
+
+    def save(image: str, *, output_path: Path, env=None):  # noqa: ANN001, ANN202
+        output_path.write_bytes(b"archive")
+        return real_save(image, output_path=output_path, env=env)
+
+    tools.docker.save = save  # type: ignore[method-assign]
+    scratch = tmp_path / "scratch"
+    prefetch.prefetch_images(config, tools, env={}, work_dir=scratch)
+
+    assert list(scratch.iterdir()) == []
