@@ -88,5 +88,6 @@ Run every command from the repository root.
    uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
 ```
 
-`AGENTS.md` is the contribution guide until a `CONTRIBUTING.md` exists. It
-also covers commit style and the one-change-per-pull-request rule.
+See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the path from a fresh clone
+to a pull request. [`AGENTS.md`](../../AGENTS.md) covers the architecture
+rules, commit style, and the one-change-per-pull-request rule.
