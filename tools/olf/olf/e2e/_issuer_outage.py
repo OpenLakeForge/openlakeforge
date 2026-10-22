@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
@@ -118,10 +119,12 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
         except requests.RequestException as exc:
             log.info(f"Drill sign-in failed: {exc}")
             return False
-        session = [c for c in browser.cookies if c.name.startswith("_oauth2_proxy") and "csrf" not in c.name]
-        if landing.status_code >= 400 or not session:
-            log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}, session cookies {len(session)}")
-        return landing.status_code < 400 and bool(session)
+        # The walk ends on the portal once signed in, and on the issuer's own page when it cannot sign in.
+        # (The session cookie is not read: it is scoped to the parent domain and the jar does not keep it.)
+        ok = landing.status_code < 400 and urlsplit(landing.url).hostname == urlsplit(portal).hostname
+        if not ok:
+            log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}")
+        return ok
 
     def logs_of_failure() -> None:
         for target in ("-l=openlakeforge.io/workload=oauth2-proxy", "deploy/dex"):
