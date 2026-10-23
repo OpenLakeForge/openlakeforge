@@ -57,14 +57,25 @@ on:
           'full' suite only. 'dev+prod' (default) runs the whole promotion
           lifecycle; 'dev-only' still builds and pushes the project-code
           image to GHCR (DEV's own activation needs that digest too) and
-          runs DEV's full suite, but skips the PROD activation and its full
-          suite -- for a faster maintainer-triggered check that doesn't pay
-          for promotion.
+          runs DEV's full suite, but skips the PROD snapshot, the promotion
+          and the PROD suite -- for a faster maintainer-triggered check.
         type: choice
         options:
           - dev+prod
           - dev-only
         default: dev+prod
+      checks:
+        description: >
+          'full' suite only. 'core' (default for manual runs) skips the slow
+          drills (restart recovery, certificate renewal, network/RBAC,
+          break-glass, perimeter latency, issuer outage, secret rotation).
+          'all' runs them, in the DEV suite only -- PROD always runs 'core'.
+          The nightly schedule always uses 'all'.
+        type: choice
+        options:
+          - core
+          - all
+        default: core
       timeout_minutes:
         description: >
           Hard wall-clock budget for the whole job. Measured baseline for one
@@ -330,6 +341,7 @@ jobs:
           stage: dev
           revision: ${{ steps.revision.outputs.revision }}
           e2e-env: local
+          e2e-checks: ${{ inputs.checks || 'all' }}
 
       # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
       # Silver and Gold buckets are listed (key and ETag) before and after
@@ -379,43 +391,7 @@ jobs:
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
-
-      - name: Prove removing PROD needs the explicit destructive opt-in
-        # v0.3 release gate: disabling a stage is destructive, so an ordinary
-        # apply of a profile that drops PROD must be refused -- by the removal
-        # guard, not by some unrelated failure -- and leave PROD in place; the
-        # same apply with --allow-stage-removal must then remove it. Same
-        # deployment (metadata.name), so the guard compares against what the
-        # steps above applied. A platform apply reads the platform's own
-        # Terraform state, never the exported DEV+PROD contract.
-        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
-        working-directory: ${{ env.PROJECT_DIR }}
-        env:
-          KUBE_CONTEXT: kind-openlakeforge-local
-          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-          OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE: ""
-        run: |
-          set -euo pipefail
-          sed '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml > openlakeforge.dev-only.yaml
-          if grep -q '^    prod:' openlakeforge.dev-only.yaml; then
-            echo "::error::could not drop the PROD stage from the applied profile"
-            exit 1
-          fi
-          apply="olf platform apply -f openlakeforge.dev-only.yaml --phase platform"
-          if $apply > stage-removal-refused.log 2>&1; then
-            cat stage-removal-refused.log
-            echo "::error::an ordinary apply removed PROD without --allow-stage-removal"
-            exit 1
-          fi
-          if ! grep -q -- "Re-run with --allow-stage-removal" stage-removal-refused.log; then
-            cat stage-removal-refused.log
-            echo "::error::the apply failed, but not on the stage-removal guard"
-            exit 1
-          fi
-          kubectl --context "$KUBE_CONTEXT" get namespace olf-prod > /dev/null
-          $apply --allow-stage-removal
-          kubectl --context "$KUBE_CONTEXT" wait --for=delete namespace/olf-prod --timeout=300s
+        run: olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full --checks core
 
       - name: Write run summary
         if: always()

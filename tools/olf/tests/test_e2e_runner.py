@@ -1,3 +1,4 @@
+import dataclasses
 import os
 from pathlib import Path
 
@@ -171,6 +172,39 @@ def test_run_full_only_restarts_polaris_for_local(
     _runner.run_full(e2e_cfg(tmp_path, env=env))
 
     assert calls == expected
+
+
+def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path: Path) -> None:
+    cfg = e2e_cfg(tmp_path)
+    labels = [a.label for a in _runner.full_assertions(cfg)]
+    drills = [a.label for a in _runner.full_assertions(cfg) if a.tier == "drill"]
+    assert len(drills) == 8
+    assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
+    assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
+
+
+def test_run_full_with_core_checks_runs_no_drill(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ran: list[str] = []
+    messages: list[str] = []
+    monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
+    monkeypatch.setattr(_runner.log, "info", messages.append)
+    real = _runner.full_assertions
+    monkeypatch.setattr(
+        _runner,
+        "full_assertions",
+        lambda cfg: tuple(
+            _runner.FullAssertion(a.label, lambda _c, label=a.label: ran.append(label), a.layer, a.tier)
+            for a in real(cfg)
+        ),
+    )
+    _runner.run_full(dataclasses.replace(e2e_cfg(tmp_path), checks="core"))
+    assert "workload secret rotation" not in ran and "Polaris restart recovery" not in ran
+    assert "identity credential exposure" in ran
+    assert any("Skipping workload secret rotation" in m for m in messages)
+    ran.clear()
+    _runner.run_full(e2e_cfg(tmp_path))
+    assert ran.index("identity credential exposure") < ran.index("workload secret rotation")
+    assert "Polaris restart recovery" in ran
 
 
 def test_run_full_scans_for_exposed_credentials_after_a_failed_assertion(

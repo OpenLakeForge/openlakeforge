@@ -24,6 +24,7 @@ from olf.tooling.terraform import external_state_options
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
 Layer = Literal["governance", "analytics"]
+Checks = Literal["core", "all"]
 
 KUBECTL_READ_RETRY_ATTEMPTS = 4
 KUBECTL_READ_RETRY_DELAY_SECONDS = 2
@@ -59,6 +60,8 @@ class E2EConfig:
     seaweedfs_local_port: int | None = None
     # The DeploymentContext `olf e2e run` resolved; the rotation drill re-applies the platform from it.
     deployment: Any = None
+    # "core" skips the slow drills (FullAssertion.tier == "drill"); "all" runs them.
+    checks: Checks = "all"
 
     @property
     def platform_namespace(self) -> str:

@@ -12,7 +12,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from openlakeforge_domain import inventory_for
 
@@ -38,6 +38,7 @@ from olf.e2e._preflight import check_aws_provider_contracts, check_aws_storage_a
 from olf.e2e._rotation import check_secret_rotation
 from olf.e2e._secret_exposure import check_secret_exposure
 from olf.e2e._shell import (
+    Checks,
     E2EConfig,
     E2EError,
     Environment,
@@ -64,12 +65,14 @@ class FullAssertion:
     label: str
     check: Callable[[E2EConfig], None]
     layer: Layer | None = None
+    tier: Literal["core", "drill"] = "core"
 
 
 def run(
     env: Environment,
     *,
     suite: Suite | None = None,
+    checks: Checks = "all",
     namespace: str = "olf-dev",
     shared_namespace: str = "",
     kube_context: str = "",
@@ -86,7 +89,7 @@ def run(
         repo_root=repo_root,
         distribution_root=distribution_root,
     )
-    cfg = dataclasses.replace(cfg, deployment=deployment)
+    cfg = dataclasses.replace(cfg, deployment=deployment, checks=checks)
     check_commands(cfg)
     prepare_kube_context(cfg)
     check_pods_ready(cfg)
@@ -284,6 +287,10 @@ def run_full(cfg: E2EConfig) -> None:
     enabled_layers = configured_layers(cfg)
     skipped: list[str] = []
     for assertion in full_assertions(cfg):
+        if assertion.tier == "drill" and cfg.checks == "core":
+            skipped.append(assertion.label)
+            log.info(f"Skipping {assertion.label}: drill, run with --checks all.")
+            continue
         if assertion.layer is not None and not enabled_layers[assertion.layer]:
             skipped.append(assertion.label)
             log.info(f"Skipping {assertion.label}: {assertion.layer} layer is disabled.")
@@ -315,15 +322,17 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         FullAssertion("Silver and Gold tables", check_trino_tables_and_marts),
     ]
     if cfg.env == "local":
-        assertions.append(FullAssertion("Polaris restart recovery", check_polaris_restart_recovery))
-        assertions.append(FullAssertion("Traefik restart recovery", check_traefik_restart_recovery))
-        assertions.append(FullAssertion("route certificate renewal", check_certificate_renewal))
-        assertions.append(FullAssertion("network flows and service-account RBAC", check_network_and_rbac))
+        assertions.append(FullAssertion("Polaris restart recovery", check_polaris_restart_recovery, tier="drill"))
+        assertions.append(FullAssertion("Traefik restart recovery", check_traefik_restart_recovery, tier="drill"))
+        assertions.append(FullAssertion("route certificate renewal", check_certificate_renewal, tier="drill"))
+        assertions.append(FullAssertion("network flows and service-account RBAC", check_network_and_rbac, tier="drill"))
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
         assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
-        assertions.append(FullAssertion("recorded break-glass access", check_break_glass))
-        assertions.append(FullAssertion("perimeter dashboard latency", check_perimeter_latency, layer="analytics"))
-        assertions.append(FullAssertion("issuer-outage recovery drill", check_issuer_outage))
+        assertions.append(FullAssertion("recorded break-glass access", check_break_glass, tier="drill"))
+        assertions.append(
+            FullAssertion("perimeter dashboard latency", check_perimeter_latency, layer="analytics", tier="drill")
+        )
+        assertions.append(FullAssertion("issuer-outage recovery drill", check_issuer_outage, tier="drill"))
     assertions.extend(
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
@@ -335,5 +344,5 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
     if cfg.env == "local":
         # The scan sees only current values, so it runs before the rotation replaces the credential the whole run used.
         assertions.append(FullAssertion("identity credential exposure", check_secret_exposure))
-        assertions.append(FullAssertion("workload secret rotation", check_secret_rotation))
+        assertions.append(FullAssertion("workload secret rotation", check_secret_rotation, tier="drill"))
     return tuple(assertions)
