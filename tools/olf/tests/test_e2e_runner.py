@@ -135,7 +135,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
             "local",
             [
                 "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "network", "portal", "perimeter",
-                "break-glass", "latency",
+                "break-glass", "latency", "outage",
                 "superset", "openmetadata", "artifacts", "isolation", "exposure", "rotation",
             ],
         ),
@@ -158,6 +158,7 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_break_glass", lambda _cfg: calls.append("break-glass"))
     monkeypatch.setattr(_runner, "check_secret_rotation", lambda _cfg: calls.append("rotation"))
     monkeypatch.setattr(_runner, "check_perimeter_latency", lambda _cfg: calls.append("latency"))
+    monkeypatch.setattr(_runner, "check_issuer_outage", lambda _cfg: calls.append("outage"))
     monkeypatch.setattr(_runner, "check_network_and_rbac", lambda _cfg: calls.append("network"))
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
@@ -210,6 +211,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_break_glass", lambda _cfg: calls.append("break-glass"))
     monkeypatch.setattr(_runner, "check_secret_rotation", lambda _cfg: calls.append("rotation"))
     monkeypatch.setattr(_runner, "check_perimeter_latency", lambda _cfg: calls.append("latency"))
+    monkeypatch.setattr(_runner, "check_issuer_outage", lambda _cfg: calls.append("outage"))
     monkeypatch.setattr(_runner, "check_network_and_rbac", lambda _cfg: calls.append("network"))
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
@@ -224,7 +226,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
 
     assert calls == [
         "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "network", "portal", "perimeter",
-        "break-glass",
+        "break-glass", "outage",
         "artifacts", "isolation", "exposure", "rotation",
     ]
     skipped = "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets"
