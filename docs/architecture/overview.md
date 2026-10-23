@@ -112,7 +112,7 @@ with `olf forward`.
 
 ## Further reading
 
-- [Kubernetes runtime charts](diagrams/README.md): every pod, the service
+- [Kubernetes runtime charts](diagrams.md): every pod, the service
   wiring, the jobs of one pipeline run, the data path and the provider
   contracts.
 - [Architecture Decision Records](../adr/README.md): the decisions behind this

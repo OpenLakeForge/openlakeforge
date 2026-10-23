@@ -59,22 +59,25 @@ sections:
   - label: Architecture
     items:
       - docs/architecture/overview.md
-      - { path: docs/architecture/diagrams/README.md, title: Kubernetes runtime charts }
+      - { path: docs/architecture/diagrams.md, title: Kubernetes runtime charts }
+      - docs/architecture/identity/identity-classes.md
+      - docs/architecture/identity/identity-network-policy-and-rbac.md
+  - label: Decisions
+    autogenerate: docs/adr
 
 # Maintainer material: kept in the repository, never published. Public pages
 # may link to it; the site turns those links into GitHub links.
 exclude:
-  - docs/adr/
   - docs/architecture/README.md
   - docs/architecture/aws-eks-poc.md
   - docs/architecture/azure-aks-poc.md
   - docs/architecture/diagrams/chart3-ephemeral-job-lifecycle.md
   - docs/architecture/diagrams/src/
   - docs/architecture/floe-validation.md
-  - docs/architecture/identity-callers.md
-  - docs/architecture/identity-credentials.md
-  - docs/architecture/identity-service-permissions.md
-  - docs/architecture/identity-sessions-and-recovery.md
+  - docs/architecture/identity/identity-callers.md
+  - docs/architecture/identity/identity-credentials.md
+  - docs/architecture/identity/identity-service-permissions.md
+  - docs/architecture/identity/identity-sessions-and-recovery.md
   - docs/architecture/local-stack-contracts.md
   - docs/architecture/project-revisions.md
   - docs/architecture/provider-contracts.md

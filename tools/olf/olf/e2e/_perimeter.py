@@ -2,7 +2,7 @@
 
 These drive the public hostnames on purpose: they test the perimeter itself,
 signing in through Dex's GitHub connector against a stub as per-role users
-(docs/architecture/identity-callers.md).
+(docs/architecture/identity/identity-callers.md).
 Every other e2e path reaches services by port-forward and never sees the
 perimeter (`olf.access.service_url`).
 """

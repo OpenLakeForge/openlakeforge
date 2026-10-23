@@ -1,7 +1,7 @@
 """Identity credential exposure scan (#181).
 
 The identity Secrets are generated in-cluster and Terraform never reads them
-(docs/architecture/identity-credentials.md), so any copy of their value in
+(docs/architecture/identity/identity-credentials.md), so any copy of their value in
 state, a ConfigMap, the diagnostics bundle or a log is a leak. The scan reads
 the current values from the cluster and looks for those exact strings. A
 failure names the surface and the Secret, never the value.
@@ -27,7 +27,7 @@ from olf.tooling.terraform import external_state_options
 # credential. Generated identity secrets are 32 characters.
 MIN_VALUE_LENGTH = 16
 # The perimeter module names its cookie Secret from a release name the contract
-# does not carry (docs/architecture/identity-credentials.md).
+# does not carry (docs/architecture/identity/identity-credentials.md).
 COOKIE_SECRET = ("oauth2-proxy-cookie", "cookie-secret")
 TRINO_INTERNAL_SECRET = ("trino-internal-secret", "internal-communication.shared-secret")
 # Created in-cluster by the Polaris module: "<release>-token-broker", release "polaris".

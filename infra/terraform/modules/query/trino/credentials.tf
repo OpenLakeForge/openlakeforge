@@ -1,6 +1,6 @@
 # Trino workload credentials (ADR 0016, #26) are created in-cluster, only if
 # missing, so Terraform never holds a value: it only names the Secrets below
-# (docs/architecture/identity-credentials.md). Redeploy reuses them; rotation
+# (docs/architecture/identity/identity-credentials.md). Redeploy reuses them; rotation
 # is deleting a principal Secret and replacing this Job.
 locals {
   credentials_enabled = length(var.stage_namespaces) > 0
@@ -30,7 +30,7 @@ resource "kubernetes_service_account_v1" "credentials" {
 }
 
 # `create` cannot be limited by resourceNames, so it covers every Secret in the
-# namespace (inventoried in docs/architecture/identity-credentials.md); reading
+# namespace (inventoried in docs/architecture/identity/identity-credentials.md); reading
 # and replacing are limited to the Secrets this Job owns.
 resource "kubernetes_role_v1" "credentials" {
   count = local.credentials_enabled ? 1 : 0

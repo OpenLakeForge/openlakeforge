@@ -6,8 +6,9 @@ approved by the maintainer on 2026-10-09.
 
 **Status.** The perimeter settings and Dex's token lifetimes are implemented. The
 revocation bound was measured once against real GitHub (#384, qualification run
-1, below); no other timing has been measured on a running stack. Logout, the native Superset and OpenMetadata sessions and the
-recovery procedure are *designed*, not built. Where a number depends on upstream
+1, below); no other timing has been measured on a running stack. Logout and
+the native Superset and OpenMetadata session bounds are *designed*, not
+measured. The recovery procedure is built (`olf break-glass`). Where a number depends on upstream
 behaviour that was not checked, the row says "to verify" and names the change
 that must verify it. An integration that cannot meet a bound must document the
 limitation and test it; "takes effect on next login" is not acceptable.
@@ -90,7 +91,7 @@ refresh, or a removed role stays usable until its SSO session ends (at most
 ## User lifecycle in GitHub
 
 People and their roles live in the client's GitHub organisation
-([ADR 0018](../adr/0018-github-is-the-forge.md)): each canonical role maps to
+([ADR 0018](../../adr/0018-github-is-the-forge.md)): each canonical role maps to
 one or more teams in `spec.identity.github` (ADR 0014, "The GitHub adapter
 through Dex"). There is no `olf` command for users and no step needs a deploy.
 
@@ -115,9 +116,8 @@ Dagster answering through recorded sessions, then Dex restored and a fresh
 sign-in working. On the local kind cluster in CI, the first break-glass answer
 came 1 s after Dex was down, and sign-in worked within 2 s of Dex being Ready
 again (two runs, DEV and PROD). The drill does not cover an open session.
-The design was written against Keycloak; Dex has no admin console or admin
-account, so the rows below that depended on one are dropped and the rest
-stand.
+Dex has no admin console or admin account, so recovery restores the issuer and
+does not log in to it.
 
 ### Principles
 
