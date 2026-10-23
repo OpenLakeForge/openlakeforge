@@ -133,7 +133,16 @@ where membership is managed.
 ## 5. What each role sees
 
 Move your account between teams in GitHub (organization, Teams) and sign in
-again to see each role:
+again to see each role. The portal, Dagster, Trino UI and Superset follow at
+sign-in. OpenMetadata roles come from a role sync that runs every 5 minutes,
+not from sign-in: wait for it, or run it now:
+
+```bash
+export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
+"$(olf toolchain path kubectl)" -n olf-system create job --from=cronjob/openmetadata-role-sync role-sync-now
+```
+
+Use a new job name each time you run it.
 
 | Role | Superset | Dagster | Trino UI | OpenMetadata |
 | --- | --- | --- | --- | --- |
@@ -200,7 +209,7 @@ fresh private window for each sign-in.
 
 1. **The admin adds an analyst.** In GitHub, move your account from
    `olf-platform-admins` to `olf-analysts`. Note the time.
-2. **The analyst signs in.** Open `http://olf.localhost`. You pass through
+2. **The analyst signs in.** Open the portal (`http://olf.localhost`, or `https://olf.localhost` if you switched to HTTPS). You pass through
    GitHub and Dex to the portal, with no password prompt, and the portal lists
    the services.
 3. **The analyst reaches Superset.** Open it from the portal. It opens signed
