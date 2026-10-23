@@ -57,6 +57,8 @@ class E2EConfig:
     superset_local_port: int | None = None
     openmetadata_local_port: int | None = None
     seaweedfs_local_port: int | None = None
+    # The DeploymentContext `olf e2e run` resolved; the rotation drill re-applies the platform from it.
+    deployment: Any = None
 
     @property
     def platform_namespace(self) -> str:

@@ -192,13 +192,31 @@ class Kubectl:
         context: str | None = None,
         kubeconfig: Path | None = None,
         timeout: str | None = None,
+        selector: str | None = None,
         env: Mapping[str, str] | None = None,
     ) -> CommandResult:
         args = ["rollout", "status", resource]
         if namespace is not None:
             args += ["-n", namespace]
+        if selector is not None:
+            args += ["-l", selector]
         if timeout is not None:
             args += ["--timeout", timeout]
+        return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
+
+    def rollout_restart(
+        self,
+        resource: str,
+        *,
+        namespace: str,
+        selector: str | None = None,
+        context: str | None = None,
+        kubeconfig: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        args = ["rollout", "restart", resource, "-n", namespace]
+        if selector is not None:
+            args += ["-l", selector]
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
 
     def wait(

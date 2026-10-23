@@ -140,38 +140,71 @@ you set under `client_ids`) and store each client secret in a Secret
 Rotate after a suspected leak, when someone who could read the Secrets leaves,
 or on a schedule. With `issuer: external`, rotate the client secrets in your
 issuer and in the `oidc-client-<consumer>` Secrets, then restart the
-consumers. The steps below are for `issuer: github`. They follow the
-deployed Jobs but have not been exercised as a drill yet.
+consumers. The steps below are for `issuer: github`.
 
-The commands use the managed kubectl and kubeconfig:
+`olf secrets rotate <target>` does the whole job for the local provider and
+prints what it rotated and restarted. It never prints a secret value. The
+targets are `dex-client-perimeter` and `dex-client-trino` (the CLI targets),
+plus `github-app`. The `superset` and `openmetadata` Dex clients are not CLI
+targets: Superset keeps a copy per stage and OpenMetadata has no documented
+consumer step, so their manual procedure is kept below, separate. Polaris
+token-key rotation has no documented procedure and is not covered.
+
+`dex-client-perimeter` is exercised in the local e2e on 2026-10-23, took about
+100 s.
+
+The manual commands below use the managed kubectl and kubeconfig:
 
 ```bash
 export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
 KUBECTL="$(olf toolchain path kubectl)"
 ```
 
-**The GitHub app's secret.** Generate a new client secret in GitHub, update
-the Secret named by `oauth_app_secret_ref`, and restart Dex:
+**The GitHub app.** `olf secrets rotate github-app` registers a new GitHub
+App through `olf github connect` and replaces the Secret. To rotate only the
+client secret by hand, generate a new one in GitHub, update the Secret named
+by `oauth_app_secret_ref`, and restart Dex:
 
 ```bash
 "$KUBECTL" -n olf-system rollout restart deployment dex
 ```
 
-**An OIDC client secret.** Dex holds one secret per client (`perimeter`,
-`superset`, `openmetadata`, `trino`), created once by a bootstrap Job that
-never overwrites an existing Secret. To replace one, for example `perimeter`:
+**The `perimeter` and `trino` client secrets.** Dex holds one secret per
+client (`perimeter`, `superset`, `openmetadata`, `trino`), created by a
+bootstrap Job that never overwrites an existing Secret. Rotate `perimeter` or
+`trino` with the command, adding `-f <profile>` if you deployed from a profile
+file:
+
+```bash
+olf secrets rotate dex-client-perimeter
+```
+
+Before it deletes anything it refuses, naming the cause, when the platform
+state has drifted, when the Secret lacks the `client-secret` key, when
+`provider: local` with `identity.issuer: github` does not hold, or when another
+`dex-client-*` Secret is missing (the shared Job would regenerate that one too).
+In each case run `olf deploy` first. It then deletes the Secret, applies only
+the credentials Job (`-target` with `-replace`), restarts Dex and the workloads
+that read the secret (`perimeter` workloads, or the `trino-coordinator`
+Deployment), waits for the rollouts, and ends with `Confirm: sign in at <portal
+URL>`. Signing in succeeds only when Dex and the service hold the same secret.
+
+**The `superset` and `openmetadata` client secrets (manual).** The command does
+not cover these. For `superset`, for example:
 
 1. Delete it:
 
    ```bash
-   "$KUBECTL" -n olf-system delete secret dex-client-perimeter
+   "$KUBECTL" -n olf-system delete secret dex-client-superset
    ```
 
 2. Re-run the platform phase with the bootstrap Job replaced, so it recreates
-   the missing Secret:
+   the missing Secret. Each stage keeps its own Superset copy, made by the
+   one-shot `kubernetes_job_v1.oidc_secret` of that stage's `module.superset`:
+   add a `-replace` of that Job for each stage.
 
    ```bash
-   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials' \
+   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials -replace=module.superset["<stage>"].kubernetes_job_v1.oidc_secret[0]' \
      olf deploy --provider local --phase platform
    ```
 
@@ -179,16 +212,11 @@ never overwrites an existing Secret. To replace one, for example `perimeter`:
 
    ```bash
    "$KUBECTL" -n olf-system rollout restart deployment dex
-   "$KUBECTL" -n olf-system rollout restart deployment -l openlakeforge.io/component=perimeter
    ```
 
-   For `trino`, also restart the `trino-coordinator` Deployment. For
-   `superset`, each stage keeps its own copy, made by the one-shot
-   `kubernetes_job_v1.oidc_secret` of that stage's `module.superset`: add a
-   `-replace` of that Job for each stage in step 2, then restart Superset.
+   then Superset, in each stage.
 
-4. Sign in through the portal: it succeeds only when Dex and the service hold
-   the same secret.
+4. Sign in through the portal.
 
 **The session cookie secret.** Rotating it signs everyone out:
 

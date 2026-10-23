@@ -81,6 +81,7 @@ def e2e_run(
                 kube_context=kube_context,
                 repo_root=context.paths.repo_root,
                 distribution_root=context.paths.distribution_root,
+                deployment=context,
             )
     except (e2e.E2EError, DeploymentError) as exc:
         # DeploymentError covers a managed-toolchain provisioning failure

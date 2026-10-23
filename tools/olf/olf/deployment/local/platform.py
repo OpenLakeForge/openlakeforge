@@ -409,6 +409,52 @@ def require_no_shared_namespace_replacement(
     )
 
 
+def require_foundation_state(config: LocalDeploymentConfig) -> None:
+    if not config.paths.foundation_state_path.is_file():
+        raise DeploymentPreconditionError(
+            f"local foundation Terraform state is missing: {config.paths.foundation_state_path}. "
+            "Run the foundation phase before applying the local platform."
+        )
+
+
+def platform_state_holds_core(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
+    """Whether the platform state holds the core objects. One that holds the shared namespace is not lost, only
+    behind: a previous apply stopped after creating it (the GitHub identity Secret preflight), and resetting would
+    delete the namespace and the Secret the operator just added."""
+    platform_dir = config.paths.platform_terraform_dir
+    return any(
+        kube_ops.state_has_resource(tools.terraform, platform_dir, addr, env=env)
+        for addr in (_SEAWEEDFS_RESOURCE_ADDR, _SHARED_NAMESPACE_RESOURCE_ADDR)
+    )
+
+
+def prepare_targets(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """The fallible setup of `apply_targets`, so a rotation runs it before it deletes anything."""
+    prepare_charts(config, tools, env=env)
+    tools.terraform.init(config.paths.platform_terraform_dir, env=env)
+    require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
+
+
+def apply_targets(
+    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str], extra_args: list[str]
+) -> None:
+    """Apply only what `extra_args` (-target, -replace) name, for rotations, after `prepare_targets`. It skips the
+    image build, the drift reset (which can tear down namespaces) and everything else `platform_up` does."""
+    if not platform_state_holds_core(config, tools, env=env):
+        raise DeploymentPreconditionError("platform state has drifted; run olf deploy first")
+    run_with_retry(
+        lambda: tools.terraform.apply(
+            config.paths.platform_terraform_dir,
+            var_files=platform_var_files(config),
+            variables=platform_apply_variables(config),
+            extra_args=extra_args,
+            env=env,
+        ),
+        policy=config.terraform.apply_retry,
+        retry_if=_retry_if_logging("Terraform apply", config.terraform.apply_retry),
+    )
+
+
 def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
     platform_dir = config.paths.platform_terraform_dir
     if not kube_ops.namespace_exists(
@@ -419,11 +465,7 @@ def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolk
         env=env,
     ):
         return False
-    if kube_ops.state_has_resource(tools.terraform, platform_dir, _SEAWEEDFS_RESOURCE_ADDR, env=env):
-        return False
-    # A state that holds the namespace is not lost, only behind: a previous apply stopped after creating it (the
-    # GitHub identity Secret preflight). Resetting would delete the namespace and the Secret the operator just added.
-    if kube_ops.state_has_resource(tools.terraform, platform_dir, _SHARED_NAMESPACE_RESOURCE_ADDR, env=env):
+    if platform_state_holds_core(config, tools, env=env):
         return False
 
     log.warn("local platform resources exist in-cluster but Terraform state is missing core objects.")
@@ -503,11 +545,7 @@ def platform_up(
     written as the identity Secret once the shared namespace exists."""
     platform_dir = config.paths.platform_terraform_dir
 
-    if not config.paths.foundation_state_path.is_file():
-        raise DeploymentPreconditionError(
-            f"local foundation Terraform state is missing: {config.paths.foundation_state_path}. "
-            "Run the foundation phase before applying the local platform."
-        )
+    require_foundation_state(config)
     try:
         tools.kubectl.require_context_reachable(config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env)
     except KubeContextUnreachableError as exc:

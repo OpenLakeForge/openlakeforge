@@ -88,7 +88,7 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
 ) -> None:
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment):  # noqa: ANN001
         calls.append(
             {"env": env, "suite": suite, "namespace": namespace, "kube_context": kube_context, "repo_root": repo_root}
         )
@@ -121,7 +121,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     """
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment):  # noqa: ANN001
         calls.append({"kube_context": kube_context})
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -146,7 +146,7 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
     override = tmp_path / "custom/aws-kubeconfig.yaml"
     seen: dict = {}
 
-    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001, ARG001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment):  # noqa: ANN001, ARG001
         seen["kubeconfig"] = os.environ.get("KUBECONFIG")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -203,7 +203,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
 
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment):  # noqa: ANN001
         calls.append(
             {
                 "repo_root": repo_root,
