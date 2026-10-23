@@ -204,7 +204,7 @@ not cover these. For `superset`, for example:
    add a `-replace` of that Job for each stage.
 
    ```bash
-   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials' \
+   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials -replace=module.superset["<stage>"].kubernetes_job_v1.oidc_secret[0]' \
      olf deploy --provider local --phase platform
    ```
 

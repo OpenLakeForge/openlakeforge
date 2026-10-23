@@ -309,6 +309,34 @@ def test_a_missing_foundation_state_refuses_before_anything_is_deleted(
     assert kubectl.deletes() == []
 
 
+@pytest.mark.parametrize("failing", ["prepare_charts", "require_no_stage_removal"])
+def test_failing_setup_or_stage_removal_refuses_before_anything_is_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    from olf.deployment.errors import DeploymentPreconditionError
+    from olf.deployment.local import platform
+
+    config = SimpleNamespace(paths=SimpleNamespace(platform_terraform_dir=Path("p")), kube_context="k")
+    tools = SimpleNamespace(terraform=SimpleNamespace(init=lambda *a, **k: None))
+    provider = SimpleNamespace(config=config, tools=tools, env={})
+    monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _ctx: provider)
+    monkeypatch.setattr(platform, "require_foundation_state", lambda _config: None)
+    monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
+    monkeypatch.setattr(platform, "prepare_charts", lambda *a, **k: None)
+    monkeypatch.setattr(platform, "require_no_stage_removal", lambda *a, **k: None)
+
+    def boom(*_a: Any, **_k: Any) -> None:
+        raise DeploymentPreconditionError("boom")
+
+    monkeypatch.setattr(platform, failing, boom)
+    kubectl = FakeKubectl()
+
+    with pytest.raises(secrets_rotation.RotationError, match="boom"):
+        rotate(tmp_path, kubectl, platform_check=secrets_rotation.check_platform_state)
+
+    assert kubectl.deletes() == []
+
+
 def test_a_sibling_without_the_client_secret_key_refuses_before_anything_is_deleted(tmp_path: Path) -> None:
     kubectl = FakeKubectl(without_key=("dex-client-openmetadata",))
 

@@ -117,7 +117,7 @@ def _local_provider(context: Any) -> Any:
 
 def check_platform_state(context: Any) -> None:
     """Refuse on a drifted platform state, with the predicate the drift reset uses, before anything is deleted."""
-    from olf.deployment.errors import DeploymentPreconditionError
+    from olf.deployment.errors import DeploymentError, DeploymentPreconditionError
     from olf.deployment.local import platform
 
     provider = _local_provider(context)
@@ -127,6 +127,10 @@ def check_platform_state(context: Any) -> None:
         raise RotationError(f"{exc} Run olf deploy first.") from exc
     if not platform.platform_state_holds_core(provider.config, provider.tools, env=provider.env):
         raise RotationError("platform state has drifted; run olf deploy first")
+    try:
+        platform.prepare_targets(provider.config, provider.tools, env=provider.env)
+    except DeploymentError as exc:
+        raise RotationError(str(exc)) from exc
 
 
 def apply_platform(context: Any, extra_args: list[str]) -> None:

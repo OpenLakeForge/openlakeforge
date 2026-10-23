@@ -428,15 +428,20 @@ def platform_state_holds_core(config: LocalDeploymentConfig, tools: Toolkit, *, 
     )
 
 
+def prepare_targets(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """The fallible setup of `apply_targets`, so a rotation runs it before it deletes anything."""
+    prepare_charts(config, tools, env=env)
+    tools.terraform.init(config.paths.platform_terraform_dir, env=env)
+    require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
+
+
 def apply_targets(
     config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str], extra_args: list[str]
 ) -> None:
-    """Apply only what `extra_args` (-target, -replace) name, for rotations. It skips the image build, the drift
-    reset (which can tear down namespaces) and everything else `platform_up` does around the apply."""
+    """Apply only what `extra_args` (-target, -replace) name, for rotations, after `prepare_targets`. It skips the
+    image build, the drift reset (which can tear down namespaces) and everything else `platform_up` does."""
     if not platform_state_holds_core(config, tools, env=env):
         raise DeploymentPreconditionError("platform state has drifted; run olf deploy first")
-    prepare_charts(config, tools, env=env)
-    tools.terraform.init(config.paths.platform_terraform_dir, env=env)
     tools.terraform.apply(
         config.paths.platform_terraform_dir,
         var_files=platform_var_files(config),
