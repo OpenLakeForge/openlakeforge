@@ -109,8 +109,12 @@ every 4 min.
 ## Cluster-administrator recovery (break-glass)
 
 `olf break-glass <service> --reason "..."` implements this (local provider).
-`olf e2e run` exercises one recorded use to Dex with the perimeter enabled; the
-full issuer-outage drill (an acceptance criterion of #177) has not been run.
+`olf e2e run` exercises one recorded use to Dex with the perimeter enabled, and
+an issuer-outage drill: Dex scaled to zero, a fresh sign-in refused, Trino and
+Dagster answering through recorded sessions, then Dex restored and a fresh
+sign-in working. On the local kind cluster in CI, the first break-glass answer
+came 1 s after Dex was down, and sign-in worked within 2 s of Dex being Ready
+again (two runs, DEV and PROD). The drill does not cover an open session.
 The design was written against Keycloak; Dex has no admin console or admin
 account, so the rows below that depended on one are dropped and the rest
 stand.
@@ -150,7 +154,7 @@ unauthenticated request to a protected public route is still refused.
 ## Not claimed
 
 No timing in the policy table beyond the one measurement above, no Superset or
-OpenMetadata behaviour, and no part of the recovery has been run. The oauth2-proxy rows above were read
+OpenMetadata behaviour, and no recovery beyond the drill above. The oauth2-proxy rows above were read
 from the pinned source. `olf e2e run --env local` exercises the perimeter
 (unauthenticated redirect and 401, per-role allow and deny, forged identity
 headers, a direct API call with a session) but not revocation timing, an
