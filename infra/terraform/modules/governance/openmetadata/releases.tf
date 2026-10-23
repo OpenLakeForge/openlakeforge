@@ -5,6 +5,16 @@ locals {
   chart           = var.chart_package_path != null ? var.chart_package_path : "openmetadata"
   repository      = var.chart_package_path != null ? null : var.chart_repository
   version         = var.chart_package_path != null ? null : var.chart_version
+
+  # Jetty's 8 KiB default rejects the request (431) once the perimeter's
+  # chunked session cookies and per-request CSRF cookies on .<base_domain> add
+  # up. Helm replaces lists, so every extraEnvs entry lives here.
+  extra_envs = concat([
+    { name = "SERVER_MAX_REQUEST_HEADER_SIZE", value = "64KiB" },
+    ], var.oidc == null ? [] : [{
+      name  = "JAVA_TOOL_OPTIONS"
+      value = "-Djavax.net.ssl.trustStore=/etc/olf/java-trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+  }])
 }
 
 # OpenSearch via the openmetadata-dependencies chart (Airflow + MySQL disabled)
@@ -39,6 +49,7 @@ resource "helm_release" "openmetadata" {
   values = concat([
     file(var.base_values_file),
     yamlencode({
+      extraEnvs = local.extra_envs
       openmetadata = {
         config = {
           database = {
@@ -82,10 +93,6 @@ resource "helm_release" "openmetadata" {
         { name = "olf-java-trust", mountPath = "/etc/olf/java-trust", readOnly = true },
         { name = "olf-oidc-ca", mountPath = "/etc/olf/oidc-ca", readOnly = true }, # olf's issuer probe
       ]
-      extraEnvs = [{
-        name  = "JAVA_TOOL_OPTIONS"
-        value = "-Djavax.net.ssl.trustStore=/etc/olf/java-trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
-      }]
       preMigrateInitContainers = [{
         name            = "olf-java-trust"
         image           = "docker.getcollate.io/openmetadata/server:${var.chart_version}"
