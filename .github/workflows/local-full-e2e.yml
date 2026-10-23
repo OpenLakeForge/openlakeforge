@@ -54,16 +54,17 @@ on:
         default: full
       stage_scope:
         description: >
-          'full' suite only. 'dev+prod' (default) runs the whole promotion
-          lifecycle; 'dev-only' still builds and pushes the project-code
-          image to GHCR (DEV's own activation needs that digest too) and
-          runs DEV's full suite, but skips the PROD snapshot, the promotion
-          and the PROD suite -- for a faster maintainer-triggered check.
+          'full' suite only. 'dev-only' (default for manual runs) still
+          builds and pushes the project-code image to GHCR (DEV's own
+          activation needs that digest too) and runs DEV's full suite, but
+          skips the PROD snapshot, the promotion and the PROD suite.
+          'dev+prod' runs the whole promotion lifecycle; the nightly
+          schedule always uses it.
         type: choice
         options:
-          - dev+prod
           - dev-only
-        default: dev+prod
+          - dev+prod
+        default: dev-only
       checks:
         description: >
           'full' suite only. 'core' (default for manual runs) skips the slow
