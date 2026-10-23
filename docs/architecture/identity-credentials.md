@@ -150,5 +150,6 @@ The Keycloak-era drills (upgrade from Terraform-generated Secrets, rotation,
 the missing-key and missing-admin failures) were run against the Keycloak
 module that ADR 0014 History records as removed; the same Job shape now lives
 in `modules/identity/dex`. Rotation there is exercised by the local e2e's
-workload secret rotation drill (`dex-client-perimeter`); the `superset` and
-`openmetadata` clients and the Polaris token key are not.
+workload secret rotation drill (`dex-client-perimeter`, exercised in the local
+e2e on 2026-10-23, took about 100 s); the `superset` and `openmetadata`
+clients and the Polaris token key are not.

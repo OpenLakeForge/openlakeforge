@@ -149,6 +149,9 @@ The `superset` and `openmetadata` Dex clients are not targets yet: Superset
 keeps a copy per stage and OpenMetadata has no documented consumer step. Polaris
 token-key rotation has no documented procedure and is not covered.
 
+`dex-client-perimeter` is exercised in the local e2e on 2026-10-23, took about
+100 s.
+
 The manual commands below use the managed kubectl and kubeconfig:
 
 ```bash
