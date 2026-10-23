@@ -24,6 +24,13 @@ inputs:
       When set (local, aws or azure), run `olf e2e run --suite full` against
       the stage after activation. Empty skips validation.
     default: ""
+  e2e-checks:
+    description: >
+      `core` or `all`, passed to `olf e2e run --checks`: `core` skips the
+      drills (Polaris and Traefik restart recovery, certificate renewal,
+      network flows and RBAC, break-glass, perimeter latency, issuer outage,
+      secret rotation).
+    default: all
 
 outputs:
   status:
@@ -65,7 +72,8 @@ runs:
         PROFILE: ${{ inputs.profile }}
         STAGE: ${{ inputs.stage }}
         E2E_ENV: ${{ inputs.e2e-env }}
+        E2E_CHECKS: ${{ inputs.e2e-checks }}
       run: |
         PROFILE="$(realpath "${PROFILE}")"
         cd "$(dirname "${PROFILE}")"
-        olf e2e run --env "${E2E_ENV}" -f "${PROFILE}" --stage "${STAGE}" --suite full
+        olf e2e run --env "${E2E_ENV}" -f "${PROFILE}" --stage "${STAGE}" --suite full --checks "${E2E_CHECKS}"

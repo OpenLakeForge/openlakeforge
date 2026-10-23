@@ -18,6 +18,13 @@ app = typer.Typer(help="End-to-end environment validation.")
 def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
     suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults to full."),
+    checks: str = typer.Option(
+        "all",
+        "--checks",
+        envvar="OLF_E2E_CHECKS",
+        help="Full-suite checks: 'core' skips the drills (Polaris and Traefik restart recovery, certificate renewal, "
+        "network flows and RBAC, break-glass, perimeter latency, issuer outage, secret rotation); 'all' runs them.",
+    ),
     stage: str = typer.Option("", "--stage", help="Stage to validate: dev, uat, or prod. Defaults to dev."),
     profile_file: str = typer.Option(
         "",
@@ -53,6 +60,8 @@ def e2e_run(
     valid_suites = {"", "full", "smoke"}
     if env not in valid_envs:
         raise typer.Exit(code=fail(f"unknown --env {env!r}; expected one of: {', '.join(sorted(valid_envs))}."))
+    if checks not in {"core", "all"}:
+        raise typer.Exit(code=fail(f"unknown --checks {checks!r}; expected 'core' or 'all'."))
     if suite not in valid_suites:
         raise typer.Exit(code=fail(f"unknown --suite {suite!r}; expected 'full' or 'smoke'."))
 
@@ -76,6 +85,7 @@ def e2e_run(
             e2e.run(
                 env,  # type: ignore[arg-type]
                 suite=suite or None,  # type: ignore[arg-type]
+                checks=checks,  # type: ignore[arg-type]
                 namespace=context.namespace,
                 shared_namespace=context.shared_namespace,
                 kube_context=kube_context,
