@@ -361,6 +361,46 @@ def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(mon
     assert applied == []
 
 
+def test_apply_targets_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf.deployment.errors import CommandExecutionError
+    from olf.deployment.local import platform
+    from olf.deployment.retry import RetryPolicy
+
+    monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
+    monkeypatch.setattr(platform, "platform_var_files", lambda *a, **k: [])
+    monkeypatch.setattr(platform, "platform_apply_variables", lambda *a, **k: {})
+    attempts: list[int] = []
+
+    def flaky(*_: Any, **__: Any) -> None:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise CommandExecutionError(["terraform", "apply"], 1)
+
+    tools = SimpleNamespace(terraform=SimpleNamespace(apply=flaky))
+    config = SimpleNamespace(
+        paths=SimpleNamespace(platform_terraform_dir=Path("platform")),
+        terraform=SimpleNamespace(apply_retry=RetryPolicy(max_attempts=2, delay_seconds=0)),
+    )
+
+    platform.apply_targets(config, tools, env={}, extra_args=["-target=x"])  # type: ignore[arg-type]
+
+    assert len(attempts) == 2
+
+
+def test_a_missing_target_is_regenerated_without_a_delete(tmp_path: Path) -> None:
+    kubectl = FakeKubectl({name: f"uid-{name}/1" for name in CLIENTS if name != "dex-client-perimeter"})
+    applied: list[Any] = []
+
+    rotation = rotate(
+        tmp_path, kubectl, platform_apply=apply_that_regenerates(kubectl, "dex-client-perimeter", applied)
+    )
+
+    assert kubectl.deletes() == []
+    assert len(applied) == 1
+    assert rotation.was_missing
+    assert ("restart", "deployment/dex", None) in kubectl.calls
+
+
 def test_the_drill_skips_without_a_resolved_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
     from olf.e2e import _rotation
 

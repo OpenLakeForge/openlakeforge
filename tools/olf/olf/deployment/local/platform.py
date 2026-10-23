@@ -442,12 +442,16 @@ def apply_targets(
     image build, the drift reset (which can tear down namespaces) and everything else `platform_up` does."""
     if not platform_state_holds_core(config, tools, env=env):
         raise DeploymentPreconditionError("platform state has drifted; run olf deploy first")
-    tools.terraform.apply(
-        config.paths.platform_terraform_dir,
-        var_files=platform_var_files(config),
-        variables=platform_apply_variables(config),
-        extra_args=extra_args,
-        env=env,
+    run_with_retry(
+        lambda: tools.terraform.apply(
+            config.paths.platform_terraform_dir,
+            var_files=platform_var_files(config),
+            variables=platform_apply_variables(config),
+            extra_args=extra_args,
+            env=env,
+        ),
+        policy=config.terraform.apply_retry,
+        retry_if=_retry_if_logging("Terraform apply", config.terraform.apply_retry),
     )
 
 

@@ -62,6 +62,7 @@ def rotate(
         rotation = secrets_rotation.rotate_client(context, target, kubectl=kubectl)
     except (secrets_rotation.RotationError, github_app.GitHubConnectError, DeploymentError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    log.info(f"Rotated Secret '{rotation.secret}' (namespace '{rotation.namespace}').")
+    verb = "Regenerated (it was missing)" if rotation.was_missing else "Rotated"
+    log.info(f"{verb} Secret '{rotation.secret}' (namespace '{rotation.namespace}').")
     log.info("Restarted: " + ", ".join(str(r) for r in rotation.restarted) + ".")
     log.info(f"Confirm: sign in at {secrets_rotation.portal_url(context) or 'the portal'}.")
