@@ -33,7 +33,7 @@ are discarded.
 | Reuse | An existing Secret with the expected key is kept. Redeploy is not rotation. |
 | Commit point | `kubectl create secret` is the only write, one API call per Secret, and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold and no partial Secret exists. |
 | Direction | The Secret is the source of truth; Dex reads the client secrets through `secretEnv` at start. Nothing is read back out of Dex. |
-| Rotation | Explicit: `olf secrets rotate dex-client-<client>` deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers ([runbook](../setup/github-oauth-app.md#rotate-secrets)). |
+| Rotation | Explicit: `olf secrets rotate dex-client-perimeter` (or `-trino`) deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers; `superset` and `openmetadata` stay manual ([runbook](../setup/github-oauth-app.md#rotate-secrets)). |
 | Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../adr/0017-local-network-policy-and-rbac.md)); `get` only on the four consumer client Secrets it owns. The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
 
 ### Missing-secret recovery
@@ -95,8 +95,10 @@ re-runs it was not verified here.
 
 ## Exposure scan
 
-`olf e2e run --env local` ends with `identity credential exposure`
-(`tools/olf/olf/e2e/_secret_exposure.py`). It reads the **current** values of
+`olf e2e run --env local` runs `identity credential exposure`
+(`tools/olf/olf/e2e/_secret_exposure.py`) after every other assertion except the
+workload secret rotation drill, which comes last so the scan checks the
+credentials that were live for the whole run. It reads the **current** values of
 the identity Secrets from the cluster and looks for those exact strings: the
 four OIDC client secrets (names from the identity contract), the perimeter
 cookie secret (`oauth2-proxy-cookie`) and the Trino workload credentials. It
@@ -140,8 +142,9 @@ Not covered:
   outside Terraform"): only the current state is read.
 - Only the current values are searched, so a rotated-out value that leaked
   earlier is not found.
-- Not yet run on a cluster: the wiring (`kubectl`, `olf diagnostics collect`,
-  state paths) is unit-tested with fake surfaces only.
+- The local e2e exercises the scan's wiring (`kubectl`, `olf diagnostics
+  collect`, state paths) on a cluster, and it passes there; the rotation drill
+  runs after it, so the credential the drill replaces is not scanned afterwards.
 
 ## Not claimed
 

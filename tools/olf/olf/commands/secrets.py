@@ -48,6 +48,7 @@ def rotate(
             project_root=project_root,
         )
     try:
+        secrets_rotation.require_local_github_issuer(context)
         kube = secrets_rotation.kube_args(context)
         kubectl = Toolkit.default(environ=kube["env"]).kubectl
         if target == secrets_rotation.GITHUB_APP:
@@ -63,4 +64,4 @@ def rotate(
         raise typer.Exit(code=fail(str(exc))) from exc
     log.info(f"Rotated Secret '{rotation.secret}' (namespace '{rotation.namespace}').")
     log.info("Restarted: " + ", ".join(str(r) for r in rotation.restarted) + ".")
-    log.info("Nothing else to do.")
+    log.info(f"Confirm: sign in at {secrets_rotation.portal_url(context) or 'the portal'}.")

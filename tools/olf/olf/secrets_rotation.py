@@ -2,7 +2,8 @@
 
 Runs the documented procedure (docs/setup/github-oauth-app.md, "Rotate
 secrets") in one command. It reads a Secret's identity (uid and
-resourceVersion), never its data, and passes no value on any argv.
+resourceVersion) and whether a key exists, never a value, and passes no value
+on any argv.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from olf import log
@@ -19,9 +21,14 @@ from olf import log
 CREDENTIALS_JOB = "module.dex[0].kubernetes_job_v1.credentials"
 # Targeted, so a rotation applies the Job and its dependencies only and cannot reconfigure the rest of the
 # platform or touch project-owned deployments.
-REPLACE_CREDENTIALS = f"-target={CREDENTIALS_JOB} -replace={CREDENTIALS_JOB}"
+APPLY_ARGS = [f"-target={CREDENTIALS_JOB}", f"-replace={CREDENTIALS_JOB}"]
 ROLLOUT_TIMEOUT = "300s"
 GITHUB_APP = "github-app"
+PORTAL_ROUTE = "shared/portal"
+# Every Dex static client the shared Job writes. The Job creates what is missing, so rotating one client is only
+# safe when the others exist: a missing sibling would be regenerated in the same run without its consumers restarted.
+DEX_CLIENTS = ("perimeter", "trino", "superset", "openmetadata")
+KEY_PRESENT = '{{if index .data "client-secret"}}yes{{end}}'
 
 
 class RotationError(RuntimeError):
@@ -60,6 +67,13 @@ def unknown_target_message(target: str) -> str:
     return f"unknown target {target!r}; expected one of: {', '.join(TARGETS)}"
 
 
+def require_local_github_issuer(context: Any) -> None:
+    """The rotation is the local Dex runbook: refuse any other provider or issuer before touching anything."""
+    identity = context.topology.identity
+    if context.provider.value != "local" or identity is None or identity.issuer != "github":
+        raise RotationError("olf secrets rotate needs provider: local with identity.issuer: github")
+
+
 def kube_args(context: Any) -> dict[str, Any]:
     return {
         "context": context.kube_context,
@@ -81,23 +95,74 @@ def secret_identity(kubectl: Any, context: Any, name: str) -> str | None:
     return out.stdout.strip() or None
 
 
-def apply_platform(context: Any, extra_env: Mapping[str, str]) -> None:
-    from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
+def has_client_secret_key(kubectl: Any, context: Any, name: str) -> bool:
+    """Whether the Secret has the `client-secret` key. The template prints `yes`, never the value."""
+    out = kubectl.get(
+        "secret",
+        name=name,
+        namespace=context.shared_namespace,
+        output=f"go-template={KEY_PRESENT}",
+        check=False,
+        **kube_args(context),
+    )
+    return out.stdout.strip() == "yes"
+
+
+def _local_provider(context: Any) -> Any:
+    from olf.deployment.engine import Toolkit, build_provider
 
     env = context.command_env(base=os.environ)
-    provider = build_provider(context, toolkit=Toolkit.default(environ=env), environ=env)
-    # The provider hands Terraform only a scoped overlay, merged over the process environment, so a
-    # flag the plan must see (TF_CLI_ARGS_apply) has to be in the process environment itself.
-    saved = {key: os.environ.get(key) for key in extra_env}
-    os.environ.update(extra_env)
+    return build_provider(context, toolkit=Toolkit.default(environ=env), environ=env)
+
+
+def check_platform_state(context: Any) -> None:
+    """Refuse on a drifted platform state, with the predicate the drift reset uses, before anything is deleted."""
+    from olf.deployment.local import platform
+
+    provider = _local_provider(context)
+    if not platform.platform_state_holds_core(provider.config, provider.tools, env=provider.env):
+        raise RotationError("platform state has drifted; run olf deploy first")
+
+
+def apply_platform(context: Any, extra_args: list[str]) -> None:
+    """Only the targeted Terraform apply, not the drift-recovering platform path."""
+    from olf.deployment.errors import DeploymentError
+    from olf.deployment.local import platform
+
+    provider = _local_provider(context)
     try:
-        DeploymentEngine(provider).deploy(DeploymentPhase.PLATFORM)
-    finally:
-        for key, value in saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        platform.apply_targets(provider.config, provider.tools, env=provider.env, extra_args=extra_args)
+    except DeploymentError as exc:
+        raise RotationError(str(exc)) from exc
+
+
+def portal_url(context: Any) -> str | None:
+    """The portal's URL from the access contract, when it can be read."""
+    from olf.contracts import load_provider_contracts
+    from olf.deployment.engine import Toolkit
+
+    env = context.command_env(base=os.environ)
+    try:
+        directory = Path(env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir))
+        tools = Toolkit.default(environ=env)
+        contracts = load_provider_contracts(str(directory.resolve()), environ=env, resolver=tools.resolver)
+        return str((contracts or {})["shared"]["access"]["routes"][PORTAL_ROUTE]["url"])
+    except Exception:  # noqa: BLE001 - the URL only improves the closing line; the rotation is already done
+        return None
+
+
+def preflight(context: Any, target: str, *, kubectl: Any, platform_check: Callable[[Any], None]) -> None:
+    """Everything that can refuse, before the first delete."""
+    require_local_github_issuer(context)
+    platform_check(context)
+    if not has_client_secret_key(kubectl, context, target):
+        raise RotationError(f"Secret '{target}' is missing or lacks the key client-secret; run olf deploy first")
+    for client in DEX_CLIENTS:
+        sibling = f"dex-client-{client}"
+        if sibling != target and secret_identity(kubectl, context, sibling) is None:
+            raise RotationError(
+                f"Secret '{sibling}' is missing and the shared Job would regenerate it too; run olf deploy first"
+            )
 
 
 def rotate_client(
@@ -105,17 +170,18 @@ def rotate_client(
     target: str,
     *,
     kubectl: Any,
-    platform_apply: Callable[[Any, Mapping[str, str]], None] = apply_platform,
+    platform_apply: Callable[[Any, list[str]], None] = apply_platform,
+    platform_check: Callable[[Any], None] = check_platform_state,
 ) -> Rotation:
     if target not in CLIENT_RESTARTS:
         raise RotationError(unknown_target_message(target))
+    preflight(context, target, kubectl=kubectl, platform_check=platform_check)
     namespace, kube = context.shared_namespace, kube_args(context)
     before = secret_identity(kubectl, context, target)
     log.step(f"Deleting Secret '{target}' (namespace '{namespace}')...")
     kubectl.delete("secret", target, namespace=namespace, **kube)
-    log.step("Replacing the credential Job in the platform apply, which creates the Secret again...")
-    flags = f"{os.environ.get('TF_CLI_ARGS_apply', '')} {REPLACE_CREDENTIALS}".strip()
-    platform_apply(context, {"TF_CLI_ARGS_apply": flags})
+    log.step("Replacing the credential Job in a targeted platform apply, which creates the Secret again...")
+    platform_apply(context, APPLY_ARGS)
     after = secret_identity(kubectl, context, target)
     if after is None or after == before:
         raise RotationError(f"Secret '{target}' was not regenerated by the platform apply")

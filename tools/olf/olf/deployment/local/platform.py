@@ -409,6 +409,35 @@ def require_no_shared_namespace_replacement(
     )
 
 
+def platform_state_holds_core(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
+    """Whether the platform state holds the core objects. One that holds the shared namespace is not lost, only
+    behind: a previous apply stopped after creating it (the GitHub identity Secret preflight), and resetting would
+    delete the namespace and the Secret the operator just added."""
+    platform_dir = config.paths.platform_terraform_dir
+    return any(
+        kube_ops.state_has_resource(tools.terraform, platform_dir, addr, env=env)
+        for addr in (_SEAWEEDFS_RESOURCE_ADDR, _SHARED_NAMESPACE_RESOURCE_ADDR)
+    )
+
+
+def apply_targets(
+    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str], extra_args: list[str]
+) -> None:
+    """Apply only what `extra_args` (-target, -replace) name, for rotations. It skips the image build, the drift
+    reset (which can tear down namespaces) and everything else `platform_up` does around the apply."""
+    if not platform_state_holds_core(config, tools, env=env):
+        raise DeploymentPreconditionError("platform state has drifted; run olf deploy first")
+    prepare_charts(config, tools, env=env)
+    tools.terraform.init(config.paths.platform_terraform_dir, env=env)
+    tools.terraform.apply(
+        config.paths.platform_terraform_dir,
+        var_files=platform_var_files(config),
+        variables=platform_apply_variables(config),
+        extra_args=extra_args,
+        env=env,
+    )
+
+
 def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
     platform_dir = config.paths.platform_terraform_dir
     if not kube_ops.namespace_exists(
@@ -419,11 +448,7 @@ def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolk
         env=env,
     ):
         return False
-    if kube_ops.state_has_resource(tools.terraform, platform_dir, _SEAWEEDFS_RESOURCE_ADDR, env=env):
-        return False
-    # A state that holds the namespace is not lost, only behind: a previous apply stopped after creating it (the
-    # GitHub identity Secret preflight). Resetting would delete the namespace and the Secret the operator just added.
-    if kube_ops.state_has_resource(tools.terraform, platform_dir, _SHARED_NAMESPACE_RESOURCE_ADDR, env=env):
+    if platform_state_holds_core(config, tools, env=env):
         return False
 
     log.warn("local platform resources exist in-cluster but Terraform state is missing core objects.")
