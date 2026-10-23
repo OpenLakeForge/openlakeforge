@@ -42,23 +42,12 @@ after sign-in, whatever else is true.
 ## Sign out
 
 A person does not need to sign out for a team change to apply: it takes effect
-within the refresh bounds above. To end a session anyway, click **Sign out** in
-the portal header, which opens the sign-out address and clears the perimeter
-cookie:
+within the refresh bounds above. To end a session anyway, select **Sign out** in
+the portal header. It clears the perimeter cookie.
 
-```text
-<scheme>://oauth2.<base_domain>/oauth2/sign_out?rd=<scheme>://<base_domain>/signed-out.html
-```
-
-with the `rd` value URL-encoded. On a local HTTP stack that is
-`http://oauth2.olf.localhost/oauth2/sign_out?rd=http%3A%2F%2Folf.localhost%2Fsigned-out.html`.
-
-- Superset keeps its own session. Its Logout menu item redirects to that
-  address.
+- Superset keeps its own session. Its Logout menu item does the same.
 - GitHub's own session stays open, so signing in again usually does not prompt;
   Dex re-reads teams at each sign-in.
-- OpenMetadata roles follow the 5-minute role sync, not sign-out. Force one with
-  `kubectl -n olf-system create job --from=cronjob/openmetadata-role-sync <name>`.
 - A private window is the easy alternative: closing it drops every cookie.
 
 ## Check a change took effect
