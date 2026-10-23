@@ -7,7 +7,7 @@ and none of these steps needs a deploy.
 | To | Do this in GitHub | What happens |
 | --- | --- | --- |
 | Give the first administrators access | Put them in the team mapped to `platform-admin` | They hold `platform-admin` at their first sign-in. Nothing is created at deploy. |
-| Add a person | Invite them to the organization and add them to a mapped team | They sign in with GitHub on the portal. GitHub owns their password, two-factor authentication and recovery. |
+| Add a person | Add them to the organization and to a mapped team | They sign in with GitHub on the portal. GitHub owns their password, two-factor authentication and recovery. |
 | Change a role | Move them between mapped teams | Their next token carries the new teams. |
 | Remove every role | Remove them from every mapped team | Dex refuses their next sign-in or refresh. |
 | Offboard | Remove them from the organization | The same, and GitHub ends their organization access everywhere else at once. |

@@ -4,7 +4,7 @@ Dex is scaled to zero, a fresh perimeter sign-in must fail, Trino and Dagster
 must answer through recorded break-glass sessions, and after Dex is restored a
 fresh sign-in must work again. Dex is always restored, even when a step fails.
 The two timings it logs are the ones recorded in
-docs/architecture/identity-sessions-and-recovery.md.
+docs/architecture/identity/identity-sessions-and-recovery.md.
 """
 
 from __future__ import annotations

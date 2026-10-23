@@ -49,7 +49,7 @@ running stack are real requirements — open items are tracked as debt in
 4. `docs/adr/README.md` — the decision log index; each ADR describes what
    binds today, all worth reading
 5. `docs/technical-debt.md` — the live debt register with a fix path per item
-6. `docs/architecture/diagrams/README.md` — pod census and runtime topology
+6. `docs/architecture/diagrams.md` — pod census and runtime topology
 
 Current work is tracked in GitHub milestones. Issues carry `priority: P0/P1/P2`
 labels expressing intended sequence within a milestone.

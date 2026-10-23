@@ -18,7 +18,7 @@ resource "kubernetes_service_account_v1" "credentials" {
 }
 
 # `create` cannot be limited by resourceNames, so it covers every Secret in the
-# namespace (inventoried in docs/architecture/identity-credentials.md); reading
+# namespace (inventoried in docs/architecture/identity/identity-credentials.md); reading
 # is limited to the Secrets this Job owns.
 resource "kubernetes_role_v1" "credentials" {
   metadata {

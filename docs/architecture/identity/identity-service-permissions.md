@@ -5,10 +5,11 @@ service must allow and deny, the native objects that implement
 `release/identity-roles.yaml`, how roles reach each service, and how each
 service meets the session policy in
 [`identity-sessions-and-recovery.md`](identity-sessions-and-recovery.md).
-The Superset sign-in is built (#25 slice a: issuer client, role mapping,
-registration role, 15 min bound). The OpenMetadata sign-in is built too (below);
-its role sync is built too (below). No cluster was available for either, so every runtime
-claim stays marked.
+Built in v0.5: the Superset sign-in (issuer client, role mapping, registration
+role, 15 min bound), the OpenMetadata sign-in with its 5 minute role sync, and
+the demotion of OpenMetadata's local `admin`. Runtime claims that were not
+exercised on a running stack stay marked **T**; the v0.5 exit demo (#522) runs
+the role and denial paths end to end.
 
 OpenMetadata sign-in as built (#25 slice b), with what reading 1.13.6 changed
 in the design below:
@@ -61,7 +62,8 @@ unioned with what the role holds, so a re-import changes nothing. The endpoints
 (`roles/search`, `permissions-resources`, `roles/<id>/permissions`) are
 unverified against the pinned Superset until the runtime check: SS-1 and SS-3
 must show the Gold dashboards to an analyst and a viewer, and no other schema.
-Not yet built: the auto-redirect login view, the native 403 page, and the `olf-automation` users.
+Not yet built for Superset: the auto-redirect login view, the native 403 page,
+and a dedicated automation user (OpenMetadata's `olf-automation` bot is built).
 
 | Mark | Meaning |
 | --- | --- |
@@ -87,7 +89,7 @@ chart 0.15.5; OpenMetadata chart and server 1.13.6. Read: Superset 6.1.0
 | 1 | Superset has no read-only dashboard role. `Gamma` can create and edit its own charts and dashboards | **V** `manager.py` `_is_gamma_pvm` | `viewer` is a custom role: Superset's own `Public` permission set under another name |
 | 2 | `superset init` rewrites `Admin`, `Alpha`, `Gamma` and `sql_lab` permissions from code. Data-access grants (`schema_access`) added by hand to `Gamma` are dropped | **V** `set_role`, `_is_user_defined_permission` | Data scope for `analyst` and `viewer` lives in a separate custom role |
 | 3 | `Alpha` has no SQL Lab. SQL Lab permissions belong to the `sql_lab` role only | **V** `_is_alpha_pvm` excludes `_is_sql_lab_only` | The yaml maps `data-engineer` to `Alpha`, so data engineers have no SQL Lab. Decision 1 |
-| 4 | Flask-AppBuilder's built-in `keycloak` provider reads the `groups` claim by name | **V** `get_oauth_user_info` | Unusable: it is a Keycloak-specific provider and claim the contract forbids. A custom user-info method reads `role_claim` |
+| 4 | Flask-AppBuilder's built-in provider for one named issuer reads the `groups` claim by name | **V** `get_oauth_user_info` | Unusable: it is specific to that issuer and a claim the contract forbids. A custom user-info method reads `role_claim` |
 | 5 | The login page waits for a click: FAB's `AuthOAuthView.login` lists providers, and Superset registers its own `SupersetAuthView` at `/login/` unless a subclass sets `register_superset_auth_view = False` | **V** `AuthOAuthView`, `views/auth.py`, `register_views` | Silent renewal needs a small auth-view subclass registered through `authoauthview` |
 | 6 | OpenMetadata has no roles named `read` or `write`; `Admin` is a user flag. `DataConsumer`, which every user inherits, is not read-only | **V** `UserUtil`, `TeamRepository.initOrganization`, seed policies | `read` and `write` are defined below; the default baseline must be tightened |
 | 7 | OpenMetadata's provider role sync reads a claim literally named `roles` whose values are OpenMetadata role names. It grants `Admin` but never removes it, and an empty claim changes nothing | **V** `JwtFilter`, `UserUtil.reSyncUserRolesFromToken` | Cannot consume the canonical claim, and cannot demote. The fix to remove roles is on `main` after 1.13.6 |
@@ -270,7 +272,7 @@ refresh-token grant (**V** `getUserCredentialsFromSession`, `renewOidcCredential
 | `oidcConfiguration.sessionExpiry` | Leave default. Values under 3600 are ignored and the 7-day default applies (**V**). It is an idle timeout (**V** `setMaxInactiveInterval`) | 15 min is not reachable here, and the session holds no authority of its own |
 | `oidcConfiguration.tokenValidity` | `"900"` | Only used when a refresh response has no `id_token`, when OpenMetadata mints a token itself (**V**). Default is 3600 s, which would exceed 15 min |
 | `oidcConfiguration.maxAge` | `""` | Default `"0"` is sent as `max_age=0` (**V** `buildLoginParams`), which asks the issuer to re-authenticate every time (OIDC Core 3.1.2.1), defeating silent renewal |
-| `oidcConfiguration.promptType` | `""` | Default `consent`; **T** the issuer ignores it for a client without consent (checked against Keycloak, since removed; Dex shows no approval screen, `skipApprovalScreen`) |
+| `oidcConfiguration.promptType` | `""` | Default `consent`; **T** the issuer ignores it for a client without consent (Dex shows no approval screen, `skipApprovalScreen`) |
 | `authentication.enableAutoRedirect` | `true` (env `AUTHENTICATION_ENABLE_AUTO_REDIRECT`, via `extraEnvs`) | No provider button |
 | Client secret | `oidcConfiguration.clientSecret.secretRef/secretKey` from the contract | **V** chart renders `OIDC_CLIENT_SECRET` from a Secret |
 
@@ -345,9 +347,11 @@ Maintainer decisions for v0.5-alpha.
 
 ## Not claimed
 
-No behaviour in this document was run. Marked **V** items were read in the
-named source at the pinned version, not executed; the OpenMetadata role-sync
+Marked **V** items were read in the named source at the pinned version, not
+executed, and **T** items were not run on a stack when this was written; the
+cases in the test plan above are the checks. The OpenMetadata role-sync
 decision record on `main` (2026-10-13) was read for context only, because it
-postdates 1.13.6. The Dex side for these consumers (returning `id_token` on refresh, emitting
-the role claim in the ID token the way each client reads it) is unverified;
-only the perimeter was measured, in the session policy.
+postdates 1.13.6. The Dex side for these consumers (returning `id_token` on
+refresh, emitting the role claim in the ID token the way each client reads it)
+is unverified; only the perimeter revocation bound was measured, in the
+session policy.

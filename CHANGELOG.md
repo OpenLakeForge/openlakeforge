@@ -47,7 +47,7 @@ does not add authorization inside Dagster or over data.
   pod) reach Dagster without a session through its cluster-internal Service.
   That path is a Kubernetes RBAC boundary, not an authentication check, and
   nothing restricts which pods may call it until NetworkPolicy is added
-  (#46). See [identity-callers.md](docs/architecture/identity-callers.md#dagster-boundary).
+  (#46). See [identity-callers.md](docs/architecture/identity/identity-callers.md#dagster-boundary).
 - **No data-level authorization.** A user's role decides which services they
   reach, not which data they read. Superset connects to Trino as one shared
   identity per stage, so Trino and the catalog never see the end user, and

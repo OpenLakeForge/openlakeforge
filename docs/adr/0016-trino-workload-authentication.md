@@ -31,7 +31,7 @@ catalog (`lakehouse_<stage>`). Access is decided by file-based rules
 which is whatever the client sends in `X-Trino-User`; Trino accepts it
 unauthenticated, so any pod that reaches the Service can claim
 `olf-prod-runtime` (proved below, case 0a). Superset, dbt, OpenMetadata and
-`olf e2e` are the callers ([`identity-callers.md`](../architecture/identity-callers.md)).
+`olf e2e` are the callers ([`identity-callers.md`](../architecture/identity/identity-callers.md)).
 #26 requires one non-interactive mechanism for all of them, separate from the
 human OAuth2 login for the Trino UI.
 
@@ -83,7 +83,7 @@ shared-service-account limitation in `identity-callers.md`).
 ### Secrets
 
 Created by an in-cluster Job owned by `modules/query/trino`, never by Terraform
-([`identity-credentials.md`](../architecture/identity-credentials.md),
+([`identity-credentials.md`](../architecture/identity/identity-credentials.md),
 `modules/identity/dex/credentials.tf`); the contract fields are the migration's.
 
 | Secret | Namespace | Content | Created |

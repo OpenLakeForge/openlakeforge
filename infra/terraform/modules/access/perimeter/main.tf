@@ -137,7 +137,7 @@ resource "terraform_data" "grants" {
 }
 
 # The cookie secret is generated in the cluster and never passes through
-# Terraform, which only references it (docs/architecture/identity-credentials.md).
+# Terraform, which only references it (docs/architecture/identity/identity-credentials.md).
 resource "kubernetes_service_account_v1" "cookie" {
   metadata {
     name      = "${var.release_name}-cookie"
@@ -147,7 +147,7 @@ resource "kubernetes_service_account_v1" "cookie" {
 }
 
 # `create` cannot be limited by resourceNames, so it covers every Secret in the
-# namespace (inventoried in docs/architecture/identity-credentials.md); reading
+# namespace (inventoried in docs/architecture/identity/identity-credentials.md); reading
 # is limited to the Secret this Job owns.
 resource "kubernetes_role_v1" "cookie" {
   metadata {

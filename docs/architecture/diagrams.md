@@ -6,7 +6,7 @@ path through the catalog, and the provider contracts that let the same platform
 run on kind, EKS and AKS.
 
 They use the official Kubernetes icon language and complement the
-[Architecture](../overview.md) page, which shows *what* the platform does; these
+[Architecture](overview.md) page, which shows *what* the platform does; these
 show *how* it runs.
 
 | **20** | **1+N** | **3** | **0** |
@@ -66,7 +66,7 @@ apply (phase 2), except cert-manager's check, which runs only on first install.
 **Scheduled**: the two CronJobs on the cluster clock (log archive every 15 minutes,
 OpenMetadata catalog refresh hourly).
 
-![Cluster Pod Census](chart1-cluster-pod-census.svg)
+![Cluster Pod Census](diagrams/chart1-cluster-pod-census.svg)
 
 <sub>`infra/helm/values/local/*.yaml` · orchestration/dagster + storage/postgresql +
 governance/openmetadata + access/{traefik,cert-manager,portal} Terraform modules</sub>
@@ -86,9 +86,9 @@ Polaris and reads/writes SeaweedFS), then calls **Trino** through dbt-trino to b
 Gold. Both Floe and dbt-trino also push OpenLineage events straight to OpenMetadata's
 native endpoint — that lineage ingestion was restored, not deferred.
 
-![Namespace Runtime Topology](chart2-namespace-topology.svg)
+![Namespace Runtime Topology](diagrams/chart2-namespace-topology.svg)
 
-<sub>[docs/architecture/local-stack-contracts.md](../local-stack-contracts.md) · `infra/terraform/modules/**`</sub>
+<sub>[docs/architecture/local-stack-contracts.md](local-stack-contracts.md) · `infra/terraform/modules/**`</sub>
 
 ## Chart 3 — Ephemeral Job Lifecycle
 
@@ -103,15 +103,15 @@ isolate per entity; TTL returns the per-run footprint to zero (Gold SQL executes
 standing Trino service, not a per-run pod).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../assets/chart3-ephemeral-job-lifecycle-dark.svg">
-  <img alt="Ephemeral job lifecycle: the user launches a product job in Dagster; the daemon creates the run pod, which lands Bronze with dlt, creates one Floe Job per entity in sequence to validate and commit Silver through the catalog, then runs dbt-trino so Trino builds Gold; every run and Floe pod is garbage-collected after the run" src="../../assets/chart3-ephemeral-job-lifecycle-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/chart3-ephemeral-job-lifecycle-dark.svg">
+  <img alt="Ephemeral job lifecycle: the user launches a product job in Dagster; the daemon creates the run pod, which lands Bronze with dlt, creates one Floe Job per entity in sequence to validate and commit Silver through the catalog, then runs dbt-trino so Trino builds Gold; every run and Floe pod is garbage-collected after the run" src="../assets/chart3-ephemeral-job-lifecycle-light.svg">
 </picture>
 
 > Observe it live: `kubectl -n olf-dev get jobs -w` — the run Job appears, then one
 > Floe Job per entity while it is still Running, then all of them vanish an hour later.
 
 Full detail — the per-engine execution table and the Job state machine — is in
-**[chart3-ephemeral-job-lifecycle.md](chart3-ephemeral-job-lifecycle.md)**.
+**[chart3-ephemeral-job-lifecycle.md](diagrams/chart3-ephemeral-job-lifecycle.md)**.
 
 ## Chart 4 — Medallion & Catalog Data Path
 
@@ -126,7 +126,7 @@ layers: per-product namespaces, allowed locations, and every write committed thr
 never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 `success_or_rejected`.
 
-![Medallion and Catalog Data Path](chart4-medallion-catalog.svg)
+![Medallion and Catalog Data Path](diagrams/chart4-medallion-catalog.svg)
 
 <sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0003, 0004</sub>
 
@@ -153,9 +153,9 @@ artifacts and foundation together, two Azure cells appear orange. `aws-poc` swap
 different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-glue`,
 `storage/rds-postgresql`) and reuses Trino, OpenMetadata, Superset, Dagster.
 
-![Provider Contracts](chart5-provider-contracts.svg)
+![Provider Contracts](diagrams/chart5-provider-contracts.svg)
 
-<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0003, 0010</sub>
+<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](provider-contracts.md) · ADR 0003, 0010</sub>
 
 ---
 
@@ -183,7 +183,7 @@ Traefik, cert-manager and the Dex identity issuer run on the local profile only
 (ADR 0013, ADR 0014); AWS and Azure still use port-forward. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
-[ADR 0007](../../adr/0007-governance-and-lineage.md) covers the full history:
+[ADR 0007](../adr/0007-governance-and-lineage.md) covers the full history:
 a normalising proxy first hid upstream correctness problems, lineage was then
 deferred while those were fixed, and native emission was restored once Floe
 and dbt-trino could target OpenMetadata's endpoint directly. The proxy and a
@@ -196,7 +196,7 @@ registry), **platform** (Terraform-managed services), then **artifacts**
 (everything derived from `lakehouse_code/`). The CD boundary is not "foundation
 is outside, the rest is the deploy" — it is the static/dynamic split between
 platform and artifacts. A domain commit triggers the artifacts phase only; CI
-never runs Terraform for a domain change ([ADR 0002](../../adr/0002-deployment-lifecycle.md)).
+never runs Terraform for a domain change ([ADR 0002](../adr/0002-deployment-lifecycle.md)).
 
 | Phase | Target | Deploys |
 | --- | --- | --- |
@@ -232,7 +232,7 @@ administer the catalog. Delivery is Terraform → Kubernetes Secret →
 `envSecrets`/`envFrom` into long-lived pods *and* ephemeral Jobs; the Trino catalog file
 holds `${ENV:...}` placeholders, never literal secrets. The AWS POC replaces static
 storage keys entirely with EKS Pod Identity
-([ADR 0010](../../adr/0010-cloud-provider-implementations.md)).
+([ADR 0010](../adr/0010-cloud-provider-implementations.md)).
 
 ## Observability — object storage is the sink
 
@@ -300,9 +300,9 @@ is the canonical, human- and machine-readable descriptor of every domain and pro
 
 **About these charts.** Charts 1, 2, 4, 5 are self-contained SVGs (official CNCF
 Kubernetes icons embedded, no external references) generated by the Python sources in
-[src/](src/) — regenerate with `python3 src/spec_chartN.py`. Chart 3 is the Mermaid
+[src/](diagrams/src/) — regenerate with `python3 docs/architecture/diagrams/src/spec_chartN.py`. Chart 3 is the Mermaid
 sequence diagram in
-[chart3-ephemeral-job-lifecycle.md](chart3-ephemeral-job-lifecycle.md), rendered
+[chart3-ephemeral-job-lifecycle.md](diagrams/chart3-ephemeral-job-lifecycle.md), rendered
 to the light and dark SVGs in `docs/assets/` with `@mermaid-js/mermaid-cli`
 11.4.2; the dark copy swaps the three box tints for dark ones. Every count and
 identifier is traceable to a cited source file; nothing aspirational is drawn as

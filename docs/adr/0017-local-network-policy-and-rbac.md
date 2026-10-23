@@ -169,7 +169,7 @@ the shared one by `openlakeforge.io/scope=shared` [V: `main.tf`], not by name.
 
 Each row is a pair of policies: egress on the source, ingress on the
 destination, unless a side's namespace is unmanaged. "Source" is the row of
-[`identity-callers.md`](../architecture/identity-callers.md) or the file the
+[`identity-callers.md`](../architecture/identity/identity-callers.md) or the file the
 flow was read from. Ports are container ports (a policy sees the post-DNAT pod
 port [D]).
 
@@ -236,12 +236,12 @@ slice; "exception" is recorded and pinned by the e2e check.
 | `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create`, namespace-wide; `delete/get/patch/update` on named Secrets and marker ConfigMaps only [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Done (slice 4)**: `create` stays namespace-wide (E1); `get/update/patch/delete` are pinned by `resourceNames` to the plan-time Secret names (`*_credentials_secret_name`, `polaris-dbt-creds`) and their `<name>-bootstrap-pending` markers (`rbac.tf`) |
 | `openmetadata-bootstrap` (`olf-system`, governed and revoked stage namespaces) | Secrets `create`, namespace-wide; `delete/get/patch/update` on two named Secrets only [V] | the ingestion-bot Secret | **Done (slice 4)**: `create` stays (E1); `get/update/patch/delete` by `resourceNames` on the automation and ingestion-bot Secrets |
 | OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; recorded as a named exception by slice 4.** A compromised OpenMetadata can read the PostgreSQL admin and the Polaris root Secret. Limiting Secret verbs by `resourceNames` is not enough while the same Role can create pods, Jobs or CronJobs in `olf-system`: a workload mounts any Secret in its namespace and can run as any ServiceAccount there, including Traefik's and cert-manager's [D: Kubernetes RBAC good practices]. Slice 4 therefore counts workload creation as Secret access. It sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role only if pod and Job creation can be confined (for example to a dedicated ingestion namespace or ServiceAccount); the server also creates Secrets with generated names [T]. Slice 4 could not confine pod and Job creation, and the UI-triggered pipeline client needs the grant, so E2 is accepted with this exact exposure, asserted by the pin check; the chart-owned Role is not rewritten here |
-| `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3 (also in [`identity-callers.md`](../architecture/identity-callers.md), Dagster run launcher): no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
+| `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3 (also in [`identity-callers.md`](../architecture/identity/identity-callers.md), Dagster run launcher): no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
 | `traefik` ClusterRole | Secrets `get/list/watch` in **all** namespaces; Ingress status update [V] | TLS Secrets | Exception E4; narrowing to namespaces is a chart option, **T** |
 | cert-manager ClusterRoles | Secrets `get/list/watch/create/update/delete` cluster-wide [V] | issuing certificates | Exception E5, inherent; the controller-challenges ClusterRole also creates pods and Services for HTTP-01 solvers, and the webhook has a namespaced `dynamic-serving` Role on its CA Secret (get/list/watch/update pinned, create namespace-wide) |
 | `seaweedfs` ClusterRole `seaweedfs-rw-cr` | pods `get/list/watch/create/update/patch/delete` in **all** namespaces [V] | the chart's "hack for delete pod master after migration" | **Done (slice 4)**: `global.seaweedfs.createClusterRole: false` in `seaweedfs.yaml` [V: chart 4.23 template]; the slice 5 e2e asserts the ClusterRole is gone |
 | `tigera-operator`, `calico-node` (Option B) | cluster-wide, privileged | the CNI | Exception E6, inherent |
-| `olf` operator and CI | the kind kubeconfig is cluster-admin | everything | Trusted (#46). The non-admin recovery Role is in [`identity-sessions-and-recovery.md`](../architecture/identity-sessions-and-recovery.md): no Secret read, no `exec` |
+| `olf` operator and CI | the kind kubeconfig is cluster-admin | everything | Trusted (#46). No recovery Role is provisioned: `olf break-glass` uses the operator's own kubeconfig (cluster-admin on kind), see [`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md) |
 
 Denied, and asserted with `kubectl auth can-i --as=system:serviceaccount:<ns>:<sa>`
 (impersonation by the admin kubeconfig, no network involved): for the
@@ -291,7 +291,7 @@ needs one line. The probe namespace and every temporary policy are removed in a
 | RBAC changes | the modules that own the Roles (`catalog/polaris`, `governance/openmetadata`) and Helm values (`seaweedfs.yaml`) |
 | CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
 | Gate and canary | `foundation_up` / a deploy precondition, and `e2e/_network.py` |
-| Docs flipped from "not yet verified" | [`identity-callers.md`](../architecture/identity-callers.md) Dagster and internal-reachability rows, ADR 0014 seam 3 paragraph, the #178 limitation line |
+| Docs flipped from "not yet verified" | [`identity-callers.md`](../architecture/identity/identity-callers.md) Dagster and internal-reachability rows, ADR 0014 seam 3 paragraph, the #178 limitation line |
 
 ## Implementation plan
 

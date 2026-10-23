@@ -23,7 +23,7 @@ resource "kubernetes_secret_v1" "bootstrap_credentials" {
 # generates an in-memory one on every start, so a restart invalidates every
 # token Trino (and other clients) hold and writes fail until Trino restarts.
 # The key is created in-cluster, only if missing, so Terraform never holds the
-# value (#181, docs/architecture/identity-credentials.md) and a redeploy does
+# value (#181, docs/architecture/identity/identity-credentials.md) and a redeploy does
 # not rotate it. Rotation is deleting the Secret and re-running the Job.
 locals {
   token_broker_secret = "${var.release_name}-token-broker"

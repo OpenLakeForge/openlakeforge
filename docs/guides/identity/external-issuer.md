@@ -1,7 +1,7 @@
 # Bring your own OIDC issuer
 
 How to sign people in through an identity provider you run, such as Okta,
-Entra ID or Keycloak, instead of GitHub. OpenLakeForge then deploys no issuer
+Entra ID or Auth0, instead of GitHub. OpenLakeForge then deploys no issuer
 of its own.
 
 ```yaml
