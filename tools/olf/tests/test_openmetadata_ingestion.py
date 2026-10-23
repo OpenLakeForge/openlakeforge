@@ -70,3 +70,21 @@ def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
     module = Path(__file__).parents[3] / "infra/terraform/modules/governance/openmetadata"
     assert not (module / "refresh.tf").exists()
     assert "$catalog_service-metadata-ingestion" not in (module / "templates/bootstrap.sh.tftpl").read_text()
+
+
+def test_a_password_contract_gives_the_crawl_the_openmetadata_principals_password_by_reference():
+    _, pod, workflow, env = _build({**TLS, "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential"})
+
+    assert env["TRINO_PASSWORD"]["valueFrom"]["secretKeyRef"] == {
+        "name": "trino-credential-openmetadata",
+        "key": "password",
+    }
+    assert workflow["source"]["serviceConnection"]["config"]["authType"] == {"password": "__TRINO_PASSWORD__"}
+    assert "__TRINO_PASSWORD__" in pod["containers"][0]["command"][2]
+
+
+def test_without_a_password_contract_the_crawl_carries_no_credential():
+    _, _, workflow, env = _build(TLS)
+
+    assert "authType" not in workflow["source"]["serviceConnection"]["config"]
+    assert "TRINO_PASSWORD" not in env

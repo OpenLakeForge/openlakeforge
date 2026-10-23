@@ -9,6 +9,7 @@ caller cannot leave the other behind.
 
 from __future__ import annotations
 
+import base64
 import os
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
@@ -22,7 +23,12 @@ TRINO_CA = "/etc/trino/tls/ca.crt"
 LEGACY_CATALOG = "iceberg"
 STAGE_CATALOG_PREFIX = "lakehouse_"
 
-Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
+# The coordinator mounts its password file here when password authentication is
+# on (the chart's auth.passwordAuthSecret), which is how the pod says so.
+TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
+
+# Called with the argv and the text for the process's stdin.
+Runner = Callable[[Sequence[str], str], "subprocess.CompletedProcess[str]"]
 
 
 class TrinoQueryError(RuntimeError):
@@ -79,21 +85,58 @@ def glue_namespace_prefix(provider: str, catalog: str) -> str:
 
 
 def cli_script(ca_path: str | None = None) -> str:
+    """The shell the coordinator pod runs, choosing the listener the pod itself offers.
+
+    With password authentication on, the password arrives on stdin and goes to
+    the CLI as TRINO_PASSWORD, so it is on no command line. An empty line sends
+    no password at all, which is what the header-only isolation probe needs.
+    """
     ca = ca_path or TRINO_CA
     return (
+        f"if [ -f {TRINO_PASSWORD_FILE} ]; then "
+        'IFS= read -r TRINO_PASSWORD; export TRINO_PASSWORD; '
+        'if [ -n "$TRINO_PASSWORD" ]; then set -- --password "$@"; fi; fi; '
         f"if [ -f {ca} ]; then "
         f'exec trino --server https://localhost:8443 --truststore-path {ca} "$@"; '
         'else exec trino "$@"; fi'
     )
 
 
-def exec_args(target: TrinoTarget, sql: str, *, output_format: str) -> list[str]:
+def password_secret(target: TrinoTarget) -> str:
+    """The Secret in the coordinator's namespace holding the stage principal's password (ADR 0016)."""
+    return f"trino-credential-{target.user}"
+
+
+def password_args(target: TrinoTarget) -> list[str]:
+    """`kubectl` arguments that print the principal's base64 password; empty while no credential exists."""
+    return [
+        "get",
+        "secret",
+        password_secret(target),
+        "-n",
+        target.namespace,
+        "--ignore-not-found",
+        "-o",
+        "jsonpath={.data.password}",
+    ]
+
+
+def decode_password(raw: str) -> str:
+    return base64.b64decode(raw).decode("utf-8") if raw.strip() else ""
+
+
+def exec_args(
+    target: TrinoTarget, sql: str, *, output_format: str, session_user: str | None = None
+) -> list[str]:
     """Arguments for `kubectl` (after `--context`) that run `sql` as the stage's runtime user.
 
     The stage catalog is the session default, so SQL can name `<schema>.<table>`.
+    `session_user` is a claimed identity sent apart from the authenticated
+    principal, for the isolation probes. `-i` carries the password on stdin.
     """
     return [
         "exec",
+        "-i",
         "-n",
         target.namespace,
         "deploy/trino-coordinator",
@@ -108,6 +151,7 @@ def exec_args(target: TrinoTarget, sql: str, *, output_format: str) -> list[str]
         output_format,
         "--user",
         target.user,
+        *(["--session-user", session_user] if session_user else []),
         "--execute",
         sql,
     ]
@@ -143,10 +187,24 @@ def run_sql(
     runner: Runner | None = None,
 ) -> str:
     """Run `sql` once and return Trino's output; raise `TrinoQueryError` with an explanation on failure."""
-    command = [kubectl, "--context", target.kube_context, *exec_args(target, sql, output_format=output_format)]
+    base = [kubectl, "--context", target.kube_context]
     run = runner or _subprocess_runner
     try:
-        result = run(command)
+        # Only a contract that names a credential has a password to send; an unauthenticated
+        # coordinator is queried with no Secret read and no stdin.
+        password = ""
+        stdin = ""
+        if os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
+            lookup = run([*base, *password_args(target)], "")
+            if lookup.returncode != 0:
+                raise TrinoQueryError(
+                    f"cannot read the password Secret {password_secret(target)} in namespace {target.namespace}: "
+                    f"{(lookup.stderr or lookup.stdout or '').strip()}\n"
+                    "olf query needs RBAC permission to get that Secret."
+                )
+            password = decode_password(lookup.stdout or "")
+            stdin = f"{password}\n"
+        result = run([*base, *exec_args(target, sql, output_format=output_format)], stdin)
     except OSError as exc:
         raise TrinoQueryError(f"could not run kubectl: {exc}") from exc
     if result.returncode != 0:
@@ -154,5 +212,5 @@ def run_sql(
     return result.stdout
 
 
-def _subprocess_runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(list(command), capture_output=True, text=True, check=False)
+def _subprocess_runner(command: Sequence[str], stdin: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(list(command), input=stdin, capture_output=True, text=True, check=False)

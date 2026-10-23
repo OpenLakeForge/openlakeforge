@@ -14,6 +14,11 @@ output "tls_port" {
   value       = local.tls_enabled ? 8443 : null
 }
 
+output "credential_secret_name" {
+  description = "Secret each stage namespace holds with its own Trino username and password (ADR 0016); null unless password authentication is on."
+  value       = local.auth_enabled ? "trino-credential" : null
+}
+
 output "route_port" {
   description = "Port the ingress route reaches Trino on: the HTTPS port when workload authentication is on, since the HTTP listener is then disabled."
   value       = local.auth_enabled ? 8443 : 8080

@@ -23,6 +23,15 @@ _CA_DIR = "/etc/olf/query-ca"
 # the Job spec nor Terraform state holds it.
 _TOKEN_ENV = "OM_BOT_JWT"
 _TOKEN_PLACEHOLDER = "__OM_BOT_JWT__"
+# The `openmetadata` principal's password (ADR 0016) travels the same way. Its
+# Secret is in the namespace Trino runs in, named from the stage credential's.
+_PASSWORD_ENV = "TRINO_PASSWORD"
+_PASSWORD_PLACEHOLDER = "__TRINO_PASSWORD__"
+
+
+def _password_secret(environ: Mapping[str, str]) -> str:
+    credential = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
+    return f"{credential}-openmetadata" if credential else ""
 
 
 def _tls(environ: Mapping[str, str]) -> bool:
@@ -41,6 +50,8 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
     }
     if tls:
         connection["connectionArguments"] = {"http_scheme": "https", "verify": f"{_CA_DIR}/ca.crt"}
+    if _password_secret(environ):
+        connection["authType"] = {"password": _PASSWORD_PLACEHOLDER}
     return {
         "source": {
             "type": "trino",
@@ -84,7 +95,8 @@ def ingestion_job(
         "command": [
             "sh",
             "-c",
-            f"printf '%s' \"$OM_WORKFLOW\" | sed \"s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|\" > /tmp/workflow.yaml"
+            f"printf '%s' \"$OM_WORKFLOW\" | sed -e \"s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|\""
+            f" -e \"s|{_PASSWORD_PLACEHOLDER}|${{{_PASSWORD_ENV}:-}}|\" > /tmp/workflow.yaml"
             " && metadata ingest -c /tmp/workflow.yaml",
         ],
         "env": [
@@ -100,6 +112,13 @@ def ingestion_job(
             },
         ],
     }
+    if password_secret := _password_secret(environ):
+        container["env"].append(
+            {
+                "name": _PASSWORD_ENV,
+                "valueFrom": {"secretKeyRef": {"name": password_secret, "key": "password"}},
+            }
+        )
     pod: dict[str, Any] = {"restartPolicy": "Never", "containers": [container]}
     if _tls(environ):
         container["volumeMounts"] = [{"name": "query-ca", "mountPath": _CA_DIR, "readOnly": True}]

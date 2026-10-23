@@ -236,7 +236,7 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
     kubeconfig = tmp_path / "aws.yaml"
     monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
 
-    def run(args: list[str], *, capture: bool = False) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
         commands.append(args)
         return ""
 
@@ -324,7 +324,7 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
 def test_prepare_kube_context_selects_existing_local_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
 
-    def run(args: list[str], *, capture: bool = False) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
         commands.append(args)
         return ""
 
@@ -344,7 +344,7 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     kubeconfig = tmp_path / "aws.yaml"
     monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
 
-    def run(args: list[str], *, capture: bool = False) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
         commands.append(args)
         if args[:2] == ["kubectl", "cluster-info"] and len(commands) == 1:
             raise E2EError("context missing")
@@ -430,7 +430,7 @@ def test_terraform_output_without_external_state_root_is_unchanged(
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = 0
 
-    def run(args: list[str], *, capture: bool = False) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
@@ -447,7 +447,7 @@ def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPa
 def test_run_retry_transient_kubectl_retries_tls_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = 0
 
-    def run(args: list[str], *, capture: bool = False) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
@@ -466,7 +466,7 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
 ) -> None:
     attempts = 0
 
-    def run(args: list[str], *, capture: bool = False) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
         nonlocal attempts
         attempts += 1
         raise E2EError("Trino query failed: TABLE_NOT_FOUND")

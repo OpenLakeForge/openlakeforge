@@ -16,7 +16,7 @@ def test_all_product_profiles_use_trino_and_catalog_contract() -> None:
     for project in PROJECTS:
         profile = render_profile(project, environment="local")
         assert "type: trino" in profile
-        assert "method: none" in profile
+        assert "env_var('OPENLAKEFORGE_DBT_TRINO_METHOD', 'none')" in profile
         assert (
             f"database: \"{{{{ env_var('{LINEAGE_DATABASE_ENV}', '{LINEAGE_DATABASE_DEFAULT}') }}}}\""
             in profile
@@ -58,4 +58,4 @@ def test_local_profile_reaches_trino_over_https_only_when_the_run_pod_is_given_t
 
     assert profile.count("OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http'") == 2
     assert profile.count("env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none") == 2
-    assert "password" not in profile
+    assert profile.count("env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD', '') or none") == 2

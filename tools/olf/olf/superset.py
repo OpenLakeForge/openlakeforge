@@ -30,6 +30,7 @@ class ReportStageError(RuntimeError):
 
 # Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
 SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
+SUPERSET_PASSWORD_MASK = "XXXXXXXXXX"
 _TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
 # The placeholder a checked-in database YAML carries. `build_report_bundle`
 # replaces it with the target stage's connection, and `unpack_export_bundle`
@@ -48,6 +49,9 @@ class StageReportTarget:
     # Superset's per-database `extra`: the HTTPS scheme and the CA to verify
     # against, set only while Trino serves HTTPS (ADR 0016).
     extra: dict[str, Any] | None = None
+    # Secret in `namespace` holding this stage's Trino password; empty while
+    # Trino takes no password.
+    credential_secret: str = ""
 
 
 def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
@@ -105,7 +109,13 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     # read -- so none of it is trusted. Same shape `build_contract_env` uses.
     tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
     tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
-    sqlalchemy_uri = "trino://{user}@{host}:{port}/{catalog}".format(
+    credential_secret = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "") if tls else ""
+    # Superset's own placeholder, not a secret. The import's `passwords` field
+    # fills the real value, but Database.set_sqlalchemy_uri then overwrites it
+    # with the URI's password unless that is the placeholder (6.1.0), so a URI
+    # without one wipes the password and the import's first Trino call gets 401.
+    sqlalchemy_uri = "trino://{user}{mask}@{host}:{port}/{catalog}".format(
+        mask=f":{SUPERSET_PASSWORD_MASK}" if credential_secret else "",
         user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
         port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
@@ -117,6 +127,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
         extra=_TLS_EXTRA if tls else None,
+        credential_secret=credential_secret,
     )
 
 
@@ -558,6 +569,7 @@ def deploy_reports(
     admin_password: str,
     schema_prefix: str = "",
     extra: dict[str, Any] | None = None,
+    credential_secret: str = "",
 ) -> None:
     # Computed before touching the cluster: a declared-but-unmounted bundle
     # must still fail loudly, and validate_report_registry already does that
@@ -580,6 +592,7 @@ def deploy_reports(
         return
 
     work_dir.mkdir(parents=True, exist_ok=True)
+    trino_password = k8s.secret_value(credential_secret, "password", namespace) if credential_secret else ""
     with superset_base_url(namespace) as base_url:
         client = SupersetClient(base_url, username=admin_username, password=admin_password)
         client.login()
@@ -596,7 +609,7 @@ def deploy_reports(
             )
 
             log.step(f"Importing Superset report assets from {bundle_path}")
-            client.import_assets(bundle_path)
+            client.import_assets(bundle_path, database_password=trino_password)
             log.info(f"Deployed Superset report assets from {report_dir}")
             schema_perms |= bundle_schema_perms(bundle_path)
         # Analysts and viewers read nothing until olf_data_access holds the

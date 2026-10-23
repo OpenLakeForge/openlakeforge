@@ -680,8 +680,10 @@ locals {
           runtime_identity_ref = "stage/${name}/runtime_identity"
           }, {
           for key, value in tomap({
-            tls_port          = module.trino.tls_port == null ? null : tostring(module.trino.tls_port),
-            ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca",
+            # Present only when Trino requires a password; the Secret is in the stage namespace.
+            credential_secret_name = module.trino.credential_secret_name,
+            tls_port               = module.trino.tls_port == null ? null : tostring(module.trino.tls_port),
+            ca_configmap_name      = module.trino.tls_port == null ? null : "olf-local-ca",
           }) : key => value if value != null
         })
         orchestration = {

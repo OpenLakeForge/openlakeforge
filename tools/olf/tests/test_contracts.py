@@ -285,3 +285,12 @@ def test_a_contract_file_replaces_terraform_state_and_fails_closed_when_missing(
 
     with pytest.raises(ProviderContractError, match=PROVIDER_CONTRACTS_FILE_ENV):
         load_provider_contracts("/nonexistent", environ={PROVIDER_CONTRACTS_FILE_ENV: str(tmp_path / "missing.json")})
+
+
+def test_a_contract_without_a_credential_secret_unsets_a_stale_one() -> None:
+    stale = {"OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential"}
+
+    exports, unsets = build_contract_env(stale, load_fixture("local-provider-contracts.json"), repo_root=REPO_ROOT)
+
+    assert "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET" not in exports
+    assert "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET" in unsets

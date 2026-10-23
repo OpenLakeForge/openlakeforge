@@ -289,6 +289,21 @@ locals {
     },
   ] : [])
 
+  # dbt-trino's ldap method sends the username and password to a PASSWORD-authenticated Trino.
+  query_password = try(var.query_contract.credential_secret_name, null) != null
+  query_password_env = concat(
+    local.query_password ? [{ name = "OPENLAKEFORGE_DBT_TRINO_METHOD", value = "ldap" }] : [],
+    local.query_password ? [{
+      name = "OPENLAKEFORGE_DBT_TRINO_PASSWORD"
+      valueFrom = {
+        secretKeyRef = {
+          name = var.query_contract.credential_secret_name
+          key  = "password"
+        }
+      }
+    }] : [],
+  )
+
   dbt_secret_env = local.governance_enabled ? [
     {
       name = "OPENLINEAGE_API_KEY"
@@ -367,7 +382,7 @@ locals {
     }
   ]
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.namespace_env)
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.query_password_env, local.namespace_env)
 
   log_archive_env = concat(
     local.storage_env,

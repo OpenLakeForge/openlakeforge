@@ -294,6 +294,17 @@ def _user_values(
             "volumes": [{"name": "query-ca", "configMap": {"name": ca_configmap}}],
             "volumeMounts": [{"name": "query-ca", "mountPath": _QUERY_CA_DIR, "readOnly": True}],
         }
+        # The stage's own Trino credential, by reference: the Secret lives in
+        # this stage's namespace and holds only this stage's principal.
+        credential = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
+        if credential:
+            env.append({"name": "OPENLAKEFORGE_DBT_TRINO_METHOD", "value": "ldap"})
+            env.append(
+                {
+                    "name": "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
+                    "valueFrom": {"secretKeyRef": {"name": credential, "key": "password"}},
+                }
+            )
     return {
         "global": dict(platform_globals),
         "extraManifests": [_log_archive_manifest(
