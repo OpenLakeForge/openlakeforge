@@ -581,6 +581,9 @@ def _parse_stage(
                 f"stages.{name.value}.query.credential_secret_name requires tls_port and ca_configmap_name: "
                 "a password must not be sent over plain HTTP"
             )
+        _tcp_port(query["tls_port"], where=f"stages.{name.value}.query.tls_port")
+        if not is_secret_name(query["ca_configmap_name"]):
+            raise ProviderContractError(f"stages.{name.value}.query.ca_configmap_name must be a valid name")
     _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
     _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
     if query["service_ref"] not in shared_refs:

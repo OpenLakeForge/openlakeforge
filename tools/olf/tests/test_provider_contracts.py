@@ -1744,3 +1744,27 @@ def test_a_credential_secret_requires_both_tls_fields() -> None:
 
     with pytest.raises(ProviderContractError, match="credential_secret_name requires tls_port and ca_configmap_name"):
         parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tls_port", None),
+        ("tls_port", ""),
+        ("tls_port", "not-a-port"),
+        ("tls_port", 0),
+        ("tls_port", 70000),
+        ("ca_configmap_name", None),
+        ("ca_configmap_name", ""),
+        ("ca_configmap_name", "Bad_Name"),
+    ],
+)
+def test_a_credential_secret_requires_valid_tls_fields(field: str, value: object) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    query = contract["stages"]["dev"]["query"]
+    query.update(credential_secret_name="trino-credential", tls_port="8443", ca_configmap_name="ca")
+    query[field] = value
+
+    with pytest.raises(ProviderContractError, match=field):
+        parse_provider_contracts(contract, topology)

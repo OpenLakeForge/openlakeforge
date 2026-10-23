@@ -127,3 +127,16 @@ def test_the_pod_script_reads_the_password_only_when_the_pod_enforces_one(tmp_pa
     password_file.write_text("u hash")
     assert run("pw\n") == "pw|--password --user u"
     assert run("\n") == "|--user u"
+
+
+def test_run_sql_stops_when_the_password_secret_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    calls: list[list[str]] = []
+
+    def runner(command, stdin):  # noqa: ANN001, ANN202
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="forbidden")
+
+    with pytest.raises(trino.TrinoQueryError, match=r"(?s)trino-credential-olf-prod-runtime.*RBAC"):
+        trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
+    assert len(calls) == 1

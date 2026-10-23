@@ -195,7 +195,14 @@ def run_sql(
         password = ""
         stdin = ""
         if os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
-            password = decode_password(run([*base, *password_args(target)], "").stdout or "")
+            lookup = run([*base, *password_args(target)], "")
+            if lookup.returncode != 0:
+                raise TrinoQueryError(
+                    f"cannot read the password Secret {password_secret(target)} in namespace {target.namespace}: "
+                    f"{(lookup.stderr or lookup.stdout or '').strip()}\n"
+                    "olf query needs RBAC permission to get that Secret."
+                )
+            password = decode_password(lookup.stdout or "")
             stdin = f"{password}\n"
         result = run([*base, *exec_args(target, sql, output_format=output_format)], stdin)
     except OSError as exc:
