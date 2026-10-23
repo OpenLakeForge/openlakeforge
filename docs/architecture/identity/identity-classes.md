@@ -30,7 +30,7 @@ in.
 | Identity | A GitHub account, brokered by Dex into an OIDC token; or, with `issuer: external`, a user of that issuer |
 | Authorization | The highest canonical role among the person's mapped teams, or among the roles the external issuer's claim maps to ([Roles and permissions](../../reference/roles-and-permissions.md)) |
 | Automated test of the perimeter | `olf e2e` signs in through Dex as stub users, one per mapped role, against a stub GitHub it runs in `olf-system`. These users exist for the run, hold canonical roles, and are never used by a deploy or a pipeline: the one place a class 1 path is driven by automation, so that the perimeter's redirects, role refusals and logout are tested through the public hostnames |
-| Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; Superset and OpenMetadata also map the role to their native roles |
+| Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration and external-issuer users stay at OpenMetadata's read baseline |
 | Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; a revocation reaches the perimeter within about 5 min ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
 
@@ -43,11 +43,13 @@ in.
 | Authorization | Kubernetes RBAC for operators and CI. For pods, a per-service credential from a Secret that a bootstrap Job generates once and reuses |
 | Network | Reachability between pods is decided by default-deny NetworkPolicy ([identity-network-policy-and-rbac.md](identity-network-policy-and-rbac.md)) |
 | Trino | Callers authenticate to Trino with a password per principal over HTTPS when `trino_workload_authentication` is `password`. The local root defaults to `password` when the profile has `spec.access`, and to `off` otherwise ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) |
-| Rotation | `olf secrets rotate` for the Dex clients ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
+| Rotation | `olf secrets rotate` for `dex-client-perimeter`, `dex-client-trino` and `github-app`; the Superset and OpenMetadata clients are rotated by hand ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
 
 Workstation and CI automation reaches services by an RBAC-authorized
-`kubectl port-forward` or by in-cluster execution, never through the public
-hostnames and never as a human or administrator account. Who may automate is
+`kubectl port-forward` or by in-cluster execution for routes protected by the
+perimeter, never through those public hostnames and never as a human or
+administrator account. With `spec.access` but no perimeter, `olf` uses the
+ingress hostname (`access.service_url()`). Who may automate is
 who holds `pods/portforward` and the Secret reads in RBAC.
 
 Known limitation: a service credential is shared by every user of the
@@ -62,7 +64,9 @@ principal, whatever the person's role. Per-user data access is deferred in
 | Identity | The cloud's workload identity of a pod |
 | Mechanism | `identity.aws_pod_identity` on AWS, `identity.azure_workload_identity_ready` on Azure, both fields of the provider contract |
 | Authorization | Cloud IAM policy on that identity |
-| Status | Contract only. Class 3 is inventoried so the boundary is clear; exercising cloud credentials is outside the v0.5 scope |
+| Status, AWS | Implemented: IAM roles with EKS Pod Identity |
+| Status, Azure | OIDC readiness only (`identity.azure_workload_identity_ready`) |
+| Scope | Exercising cloud credentials is outside the v0.5 scope |
 
 OpenLakeForge roles are never cloud IAM permissions, and a cloud identity never
 holds a canonical role.

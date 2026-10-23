@@ -13,8 +13,8 @@ Scope: the local provider. AWS and Azure enforcement is outside it.
 | Rule | Detail |
 | --- | --- |
 | Default deny | Ingress and egress are denied in every stage namespace (`olf-<stage>`). In `olf-system` only the workloads listed under `workloads` in the flow file (`var.workloads` of the policy module) are selected; the rest of `olf-system` stays unisolated. DNS is allowed. |
-| One flow, one row | Every other flow is a row of `release/network-flows.yaml`, read by the policy module (`modules/security/network-policy`) and by `olf e2e`. `olf check flows` validates the file. A flow that is not listed is denied. |
-| Both sides | A pod reaches a destination only through a row on both sides: egress on the source, ingress on the destination. |
+| One flow, one row | Every other flow is a row of `release/network-flows.yaml`, read by the policy module (`modules/security/network-policy`) and by `olf e2e`. `olf check flows` validates the file. For a pod that a policy selects, a flow that is not listed is denied. |
+| Both sides | When both pods are selected by a policy, a flow needs a row on both sides: egress on the source, ingress on the destination. A side that no policy selects (such as an `olf-system` pod outside `workloads`) is not restricted on that side. |
 | Stage namespace = one trust domain | Inside a stage namespace pods talk freely, because run pods and Floe Jobs are created with labels that user code controls. Between namespaces, and between `olf-system` workloads, every flow is an allow row. |
 | Exceptions | `kube-system` is not a policy target: a default-deny there could take down DNS, kube-proxy or the CNI. |
 
@@ -28,7 +28,10 @@ namespace.
 `olf deploy --provider local` runs a canary after the foundation. It proves a
 client and server pair connect with no policy, then requires an ingress-only
 and an egress-only deny to block it. The deploy fails if the cluster does not
-enforce NetworkPolicy, and `olf e2e` runs the canary again as its first step.
+enforce NetworkPolicy. The canary runs in the deploy only. `olf e2e` runs
+`check_network_and_rbac` (flow probes and service-account RBAC checks) in the
+full suite, after the catalog, pipeline, restart-recovery and certificate
+checks.
 The local kind cluster's default CNI (kindnet) passed on the pinned kind
 version, so no other CNI is installed.
 
@@ -81,8 +84,8 @@ repository: `olf break-glass` uses the operator's own kubeconfig
 - Anything running in a stage namespace can reach everything that namespace may
   reach.
 - Any pod allowed to reach Traefik can request the Dex route, `auth.<base_domain>`,
-  because the network cannot name a path. Dagster and run pods are not given
-  that flow.
+  because the network cannot name a path. Flow F4 lets every pod in a stage
+  namespace reach Traefik, so stage pods, run pods included, can reach it.
 - `kubectl port-forward`, `exec` and `logs` are RBAC paths, not network paths,
   and policy does not apply to them. A cluster administrator stays trusted.
 - Resource limits, Pod Security Standards, hostname-based egress filtering,
