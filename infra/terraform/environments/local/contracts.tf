@@ -358,6 +358,10 @@ locals {
   # the session cookie on .<base_domain> then covers every route.
   perimeter_callback_host = "oauth2.${local.base_domain}"
 
+  # Clears the perimeter cookie, then lands on the portal's signed-out page.
+  # Superset's Logout and the portal's Sign out button both use it.
+  sign_out_url = local.identity_deployed ? "${local.route_scheme}://${local.perimeter_callback_host}/oauth2/sign_out?rd=${urlencode("${local.route_scheme}://${local.base_domain}/signed-out.html")}" : null
+
   # Dex returns `groups` only for its scope and a refresh token only for
   # offline_access (ADR 0014).
   identity_scope = local.identity_dex ? "openid email profile groups offline_access" : "openid email profile"

@@ -117,6 +117,11 @@ def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
     _ingress.assert_portal_lists_routes(
         '<a href="https://trino.olf.localhost">q</a><a href="https://github.com/orgs/acme/teams">t</a>', routes
     )
+    _ingress.assert_portal_lists_routes(
+        '<a href="https://oauth2.olf.localhost/oauth2/sign_out?rd=https%3A%2F%2Folf.localhost%2Fsigned-out.html">'
+        'out</a><a href="https://trino.olf.localhost">q</a>',
+        routes,
+    )
     with pytest.raises(E2EError, match="expected"):
         _ingress.assert_portal_lists_routes("<html></html>", routes)
     with pytest.raises(E2EError, match="polaris"):

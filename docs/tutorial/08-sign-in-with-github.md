@@ -235,7 +235,8 @@ When you finish, put your account back in `olf-platform-admins`.
 
 ## Sign out
 
-Open this address to end your session on every service behind the perimeter:
+Click **Sign out** in the portal header, or open this address, to end your
+session on every service behind the perimeter:
 
 ```text
 http://oauth2.olf.localhost/oauth2/sign_out?rd=http%3A%2F%2Folf.localhost%2Fsigned-out.html

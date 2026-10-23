@@ -12,7 +12,7 @@ variable "release_name" {
 variable "image" {
   description = "openlakeforge-portal image, pinned by digest (release/component-catalog.yaml, portal)."
   type        = string
-  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.2.0@sha256:516cef1b03421f8f407899e534d18374233d5391fda841a7775d5b29666c2eca"
+  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.3.0@sha256:544523333c3cd83e0e73b281529e1c9ccc93b4eb87e8c0964b82211e219beae9"
 }
 
 variable "links" {
@@ -22,6 +22,12 @@ variable "links" {
     name  = string
     url   = string
   }))
+}
+
+variable "sign_out_url" {
+  description = "The identity perimeter's sign-out address, listed as the portal's Sign out button. null (authentication off) shows no button."
+  type        = string
+  default     = null
 }
 
 variable "account_url" {
