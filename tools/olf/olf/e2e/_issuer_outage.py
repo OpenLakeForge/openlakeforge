@@ -10,6 +10,7 @@ docs/architecture/identity-sessions-and-recovery.md.
 from __future__ import annotations
 
 import os
+import secrets
 import subprocess
 import tempfile
 import time
@@ -25,7 +26,7 @@ from olf.deployment.engine import Toolkit
 from olf.e2e._identity_github import dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
-REASON = "e2e issuer-outage drill"
+REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
 PORTS = {"trino": 15558, "dagster": 15557}
 LOCAL_CA_CONFIGMAP = "olf-local-ca"
 # Trino's certificate names `localhost`, not the address the forward listens on.
@@ -44,9 +45,11 @@ def run_drill(
     scale_dex: Callable[[int], object],
     wait_dex: Callable[[bool], None],
     signed_in: Callable[[], bool],
+    refused: Callable[[], bool],
     reach: Callable[[str], int | None],
     records: Callable[[], list[dict[str, str]]],
     replicas: int,
+    reason: str = REASON,
     clock: Callable[[], float] = time.monotonic,
     pause: Callable[[float], None] = time.sleep,
 ) -> Timings:
@@ -54,8 +57,8 @@ def run_drill(
     try:
         wait_dex(False)
         down = clock()
-        if signed_in():
-            raise E2EError("A fresh sign-in succeeded with Dex scaled to zero.")
+        if not refused():
+            raise E2EError("A fresh sign-in was not refused by the issuer's own error page with Dex scaled to zero.")
         first_answer = 0.0
         for service in PORTS:
             status = reach(service)
@@ -64,12 +67,15 @@ def run_drill(
             first_answer = first_answer or clock() - down
         done = records()
         for service in PORTS:
-            mine = [r for r in done if r.get("reason") == REASON and r.get("service") == service]
+            mine = [r for r in done if r.get("reason") == reason and r.get("service") == service]
             if not any(r.get("user") and r.get("ended") and "duration_seconds" in r for r in mine):
                 raise E2EError(f"No complete break-glass record for {service}: {done}")
     finally:
         scale_dex(replicas)
-    wait_dex(True)
+        try:
+            wait_dex(True)
+        except E2EError:
+            pass  # the drill's own failure is the one to report; a Dex that stays down fails the next step loudly
     restored = clock()
     for _attempt in range(RESTORE_ATTEMPTS):
         if signed_in():
@@ -94,7 +100,9 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     namespace = cfg.platform_namespace
     portal = contracts["shared"]["access"]["routes"]["shared/portal"]["url"]
     login = "olf-e2e-outage"
-    team = identity["role_mapping"][identity["roles"]["precedence"][0]]
+    team = next(identity["role_mapping"][r] for r in identity["roles"]["precedence"] if r in identity["role_mapping"])
+    reason = f"{REASON} {secrets.token_hex(3)}"
+    issuer_host = urlsplit(identity["issuer_url"]).hostname
     tls_port = break_glass.trino_tls_port(contracts, next(iter(contracts["stages"])))
     cluster = break_glass.Cluster(Toolkit.default().kubectl, cfg.kube_context, None, namespace, cfg.namespace)
     dex = ["-n", namespace, "deploy/dex"]
@@ -111,20 +119,26 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             time.sleep(2)
         raise E2EError("Dex was still Ready 180s after scaling it to zero.")
 
+    def walk() -> requests.Response:
+        landing = sign_in_with_stub(portal, login, stub_host(cfg))[1]
+        log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}")
+        return landing
+
+    def refused() -> bool:
+        # Only the issuer's own error page counts: a transport failure elsewhere proves nothing about Dex.
+        landing = walk()
+        return landing.status_code >= 400 and urlsplit(landing.url).hostname == issuer_host
+
     def signed_in() -> bool:
+        # The walk ends on the portal once signed in. The session cookie is not read: it is scoped to
+        # the parent domain and the jar does not keep it.
         try:
-            browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))
+            landing = walk()
         except requests.exceptions.SSLError:
-            raise  # a broken trust setup must not read as "Dex is down"
-        except requests.RequestException as exc:
-            log.info(f"Drill sign-in failed: {exc}")
+            raise  # a broken trust setup must not read as "Dex is not back yet"
+        except requests.RequestException:
             return False
-        # The walk ends on the portal once signed in, and on the issuer's own page when it cannot sign in.
-        # (The session cookie is not read: it is scoped to the parent domain and the jar does not keep it.)
-        ok = landing.status_code < 400 and urlsplit(landing.url).hostname == urlsplit(portal).hostname
-        if not ok:
-            log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}")
-        return ok
+        return landing.status_code < 400 and urlsplit(landing.url).hostname == urlsplit(portal).hostname
 
     def logs_of_failure() -> None:
         for target in ("-l=openlakeforge.io/workload=oauth2-proxy", "deploy/dex"):
@@ -144,7 +158,8 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                 ca.write_text(kubectl(cfg, args, capture=True))
             path = "/v1/info" if service == "trino" else "/server_info"
             url = f"{'https' if https else 'http'}://{HOST}:{PORTS[service]}{path}"
-            return probe(url, verify=str(ca) if https else True, service=service, cluster=cluster, tls_port=tls_port)
+            verify = str(ca) if https else True
+            return probe(url, verify=verify, service=service, cluster=cluster, tls_port=tls_port, reason=reason)
 
         def records() -> list[dict[str, str]]:
             return break_glass.recent(cluster.kubectl, namespace, limit=20, context=cfg.kube_context) or []
@@ -168,9 +183,11 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                     scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
                     wait_dex=wait_dex,
                     signed_in=signed_in,
+                    refused=refused,
                     reach=reach,
                     records=records,
                     replicas=replicas,
+                    reason=reason,
                 )
             except E2EError:
                 logs_of_failure()
@@ -182,7 +199,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
 
 
 def probe(
-    url: str, *, verify: str | bool, service: str, cluster: break_glass.Cluster, tls_port: int | None
+    url: str, *, verify: str | bool, service: str, cluster: break_glass.Cluster, tls_port: int | None, reason: str
 ) -> int | None:
     """Open a recorded break-glass session to `service` and GET `url` through it once it answers."""
     answered: list[int] = []
@@ -192,13 +209,17 @@ def probe(
         try:
             for _attempt in range(30):
                 try:
-                    answered.append(requests.get(url, verify=verify, timeout=3).status_code)
-                    return
+                    status = requests.get(url, verify=verify, timeout=3).status_code
+                    # An exited forward (e.g. the port was taken) means a stale listener answered, not this session.
+                    if process.poll() is None:
+                        answered.append(status)
+                        return
+                    raise E2EError(f"the break-glass port-forward to {service} exited early")
                 except requests.RequestException:
                     time.sleep(1)
         finally:
             process.terminate()
             process.wait(timeout=10)
 
-    break_glass.open_session(cluster, service, REASON, 1, local_port=PORTS[service], tls_port=tls_port, run=reach)
+    break_glass.open_session(cluster, service, reason, 1, local_port=PORTS[service], tls_port=tls_port, run=reach)
     return answered[0] if answered else None
