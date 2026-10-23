@@ -235,14 +235,9 @@ When you finish, put your account back in `olf-platform-admins`.
 
 ## Sign out
 
-Open this address to end your session on every service behind the perimeter:
-
-```text
-http://oauth2.olf.localhost/oauth2/sign_out?rd=http%3A%2F%2Folf.localhost%2Fsigned-out.html
-```
-
-It clears the perimeter cookie and lands on a "signed out" page. Superset keeps
-its own session: its Logout menu item does the same redirect. GitHub's session
+Select **Sign out** in the portal header to end your session on every service
+behind the perimeter. It clears the perimeter cookie and lands on a "signed
+out" page. Superset keeps its own session: its Logout menu item does the same. GitHub's session
 stays open, so signing in again usually does not prompt; Dex re-reads your teams
 at each sign-in.
 

@@ -4,8 +4,13 @@ locals {
 
   # The image reads this on every request (openlakeforge-portal README). Admin
   # is a link, not a contract route: with GitHub, members and roles are teams.
-  routes = merge(var.links, var.account_url == null ? {} : {
-    "shared/admin" = { stage = "shared", name = "admin", url = var.account_url }
+  # Sign out is one too: the portal shows it as a header button.
+  routes = merge(var.links,
+    var.account_url == null ? {} : {
+      "shared/admin" = { stage = "shared", name = "admin", url = var.account_url }
+    },
+    var.sign_out_url == null ? {} : {
+      "shared/sign-out" = { stage = "shared", name = "sign-out", url = var.sign_out_url }
   })
 }
 
