@@ -26,8 +26,10 @@ inputs:
     default: ""
   e2e-checks:
     description: >
-      `core` or `all`, passed to `olf e2e run --checks`: `core` skips the slow
-      drills (restarts, certificate renewal, outage, secret rotation).
+      `core` or `all`, passed to `olf e2e run --checks`: `core` skips the
+      drills (Polaris and Traefik restart recovery, certificate renewal,
+      network flows and RBAC, break-glass, perimeter latency, issuer outage,
+      secret rotation).
     default: all
 
 outputs:

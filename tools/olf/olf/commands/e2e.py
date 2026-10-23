@@ -22,7 +22,8 @@ def e2e_run(
         "all",
         "--checks",
         envvar="OLF_E2E_CHECKS",
-        help="Full-suite checks: 'core' skips the slow drills (restarts, renewal, outage, rotation); 'all' runs them.",
+        help="Full-suite checks: 'core' skips the drills (Polaris and Traefik restart recovery, certificate renewal, "
+        "network flows and RBAC, break-glass, perimeter latency, issuer outage, secret rotation); 'all' runs them.",
     ),
     stage: str = typer.Option("", "--stage", help="Stage to validate: dev, uat, or prod. Defaults to dev."),
     profile_file: str = typer.Option(
