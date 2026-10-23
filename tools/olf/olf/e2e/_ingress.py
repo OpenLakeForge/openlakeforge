@@ -76,7 +76,8 @@ def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
     # issuer's account link (GitHub's /orgs/<org>/teams) and the Sign out
     # button (the perimeter's /oauth2/sign_out), which are no routes.
     others = {ref: route for ref, route in routes.items() if ref not in (PORTAL_REF, "shared/identity")}
-    listed = {u for u in re.findall(r'href="([^"]*)"', page) if not re.search(r"/orgs/[^/]+/teams$|/oauth2/sign_out\?", u)}
+    not_a_route = re.compile(r"/orgs/[^/]+/teams$|/oauth2/sign_out\?")
+    listed = {u for u in re.findall(r'href="([^"]*)"', page) if not not_a_route.search(u)}
     wanted = {route["url"] for route in others.values() if route["enabled"] and route["exposure"] == "user-facing"}
     if listed != wanted:
         raise E2EError(f"Landing page links {sorted(listed)}, expected {sorted(wanted)}.")
