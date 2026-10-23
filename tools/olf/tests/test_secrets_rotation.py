@@ -285,10 +285,37 @@ def test_the_state_check_refuses_when_the_core_objects_are_missing(
 
     provider = SimpleNamespace(config="config", tools="tools", env={})
     monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _ctx: provider)
+    monkeypatch.setattr(platform, "require_foundation_state", lambda _config: None)
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: False)
 
     with pytest.raises(secrets_rotation.RotationError, match="platform state has drifted; run olf deploy first"):
         secrets_rotation.check_platform_state(context(tmp_path))
+
+
+def test_a_missing_foundation_state_refuses_before_anything_is_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.deployment.local import platform
+
+    config = SimpleNamespace(paths=SimpleNamespace(foundation_state_path=tmp_path / "missing.tfstate"))
+    provider = SimpleNamespace(config=config, tools=None, env={})
+    monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _ctx: provider)
+    monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
+    kubectl = FakeKubectl()
+
+    with pytest.raises(secrets_rotation.RotationError, match="foundation Terraform state is missing.*olf deploy first"):
+        rotate(tmp_path, kubectl, platform_check=secrets_rotation.check_platform_state)
+
+    assert kubectl.deletes() == []
+
+
+def test_a_sibling_without_the_client_secret_key_refuses_before_anything_is_deleted(tmp_path: Path) -> None:
+    kubectl = FakeKubectl(without_key=("dex-client-openmetadata",))
+
+    with pytest.raises(secrets_rotation.RotationError, match="dex-client-openmetadata.*lacks the key.*olf deploy"):
+        rotate(tmp_path, kubectl)
+
+    assert kubectl.deletes() == []
 
 
 def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(monkeypatch: pytest.MonkeyPatch) -> None:

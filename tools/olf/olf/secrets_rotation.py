@@ -117,9 +117,14 @@ def _local_provider(context: Any) -> Any:
 
 def check_platform_state(context: Any) -> None:
     """Refuse on a drifted platform state, with the predicate the drift reset uses, before anything is deleted."""
+    from olf.deployment.errors import DeploymentPreconditionError
     from olf.deployment.local import platform
 
     provider = _local_provider(context)
+    try:
+        platform.require_foundation_state(provider.config)
+    except DeploymentPreconditionError as exc:
+        raise RotationError(f"{exc} Run olf deploy first.") from exc
     if not platform.platform_state_holds_core(provider.config, provider.tools, env=provider.env):
         raise RotationError("platform state has drifted; run olf deploy first")
 
@@ -159,9 +164,10 @@ def preflight(context: Any, target: str, *, kubectl: Any, platform_check: Callab
         raise RotationError(f"Secret '{target}' is missing or lacks the key client-secret; run olf deploy first")
     for client in DEX_CLIENTS:
         sibling = f"dex-client-{client}"
-        if sibling != target and secret_identity(kubectl, context, sibling) is None:
+        if sibling != target and not has_client_secret_key(kubectl, context, sibling):
             raise RotationError(
-                f"Secret '{sibling}' is missing and the shared Job would regenerate it too; run olf deploy first"
+                f"Secret '{sibling}' is missing or lacks the key client-secret, and the shared Job would "
+                "regenerate it too; run olf deploy first"
             )
 
 

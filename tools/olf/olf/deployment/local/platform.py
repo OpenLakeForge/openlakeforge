@@ -409,6 +409,14 @@ def require_no_shared_namespace_replacement(
     )
 
 
+def require_foundation_state(config: LocalDeploymentConfig) -> None:
+    if not config.paths.foundation_state_path.is_file():
+        raise DeploymentPreconditionError(
+            f"local foundation Terraform state is missing: {config.paths.foundation_state_path}. "
+            "Run the foundation phase before applying the local platform."
+        )
+
+
 def platform_state_holds_core(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
     """Whether the platform state holds the core objects. One that holds the shared namespace is not lost, only
     behind: a previous apply stopped after creating it (the GitHub identity Secret preflight), and resetting would
@@ -528,11 +536,7 @@ def platform_up(
     written as the identity Secret once the shared namespace exists."""
     platform_dir = config.paths.platform_terraform_dir
 
-    if not config.paths.foundation_state_path.is_file():
-        raise DeploymentPreconditionError(
-            f"local foundation Terraform state is missing: {config.paths.foundation_state_path}. "
-            "Run the foundation phase before applying the local platform."
-        )
+    require_foundation_state(config)
     try:
         tools.kubectl.require_context_reachable(config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env)
     except KubeContextUnreachableError as exc:
