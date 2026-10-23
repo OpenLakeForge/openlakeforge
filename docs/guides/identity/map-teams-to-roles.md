@@ -52,5 +52,10 @@ each role opens. A person who is refused at sign-in is in no mapped team, or
 the GitHub App is not installed:
 [Troubleshooting](connect-github.md#troubleshooting).
 
+Map direct teams only for OpenMetadata. The OpenMetadata role sync reads each
+team's members, which include the people of its child teams, so it refuses to
+run when a mapped team has child teams (`map direct teams only; <slug> has
+child teams`). Map the child teams instead, or flatten the hierarchy.
+
 Only teams in the organization named by `organization` count. A team
 elsewhere with the same slug grants nothing.

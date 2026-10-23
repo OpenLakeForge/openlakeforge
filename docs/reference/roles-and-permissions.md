@@ -98,7 +98,9 @@ With a GitHub App (not a hand-made OAuth App), a CronJob,
 `openmetadata-role-sync`, applies these roles every 5 minutes from
 the mapped GitHub teams: the administrator flag for `platform-admin`, the
 `DataSteward` role for `data-engineer`, and neither for the others. A person in
-no mapped team cannot sign in. An asset's owner keeps full control of it
+no mapped team cannot sign in. The CronJob is applied from the
+`openlakeforge.yaml` at the project root; a profile passed with `-f` is not
+read for it. Mapped teams must have no child teams. An asset's owner keeps full control of it
 whatever their role, so reassign owned assets when you demote someone.
 
 OpenMetadata's local `admin@open-metadata.org` login does not work once sign-in

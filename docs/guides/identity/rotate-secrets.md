@@ -85,10 +85,12 @@ For `superset`, with the managed kubectl and kubeconfig set as above:
      olf deploy --provider local --phase platform
    ```
 
-3. Restart Dex, then Superset in each stage:
+3. Restart Dex, then the Superset web deployment in each stage namespace
+   (`olf-<stage>`, for example `olf-dev`):
 
    ```bash
    "$KUBECTL" -n olf-system rollout restart deployment dex
+   "$KUBECTL" -n olf-<stage> rollout restart deployment/superset
    ```
 
 4. Sign in through the portal.
@@ -99,11 +101,11 @@ step 2. An interrupted bootstrap is safe to re-run.
 
 ## The session cookie secret
 
-Rotating it signs everyone out:
+Rotating it signs everyone out (with `KUBECTL` set as above):
 
 ```bash
 "$KUBECTL" -n olf-system delete secret oauth2-proxy-cookie --ignore-not-found
-TF_CLI_ARGS_apply='-replace=module.perimeter.kubernetes_job_v1.cookie_secret' \
+TF_CLI_ARGS_apply='-replace=module.perimeter[0].kubernetes_job_v1.cookie_secret' \
   olf deploy --provider local --phase platform
 "$KUBECTL" -n olf-system rollout restart deployment -l openlakeforge.io/role-floor
 ```
