@@ -183,9 +183,9 @@ Found in review; the migration must settle each before step 4.
   granted `query` reaches the route (`check_role_decisions`, status below 400)
   is met by the Web UI sign-in redirect (below), which the caller
   migration adds; the route itself no longer fails at the transport.
-- OpenMetadata stores the Trino password encrypted with its Fernet key, which
-  `infra/helm/values/local/openmetadata.yaml` sets to the public upstream
-  default; generate a per-deployment key Secret before persisting it.
+- OpenMetadata stores the Trino password encrypted with its Fernet key. Done:
+  a per-deployment `openmetadata-fernet-key` Secret, generated in-cluster and
+  never in Terraform state, replaces the public upstream default.
 
 ### Per-user identity (#179)
 
@@ -309,5 +309,6 @@ OpenMetadata crawl Job reads `trino-credential-openmetadata` from `olf-system`
 into `authType.password`; `olf e2e` and `olf query` read
 `trino-credential-olf-<stage>-runtime` and pass it to the in-pod CLI on stdin,
 which exports `TRINO_PASSWORD` only when the pod mounts `password.db`. The
-service the OpenMetadata bootstrap registers still carries no password, so the
-Fernet-key item of the checklist stays open until that is persisted.
+service the OpenMetadata bootstrap registers still carries no password. The
+Fernet-key prerequisite is met: an in-cluster Job creates a per-deployment
+`openmetadata-fernet-key` Secret, which OpenMetadata reads by `secretKeyRef`.
