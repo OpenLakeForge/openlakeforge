@@ -99,7 +99,9 @@ export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
 ```
 
 Then run `olf deploy --provider local` again, with `--no-github-connect` so it
-does not offer to create a GitHub App. An OAuth App has no installation step.
+does not offer to create a GitHub App. An OAuth App has no installation step, but without the GitHub App's
+`app-id` the OpenMetadata role sync is skipped
+([Add, change or remove a member](manage-members.md)).
 
 ## Troubleshooting
 

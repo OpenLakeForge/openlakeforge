@@ -63,6 +63,10 @@ Repeat for `superset`, `openmetadata` and `trino`.
 
 ## Limits
 
+- **The issuer must be public and trusted.** The perimeter gets the local CA
+  only when Dex is deployed. With an external issuer, the issuer must be
+  reachable from inside the cluster and present a publicly trusted
+  certificate; a private CA is not supported.
 - **Refresh must return the role claim.** The perimeter re-reads roles when it
   refreshes a session. If your issuer's refresh response carries no ID token
   with the role claim, a removed role stays usable until the issuer's session

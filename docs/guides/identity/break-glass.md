@@ -29,7 +29,7 @@ bind locally, hence `--local-port`.
 | Service | What you get |
 | --- | --- |
 | `dex` | A port-forward to the Dex Service on `127.0.0.1:5556`, for diagnosis. Dex has no admin console or account. |
-| `trino` | A port-forward to the Trino Service on `127.0.0.1`. Over HTTPS when Trino serves it (the command prints the scheme); verify with the local CA, see `olf access trust`. |
+| `trino` | A port-forward to the Trino Service, bound to `127.0.0.1`. Over HTTPS when Trino serves it (the command prints the scheme): connect to `https://localhost:<port>`, not `127.0.0.1`, because the certificate names `localhost` and has no IP address; verify with the local CA, see `olf access trust`. |
 | `dagster` | A port-forward to the Dagster webserver (remote port 80), in the DEV stage only. |
 | `superset`, `openmetadata` | A shell in the service's pod, for its CLI. Their UIs accept only issuer login and are not reachable during an outage. `superset` reaches the DEV stage only. |
 
