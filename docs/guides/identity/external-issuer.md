@@ -34,7 +34,24 @@ Register four OIDC clients in your issuer: `perimeter`, `superset`,
 client secret in a Kubernetes Secret named `oidc-client-<consumer>` in
 `olf-system`, with the key `client-secret`. The contract names all four, so
 create all four; only the `perimeter` client is used by a deployed service
-today (see Limits):
+today (see Limits).
+
+For the `perimeter` client, register this redirect URI, with the scheme you
+deploy (`http` with `access: {issuer: none}`, `https` otherwise):
+
+```text
+<scheme>://oauth2.<base_domain>/oauth2/callback
+```
+
+For example `http://oauth2.olf.localhost/oauth2/callback`.
+
+`olf-system` does not exist on a fresh stack, and `olf` creates it early only
+for `issuer: github`. Do not create it by hand: Terraform owns it and cannot
+adopt a hand-made one. The order to use: run `olf deploy --provider local`,
+which creates the namespace and may fail or wait on the pods that need the
+Secrets; then create the Secrets below and run `olf deploy --provider local`
+again. This order has not been run end to end; the missing early namespace step
+for `external` is tracked in #521.
 
 ```bash
 export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
