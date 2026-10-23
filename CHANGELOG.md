@@ -14,29 +14,128 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-<!-- DRAFT for the v0.5-alpha entry (#26, #179). Move this section into the
-     `## [0.5.0-alpha.N]` heading when the release is cut, and re-check each
-     sentence against main then: NetworkPolicy (#46) and the Trino connection
-     model (#26) are still open. -->
+## [0.5.0-alpha.1] - 2026-10-23
+
+The identity and authorization release (Milestone 5). People sign in with
+GitHub through Dex, their GitHub team decides their role, and a perimeter at
+the ingress decides which services each role reaches. Authorization is at the
+service level: nothing below Superset and OpenMetadata applies a per-user data
+rule. The first run is simpler: plain HTTP and no sign-in by default. The AWS
+and Azure deployments still publish no routes and are reached with
+`olf forward`.
+
+### Added
+
+- GitHub sign-in through Dex. `spec.identity` takes `issuer: github` with the
+  organisation, a map of canonical roles (`platform-admin`, `data-engineer`,
+  `analyst`, `viewer`) to team slugs, and `oauth_app_secret_ref`; or
+  `issuer: external` for your own OIDC issuer with a `role_claim` and
+  `role_mapping`. The `identity.oidc` provider contract carries the issuer to
+  every consumer (#24, #384, #388, ADR 0014).
+- `olf github connect` creates the GitHub App through the browser (manifest
+  flow) and stores its credentials in the Secret `oauth_app_secret_ref` names.
+  `olf deploy` runs it inline when that Secret is missing, opens the browser on
+  WSL, and ends with the sign-in steps. Dex explains a refused sign-in
+  (#420, #428, #433, #438, #448).
+- The oauth2-proxy perimeter: every service route is authorized at the
+  ingress by role (`release/identity-roles.yaml`). Only `platform-admin` and
+  `data-engineer` reach Dagster. The portal at the base domain lists the
+  services your role reaches, has an Admin link and a Sign out button, and is
+  served from the `openlakeforge-portal` image. Superset's Logout signs out of
+  the platform (#176, #363, #431, #512, #528).
+- Authentication off: a local profile without `spec.identity` publishes
+  nothing beyond `*.localhost`, and Superset admits everyone as Admin.
+- Plain HTTP by default. `olf init` and the repo profile declare
+  `spec.access: {issuer: none}`; HTTPS with the local CA is `spec.access: {}`
+  plus `olf access trust`. `issuer: none` is local-only (#399, #403, #417).
+- Superset signs users in through the issuer and maps roles. OpenMetadata
+  signs users in, a CronJob syncs its admins (`platform-admin`) and data
+  stewards (`data-engineer`) from the GitHub teams every five minutes, and the
+  local `admin` account is demoted once SSO is on (#25, #409, #427, #469, #518).
+- Trino: the Web UI signs in through the issuer on HTTPS, or uses a fixed user
+  on plain HTTP (Trino allows OAuth2 only over HTTPS). Trino serves HTTPS and
+  workload clients (dbt, Superset, `olf e2e`) authenticate with a per-stage
+  password; it is the default when `spec.access` is set. OLF-owned Jobs run
+  the metadata ingestion (#26, #377, #425, #459, #471).
+- `olf query` runs SQL against a stage's Trino catalog (#447).
+- NetworkPolicy and RBAC: default-deny policies for `olf-system` and every
+  stage namespace, driven by `release/network-flows.yaml`, with least-privilege
+  service accounts. `olf deploy` first proves the CNI enforces policy, and the
+  e2e holds flow and RBAC conformance tests (#46, #386, #392, #404, #408,
+  #463, #466, ADR 0017).
+- `olf break-glass` opens a time-boxed port-forward or shell (30 minutes by
+  default, `--reason` required) and records each use; `olf status` lists
+  recent uses. `olf secrets rotate` rotates a Dex client or the GitHub App
+  (#178, #510, #519).
+- Recovery drills in the local e2e: issuer outage and recovery, secret
+  rotation, perimeter latency, and Trino stage-isolation probes
+  (#176, #177, #516, #520).
+- `olf e2e run --checks core|all` selects the check tier. Manual runs of the
+  full local workflow default to DEV only; the nightly keeps DEV and PROD
+  (#525, #526).
+- `olf check docs` validates the docs manifest and every relative link
+  (#439). The identity guides, roles reference and tutorial lesson 08 are new;
+  the documentation is restructured for first-time users and the tutorial
+  covers lessons 1 to 10 (#442, #444, #508).
+- Credential scans of state, artifacts, diagnostics and logs, and a check
+  that provider contracts carry no secret values (#181, #348, #365).
 
 ### Changed
 
-- **The default AWS cluster name is `eks-openlakeforge`.** It was
-  `limited-eks-openlakeforge-poc`, a prefix the AWS test account's IAM policy
-  required. With `AWS_CLUSTER_NAME` unset, `olf` keeps the name an existing
-  foundation's Terraform state records, so a deployment created under the old
-  default keeps its cluster: no migration is needed.
-- **AWS and Azure profiles no longer need `spec.identity`.** The cloud
-  deployments publish no routes and are reached with `olf forward`, so the
-  placeholder `external` block they had to carry is gone; existing profiles
-  that keep it still validate. A cloud profile that declares `spec.access`
-  still requires `spec.identity`.
+- **Local hostnames are flat.** Stage routes are
+  `<service>-<stage>.<base_domain>` (for example `dagster-dev.olf.localhost`),
+  so one wildcard certificate covers them (#389, #395).
+- **Local stage buckets are named `lakehouse-<stage>-<layer>`** in every
+  stage; DEV was `lakehouse-<layer>` (#396, #401). Azure uses the same scheme.
+- **A profile without `spec.access` has no ingress**: no Traefik, local CA or
+  portal, and services are reached with `olf forward`. Likewise, no
+  `spec.identity` deploys no issuer and no perimeter. Block presence is the
+  switch (#406).
+- **The default AWS cluster name is `eks-openlakeforge`**, was
+  `limited-eks-openlakeforge-poc`. With `AWS_CLUSTER_NAME` unset, `olf` keeps
+  the name an existing foundation's Terraform state records, so no migration
+  is needed (#514).
+- Trino keeps writing after a Polaris restart; `olf report export` writes a
+  stage-neutral Superset bundle; the local Superset image is tagged by content
+  so a change rolls the pods; `olf deploy` preloads the catalog's images into
+  kind and retries after a failed release (#412, #416, #430, #456).
+- Dependencies: certifi 2026.10.19 (#509). New pins: Dex v2.46.0, oauth2-proxy
+  v7.15.5 and the portal image 0.3.0.
 
-### Known limitations: identity and authorization (draft, v0.5-alpha)
+### Removed
 
-v0.5-alpha adds **service-level** access control: a person signs in through
-the identity provider and their role decides which services they reach. It
-does not add authorization inside Dagster or over data.
+- Keycloak, `spec.identity.smtp` and the `OLF_SMTP_*` variables: Dex and
+  external issuers are the only identity options. Keycloak and `olf users`
+  (invite, grant, revoke) were never in a tagged release; roles now come from
+  GitHub teams (#331, #383, #419).
+
+### Migration notes
+
+- A profile with no `spec.access` used to get the HTTPS ingress. It now has
+  none. To keep the 0.4 behaviour, add `access: {}` and run `olf access trust`;
+  for plain HTTP, add `access: {issuer: none}`.
+- Update bookmarks and scripts: `dagster.dev.olf.localhost` is now
+  `dagster-dev.olf.localhost`. Trino and OpenMetadata keep
+  `trino.<base_domain>` and `openmetadata.<base_domain>`.
+- Recreate the local cluster: `olf destroy --provider local`, then
+  `olf deploy`. The DEV buckets are renamed and Polaris keeps the storage
+  locations its warehouse was created with, so an in-place apply leaves the
+  catalogs on the old buckets.
+- Without `spec.identity` on `*.localhost`, everyone who reaches Superset is
+  Admin and OpenMetadata keeps its default login. To require sign-in, add
+  `spec.identity` (with `spec.access`), create the GitHub App with
+  `olf github connect`, and map teams to roles. `external` needs your own
+  client Secrets; see ADR 0014.
+- A profile that sets `base_domain` outside `.localhost`, or targets AWS or
+  Azure with `spec.access`, now requires `spec.identity`. AWS and Azure
+  profiles without `spec.access` need none.
+- With `spec.access` set, Trino workload clients need passwords: callers
+  outside `olf` that query Trino directly must use the HTTPS listener and the
+  stage's credential Secret (ADR 0016). Without `spec.access` it stays off.
+- `olf superset deploy-reports` and `olf superset export-reports` are still
+  deprecated aliases of `olf report import` and `olf report export`.
+
+### Known limitations
 
 - **Dagster has no per-user authorization.** Dagster OSS has no native
   authentication or authorization. The perimeter decides who reaches it: only
@@ -44,22 +143,36 @@ does not add authorization inside Dagster or over data.
   has the full Dagster capability, including launching any job and reaching
   the credentials its run pods hold, so assign `data-engineer` only to people
   you would trust with that. Callers inside the cluster (`olf e2e`, and any
-  pod) reach Dagster without a session through its cluster-internal Service.
-  That path is a Kubernetes RBAC boundary, not an authentication check, and
-  nothing restricts which pods may call it until NetworkPolicy is added
-  (#46). See [identity-callers.md](docs/architecture/identity/identity-callers.md#dagster-boundary).
+  pod) reach Dagster without a session through its cluster-internal Service;
+  that path is bounded by the stage namespace's default-deny NetworkPolicy and
+  Kubernetes RBAC, not by authentication. See
+  [identity-callers.md](docs/architecture/identity/identity-callers.md#dagster-boundary).
 - **No data-level authorization.** A user's role decides which services they
   reach, not which data they read. Superset connects to Trino as one shared
-  identity per stage, so Trino and the catalog never see the end user, and
-  Superset's role permissions limit what a user reaches through Superset
-  (`analyst` and `viewer` are limited to the Gold schemas), but nothing below
-  Superset enforces them: Trino and the storage apply no per-user rule. Do not load data of differing sensitivity into a
-  deployment whose users should not all see it. Separation between stages
-  (DEV cannot read PROD) is a Trino rule, and holds against a caller that
-  forges its name only once Trino authentication is enforced (#26, open).
-  Per-user data access is assessed in
+  identity per stage, so Trino and the catalog never see the end user. Superset
+  limits `analyst` and `viewer` to the Gold schemas, but nothing below it
+  enforces that. Do not load data of differing sensitivity into a deployment
+  whose users should not all see it. Stage separation (DEV cannot read PROD)
+  holds against a forged caller name only while Trino workload authentication
+  is on, which is the default with `spec.access`. Per-user data access is
+  assessed in
   [ADR 0019](docs/adr/0019-data-plane-authorization-deferral.md) and is not
   part of this release.
+- Workstation-local only for sign-in and NetworkPolicy. AWS and Azure keep
+  port-forward access, publish no routes and have no perimeter or policies;
+  the AWS secure reference is v0.6-beta.
+- Plain HTTP mode is for `*.localhost`. Trino's Web UI uses a fixed user
+  there, and the perimeter alone gates the route.
+- The Trino workload password reaches the Dagster webserver and daemon pods,
+  not only run pods, and a missing principal Secret fails with a 401 rather
+  than naming the Secret (#521).
+- The issuer-outage drill's recovery timer starts after the second ingress
+  query and snapshots only ingress names and rules, and the
+  recovery-timings status in the sessions document predates the recorded drill
+  (#521).
+- On WSL2 with `networkingMode=Mirrored`, Docker's userland proxy can hang
+  connections to ports published on `127.0.0.1`. Setting
+  `"userland-proxy": false` in Docker's `daemon.json` fixes it.
 
 ## [0.4.0-alpha.1] - 2026-10-07
 
