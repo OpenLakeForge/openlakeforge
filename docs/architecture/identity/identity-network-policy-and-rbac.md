@@ -66,7 +66,7 @@ rest are recorded as named exceptions:
 
 | Exception | Subject | Why it stays |
 | --- | --- | --- |
-| E1 | Bootstrap Jobs (Dex credentials, perimeter cookie, local CA, Polaris, OpenMetadata) | `create` on Secrets or ConfigMaps cannot be limited by `resourceNames`; `get`, `update`, `patch` and `delete` are pinned to named objects |
+| E1 | Bootstrap Jobs (Dex credentials, perimeter cookie, local CA, Polaris, OpenMetadata) | `create` on Secrets or ConfigMaps cannot be limited by `resourceNames`; `get`, `update`, `patch` and `delete` on Secrets are pinned to named objects. The local CA publisher is the exception for ConfigMaps: it holds `get`, `patch` and `update` on all ConfigMaps in each trust namespace, and only its Secret read is pinned |
 | E2 | OpenMetadata server and ingestion (chart Role) | Pod, Job and Secret verbs in `olf-system`, which its UI pipeline client needs; the widest grant |
 | E3 | Dagster run launcher, per stage | Creates run Jobs and pods; no Secret verbs, but a stage's user code already holds the stage's Secrets |
 | E4 | Traefik | Reads TLS Secrets in all namespaces |

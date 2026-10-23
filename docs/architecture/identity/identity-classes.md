@@ -1,7 +1,9 @@
 # Identity classes
 
-Every caller on the platform belongs to exactly one of three identity classes,
-and the class names the mechanism that governs it. This page is the contract
+Every authentication path on the platform belongs to exactly one of three
+identity classes, and the class names the mechanism that governs it. A
+workload can use several paths: a run pod is class 2 to Trino and class 3 to
+S3. This page is the contract
 documentation for those classes (#178); the path-by-path inventory is in
 [identity-callers.md](identity-callers.md).
 
@@ -30,8 +32,8 @@ in.
 | Identity | A GitHub account, brokered by Dex into an OIDC token; or, with `issuer: external`, a user of that issuer |
 | Authorization | The highest canonical role among the person's mapped teams, or among the roles the external issuer's claim maps to ([Roles and permissions](../../reference/roles-and-permissions.md)) |
 | Automated test of the perimeter | `olf e2e` signs in through Dex as stub users, one per mapped role, against a stub GitHub it runs in `olf-system`. These users exist for the run, hold canonical roles, and are never used by a deploy or a pipeline: the one place a class 1 path is driven by automation, so that the perimeter's redirects, role refusals and logout are tested through the public hostnames |
-| Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration and external-issuer users stay at OpenMetadata's read baseline |
-| Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; a revocation reaches the perimeter within about 5 min ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
+| Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration: users pass the perimeter and then need each service's own login |
+| Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; with Dex, a revocation reaches the perimeter within about 5 min. With an external issuer, a removed role can last up to the issuer's 10 h SSO lifetime when its refresh responses carry no ID token with the role claim ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
 
 ## Class 2: in-cluster workload and automation
