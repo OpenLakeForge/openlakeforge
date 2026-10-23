@@ -16,7 +16,10 @@ from olf import log
 
 # The credential Job creates a missing client Secret and never overwrites one,
 # so replacing it is what makes it generate the deleted Secret again.
-REPLACE_CREDENTIALS = "-replace=module.dex[0].kubernetes_job_v1.credentials"
+CREDENTIALS_JOB = "module.dex[0].kubernetes_job_v1.credentials"
+# Targeted, so a rotation applies the Job and its dependencies only and cannot reconfigure the rest of the
+# platform or touch project-owned deployments.
+REPLACE_CREDENTIALS = f"-target={CREDENTIALS_JOB} -replace={CREDENTIALS_JOB}"
 ROLLOUT_TIMEOUT = "300s"
 GITHUB_APP = "github-app"
 

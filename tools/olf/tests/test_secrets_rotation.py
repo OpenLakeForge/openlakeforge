@@ -58,7 +58,8 @@ def test_a_client_is_deleted_regenerated_by_the_platform_apply_and_its_consumers
         platform_apply=lambda _ctx, env: applied.append(dict(env)),
     )
 
-    assert applied == [{"TF_CLI_ARGS_apply": "-replace=module.dex[0].kubernetes_job_v1.credentials"}]
+    job = "module.dex[0].kubernetes_job_v1.credentials"
+    assert applied == [{"TF_CLI_ARGS_apply": f"-target={job} -replace={job}"}]
     assert kubectl.calls == [
         ("get", "secret", "dex-client-perimeter"),
         ("delete", "secret", "dex-client-perimeter"),
@@ -123,6 +124,37 @@ def test_the_command_rejects_an_unknown_target_and_prints_a_summary_with_no_secr
     assert "Rotated Secret 'dex-client-perimeter'" in out
     assert "deployment/dex" in out
     assert SECRET_VALUE not in out
+
+
+def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_deployments_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.commands import secrets as command
+
+    profile_context = context(tmp_path)
+    profile_context.manage_user_deployments = False
+    seen: list[str] = []
+    monkeypatch.setattr(
+        command, "deployment_context_for_profile", lambda path, **_: seen.append(path) or profile_context
+    )
+    monkeypatch.setattr(command, "deployment_context", lambda *a, **k: pytest.fail("the project-root context"))
+    kubectl = FakeKubectl(["u/1", "u/2"])
+    monkeypatch.setattr("olf.deployment.engine.Toolkit.default", lambda **_: SimpleNamespace(kubectl=kubectl))
+    applied: list[Any] = []
+    real = secrets_rotation.rotate_client
+    monkeypatch.setattr(
+        secrets_rotation,
+        "rotate_client",
+        lambda ctx, target, *, kubectl: real(
+            ctx, target, kubectl=kubectl, platform_apply=lambda c, _env: applied.append(c)
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter", "-f", "profile.yaml"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == ["profile.yaml"]
+    assert [c.manage_user_deployments for c in applied] == [False]
 
 
 def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

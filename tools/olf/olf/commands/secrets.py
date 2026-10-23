@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from olf import log
-from olf.commands._shared import deployment_context, fail
+from olf.commands._shared import deployment_context, deployment_context_for_profile, fail
 
 app = typer.Typer(help="Rotate workload secrets.")
 
@@ -13,6 +13,9 @@ app = typer.Typer(help="Rotate workload secrets.")
 @app.command("rotate")
 def rotate(
     target: str = typer.Argument(..., help="dex-client-perimeter, dex-client-trino or github-app."),
+    profile_file: str = typer.Option(
+        "", "--file", "-f", help="Deployment Profile v1 path, as for `olf platform apply -f`."
+    ),
     project_root: str = typer.Option(
         "", "--project", "--project-root", help="Project root; defaults to the current directory."
     ),
@@ -30,14 +33,20 @@ def rotate(
 
     if target not in secrets_rotation.TARGETS:
         raise typer.Exit(code=fail(secrets_rotation.unknown_target_message(target)))
-    context = deployment_context(
-        "local",
-        profile="",
-        namespace="",
-        cluster_name=cluster_name,
-        kubeconfig_path=kubeconfig_path,
-        project_root=project_root,
-    )
+    if profile_file:
+        # The profile-driven context, as `olf platform apply -f`: it leaves project-owned deployments alone.
+        context = deployment_context_for_profile(
+            profile_file, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        )
+    else:
+        context = deployment_context(
+            "local",
+            profile="",
+            namespace="",
+            cluster_name=cluster_name,
+            kubeconfig_path=kubeconfig_path,
+            project_root=project_root,
+        )
     try:
         kube = secrets_rotation.kube_args(context)
         kubectl = Toolkit.default(environ=kube["env"]).kubectl

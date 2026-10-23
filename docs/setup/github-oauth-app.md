@@ -189,7 +189,7 @@ e2e does it):
    the missing Secret:
 
    ```bash
-   TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials' \
+   TF_CLI_ARGS_apply='-target=module.dex[0].kubernetes_job_v1.credentials -replace=module.dex[0].kubernetes_job_v1.credentials' \
      olf deploy --provider local --phase platform
    ```
 

@@ -321,7 +321,6 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("landing page routes", check_portal_lists_routes))
         assertions.append(FullAssertion("identity sign-in and perimeter role decisions", check_perimeter))
         assertions.append(FullAssertion("recorded break-glass access", check_break_glass))
-        assertions.append(FullAssertion("workload secret rotation", check_secret_rotation))
         assertions.append(FullAssertion("perimeter dashboard latency", check_perimeter_latency, layer="analytics"))
     assertions.extend(
         [
@@ -332,6 +331,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         ]
     )
     if cfg.env == "local":
-        # Last, so the logs and diagnostics it scans include everything the run did.
+        # The scan sees only current values, so it runs before the rotation replaces the credential the whole run used.
         assertions.append(FullAssertion("identity credential exposure", check_secret_exposure))
+        assertions.append(FullAssertion("workload secret rotation", check_secret_rotation))
     return tuple(assertions)

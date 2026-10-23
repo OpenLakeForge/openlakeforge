@@ -135,8 +135,8 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
             "local",
             [
                 "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "network", "portal", "perimeter",
-                "break-glass", "rotation", "latency",
-                "superset", "openmetadata", "artifacts", "isolation", "exposure",
+                "break-glass", "latency",
+                "superset", "openmetadata", "artifacts", "isolation", "exposure", "rotation",
             ],
         ),
         ("azure", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts", "isolation"]),
@@ -224,8 +224,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
 
     assert calls == [
         "namespaces", "jobs", "tables", "recovery", "traefik", "renewal", "network", "portal", "perimeter",
-        "break-glass", "rotation",
-        "artifacts", "isolation", "exposure",
+        "break-glass",
+        "artifacts", "isolation", "exposure", "rotation",
     ]
     skipped = "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets"
     assert f"Skipped e2e assertions: {skipped}" in messages
