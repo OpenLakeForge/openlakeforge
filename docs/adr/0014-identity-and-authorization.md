@@ -226,7 +226,7 @@ repository admin grants nothing: only the mapped teams count.
 | Network | Dex calls `github.com` (token exchange) and `api.github.com` (user and team lookups) at every login and refresh. ADR 0017 has no internet egress today; the adapter adds that flow row, scoped to Dex, before default-deny egress is enforced (#384) |
 | Revocation | team membership is read at login and again on each refresh; the perimeter refreshes at most every 4 min, so removing someone from a team or the organisation ends perimeter access within the #177 bound. Measured once (qualification run 1): a member moved to another team lost the old role on the first request after the 4 min refresh point |
 | Mail | none. Dex sends no mail, and the profile has no `smtp` setting |
-| Break-glass | the issuer-outage procedure of `identity-sessions-and-recovery.md` for Dex: the cluster administrator's kubeconfig, the Superset and OpenMetadata in-pod CLIs, Dagster and Trino through their internal Services. Dex has no admin account; the recovery drill is still to run (#177) |
+| Break-glass | the issuer-outage procedure of `identity-sessions-and-recovery.md` for Dex: the cluster administrator's kubeconfig, the Superset and OpenMetadata in-pod CLIs, Dagster and Trino through their internal Services. Dex has no admin account; the recovery drill runs in the local e2e (#177, #520) |
 
 A member of several mapped teams holds the union of their roles, which by the
 monotonic rule is the highest one. Whether membership of a child team counts
@@ -370,6 +370,9 @@ is not.
 
 ## History
 
+Issuer-outage drill (#177, #520): the local e2e scales Dex to zero, checks sign-in fails closed, reaches Trino and
+Dagster through recorded break-glass sessions, restores Dex, and checks the ingresses are unchanged and sign-in works.
+
 OpenMetadata's local `admin` (#25): with SSO on, `adminPrincipals` is empty and the local `admin` user is
 demoted, so an issuer login named `admin` is not an admin (OM-11 closed).
 
@@ -461,7 +464,7 @@ per role floor, Traefik file-provider middlewares, one `Ingress` per namespace
 and floor (ADR 0013 decision 6 rewritten accordingly), a single login callback
 host, `shared.access.perimeter` in the contract, realm token and SSO lifespans
 set, and `olf` clients port-forward to protected routes. Runtime verification
-and what remains (issuer outage drill, logout, latency) are tracked in
+and what remains (logout; the issuer-outage drill now runs in the local e2e, #520) are tracked in
 `docs/architecture/identity-sessions-and-recovery.md`.
 
 Admin client (#331, slice 1): seam 4's contract is built. The realm gains the

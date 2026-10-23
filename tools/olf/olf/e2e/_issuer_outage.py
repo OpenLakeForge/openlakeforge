@@ -9,8 +9,10 @@ docs/architecture/identity-sessions-and-recovery.md.
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
+import select
 import subprocess
 import tempfile
 import time
@@ -24,6 +26,7 @@ import requests
 from olf import access, break_glass, config, log
 from olf.deployment.engine import Toolkit
 from olf.e2e._identity_github import dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
+from olf.e2e._perimeter import check_unauthenticated_requests
 from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
@@ -48,18 +51,22 @@ def run_drill(
     refused: Callable[[], bool],
     reach: Callable[[str], int | None],
     records: Callable[[], list[dict[str, str]]],
+    ingresses: Callable[[], str],
+    still_protected: Callable[[], None],
     replicas: int,
     reason: str = REASON,
     clock: Callable[[], float] = time.monotonic,
     pause: Callable[[float], None] = time.sleep,
 ) -> Timings:
-    scale_dex(0)
+    before = ingresses()
+    first_answer = 0.0
+    ok = False
     try:
+        scale_dex(0)
         wait_dex(False)
         down = clock()
         if not refused():
             raise E2EError("A fresh sign-in was not refused by the issuer's own error page with Dex scaled to zero.")
-        first_answer = 0.0
         for service in PORTS:
             status = reach(service)
             if status != 200:
@@ -70,16 +77,23 @@ def run_drill(
             mine = [r for r in done if r.get("reason") == reason and r.get("service") == service]
             if not any(r.get("user") and r.get("ended") and "duration_seconds" in r for r in mine):
                 raise E2EError(f"No complete break-glass record for {service}: {done}")
+        ok = True
     finally:
-        scale_dex(replicas)
         try:
+            scale_dex(replicas)
             wait_dex(True)
-        except E2EError:
-            pass  # the drill's own failure is the one to report; a Dex that stays down fails the next step loudly
+        except E2EError as exc:
+            if ok:
+                raise
+            log.info(f"Dex restore also failed: {exc}")  # the drill's own failure is the one to report
+    if ingresses() != before:
+        raise E2EError("The ingresses changed during the outage drill.")
     restored = clock()
     for _attempt in range(RESTORE_ATTEMPTS):
         if signed_in():
-            return Timings(first_answer, clock() - restored)
+            elapsed = clock() - restored
+            still_protected()
+            return Timings(first_answer, elapsed)
         pause(2)
     raise E2EError("Sign-in did not work again after Dex was restored.")
 
@@ -118,6 +132,19 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                 return
             time.sleep(2)
         raise E2EError("Dex was still Ready 180s after scaling it to zero.")
+
+    def ingresses() -> str:
+        items = json.loads(kubectl(cfg, ["get", "ingress", "-A", "-o", "json"], capture=True))["items"]
+        return json.dumps(
+            sorted((i["metadata"]["namespace"], i["metadata"]["name"], i["spec"].get("rules")) for i in items),
+            sort_keys=True,
+        )
+
+    def still_protected() -> None:
+        access_contract = contracts["shared"]["access"]
+        routes = {ref: route["url"] for ref, route in access_contract["routes"].items()}
+        protected = access_contract["perimeter"]["protected_routes"]
+        check_unauthenticated_requests(identity, protected, routes, login=f"{identity['issuer_url']}/auth")
 
     def walk() -> requests.Response:
         landing = sign_in_with_stub(portal, login, stub_host(cfg))[1]
@@ -183,6 +210,8 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                     scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
                     wait_dex=wait_dex,
                     signed_in=signed_in,
+                    ingresses=ingresses,
+                    still_protected=still_protected,
                     refused=refused,
                     reach=reach,
                     records=records,
@@ -205,8 +234,9 @@ def probe(
     answered: list[int] = []
 
     def reach(argv: Sequence[str], **_: object) -> None:
-        process = subprocess.Popen(argv)
+        process = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
         try:
+            wait_forwarding(process, PORTS[service], service)
             for _attempt in range(30):
                 try:
                     status = requests.get(url, verify=verify, timeout=3).status_code
@@ -223,3 +253,21 @@ def probe(
 
     break_glass.open_session(cluster, service, reason, 1, local_port=PORTS[service], tls_port=tls_port, run=reach)
     return answered[0] if answered else None
+
+
+def wait_forwarding(process: subprocess.Popen[str], port: int, service: str, timeout: float = 30) -> None:
+    """Block until kubectl says it listens on `port`, so only this forward can answer the probe."""
+    want = f"Forwarding from 127.0.0.1:{port}"
+    assert process.stdout is not None
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not select.select([process.stdout], [], [], 1)[0]:
+            if process.poll() is not None:
+                break
+            continue
+        line = process.stdout.readline()
+        if want in line:
+            return
+        if not line and process.poll() is not None:
+            break
+    raise E2EError(f"the break-glass port-forward to {service} never reported {want!r}")
