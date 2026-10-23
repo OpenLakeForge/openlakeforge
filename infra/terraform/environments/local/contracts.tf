@@ -336,8 +336,12 @@ locals {
 
   # Block presence in the profile is the switch (ADR 0013/0014): no spec.access,
   # no ingress; no spec.identity, no issuer and no perimeter.
-  access_enabled   = var.access_base_domain != null
-  identity_enabled = var.identity_issuer != null
+  access_enabled = var.access_base_domain != null
+  # Callers verify Trino against the olf-local-ca ConfigMap, which only the
+  # access module publishes (in_cluster_resolution), so a profile without
+  # spec.access stays unauthenticated unless the level is set explicitly.
+  trino_workload_authentication = coalesce(var.trino_workload_authentication, local.access_enabled ? "password" : "off")
+  identity_enabled              = var.identity_issuer != null
   # Route TLS (route certificates) is the one TLS-specific switch; `issuer:
   # none` is plain HTTP on *.localhost. cert-manager and the local CA stay
   # deployed with spec.access: pods still mount the CA ConfigMap, and Trino's
