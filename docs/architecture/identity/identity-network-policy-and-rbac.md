@@ -12,7 +12,7 @@ Scope: the local provider. AWS and Azure enforcement is outside it.
 
 | Rule | Detail |
 | --- | --- |
-| Default deny | Ingress and egress are denied in `olf-system` and in every stage namespace (`olf-<stage>`). DNS is allowed. |
+| Default deny | Ingress and egress are denied in every stage namespace (`olf-<stage>`). In `olf-system` only the workloads listed under `workloads` in the flow file (`var.workloads` of the policy module) are selected; the rest of `olf-system` stays unisolated. DNS is allowed. |
 | One flow, one row | Every other flow is a row of `release/network-flows.yaml`, read by the policy module (`modules/security/network-policy`) and by `olf e2e`. `olf check flows` validates the file. A flow that is not listed is denied. |
 | Both sides | A pod reaches a destination only through a row on both sides: egress on the source, ingress on the destination. |
 | Stage namespace = one trust domain | Inside a stage namespace pods talk freely, because run pods and Floe Jobs are created with labels that user code controls. Between namespaces, and between `olf-system` workloads, every flow is an allow row. |
@@ -72,8 +72,8 @@ rest are recorded as named exceptions:
 The `default` ServiceAccount of every namespace has no Role. `olf e2e` asserts
 the denials with `kubectl auth can-i` as each ServiceAccount, and lists every
 Role bound in the OpenLakeForge namespaces that grants a Secret verb or pod
-creation, failing on any not named above. The break-glass Role for a
-non-admin operator grants no Secret read and no `exec`
+creation, failing on any not named above. No break-glass Role exists in the
+repository: `olf break-glass` uses the operator's own kubeconfig
 ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)).
 
 ## Limits

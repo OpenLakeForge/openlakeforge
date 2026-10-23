@@ -2,22 +2,26 @@
 
 ## Status
 
-Decided and proven in isolation; **migration in progress**. Built so far: the
+Decided, proven in isolation, and **migrated on the local root**: step 4 (the
+`password` default and the isolation gate) is done (#471). AWS and Azure remain
+unauthenticated. Built: the
 credential Job in `modules/query/trino` creates the principal Secrets,
 `trino-password-file` and `trino-internal-secret` and replicates each stage's
 principal. The switch `trino_workload_authentication` has three levels, `off`
-(the default; nothing differs from before), `tls` (the module issues the
+(nothing differs from before), `tls` (the module issues the
 serving certificate and adds an HTTPS listener beside the HTTP one; dbt run
 pods, `olf e2e` and Superset use it, sending only the user name: migration steps 2-3),
-and `password` (the HTTP listener is replaced, `PASSWORD` authentication and the
+and `password` (the local default; the HTTP listener is replaced, `PASSWORD` authentication and the
 `principals` rules turn on, and Traefik gets a verified HTTPS transport to
 Trino: step 4). The OpenMetadata Trino crawl is an OLF-owned Job (its
 server-created ingestion pods cannot receive the CA) that verifies the HTTPS
 listener at `tls`. At `password` every caller reads its own credential from a
-Secret (step 4, clients: below); the default flip and the isolation probes are
-the last part. What binds is
-the selection, the principal mapping and the migration order. Until the migration lands Trino
-runs unauthenticated and its row in `docs/technical-debt.md` stays open.
+Secret (step 4, clients: below), and the switch defaults to `password` in the
+local root when the profile has `spec.access`, which publishes the CA ConfigMap
+callers verify against; without it the default stays `off`. `olf e2e` runs the
+isolation probes below. What binds is
+the selection, the principal mapping and the migration order. The local root authenticates by default; AWS and Azure serve Trino
+unauthenticated, and the row in `docs/technical-debt.md` stays open for them.
 
 ## Context
 
@@ -169,7 +173,8 @@ deleted `trino-password-file` rebuilt; an issuer outage changes nothing.
 
 ### Migration checklist
 
-Found in review; the migration must settle each before step 4.
+Found in review; each was to be settled before step 4. For the local root
+step 4 is done (#471); the cloud-roots item below stays open for AWS and Azure.
 
 - Cloud roots: only the local root has cert-manager and `olf-local-ca` (ADR
   0013 decision 8), and AWS and Azure expose Trino over HTTP; define the CA and
@@ -312,3 +317,10 @@ which exports `TRINO_PASSWORD` only when the pod mounts `password.db`. The
 service the OpenMetadata bootstrap registers still carries no password. The
 Fernet-key prerequisite is met: an in-cluster Job creates a per-deployment
 `openmetadata-fernet-key` Secret, which OpenMetadata reads by `secretKeyRef`.
+Step 4, default and gate: the local root defaults `trino_workload_authentication`
+to `password` when `spec.access` is present. `olf e2e` (`_isolation.py`), with
+Trino requiring a password, runs the DEV principal with `--session-user
+olf-prod-runtime` (expects `cannot become user`), the PROD user name with no
+password and the DEV user name with a wrong one (expect 401), beside the
+existing direct cross-stage query (`Access Denied`) and the pipeline runs that
+authenticate with their own credentials as the positive controls.

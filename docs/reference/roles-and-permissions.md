@@ -56,9 +56,10 @@ catalog credentials, so assign `data-engineer` on that basis.
 ### Trino UI
 
 `platform-admin` and `data-engineer` open the Trino web UI. `analyst` and
-`viewer` do not. The roles do not change what a query may read: Trino's
-catalog access is decided by the service principals, not by the person (see
-[CLI and automation](#cli-and-automation)).
+`viewer` do not. On plain HTTP the UI opens as a fixed user behind the
+perimeter; on HTTPS it signs in through Dex. The roles do not change what a
+query may read: Trino's catalog access is decided by the service principals,
+not by the person (see [CLI and automation](#cli-and-automation)).
 
 ### Superset
 
@@ -93,7 +94,8 @@ is for administrators only. The `viewer` role is a custom read-only role
 | Create or delete entities | yes | no | no | no |
 | Roles, policies, teams, users, bots, settings | yes | no | no | no |
 
-A CronJob, `openmetadata-role-sync`, applies these roles every 5 minutes from
+With a GitHub App (not a hand-made OAuth App), a CronJob,
+`openmetadata-role-sync`, applies these roles every 5 minutes from
 the mapped GitHub teams: the administrator flag for `platform-admin`, the
 `DataSteward` role for `data-engineer`, and neither for the others. A person in
 no mapped team cannot sign in. An asset's owner keeps full control of it
@@ -106,7 +108,9 @@ is on.
 
 `olf`, CI and the pods of the platform are not people and hold no role. They
 authenticate with Kubernetes RBAC (your kubeconfig) or with a service
-credential from a Secret, and reach services through port-forwards or their
+credential from a Secret (to Trino, a password per principal: with
+`spec.access` declared, Trino workload authentication defaults to `password`,
+and to `off` without it), and reach services through port-forwards or their
 in-cluster addresses, never through the sign-in perimeter. Whoever holds the
 kubeconfig can therefore reach every service; a role limits browsers, not
 cluster access. `olf break-glass` is the recorded way to use that when the

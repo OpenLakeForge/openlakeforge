@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from olf.e2e import _network
-from olf.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_port
+from olf.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_ports
 from olf.e2e._shell import E2EError
 
 FLOWS = yaml.safe_load((Path(__file__).parents[3] / "release/network-flows.yaml").read_text())
@@ -21,12 +21,12 @@ def test_positive_probes_cover_pod_to_pod_t_rows() -> None:
 
 
 def test_every_protected_backend_has_a_port() -> None:
-    assert {workload: workload_port(FLOWS, workload) for workload in PROTECTED} == {
-        "postgresql": 5432,
-        "polaris": 8181,
-        "trino": 8080,
-        "openmetadata": 8585,
-        "dex": 5556,
+    assert {workload: workload_ports(FLOWS, workload) for workload in PROTECTED} == {
+        "postgresql": [5432],
+        "polaris": [8181],
+        "trino": [8080, 8443],
+        "openmetadata": [8585],
+        "dex": [5556],
     }
 
 
@@ -132,7 +132,7 @@ def test_untrusted_namespace_is_deleted_and_awaited_before_create(monkeypatch: p
 
     monkeypatch.setattr(_network, "kubectl", fake)
     monkeypatch.setattr(_network, "_pod_ip", lambda *_a: "10.0.0.1")
-    monkeypatch.setattr(_network, "workload_port", lambda *_a: 80)
+    monkeypatch.setattr(_network, "workload_ports", lambda *_a: [80])
     monkeypatch.setattr(_network, "_probe_pod", stop)
     cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
     with pytest.raises(RuntimeError):

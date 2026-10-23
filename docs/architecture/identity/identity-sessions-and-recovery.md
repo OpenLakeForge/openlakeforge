@@ -132,7 +132,7 @@ does not log in to it.
 
 | Item | Design |
 | --- | --- |
-| Required RBAC | A namespaced Role, bound to the recovering operator only: `get`/`list` on pods, services and events; `create` on `pods/portforward`; `get` on `pods/log`; `delete` on pods (to restart Dex). No Secret read and no `exec`. On the local kind cluster the kubeconfig is cluster-admin, so the Role matters for a non-admin operator and for #46. |
+| Required RBAC | The operator's own kubeconfig. No break-glass Role is granted by the repository: the command needs `create` on `pods/portforward` (or `pods/exec` for the in-pod shells) and `create` and `patch` on ConfigMaps in `olf-system` for the record. On the local kind cluster the kubeconfig is cluster-admin. |
 | Enabling | `olf break-glass dex\|trino\|dagster` runs `kubectl port-forward` to the Dex Service in `olf-system`, bound to `127.0.0.1`. Dagster and the Trino UI are reached the same way, directly on their internal Services, because they have no native authentication to bypass. |
 | Expiry | The port-forward ends with its process; `--ttl-minutes` (default 30) stops it at the end of that time. There is no object to remove for access itself. |
 | Superset and OpenMetadata UIs | Not reachable during an issuer outage by design: they only accept issuer login. `olf break-glass superset\|openmetadata` opens a shell in the pod instead, for their CLIs. **Open question** for the maintainer: accept that, or require a local-admin fallback in each. |

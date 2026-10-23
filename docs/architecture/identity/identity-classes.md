@@ -7,7 +7,7 @@ documentation for those classes (#178); the path-by-path inventory is in
 
 | Class | Who | Governed by | Never |
 | --- | --- | --- | --- |
-| 1. Human | A person reaching a service UI through the issuer | Canonical roles from the GitHub team mapping, enforced at the perimeter ([ADR 0014](../../adr/0014-identity-and-authorization.md), [ADR 0018](../../adr/0018-github-is-the-forge.md)) | Used by an automated path |
+| 1. Human | A person reaching a service UI through the issuer: a GitHub account, or a user of an external OIDC issuer | Canonical roles from the GitHub team mapping, or from the external issuer's claim mapping (`role_claim`, `role_mapping`), enforced at the perimeter ([ADR 0014](../../adr/0014-identity-and-authorization.md), [ADR 0018](../../adr/0018-github-is-the-forge.md)) | Used by a deploy, a pipeline or any other automated path (the e2e perimeter test below is the one exception) |
 | 2. In-cluster workload and automation | A pod calling another component, or `olf` and CI calling the cluster | A service credential from a Kubernetes Secret, or Kubernetes RBAC | A human account; routed through the perimeter; a member of a canonical role |
 | 3. Cloud workload | A pod calling a cloud API (object storage, catalog, secrets) | Cloud IAM through EKS Pod Identity or Azure workload identity | A canonical role |
 
@@ -27,8 +27,9 @@ in.
 
 | Item | Detail |
 | --- | --- |
-| Identity | A GitHub account, brokered by Dex into an OIDC token |
-| Authorization | The highest canonical role among the person's mapped teams ([Roles and permissions](../../reference/roles-and-permissions.md)) |
+| Identity | A GitHub account, brokered by Dex into an OIDC token; or, with `issuer: external`, a user of that issuer |
+| Authorization | The highest canonical role among the person's mapped teams, or among the roles the external issuer's claim maps to ([Roles and permissions](../../reference/roles-and-permissions.md)) |
+| Automated test of the perimeter | `olf e2e` signs in through Dex as stub users, one per mapped role, against a stub GitHub it runs in `olf-system`. These users exist for the run, hold canonical roles, and are never used by a deploy or a pipeline: the one place a class 1 path is driven by automation, so that the perimeter's redirects, role refusals and logout are tested through the public hostnames |
 | Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; Superset and OpenMetadata also map the role to their native roles |
 | Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; a revocation reaches the perimeter within about 5 min ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
@@ -41,7 +42,7 @@ in.
 | Examples | `olf deploy`, `olf e2e` and CI (RBAC, port-forward or in-cluster exec); Superset, dbt and OpenMetadata ingestion to Trino; Trino and Floe to Polaris; pods to PostgreSQL and object storage |
 | Authorization | Kubernetes RBAC for operators and CI. For pods, a per-service credential from a Secret that a bootstrap Job generates once and reuses |
 | Network | Reachability between pods is decided by default-deny NetworkPolicy ([identity-network-policy-and-rbac.md](identity-network-policy-and-rbac.md)) |
-| Trino | Callers authenticate to Trino with a password per principal over HTTPS when `trino_workload_authentication` is `password` ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) |
+| Trino | Callers authenticate to Trino with a password per principal over HTTPS when `trino_workload_authentication` is `password`. The local root defaults to `password` when the profile has `spec.access`, and to `off` otherwise ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) |
 | Rotation | `olf secrets rotate` for the Dex clients ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
 
 Workstation and CI automation reaches services by an RBAC-authorized

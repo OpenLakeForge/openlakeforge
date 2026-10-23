@@ -228,7 +228,7 @@ module "cert_manager" {
   source = "../../modules/access/cert-manager"
   # Also for Trino's internal certificate (ADR 0016), which needs an issuer
   # even when no route is TLS-terminated.
-  count = local.access_enabled || var.trino_workload_authentication != "off" ? 1 : 0
+  count = local.access_enabled || local.trino_workload_authentication != "off" ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
@@ -402,7 +402,7 @@ module "trino" {
   catalog_bootstrap_revision = local.polaris_bootstrap_hash
 
   stage_namespaces        = local.stage_namespaces
-  workload_authentication = var.trino_workload_authentication
+  workload_authentication = local.trino_workload_authentication
   tls_issuer_name         = try(module.cert_manager[0].cluster_issuer_name, null)
   # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
