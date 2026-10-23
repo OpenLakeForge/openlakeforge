@@ -2,7 +2,9 @@
 
 ## Status
 
-Decided and proven in isolation; **migration in progress**. Built so far: the
+Decided, proven in isolation, and **migrated on the local root**: step 4 (the
+`password` default and the isolation gate) is done (#471). AWS and Azure remain
+unauthenticated. Built: the
 credential Job in `modules/query/trino` creates the principal Secrets,
 `trino-password-file` and `trino-internal-secret` and replicates each stage's
 principal. The switch `trino_workload_authentication` has three levels, `off`
@@ -171,7 +173,8 @@ deleted `trino-password-file` rebuilt; an issuer outage changes nothing.
 
 ### Migration checklist
 
-Found in review; the migration must settle each before step 4.
+Found in review; each was to be settled before step 4. For the local root
+step 4 is done (#471); the cloud-roots item below stays open for AWS and Azure.
 
 - Cloud roots: only the local root has cert-manager and `olf-local-ca` (ADR
   0013 decision 8), and AWS and Azure expose Trino over HTTP; define the CA and

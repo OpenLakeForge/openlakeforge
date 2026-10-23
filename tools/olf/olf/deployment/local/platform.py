@@ -185,7 +185,7 @@ def require_github_oauth_secret(
     if not result.ok:
         raise DeploymentPreconditionError(
             f"spec.identity.github needs the GitHub OAuth App Secret '{ref.name}' in namespace '{namespace}' "
-            f"(docs/setup/github-oauth-app.md); kubectl could not read it: "
+            f"(docs/guides/identity/connect-github.md); kubectl could not read it: "
             f"{result.stderr.strip() or 'non-zero status'}. Run `olf github connect` to create the GitHub App "
             f"and store it, or create a hand-made OAuth App's Secret (set GITHUB_CLIENT_ID and "
             f"GITHUB_CLIENT_SECRET first): {command}. In a terminal, `olf deploy` does this itself unless "

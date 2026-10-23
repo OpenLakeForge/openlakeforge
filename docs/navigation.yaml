@@ -25,10 +25,11 @@ sections:
       - docs/tutorial/06-publish-a-dashboard.md
       - docs/tutorial/07-govern-and-trace-lineage.md
   # The core tutorial ends at lesson 7; these continue the same project.
-  - label: "Tutorial: stages and cloud"
+  - label: "Tutorial: sign-in, stages and cloud"
     items:
-      - docs/tutorial/08-add-prod-and-promote.md
-      - docs/tutorial/09-deploy-to-the-cloud.md
+      - docs/tutorial/08-sign-in-with-github.md
+      - docs/tutorial/09-add-prod-and-promote.md
+      - docs/tutorial/10-deploy-to-the-cloud.md
   - label: Guides
     items:
       - docs/guides/local-installation.md
@@ -36,14 +37,21 @@ sections:
       - docs/guides/dashboards-as-code.md
       - docs/guides/cloud/deploy-to-aws.md
       - docs/guides/cloud/deploy-to-azure.md
-      # Dex and the perimeter's error pages link to this path on GitHub: keep it.
-      - docs/setup/github-oauth-app.md
+      # Dex and the perimeter's error pages link to connect-github.md#troubleshooting
+      # on GitHub: keep that path and anchor.
+      - docs/guides/identity/connect-github.md
+      - docs/guides/identity/map-teams-to-roles.md
+      - docs/guides/identity/manage-members.md
+      - docs/guides/identity/external-issuer.md
+      - docs/guides/identity/rotate-secrets.md
+      - docs/guides/identity/break-glass.md
       - docs/guides/promote-dev-to-prod.md
       - docs/guides/troubleshooting.md
   - label: Reference
     items:
       - docs/reference/cli.md
       - docs/reference/deployment-profile.md
+      - docs/reference/roles-and-permissions.md
       - docs/reference/descriptors.md
       - docs/reference/components.md
       - docs/reference/compatibility-matrix.md
@@ -72,5 +80,6 @@ exclude:
   - docs/architecture/provider-contracts.md
   - docs/reference/component-catalog.md
   - docs/release/releasing.md
+  - docs/setup/github-oauth-app.md
   - docs/technical-debt.md
   - docs/testing/

@@ -59,7 +59,7 @@ _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project de
 # Check it with: olf profile validate --project .
 # access.issuer: none is local-only (plain HTTP); remove it for aws or azure.
 # Sign-in: add spec.identity (issuer: github, see
-# https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md;
+# https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/identity/connect-github.md#troubleshooting;
 # OAuth App callback http://auth.olf.localhost/callback). HTTPS: drop
 # spec.access.issuer and run `olf access trust`.
 """

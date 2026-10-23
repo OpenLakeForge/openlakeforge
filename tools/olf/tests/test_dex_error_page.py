@@ -12,4 +12,4 @@ def test_error_page_is_mounted_over_the_stock_template_with_both_causes() -> Non
     assert 'mount_path = "/srv/dex/web/templates/error.html"' in source
     assert '"error.html"  = local.error_html' in source
     assert "not installed on ${var.github.organization}" in source
-    assert "docs/setup/github-oauth-app.md" in source
+    assert "docs/guides/identity/connect-github.md#troubleshooting" in source

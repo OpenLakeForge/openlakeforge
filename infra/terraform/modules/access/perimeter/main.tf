@@ -91,7 +91,7 @@ locals {
     {{else if eq .StatusCode 500}}
     <h1>Sign-in was refused</h1>
     <p>Sign-in was refused. Check that the OpenLakeForge GitHub App is installed on ${var.github_organization} and that you are in a mapped team.</p>
-    <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md">Setup guide</a></p>
+    <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/identity/connect-github.md#troubleshooting">Setup guide</a></p>
     %{~endif~}
     {{else}}
     <h1>{{.Title}}</h1>

@@ -7,9 +7,9 @@ and shows the GitHub Actions that automate those steps.
 **You will** run a project through DEV and PROD and see the PROD-only
 schedule, in about 30 minutes.
 
-**Start from** the project of [lesson 7](07-govern-and-trace-lineage.md): the
-Full preset on a local deployment, with or without sign-in. You also need an account on a container registry such as GHCR or
-Docker Hub.
+**Start from** the project of [lesson 8](08-sign-in-with-github.md): the Full
+preset on a local deployment with GitHub sign-in on. You also need an account
+on a container registry such as GHCR or Docker Hub.
 
 ## How stages work
 
@@ -147,4 +147,4 @@ Local OpenLakeForge full e2e validation passed.
 
 ## Next
 
-[Deploy to the cloud](09-deploy-to-the-cloud.md): run the same project on AWS.
+[Deploy to the cloud](10-deploy-to-the-cloud.md): run the same project on AWS.
