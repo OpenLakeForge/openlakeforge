@@ -233,6 +233,24 @@ fresh private window for each sign-in.
 
 When you finish, put your account back in `olf-platform-admins`.
 
+## Sign out
+
+Open this address to end your session on every service behind the perimeter:
+
+```text
+http://oauth2.olf.localhost/oauth2/sign_out?rd=http%3A%2F%2Folf.localhost%2Fsigned-out.html
+```
+
+It clears the perimeter cookie and lands on a "signed out" page. Superset keeps
+its own session: its Logout menu item does the same redirect. GitHub's session
+stays open, so signing in again usually does not prompt; Dex re-reads your teams
+at each sign-in.
+
+The easy alternative is a private window: closing it drops every cookie. A team
+change also takes effect without signing out, within the 5-minute refresh
+bound described in [Add, change or remove a
+member](../guides/identity/manage-members.md#how-fast-a-change-takes-effect).
+
 ## Check it worked
 
 This lesson ends on a person's access, so check it in the browser. Signed in
