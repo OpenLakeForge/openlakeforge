@@ -43,7 +43,7 @@ def test_isolation_uses_the_selected_stage_bucket_from_the_contract(
 
     monkeypatch.setattr(_isolation, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
     monkeypatch.setattr(_isolation.k8s, "resource_exists", lambda *_args: True)
-    def _trino_query(_cfg, sql: str) -> str:  # noqa: ANN001
+    def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003
         if "lakehouse_prod" in sql:
             raise E2EError("Access Denied: Cannot select from columns [...] in catalog lakehouse_prod")
         return ""
@@ -71,7 +71,7 @@ def test_trino_isolation_probe_rejects_a_non_denial_failure(monkeypatch: pytest.
     other than access control - the probe must not read that as isolation."""
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
 
-    def _trino_query(_cfg, sql: str) -> str:  # noqa: ANN001
+    def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003
         if "lakehouse_prod" in sql:
             raise E2EError("Query failed: Catalog 'lakehouse_prod' does not exist")
         return ""
@@ -127,7 +127,7 @@ def _stub_files(
     }
     queried: list[str] = []
 
-    def _trino_query(_cfg, sql: str) -> str:  # noqa: ANN001
+    def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003
         schema, name = re.search(r'lakehouse_prod\.(\w+)\."(\w+)\$files"', sql).groups()  # type: ignore[union-attr]
         queried.append(f"{schema}.{name}")
         return overrides.get(f"{schema}.{name}", own[f"{schema}.{name}"])
@@ -303,3 +303,65 @@ def test_dagster_isolation_defers_to_a_sibling_that_has_not_run_yet(
     _stub_runs(monkeypatch, {"dev": {"d1"}, "prod": set()})
 
     _isolation.check_dagster_state_isolation(e2e_cfg(tmp_path), "dev", "prod")
+
+
+def _auth_cfg(tmp_path: Path):  # noqa: ANN202
+    return replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
+
+
+def test_workload_authentication_probes_pass_when_trino_refuses_every_claim(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    seen: list[dict] = []
+
+    def _trino_query(_cfg, sql: str, **identity) -> str:  # noqa: ANN001, ANN003
+        seen.append(identity)
+        if identity.get("session_user"):
+            raise E2EError("Access Denied: Principal olf-dev-runtime cannot become user olf-prod-runtime")
+        raise E2EError("Error running command: HTTP 401 Unauthorized")
+
+    monkeypatch.setattr(_isolation, "trino_query", _trino_query)
+
+    _isolation.check_trino_workload_authentication(_auth_cfg(tmp_path), "dev", "prod")
+
+    assert seen == [
+        {"session_user": "olf-prod-runtime"},
+        {"stage": "prod", "password": ""},
+        {"stage": "dev", "password": "wrong"},
+    ]
+
+
+def test_a_user_name_header_alone_that_trino_accepts_is_an_authentication_breach(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+
+    def _trino_query(_cfg, sql: str, **identity) -> str:  # noqa: ANN001, ANN003
+        if identity.get("session_user"):
+            raise E2EError("Access Denied: Principal olf-dev-runtime cannot become user olf-prod-runtime")
+        return "1"
+
+    monkeypatch.setattr(_isolation, "trino_query", _trino_query)
+
+    with pytest.raises(E2EError, match="authentication breach"):
+        _isolation.check_trino_workload_authentication(_auth_cfg(tmp_path), "dev", "prod")
+
+
+def test_a_dev_password_that_acts_as_the_prod_user_is_an_isolation_breach(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    monkeypatch.setattr(_isolation, "trino_query", lambda *_args, **_kwargs: "1")
+
+    with pytest.raises(E2EError, match="acted as prod"):
+        _isolation.check_trino_workload_authentication(_auth_cfg(tmp_path), "dev", "prod")
+
+
+def test_workload_authentication_probes_are_skipped_when_trino_takes_no_password(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    monkeypatch.setattr(_isolation, "trino_query", lambda *_args, **_kwargs: pytest.fail("queried Trino"))
+
+    _isolation.check_trino_workload_authentication(_auth_cfg(tmp_path), "dev", "prod")

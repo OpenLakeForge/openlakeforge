@@ -168,6 +168,13 @@ olf access trust
 It writes the CA certificate and prints the commands for your platform. Skip
 it and the browser warns on every host.
 
+Trino's workload authentication follows `spec.access`: with the block
+declared, as here, Superset, dbt and OpenMetadata ingestion authenticate to
+Trino with their own passwords (`trino_workload_authentication` defaults to
+`password`); without it, it defaults to `off`. The Trino UI sign-in follows
+the scheme: on plain HTTP the UI opens as a fixed user behind the perimeter,
+and on HTTPS it signs in through Dex.
+
 The GitHub App records the callback URL for the scheme it was created with.
 After switching scheme, run `olf secrets rotate github-app` to register an app
 with the new URL, and install it again.

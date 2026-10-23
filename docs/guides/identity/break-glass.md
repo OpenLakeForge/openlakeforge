@@ -30,8 +30,11 @@ bind locally, hence `--local-port`.
 | --- | --- |
 | `dex` | A port-forward to the Dex Service on `127.0.0.1:5556`, for diagnosis. Dex has no admin console or account. |
 | `trino` | A port-forward to the Trino Service on `127.0.0.1`. Over HTTPS when Trino serves it (the command prints the scheme); verify with the local CA, see `olf access trust`. |
-| `dagster` | A port-forward to the Dagster webserver (remote port 80). |
-| `superset`, `openmetadata` | A shell in the service's pod, for its CLI. Their UIs accept only issuer login and are not reachable during an outage. |
+| `dagster` | A port-forward to the Dagster webserver (remote port 80), in the DEV stage only. |
+| `superset`, `openmetadata` | A shell in the service's pod, for its CLI. Their UIs accept only issuer login and are not reachable during an outage. `superset` reaches the DEV stage only. |
+
+There is no `--stage` option: `dagster` and `superset` always target the DEV
+namespace (tracked in #521).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -71,7 +74,14 @@ user, service, duration and reason.
    "$KUBECTL" -n olf-system logs deployment/dex
    ```
 
-2. Restore Dex. If it was scaled down, scale it up; otherwise restart it:
+2. Restore Dex. If it was scaled to zero, scale it back up, with the replica
+   count it had (`<n>`, normally 1):
+
+   ```bash
+   "$KUBECTL" -n olf-system scale deploy/dex --replicas=<n>
+   ```
+
+   If it is running but unhealthy, restart it instead:
 
    ```bash
    "$KUBECTL" -n olf-system rollout restart deployment dex
@@ -86,7 +96,9 @@ user, service, duration and reason.
 `olf e2e run --env local` runs an issuer-outage drill with the perimeter on:
 Dex is scaled to zero, a fresh sign-in is refused, Trino and Dagster answer
 through recorded break-glass sessions, the ingresses are unchanged, then Dex is
-restored and a fresh sign-in works. On the local kind cluster in CI, the first
+restored and a fresh sign-in works. The drill signs in against the e2e's own
+stub GitHub, not real GitHub, and runs only when Dex points at that stub. On
+the local kind cluster in CI, the first
 break-glass answer came 1 second after Dex was down, and sign-in worked within
 2 seconds of Dex being ready again. Those are the timings of the cluster and
 the run, not guarantees. The drill does not cover an open session.

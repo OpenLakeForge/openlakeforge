@@ -261,11 +261,14 @@
         "service_ref": "stage/dev/orchestration"
       },
       "query": {
+        "ca_configmap_name": "olf-local-ca",
         "catalog_name": "lakehouse_dev",
         "catalog_ref": "stage/dev/catalog",
+        "credential_secret_name": "trino-credential",
         "endpoint": "http://trino.olf-system:8080",
         "runtime_identity_ref": "stage/dev/runtime_identity",
-        "service_ref": "shared/query"
+        "service_ref": "shared/query",
+        "tls_port": "8443"
       },
       "reporting": {
         "dashboard_service_name": "superset_dev",
@@ -358,11 +361,14 @@
         "service_ref": "stage/prod/orchestration"
       },
       "query": {
+        "ca_configmap_name": "olf-local-ca",
         "catalog_name": "lakehouse_prod",
         "catalog_ref": "stage/prod/catalog",
+        "credential_secret_name": "trino-credential",
         "endpoint": "http://trino.olf-system:8080",
         "runtime_identity_ref": "stage/prod/runtime_identity",
-        "service_ref": "shared/query"
+        "service_ref": "shared/query",
+        "tls_port": "8443"
       },
       "reporting": {
         "dashboard_service_name": "superset_prod",

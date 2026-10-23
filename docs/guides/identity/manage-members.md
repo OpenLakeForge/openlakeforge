@@ -23,7 +23,7 @@ who is signed in:
 | Where | Delay | Why |
 | --- | --- | --- |
 | Portal, Dagster, Trino UI and every route (the perimeter) | About 4 to 5 minutes | The perimeter refreshes the session against Dex at most every 4 minutes, and Dex re-reads team membership on a refresh. The change shows on the first request after a refresh; access tokens last 5 minutes. |
-| OpenMetadata roles | Up to 5 minutes plus the run | A CronJob, `openmetadata-role-sync`, reads the mapped teams every 5 minutes and sets the administrator flag and the `DataSteward` role. |
+| OpenMetadata roles | Up to 5 minutes plus the run | A CronJob, `openmetadata-role-sync`, reads the mapped teams every 5 minutes and sets the administrator flag and the `DataSteward` role. It needs the GitHub App (the Secret's `app-id` and `private-key`); with a hand-made OAuth App it is skipped and OpenMetadata users stay at the read baseline. |
 | Superset roles | At most 15 minutes (designed; not measured) | Superset's own session is designed to last 15 minutes without sliding, and its roles are read again at each sign-in. The perimeter refuses a removed person first. |
 
 Measured once, against real GitHub: a member moved to another team lost the

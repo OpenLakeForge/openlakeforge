@@ -32,7 +32,9 @@ Every field is in the
 Register four OIDC clients in your issuer: `perimeter`, `superset`,
 `openmetadata` and `trino`, or the ids you set under `client_ids`. Store each
 client secret in a Kubernetes Secret named `oidc-client-<consumer>` in
-`olf-system`, with the key `client-secret`:
+`olf-system`, with the key `client-secret`. The contract names all four, so
+create all four; only the `perimeter` client is used by a deployed service
+today (see Limits):
 
 ```bash
 export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
@@ -48,9 +50,13 @@ Repeat for `superset`, `openmetadata` and `trino`.
   refreshes a session. If your issuer's refresh response carries no ID token
   with the role claim, a removed role stays usable until the issuer's session
   ends, which can be hours. Test removal before you rely on it.
-- **OpenMetadata roles are not synced.** The CronJob that sets OpenMetadata
-  administrator and `write` roles reads GitHub teams, so with `external`
-  every OpenMetadata user stays at the `read` baseline.
+- **Only the perimeter uses your issuer.** With `external`, OpenMetadata and
+  Superset are deployed with no OIDC configuration (`oidc = null`), so they
+  keep their own logins behind the perimeter, and the Trino UI's OAuth2
+  sign-in is not set up (it is Dex only). The OpenMetadata role sync, which
+  reads GitHub teams, does not apply either. The per-service roles in
+  [Roles and permissions](../../reference/roles-and-permissions.md) are
+  therefore enforced by the perimeter only: which services a person opens.
 - **Rotation is yours.** `olf secrets rotate` works for `issuer: github` only.
   Rotate the client secrets in your issuer and in the `oidc-client-<consumer>`
   Secrets, then restart the consumers.

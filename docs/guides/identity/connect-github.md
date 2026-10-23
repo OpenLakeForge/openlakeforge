@@ -69,9 +69,10 @@ GitHub team grants. Lesson 8 of the tutorial walks through this once:
 
 `--no-browser` (on `olf github connect`) prints the URL without opening it;
 without a click within 15 minutes, nothing is written. Credentials are never
-printed. Running `olf github connect` again registers a new app and replaces
-the Secret: delete the old app and its private key in the organization
-settings yourself. To make `olf deploy` fail on a missing Secret instead of
+printed. To replace the app, use `olf secrets rotate github-app`, which
+registers a new app, replaces the Secret and restarts Dex
+([Rotate secrets](rotate-secrets.md#the-github-app)); then delete the old app
+and its private key in the organization settings yourself. To make `olf deploy` fail on a missing Secret instead of
 creating the app, pass `--no-github-connect`. In CI (no terminal, or `CI`
 set) it never asks.
 

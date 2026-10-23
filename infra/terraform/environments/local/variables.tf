@@ -117,9 +117,9 @@ variable "trino_chart_package_path" {
 }
 
 variable "trino_workload_authentication" {
-  description = "off, tls or password (ADR 0016): tls adds Trino's HTTPS listener while callers stay unauthenticated; password requires a verified password from every caller. Callers are given their credentials in separate changes, so leave this off until they are."
+  description = "off, tls or password (ADR 0016): tls adds Trino's HTTPS listener while callers stay unauthenticated; password requires a verified password from every caller. Null selects password when the profile has spec.access (it publishes the CA ConfigMap callers verify against) and off otherwise."
   type        = string
-  default     = "off"
+  default     = null
 }
 
 variable "dagster_chart_package_path" {
