@@ -110,7 +110,7 @@ locals {
         <li>The OpenLakeForge GitHub App is not installed on ${var.github.organization}.</li>
         <li>You are not in a GitHub team mapped to an OpenLakeForge role.</li>
       </ul>
-      <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/setup/github-oauth-app.md">GitHub setup guide</a></p>
+      <p><a href="https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/identity/connect-github.md#troubleshooting">GitHub setup guide</a></p>
       {{ end }}
     </div>
 

@@ -232,7 +232,7 @@ jobs:
 
       - name: Apply the local platform (foundation + prefetch + platform, every enabled stage)
         # The profile selects the GitHub issuer against the e2e stub
-        # (docs/setup/github-oauth-app.md), so Dex reads a `github-oauth-app`
+        # (docs/guides/identity/connect-github.md), so Dex reads a `github-oauth-app`
         # Secret that `olf` does not create. A first apply makes the foundation
         # and the shared namespace, then stops at the missing Secret; the
         # dummy one below is enough because the stub never checks it. The

@@ -8,7 +8,7 @@ catalog.
 validate it, in about 60 minutes plus the time AWS needs to create the
 cluster.
 
-**Start from** the project of [lesson 8](08-add-prod-and-promote.md), and an
+**Start from** the project of [lesson 9](09-add-prod-and-promote.md), and an
 AWS account that meets the
 [prerequisites of the AWS guide](../guides/cloud/deploy-to-aws.md#prerequisites).
 Your `lakehouse_code/` does not change: only the Deployment Profile does.
@@ -34,7 +34,7 @@ spec:
 ```
 
 The cloud deployment is validated with one stage, so the DEV-to-PROD promotion
-of lesson 8 stays on your local platform. The cloud deployment publishes no
+of lesson 9 stays on your local platform. The cloud deployment publishes no
 routes, so there is no sign-in: you reach its services with `olf forward`, and
 an `access:` block would require `identity:`.
 
@@ -52,7 +52,7 @@ It reuses your `default` AWS profile, or asks for your IAM Identity Center
 start URL and region. The other sign-in options are in
 [Deploy to AWS](../guides/cloud/deploy-to-aws.md#1-authenticate). The cloud
 pushes your image to its own ECR registry, so clear the registry settings of
-lesson 8:
+lesson 9:
 
 ```bash
 unset PROJECT_CODE_IMAGE_REPOSITORY PROJECT_CODE_IMAGE_TAG

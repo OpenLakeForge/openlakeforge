@@ -17,7 +17,7 @@ run the [Quickstart](get-started/quickstart.md), then follow the
 | Add sources, domains and products | [Build and manage data products](guides/data-products.md) |
 | Configure a local install | [Install and configure a local deployment](guides/local-installation.md) |
 | Deploy to a cloud | [AWS](guides/cloud/deploy-to-aws.md) or [Azure](guides/cloud/deploy-to-azure.md) |
-| Control who can sign in | [Authentication and permissions](setup/github-oauth-app.md) |
+| Control who can sign in | [Connect GitHub](guides/identity/connect-github.md) |
 | Promote from DEV to PROD in CI | [CI/CD and environment promotion](guides/promote-dev-to-prod.md) |
 | Fix a failing deployment | [Troubleshooting](guides/troubleshooting.md) |
 | Look up a command or field | [CLI](reference/cli.md), [Deployment Profile](reference/deployment-profile.md), [Descriptors](reference/descriptors.md) |

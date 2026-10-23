@@ -169,7 +169,7 @@ With sign-in off, Superset opens as its local Admin and OpenMetadata accepts
 `admin@open-metadata.org` / `admin`. Over plain HTTP, the Trino Web UI shows a
 fixed user, `olf-web`, instead of a login form; per-person identity in the UI
 needs HTTPS (#425). To require sign-in, see
-[Authentication and permissions](../setup/github-oauth-app.md).
+[Connect GitHub](identity/connect-github.md).
 
 ### Serve HTTPS
 

@@ -125,7 +125,7 @@ then run the prefetch step again.
 With HTTPS, the browser must trust the local CA (`olf access trust`), and
 command-line tools may need `--resolve` for `*.localhost` names. See
 [Access the services](local-installation.md#access-the-services). With sign-in
-on, see [Troubleshoot sign-in](../setup/github-oauth-app.md#troubleshoot-sign-in).
+on, see [Troubleshoot sign-in](identity/connect-github.md#troubleshooting).
 
 ## The deployment has drifted
 

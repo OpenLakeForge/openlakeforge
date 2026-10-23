@@ -50,4 +50,4 @@ Routes exist on the local provider when the Deployment Profile declares
 Polaris, SeaweedFS, the databases and code servers are never published; reach
 them with `olf forward`. On AWS and Azure every service is reached with
 `olf forward`. Which role may open each service is in
-[Authentication and permissions](../setup/github-oauth-app.md#roles).
+[Roles and permissions](roles-and-permissions.md).

@@ -1,6 +1,6 @@
 """Workload-secret rotation (#178): `olf secrets rotate`.
 
-Runs the documented procedure (docs/setup/github-oauth-app.md, "Rotate
+Runs the documented procedure (docs/guides/identity/rotate-secrets.md, "Rotate
 secrets") in one command. It reads a Secret's identity (uid and
 resourceVersion) and whether a key exists, never a value, and passes no value
 on any argv.

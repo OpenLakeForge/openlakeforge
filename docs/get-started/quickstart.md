@@ -74,7 +74,7 @@ no sign-in: authentication stays off until you add `spec.identity`.
 > and OpenMetadata keeps its `admin@open-metadata.org` / `admin` login, which
 > `olf status` shows. To serve HTTPS, see
 > [Serve HTTPS](../guides/local-installation.md#serve-https); to sign in with
-> GitHub, see [Authentication and permissions](../setup/github-oauth-app.md).
+> GitHub, see [Connect GitHub](../guides/identity/connect-github.md).
 
 ## 4. Run a data product
 

@@ -78,4 +78,4 @@ With sign-in on, each person holds one of four canonical roles:
 `platform-admin`, `data-engineer`, `analyst` or `viewer`. The profile maps each
 role to GitHub teams, and the role decides which services a person can open
 and what they can do inside them; an `analyst` reaches Superset but not
-Dagster. See [Authentication and permissions](../setup/github-oauth-app.md#roles).
+Dagster. See [Roles and permissions](../reference/roles-and-permissions.md).

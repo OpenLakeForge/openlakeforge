@@ -220,8 +220,8 @@ these rules so they read the same on GitHub and on the site:
   its output, or a browser procedure when the outcome is a person's access),
   *What you learned* and *Next*. Lesson 1 starts from the Quickstart's
   deployment; every other lesson continues the previous one. Lessons 1–7 are
-  the core tutorial on a local Slim-then-Full deployment; lessons 8 and 9
-  (stages and the cloud) are listed as a separate group in the navigation.
+  the core tutorial on a local Slim-then-Full deployment; lessons 8 to 10
+  (sign-in, stages and the cloud) are listed as a separate group in the navigation.
 
 **Commits.** `type: subject`, imperative, lowercase after the colon. Types in
 use: `feat`, `fix`, `docs`, `refactor`, `chore`. The body explains why.

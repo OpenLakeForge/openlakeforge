@@ -18,7 +18,7 @@ spec:
   # TLS, issuer, perimeter). Without these blocks a profile is a quickstart.
   # The GitHub host is the e2e stub (olf e2e starts it in olf-system), and the
   # nightly creates a dummy `github-oauth-app` Secret for Dex to read: no real
-  # GitHub or OAuth App is involved (docs/setup/github-oauth-app.md).
+  # GitHub or OAuth App is involved (docs/guides/identity/connect-github.md).
   access: {}
   identity:
     issuer: github
