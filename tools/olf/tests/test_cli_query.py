@@ -101,6 +101,25 @@ def test_query_rejects_an_empty_sql_file(
     assert not calls
 
 
+@pytest.mark.parametrize("path_kind", ["missing", "directory"])
+def test_query_reports_an_unreadable_sql_file_without_a_traceback(
+    tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch, path_kind: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
+    sql = tmp_path / "missing.sql"
+    if path_kind == "directory":
+        sql.mkdir()
+
+    result = runner.invoke(app, ["query", "--file", str(sql)])
+
+    assert result.exit_code == 1
+    assert f"cannot read {sql}" in result.output
+    assert "Traceback" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert not calls
+
+
 def test_query_rejects_a_stage_the_profile_does_not_enable(tmp_path: Path, calls: list[dict]) -> None:
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile)
