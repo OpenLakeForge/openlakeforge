@@ -59,6 +59,23 @@ def test_run_sql_explains_failures(stderr: str, expected: str) -> None:
         trino.run_sql(_target(), "SELECT 1", output_format="ALIGNED", kubectl="kubectl", runner=runner)
 
 
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "expected"),
+    [
+        ("Query failed: line 1:8: Column 'x' cannot be resolved", "", "Column 'x' cannot be resolved"),
+        ("", "", "the query failed without any output."),
+    ],
+)
+def test_run_sql_falls_back_when_stderr_is_empty(stdout: str, stderr: str, expected: str) -> None:
+    def runner(command, stdin):  # noqa: ANN001, ANN202, ARG001
+        return subprocess.CompletedProcess(command, 1, stdout=stdout, stderr=stderr)
+
+    with pytest.raises(trino.TrinoQueryError) as exc_info:
+        trino.run_sql(_target(), "SELECT 1", output_format="ALIGNED", kubectl="kubectl", runner=runner)
+
+    assert expected in str(exc_info.value)
+
+
 def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
     seen: list[list[str]] = []
 
