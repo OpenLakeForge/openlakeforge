@@ -36,6 +36,7 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf project revision inspect\|verify --revision R` | Inspect or verify a published `ProjectRevision` manifest without rebuilding source. |
 | `olf report import\|export\|validate` | Build and import, export, or validate Superset report bundles. Export selects the dashboard by the checked-in bundle's uuid, or by `SUPERSET_DASHBOARD` (uuid or slug). `olf superset deploy-reports` / `export-reports` remain as deprecated aliases. |
 | `olf openmetadata deploy-metadata` | Seed OpenMetadata domains, data products, and medallion containers over REST. |
+| `olf openmetadata list-domains [--provider P] [--json]` | List the domains OpenMetadata exposes, sorted by name, as a table or JSON. Read-only: it sends only GET requests, authenticated with the automation bot token. |
 | `olf k8s set-project-code-image --image X` | Point every Dagster surface at a pushed project-code image, trigger one coordinated restart, and wait for its rollout. |
 | `olf smoke run` | Deploy a bounded Slim environment and validate one product pipeline through to a queryable Gold table. |
 | `olf query [-f <profile>] [--stage <stage>] [--format table\|csv\|json] "<sql>"` (or `--file <sql file>`) | Run SQL against a stage's Trino catalog, with that catalog as the session default so SQL names `<schema>.<table>`. Runs as the stage's shared runtime workload user, which can write: for inspecting data, not loading it, and not per-user access. Local and Azure only; AWS fails until Glue schema prefixes are handled. |

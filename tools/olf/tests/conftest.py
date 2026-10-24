@@ -296,6 +296,76 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
         self._reply(404, {"message": "Not found"})
 
 
+class FakeOpenMetadata(ThreadingHTTPServer):
+    """An OpenMetadata stand-in serving cursor-paged `GET /api/v1/domains` to the bot token.
+
+    Every request is recorded as (method, path), so a test can prove a command
+    only reads. `fail_status` makes the domains endpoint answer with that status.
+    """
+
+    token = "bot-jwt"
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _FakeOpenMetadataHandler)
+        self.url = f"http://127.0.0.1:{self.server_address[1]}"
+        self.domains: list[dict[str, str]] = []
+        self.requests: list[tuple[str, str]] = []
+        self.fail_status: int | None = None
+
+
+class _FakeOpenMetadataHandler(BaseHTTPRequestHandler):
+    server: FakeOpenMetadata
+
+    def log_message(self, *_args: object) -> None:
+        pass
+
+    def _reply(self, status: int, body: object) -> None:
+        payload = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _record(self) -> urllib.parse.SplitResult:
+        url = urllib.parse.urlsplit(self.path)
+        self.server.requests.append((self.command, url.path))
+        return url
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        url = self._record()
+        if self.headers.get("Authorization") != f"Bearer {self.server.token}":
+            return self._reply(401, {"message": "Not authorized"})
+        if url.path != "/api/v1/domains":
+            return self._reply(404, {"message": "Not found"})
+        if self.server.fail_status:
+            return self._reply(self.server.fail_status, {"message": "domains unavailable"})
+        query = urllib.parse.parse_qs(url.query)
+        start = int(query.get("after", ["0"])[0])
+        end = start + int(query["limit"][0])
+        paging = {"total": len(self.server.domains)}
+        if end < len(self.server.domains):
+            paging["after"] = str(end)
+        self._reply(200, {"data": self.server.domains[start:end], "paging": paging})
+
+    def _refuse(self) -> None:
+        self._record()
+        self._reply(405, {"message": "Method not allowed"})
+
+    do_POST = do_PUT = do_PATCH = do_DELETE = _refuse  # noqa: N815 - BaseHTTPRequestHandler API
+
+
+@pytest.fixture
+def fake_openmetadata() -> Iterator[FakeOpenMetadata]:
+    server = FakeOpenMetadata()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 @pytest.fixture
 def fake_superset() -> Iterator[FakeSuperset]:
     server = FakeSuperset()
