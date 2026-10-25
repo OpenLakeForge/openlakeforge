@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 
 import typer
 
@@ -14,6 +17,40 @@ from olf.profile import DeploymentProfileError
 from olf.project import ProjectSpec
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
+
+
+@dataclass(frozen=True)
+class _GovernanceService:
+    namespace: str
+    service: str
+    remote_port: int
+    log_path: str
+
+    @contextmanager
+    def url(self) -> Iterator[str]:
+        from olf import access
+
+        with access.service_url(
+            "shared/governance_service",
+            service=self.service,
+            remote_port=self.remote_port,
+            namespace=self.namespace,
+            log_path=self.log_path,
+            shared_namespace=self.namespace,
+        ) as base_url:
+            yield base_url
+
+
+def _governance_service() -> _GovernanceService:
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    return _GovernanceService(
+        # OpenMetadata is deployed once per cluster, in the shared namespace -
+        # `config.namespace()` is the selected stage's.
+        namespace=config.shared_namespace(),
+        service=config.env("OPENMETADATA_SERVICE", "openmetadata"),
+        remote_port=int(config.env("OPENMETADATA_SERVICE_PORT", "8585")),
+        log_path=f"{log_prefix}-openmetadata-port-forward.log",
+    )
 
 
 @app.command("deploy-metadata")
@@ -43,41 +80,31 @@ def openmetadata_deploy_metadata(
 
 def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
-    from olf import access, k8s
+    from olf import k8s
     from olf import openmetadata as om
     from olf.openmetadata._auth import automation_token
     from olf.openmetadata._role_sync import apply_role_sync
     from olf.openmetadata._sso import apply_sso
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
-    # OpenMetadata is deployed once per cluster, in the shared namespace -
-    # `config.namespace()` is the selected stage's.
-    namespace = config.shared_namespace()
-    service = config.env("OPENMETADATA_SERVICE", "openmetadata")
-    remote_port = int(config.env("OPENMETADATA_SERVICE_PORT", "8585"))
+    governance = _governance_service()
+    namespace = governance.namespace
 
-    log_step(f"Waiting for OpenMetadata deployment {service}...")
-    k8s.wait_for_rollout(f"deployment/{service}", namespace)
+    log_step(f"Waiting for OpenMetadata deployment {governance.service}...")
+    k8s.wait_for_rollout(f"deployment/{governance.service}", namespace)
 
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
-    log_path = f"{log_prefix}-openmetadata-port-forward.log"
     # Before anything talks to the server: it restarts when SSO is applied.
     try:
-        apply_sso(namespace, service=service, remote_port=remote_port, log_path=log_path)
+        apply_sso(
+            namespace, service=governance.service, remote_port=governance.remote_port, log_path=governance.log_path
+        )
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     try:
-        log_step(apply_role_sync(namespace, om_url=f"http://{service}:{remote_port}"))
+        log_step(apply_role_sync(namespace, om_url=f"http://{governance.service}:{governance.remote_port}"))
     except (k8s.KubectlError, DeploymentProfileError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    with access.service_url(
-        "shared/governance_service",
-        service=service,
-        remote_port=remote_port,
-        namespace=namespace,
-        log_path=log_path,
-        shared_namespace=namespace,
-    ) as base_url:
+    with governance.url() as base_url:
         try:
             cfg = om.OpenMetadataConfig.from_environment(
                 os.environ,
@@ -142,7 +169,7 @@ def openmetadata_list_domains(
 
 def list_openmetadata_domains() -> list[tuple[str, str]]:
     """Read every domain's name and display name from the deployed OpenMetadata."""
-    from olf import access, k8s, layers
+    from olf import k8s, layers
     from olf.clients.base import ServiceClientError
     from olf.clients.openmetadata import OpenMetadataClient
     from olf.openmetadata._auth import AUTOMATION_SECRET, automation_token
@@ -154,19 +181,10 @@ def list_openmetadata_domains() -> list[tuple[str, str]]:
                 "Set `preset: full` in openlakeforge.yaml and run `olf deploy`."
             )
         )
-    namespace = config.shared_namespace()
-    service = config.env("OPENMETADATA_SERVICE", "openmetadata")
-    remote_port = int(config.env("OPENMETADATA_SERVICE_PORT", "8585"))
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    governance = _governance_service()
+    namespace = governance.namespace
     try:
-        with access.service_url(
-            "shared/governance_service",
-            service=service,
-            remote_port=remote_port,
-            namespace=namespace,
-            log_path=f"{log_prefix}-openmetadata-port-forward.log",
-            shared_namespace=namespace,
-        ) as base_url:
+        with governance.url() as base_url:
             # Read after the port-forward is up, so an unreachable cluster is
             # reported as unreachable rather than as a missing Secret.
             token = automation_token(namespace)
