@@ -37,3 +37,33 @@ def test_product_entries_defaults_name_and_domain() -> None:
     products = list(_payloads.product_entries(domain))
     assert products[0]["name"] == "sales_orders"
     assert products[0]["domain"] == "sales"
+
+
+def test_product_entries_does_not_mutate_input() -> None:
+    domain = {
+        "name": "sales",
+        "data_products": [{"id": "orders", "description": "Order revenue"}],
+    }
+    snapshot = {
+        "name": domain["name"],
+        "data_products": [
+            {"id": p["id"], "description": p["description"]} for p in domain["data_products"]
+        ],
+    }
+
+    products = list(_payloads.product_entries(domain))
+
+    assert products[0]["name"] == "sales_orders"
+    assert products[0]["domain"] == "sales"
+    assert products[0]["id"] == "orders"
+    assert domain == snapshot, "product_entries mutated the input descriptor"
+
+
+def test_product_entries_yields_normalized_copy() -> None:
+    domain = {"name": "sales", "data_products": [{"id": "orders"}]}
+    products = list(_payloads.product_entries(domain))
+
+    assert len(products) == 1
+    assert products[0] is not domain["data_products"][0]
+    assert "name" not in domain["data_products"][0]
+    assert "domain" not in domain["data_products"][0]

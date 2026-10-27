@@ -74,11 +74,12 @@ def product_entries(domain: dict) -> Iterator[dict]:
     for product in products:
         if not isinstance(product, dict):
             raise OpenMetadataError(f"Unsupported data product entry in domain '{domain.get('name')}': {product!r}")
-        if not product.get("name"):
-            product["name"] = f"{domain['name']}_{product.get('id', '')}".rstrip("_")
-        if not product.get("domain") and not product.get("domains"):
-            product["domain"] = domain["name"]
-        yield product
+        normalized = dict(product)
+        if not normalized.get("name"):
+            normalized["name"] = f"{domain['name']}_{normalized.get('id', '')}".rstrip("_")
+        if not normalized.get("domain") and not normalized.get("domains"):
+            normalized["domain"] = domain["name"]
+        yield normalized
 
 
 def product_contract_key(product: dict) -> str:
