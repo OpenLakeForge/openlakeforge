@@ -19,7 +19,8 @@ The provider-neutral descriptor and inventory model is deliberately not in
 `libs/`: it is the `openlakeforge_domain` package under `packages/domain-model/`
 so `olf` and project-code install the identical implementation.
 
-dbt environment profiles live under `libs/dbt/profiles/` and are rendered into
-product projects by `libs.dbt.render_profiles`. Product dbt projects keep
-product-local model code and schema defaults; provider-specific attach settings
-belong in the shared templates.
+The dbt profile template lives under `libs/dbt/profiles/`, one file per query
+engine (`trino.yml` today). `libs.dbt.render_profiles` renders it into
+`generated/dbt-profiles/` at image build. Every stage value in it is an
+`env_var()` reference, never a default. Product dbt projects keep
+product-local model code and schema defaults.

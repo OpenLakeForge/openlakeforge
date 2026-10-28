@@ -38,6 +38,14 @@ for how a release is cut and verified.
   reference products no longer track a rendered copy. `olf dbt parse` and
   `olf check dbt` render the profile into a temporary directory, so running
   them no longer changes the next `olf project build` (#546).
+- dbt reads its connection from the run pod's environment. One profile,
+  `libs/dbt/profiles/trino.yml`, replaces the `local`, `aws` and `azure`
+  templates; every stage value in it is an `env_var()` reference with no
+  default, so an unset variable fails the run instead of reaching the DEV
+  catalog. The image bakes each product's manifest once with placeholder
+  names and no longer depends on the provider. Each run re-parses with its
+  stage's values and uploads its own manifest, run results and log rather
+  than the baked manifest (#546).
 
 ### Removed
 

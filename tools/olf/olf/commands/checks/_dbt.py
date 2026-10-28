@@ -64,16 +64,17 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
         "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
         "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
         "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
+        "OPENLAKEFORGE_DBT_TRINO_USER": "openlakeforge-dbt",
         "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
     }
     for project in projects:
         # Rendered outside the checkout so the check never leaves a
         # profiles.yml behind for the next `olf project build` (#546).
         with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
-            write_profile(project, environment="local", output_dir=Path(profiles_dir))
+            write_profile(project, output_dir=Path(profiles_dir))
             _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=project_spec.root, env=env)
             _run(
-                [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", profiles_dir, "--target", "local"],
+                [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", profiles_dir],
                 cwd=project_spec.root,
                 env=env,
             )
@@ -85,8 +86,6 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
                     str(project),
                     "--profiles-dir",
                     profiles_dir,
-                    "--target",
-                    "local",
                     "--no-introspect",
                     "--no-populate-cache",
                 ],
