@@ -95,7 +95,7 @@ my-lakehouse/
 └── lakehouse_code/
     ├── lakehouse.yaml      # domains and data products
     ├── bronze/             # sources and their dlt loaders
-    ├── silver/             # Floe contracts per domain
+    ├── silver/             # Floe project: one file per entity, grouped by domain
     ├── gold/               # dbt projects per product
     ├── pipelines/dagster/  # one Dagster job per product
     └── dashboards/superset/

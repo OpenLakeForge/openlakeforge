@@ -117,9 +117,8 @@ covers everything derived from `lakehouse_code/`:
 olf deploy --provider local --phase artifacts
 ```
 
-It reconciles the catalog namespaces, generates the Floe manifests, builds the
-project-code image, loads it into the cluster and restarts the Dagster code
-location. The namespaces `marketing_platform_bronze`, `marketing_silver` and
+It reconciles the catalog namespaces, builds the project-code image, loads it
+into the cluster and restarts the Dagster code location. The namespaces `marketing_platform_bronze`, `marketing_silver` and
 `campaign_performance_gold` are created for you; no Terraform change is
 needed.
 

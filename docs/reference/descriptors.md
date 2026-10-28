@@ -153,7 +153,6 @@ For a `crm` source, a `sales` domain and an `order_revenue` product:
 | Gold namespace | `order_revenue_gold` |
 | Dagster job | `order_revenue_pipeline` |
 | Dagster module | `lakehouse_code.pipelines.dagster.order_revenue` |
-| Floe manifest key | `floe/manifests/sales/sales.manifest.json` |
 | Floe report prefix | `floe/reports/sales/` |
 | dbt artifact prefix | `run-artifacts/dbt/sales/order_revenue/` |
 
