@@ -50,10 +50,15 @@ def test_sequential_floe_orchestration_requires_serial_job_config() -> None:
         project_code_check._verify_sequential_floe_orchestration(product, job)
 
 
-def _asset(keys: tuple[tuple[str, ...], ...], deps: tuple[tuple[str, ...], ...] = ()) -> SimpleNamespace:
+def _asset(
+    keys: tuple[tuple[str, ...], ...], deps: tuple[tuple[str, ...], ...] = (), *, floe_table: str | None = None
+) -> SimpleNamespace:
+    """A Floe entity asset when `floe_table` is given (dagster-floe's op tags), any other asset otherwise."""
+    tags = {} if floe_table is None else {"dagster/compute_kind": "floe", "floe/table": f"iceberg_catalog.{floe_table}"}
     return SimpleNamespace(
         keys=[SimpleNamespace(path=list(key)) for key in keys],
         dependency_keys=[SimpleNamespace(path=list(dep)) for dep in deps],
+        op=SimpleNamespace(tags=tags),
     )
 
 
@@ -64,17 +69,22 @@ def _silver_inventory() -> SimpleNamespace:
 
 def test_silver_assets_must_each_depend_on_their_own_bronze_resource() -> None:
     accepted = (("sales", "orders"), ("sales", "orders_rejected"))
-    wired = SimpleNamespace(assets=[_asset(accepted, deps=(("crm", "orders"),))])
+    wired = SimpleNamespace(assets=[_asset(accepted, deps=(("crm", "orders"),), floe_table="sales_silver.orders")])
     project_code_check._verify_silver_assets(_silver_inventory(), wired)
 
-    shared = SimpleNamespace(assets=[_asset(accepted, deps=(("sources", "openlakeforge", "crm"),))])
+    shared = SimpleNamespace(
+        assets=[_asset(accepted, deps=(("sources", "openlakeforge", "crm"),), floe_table="sales_silver.orders")]
+    )
     with pytest.raises(RuntimeError, match="must depend on its Bronze resource crm/orders"):
         project_code_check._verify_silver_assets(_silver_inventory(), shared)
 
 
 def test_silver_assets_must_match_the_descriptor_tables() -> None:
     extra = SimpleNamespace(
-        assets=[_asset((("sales", "orders"),), deps=(("crm", "orders"),)), _asset((("sales", "returns"),))]
+        assets=[
+            _asset((("sales", "orders"),), deps=(("crm", "orders"),), floe_table="sales_silver.orders"),
+            _asset((("sales", "returns"),), floe_table="sales_silver.returns"),
+        ]
     )
 
     with pytest.raises(RuntimeError, match="do not match the descriptor's Silver tables"):
@@ -85,9 +95,31 @@ def test_a_declared_table_ending_in_rejected_is_not_mistaken_for_a_rejection_out
     table = SimpleNamespace(name="orders_rejected", source="crm", resource="orders_rejected")
     inventory = SimpleNamespace(domains=[SimpleNamespace(name="sales", silver_tables=[table])])
     accepted = (("sales", "orders_rejected"), ("sales", "orders_rejected_rejected"))
-    definitions = SimpleNamespace(assets=[_asset(accepted, deps=(("crm", "orders_rejected"),))])
+    definitions = SimpleNamespace(
+        assets=[_asset(accepted, deps=(("crm", "orders_rejected"),), floe_table="sales_silver.orders_rejected")]
+    )
 
     project_code_check._verify_silver_assets(inventory, definitions)
+
+
+def test_gold_assets_of_a_product_named_like_its_domain_are_not_silver() -> None:
+    accepted = (("sales", "orders"), ("sales", "orders_rejected"))
+    definitions = SimpleNamespace(
+        assets=[
+            _asset(accepted, deps=(("crm", "orders"),), floe_table="sales_silver.orders"),
+            _asset((("sales", "revenue"),), deps=(("sales", "orders"),)),
+        ]
+    )
+
+    project_code_check._verify_silver_assets(_silver_inventory(), definitions)
+
+
+def test_a_floe_asset_without_its_table_tag_is_refused() -> None:
+    untagged = _asset((("sales", "orders"),), deps=(("crm", "orders"),))
+    untagged.op.tags = {"dagster/compute_kind": "floe"}
+
+    with pytest.raises(RuntimeError, match="no floe/table tag"):
+        project_code_check._verify_silver_assets(_silver_inventory(), SimpleNamespace(assets=[untagged]))
 
 
 def _schedule_library(

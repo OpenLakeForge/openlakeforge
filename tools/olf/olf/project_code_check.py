@@ -173,17 +173,22 @@ def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) ->
         for domain in inventory.domains
         for item in domain.silver_tables
     }
-    domain_names = {domain.name for domain in inventory.domains}
-    # Floe emits `<table>_rejected` beside each accepted table. `_rejected` is
-    # not reserved in the descriptor, so only a key that is not itself a
-    # declared table and whose stem is one counts as that auxiliary output.
-    auxiliary = {(domain, f"{name}_rejected") for domain, name in tables} - set(tables)
+    # dagster-floe tags each entity's op with the table it writes; the same
+    # op also emits `<table>_rejected`. Identifying Floe assets by that tag,
+    # rather than by key shape, keeps a declared `*_rejected` table and a
+    # product's Gold assets sharing a domain's name out of the comparison.
     found: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
     for asset_def in getattr(definitions, "assets", ()):
+        tags = getattr(getattr(asset_def, "op", None), "tags", None) or {}
+        if tags.get("dagster/compute_kind") != "floe":
+            continue
+        table = str(tags.get("floe/table", "")).rpartition(".")[2]
+        if not table:
+            _fail(f"Floe asset {sorted(tuple(key.path) for key in asset_def.keys)} has no floe/table tag")
         dependencies = {tuple(key.path) for key in getattr(asset_def, "dependency_keys", ())}
         for key in getattr(asset_def, "keys", ()):
             path = tuple(key.path)
-            if path[0] in domain_names and path not in auxiliary:
+            if path[-1] == table:
                 found[path] = dependencies
     if set(found) != set(tables):
         _fail(f"Floe Silver assets {sorted(found)} do not match the descriptor's Silver tables {sorted(tables)}")
