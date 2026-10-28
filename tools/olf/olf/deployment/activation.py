@@ -251,13 +251,6 @@ def _user_values(
     env: list[dict[str, Any]] = [
         {"name": "OPENLAKEFORGE_PROJECT_REVISION", "value": activation.project_revision},
     ]
-    # Only a schema-1 activation, reached on rollback, gets here with a
-    # revision: its image bakes the Floe revision as `manual` and resolves its
-    # immutable manifests from this variable, then submits one Floe Job per
-    # entity into NAMESPACE (falling back to the pre-#133 `lakehouse`).
-    if activation.floe_manifest_revision:
-        env.append({"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": activation.floe_manifest_revision})
-        env.append({"name": "NAMESPACE", "value": namespace})
     # Each domain's Floe Job runs on this same image in this namespace
     # (libs/floe_profile.py); the contract's namespace default is a
     # single-stage leftover, so the activation's own stage wins.
@@ -757,6 +750,18 @@ def deploy_revision(
                 # `previous` is redundant with `rollback` -- the target is only
                 # read when a pointer exists -- but stating it lets the type
                 # checker see that the branch below has an activation.
+                if previous is not None and previous.floe_manifest_revision:
+                    # A schema-1 activation ran Floe 0.6 from published
+                    # manifests, and the platform no longer grants or exports
+                    # what that image needs, so restoring it would leave a
+                    # code location that cannot load. The upgrade to Floe 0.8
+                    # is one-way: keep the release that just rolled out
+                    # healthy, and let a retried deploy commit its pointer.
+                    raise ProjectActivationError(
+                        f"could not commit {activation.activation_revision} as {context.stage.value}'s active "
+                        "activation; the previous activation predates Floe 0.8 and cannot be restored, so the "
+                        "new release stays installed. Rerun the deploy to commit it."
+                    ) from None
                 if rollback is None or previous is None:
                     # Either nothing was active, or nothing was installed. In
                     # both cases undoing this activation means removing what

@@ -426,6 +426,35 @@ def test_a_pointer_that_will_not_commit_restores_the_previous_activation(
     assert labels["openlakeforge.io/activation-revision"] == active.activation_revision
 
 
+def test_a_pre_floe_08_activation_is_not_restored_when_the_pointer_will_not_commit(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """A schema-1 activation ran Floe 0.6 from published manifests the platform
+    no longer serves; restoring it would install a code location that cannot
+    load, so the healthy new release stays and the deploy can be rerun."""
+    import dataclasses
+
+    current = harness.deploy("dev")
+    schema_1 = {"floe_manifest_revision": "sha256:" + "e" * 64, "activation_revision": ""}
+    legacy = dataclasses.replace(current, **schema_1).resolved()
+    project_activation.publish(harness.store, legacy)
+    project_activation.commit_active(harness.store, legacy)
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError, match="predates Floe 0.8"):
+        harness.deploy("dev")
+
+    assert len(harness.helm.rollouts) == 2  # the first deploy and this one; no rollback rollout
+    assert harness.helm.uninstalled == []
+    labels = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentLabels"]
+    assert labels["openlakeforge.io/activation-revision"] == current.activation_revision
+    assert project_activation.active(harness.store, stage=StageName.DEV) == legacy
+
+
 def test_rollout_inherits_the_platform_release_globals(harness) -> None:  # noqa: ANN001
     """The subchart installed standalone would otherwise default to a secret name no stage uses."""
     harness.deploy("prod")
@@ -495,43 +524,6 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
     assert env["OPENLAKEFORGE_STORAGE_BUCKET"] == "lakehouse-bronze"
     # Credential values travel by Secret reference, never inline.
     assert "AWS_SECRET_ACCESS_KEY" not in env
-
-
-@pytest.mark.parametrize("floe_manifest_revision", ["", "sha256:" + "e" * 64])
-def test_only_a_schema_1_rollback_target_gets_its_floe_manifest_revision(floe_manifest_revision: str) -> None:
-    """A schema-1 image locates its immutable manifests through this variable
-    and submits its Floe Jobs into NAMESPACE; a schema-2 image needs neither."""
-    from olf.deployment.activation import _user_values
-    from olf.project_activation import ProjectActivation
-
-    activation = ProjectActivation(
-        deployment_profile="acceptance",
-        provider="local",
-        stage=StageName.DEV,
-        project_name="demo",
-        project_revision="sha256:" + "b" * 64,
-        distribution_version="0.0.0",
-        project_code_image=_IMAGE,
-        floe_manifest_revision=floe_manifest_revision,
-        provider_binding_digest="sha256:" + "d" * 64,
-        capabilities={"analytics": False, "governance": False},
-    ).resolved()
-
-    values = _user_values(
-        activation,
-        contract_environ={},
-        namespace="olf-dev",
-        platform_globals={},
-        code_locations=_DEFAULT_LOCATIONS,
-    )
-
-    env = {entry["name"]: entry.get("value") for entry in values["deployments"][0]["env"]}
-    if floe_manifest_revision:
-        assert env["OPENLAKEFORGE_FLOE_MANIFEST_REVISION"] == floe_manifest_revision
-        assert env["NAMESPACE"] == "olf-dev"
-    else:
-        assert "OPENLAKEFORGE_FLOE_MANIFEST_REVISION" not in env
-        assert "NAMESPACE" not in env
 
 
 def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) -> dict:

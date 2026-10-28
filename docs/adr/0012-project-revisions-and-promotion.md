@@ -125,8 +125,10 @@ artifact of its own.
   the stage's provider-contract digest, its capabilities and the image; it
   carries no Floe revision. Schema-1 records, written while Floe manifests
   were rendered per stage, still read and hash exactly as published, so a
-  stage activated before the change stays inspectable and a valid rollback
-  target.
+  stage activated before the change stays inspectable. They are not a
+  rollback target: the move to Floe 0.8 is one-way, and the platform no
+  longer serves the manifests their image needs, so a deploy whose pointer
+  fails to commit over one keeps its new release and asks to be rerun.
 
 ## History
 
