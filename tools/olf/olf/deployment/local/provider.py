@@ -119,7 +119,7 @@ class LocalProvider:
         """
         from olf.deployment.local import images
 
-        image = images.build_project_code_image(self.config, self.tools, env=self.env, revision="manual")
+        image = images.build_project_code_image(self.config, self.tools, env=self.env)
         if push:
             log.step(f"Pushing project-code image: {image}")
             self.tools.docker.push(

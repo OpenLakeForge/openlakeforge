@@ -8,7 +8,6 @@ from typer.testing import CliRunner
 
 import olf
 from olf.cli import app
-from olf.deployment.context import Provider
 
 runner = CliRunner()
 
@@ -163,35 +162,6 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
     assert calls == ["metadata"]
 
 
-def test_artifacts_upload_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
-    options: dict[str, str] = {}
-    calls: list[dict[str, str]] = []
-    monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
-        lambda **kwargs: options.update(kwargs) or nullcontext(),
-    )
-    monkeypatch.setattr("olf.commands.artifacts.upload_manifests", lambda **kwargs: calls.append(kwargs))
-
-    result = runner.invoke(
-        app,
-        [
-            "artifacts",
-            "upload-manifests",
-            "--provider",
-            "aws",
-            "--namespace",
-            "custom-lakehouse",
-            "--via",
-            "direct",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert options["provider"] == "aws"
-    assert options["namespace"] == "custom-lakehouse"
-    assert calls == [{"via": "direct", "manifest_root": "", "runtime_root": ""}]
-
-
 def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     project = tmp_path / "gold/demo/dbt"
     project.mkdir(parents=True)
@@ -337,137 +307,6 @@ def test_dbt_parse_selects_outputs_declared_by_provider_profiles() -> None:
     assert dbt._target_for_provider("local") == "local_runtime"
     assert dbt._target_for_provider("aws") == "aws_runtime"
     assert dbt._target_for_provider("azure") == "local_runtime"
-
-
-def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    options: dict[str, str] = {}
-    generated: list[dict] = []
-
-    class FakeLocalProvider:
-        context = SimpleNamespace(provider=Provider.LOCAL)
-        config = SimpleNamespace(floe=object())
-        tools = object()
-        env = {}
-
-    context = SimpleNamespace(
-        paths=SimpleNamespace(
-            repo_root=tmp_path, distribution_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"
-        ),
-        namespace="custom-lakehouse",
-        features=SimpleNamespace(governance_enabled=True),
-    )
-    monkeypatch.setattr(
-        "olf.commands.deployment._build_context",
-        lambda *args, **kwargs: options.update(kwargs) or context,
-    )
-    monkeypatch.setattr(
-        "olf.commands.deployment._build_engine",
-        lambda *args, **kwargs: SimpleNamespace(provider=FakeLocalProvider()),
-    )
-    monkeypatch.setattr("olf.deployment.local.provider.LocalProvider", FakeLocalProvider)
-    monkeypatch.setattr(
-        "olf.deployment.local.artifacts.applied_contract_environment", lambda *args, **kwargs: nullcontext({})
-    )
-    monkeypatch.setattr(
-        "olf.deployment.floe_manifests.generate_local_manifests", lambda *args, **kwargs: generated.append(kwargs)
-    )
-
-    result = runner.invoke(app, ["floe", "generate-manifests", "--namespace", "custom-lakehouse"])
-
-    assert result.exit_code == 0
-    assert options["namespace"] == "custom-lakehouse"
-    assert generated == [
-        {
-            "repo_root": tmp_path,
-            "distribution_root": tmp_path,
-            "namespace": "custom-lakehouse",
-            "governance_enabled": True,
-            "environ": {},
-            "env": {},
-        }
-    ]
-
-
-def test_floe_generation_honors_custom_contract_root_for_cloud(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    captured: dict[str, object] = {}
-
-    class FakeBackend:
-        def generate_floe_manifests(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-            captured["generation"] = kwargs
-
-    class FakeCloudProvider:
-        foundation_facts = SimpleNamespace(kube_context="custom-cluster")
-        context = SimpleNamespace(provider=Provider.AWS)
-        config = object()
-        backend = FakeBackend()
-        tools = object()
-        env = {}
-
-    contract_root = tmp_path / "custom-contracts"
-    context = SimpleNamespace(
-        paths=SimpleNamespace(
-            repo_root=tmp_path,
-            distribution_root=tmp_path,
-            platform_terraform_dir=tmp_path / "default-contracts",
-            kubeconfig_path=tmp_path / "kubeconfig.yaml",
-            port_forward_log_prefix=tmp_path / "port-forward",
-        ),
-        namespace="custom-lakehouse",
-        features=SimpleNamespace(governance_enabled=True),
-    )
-    monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(contract_root))
-    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *args, **kwargs: context)
-    monkeypatch.setattr(
-        "olf.commands.deployment._build_engine",
-        lambda *args, **kwargs: SimpleNamespace(provider=FakeCloudProvider()),
-    )
-    monkeypatch.setattr(
-        "olf.deployment.contract_env.applied_contract_environment",
-        lambda **kwargs: captured.update(kwargs) or nullcontext({}),
-    )
-
-    result = runner.invoke(app, ["floe", "generate-manifests", "--provider", "aws"])
-
-    assert result.exit_code == 0
-    assert captured["contract_terraform_dir"] == contract_root
-    assert captured["generation"] == {
-        "repo_root": tmp_path,
-        "distribution_root": tmp_path,
-        "namespace": "custom-lakehouse",
-        "governance_enabled": True,
-        "environ": {},
-        "env": {},
-    }
-
-
-def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:
-    path = tmp_path / "manifests/sales/sales.manifest.json"
-    path.parent.mkdir(parents=True)
-    path.write_text("{}")
-
-    result = runner.invoke(app, ["floe", "revision", "compute", "--runtime-root", str(tmp_path)])
-
-    assert result.exit_code == 0
-    assert result.output.startswith("sha256:")
-
-
-def test_floe_revision_publish_fails_closed_when_no_ops_bucket_is_resolved(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    path = tmp_path / "manifests/sales/sales.manifest.json"
-    path.parent.mkdir(parents=True)
-    path.write_text("{}")
-    monkeypatch.delenv("OPENLAKEFORGE_OPS_BUCKET_NAME", raising=False)
-    monkeypatch.delenv("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", raising=False)
-
-    result = runner.invoke(app, ["floe", "revision", "publish", "--runtime-root", str(tmp_path)])
-
-    assert result.exit_code == 1
-    assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(

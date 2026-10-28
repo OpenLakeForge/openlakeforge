@@ -17,15 +17,13 @@ from olf import contracts
 from olf.artifact_store import RevisionStore
 from olf.deployment import contract_env
 from olf.deployment.artifact_steps import (
-    activate_runtime_revision,
     deploy_optional_layer_artifacts,
     sync_catalog_namespaces,
 )
 from olf.deployment.charts import prepare_chart
-from olf.deployment.context import DeploymentContext, Provider
+from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
 from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.floe_manifests import generate_aws_manifests, generate_local_manifests
 from olf.distribution import distribution_version_at
 from olf.profile import StageName
 from olf.project_activation import ProjectActivation, ProjectActivationError, commit_active
@@ -39,12 +37,10 @@ _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
 _PLATFORM_RELEASE = "dagster"
 _ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
-_RENDERER_ANNOTATION = "openlakeforge.io/floe-renderer"
 # Stamped when a rollback restores the previous activation: the renderer that
 # produced its manifests is not known here, and stamping the current one would
 # make the next attempt mistake the rolled-back release for an up-to-date one
 # and skip the regeneration the retry exists to perform.
-_RENDERER_UNRECONCILED = "unreconciled"
 # Everything `libs.k8s_log_archive` reads, directly or through
 # `libs.s3_artifacts.s3_client`, and nothing else. Handing it the code server's
 # environment would give a log-processing container the governance JWT and the
@@ -233,7 +229,6 @@ def _user_values(
     contract_environ: Mapping[str, str],
     namespace: str,
     platform_globals: Mapping[str, Any],
-    floe_renderer: str,
     code_locations: Sequence[CodeLocation],
     image: str | None = None,
 ) -> dict[str, object]:
@@ -247,7 +242,6 @@ def _user_values(
     # `valueFrom.secretKeyRef`, which a `dict[str, str]` inference rejects.
     env: list[dict[str, Any]] = [
         {"name": "OPENLAKEFORGE_PROJECT_REVISION", "value": activation.project_revision},
-        {"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": activation.floe_manifest_revision},
     ]
     for name in sorted(key for key in contract_environ if key.startswith("OPENLAKEFORGE_")):
         if "SECRET" not in name and "ACCESS_KEY" not in name:
@@ -256,12 +250,6 @@ def _user_values(
         value = contract_environ.get(name)
         if value:
             env.append({"name": name, "value": value})
-    # floe_dagster.kubernetes_runner submits its ephemeral Jobs into NAMESPACE
-    # and falls back to "lakehouse", the pre-#133 single-stage namespace, when
-    # it is unset -- every stage's Floe run would be RBAC-denied against a
-    # namespace that no longer exists. Taken from the activation's own stage
-    # rather than the environment, which is what makes it true per stage.
-    env.append({"name": "NAMESPACE", "value": namespace})
     # The chart puts a list-form `env` straight onto the container, so a
     # secretKeyRef survives; a map would be flattened into a ConfigMap. The
     # ingestion-bot Secret stores its JWT under its own key name, and mounting
@@ -338,10 +326,6 @@ def _user_values(
                     "openlakeforge.io/project-revision": activation.project_revision,
                     _ACTIVATION_LABEL: activation.activation_revision,
                 },
-                "deploymentAnnotations": {
-                    "openlakeforge.io/floe-manifest-revision": activation.floe_manifest_revision,
-                    _RENDERER_ANNOTATION: floe_renderer,
-                },
             }
             for location in code_locations
         ],
@@ -384,29 +368,6 @@ def _user_chart(chart: Path, work_root: Path) -> Path:
     if not (destination / "Chart.yaml").is_file():
         raise ActivationError(f"pinned Dagster chart {chart} does not contain dagster-user-deployments.")
     return destination
-
-
-def _generate_floe(
-    provider: DeploymentProvider, *, repo_root: Path, contract_environ: Mapping[str, str], env: Mapping[str, str]
-) -> str:
-    config = provider.config
-    context = provider.context
-    if context.provider is Provider.AWS:
-        generate_aws_manifests(config.floe, provider.tools, repo_root=repo_root, environ=contract_environ, env=env)
-        transport = "direct"
-    else:
-        generate_local_manifests(
-            config.floe,
-            provider.tools,
-            repo_root=repo_root,
-            distribution_root=context.paths.distribution_root,
-            namespace=context.namespace,
-            governance_enabled=context.features.governance_enabled,
-            environ=contract_environ,
-            env=env,
-        )
-        transport = "port-forward"
-    return activate_runtime_revision(config.floe.runtime_artifact_dir, via=transport)
 
 
 def _registry_host(repository: str) -> str:
@@ -572,19 +533,6 @@ def _rollback_target(
     return _RollbackTarget(image=images.pop(), locations=tuple(locations))
 
 
-def _floe_renderer(provider: DeploymentProvider) -> str:
-    """What renders this stage's Floe manifests, as one comparable string.
-
-    `FLOE_IMAGE`, `FLOE_VERSION` and `FLOE_RUNTIME` change the generated
-    manifests without moving any activation input, so an inputs-only gate
-    would keep manifests the previous renderer produced. Recorded on the
-    release rather than in the activation record: it describes how the stage
-    was rendered, not what was activated, and the record's schema stays put.
-    """
-    floe = provider.config.floe
-    return f"{floe.image}|{floe.version}|{floe.runtime}"
-
-
 def release_runs_activation(
     provider: DeploymentProvider,
     activation_revision: str,
@@ -631,12 +579,7 @@ def release_runs_activation(
     # the Dagster credentials Secret, say -- without moving any input the
     # activation digest covers. Skipping on the label alone would leave the
     # deployment pointing at a Secret that no longer exists.
-    if platform_globals is not None and dict(values.get("global") or {}) != dict(platform_globals):
-        return False
-    return all(
-        (deployment.get("deploymentAnnotations") or {}).get(_RENDERER_ANNOTATION) == _floe_renderer(provider)
-        for deployment in values.get("deployments") or []
-    )
+    return platform_globals is None or dict(values.get("global") or {}) == dict(platform_globals)
 
 
 def deploy_revision(
@@ -684,7 +627,6 @@ def deploy_revision(
                 project_revision=manifest.revision,
                 distribution_version=manifest.distribution_version,
                 project_code_image=manifest.project_code_image,
-                floe_manifest_revision=previous.floe_manifest_revision,
                 provider_binding_digest=binding,
                 capabilities=capabilities,
             )
@@ -698,8 +640,7 @@ def deploy_revision(
         )
     ):
         # Reapplying the active revision must not touch the cluster or the ops
-        # bucket at all. Deciding this only after Floe has been regenerated
-        # would already have performed the work idempotency exists to skip.
+        # bucket at all.
         return previous
     # Only once a rollout is actually required: pulling here, and on local
     # reloading into kind, is exactly the cluster mutation the no-op path
@@ -720,7 +661,6 @@ def deploy_revision(
             stage=context.stage,
         ) as contract_environ:
             sync_catalog_namespaces()
-            floe_revision = _generate_floe(provider, repo_root=root, contract_environ=contract_environ, env=env)
             activation = ProjectActivation(
                 deployment_profile=profile_name,
                 provider=context.provider.value,
@@ -729,7 +669,6 @@ def deploy_revision(
                 project_revision=manifest.revision,
                 distribution_version=manifest.distribution_version,
                 project_code_image=manifest.project_code_image,
-                floe_manifest_revision=floe_revision,
                 provider_binding_digest=binding,
                 capabilities=capabilities,
             ).resolved()
@@ -765,7 +704,6 @@ def deploy_revision(
                         contract_environ=contract_environ,
                         namespace=context.namespace,
                         platform_globals=platform_globals,
-                        floe_renderer=_floe_renderer(provider),
                         code_locations=code_locations,
                     ),
                     sort_keys=False,
@@ -806,7 +744,6 @@ def deploy_revision(
                                 contract_environ=contract_environ,
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
-                                floe_renderer=_RENDERER_UNRECONCILED,
                                 code_locations=rollback.locations,
                                 image=rollback.image,
                             ),

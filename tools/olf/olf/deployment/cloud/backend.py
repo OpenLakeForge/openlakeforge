@@ -125,24 +125,3 @@ class CloudBackend(Protocol):
 
     def artifact_transport(self) -> str:
         """`--via` mode for artifact revision activation/upload: 'direct' or 'port-forward'."""
-
-    def generate_floe_manifests(
-        self,
-        config: CloudDeploymentConfig,
-        tools: Toolkit,
-        *,
-        repo_root: Path,
-        distribution_root: Path,
-        namespace: str,
-        governance_enabled: bool,
-        environ: Mapping[str, str],
-        env: Mapping[str, str],
-    ) -> list[Path]:
-        """Generate product Floe manifests using this provider's profile strategy.
-
-        AWS delegates to `floe_manifests.generate_aws_manifests` (a fresh,
-        Glue-database-scoped profile per product); Azure delegates to
-        `floe_manifests.generate_local_manifests` (the same checked-in/
-        rendered `local-k8s.yml` profile copied into every product's
-        directory - Azure hits the exact same branches local does).
-        """

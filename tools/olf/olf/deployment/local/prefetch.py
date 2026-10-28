@@ -42,9 +42,8 @@ _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
         "apache/polaris-admin-tool:1.4.0@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
     ),
 }
-# ponytail: Floe and the OpenMetadata server are not in the component catalog; pin them here until they are.
+# ponytail: the OpenMetadata server is not in the component catalog; pin it here until it is.
 _OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
-_FLOE_IMAGE = "ghcr.io/malon64/floe:0.6.11"
 
 _ALWAYS = (
     "seaweedfs",
@@ -88,7 +87,6 @@ def selected_images(
     images += polaris_images(server_arch, catalog_images)
     if features.governance_enabled:
         images.append(_OPENMETADATA_SERVER_IMAGE)
-    images.append(_FLOE_IMAGE)
     return tuple(images)
 
 

@@ -22,10 +22,15 @@ def _activation() -> project_activation.ProjectActivation:
         project_revision=_DIGEST,
         distribution_version="0.3.0-alpha.1",
         project_code_image=_IMAGE,
-        floe_manifest_revision="sha256:" + "c" * 64,
         provider_binding_digest="sha256:" + "d" * 64,
         capabilities={"analytics": True, "governance": False},
     )
+
+
+# Published by olf before Floe 0.8, when every activation bound the Floe
+# manifests its stage rendered; the digest is what that code computed.
+_SCHEMA_1_FLOE = "sha256:" + "c" * 64
+_SCHEMA_1_REVISION = "sha256:e15344f2cfb4f6753d45d2a1793ba2f540d6c6836cbd0e91ba30c233540d1ceb"
 
 
 def test_activation_hash_is_deterministic_and_round_trips() -> None:
@@ -36,14 +41,43 @@ def test_activation_hash_is_deterministic_and_round_trips() -> None:
     assert project_activation.ProjectActivation.from_json(first.to_json()) == first
 
 
-def test_matches_inputs_ignores_only_the_floe_revision() -> None:
+def test_a_new_activation_is_schema_2_without_a_floe_revision() -> None:
+    payload = json.loads(_activation().to_json())
+
+    assert payload["schema_version"] == 2
+    assert "floe_manifest_revision" not in payload
+
+
+def test_a_schema_1_record_still_reads_and_verifies_as_published() -> None:
+    """A stage activated before Floe 0.8 must stay inspectable and a valid rollback target."""
+    from dataclasses import replace
+
+    legacy = replace(_activation(), floe_manifest_revision=_SCHEMA_1_FLOE).resolved()
+    payload = json.loads(legacy.to_json())
+
+    assert payload["schema_version"] == 1
+    assert legacy.activation_revision == _SCHEMA_1_REVISION
+    assert project_activation.ProjectActivation.from_json(legacy.to_json()) == legacy
+
+
+def test_matches_inputs_ignores_a_schema_1_floe_revision() -> None:
     from dataclasses import replace
 
     activation = _activation().resolved()
-    regenerated = replace(activation, floe_manifest_revision="sha256:" + "e" * 64, activation_revision="").resolved()
+    legacy = replace(activation, floe_manifest_revision=_SCHEMA_1_FLOE, activation_revision="").resolved()
 
-    assert activation.matches_inputs(regenerated)
-    assert activation != regenerated
+    assert activation.matches_inputs(legacy)
+    assert activation != legacy
+
+
+def test_a_schema_2_record_carrying_a_floe_revision_is_rejected() -> None:
+    from dataclasses import replace
+
+    payload = json.loads(replace(_activation(), floe_manifest_revision=_SCHEMA_1_FLOE).to_json())
+    payload["schema_version"] = 2
+
+    with pytest.raises(project_activation.ProjectActivationError, match="unsupported field set"):
+        project_activation.ProjectActivation.from_json(json.dumps(payload))
 
 
 @pytest.mark.parametrize(

@@ -274,7 +274,6 @@ def status(
                             "recorded": {
                                 "activation_revision": activation.activation_revision,
                                 "project_revision": activation.project_revision,
-                                "floe_manifest_revision": activation.floe_manifest_revision,
                             },
                             "observed": {
                                 "release": "openlakeforge-project",

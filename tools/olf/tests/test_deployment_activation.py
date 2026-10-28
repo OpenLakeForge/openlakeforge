@@ -21,7 +21,6 @@ from olf.provider_contracts import CodeLocation
 FIXTURES = Path(__file__).parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[3]
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
-_FLOE = "sha256:" + "c" * 64
 _DEFAULT_LOCATIONS = (CodeLocation(name="openlakeforge-dagster", definitions_module="lakehouse_code.definitions"),)
 
 
@@ -101,7 +100,6 @@ class _Provider:
             charts={"dagster": SimpleNamespace(package_path=Path("unused.tgz"))},
             paths=context.paths,
             terraform=SimpleNamespace(apply_retry=None),
-            floe=SimpleNamespace(image="ghcr.io/malon64/floe:0.6.11", version="0.6.11", runtime="image"),
         )
 
 
@@ -109,8 +107,8 @@ class _Provider:
 def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     """A published revision plus an activation path with its I/O collaborators stubbed.
 
-    Floe rendering, image pulls, chart preparation and the contract environment
-    all reach a live cluster; the decisions under test -- what gets rolled out,
+    Image pulls, chart preparation and the contract environment all reach a
+    live cluster; the decisions under test -- what gets rolled out,
     when a redeploy is skipped, and what the active pointer ends up at -- do not.
     """
     contract = _contract()
@@ -123,7 +121,6 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     project_revision.publish(store, manifest, spec)
 
     helm = _Helm()
-    floe_calls: list[str] = []
     catalog_calls: list[str] = []
 
     monkeypatch.setattr(activation_module.contracts, "load_provider_contracts", lambda *a, **k: contract)
@@ -135,12 +132,6 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(activation_module, "deploy_optional_layer_artifacts", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
     monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: catalog_calls.append("sync"))
-
-    def _floe(provider, *, repo_root, contract_environ, env):  # noqa: ANN001, ANN202, ARG001
-        floe_calls.append(str(repo_root))
-        return _FLOE
-
-    monkeypatch.setattr(activation_module, "_generate_floe", _floe)
 
     @contextmanager
     def _contract_environment(**kwargs):  # noqa: ANN003, ANN202
@@ -160,8 +151,6 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         )
         context.paths.work_root.mkdir(parents=True, exist_ok=True)
         provider = _Provider(context, helm)
-        if providers:
-            provider.config.floe = providers[-1].config.floe
         providers.append(provider)
         return activation_module.deploy_revision(
             provider, revision=manifest.revision, store=store, profile_name="acceptance"
@@ -173,7 +162,6 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         store=store,
         helm=helm,
         manifest=manifest,
-        floe_calls=floe_calls,
         image_calls=image_calls,
         providers=providers,
         catalog_calls=catalog_calls,
@@ -234,7 +222,6 @@ def _build_report_harness(
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
     monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(activation_module, "_generate_floe", lambda *a, **k: _FLOE)
 
     import olf.commands.openmetadata as openmetadata_commands
     import olf.superset as superset_module
@@ -367,9 +354,8 @@ def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noq
 
     assert second == first
     assert len(harness.helm.rollouts) == 1
-    # The point of the early gate: a no-op redeploy must not re-render Floe or
-    # reconcile catalog namespaces just to discover it had nothing to do.
-    assert len(harness.floe_calls) == 1
+    # The point of the early gate: a no-op redeploy must not reconcile catalog
+    # namespaces just to discover it had nothing to do.
     assert len(harness.catalog_calls) == 1
     # Pulling the image (and on local, reloading it into kind) is a cluster
     # mutation, so it belongs after the gate, not before it.
@@ -420,25 +406,24 @@ def test_a_pointer_that_will_not_commit_restores_the_previous_activation(
     harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # noqa: ANN001
     """With an activation already live, the rollback reinstalls it rather than
-    uninstalling the stage -- and marks the renderer unreconciled so the next
-    deploy regenerates Floe instead of trusting the rolled-back annotation."""
+    uninstalling the stage."""
     active = harness.deploy("dev")
     monkeypatch.setattr(
         activation_module,
         "commit_active",
         lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
     )
-    harness.providers[-1].config.floe = SimpleNamespace(
-        image="ghcr.io/malon64/floe:0.7.0", version="0.7.0", runtime="image"
-    )
+    # A drifted release is what makes the same activation roll out again.
+    drifted = harness.helm.installed["olf-dev"]
+    drifted["deployments"][0]["deploymentLabels"]["openlakeforge.io/activation-revision"] = "sha256:" + "9" * 64
 
     with pytest.raises(project_activation.ProjectActivationError):
         harness.deploy("dev")
 
     assert harness.helm.uninstalled == []
     assert project_activation.active(harness.store, stage=StageName.DEV) == active
-    annotations = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentAnnotations"]
-    assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
+    labels = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentLabels"]
+    assert labels["openlakeforge.io/activation-revision"] == active.activation_revision
 
 
 def test_rollout_inherits_the_platform_release_globals(harness) -> None:  # noqa: ANN001
@@ -487,7 +472,6 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
         project_revision="sha256:" + "b" * 64,
         distribution_version="0.0.0",
         project_code_image=_IMAGE,
-        floe_manifest_revision=_FLOE,
         provider_binding_digest="sha256:" + "d" * 64,
         capabilities={"analytics": False, "governance": False},
     ).resolved()
@@ -502,7 +486,6 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
         },
         namespace="olf-dev",
         platform_globals={},
-        floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
         code_locations=_DEFAULT_LOCATIONS,
     )
 
@@ -526,7 +509,6 @@ def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) 
         project_revision="sha256:" + "b" * 64,
         distribution_version="0.0.0",
         project_code_image=_IMAGE,
-        floe_manifest_revision=_FLOE,
         provider_binding_digest="sha256:" + "d" * 64,
         capabilities={"analytics": False, "governance": False, **capabilities},
     ).resolved()
@@ -543,7 +525,6 @@ def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) 
         },
         namespace="olf-dev",
         platform_globals={},
-        floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
         code_locations=_DEFAULT_LOCATIONS,
     )
 
@@ -609,13 +590,6 @@ def test_log_archiver_only_receives_storage_credentials() -> None:
     }
 
 
-def test_namespace_alias_follows_the_activated_stage() -> None:
-    """floe_dagster.kubernetes_runner submits Jobs into NAMESPACE, defaulting to "lakehouse"."""
-    env = {entry["name"]: entry.get("value") for entry in _values()["deployments"][0]["env"]}
-
-    assert env["NAMESPACE"] == "olf-dev"
-
-
 def test_reapplying_reconciles_globals_the_platform_rebound(harness) -> None:  # noqa: ANN001
     """A platform apply can rename the credentials Secret without moving any activation input."""
     activation = harness.deploy("dev")
@@ -630,20 +604,6 @@ def test_reapplying_reconciles_globals_the_platform_rebound(harness) -> None:  #
     assert harness.helm.installed["olf-dev"]["global"] == {
         "postgresqlSecretName": "postgresql-dagster-olf-dev-rotated"
     }
-
-
-def test_reapplying_regenerates_when_the_floe_renderer_changes(harness) -> None:  # noqa: ANN001
-    """FLOE_IMAGE/VERSION/RUNTIME change the manifests without moving any activation input."""
-    harness.deploy("dev")
-
-    harness.providers[-1].config.floe = SimpleNamespace(
-        image="ghcr.io/malon64/floe:0.7.0", version="0.7.0", runtime="image"
-    )
-    harness.deploy("dev")
-
-    assert len(harness.helm.rollouts) == 2
-    annotations = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentAnnotations"]
-    assert annotations["openlakeforge.io/floe-renderer"] == "ghcr.io/malon64/floe:0.7.0|0.7.0|image"
 
 
 @pytest.mark.parametrize(
@@ -744,41 +704,6 @@ def test_cloud_pull_authenticates_only_its_own_registry() -> None:
     assert provider.tools.docker.pulls[0][1] == "linux/amd64"
     # Authenticated: the pull keeps the provider's own scoped config.
     assert provider.tools.docker.pulls[0][2]["DOCKER_CONFIG"] == "/scoped"
-
-
-@pytest.mark.parametrize(
-    ("provider_kind", "expected_transport", "expected_renderer"),
-    [(Provider.AWS, "direct", "aws"), (Provider.LOCAL, "port-forward", "local")],
-)
-def test_floe_generation_picks_the_transport_its_provider_can_reach(
-    provider_kind, expected_transport: str, expected_renderer: str, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
-    """AWS writes to object storage directly; local has to go through a forwarded port."""
-    rendered: list[str] = []
-    monkeypatch.setattr(
-        activation_module, "generate_aws_manifests", lambda *a, **k: rendered.append("aws")
-    )
-    monkeypatch.setattr(
-        activation_module, "generate_local_manifests", lambda *a, **k: rendered.append("local")
-    )
-    monkeypatch.setattr(activation_module, "activate_runtime_revision", lambda _dir, *, via: via)
-    provider = SimpleNamespace(
-        context=SimpleNamespace(
-            provider=provider_kind,
-            paths=SimpleNamespace(distribution_root=Path("/dist")),
-            namespace="olf-dev",
-            features=SimpleNamespace(governance_enabled=True),
-        ),
-        tools=SimpleNamespace(),
-        config=SimpleNamespace(floe=SimpleNamespace(runtime_artifact_dir=Path("/artifacts"))),
-    )
-
-    transport = activation_module._generate_floe(
-        provider, repo_root=Path("/repo"), contract_environ={}, env={}
-    )
-
-    assert rendered == [expected_renderer]
-    assert transport == expected_transport
 
 
 def test_cloud_pull_of_a_foreign_registry_falls_back_to_ambient_credentials() -> None:
@@ -903,8 +828,6 @@ def test_a_rollback_restores_the_pairs_the_previous_release_ran(
     # new release while ACTIVE.json still names the old one.
     assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
     assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
-    annotations = restored[0]["deploymentAnnotations"]
-    assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
 
 
 def test_a_release_missing_one_contracted_location_is_not_skipped(harness) -> None:  # noqa: ANN001

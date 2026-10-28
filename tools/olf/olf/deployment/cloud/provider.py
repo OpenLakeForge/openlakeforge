@@ -132,13 +132,6 @@ class CloudProvider:
         `push` is accepted for a uniform provider surface and must stay true: a
         cloud cluster can only pull from its registry, so an unpushed build
         could never be activated.
-
-        `FLOE_MANIFEST_REVISION` is deliberately left at "manual": a stage
-        activation supplies the real revision at runtime through
-        `OPENLAKEFORGE_FLOE_MANIFEST_REVISION`, which
-        `libs.floe_revision.built_manifest_revision` prefers over the baked
-        value. Baking it here would give every stage its own image digest and
-        break #154's one-digest-deploys-everywhere contract.
         """
         from olf.deployment.cloud import images
         from olf.deployment.errors import DeploymentPreconditionError
@@ -149,7 +142,7 @@ class CloudProvider:
                 "the cluster pulls the project-code image from its registry."
             )
         return images.build_and_push_project_code_image(
-            self.config, self.tools, self.backend, self.foundation_facts, env=self.env, revision="manual"
+            self.config, self.tools, self.backend, self.foundation_facts, env=self.env
         )
 
     def platform_up(self) -> None:

@@ -57,7 +57,8 @@ def test_selected_images_full_profile_includes_governance_and_analytics() -> Non
     assert any(i.startswith("apache/polaris-admin-tool:1.4.0@sha256:3b13addc") for i in images)
     assert "docker.getcollate.io/openmetadata/server:1.13.6" in images
     assert _CATALOG["openmetadata_ingestion"] in images
-    assert images[-1] == "ghcr.io/malon64/floe:0.6.11"
+    # Floe runs in-process in the project-code image; there is no runner image to load.
+    assert not any("floe" in image for image in images)
     assert "apache/superset:dockerize" in "".join(images)
     assert _CATALOG["superset_redis"] in images
 
@@ -71,7 +72,8 @@ def test_selected_images_slim_profile_excludes_governance_and_analytics() -> Non
     assert not any("superset" in image for image in images)
     assert not any("redis" in image for image in images)
     assert any(i.startswith("apache/polaris:1.4.0") for i in images)
-    assert images[-1] == "ghcr.io/malon64/floe:0.6.11"
+    # Floe runs in-process in the project-code image; there is no runner image to load.
+    assert not any("floe" in image for image in images)
     assert any(image.startswith("postgres:16-alpine@sha256:57c72fd2") for image in images)
 
 
@@ -218,12 +220,9 @@ def test_full_identity_selection_matches_the_catalog_pins() -> None:
         "superset_base", "superset_init", "superset_redis", "oauth2_proxy", "dex",
     ):  # fmt: skip
         assert prefetch.archive_reference(_CATALOG[name]) in tags, name
-    # no preloaded tag drifts from the catalog; only Floe and the OpenMetadata server are pinned outside it
+    # no preloaded tag drifts from the catalog; only the OpenMetadata server is pinned outside it
     pinned = {prefetch.archive_reference(v) for v in _CATALOG.values()}
-    assert tags - pinned == {
-        prefetch.archive_reference(prefetch._OPENMETADATA_SERVER_IMAGE),
-        prefetch.archive_reference(prefetch._FLOE_IMAGE),
-    }
+    assert tags - pinned == {prefetch.archive_reference(prefetch._OPENMETADATA_SERVER_IMAGE)}
 
 
 def test_prefetch_deletes_each_archive_once_every_node_loaded_it(tmp_path: Path) -> None:

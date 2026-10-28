@@ -7,11 +7,8 @@ does not depend on a checkout script or shell interpolation.
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 from collections import Counter
-from hashlib import sha256
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
@@ -39,14 +36,8 @@ class _ProductDagsterLibrary(Protocol):
     """The `libs.product_dagster` members this check calls or patches."""
 
     ProductDefinitionSpec: Callable[..., object]
-    DomainDefinitionSpec: Callable[..., object]
-    ArtifactRevisionError: type[Exception]
-    read_text_uri: Callable[[str], str]
 
     def build_stage_schedules(self, spec: object, *, stage: str | None = None) -> Sequence[_Schedule]: ...
-    def _aggregate_revision(self, entries: dict[str, str]) -> str: ...
-    def _remote_manifest_uri(self, spec: object) -> str | None: ...
-    def _manifest_path_for_dagster(self, spec: object) -> str: ...
 
 
 def _fail(message: str) -> NoReturn:
@@ -72,18 +63,19 @@ def _product_inputs(product: Product) -> tuple[str, ...]:
 
 
 def validate(root: Path) -> None:
-    """Validate product selection, Floe contracts, and immutable replay behavior."""
+    """Validate product selection, Floe-derived Silver assets, and their Bronze edges."""
     from dagster import Definitions
     from dagster._core.workspace.autodiscovery import loadable_targets_from_python_module
-    from floe_dagster.manifest import load_manifest
+    from floe_dagster.definitions import build_runner_from_env
+    from floe_dagster.runner import InProcessRunner
     from openlakeforge_domain import load_lakehouse_inventory
 
     # Imported by name so mypy does not follow into the user project's tree.
     merged_defs = import_module("lakehouse_code.definitions").defs
     product_dagster_lib = cast(_ProductDagsterLibrary, import_module("libs.product_dagster"))
 
-    if os.environ.get("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", "").lower() != "remote":
-        _fail("project-code check must load definitions in remote Floe manifest mode")
+    if not isinstance(build_runner_from_env(), InProcessRunner):
+        _fail("Floe must run in-process in the Dagster run pod; is floe-python installed?")
     inventory = load_lakehouse_inventory(root / "lakehouse_code")
     products = tuple(inventory.products)
     if not products:
@@ -103,6 +95,7 @@ def validate(root: Path) -> None:
     if len(merged_keys_list) != len(merged_keys):
         _fail("duplicate Dagster asset keys found")
     _verify_bronze_subsetability(inventory, merged_defs)
+    _verify_silver_assets(inventory, merged_defs)
 
     canonical_bronze = {(source.name, item.name) for source in inventory.sources for item in source.resources}
     canonical_silver = {(domain.name, item.name) for domain in inventory.domains for item in domain.silver_tables}
@@ -115,16 +108,6 @@ def validate(root: Path) -> None:
         if set(inputs) != expected_inputs:
             _fail(f"{product.id} Silver inputs do not match lakehouse descriptor")
         domain = product.domain_name
-        manifest_path = root / f"lakehouse_code/silver/{domain}/contracts/floe/manifests/{domain}.manifest.json"
-        manifest = load_manifest(manifest_path)
-        domain_tables = inventory.domain_for_product(product).silver_tables
-        if {item.name for item in manifest.entities} != {item.name for item in domain_tables}:
-            _fail(f"{product.id} Floe manifest entities do not match its domain Silver tables")
-        expected_args = ["run", "--manifest", "{manifest_uri}", "--log-format", "json", "--quiet"]
-        if manifest.execution.base_args not in (expected_args, [*expected_args, "--run-id", "{run_id}"]):
-            _fail(f"{product.id} Floe manifest must use the runtime manifest_uri placeholder")
-        if not str(manifest.report_base_uri).startswith(f"s3://openlakeforge-ops/floe/reports/{domain}"):
-            _fail(f"{product.id} Floe reports must use the ops bucket")
 
         definition_keys = set(_asset_keys(product_defs[product.id]))
         all_product_keys.update(definition_keys)
@@ -135,7 +118,7 @@ def validate(root: Path) -> None:
             _fail(f"{product.id} definitions load another product's assets")
 
         job = merged_defs.resolve_job_def(product.job_name)
-        _verify_sequential_floe_orchestration(product, manifest, job)
+        _verify_sequential_floe_orchestration(product, job)
         selected = {tuple(key.path) for key in job.asset_layer.selected_asset_keys}
         expected_bronze = {(item.source, item.name) for item in inventory.bronze_resources_for_product(product)}
         expected_silver = {(domain, item) for item in inputs}
@@ -151,7 +134,6 @@ def validate(root: Path) -> None:
 
     if not all_product_keys <= merged_keys:
         _fail("merged definitions do not contain every product asset")
-    _verify_immutable_manifest_replay(root, products[0], product_dagster_lib, load_manifest)
     _verify_shared_assets(inventory, merged_keys_list)
     _verify_stage_schedules(inventory, product_dagster_lib)
     Definitions.validate_loadable(merged_defs)
@@ -180,11 +162,34 @@ def _verify_bronze_subsetability(inventory: LakehouseInventory, definitions: obj
             )
 
 
-def _verify_sequential_floe_orchestration(product: Product, manifest: object, job: _Job) -> None:
-    """Require sequential Floe manifests and the corresponding serialized Dagster run config."""
-    orchestration = getattr(getattr(manifest, "execution", None), "orchestration", None)
-    if getattr(orchestration, "strategy", None) != "sequential":
-        _fail(f"{product.id} Floe manifest should use sequential orchestration locally")
+def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) -> None:
+    """Require the Floe project to define exactly the descriptor's Silver tables, each fed by its own resource.
+
+    The Bronze edge comes from the entity's `source.ref`/`resource` in Floe and
+    the table list from `lakehouse.yaml`; the two must agree.
+    """
+    tables = {
+        (domain.name, item.name): (item.source, item.resource)
+        for domain in inventory.domains
+        for item in domain.silver_tables
+    }
+    domain_names = {domain.name for domain in inventory.domains}
+    found: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+    for asset_def in getattr(definitions, "assets", ()):
+        dependencies = {tuple(key.path) for key in getattr(asset_def, "dependency_keys", ())}
+        for key in getattr(asset_def, "keys", ()):
+            path = tuple(key.path)
+            if path[0] in domain_names and not path[-1].endswith("_rejected"):
+                found[path] = dependencies
+    if set(found) != set(tables):
+        _fail(f"Floe Silver assets {sorted(found)} do not match the descriptor's Silver tables {sorted(tables)}")
+    for key, bronze in tables.items():
+        if bronze not in found[key]:
+            _fail(f"Silver asset {'/'.join(key)} must depend on its Bronze resource {'/'.join(bronze)}")
+
+
+def _verify_sequential_floe_orchestration(product: Product, job: _Job) -> None:
+    """Require the serialized Dagster run config that Floe's sequential orchestration produces."""
     try:
         max_concurrent = job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"]
     except (AttributeError, KeyError, TypeError):
@@ -227,59 +232,6 @@ def _verify_daily_cron(schedule: _Schedule) -> None:
     fields = str(schedule.cron_schedule).split()
     if len(fields) != 5 or fields[2:] != ["*", "*", "*"] or not all(field.isdigit() for field in fields[:2]):
         _fail(f"{schedule.name} must run once a day; got {schedule.cron_schedule!r}")
-
-
-def _verify_immutable_manifest_replay(
-    root: Path, product: Product, library: _ProductDagsterLibrary, load_manifest: Callable[[str], object]
-) -> None:
-    """Exercise the revision sidecar/digest guard used by cloud manifest replay."""
-    domain = product.domain_name
-    manifest_path = root / f"lakehouse_code/silver/{domain}/contracts/floe/manifests/{domain}.manifest.json"
-    payload = json.loads(manifest_path.read_text())
-    payload["execution"]["base_args"] = [
-        "run", "--manifest", "{manifest_uri}", "--log-format", "json", "--quiet", "--run-id", "{run_id}",
-    ]
-    env_keys = (
-        "OPENLAKEFORGE_CATALOG_TYPE",
-        "OPENLAKEFORGE_CATALOG_PROVIDER",
-        "OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR",
-        "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
-    )
-    original_env = {key: os.environ.get(key) for key in env_keys}
-    original_reader = library.read_text_uri
-    artifact_key = f"floe/manifests/{domain}/{domain}.manifest.json"
-    entries = {artifact_key: sha256(json.dumps(payload).encode()).hexdigest()}
-    revision = library._aggregate_revision(entries)
-    try:
-        os.environ.update({
-            "OPENLAKEFORGE_CATALOG_TYPE": "glue",
-            "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
-            "OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR": str(root / ".tmp/project-code-check-floe-manifests"),
-            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT": revision,
-        })
-        spec = library.DomainDefinitionSpec(domain=domain, tables=())
-        revision_uri = library._remote_manifest_uri(spec)
-        if revision_uri is None:
-            _fail(f"no immutable Floe manifest URI resolved for domain {domain}")
-        sidecar_uri = revision_uri.rsplit("/floe/manifests/", 1)[0] + "/REVISION.json"
-        sidecar = json.dumps({"revision": revision, "entries": entries})
-        library.read_text_uri = lambda uri: sidecar if uri == sidecar_uri else json.dumps(payload)
-        cached = library._manifest_path_for_dagster(spec)
-        load_manifest(cached)
-        library.read_text_uri = lambda uri: sidecar if uri == sidecar_uri else "tampered"
-        try:
-            library._manifest_path_for_dagster(spec)
-        except library.ArtifactRevisionError:
-            pass
-        else:
-            _fail("project-code accepted an immutable Floe manifest with the wrong digest")
-    finally:
-        library.read_text_uri = original_reader
-        for key, value in original_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
 
 
 def _verify_shared_assets(inventory: LakehouseInventory, asset_keys: list[tuple[str, ...]]) -> None:

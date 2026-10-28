@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
     from olf.deployment.cloud.config import CloudDeploymentConfig
     from olf.deployment.context import DeploymentPaths
-    from olf.deployment.floe_manifests import FloeManifestSettings
     from olf.deployment.local.config import LocalDeploymentConfig
     from olf.deployment.retry import RetryPolicy
     from olf.deployment.status import StatusReport
@@ -119,8 +118,6 @@ class DeploymentConfig(Protocol):
     def context(self) -> DeploymentContext: ...
     @property
     def paths(self) -> DeploymentPaths: ...
-    @property
-    def floe(self) -> FloeManifestSettings: ...
     @property
     def charts(self) -> ChartCatalog: ...
     @property

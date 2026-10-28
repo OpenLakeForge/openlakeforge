@@ -112,17 +112,3 @@ class FakeCloudBackend:
 
     def artifact_transport(self) -> str:
         return self.transport
-
-    def generate_floe_manifests(
-        self,
-        config: CloudDeploymentConfig,  # noqa: ARG002
-        tools: Toolkit,  # noqa: ARG002
-        *,
-        repo_root: Path,  # noqa: ARG002
-        namespace: str,  # noqa: ARG002
-        governance_enabled: bool,  # noqa: ARG002
-        environ: Mapping[str, str],  # noqa: ARG002
-        env: Mapping[str, str],  # noqa: ARG002
-    ) -> list[Path]:
-        self.calls.append("generate_floe_manifests")
-        return list(self.manifest_paths)

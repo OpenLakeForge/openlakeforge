@@ -40,7 +40,6 @@ def build_project_code_image(
     tools: Toolkit,
     *,
     env: Mapping[str, str],
-    revision: str,
 ) -> str:
     images = config.images
     log.step(f"Pulling project-code Python base image: {images.project_code_python_base_image}")
@@ -55,7 +54,6 @@ def build_project_code_image(
             build_args={
                 "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
                 "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
-                "FLOE_MANIFEST_REVISION": revision,
             },
             env=env,
             retry_policy=images.build_retry,
@@ -138,11 +136,10 @@ def prepare_project_code_image(
     tools: Toolkit,
     *,
     env: Mapping[str, str],
-    revision: str,
 ) -> None:
     if config.images.project_code_tag != "local":
         return
     log.step("Building local project-code image...")
-    image = build_project_code_image(config, tools, env=env, revision=revision)
+    image = build_project_code_image(config, tools, env=env)
     log.step("Ensuring local project-code image is available to kind...")
     load_image_into_kind(image, config, tools, env=env)

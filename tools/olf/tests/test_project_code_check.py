@@ -39,16 +39,46 @@ def test_bronze_subsetability_rejects_non_subsettable_or_required_outputs(
         project_code_check._verify_bronze_subsetability(inventory, definitions)
 
 
-def test_sequential_floe_orchestration_requires_serial_manifest_and_job_config() -> None:
+def test_sequential_floe_orchestration_requires_serial_job_config() -> None:
     product = SimpleNamespace(id="order_revenue", job_name="order_revenue_job")
-    manifest = SimpleNamespace(execution=SimpleNamespace(orchestration=SimpleNamespace(strategy="sequential")))
     job = SimpleNamespace(run_config={"execution": {"config": {"multiprocess": {"max_concurrent": 1}}}})
 
-    project_code_check._verify_sequential_floe_orchestration(product, manifest, job)
+    project_code_check._verify_sequential_floe_orchestration(product, job)
 
     job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] = 2
     with pytest.raises(RuntimeError, match="did not inherit Floe orchestration concurrency"):
-        project_code_check._verify_sequential_floe_orchestration(product, manifest, job)
+        project_code_check._verify_sequential_floe_orchestration(product, job)
+
+
+def _asset(keys: tuple[tuple[str, ...], ...], deps: tuple[tuple[str, ...], ...] = ()) -> SimpleNamespace:
+    return SimpleNamespace(
+        keys=[SimpleNamespace(path=list(key)) for key in keys],
+        dependency_keys=[SimpleNamespace(path=list(dep)) for dep in deps],
+    )
+
+
+def _silver_inventory() -> SimpleNamespace:
+    table = SimpleNamespace(name="orders", source="crm", resource="orders")
+    return SimpleNamespace(domains=[SimpleNamespace(name="sales", silver_tables=[table])])
+
+
+def test_silver_assets_must_each_depend_on_their_own_bronze_resource() -> None:
+    accepted = (("sales", "orders"), ("sales", "orders_rejected"))
+    wired = SimpleNamespace(assets=[_asset(accepted, deps=(("crm", "orders"),))])
+    project_code_check._verify_silver_assets(_silver_inventory(), wired)
+
+    shared = SimpleNamespace(assets=[_asset(accepted, deps=(("sources", "openlakeforge", "crm"),))])
+    with pytest.raises(RuntimeError, match="must depend on its Bronze resource crm/orders"):
+        project_code_check._verify_silver_assets(_silver_inventory(), shared)
+
+
+def test_silver_assets_must_match_the_descriptor_tables() -> None:
+    extra = SimpleNamespace(
+        assets=[_asset((("sales", "orders"),), deps=(("crm", "orders"),)), _asset((("sales", "returns"),))]
+    )
+
+    with pytest.raises(RuntimeError, match="do not match the descriptor's Silver tables"):
+        project_code_check._verify_silver_assets(_silver_inventory(), extra)
 
 
 def _schedule_library(

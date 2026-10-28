@@ -122,9 +122,9 @@ def render_domain_readme(*, domain: str, display_name: str) -> str:
 Scaffolded by `olf domain new {domain}`.
 
 This domain owns the `{domain}_silver` Iceberg namespace and its Floe
-Bronze-to-Silver contract at `contracts/floe/{domain}.yml`. Every product
-built on `{domain}` shares this one Silver namespace and this one Floe
-contract -- see
+Bronze-to-Silver contracts under `contracts/floe/`: `_domain.yml` holds the
+sink defaults and each sibling `.yml` file is one entity. Every product
+built on `{domain}` shares this one Silver namespace -- see
 [ADR 0004](../../../docs/adr/0004-medallion-layout-and-catalog-namespaces.md).
 """
 
@@ -132,74 +132,54 @@ contract -- see
 def _floe_column_lines(columns: tuple[InferredColumn, ...]) -> str:
     if not columns:
         return (
-            "      # TODO: no example CSV was available to infer columns from;\n"
-            "      # declare this entity's columns by hand.\n"
-            "      columns: []\n"
+            "  # TODO: no example CSV was available to infer columns from;\n"
+            "  # declare this entity's columns by hand.\n"
+            "  columns: []\n"
         )
     rendered = "\n".join(
-        f"        - {{ name: {yaml_dq(column.name)}, type: \"{column.type}\", "
+        f"    - {{ name: {yaml_dq(column.name)}, type: \"{column.type}\", "
         f"nullable: {str(column.nullable).lower()} }}"
         for column in columns
     )
     primary_key = columns[0].name
-    return f"      primary_key: [{yaml_dq(primary_key)}]\n      columns:\n{rendered}\n"
+    return f"  primary_key: [{yaml_dq(primary_key)}]\n  columns:\n{rendered}\n"
 
 
 def render_floe_entity(spec: FloeEntitySpec) -> str:
-    return f'''  - name: "{spec.table}"
-    incremental_mode: "none"
-    source:
-      format: "csv"
-      path: "{spec.source}/{spec.resource}"
-      storage: "lakehouse_bronze"
-      options: {{ header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }}
-      cast_mode: "strict"
-    sink:
-      write_mode: "overwrite"
-      accepted:
-        format: "iceberg"
-        path: "{spec.domain}/{spec.table}"
-        storage: "lakehouse_silver"
-        iceberg: {{ catalog: "iceberg_catalog", namespace: "{spec.domain}_silver", table: "{spec.table}" }}
-      rejected: {{ format: "csv", path: "floe/rejected/{spec.domain}/{spec.table}", storage: "lakehouse_silver" }}
-    policy: {{ severity: "reject" }}
-    schema:
-      normalize_columns: {{ enabled: true, strategy: "snake_case" }}
+    """One entity file beside its domain's `_domain.yml`, which supplies every sink default."""
+    return f'''name: "{spec.table}"
+source: {{ ref: "{spec.source}", resource: "{spec.resource}" }}
+schema:
 {_floe_column_lines(spec.columns)}'''
 
 
-def render_floe_contract(*, domain: str, entities: tuple[str, ...]) -> str:
-    header = f'''version: "0.2"
-
-metadata:
-  project: "openlakeforge"
-  owner: "{domain}"
-  description: "{domain.replace('_', ' ').title()} Bronze to Silver Floe contracts."
-  tags: ["{domain}", "silver"]
-
-storages:
-  default: "lakehouse_bronze"
-  definitions:
-    - name: "lakehouse_bronze"
-      type: "s3"
-      bucket: "{{{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}}}"
-      region: "{{{{OPENLAKEFORGE_STORAGE_REGION}}}}"
-    - name: "lakehouse_silver"
-      type: "s3"
-      bucket: "{{{{OPENLAKEFORGE_STORAGE_SILVER_BUCKET}}}}"
-      region: "{{{{OPENLAKEFORGE_STORAGE_REGION}}}}"
-    - name: "openlakeforge_ops"
-      type: "s3"
-      bucket: "{{{{OPENLAKEFORGE_OPS_BUCKET_NAME}}}}"
-      region: "{{{{OPENLAKEFORGE_STORAGE_REGION}}}}"
-
-report:
-  path: "floe/reports/{domain}"
-  storage: "openlakeforge_ops"
-
-entities:
+def render_floe_domain(*, domain: str) -> str:
+    return f'''name: "{domain}"
+defaults:
+  incremental_mode: "none"
+  sink:
+    write_mode: "overwrite"
+    accepted:
+      format: "iceberg"
+      path: "{domain}/{{{{entity.name}}}}"
+      storage: "lakehouse_silver"
+      iceberg: {{ catalog: "iceberg_catalog", namespace: "{domain}_silver" }}
+    rejected: {{ format: "csv", path: "floe/rejected/{domain}/{{{{entity.name}}}}", storage: "lakehouse_silver" }}
+  policy: {{ severity: "reject" }}
+  schema:
+    normalize_columns: {{ enabled: true, strategy: "snake_case" }}
 '''
-    return header + "\n\n".join(entities) + "\n"
+
+
+def render_floe_source(*, source: str) -> str:
+    """A `sources.yml` entry for the CSV files a Bronze source lands under `<source>/<resource>`."""
+    return f'''  - name: "{source}"
+    format: "csv"
+    path: "{source}/{{{{resource}}}}"
+    storage: "lakehouse_bronze"
+    options: {{ header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }}
+    cast_mode: "strict"
+'''
 
 
 # --------------------------------------------------------------------------

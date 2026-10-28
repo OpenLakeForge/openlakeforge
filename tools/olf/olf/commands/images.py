@@ -54,12 +54,7 @@ def build(
     settings, tools = _local_config(cluster_name, project_root=project_root)
     try:
         if image == "project-code":
-            build_project_code_image(
-                settings,
-                tools,
-                env=os.environ,
-                revision=settings.images.project_code_revision,
-            )
+            build_project_code_image(settings, tools, env=os.environ)
         elif image == "superset":
             build_superset_image(settings, tools, env=os.environ)
         else:

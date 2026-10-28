@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf import log
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
@@ -19,7 +18,6 @@ from olf.deployment.context import topology_variables
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.floe_manifests import generate_local_manifests
 from olf.deployment.portforward import ForwardTarget
 from olf.tooling.azure import ACR_USERNAME
 
@@ -190,29 +188,6 @@ class AzureBackend:
     def artifact_transport(self) -> str:
         return "port-forward"
 
-    def generate_floe_manifests(
-        self,
-        config: CloudDeploymentConfig,
-        tools: Toolkit,
-        *,
-        repo_root: Path,
-        distribution_root: Path,
-        namespace: str,
-        governance_enabled: bool,
-        environ: Mapping[str, str],
-        env: Mapping[str, str],
-    ) -> list[Path]:
-        log.step("Using the rendered (local-k8s.yml) Floe profile strategy.")
-        return generate_local_manifests(
-            config.floe,
-            tools,
-            repo_root=repo_root,
-            distribution_root=distribution_root,
-            namespace=namespace,
-            governance_enabled=governance_enabled,
-            environ=environ,
-            env=env,
-        )
 
 
 def _resource_group(facts: FoundationFacts) -> str:

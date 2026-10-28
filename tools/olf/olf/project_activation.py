@@ -46,16 +46,21 @@ class ProjectActivation:
     project_revision: str
     distribution_version: str
     project_code_image: str
-    floe_manifest_revision: str
     provider_binding_digest: str
     capabilities: dict[str, bool]
     activation_revision: str = ""
+    # Schema 1 only. Floe manifests were rendered and published per stage
+    # until Floe 0.8 let the code location build them in memory; a record
+    # that carries one is still read, and still hashes, exactly as written,
+    # so a stage activated before the change can be inspected and rolled
+    # back onto.
+    floe_manifest_revision: str = ""
 
     def _payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "apiVersion": ACTIVATION_API_VERSION,
             "kind": ACTIVATION_KIND,
-            "schema_version": 1,
+            "schema_version": 1 if self.floe_manifest_revision else 2,
             "deployment_profile": self.deployment_profile,
             "provider": self.provider,
             "stage": StageName(self.stage).value,
@@ -63,10 +68,12 @@ class ProjectActivation:
             "project_revision": self.project_revision,
             "distribution_version": self.distribution_version,
             "project_code_image": self.project_code_image,
-            "floe_manifest_revision": self.floe_manifest_revision,
             "provider_binding_digest": self.provider_binding_digest,
             "capabilities": dict(sorted(self.capabilities.items())),
         }
+        if self.floe_manifest_revision:
+            payload["floe_manifest_revision"] = self.floe_manifest_revision
+        return payload
 
     def resolved(self) -> ProjectActivation:
         self.validate(allow_unresolved=True)
@@ -78,16 +85,11 @@ class ProjectActivation:
         return ProjectActivation(**{**self.__dict__, "stage": StageName(self.stage), "activation_revision": revision})
 
     def matches_inputs(self, other: ProjectActivation) -> bool:
-        """Compare every activation input except the Floe manifest revision.
+        """Compare every activation input, ignoring a schema-1 Floe manifest revision.
 
-        `activation_revision` folds in `floe_manifest_revision`, which only
-        regenerating Floe produces -- so a full equality check can only run
-        after the work an idempotent redeploy is trying to skip. Nothing that
-        changes the rendered Floe output is invisible here: Floe configs are
-        hashed into the revision's `floe` component, a contract change moves
-        `provider_binding_digest`, and a capability change moves
-        `capabilities`. Equal inputs therefore mean equal output without
-        depending on Floe generation being byte-for-byte reproducible.
+        A schema-1 record also binds the Floe manifests its stage rendered,
+        which no schema-2 activation has, so comparing whole records would
+        never find an earlier activation equal to the inputs being applied.
         """
         fields = (
             "deployment_profile",
@@ -116,7 +118,8 @@ class ProjectActivation:
         except ValueError as exc:
             raise ProjectActivationError(f"unsupported activation stage {self.stage!r}.") from exc
         _digest(self.project_revision, field="project_revision")
-        _digest(self.floe_manifest_revision, field="floe_manifest_revision")
+        if self.floe_manifest_revision:
+            _digest(self.floe_manifest_revision, field="floe_manifest_revision")
         _digest(self.provider_binding_digest, field="provider_binding_digest")
         if "@sha256:" not in self.project_code_image:
             raise ProjectActivationError("project_code_image must be digest-pinned.")
@@ -149,17 +152,19 @@ class ProjectActivation:
             "project_revision",
             "distribution_version",
             "project_code_image",
-            "floe_manifest_revision",
             "provider_binding_digest",
             "capabilities",
             "activation_revision",
         }
+        schema_version = payload.get("schema_version") if isinstance(payload, dict) else None
+        if schema_version == 1:
+            required.add("floe_manifest_revision")
         if not isinstance(payload, dict) or set(payload) != required:
             raise ProjectActivationError("ACTIVATION.json has an unsupported field set.")
         if (
             payload["apiVersion"] != ACTIVATION_API_VERSION
             or payload["kind"] != ACTIVATION_KIND
-            or payload["schema_version"] != 1
+            or schema_version not in (1, 2)
         ):
             raise ProjectActivationError("ACTIVATION.json has an unsupported apiVersion, kind, or schema_version.")
         try:
@@ -171,7 +176,7 @@ class ProjectActivation:
                 project_revision=payload["project_revision"],
                 distribution_version=payload["distribution_version"],
                 project_code_image=payload["project_code_image"],
-                floe_manifest_revision=payload["floe_manifest_revision"],
+                floe_manifest_revision=payload.get("floe_manifest_revision", ""),
                 provider_binding_digest=payload["provider_binding_digest"],
                 capabilities=payload["capabilities"],
                 activation_revision=payload["activation_revision"],

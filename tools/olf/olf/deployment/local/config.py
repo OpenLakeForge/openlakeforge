@@ -19,7 +19,6 @@ from olf.deployment.env_settings import float_env as _float_env
 from olf.deployment.env_settings import int_env as _int_env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
-from olf.deployment.floe_manifests import FloeManifestSettings
 from olf.deployment.retry import RetryPolicy
 
 
@@ -239,7 +238,6 @@ class LocalDeploymentConfig:
     charts: ChartSettings
     terraform: TerraformSettings
     prefetch: PrefetchSettings
-    floe: FloeManifestSettings
     force_foundation_down: bool
 
     @property
@@ -293,6 +291,5 @@ class LocalDeploymentConfig:
                 var_file=var_file,
             ),
             prefetch=PrefetchSettings.from_environment(environ),
-            floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root),
             force_foundation_down=_truthy(_env(environ, "LOCAL_FOUNDATION_FORCE_DOWN", "false")),
         )

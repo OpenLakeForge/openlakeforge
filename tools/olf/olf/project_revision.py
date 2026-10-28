@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from olf import revision as floe_revision
 from olf.artifact_store import RevisionStore, publish_immutable, read_required
 from olf.project import ProjectSpec, validate_project
 
@@ -268,7 +267,10 @@ def _aggregate_components(components: Iterable[ComponentEntries]) -> str:
     }
     if not flattened:
         raise ProjectRevisionError("cannot compute a revision for an empty project.")
-    return floe_revision.aggregate_revision(flattened)
+    hasher = hashlib.sha256()
+    for key in sorted(flattened):
+        hasher.update(f"{key}\0{flattened[key]}\n".encode())
+    return f"sha256:{hasher.hexdigest()}"
 
 
 def manifest_schema_errors(payload: dict[str, Any], *, schema_root: Path) -> list[str]:
@@ -371,19 +373,9 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
 
 
 def _floe_component(project: ProjectSpec) -> ComponentEntries:
-    from olf.deployment.errors import DeploymentPreconditionError
-    from olf.deployment.floe_manifests import _validate_one_config_per_domain, discover_floe_configs
-
-    configs = discover_floe_configs(project.root)
-    try:
-        # A stray extra config in a domain's contracts directory isn't
-        # caught by `validate_project` (it checks required paths exist, not
-        # that nothing extra does), but the deploy path's own manifest
-        # generation rejects it -- reuse that check here so a build never
-        # advertises a revision #115 could not later activate.
-        _validate_one_config_per_domain(configs)
-    except DeploymentPreconditionError as exc:
-        raise ProjectRevisionError(str(exc)) from exc
+    # Every file Floe can read: the project file includes `sources.yml` and
+    # each domain's `_domain.yml`, whose sibling `.yml` files are entities.
+    configs = sorted({*project.silver_root.glob("*.yml"), *project.silver_root.glob("*/contracts/floe/*.yml")})
     entries = {
         (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root) for path in configs
     }

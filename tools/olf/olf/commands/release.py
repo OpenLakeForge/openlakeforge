@@ -139,12 +139,7 @@ def build_bundle(
     bundle_env = _bundle_environment(catalog)
     settings, tools = _local_config("openlakeforge-local", environ=bundle_env)
     try:
-        project = build_project_code_image(
-            settings,
-            tools,
-            env=bundle_env,
-            revision=settings.images.project_code_revision,
-        )
+        project = build_project_code_image(settings, tools, env=bundle_env)
         superset = build_superset_image(settings, tools, env=bundle_env)
         docker = str(tools.resolver.resolve("docker"))
         project_id = tools.runner.run([docker, "image", "inspect", "--format", "{{.Id}}", project]).stdout.strip()

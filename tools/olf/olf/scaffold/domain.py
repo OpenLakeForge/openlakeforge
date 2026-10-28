@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
 from openlakeforge_domain import LakehouseInventory, load_transitional_lakehouse_inventory
 
 from olf.scaffold import _lakehouse_edit, _templates
@@ -29,6 +30,45 @@ def resolve_input(inventory: LakehouseInventory, source: str, resource: str) -> 
 def example_csv_text(repo_root: Path, source: str, resource: str) -> str | None:
     path = repo_root / "lakehouse_code" / "bronze" / source / "examples" / f"{resource}.csv"
     return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+_FLOE_SOURCES = "lakehouse_code/silver/sources.yml"
+
+
+def floe_entity_files(
+    repo_root: Path, *, domain: str, inputs: tuple[tuple[str, str], ...]
+) -> tuple[ScaffoldFile, ...]:
+    """One Floe entity file per `source/resource` input, columns inferred from its example CSV."""
+    files = []
+    for source, resource in inputs:
+        csv_text = example_csv_text(repo_root, source, resource)
+        columns = infer_columns(csv_text) if csv_text is not None else ()
+        files.append(
+            ScaffoldFile(
+                f"lakehouse_code/silver/{domain}/contracts/floe/{resource}.yml",
+                _templates.render_floe_entity(
+                    FloeEntitySpec(table=resource, source=source, resource=resource, domain=domain, columns=columns)
+                ),
+            )
+        )
+    return tuple(files)
+
+
+def floe_sources_edit(repo_root: Path, inputs: tuple[tuple[str, str], ...]) -> ScaffoldFile | None:
+    """Declare each input's Bronze source in the Floe project the first time an entity references it."""
+    path = repo_root / _FLOE_SOURCES
+    if not path.is_file():
+        raise ScaffoldError(f"{_FLOE_SOURCES}: expected the Floe project's named sources")
+    text = path.read_text(encoding="utf-8")
+    declared = {source["name"] for source in (yaml.safe_load(text) or {}).get("sources") or []}
+    missing = sorted({source for source, _resource in inputs} - declared)
+    if not missing:
+        return None
+    addition = "".join(_templates.render_floe_source(source=source) for source in missing)
+    return ScaffoldFile(
+        _FLOE_SOURCES,
+        _lakehouse_edit.append_to_top_level_list(text, "sources", addition, source_label=_FLOE_SOURCES),
+    )
 
 
 def build_domain_artifacts(
@@ -52,19 +92,10 @@ def build_domain_artifacts(
         )
 
     silver_table_lines = []
-    floe_entities = []
     for source, resource in inputs:
-        table = resource
         description = f"Validated {resource.replace('_', ' ')}."
         silver_table_lines.append(
-            f"        - {{name: {table}, source: {source}, resource: {resource}, description: {description}}}"
-        )
-        csv_text = example_csv_text(repo_root, source, resource)
-        columns = infer_columns(csv_text) if csv_text is not None else ()
-        floe_entities.append(
-            _templates.render_floe_entity(
-                FloeEntitySpec(table=table, source=source, resource=resource, domain=domain, columns=columns)
-            )
+            f"        - {{name: {resource}, source: {source}, resource: {resource}, description: {description}}}"
         )
 
     domain_block = (
@@ -80,10 +111,8 @@ def build_domain_artifacts(
     silver_dir = f"lakehouse_code/silver/{domain}"
     files = (
         ScaffoldFile(f"{silver_dir}/__init__.py", ""),
-        ScaffoldFile(
-            f"{silver_dir}/contracts/floe/{domain}.yml",
-            _templates.render_floe_contract(domain=domain, entities=tuple(floe_entities)),
-        ),
+        ScaffoldFile(f"{silver_dir}/contracts/floe/_domain.yml", _templates.render_floe_domain(domain=domain)),
+        *floe_entity_files(repo_root, domain=domain, inputs=inputs),
         ScaffoldFile(
             f"{silver_dir}/README.md",
             _templates.render_domain_readme(domain=domain, display_name=display_name),
@@ -122,4 +151,7 @@ def plan_domain_new(
         f"Created domain {domain!r} with {len(inputs)} Silver table(s): {', '.join(table_names)}.",
         f"Domain {domain!r} has no products yet; run `olf product new {domain}/<product>` to add one.",
     )
-    return ScaffoldPlan(files=files, lakehouse_yaml=lakehouse_text, summary=summary)
+    sources = floe_sources_edit(repo_root, inputs)
+    return ScaffoldPlan(
+        files=files, lakehouse_yaml=lakehouse_text, summary=summary, edits=(sources,) if sources else ()
+    )

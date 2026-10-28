@@ -1,10 +1,4 @@
-"""Object-storage helpers for publishing domain Floe runtime artifacts.
-
-Replaces scripts/local/artifacts/upload-floe-manifest.sh (SeaweedFS via
-kubectl port-forward) and upload_floe_manifests_to_s3() from the AWS artifact
-deploy script (direct S3). The ops-bucket key layout is identical in both, so
-the derivation lives here once.
-"""
+"""In-cluster object-storage client for the ops bucket, reached through kubectl port-forward."""
 
 from __future__ import annotations
 
@@ -12,124 +6,13 @@ import contextlib
 import os
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from olf import k8s, log
-
-
-@dataclass(frozen=True)
-class ManifestUpload:
-    path: Path
-    key: str
-
-
-def manifest_key(domain: str) -> str:
-    return f"floe/manifests/{domain}/{domain}.manifest.json"
-
-
-def config_key(domain: str, filename: str) -> str:
-    return f"floe/configs/{domain}/{filename}"
-
-
-def profile_key(domain: str, filename: str) -> str:
-    return f"floe/profiles/{domain}/{filename}"
-
-
-def discover_tracked_manifests(repo_root: Path) -> list[ManifestUpload]:
-    """Source-controlled manifests under lakehouse_code/silver/*/contracts/floe/manifests/."""
-    uploads: list[ManifestUpload] = []
-    root = repo_root / "lakehouse_code" / "silver"
-    for manifest_path in sorted(root.glob("*/contracts/floe/manifests/*.manifest.json")):
-        domain = manifest_path.parents[3].name
-        uploads.append(ManifestUpload(manifest_path, manifest_key(domain)))
-    return uploads
-
-
-def discover_runtime_manifests(manifest_root: Path) -> list[ManifestUpload]:
-    """Rendered manifests under <artifact-dir>/manifests/<domain>/<domain>.manifest.json."""
-    uploads: list[ManifestUpload] = []
-    for manifest_path in sorted(manifest_root.rglob("*.manifest.json")):
-        if not manifest_path.is_file():
-            continue
-        domain = manifest_path.relative_to(manifest_root).parts[0]
-        uploads.append(ManifestUpload(manifest_path, manifest_key(domain)))
-    return uploads
-
-
-def discover_runtime_artifacts(runtime_root: Path) -> list[ManifestUpload]:
-    """Rendered Floe configs, profiles, and manifests under a runtime artifact root."""
-    uploads: list[ManifestUpload] = []
-
-    for config_path in sorted((runtime_root / "configs").rglob("*.yml")):
-        if not config_path.is_file():
-            continue
-        relative = config_path.relative_to(runtime_root / "configs")
-        if len(relative.parts) < 2:
-            continue
-        domain = relative.parts[0]
-        uploads.append(ManifestUpload(config_path, config_key(domain, config_path.name)))
-
-    for profile_path in sorted((runtime_root / "profiles").rglob("*.yml")):
-        if not profile_path.is_file():
-            continue
-        relative = profile_path.relative_to(runtime_root / "profiles")
-        if len(relative.parts) < 2:
-            continue
-        domain = relative.parts[0]
-        uploads.append(ManifestUpload(profile_path, profile_key(domain, profile_path.name)))
-
-    uploads.extend(discover_runtime_manifests(runtime_root / "manifests"))
-    return uploads
-
-
-def _put_objects(client, bucket: str, uploads: list[ManifestUpload]) -> None:
-    for upload in uploads:
-        with upload.path.open("rb") as body:
-            client.put_object(
-                Bucket=bucket,
-                Key=upload.key,
-                Body=body,
-                ContentType="application/json",
-            )
-        log.info(f"Published {upload.path} to s3://{bucket}/{upload.key}")
-
-
-def upload_direct(bucket: str, uploads: list[ManifestUpload], *, region: str | None = None) -> None:
-    """Upload using the selected OLF session or the normal SDK chain."""
-    from olf.auth import aws_session
-
-    client = aws_session(os.environ, region=region or None).client("s3", region_name=region or None)
-    _put_objects(client, bucket, uploads)
-
-
-def upload_via_port_forward(
-    bucket: str,
-    uploads: list[ManifestUpload],
-    *,
-    service: str,
-    remote_port: int,
-    namespace: str,
-    access_key_id: str,
-    secret_access_key: str,
-    region: str,
-) -> None:
-    """Upload to an in-cluster S3-compatible store through kubectl port-forward."""
-    with port_forward_client(
-        bucket,
-        service=service,
-        remote_port=remote_port,
-        namespace=namespace,
-        access_key_id=access_key_id,
-        secret_access_key=secret_access_key,
-        region=region,
-    ) as client:
-        _put_objects(client, bucket, uploads)
+from olf import k8s
 
 
 @contextlib.contextmanager
