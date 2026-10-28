@@ -174,12 +174,16 @@ def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) ->
         for item in domain.silver_tables
     }
     domain_names = {domain.name for domain in inventory.domains}
+    # Floe emits `<table>_rejected` beside each accepted table. `_rejected` is
+    # not reserved in the descriptor, so only a key that is not itself a
+    # declared table and whose stem is one counts as that auxiliary output.
+    auxiliary = {(domain, f"{name}_rejected") for domain, name in tables} - set(tables)
     found: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
     for asset_def in getattr(definitions, "assets", ()):
         dependencies = {tuple(key.path) for key in getattr(asset_def, "dependency_keys", ())}
         for key in getattr(asset_def, "keys", ()):
             path = tuple(key.path)
-            if path[0] in domain_names and not path[-1].endswith("_rejected"):
+            if path[0] in domain_names and path not in auxiliary:
                 found[path] = dependencies
     if set(found) != set(tables):
         _fail(f"Floe Silver assets {sorted(found)} do not match the descriptor's Silver tables {sorted(tables)}")

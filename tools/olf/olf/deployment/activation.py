@@ -243,6 +243,13 @@ def _user_values(
     env: list[dict[str, Any]] = [
         {"name": "OPENLAKEFORGE_PROJECT_REVISION", "value": activation.project_revision},
     ]
+    # Only a schema-1 activation, reached on rollback, gets here with a
+    # revision: its image bakes the Floe revision as `manual` and resolves its
+    # immutable manifests from this variable, then submits one Floe Job per
+    # entity into NAMESPACE (falling back to the pre-#133 `lakehouse`).
+    if activation.floe_manifest_revision:
+        env.append({"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": activation.floe_manifest_revision})
+        env.append({"name": "NAMESPACE", "value": namespace})
     for name in sorted(key for key in contract_environ if key.startswith("OPENLAKEFORGE_")):
         if "SECRET" not in name and "ACCESS_KEY" not in name:
             env.append({"name": name, "value": contract_environ[name]})

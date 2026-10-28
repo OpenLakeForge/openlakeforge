@@ -42,9 +42,19 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
             "Floe 0.8 writes Iceberg through a REST catalog only."
         )
 
-    region = required("OPENLAKEFORGE_STORAGE_REGION")
-    endpoint = environ.get("OPENLAKEFORGE_STORAGE_ENDPOINT", "").strip()
-    path_style = environ.get("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "").strip().lower()
+    # Terraform-managed code deployments (`manage_user_deployments`) carry
+    # the storage binding only under its AWS SDK aliases, and the activation
+    # release under both; accept either so one image loads on both paths.
+    def first(*names: str) -> str:
+        return next((value for name in names if (value := environ.get(name, "").strip())), "")
+
+    region = first("OPENLAKEFORGE_STORAGE_REGION", "AWS_REGION", "AWS_DEFAULT_REGION")
+    if not region:
+        raise FloeProfileError(
+            "OPENLAKEFORGE_STORAGE_REGION is not set; the stage activation must provide it for Floe."
+        )
+    endpoint = first("OPENLAKEFORGE_STORAGE_ENDPOINT", "AWS_ENDPOINT_URL_S3")
+    path_style = first("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "AWS_S3_FORCE_PATH_STYLE").lower()
     # Run reports land beneath the stage's own artifact prefix: an activated
     # stage's object-store grant covers `activations/<stage>/`, not the
     # bucket root the project's `report.path` is relative to.
@@ -97,7 +107,10 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
         "catalogs": {"default": CATALOG_NAME, "definitions": [catalog]},
         "validation": {"strict": True},
     }
-    if environ.get("OPENLAKEFORGE_GOVERNANCE_ENABLED", "true") == "true":
+    # Terraform emits OPENLINEAGE_URL only when governance is on and does not
+    # export the flag itself, so its absence falls back to the URL's presence.
+    governance = environ.get("OPENLAKEFORGE_GOVERNANCE_ENABLED", "").strip()
+    if governance == "true" or (not governance and environ.get("OPENLINEAGE_URL", "").strip()):
         profile["lineage"] = {
             "url": required("OPENLINEAGE_URL"),
             "endpoint": environ.get("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage"),

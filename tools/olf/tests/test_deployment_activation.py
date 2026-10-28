@@ -497,6 +497,43 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
     assert "AWS_SECRET_ACCESS_KEY" not in env
 
 
+@pytest.mark.parametrize("floe_manifest_revision", ["", "sha256:" + "e" * 64])
+def test_only_a_schema_1_rollback_target_gets_its_floe_manifest_revision(floe_manifest_revision: str) -> None:
+    """A schema-1 image locates its immutable manifests through this variable
+    and submits its Floe Jobs into NAMESPACE; a schema-2 image needs neither."""
+    from olf.deployment.activation import _user_values
+    from olf.project_activation import ProjectActivation
+
+    activation = ProjectActivation(
+        deployment_profile="acceptance",
+        provider="local",
+        stage=StageName.DEV,
+        project_name="demo",
+        project_revision="sha256:" + "b" * 64,
+        distribution_version="0.0.0",
+        project_code_image=_IMAGE,
+        floe_manifest_revision=floe_manifest_revision,
+        provider_binding_digest="sha256:" + "d" * 64,
+        capabilities={"analytics": False, "governance": False},
+    ).resolved()
+
+    values = _user_values(
+        activation,
+        contract_environ={},
+        namespace="olf-dev",
+        platform_globals={},
+        code_locations=_DEFAULT_LOCATIONS,
+    )
+
+    env = {entry["name"]: entry.get("value") for entry in values["deployments"][0]["env"]}
+    if floe_manifest_revision:
+        assert env["OPENLAKEFORGE_FLOE_MANIFEST_REVISION"] == floe_manifest_revision
+        assert env["NAMESPACE"] == "olf-dev"
+    else:
+        assert "OPENLAKEFORGE_FLOE_MANIFEST_REVISION" not in env
+        assert "NAMESPACE" not in env
+
+
 def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) -> dict:
     from olf.deployment.activation import _user_values
     from olf.project_activation import ProjectActivation

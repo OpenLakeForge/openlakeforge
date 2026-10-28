@@ -81,6 +81,15 @@ def test_silver_assets_must_match_the_descriptor_tables() -> None:
         project_code_check._verify_silver_assets(_silver_inventory(), extra)
 
 
+def test_a_declared_table_ending_in_rejected_is_not_mistaken_for_a_rejection_output() -> None:
+    table = SimpleNamespace(name="orders_rejected", source="crm", resource="orders_rejected")
+    inventory = SimpleNamespace(domains=[SimpleNamespace(name="sales", silver_tables=[table])])
+    accepted = (("sales", "orders_rejected"), ("sales", "orders_rejected_rejected"))
+    definitions = SimpleNamespace(assets=[_asset(accepted, deps=(("crm", "orders_rejected"),))])
+
+    project_code_check._verify_silver_assets(inventory, definitions)
+
+
 def _schedule_library(
     *,
     stages: tuple[str, ...] = ("prod",),
