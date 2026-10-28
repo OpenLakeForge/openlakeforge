@@ -31,7 +31,7 @@ content-addressed revision, covering the complete promotable project:
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/lakehouse.yaml`, `bronze/<source>/source.yaml` | — |
 | `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/floe/*.yml` | — |
-| `dbt` | `gold/<product>/dbt/**` (no `target/`, `dbt_packages/`) | build output, not input |
+| `dbt` | `gold/<product>/dbt/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
 | `reports` | `dashboards/superset/<dashboard>/**`, when any dashboard exists | — |
 | `image` | The project-code repository plus an immutable `@sha256:` digest | mutable tags are rejected |
@@ -143,6 +143,11 @@ capabilities, and digest-pinned image under
 per-stage manifest rendering at activation are removed, `ProjectActivation`
 moves to schema 2 without a Floe revision, and the `floe` component covers
 the multi-file Floe project.
+
+2026-10-28: dbt `profiles.yml` leaves the `dbt` component (#546). The
+reference products no longer track a rendered copy, and `olf dbt parse` /
+`olf check dbt` render the profile outside the project, so a local parse
+cannot change the revision.
 
 New record. No prior ADR modeled a promotable project revision distinct from
 the v0.2 Floe runtime-artifact revision; ADR 0009's distribution-payload

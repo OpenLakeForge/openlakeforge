@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import typer
@@ -66,29 +67,32 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
         "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
     }
     for project in projects:
-        write_profile(project, environment="local")
-        _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=project_spec.root, env=env)
-        _run(
-            [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", str(project), "--target", "local"],
-            cwd=project_spec.root,
-            env=env,
-        )
-        _run(
-            [
-                dbt_bin,
-                "compile",
-                "--project-dir",
-                str(project),
-                "--profiles-dir",
-                str(project),
-                "--target",
-                "local",
-                "--no-introspect",
-                "--no-populate-cache",
-            ],
-            cwd=project_spec.root,
-            env=env,
-        )
+        # Rendered outside the checkout so the check never leaves a
+        # profiles.yml behind for the next `olf project build` (#546).
+        with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
+            write_profile(project, environment="local", output_dir=Path(profiles_dir))
+            _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=project_spec.root, env=env)
+            _run(
+                [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", profiles_dir, "--target", "local"],
+                cwd=project_spec.root,
+                env=env,
+            )
+            _run(
+                [
+                    dbt_bin,
+                    "compile",
+                    "--project-dir",
+                    str(project),
+                    "--profiles-dir",
+                    profiles_dir,
+                    "--target",
+                    "local",
+                    "--no-introspect",
+                    "--no-populate-cache",
+                ],
+                cwd=project_spec.root,
+                env=env,
+            )
         _validate_dbt_relation_contract(project, root=project_spec.root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
     typer.echo("dbt projects compiled and relation contracts are valid.")
 

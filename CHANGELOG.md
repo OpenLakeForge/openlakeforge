@@ -34,6 +34,10 @@ for how a release is cut and verified.
 - Floe run reports of an activated stage are written under its own
   `activations/<stage>/` prefix, and Silver assets carry their row, accepted
   and rejected counts again.
+- A dbt `profiles.yml` is no longer part of a project revision, and the
+  reference products no longer track a rendered copy. `olf dbt parse` and
+  `olf check dbt` render the profile into a temporary directory, so running
+  them no longer changes the next `olf project build` (#546).
 
 ### Removed
 
@@ -56,6 +60,8 @@ for how a release is cut and verified.
   release stays installed and the deploy asks to be rerun.
 - Silver does not run on an AWS Glue stage yet: the profile renderer refuses
   it (see `docs/technical-debt.md`).
+- Delete any `lakehouse_code/gold/<product>/dbt/profiles.yml` from version
+  control; OpenLakeForge renders it for each stage.
 
 ## [0.5.0-alpha.1] - 2026-10-23
 

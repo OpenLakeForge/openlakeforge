@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 import typer
@@ -62,12 +63,15 @@ def parse(
             tools = Toolkit.default()
             dbt = str(tools.resolver.resolve("dbt"))
             for project in projects:
-                write_profile(project, environment=provider)
-                for command in ("deps", "parse"):
-                    args = [dbt, command, "--project-dir", str(project)]
-                    if command == "parse":
-                        args += ["--profiles-dir", str(project), "--target", _target_for_provider(provider)]
-                    tools.runner.run(args, cwd=project_spec.root, stream_output=True)
+                # Outside the project: a profiles.yml left in it is a stage
+                # binding sitting next to the frozen dbt sources (#546).
+                with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
+                    write_profile(project, environment=provider, output_dir=Path(profiles_dir))
+                    for command in ("deps", "parse"):
+                        args = [dbt, command, "--project-dir", str(project)]
+                        if command == "parse":
+                            args += ["--profiles-dir", profiles_dir, "--target", _target_for_provider(provider)]
+                        tools.runner.run(args, cwd=project_spec.root, stream_output=True)
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
