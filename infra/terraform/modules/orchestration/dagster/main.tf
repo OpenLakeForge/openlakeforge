@@ -77,28 +77,12 @@ locals {
       value = var.artifact_base_uri
     },
     {
-      name  = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
-      value = var.floe_manifest_access_mode
-    },
-    {
-      name  = "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"
-      value = var.floe_manifest_base_uri
-    },
-    {
-      name  = "OPENLAKEFORGE_FLOE_REPORT_BASE_URI"
-      value = var.floe_report_base_uri
-    },
-    {
       name  = "OPENLAKEFORGE_LOG_BASE_URI"
       value = var.log_base_uri
     },
     {
       name  = "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI"
       value = var.run_artifact_base_uri
-    },
-    {
-      name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
-      value = var.floe_manifest_revision
     },
     {
       name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"

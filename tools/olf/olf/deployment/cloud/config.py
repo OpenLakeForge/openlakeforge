@@ -5,7 +5,7 @@ Mirrors `olf.deployment.local.config`: plain frozen dataclasses with
 fallback semantics (`olf.deployment.env_settings`). Only the genuinely
 provider-neutral settings live here - project-code/Superset image
 selection, Helm chart caching, the platform Terraform var-file/retry
-policy, and Floe manifest generation. Foundation-specific settings (AWS
+policy. Foundation-specific settings (AWS
 region/node sizing/instance types; Azure node count/ACR name prefix) stay
 in `cloud/aws.py`/`cloud/azure.py`, matching the shell scripts' own
 provider split.

@@ -23,16 +23,6 @@ output "superset_ecr_repository_url" {
   value       = try(local.foundation_contract.ecr_superset_repository_url, null)
 }
 
-output "floe_manifest_base_uri" {
-  description = "S3 base URI of domain Floe manifests consumed by Dagster and Floe."
-  value       = local.floe_manifest_base_uri
-}
-
-output "domain_floe_manifest_uris" {
-  description = "S3 URIs of domain Floe manifests consumed by Dagster and Floe."
-  value       = local.domain_floe_manifest_uris
-}
-
 output "catalog_contract" {
   description = "Non-secret Iceberg catalog contract consumed by platform modules."
   value       = local.catalog_contract

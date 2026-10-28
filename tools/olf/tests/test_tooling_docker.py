@@ -337,45 +337,6 @@ def test_exec_without_privileged_or_interactive() -> None:
     assert runner.last_call.argv == ["docker", "exec", "node", "crictl", "inspecti", "apache/polaris:1.4.0"]
 
 
-def test_run_container_builds_expected_argv() -> None:
-    docker, runner = _docker()
-
-    docker.run_container(
-        "ghcr.io/malon64/floe:0.6.11",
-        [
-            "validate",
-            "-c",
-            "/work/domains/orders/contracts/floe/orders.yml",
-            "-p",
-            "/work/libs/floe/profiles/local-k8s.yml",
-        ],
-        platform="linux/amd64",
-        env_names=["AWS_REGION"],
-        volumes=["/repo:/work"],
-        workdir="/",
-    )
-
-    assert runner.last_call.argv == [
-        "docker",
-        "run",
-        "--rm",
-        "--platform",
-        "linux/amd64",
-        "-e",
-        "AWS_REGION",
-        "-v",
-        "/repo:/work",
-        "-w",
-        "/",
-        "ghcr.io/malon64/floe:0.6.11",
-        "validate",
-        "-c",
-        "/work/domains/orders/contracts/floe/orders.yml",
-        "-p",
-        "/work/libs/floe/profiles/local-k8s.yml",
-    ]
-
-
 def test_resolve_current_engine_endpoint_returns_none_on_failure() -> None:
     from olf.deployment.errors import CommandExecutionError
 

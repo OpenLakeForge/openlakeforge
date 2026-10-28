@@ -147,7 +147,6 @@ def desired_namespaces(
         bronze_bucket=bronze_bucket,
         silver_bucket=silver_bucket,
         gold_bucket=gold_bucket,
-        manifest_base_uri="",
         namespace_prefix=namespace_prefix,
     )
     return physical.catalog_namespaces

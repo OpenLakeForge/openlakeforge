@@ -6,8 +6,7 @@ the shared lifecycle - identical Terraform init/apply/import/destroy,
 namespace adoption, chart caching, and artifact-deployment ordering between
 AWS and Azure - and call out to a `CloudBackend` for the handful of things
 that are not shared: foundation Terraform variables, kubeconfig population,
-registry login, the default project-code/Superset image repository, and
-Floe profile selection. `cloud/aws.py`/`cloud/azure.py` provide the two
+registry login, and the default project-code/Superset image repository. `cloud/aws.py`/`cloud/azure.py` provide the two
 concrete implementations.
 """
 

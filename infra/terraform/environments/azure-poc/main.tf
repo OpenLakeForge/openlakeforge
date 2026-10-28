@@ -44,15 +44,9 @@ locals {
     ? abspath(pathexpand(var.helm_repository_config_path))
     : abspath("${path.root}/../../../../.tmp/helm/azure/repositories.yaml")
   )
-  artifact_base_uri      = "s3://${var.ops_bucket_name}"
-  floe_manifest_base_uri = "${local.artifact_base_uri}/floe/manifests"
-  floe_report_base_uri   = "${local.artifact_base_uri}/floe/reports"
-  log_base_uri           = "${local.artifact_base_uri}/logs"
-  run_artifact_base_uri  = "${local.artifact_base_uri}/run-artifacts"
-  domain_floe_manifest_uris = {
-    sales        = "${local.floe_manifest_base_uri}/sales/sales.manifest.json"
-    supply_chain = "${local.floe_manifest_base_uri}/supply_chain/supply_chain.manifest.json"
-  }
+  artifact_base_uri     = "s3://${var.ops_bucket_name}"
+  log_base_uri          = "${local.artifact_base_uri}/logs"
+  run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
   # Catalog namespaces themselves are not declared here. `olf catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
@@ -385,18 +379,12 @@ module "dagster" {
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
   })
-  postgresql_contract = local.stage_metadata_database_contracts[each.key]
-  code_locations      = local.orchestration_contract.code_locations
-  # Floe manifests are published at the ops bucket root (immutable revision,
-  # not a stage activation - libs/product_dagster.py's _remote_manifest_uri,
-  # olf/revision.py), not under any stage's activations/<stage> prefix.
-  floe_manifest_base_uri    = local.floe_manifest_base_uri
-  floe_manifest_access_mode = local.artifact_bucket_contract.access_mode
-  artifact_bucket_name      = local.artifact_bucket_contract.bucket_name
-  artifact_base_uri         = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
-  floe_report_base_uri      = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/floe/reports"
-  log_base_uri              = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
-  run_artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
+  postgresql_contract   = local.stage_metadata_database_contracts[each.key]
+  code_locations        = local.orchestration_contract.code_locations
+  artifact_bucket_name  = local.artifact_bucket_contract.bucket_name
+  artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
+  log_base_uri          = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
+  run_artifact_base_uri = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
   depends_on = [
     module.trino,

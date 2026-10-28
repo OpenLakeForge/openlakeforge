@@ -214,6 +214,5 @@ def _default_schema_fqns(
         bronze_bucket="",
         silver_bucket="",
         gold_bucket="",
-        manifest_base_uri="",
     )
     return physical.silver_schema_fqns if layer == "silver" else physical.gold_schema_fqns

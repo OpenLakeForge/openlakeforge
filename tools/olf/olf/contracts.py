@@ -240,7 +240,6 @@ def _default_catalog_namespace_json(env: _Env, repo_root: Path) -> tuple[str, st
         bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
-        manifest_base_uri="",
     )
     catalog_namespaces_json = json.dumps(
         [{"name": namespace.name, "location": namespace.location} for namespace in physical.catalog_namespaces],
@@ -312,15 +311,6 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default(
         "OPENLAKEFORGE_ARTIFACT_BASE_URI",
         f"s3://{env.get('OPENLAKEFORGE_ARTIFACT_BUCKET_NAME')}",
-    )
-    env.default("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", "remote")
-    env.default(
-        "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI",
-        f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/floe/manifests",
-    )
-    env.default(
-        "OPENLAKEFORGE_FLOE_REPORT_BASE_URI",
-        f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/floe/reports",
     )
     env.default("OPENLAKEFORGE_LOG_BASE_URI", f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/logs")
     env.default(
@@ -472,15 +462,6 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     emit("OPENLAKEFORGE_OPS_BUCKET_NAME", ops_bucket)
     emit("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", ops_bucket)
     emit("OPENLAKEFORGE_ARTIFACT_BASE_URI", artifact_bucket.get("artifact_base_uri"))
-    emit(
-        "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE",
-        artifact_bucket.get("access_mode") or artifact_bucket.get("floe_manifest_access_mode"),
-    )
-    emit(
-        "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI",
-        artifact_bucket.get("base_uri") or artifact_bucket.get("floe_manifest_base_uri"),
-    )
-    emit("OPENLAKEFORGE_FLOE_REPORT_BASE_URI", artifact_bucket.get("floe_report_base_uri"))
     emit("OPENLAKEFORGE_LOG_BASE_URI", artifact_bucket.get("log_base_uri"))
     emit("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", artifact_bucket.get("run_artifact_base_uri"))
     emit(
@@ -488,10 +469,10 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
         artifact_bucket.get("local_upload_access_mode"),
     )
     # The shared admin storage identity - distinct from
-    # OPENLAKEFORGE_STORAGE_* (that stage's own, narrower identity): olf's
-    # own revision-publish/manifest-upload tooling writes to
-    # floe/revisions/... at the ops bucket root, outside any stage's
-    # activations/<stage> prefix, so it needs the admin identity's own
+    # OPENLAKEFORGE_STORAGE_* (that stage's own, narrower identity): olf
+    # publishes immutable project revisions to project/revisions/... at the
+    # ops bucket root, outside any stage's activations/<stage> prefix, so it
+    # needs the admin identity's own
     # Secret, read from the shared namespace (see
     # artifact_store.artifact_storage_client).
     emit("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME", artifact_bucket.get("credentials_secret_name"))
@@ -679,7 +660,6 @@ def build_contract_env(
         bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
-        manifest_base_uri=env.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"),
         namespace_prefix=f"{catalog_name}_" if is_glue else "",
     )
     default_silver_fqns = json.dumps(schema_fqn_physical.silver_schema_fqns, separators=(",", ":"))
@@ -696,8 +676,8 @@ def build_contract_env(
     # this account's shared-default-catalog workaround. They are therefore
     # never actually empty by this point (unlike `_apply_default_contract_
     # env`'s early bootstrap defaults), so an empty-check here would never
-    # fire and the bare, unprefixed names would reach Floe's AWS profile
-    # rendering and `olf catalog sync-namespaces`, colliding a Glue stage's
+    # fire and the bare, unprefixed names would reach
+    # `olf catalog sync-namespaces`, colliding a Glue stage's
     # database with every other Glue stage's identically-named one (and
     # Glue would deny access to the physical, prefixed database that
     # actually exists). Override unconditionally for Glue; keep the

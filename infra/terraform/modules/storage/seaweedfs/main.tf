@@ -78,21 +78,6 @@ resource "kubernetes_secret_v1" "s3_auth_config" {
               binding.gold_bucket_name,
             ] : ["Read:${bucket}", "Write:${bucket}", "List:${bucket}"]]),
             [for action in ["Read", "Write", "List"] : "${action}:${binding.ops_bucket_name}/activations/${stage}*"],
-            # Published Floe manifest revisions live at the ops bucket root
-            # (olf.revision is deliberately stage/activation-independent -
-            # a revision is not an activation), so every stage's Floe
-            # runtime needs read access to fetch its own manifest, even
-            # though it cannot write there.
-            [
-              "Read:${binding.ops_bucket_name}/floe/manifests*",
-              "Read:${binding.ops_bucket_name}/floe/revisions*",
-            ],
-            # Floe run reports are likewise published at the ops bucket
-            # root (per-domain, not per-stage - project_code_check.py
-            # asserts report_base_uri = s3://<ops>/floe/reports/<domain>),
-            # and the runner itself writes them, so this grant needs write
-            # access unlike the read-only revisions grant above.
-            [for action in ["Read", "Write", "List"] : "${action}:${binding.ops_bucket_name}/floe/reports*"],
           )
         }],
       )

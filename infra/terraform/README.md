@@ -75,7 +75,7 @@ owns:
 - Kubernetes Secrets used as service contracts
 - SeaweedFS bucket creation jobs
 - Polaris catalog and Trino principal bootstrap jobs
-- Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
+- Polaris Floe principal bootstrap credentials for the per-domain Floe Jobs
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
 - Dagster webserver, daemon, domain product code servers, and Kubernetes run launcher
 - Superset webserver and worker
@@ -84,8 +84,8 @@ owns:
 
 `olf deploy --provider local --phase artifacts` owns the local/CD artifacts:
 
+- catalog namespace reconciliation
 - project-code image build/load
-- domain Floe manifest generation and upload to the local ops bucket
 - product Superset report import
 - OpenMetadata domain, data-product, Bronze, Silver, and Gold metadata from domain YAML files
 - Dagster rollout after dynamic artifacts are available
@@ -139,9 +139,9 @@ uv run --project tools/olf --locked olf deploy --provider azure --phase artifact
 `olf deploy --provider azure --phase platform` builds and pushes the custom
 Superset image to ACR before Terraform apply because the Superset Helm release
 waits for pods during install.
-`olf deploy --provider azure --phase artifacts` generates Floe manifests, builds and pushes the
-project-code image, uploads manifests to the in-cluster SeaweedFS ops bucket,
-imports Superset reports, deploys OpenMetadata metadata, and restarts Dagster.
+`olf deploy --provider azure --phase artifacts` reconciles catalog namespaces, builds and
+pushes the project-code image, imports Superset reports, deploys OpenMetadata metadata,
+and restarts Dagster.
 
 The Azure POC keeps SeaweedFS, PostgreSQL, Polaris, and Kubernetes Secrets
 in-cluster. Azure Blob/ADLS, Azure PostgreSQL Flexible Server, Key Vault,
@@ -176,10 +176,9 @@ medallion and ops buckets, RDS PostgreSQL, product-layer Glue
 databases/namespaces, Pod Identity workload access, and the shared Helm
 services on EKS.
 
-`olf deploy --provider aws --phase artifacts` generates Floe manifests, builds and pushes the
-project-code image, uploads manifests directly to the S3 ops bucket, imports
-Superset reports, deploys OpenMetadata metadata, patches Dagster images, and
-restarts Dagster workloads.
+`olf deploy --provider aws --phase artifacts` reconciles catalog namespaces, builds and
+pushes the project-code image, imports Superset reports, deploys OpenMetadata metadata,
+patches Dagster images, and restarts Dagster workloads.
 
 The AWS POC keeps Trino as the query path. Athena, Secrets Manager, External
 Secrets, Lake Formation, ingress, DNS, TLS, and remote state are future

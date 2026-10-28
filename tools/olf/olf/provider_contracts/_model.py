@@ -96,8 +96,6 @@ class StageContract:
                 "bucket_name": ops_storage["bucket_name"],
                 "artifact_base_uri": stage_uri,
                 "access_mode": ops_storage.get("access_mode", "remote"),
-                "base_uri": f"{stage_uri}/floe/manifests",
-                "floe_report_base_uri": f"{stage_uri}/floe/reports",
                 "log_base_uri": f"{stage_uri}/logs",
                 "run_artifact_base_uri": f"{stage_uri}/run-artifacts",
                 "local_upload_access_mode": ops_storage.get("local_upload_access_mode", "direct"),

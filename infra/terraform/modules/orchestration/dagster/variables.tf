@@ -76,40 +76,13 @@ variable "code_locations" {
   ]
 }
 
-variable "floe_manifest_base_uri" {
-  description = "S3 base URI containing generated domain Floe manifests loaded by Dagster."
-  type        = string
-}
-
-variable "floe_manifest_access_mode" {
-  description = "How Floe runner pods access generated manifests. Use remote for Kubernetes runner pods and local only for same-container local-process execution."
-  type        = string
-  default     = "remote"
-
-  validation {
-    condition     = contains(["remote", "local"], var.floe_manifest_access_mode)
-    error_message = "floe_manifest_access_mode must be either remote or local."
-  }
-}
-
-variable "floe_manifest_revision" {
-  description = "Content revision of generated domain Floe manifests used to force Dagster code-server rollouts."
-  type        = string
-  default     = "manual"
-}
-
 variable "artifact_bucket_name" {
-  description = "S3-compatible operational artifact bucket used for manifests, logs, reports, and run artifacts."
+  description = "S3-compatible operational artifact bucket used for logs, reports, and run artifacts."
   type        = string
 }
 
 variable "artifact_base_uri" {
   description = "S3 base URI of the operational artifact bucket."
-  type        = string
-}
-
-variable "floe_report_base_uri" {
-  description = "S3 base URI where Floe run reports are written."
   type        = string
 }
 

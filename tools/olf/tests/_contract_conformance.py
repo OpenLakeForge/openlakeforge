@@ -70,11 +70,9 @@ STAGE_CREDENTIAL_BINDINGS: tuple[tuple[str, Any], ...] = (
 
 # Exports that must land under the stage's own activation prefix, mapped to the
 # suffix each adds. Stages share one ops bucket, so the prefix is the only
-# thing keeping one stage's manifests, logs and run artifacts out of another's.
+# thing keeping one stage's logs and run artifacts out of another's.
 ACTIVATION_URIS = {
     "OPENLAKEFORGE_ARTIFACT_BASE_URI": "",
-    "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI": "/floe/manifests",
-    "OPENLAKEFORGE_FLOE_REPORT_BASE_URI": "/floe/reports",
     "OPENLAKEFORGE_LOG_BASE_URI": "/logs",
     "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "/run-artifacts",
 }

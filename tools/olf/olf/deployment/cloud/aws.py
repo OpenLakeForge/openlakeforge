@@ -2,7 +2,7 @@
 
 Port of the AWS-specific branches of `scripts/aws/{foundation,stack,images}/
 *.sh`: caller-identity preflight, EKS Terraform variables, `eks update-
-kubeconfig`, ECR login, and the AWS Glue Floe profile strategy.
+kubeconfig`, and ECR login.
 """
 
 from __future__ import annotations

@@ -154,7 +154,6 @@ def test_inventory_resolves_provider_physical_names() -> None:
         bronze_bucket="openlakeforge-poc-bronze",
         silver_bucket="openlakeforge-poc-silver",
         gold_bucket="openlakeforge-poc-gold",
-        manifest_base_uri="s3://openlakeforge-poc-ops/floe/manifests",
     )
 
     assert names.catalog_namespaces[0].name == "sales_silver"
@@ -163,7 +162,6 @@ def test_inventory_resolves_provider_physical_names() -> None:
     assert names.gold_schema_fqns["inventory_reliability"] == (
         "aws_glue.lakehouse_dev.inventory_reliability_gold"
     )
-    assert names.domains[0].manifest_uri == "s3://openlakeforge-poc-ops/floe/manifests/sales/sales.manifest.json"
     assert names.bronze_namespaces["crm"] == "crm_bronze"
     assert names.bronze_schema_fqns["crm"] == "aws_glue.lakehouse_dev.crm_bronze"
 

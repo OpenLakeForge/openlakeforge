@@ -204,7 +204,6 @@ class PhysicalDomainNames:
     domain: str
     silver_namespace: str
     silver_schema_fqn: str
-    manifest_uri: str
 
 
 @dataclass(frozen=True)
@@ -248,10 +247,6 @@ class PhysicalInventory:
     @property
     def bronze_schema_fqns(self) -> dict[str, str]:
         return {source.source: source.bronze_schema_fqn for source in self.sources}
-
-    @property
-    def domain_floe_manifest_uris(self) -> dict[str, str]:
-        return {domain.domain: domain.manifest_uri for domain in self.domains}
 
 
 @dataclass(frozen=True)
@@ -356,7 +351,6 @@ class LakehouseInventory:
         bronze_bucket: str,
         silver_bucket: str,
         gold_bucket: str,
-        manifest_base_uri: str,
         namespace_prefix: str = "",
     ) -> PhysicalInventory:
         """Resolve physical names from provider-contract values.
@@ -382,7 +376,6 @@ class LakehouseInventory:
                     domain=domain.name,
                     silver_namespace=physical_name,
                     silver_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
-                    manifest_uri=f"{manifest_base_uri.rstrip('/')}/{domain.name}/{domain.name}.manifest.json",
                 )
             )
         for product in self.products:

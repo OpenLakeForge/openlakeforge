@@ -43,8 +43,6 @@
     "bucket_name": "openlakeforge-ops",
     "artifact_base_uri": "s3://openlakeforge-ops",
     "access_mode": "remote",
-    "base_uri": "s3://openlakeforge-ops/floe/manifests",
-    "floe_report_base_uri": "s3://openlakeforge-ops/floe/reports",
     "log_base_uri": "s3://openlakeforge-ops/logs",
     "run_artifact_base_uri": "s3://openlakeforge-ops/run-artifacts",
     "local_upload_access_mode": "kubectl-port-forward"

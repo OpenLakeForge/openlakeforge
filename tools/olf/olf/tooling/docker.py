@@ -178,34 +178,6 @@ class Docker:
         exec_args.extend(args)
         return self._run(exec_args, env=env, check=check, stdin_path=stdin_path)
 
-    def run_container(
-        self,
-        image: str,
-        args: Sequence[str],
-        *,
-        remove: bool = True,
-        platform: str | None = None,
-        env_names: Sequence[str] = (),
-        volumes: Sequence[str] = (),
-        workdir: str | None = None,
-        env: Mapping[str, str] | None = None,
-        retry_policy: RetryPolicy | None = None,
-    ) -> CommandResult:
-        run_args = ["run"]
-        if remove:
-            run_args.append("--rm")
-        if platform is not None:
-            run_args += ["--platform", platform]
-        for name in env_names:
-            run_args += ["-e", name]
-        for volume in volumes:
-            run_args += ["-v", volume]
-        if workdir is not None:
-            run_args += ["-w", workdir]
-        run_args.append(image)
-        run_args.extend(args)
-        return self._run(run_args, env=env, retry_policy=retry_policy)
-
     def context_show(self, *, env: Mapping[str, str] | None = None) -> str:
         return self._run(["context", "show"], env=env).stdout.strip()
 

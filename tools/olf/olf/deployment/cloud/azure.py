@@ -2,8 +2,7 @@
 
 Port of the Azure-specific branches of `scripts/azure/{foundation,stack,
 images}/*.sh`: subscription-login preflight, AKS Terraform variables,
-`az aks get-credentials`, ACR login, and the rendered (local-k8s.yml) Floe
-profile strategy - Azure hits the same profile branches local does.
+`az aks get-credentials`, and ACR login.
 """
 
 from __future__ import annotations

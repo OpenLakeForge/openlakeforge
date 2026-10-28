@@ -4,13 +4,9 @@ A project revision identifies the complete promotable data project by
 content: descriptors, Floe contracts, dbt, Dagster orchestration code, report
 assets when present, the project-code image digest, and the distribution
 version. It intentionally excludes `openlakeforge.yaml` (deployment intent,
-not project content) and every stage-rendered Floe artifact (manifests,
-profiles) -- those embed physical bucket names, namespaces, and secret
-references and are regenerated per stage by #115. See ADR 0012.
-
-Unlike `olf.revision` (the v0.2 Floe runtime-artifact revision, now under
-`olf floe revision`), this revision never touches a rendered Floe manifest --
-only the checked-in domain contract that produces one.
+not project content). The Floe profile is not project content either: it
+binds physical bucket names, namespaces and secret references, so each stage
+renders its own on the pod (libs/floe_profile.py). See ADR 0012.
 """
 
 from __future__ import annotations

@@ -60,15 +60,9 @@ locals {
     ? abspath(pathexpand(var.helm_repository_config_path))
     : abspath("${path.root}/../../../../.tmp/helm/aws/repositories.yaml")
   )
-  artifact_base_uri      = "s3://${module.s3.ops_bucket_name}"
-  floe_manifest_base_uri = "${local.artifact_base_uri}/floe/manifests"
-  floe_report_base_uri   = "${local.artifact_base_uri}/floe/reports"
-  log_base_uri           = "${local.artifact_base_uri}/logs"
-  run_artifact_base_uri  = "${local.artifact_base_uri}/run-artifacts"
-  domain_floe_manifest_uris = {
-    sales        = "${local.floe_manifest_base_uri}/sales/sales.manifest.json"
-    supply_chain = "${local.floe_manifest_base_uri}/supply_chain/supply_chain.manifest.json"
-  }
+  artifact_base_uri     = "s3://${module.s3.ops_bucket_name}"
+  log_base_uri          = "${local.artifact_base_uri}/logs"
+  run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
   # Databases/namespaces themselves are not declared here. `olf catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
@@ -443,28 +437,6 @@ resource "aws_iam_policy" "stage_workloads" {
       },
       {
         Effect = "Allow"
-        Action = ["s3:GetObject"]
-        # Floe manifests/revisions are published at the ops bucket root
-        # (immutable, content-addressed - libs/floe_revision.py, olf/revision.py),
-        # deliberately independent of any stage's activations/<stage> prefix.
-        # Every stage's Dagster runtime must read them regardless of which
-        # stage published the currently-active revision.
-        Resource = [
-          "${module.s3.ops_bucket_arn}/floe/manifests/*",
-          "${module.s3.ops_bucket_arn}/floe/revisions/*",
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = ["s3:GetObject", "s3:PutObject"]
-        # The Floe binary's own run report_base (baked into each manifest
-        # from the same bucket-root floe_manifest_base_uri local as above)
-        # is keyed by domain, not by stage - one more artifact this POC's
-        # single-stage topology keeps out of the activations/<stage> prefix.
-        Resource = ["${module.s3.ops_bucket_arn}/floe/reports/*"]
-      },
-      {
-        Effect = "Allow"
         Action = [
           "glue:GetCatalog",
           "glue:GetDatabase",
@@ -676,19 +648,13 @@ module "dagster" {
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
   })
-  postgresql_contract = local.stage_metadata_database_contracts[each.key]
-  postgresql_ssl_mode = "require"
-  code_locations      = local.orchestration_contract.code_locations
-  # Floe manifests are published at the ops bucket root (immutable revision,
-  # not a stage activation - see olf.revision and libs/product_dagster.py's
-  # _remote_manifest_uri), not under any stage's activations/<stage> prefix.
-  floe_manifest_base_uri    = local.floe_manifest_base_uri
-  floe_manifest_access_mode = local.artifact_bucket_contract.access_mode
-  artifact_bucket_name      = local.artifact_bucket_contract.bucket_name
-  artifact_base_uri         = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
-  floe_report_base_uri      = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/floe/reports"
-  log_base_uri              = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
-  run_artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
+  postgresql_contract   = local.stage_metadata_database_contracts[each.key]
+  postgresql_ssl_mode   = "require"
+  code_locations        = local.orchestration_contract.code_locations
+  artifact_bucket_name  = local.artifact_bucket_contract.bucket_name
+  artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
+  log_base_uri          = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
+  run_artifact_base_uri = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
   depends_on = [
     module.trino,

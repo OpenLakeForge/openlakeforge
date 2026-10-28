@@ -94,8 +94,8 @@ def test_build_project_code_image_bakes_no_stage_or_revision_binding(tmp_path: P
 
     assert image == "ghcr.io/openlakeforge/project-code:local"
     build_call = next(c for c in runner.calls if c.argv[1] == "build")
-    # One image serves every stage: Floe builds its manifest in the pod.
-    assert not any(arg.startswith("FLOE_MANIFEST_REVISION=") for arg in build_call.argv)
+    # One image serves every stage: nothing stage- or revision-bound is baked in.
+    assert not any("REVISION=" in arg or "STAGE=" in arg for arg in build_call.argv)
     assert build_call.argv[2] == str(config.paths.repo_root)
 
 
