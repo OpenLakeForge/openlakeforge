@@ -40,6 +40,20 @@ class OpenMetadataClient(JsonHttpClient):
         except ServiceClientError as exc:
             raise OpenMetadataError(f"OpenMetadata login failed: {exc}") from exc
 
+    def list_domains(self, *, page_size: int = 100) -> list[tuple[str, str]]:
+        """Every domain's name and display name, following the `paging.after` cursor to the last page."""
+        domains: list[tuple[str, str]] = []
+        after = ""
+        while True:
+            params: dict[str, Any] = {"limit": page_size}
+            if after:
+                params["after"] = after
+            page = self.request("GET", "/api/v1/domains", params=params)
+            domains += [(domain["name"], domain.get("displayName") or "") for domain in page.get("data", [])]
+            after = page.get("paging", {}).get("after") or ""
+            if not after:
+                return domains
+
     def request(
         self,
         method: str,
