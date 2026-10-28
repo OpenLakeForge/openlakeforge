@@ -71,7 +71,6 @@ class GoldTable:
 class ArtifactPrefixes:
     """Object-store locations derived from an owner's logical identity."""
 
-    manifest_key: str
     floe_report_prefix: str
     dbt_artifact_prefix: str
 
@@ -156,7 +155,6 @@ class Domain:
     @property
     def artifact_prefixes(self) -> ArtifactPrefixes:
         return ArtifactPrefixes(
-            manifest_key=f"floe/manifests/{self.name}/{self.name}.manifest.json",
             floe_report_prefix=f"floe/reports/{self.name}/",
             dbt_artifact_prefix="",
         )
@@ -323,10 +321,6 @@ class LakehouseInventory:
     @property
     def gold_mart_names(self) -> tuple[str, ...]:
         return tuple(mart for product in self.products for mart in product.gold_mart_names)
-
-    @property
-    def manifest_keys(self) -> tuple[str, ...]:
-        return tuple(domain.artifact_prefixes.manifest_key for domain in self.domains)
 
     @property
     def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:

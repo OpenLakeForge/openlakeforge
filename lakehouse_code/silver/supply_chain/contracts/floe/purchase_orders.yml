@@ -1,0 +1,12 @@
+name: "purchase_orders"
+source: { ref: "erp", resource: "purchase_orders" }
+schema:
+  primary_key: ["purchase_order_id"]
+  columns:
+    - { name: "purchase_order_id", type: "string", nullable: false }
+    - { name: "supplier_id", type: "string", nullable: false }
+    - { name: "product_id", type: "string", nullable: false }
+    - { name: "warehouse_id", type: "string", nullable: false }
+    - { name: "order_date", type: "date", nullable: false }
+    - { name: "expected_date", type: "date", nullable: false }
+    - { name: "ordered_units", type: "integer", nullable: false }

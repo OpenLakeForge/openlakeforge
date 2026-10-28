@@ -1,0 +1,10 @@
+name: "shipments"
+source: { ref: "erp", resource: "shipments" }
+schema:
+  primary_key: ["shipment_id"]
+  columns:
+    - { name: "shipment_id", type: "string", nullable: false }
+    - { name: "purchase_order_id", type: "string", nullable: false }
+    - { name: "ship_date", type: "date", nullable: false }
+    - { name: "delivered_date", type: "date", nullable: false }
+    - { name: "received_units", type: "integer", nullable: false }

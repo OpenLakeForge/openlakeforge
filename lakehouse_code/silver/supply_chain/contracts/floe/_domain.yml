@@ -1,0 +1,14 @@
+name: "supply_chain"
+defaults:
+  incremental_mode: "none"
+  sink:
+    write_mode: "overwrite"
+    accepted:
+      format: "iceberg"
+      path: "supply_chain/{{entity.name}}"
+      storage: "lakehouse_silver"
+      iceberg: { catalog: "iceberg_catalog", namespace: "supply_chain_silver" }
+    rejected: { format: "csv", path: "floe/rejected/supply_chain/{{entity.name}}", storage: "lakehouse_silver" }
+  policy: { severity: "reject" }
+  schema:
+    normalize_columns: { enabled: true, strategy: "snake_case" }

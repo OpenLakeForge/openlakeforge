@@ -1,0 +1,12 @@
+name: "subscriptions"
+source: { ref: "crm", resource: "subscriptions" }
+schema:
+  primary_key: ["subscription_id"]
+  columns:
+    - { name: "subscription_id", type: "string", nullable: false }
+    - { name: "account_id", type: "string", nullable: false }
+    - { name: "plan_name", type: "string", nullable: false }
+    - { name: "status", type: "string", nullable: false }
+    - { name: "start_date", type: "date", nullable: false }
+    - { name: "renewal_date", type: "date", nullable: false }
+    - { name: "monthly_recurring_revenue", type: "number", nullable: false }

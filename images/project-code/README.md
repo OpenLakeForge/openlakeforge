@@ -9,18 +9,21 @@ The image is built locally as:
 ghcr.io/openlakeforge/project-code:local
 ```
 
-Generate the Floe manifests, then build and load the image into kind with:
+Build and load the image into kind with:
 
 ```bash
-uv run --project tools/olf --locked olf floe generate-manifests --provider local
 uv run --project tools/olf --locked olf images build project-code
 uv run --project tools/olf --locked olf images load project-code
 ```
 
-The image contains Dagster, `dagster-floe`, dlt extract code, domain-owned
-product Floe contracts, generated product Floe manifests, product dbt projects,
-domain Python code, and shared OpenLakeForge libraries. It intentionally does
-not install the Floe CLI.
+The image contains Dagster, the Floe Python core (`floe-python`) with
+`dagster-floe`, dlt extract code, the Floe project under
+`lakehouse_code/silver/`, product dbt projects, domain Python code, and shared
+OpenLakeForge libraries. Floe runs in-process in the Dagster run pod: the code
+location builds the Floe manifest in memory from the project and the
+EnvironmentProfile `libs/floe_profile.py` renders from the stage's contract
+values, so the image carries no generated manifest and no stage binding for
+Floe. See [Floe validation](../../docs/architecture/floe-validation.md).
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `olf deploy --provider aws --phase artifacts`.
@@ -28,14 +31,3 @@ The dbt profile rendered into the image is selected with
 `PROJECT_CODE_DBT_PROFILE_ENV` (`local`, `azure`, or `aws`). The Docker build
 renders `libs/dbt/profiles/<env>.yml` into each product project before baking
 dbt manifests.
-`olf floe generate-manifests` generates the product manifests locally, bakes them into
-this image for Dagster asset loading, and publishes the same files to SeaweedFS
-outside Terraform for separate runner pods.
-
-Dagster uses `dagster-floe` in remote manifest mode for Kubernetes:
-`OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. The Dagster code server reads
-the local manifest from this image to build deterministic asset definitions,
-while the manifest-declared Floe runner image receives
-the corresponding `s3://openlakeforge-ops/floe/manifests/...` manifest URI at runtime.
-`local` manifest mode is only valid when Floe runs in the same container as
-Dagster.

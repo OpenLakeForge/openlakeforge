@@ -1,0 +1,8 @@
+name: "channels"
+source: { ref: "crm", resource: "channels" }
+schema:
+  primary_key: ["channel_id"]
+  columns:
+    - { name: "channel_id", type: "string", nullable: false }
+    - { name: "channel_name", type: "string", nullable: false }
+    - { name: "channel_type", type: "string", nullable: false }

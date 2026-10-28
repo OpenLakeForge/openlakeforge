@@ -1,0 +1,12 @@
+name: "orders"
+source: { ref: "crm", resource: "orders" }
+schema:
+  primary_key: ["order_id"]
+  columns:
+    - { name: "order_id", type: "string", nullable: false }
+    - { name: "customer_id", type: "string", nullable: false }
+    - { name: "order_date", type: "date", nullable: false }
+    - { name: "channel_id", type: "string", nullable: false }
+    - { name: "promotion_id", type: "string", nullable: false }
+    - { name: "region", type: "string", nullable: false }
+    - { name: "status", type: "string", nullable: false }

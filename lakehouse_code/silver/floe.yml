@@ -1,0 +1,16 @@
+version: "0.8"
+
+metadata:
+  project: "openlakeforge"
+  description: "Bronze to Silver Floe contracts for every OpenLakeForge domain."
+
+# Storages and catalogs are stage bindings: the EnvironmentProfile the
+# project-code runtime renders for its stage supplies both (libs/floe_profile.py).
+report:
+  path: "floe/reports"
+  storage: "openlakeforge_ops"
+
+include:
+  sources: "sources.yml"
+  domains:
+    - "*/contracts/floe/_domain.yml"
