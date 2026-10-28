@@ -83,3 +83,10 @@ def test_missing_region_is_refused() -> None:
 def test_glue_catalog_is_refused() -> None:
     with pytest.raises(FloeProfileError, match="REST catalog only"):
         render_profile({**_STAGE, "AWS_REGION": "us-east-1", "OPENLAKEFORGE_CATALOG_TYPE": "glue"})
+
+
+def test_an_empty_oauth_scope_falls_back_to_all_principal_roles() -> None:
+    # Terraform renders an unset contract scope as an empty string.
+    profile = render_profile({**_STAGE, "AWS_REGION": "us-east-1", "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE": ""})
+
+    assert profile["catalogs"]["definitions"][0]["scope"] == "PRINCIPAL_ROLE:ALL"
