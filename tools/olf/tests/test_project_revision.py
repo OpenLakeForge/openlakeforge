@@ -383,6 +383,9 @@ def test_dbt_component_excludes_local_artifacts(external_project: Path) -> None:
     (dbt_root / "logs/dbt.log").write_text("http://seaweedfs-s3:8333 would trip the scanner if included\n")
     (dbt_root / ".user.yml").write_text("id: local-only\n")
     (dbt_root / "package-lock.yml").write_text("packages: []\n")
+    (dbt_root / "profiles.yml").write_text("demo:\n  outputs:\n    dev:\n      host: http://trino:8080\n")
+    (dbt_root / "target").mkdir(exist_ok=True)
+    (dbt_root / "target/manifest.json").write_text('{"database": "lakehouse_dev"}\n')
 
     manifest = _build(external_project)  # must not raise, and must not include the local artifacts
 
@@ -390,6 +393,19 @@ def test_dbt_component_excludes_local_artifacts(external_project: Path) -> None:
     assert not any("logs/" in key for key in dbt_keys)
     assert not any(key.endswith(".user.yml") for key in dbt_keys)
     assert not any(key.endswith("package-lock.yml") for key in dbt_keys)
+    assert not any(key.endswith("profiles.yml") for key in dbt_keys)
+    assert not any("target/" in key for key in dbt_keys)
+
+
+def test_a_stage_profile_does_not_change_the_revision(external_project: Path) -> None:
+    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    before = _build(external_project).revision
+
+    (dbt_root / "profiles.yml").write_text("order_revenue:\n  outputs:\n    prod:\n      database: lakehouse_prod\n")
+    with_prod_profile = _build(external_project).revision
+    (dbt_root / "profiles.yml").write_text("order_revenue:\n  outputs:\n    dev:\n      database: lakehouse_dev\n")
+
+    assert before == with_prod_profile == _build(external_project).revision
 
 
 def test_dbt_local_artifacts_do_not_change_the_revision(external_project: Path) -> None:

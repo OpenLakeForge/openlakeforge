@@ -273,10 +273,14 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
     project.mkdir(parents=True)
     (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
     commands: list[list[str]] = []
+    parsed_profiles: list[str] = []
 
     class Runner:
         def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
             commands.append(argv)
+            if "parse" in argv:
+                profiles_dir = Path(argv[argv.index("--profiles-dir") + 1])
+                parsed_profiles.append((profiles_dir / "profiles.yml").read_text())
 
     class Resolver:
         def resolve(self, name: str) -> Path:
@@ -297,7 +301,10 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
     result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
 
     assert result.exit_code == 0
-    assert (project / "profiles.yml").is_file()
+    assert parsed_profiles and parsed_profiles[0].startswith("demo:")
+    # The rendered profile is a stage binding, so it must not land in the
+    # project the revision freezes (#546).
+    assert not (project / "profiles.yml").exists()
     assert commands[-1][-2:] == ["--target", "local_runtime"]
 
 

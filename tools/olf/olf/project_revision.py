@@ -40,9 +40,11 @@ _ALL_COMPONENT_NAMES = _REQUIRED_COMPONENT_NAMES | {"reports"}
 # tracked project. Without excluding them, an identical tracked source tree
 # produces a different revision depending on whether dbt happened to run
 # locally first, and a local log file could spuriously trip the forbidden-
-# value scan.
+# value scan. `profiles.yml` is the stage's connection, rendered by
+# libs/dbt/render_profiles.py: excluding it keeps one revision promotable
+# across stages and providers whatever profile a local run left behind.
 _EXCLUDED_DIR_NAMES = frozenset({"target", "dbt_packages", "logs", "__pycache__", ".venv", ".pytest_cache"})
-_EXCLUDED_FILE_NAMES = frozenset({".user.yml", "package-lock.yml"})
+_EXCLUDED_FILE_NAMES = frozenset({".user.yml", "package-lock.yml", "profiles.yml"})
 _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 # Deliberately narrow: an env var *name* (AWS_REGION, AWS_SECRET_ACCESS_KEY)
 # or a Kubernetes Secret *reference* (secret_name:/secretRef/client_secret_key)

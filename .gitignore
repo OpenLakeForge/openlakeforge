@@ -53,6 +53,7 @@ generated/
 
 # dbt local artifacts
 lakehouse_code/gold/*/dbt/.user.yml
+lakehouse_code/gold/*/dbt/profiles.yml
 lakehouse_code/gold/*/dbt/package-lock.yml
 lakehouse_code/gold/*/dbt/logs/
 lakehouse_code/gold/*/dbt/target/
