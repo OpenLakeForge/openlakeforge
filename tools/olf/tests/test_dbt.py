@@ -82,15 +82,38 @@ def test_the_baked_manifest_is_parsed_with_placeholders_not_the_callers_stage(
     assert not (project / "target/partial_parse.msgpack").exists()
 
 
-def test_a_baked_manifest_is_used_as_is(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_manifest_already_there_is_used_as_is_and_still_gets_a_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from libs.dbt import render_profiles
 
     project = tmp_path / "gold/demo/dbt"
     (project / "target").mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
     (project / "target/manifest.json").write_text("{}")
     monkeypatch.setattr(render_profiles.subprocess, "run", lambda *args, **kwargs: pytest.fail("re-parsed"))
 
-    assert render_profiles.ensure_baked_manifest(project, tmp_path / "profiles") == project / "target/manifest.json"
+    manifest = render_profiles.ensure_baked_manifest(project, tmp_path / "profiles")
+
+    assert manifest == project / "target/manifest.json"
+    # A checkout's manifest can come from `olf check dbt`, which leaves no
+    # profile behind; the run still needs one.
+    assert "demo" in yaml.safe_load((tmp_path / "profiles/profiles.yml").read_text())
+
+
+def test_products_sharing_a_profile_name_are_refused(tmp_path: Path) -> None:
+    from libs.dbt.render_profiles import write_profiles
+
+    projects = []
+    for product in ("orders", "returns"):
+        project = tmp_path / f"gold/{product}/dbt"
+        project.mkdir(parents=True)
+        (project / "dbt_project.yml").write_text(f"name: {product}\nprofile: shared\n")
+        projects.append(project)
+
+    with pytest.raises(ValueError, match="distinct profile names; shared: shared"):
+        write_profiles(projects, tmp_path / "profiles")
+    assert not (tmp_path / "profiles/profiles.yml").exists()
 
 
 def test_all_models_request_atomic_trino_replacement() -> None:

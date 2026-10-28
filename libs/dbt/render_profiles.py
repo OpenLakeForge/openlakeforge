@@ -34,6 +34,14 @@ def discover_project_dirs(root: Path | None = None) -> list[Path]:
     return sorted(path.parent for path in search_root.glob("*/dbt/dbt_project.yml"))
 
 
+def profile_name(project_dir: Path) -> str:
+    dbt_project = project_dir / "dbt_project.yml"
+    name = _read_dbt_project_field(dbt_project, "profile") or _read_dbt_project_field(dbt_project, "name")
+    if not name:
+        raise ValueError(f"Cannot determine dbt profile name from {dbt_project}")
+    return name
+
+
 def render_profile(project_dir: Path, adapter: str = DEFAULT_ADAPTER) -> str:
     project_dir = project_dir.resolve()
     template_path = PROFILE_TEMPLATE_DIR / f"{adapter}.yml"
@@ -41,14 +49,8 @@ def render_profile(project_dir: Path, adapter: str = DEFAULT_ADAPTER) -> str:
         supported = ", ".join(sorted(path.stem for path in PROFILE_TEMPLATE_DIR.glob("*.yml")))
         raise ValueError(f"Unsupported dbt adapter {adapter!r}. Supported: {supported}.")
 
-    profile_name = _read_dbt_project_field(project_dir / "dbt_project.yml", "profile")
-    if not profile_name:
-        profile_name = _read_dbt_project_field(project_dir / "dbt_project.yml", "name")
-    if not profile_name:
-        raise ValueError(f"Cannot determine dbt profile name from {project_dir / 'dbt_project.yml'}")
-
     replacements = {
-        "{{PROFILE_NAME}}": profile_name,
+        "{{PROFILE_NAME}}": profile_name(project_dir),
         "{{GOLD_SCHEMA}}": f"{project_dir.parent.name}_gold",
     }
     rendered = template_path.read_text(encoding="utf-8")
@@ -59,6 +61,14 @@ def render_profile(project_dir: Path, adapter: str = DEFAULT_ADAPTER) -> str:
 
 def write_profiles(project_dirs: Iterable[Path], output_dir: Path, adapter: str = DEFAULT_ADAPTER) -> Path:
     """Write one profiles.yml holding every product's profile."""
+    project_dirs = list(project_dirs)
+    # Each product's profile carries its own Gold schema. In one shared file a
+    # repeated name would be a duplicate YAML key, and the last product's
+    # schema would silently win for both.
+    names = [profile_name(project_dir) for project_dir in project_dirs]
+    shared = sorted({name for name in names if names.count(name) > 1})
+    if shared:
+        raise ValueError(f"dbt products must use distinct profile names; shared: {', '.join(shared)}")
     output_dir.mkdir(parents=True, exist_ok=True)
     profile_path = output_dir / "profiles.yml"
     profile_path.write_text(
@@ -89,12 +99,16 @@ def bake_manifest(project_dir: Path, profiles_dir: Path, dbt: str = "dbt") -> Pa
 
 
 def ensure_baked_manifest(project_dir: Path, profiles_dir: Path = BAKED_PROFILES_DIR) -> Path:
-    """Return the image's manifest, baking one where none was (a checkout)."""
+    """Return the image's manifest, baking one where none was (a checkout).
+
+    The profile is ensured either way: runs read it from `profiles_dir`, and a
+    checkout can hold a manifest from `olf check dbt` without one.
+    """
+    if not (profiles_dir / "profiles.yml").is_file():
+        write_profiles(discover_project_dirs(project_dir.parents[1]), profiles_dir)
     manifest_path = project_dir / "target" / "manifest.json"
     if manifest_path.is_file():
         return manifest_path
-    if not (profiles_dir / "profiles.yml").is_file():
-        write_profiles(discover_project_dirs(project_dir.parents[1]), profiles_dir)
     return bake_manifest(project_dir, profiles_dir)
 
 
