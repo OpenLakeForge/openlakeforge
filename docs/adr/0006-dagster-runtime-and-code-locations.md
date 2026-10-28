@@ -41,26 +41,35 @@ compute-log archiver (`libs.k8s_log_archive`) is rendered into it through the
 user-deployments subchart's `extraManifests`, which also keeps it on the digest
 its stage actually runs.
 
-### Floe runs in-process, from the project's own contracts
+### Floe runs one Kubernetes Job per domain, from the project's own contracts
 
 Floe 0.8 is a Python library, and the project-code image installs it. The code
 location builds the Floe manifest in memory from the Floe project under
 `lakehouse_code/silver/` and an EnvironmentProfile it renders for its own
-stage (`libs/floe_profile.py`), and dagster-floe runs each entity in-process
-inside the Dagster run pod. No manifest is generated, published or versioned,
-and there is no separate Floe runner image or per-entity Kubernetes Job.
+stage (`libs/floe_profile.py`). No manifest is generated, published or
+versioned, and there is no separate Floe runner image.
+
+The profile's runner is `kubernetes_job` with `job_scope: domain`: dagster-floe
+builds one subsettable asset per domain, and a run that materializes it
+launches one Kubernetes Job per domain in the stage namespace, under the
+`dagster` service account the run launcher already uses. The Job runs on the
+same project-code image digest as the run pod, through the `olf-floe-job`
+entrypoint (`libs/floe_job.py`), and validates the selected entities one after
+another (`sequential` orchestration). Only the entities the run selected are
+passed to it.
 
 The profile is rendered on the pod rather than at activation because it is
 the only stage-bound Floe input: rendering it from the contract values the
-activation release already sets keeps one image digest valid for every stage,
-and the run pod needs no artifact that a separate process would have to
-publish first.
+activation release already sets keeps one image digest valid for every stage.
+The Job re-renders the same profile from the non-secret contract values
+forwarded in its environment; credentials reach it only as Secret references,
+so no credential value enters the profile, the manifest or the Job spec.
 
-The trade-off is isolation. A Floe entity shares its run pod's memory and
-credentials with the rest of the run, and the profile's `sequential`
-orchestration (one entity at a time) is what bounds that memory.
-[Floe validation](../architecture/floe-validation.md) describes the
-layout and the catalogs Floe 0.8 supports.
+The trade-off is a pod per domain per run against isolation: Floe does not
+share the run pod's memory or mounted credentials, and each domain's Job holds
+only the Secrets its runner names. [Floe
+validation](../architecture/floe-validation.md) describes the layout and the
+catalogs Floe 0.8 supports.
 
 ### One merged code location by default
 
@@ -122,12 +131,6 @@ project-code runtime), 0004 (manifest-first Floe ingestion, generalized from the
 Sales seed product), 0014's code-location half, and 0019 (the merged code
 location default, which superseded ADR 0014's per-domain split).
 
-2026-10-28: Floe moved into the project-code image (#533). Floe 0.8's Python
-core lets dagster-floe build the manifest in memory and run entities
-in-process, so the manifest-driven split -- a separate runner image, one
-Kubernetes Job per entity, and `s3://` manifests published at activation --
-is gone.
-
 2026-09-03: Moved project user-deployment ownership from the Terraform Dagster
 release to stage activation (#115); the control plane keeps a stable external
 workspace endpoint. The control plane and run launcher stopped referencing the
@@ -139,3 +142,9 @@ set (#185). The #115 split left Terraform and activation deciding it
 independently, agreeing only because both repeated the module variable's
 default; a rename or a configured split broke the stage silently. The shipped
 default — one merged location — is unchanged.
+
+2026-10-28: Floe moved into the project-code image (#533). Floe 0.8's Python
+core lets dagster-floe build the manifest in memory, so the separate runner
+image and the `s3://` manifests published at activation are gone. Floe still
+runs in Kubernetes Jobs, now one per domain on the project-code image rather
+than one per entity.

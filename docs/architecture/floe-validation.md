@@ -46,17 +46,22 @@ baked into it.
 ## From contract to Dagster asset
 
 dagster-floe builds the manifest in memory from the project and the rendered
-profile (`load_floe_assets(config_path=..., profile_path=...)`); no manifest is
-generated, published or versioned. [The Dagster
-integration](../../libs/product_dagster.py) loads every entity as an asset and
-points each one at its own Bronze resource, read from the entity's
-`source.ref` and `resource`.
+profile (`manifest_from_config`); no manifest is generated, published or
+versioned. [The Dagster integration](../../libs/product_dagster.py) loads one
+subsettable asset per domain and points each Silver table at its own Bronze
+resource `<source>/<resource>`, read from the entity's `source.ref` and
+`resource`. It drops the manifest's named-source index first: dagster-floe
+would otherwise key every entity of a named source to one shared
+`sources/<project>/<source>` asset, which cannot be split into per-resource
+Bronze assets on a domain asset, and Silver would no longer wait for Bronze.
 
 | Concern | How it works |
 | --- | --- |
-| Execution | `floe-python` is installed in the project-code image, so dagster-floe's in-process runner calls `floe.run` inside the Dagster run pod. There is no Floe runner image and no Kubernetes Job per entity. |
-| Concurrency | The profile's `sequential` orchestration becomes `max_concurrent: 1` on each product job, which bounds the run pod's memory to one entity at a time. |
-| Credentials | The run pod already mounts the stage's object-store and catalog Secrets; Floe expands the catalog credential from those environment variables at run time, so no credential enters the profile. |
+| Execution | The profile's runner is `kubernetes_job` with `job_scope: domain`. A run that materializes a domain's asset launches one Kubernetes Job for that domain in the stage namespace, on the run pod's own project-code image and the `dagster` service account. The Job's `olf-floe-job` entrypoint (`libs/floe_job.py`) re-renders the stage profile from the non-secret contract values forwarded in its environment, then execs `floe run` unchanged. |
+| Selection | A run that needs only some of a domain's tables passes just those (`--entities sales.orders,sales.accounts`). Floe 0.8.0 has no domain selector, so a whole-domain run passes the full entity list. |
+| Concurrency | The profile's `sequential` orchestration runs a Job's entities one after another, and becomes `max_concurrent: 1` on each product job, so one domain Job runs at a time. |
+| Credentials | Each Job receives only Secret references (`secretKeyRef`): the Polaris Floe client id and secret, the storage access keys, and, when governance is on, the OpenMetadata ingestion-bot JWT as `OPENLINEAGE_API_KEY`. No credential value enters the profile, the manifest or the Job spec. |
+| Isolation | A domain's Job has its own pod and memory; it does not share the Dagster run pod's memory or its mounted credentials. A run creates one pod per domain it touches. |
 | Run reports | Floe writes them to `floe/reports/<domain>/run_<id>/` under the stage's artifact prefix. dagster-floe 0.3 cannot read them back yet, so assets carry the run's status and exit code but not its row and rejection counts; see the [technical-debt register](../technical-debt.md). |
 
 ## Supported catalogs
@@ -77,7 +82,7 @@ alongside Floe or in a differently shaped pipeline.
 | Technical contract | One entity file declares source, schema and keys; its domain supplies the accepted sink, rejected sink, and policy. | Generic and singular tests assert properties of queryable relations; a Silver model and its input relation must also be defined. | Checks declare or calculate data-quality conditions against a datasource; source-to-Silver mapping remains separate. | dlt schemas and schema contracts can govern loading, but the domain contract and Bronze-to-Silver mapping must be assembled. |
 | Invalid rows | The declared reject policy writes rejected rows to a per-entity quarantine path while accepted rows continue to their declared sink. | Tests return failures; `store_failures` can persist failed test rows, but routing a Bronze reject lane is separate work. | Checks can identify failing rows and report a failed check; persisting and routing a quarantine dataset is separate work. | A schema contract can reject or discard incompatible data; a retained reject dataset, its format, and its handling must be implemented. |
 | Silver materialization | The same contract sends accepted rows to a declared Iceberg table through the catalog. | A dbt model can materialize a relation in its target platform, but it must be supplied with a Bronze query path and separate reject handling. | Soda evaluates data; it does not materialize the Silver table. | dlt can load into a chosen destination; the Iceberg write, catalog use, and transformation policy are choices of the assembly. |
-| Orchestration | dagster-floe turns each entity into a Dagster asset and runs it in-process. | The scheduler and dbt adapter must provide the execution environment. | The scheduler and Soda integration must provide the execution environment. | The pipeline and its scheduler must provide the image, isolation, retries, and run settings. |
+| Orchestration | dagster-floe turns each domain into a subsettable Dagster asset and runs the selected entities in one Kubernetes Job per domain. | The scheduler and dbt adapter must provide the execution environment. | The scheduler and Soda integration must provide the execution environment. | The pipeline and its scheduler must provide the image, isolation, retries, and run settings. |
 | Run result | Floe's run events and report give Dagster the entity's status, row counts and rejections. | Test results and artifacts are provided by dbt; orchestration result handling is separate. | Check results are provided by Soda; orchestration result handling is separate. | The assembly defines its own status, reports, and orchestration contract. |
 
 In this stack, dlt remains the Bronze loader and dbt tests remain available for

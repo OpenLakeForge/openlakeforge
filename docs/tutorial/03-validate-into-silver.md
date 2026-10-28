@@ -94,9 +94,9 @@ Four parts matter:
   know which are optional. Loosen a column by hand when a value may be empty.
 
 > [!NOTE]
-> Nothing here names a bucket or a catalog endpoint. Dagster runs Floe with a
-> profile it renders for the stage it is deployed to, so the same contract
-> validates into DEV and PROD.
+> Nothing here names a bucket or a catalog endpoint. Dagster runs Floe, one
+> Kubernetes Job per domain, with a profile it renders for the stage it is
+> deployed to, so the same contract validates into DEV and PROD.
 
 ## Check it worked
 

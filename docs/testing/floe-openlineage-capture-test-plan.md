@@ -27,7 +27,7 @@ separately in ADR 0001.
 | Requirement | Expected State |
 | --- | --- |
 | Local stack | `uv run --project tools/olf --locked olf deploy --provider local --phase foundation` and `uv run --project tools/olf --locked olf deploy --provider local` have completed. |
-| Floe | The project-code image carries the pinned `floe-python`; Floe runs in-process in the Dagster run pod and takes its lineage endpoint from the pod's `OPENLINEAGE_URL` and `OPENLINEAGE_ENDPOINT`. |
+| Floe | The project-code image carries the pinned `floe-python`; Floe runs in one Kubernetes Job per domain on that image; the run pod forwards its `OPENLINEAGE_URL` and `OPENLINEAGE_ENDPOINT` to the Job, which renders its lineage endpoint from them. |
 | OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
 | dbt OpenLineage | Disabled. The test isolates Floe events only. |
 | Target product | Start with one small path, preferably `order_revenue_pipeline`. |
@@ -50,9 +50,9 @@ container is enough. It does not need authentication for the first capture pass.
 
 | Step | Action | Expected Result |
 | --- | --- | --- |
-| 1 | Deploy the capture service in the stage namespace (`olf-dev`). | `openlineage-capture` is reachable from Dagster run pods. |
+| 1 | Deploy the capture service in the stage namespace (`olf-dev`). | `openlineage-capture` is reachable from Dagster run pods and Floe Jobs. |
 | 2 | Point the code location at it: set `OPENLINEAGE_URL=http://openlineage-capture.olf-dev:5000` and `OPENLINEAGE_ENDPOINT=api/v1/lineage` on the user deployment. | The code location restarts; the profile it renders differs only by lineage settings. |
-| 3 | Confirm the run pods inherit the change. | A run pod launched next carries the same two variables. |
+| 3 | Confirm the run pods inherit the change. | A run pod launched next carries the same two variables, and so does each Floe Job it creates. |
 | 4 | Launch a narrow Dagster run, preferably `order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
 | 5 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
 | 6 | Validate `run.runId` on every event with a UUID parser. | No event uses an old `mfv1-...` style run ID. |

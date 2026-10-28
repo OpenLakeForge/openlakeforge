@@ -49,14 +49,15 @@ When you launch `<product>_pipeline` in Dagster:
 
 1. Dagster starts a short-lived run pod from your project-code image.
 2. The run pod loads each Bronze resource with dlt.
-3. For each Silver table, one after another, the run pod runs Floe in-process.
-   Floe writes accepted rows to Silver and a report to the ops bucket.
+3. For each domain the product reads, the run pod launches one Floe Kubernetes
+   Job on the same image; it validates the selected Silver tables one after
+   another, writing accepted rows to Silver and a report to the ops bucket.
 4. dbt-trino sends the Gold SQL to Trino, which does the work and writes the
    Gold tables.
 5. Floe and dbt emit OpenLineage events to OpenMetadata on Full, so lineage
    comes from the runs themselves.
 
-Run pods are removed after the run, so nothing computes between runs except
+Run pods and Floe Jobs are removed after the run, so nothing computes between runs except
 the long-lived services. Logs, Floe reports and dbt artifacts are
 archived in the ops bucket.
 

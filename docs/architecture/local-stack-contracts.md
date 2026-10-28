@@ -177,8 +177,9 @@ Terraform-managed platform resources and
 `olf deploy --provider local --phase artifacts` for dynamic domain artifacts.
 Dagster builds the Floe asset graph in memory from the Floe project in the
 project-code image and a profile it renders from the stage's contract values,
-and runs Floe in-process in its run pods. Terraform provisions the ops bucket
-and passes the artifact base URIs Floe reports and logs are written under.
+and runs Floe in one Kubernetes Job per domain on the same image. Terraform
+provisions the ops bucket and passes the artifact base URIs Floe reports and
+logs are written under.
 dbt-trino runs inside Dagster Kubernetes run pods from the project-code image
 and writes Gold Iceberg marts to each product's Gold namespace in the
 `lakehouse_dev` Polaris warehouse.

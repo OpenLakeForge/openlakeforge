@@ -63,9 +63,9 @@ Floe and dbt-trino each emit OpenLineage events straight to OpenMetadata's
 `/api/v1/openlineage/lineage` endpoint.
 
 - The Floe environment profile the code location renders carries the endpoint;
-  the run pod receives the ingestion-bot JWT as `OPENLINEAGE_API_KEY` through a
-  Kubernetes Secret reference, and Floe reads it from the environment, so the
-  token never enters the profile.
+  each domain's Floe Job receives the ingestion-bot JWT as `OPENLINEAGE_API_KEY`
+  through a Kubernetes Secret reference (`secretKeyRef`), and Floe reads it from
+  the environment, so the token never enters the profile or the Job spec.
 - `openlineage-dbt` ships in the project-code image; Dagster sets the product job
   name around the dbt invocation so events carry stable logical identities.
 - The dataset namespace matches the catalog identity: `polaris` locally and on
@@ -135,6 +135,7 @@ stage instead of only the canonical one.
 2026-10-01 (#131, #257): table stubs survive the crawl, and lineage pipeline
 entities are recorded as not created on OpenMetadata 1.13.6.
 
-2026-10-28 (#533): Floe emits lineage from the Dagster run pod, in-process, with
-the endpoint in the profile the code location renders; there is no generated
-manifest left to keep credential-free.
+2026-10-28 (#533): Floe emits lineage from one Kubernetes Job per domain, with
+the endpoint in the profile the code location renders and the JWT as a Secret
+reference on the Job; there is no generated manifest left to keep
+credential-free.
