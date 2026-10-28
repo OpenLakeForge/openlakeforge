@@ -64,6 +64,7 @@ All `new` commands validate the result before writing and accept
 | `olf profile validate --project .` | `openlakeforge.yaml` |
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
 | `olf check contracts` | `lakehouse.yaml` and every `source.yaml` |
+| `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | Every product's dbt project compiles |
 | `olf floe generate-manifests` | Every domain's Floe contract, and writes its manifest |
 | `olf report validate [<dashboard>]` | Superset bundles are promotable |
