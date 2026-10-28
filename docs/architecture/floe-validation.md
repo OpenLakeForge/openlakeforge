@@ -49,27 +49,30 @@ dagster-floe builds the manifest in memory from the project and the rendered
 profile (`manifest_from_config`); no manifest is generated, published or
 versioned. [The Dagster integration](../../libs/product_dagster.py) loads one
 subsettable asset per domain and points each Silver table at its own Bronze
-resource `<source>/<resource>`, read from the entity's `source.ref` and
-`resource`. It drops the manifest's named-source index first: dagster-floe
-would otherwise key every entity of a named source to one shared
-`sources/<project>/<source>` asset, which cannot be split into per-resource
-Bronze assets on a domain asset, and Silver would no longer wait for Bronze.
+resource `<source>/<resource>` as `lakehouse.yaml` declares it, through
+dagster-floe's `source_key_fn`; left alone, dagster-floe would key every entity
+of a named source to one shared `sources/<project>/<source>` asset, and Silver
+would not wait for the Bronze resource it reads. The manifest is named
+(`openlakeforge`), so each domain's op keeps its name across contract edits.
 
 | Concern | How it works |
 | --- | --- |
 | Execution | The profile's runner is `kubernetes_job` with `job_scope: domain`. A run that materializes a domain's asset launches one Kubernetes Job for that domain in the stage namespace, on the run pod's own project-code image and the `dagster` service account. The Job's `olf-floe-job` entrypoint (`libs/floe_job.py`) re-renders the stage profile from the non-secret contract values forwarded in its environment, then execs `floe run` unchanged. |
-| Selection | A run that needs only some of a domain's tables passes just those (`--entities sales.orders,sales.accounts`). Floe 0.8.0 has no domain selector, so a whole-domain run passes the full entity list. |
+| Selection | A run that needs a whole domain passes `--domain <domain>`; one that needs only some of its tables passes just those (`--entities sales.orders,sales.accounts`). |
 | Concurrency | The profile's `sequential` orchestration runs a Job's entities one after another, and becomes `max_concurrent: 1` on each product job, so one domain Job runs at a time. |
 | Credentials | Each Job receives only Secret references (`secretKeyRef`): the Polaris Floe client id and secret, the storage access keys, and, when governance is on, the OpenMetadata ingestion-bot JWT as `OPENLINEAGE_API_KEY`. No credential value enters the profile, the manifest or the Job spec. |
 | Isolation | A domain's Job has its own pod and memory; it does not share the Dagster run pod's memory or its mounted credentials. A run creates one pod per domain it touches. |
-| Run reports | Floe writes them to `floe/reports/<domain>/run_<id>/` under the stage's artifact prefix. dagster-floe 0.3 cannot read them back yet, so assets carry the run's status and exit code but not its row and rejection counts; see the [technical-debt register](../technical-debt.md). |
+| Run reports | Floe writes them to `floe/reports/<domain>/run_<id>/` under the stage's artifact prefix, and dagster-floe reads them back with `boto3` to attach each entity's row, accepted and rejected counts and asset-check detail. |
 
 ## Supported catalogs
 
-Floe 0.8 writes Iceberg through a REST catalog only. The local and Azure
-providers use Polaris; the AWS POC binds AWS Glue, which Floe 0.8 rejects, so
-the profile renderer refuses a Glue stage with an explicit error rather than
-producing a profile Floe would fail on later. AWS parity is a cloud-beta item.
+Silver runs through a REST catalog: the local and Azure providers use Polaris.
+Floe 0.8.1 can also write through AWS Glue, but a Glue catalog definition names
+one database for every table it writes, while each OpenLakeForge domain has its
+own stage-prefixed Glue database; until the two are reconciled the profile
+renderer refuses a Glue stage with an explicit error rather than producing a
+profile that writes Silver into the wrong database. AWS parity is a cloud-beta
+item.
 
 ## Capability comparison at the Bronze-to-Silver boundary
 

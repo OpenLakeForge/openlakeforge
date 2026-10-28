@@ -17,21 +17,23 @@ for how a release is cut and verified.
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image
-  (`floe-python` 0.8.0, `dagster-floe` 0.3.0). The code location builds the
+  (`floe-python` 0.8.1, `dagster-floe` 0.3.1). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
-  renders for its own stage, and runs each entity in-process in the Dagster
-  run pod: there is no Floe runner image, no Kubernetes Job per entity, and no
-  generated, published or versioned manifest (#533, ADR 0006).
+  renders for its own stage, and each domain runs as one Kubernetes Job on the
+  same image (`olf-floe-job`): a whole-domain run passes `--domain`, a partial
+  one only the entities it needs. There is no Floe runner image, no Job per
+  entity, and no generated, published or versioned manifest (#533, ADR 0006).
 - The Silver contracts are one Floe project: `lakehouse_code/silver/floe.yml`
   with named Bronze sources in `silver/sources.yml`, and per domain a
   `_domain.yml` of sink defaults plus one file per entity. `olf domain new`
-  and `olf product new` write this layout, and Silver assets now take their
-  Bronze dependency from each entity's `source.ref`/`resource`.
+  and `olf product new` write this layout. Each Silver asset depends on the
+  Bronze resource `lakehouse.yaml` declares for it.
 - Stage activations are written as `ACTIVATION.json` schema 2, without a Floe
   manifest revision; schema-1 records still read and verify as published.
   `olf project status --json` no longer reports `floe_manifest_revision`.
 - Floe run reports of an activated stage are written under its own
-  `activations/<stage>/` prefix.
+  `activations/<stage>/` prefix, and Silver assets carry their row, accepted
+  and rejected counts again.
 
 ### Removed
 
@@ -39,6 +41,9 @@ for how a release is cut and verified.
   upload-manifests`, `libs/floe/profiles/`, and the generated manifests under
   `silver/<domain>/contracts/floe/manifests/`. The runtime patch of
   `floe_dagster.assets._fsspec_read_text` for S3-compatible stores is gone.
+- The provider-contract fields `floe_manifest_*`, `floe_report_base_uri` and
+  `domain_floe_manifest_uris`, their Terraform outputs and Dagster env, and
+  the bucket-root `floe/manifests|revisions|reports` storage grants.
 
 ### Migration
 
@@ -46,11 +51,11 @@ for how a release is cut and verified.
   entity, and declare its Bronze sources in `silver/sources.yml`; the seed
   `sales` and `supply_chain` domains show the shape. Delete
   `contracts/floe/manifests/`.
-- Silver does not run on an AWS Glue catalog: Floe 0.8 writes Iceberg through
-  a REST catalog only, and the profile renderer refuses a Glue stage.
-- Silver assets no longer show Floe's row and rejection counts: dagster-floe
-  0.3 cannot read S3 run reports beside `floe-python` 0.8 (see
-  `docs/technical-debt.md`).
+- The upgrade is one-way: a deploy never rolls a stage back to an activation
+  made before Floe 0.8. If its pointer fails to commit over one, the new
+  release stays installed and the deploy asks to be rerun.
+- Silver does not run on an AWS Glue stage yet: the profile renderer refuses
+  it (see `docs/technical-debt.md`).
 
 ## [0.5.0-alpha.1] - 2026-10-23
 
