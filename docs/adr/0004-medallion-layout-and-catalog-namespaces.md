@@ -33,7 +33,8 @@ User code is organised by medallion layer, and each layer names its owner:
 ```text
 lakehouse_code/
 ├── bronze/<source>/          source-owned: source.yaml + dlt extract
-├── silver/<domain>/          domain-owned: Floe contracts and manifests
+├── silver/floe.yml, sources.yml   the Floe project and its named Bronze sources
+├── silver/<domain>/          domain-owned: Floe domain defaults and one file per entity
 ├── gold/<product>/           product-owned: dbt project
 ├── dashboards/superset/<dashboard>/   consumption-owned: exported report bundles
 ├── pipelines/dagster/        user-maintained orchestration
@@ -85,13 +86,14 @@ Because the layer is implied by the bucket, table paths carry no `bronze/`,
 `openlakeforge-ops` is outside the medallion split and uses stable prefixes:
 
 ```text
-floe/manifests/<domain>/<domain>.manifest.json
 floe/reports/<domain>/
 logs/
 run-artifacts/dbt/<domain>/<product>/
 ```
 
-Floe manifests are keyed by domain, matching domain-owned Silver.
+Floe run reports are keyed by domain, matching domain-owned Silver, and land
+under the stage's own artifact prefix (`activations/<stage>/`) once a stage is
+activated.
 
 The local observability adapter is `observability.object_log_archive`: metrics
 and tracing are disabled, and logs, Floe reports, and dbt run artifacts are
@@ -124,3 +126,7 @@ Bucket names follow `lakehouse-<stage>-<layer>` for every stage, matching the
 (`lakehouse-bronze`, `-silver`, `-gold`) and the other stages used
 `<profile>-<stage>-<layer>`; the local and Azure environments now use the single scheme,
 and the AWS environment is still on the old one.
+
+2026-10-28 (#533): Floe 0.8 builds its manifests in memory in the code
+location, so `floe/manifests/` is no longer written; the Silver contracts
+became one multi-file Floe project.

@@ -6,7 +6,7 @@ Appropriate examples include:
 
 - config loading
 - shared dbt packages, macros, and environment profile templates
-- shared Floe runtime profiles
+- the Floe environment profile rendered for the pod's stage
 - storage path conventions
 - Dagster resource helpers
 - OpenLineage naming conventions

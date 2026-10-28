@@ -502,7 +502,7 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(
 
 @every_provider
 def test_adapter_config_carries_the_shared_settings_surface(provider: Provider, tmp_path: Path) -> None:
-    """Stage activation renders Floe, prepares the Dagster chart, and retries
+    """Stage activation prepares the Dagster chart and retries
     the apply off `provider.config`, whichever provider it was handed. The
     two concrete configs diverge, so `DeploymentConfig` names the subset
     shared callers may rely on - asserted here per adapter, because a
@@ -519,11 +519,6 @@ def test_adapter_config_carries_the_shared_settings_surface(provider: Provider, 
     assert config.charts["dagster"] is not None, (
         f"{type(config).__name__} resolves no 'dagster' chart. Stage activation installs the user-deployments "
         f"subchart out of that chart's own archive on every provider."
-    )
-    assert all((config.floe.image, config.floe.version, config.floe.runtime)), (
-        f"{type(config).__name__}.floe leaves part of the renderer identity empty "
-        f"({config.floe.image!r}, {config.floe.version!r}, {config.floe.runtime!r}). Activation compares those "
-        f"three as one string to decide whether a release's manifests are stale."
     )
     assert config.terraform.apply_retry.max_attempts >= 1, (
         f"{type(config).__name__}.terraform.apply_retry allows "

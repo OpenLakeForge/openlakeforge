@@ -85,16 +85,17 @@ def test_build_superset_image_builds_with_base_arg(tmp_path: Path) -> None:
     assert build_call.argv[2] == str(config.paths.repo_root / "images/superset")
 
 
-def test_build_project_code_image_includes_revision_build_arg(tmp_path: Path) -> None:
+def test_build_project_code_image_bakes_no_stage_or_revision_binding(tmp_path: Path) -> None:
     config = _config(tmp_path)
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
 
-    image = images.build_project_code_image(config, tools, env={}, revision="rev-123")
+    image = images.build_project_code_image(config, tools, env={})
 
     assert image == "ghcr.io/openlakeforge/project-code:local"
     build_call = next(c for c in runner.calls if c.argv[1] == "build")
-    assert "FLOE_MANIFEST_REVISION=rev-123" in build_call.argv
+    # One image serves every stage: nothing stage- or revision-bound is baked in.
+    assert not any("REVISION=" in arg or "STAGE=" in arg for arg in build_call.argv)
     assert build_call.argv[2] == str(config.paths.repo_root)
 
 
@@ -209,7 +210,7 @@ def test_prepare_project_code_image_skips_when_tag_is_not_local(tmp_path: Path) 
     runner = _ScriptedRunner()
     tools = _toolkit(runner)
 
-    images.prepare_project_code_image(config, tools, env={}, revision="rev-1")
+    images.prepare_project_code_image(config, tools, env={})
 
     assert runner.calls == []
 
@@ -219,8 +220,7 @@ def test_prepare_project_code_image_builds_and_loads(tmp_path: Path) -> None:
     runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
     tools = _toolkit(runner)
 
-    images.prepare_project_code_image(config, tools, env={}, revision="rev-1")
+    images.prepare_project_code_image(config, tools, env={})
 
-    build_call = next(c for c in runner.calls if c.argv[1] == "build")
-    assert "FLOE_MANIFEST_REVISION=rev-1" in build_call.argv
+    assert any(c.argv[1] == "build" for c in runner.calls)
     assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)

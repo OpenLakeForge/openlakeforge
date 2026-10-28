@@ -20,16 +20,14 @@ OpenLakeForge runtime:
 - OpenMetadata can later match the same event stream without the removed proxy.
 
 This test does not validate dbt Silver-to-Gold lineage. dbt-trino is tested
-separately in ADR 0001. Floe endpoint and authentication support are active;
-Bronze-to-Silver dataset lineage remains blocked by the manifest-replay observer
-being constructed without entity metadata.
+separately in ADR 0001.
 
 ## Preconditions
 
 | Requirement | Expected State |
 | --- | --- |
 | Local stack | `uv run --project tools/olf --locked olf deploy --provider local --phase foundation` and `uv run --project tools/olf --locked olf deploy --provider local` have completed. |
-| Floe runner image | Rendered profile and generated manifests use the current configured Floe runner image. |
+| Floe | The project-code image carries the pinned `floe-python`; Floe runs in one Kubernetes Job per domain on that image; the run pod forwards its `OPENLINEAGE_URL` and `OPENLINEAGE_ENDPOINT` to the Job, which renders its lineage endpoint from them. |
 | OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
 | dbt OpenLineage | Disabled. The test isolates Floe events only. |
 | Target product | Start with one small path, preferably `order_revenue_pipeline`. |
@@ -41,7 +39,7 @@ returns a 200/202 response. The endpoint must expose one route compatible with
 Floe's OpenLineage client configuration, for example:
 
 ```text
-http://openlineage-capture:5000/api/v1/lineage
+http://openlineage-capture.olf-dev:5000/api/v1/lineage
 ```
 
 The endpoint should persist captured JSON events long enough to copy them out of
@@ -52,18 +50,17 @@ container is enough. It does not need authentication for the first capture pass.
 
 | Step | Action | Expected Result |
 | --- | --- | --- |
-| 1 | Deploy the capture service in the `lakehouse` namespace. | `openlineage-capture` is reachable from Floe runner pods. |
-| 2 | Render a temporary Floe profile with a `lineage` block pointing at `http://openlineage-capture:5000/api/v1/lineage`. | The generated profile differs only by lineage settings. |
-| 3 | Regenerate one product manifest with the temporary lineage-enabled profile. | The manifest still uses the configured Floe runner image and the normal OpenLakeForge storage/catalog contracts. |
-| 4 | Upload the temporary manifest to the ops bucket path that Dagster passes to the Floe runner. | The runner can read the same manifest URI Dagster launches. |
-| 5 | Launch a narrow Dagster run, preferably `order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
-| 6 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
-| 7 | Validate `run.runId` on every event with a UUID parser. | No event uses an old `mfv1-...` style run ID. |
-| 8 | Validate COMPLETE events have non-empty `inputs` and `outputs`. | Bronze source datasets and Silver Iceberg output datasets are present. |
-| 9 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/crm/...`, never `/bronze/crm/...`. |
-| 10 | Validate job naming. | `job.namespace` carries the namespace and `job.name` is not prefixed by the Polaris REST URI. |
-| 11 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.<domain>_silver.<table>` entities. |
-| 12 | Restore the normal lineage-disabled manifest/profile and rerun artifact deploy if needed. | Normal local stack behavior is restored. |
+| 1 | Deploy the capture service in the stage namespace (`olf-dev`). | `openlineage-capture` is reachable from Dagster run pods and Floe Jobs. |
+| 2 | Point the code location at it: set `OPENLINEAGE_URL=http://openlineage-capture.olf-dev:5000` and `OPENLINEAGE_ENDPOINT=api/v1/lineage` on the user deployment. | The code location restarts; the profile it renders differs only by lineage settings. |
+| 3 | Confirm the run pods inherit the change. | A run pod launched next carries the same two variables, and so does each Floe Job it creates. |
+| 4 | Launch a narrow Dagster run, preferably `order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
+| 5 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
+| 6 | Validate `run.runId` on every event with a UUID parser. | No event uses an old `mfv1-...` style run ID. |
+| 7 | Validate COMPLETE events have non-empty `inputs` and `outputs`. | Bronze source datasets and Silver Iceberg output datasets are present. |
+| 8 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/crm/...`, never `/bronze/crm/...`. |
+| 9 | Validate job naming. | `job.namespace` carries the namespace and `job.name` is not prefixed by the Polaris REST URI. |
+| 10 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.<domain>_silver.<table>` entities. |
+| 11 | Reapply the stage's active revision with `olf project deploy`. | The user deployment's lineage variables return to the stage contract's values. |
 
 ## Optional OpenMetadata Acceptance Pass
 
@@ -81,7 +78,7 @@ Only run this after the capture pass succeeds.
 The Floe debt can move from `Resolved Upstream, Pending Verification` to
 resolved only when all of these are true:
 
-- The configured Floe runtime image is used by the launched runner pod.
+- Each domain's Floe Job runs the run pod's project-code image.
 - Captured events satisfy the event-shape checks above.
 - OpenMetadata can accept the Floe events directly.
 - OpenMetadata resolves at least one Bronze-to-Silver lineage edge without a
@@ -91,10 +88,10 @@ resolved only when all of these are true:
 
 | Failure | Likely Cause | Next Step |
 | --- | --- | --- |
-| No events captured | Lineage block not rendered into the profile or manifest; runner pod cannot reach capture service. | Inspect generated manifest, runner pod env, and capture service DNS. |
-| Non-UUID run IDs | The launched pod is not using the configured Floe runtime image or there is a Floe regression. | Check runner image in pod spec and captured event payload. |
+| No events captured | Lineage block not rendered into the profile; the Floe Job pod cannot reach the capture service. | Inspect the Floe Job pod env and the capture service DNS. |
+| Non-UUID run IDs | The domain's Floe Job is not running the expected project-code image, or there is a Floe regression. | Check the Floe Job pod's image digest against the run pod's, and the captured event payload. |
 | Empty inputs/outputs | Floe emission regression or unsupported entity path. | Reproduce with one CSV-to-Iceberg entity and compare with Floe issue #382 expectations. |
-| S3 names start with `/` | Floe S3 dataset-name fix is not active. | Confirm runtime image and file upstream regression if needed. |
+| S3 names start with `/` | Floe S3 dataset-name fix is not active. | Confirm the `floe-python` pin in the project-code image and file upstream regression if needed. |
 | OM accepts events but shows no edge | Dataset namespace/name no longer matches OM storage or Polaris entities. | Compare captured dataset names with OM container/table FQNs. |
 
 ## References

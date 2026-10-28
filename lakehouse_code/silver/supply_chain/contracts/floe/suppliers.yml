@@ -1,0 +1,9 @@
+name: "suppliers"
+source: { ref: "erp", resource: "suppliers" }
+schema:
+  primary_key: ["supplier_id"]
+  columns:
+    - { name: "supplier_id", type: "string", nullable: false }
+    - { name: "supplier_name", type: "string", nullable: false }
+    - { name: "country", type: "string", nullable: false }
+    - { name: "risk_tier", type: "string", nullable: false }

@@ -1,0 +1,13 @@
+sources:
+  - name: "crm"
+    format: "csv"
+    path: "crm/{{resource}}"
+    storage: "lakehouse_bronze"
+    options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+    cast_mode: "strict"
+  - name: "erp"
+    format: "csv"
+    path: "erp/{{resource}}"
+    storage: "lakehouse_bronze"
+    options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+    cast_mode: "strict"

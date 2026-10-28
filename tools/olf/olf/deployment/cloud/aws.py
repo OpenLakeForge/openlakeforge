@@ -2,7 +2,7 @@
 
 Port of the AWS-specific branches of `scripts/aws/{foundation,stack,images}/
 *.sh`: caller-identity preflight, EKS Terraform variables, `eks update-
-kubeconfig`, ECR login, and the AWS Glue Floe profile strategy.
+kubeconfig`, and ECR login.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf import log
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.cluster_name import aws_cluster_name
@@ -19,7 +18,6 @@ from olf.deployment.context import topology_variables
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.floe_manifests import generate_aws_manifests
 from olf.deployment.portforward import ForwardTarget
 
 
@@ -168,20 +166,6 @@ class AwsBackend:
     def artifact_transport(self) -> str:
         return "direct"
 
-    def generate_floe_manifests(
-        self,
-        config: CloudDeploymentConfig,
-        tools: Toolkit,
-        *,
-        repo_root: Path,
-        distribution_root: Path,  # noqa: ARG002 - AWS's Glue profile strategy never reads the checked-in profile
-        namespace: str,  # noqa: ARG002 - AWS's Glue profile strategy is namespace-independent
-        governance_enabled: bool,  # noqa: ARG002 - AWS's Glue profile strategy is always used
-        environ: Mapping[str, str],
-        env: Mapping[str, str],
-    ) -> list[Path]:
-        log.step("Using the AWS Glue Floe profile strategy (one rendered profile per product).")
-        return generate_aws_manifests(config.floe, tools, repo_root=repo_root, environ=environ, env=env)
 
 
 def _region(facts: FoundationFacts) -> str:

@@ -75,7 +75,7 @@ flows:
     from: {scope: stage}
     to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     ports: [8181]
-    tag: T # Floe runner pod labels are not in the tree; the stage rule ignores them
+    tag: T # Floe Job pods carry dagster-floe's own labels (app: floe-runner); the stage rule covers them
   - id: F9
     from: {scope: stage}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}

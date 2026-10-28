@@ -100,7 +100,7 @@ def test_build_and_push_project_code_image_logs_in_to_the_overridden_repository(
     tools = _toolkit(RecordingRunner(_ok()))
     backend = _RecordingBackend(scope="aws")
 
-    build_and_push_project_code_image(config, tools, backend, _FACTS, env={}, revision="sha256:abc")
+    build_and_push_project_code_image(config, tools, backend, _FACTS, env={})
 
     assert backend.login_repositories == [overridden]
 
@@ -110,7 +110,7 @@ def test_build_and_push_project_code_image_logs_in_to_the_foundation_default_whe
     tools = _toolkit(RecordingRunner(_ok()))
     backend = _RecordingBackend(scope="aws")
 
-    build_and_push_project_code_image(config, tools, backend, _FACTS, env={}, revision="sha256:abc")
+    build_and_push_project_code_image(config, tools, backend, _FACTS, env={})
 
     assert backend.login_repositories == [_FACTS.project_code_repository]
 

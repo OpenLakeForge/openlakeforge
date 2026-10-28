@@ -44,10 +44,19 @@ _YAML_SUFFIXES = (".yaml", ".yml")
 # dashboard: `lakehouse_code/bronze/<source>/...`,
 # `lakehouse_code/silver/<domain>/...`, `lakehouse_code/gold/<product>/...`,
 # `lakehouse_code/dashboards/superset/<name>/...`. A path that isn't nested
-# under one of these (e.g. a Floe contract edit to an *existing* domain, or a
-# Dagster module added beside existing ones) has no such root and is not
-# checked here -- only genuinely new ownership subtrees are.
+# under one of these (e.g. a Dagster module added beside existing ones) has
+# no such root and is not checked here -- only genuinely new ownership
+# subtrees are.
 _OWNERSHIP_ROOT = re.compile(r"^lakehouse_code/(?:bronze|silver|gold|dashboards/superset)/[a-z][a-z0-9_]*")
+# One entity per file: extending an existing domain adds a file beside its
+# `_domain.yml`, inside an ownership root that already has content.
+_FLOE_ENTITY = re.compile(r"^lakehouse_code/silver/[a-z][a-z0-9_]*/contracts/floe/[^/]+\.yml$")
+
+
+def _extends_existing_domain(repo_root: Path, relative_path: str) -> bool:
+    return bool(_FLOE_ENTITY.match(relative_path)) and (
+        (repo_root / relative_path).parent / "_domain.yml"
+    ).is_file()
 
 
 def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) -> None:
@@ -56,11 +65,18 @@ def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) 
         raise ScaffoldError("refusing to overwrite existing file(s): " + ", ".join(existing))
 
     # A brand-new ownership directory should not already exist with
-    # unrelated content: `scripts/artifacts/floe-manifest.sh` rejects two
-    # Floe contracts under one domain, for example, and that collision
-    # wouldn't be caught above if the stray file's name happens not to match
-    # any file this plan writes.
-    roots = sorted({match.group(0) for f in files if (match := _OWNERSHIP_ROOT.match(f.relative_path))})
+    # unrelated content: a stray file left in a would-be new domain would be
+    # read as one of its Floe entities, and that collision wouldn't be caught
+    # above if the stray file's name happens not to match any file this plan
+    # writes.
+    roots = sorted(
+        {
+            match.group(0)
+            for f in files
+            if (match := _OWNERSHIP_ROOT.match(f.relative_path))
+            and not _extends_existing_domain(repo_root, f.relative_path)
+        }
+    )
     for root in roots:
         root_path = repo_root / root
         if not root_path.is_dir():

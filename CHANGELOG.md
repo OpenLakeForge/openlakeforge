@@ -14,6 +14,44 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Changed
+
+- Floe 0.8, the Python core, runs inside the project-code image
+  (`floe-python` 0.8.0, `dagster-floe` 0.3.0). The code location builds the
+  Floe manifest in memory from the project's contracts and a profile it
+  renders for its own stage, and runs each entity in-process in the Dagster
+  run pod: there is no Floe runner image, no Kubernetes Job per entity, and no
+  generated, published or versioned manifest (#533, ADR 0006).
+- The Silver contracts are one Floe project: `lakehouse_code/silver/floe.yml`
+  with named Bronze sources in `silver/sources.yml`, and per domain a
+  `_domain.yml` of sink defaults plus one file per entity. `olf domain new`
+  and `olf product new` write this layout, and Silver assets now take their
+  Bronze dependency from each entity's `source.ref`/`resource`.
+- Stage activations are written as `ACTIVATION.json` schema 2, without a Floe
+  manifest revision; schema-1 records still read and verify as published.
+  `olf project status --json` no longer reports `floe_manifest_revision`.
+- Floe run reports of an activated stage are written under its own
+  `activations/<stage>/` prefix.
+
+### Removed
+
+- `olf floe render-profile|generate-manifests|revision`, `olf artifacts
+  upload-manifests`, `libs/floe/profiles/`, and the generated manifests under
+  `silver/<domain>/contracts/floe/manifests/`. The runtime patch of
+  `floe_dagster.assets._fsspec_read_text` for S3-compatible stores is gone.
+
+### Migration
+
+- Move each domain's `<domain>.yml` into `_domain.yml` plus one file per
+  entity, and declare its Bronze sources in `silver/sources.yml`; the seed
+  `sales` and `supply_chain` domains show the shape. Delete
+  `contracts/floe/manifests/`.
+- Silver does not run on an AWS Glue catalog: Floe 0.8 writes Iceberg through
+  a REST catalog only, and the profile renderer refuses a Glue stage.
+- Silver assets no longer show Floe's row and rejection counts: dagster-floe
+  0.3 cannot read S3 run reports beside `floe-python` 0.8 (see
+  `docs/technical-debt.md`).
+
 ## [0.5.0-alpha.1] - 2026-10-23
 
 The identity and authorization release (Milestone 5). People sign in with

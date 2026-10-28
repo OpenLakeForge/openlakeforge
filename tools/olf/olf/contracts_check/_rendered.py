@@ -1,4 +1,4 @@
-"""Floe and Helm checks: parsed rendered profiles, contracts, and values files."""
+"""Floe and Helm checks: the Floe project layout and parsed values files."""
 
 from __future__ import annotations
 
@@ -6,102 +6,58 @@ from pathlib import Path
 
 import yaml
 
-from olf import floe as floe_module
 from olf.contracts_check._report import CheckResult
 
-_AWS_GLUE_ENV_OVERRIDE = {
-    "OPENLAKEFORGE_STORAGE_IMPLEMENTATION": "storage.aws_s3",
-    "OPENLAKEFORGE_CATALOG_TYPE": "glue",
-    "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
-    "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": "sales_silver",
-}
 
-
-def _check_floe_rendered_profile() -> CheckResult:
-    """Render the Floe profile in-process (no subprocess, no `olf floe
-    render-profile` indirection) and assert on the *parsed* YAML, both for
-    the default (local/REST) branch and the AWS-Glue-shaped env override."""
-    name = "floe_rendered_profile"
-    errors: list[str] = []
-
-    local_parsed = yaml.safe_load(floe_module.render_profile({}))
-    if local_parsed.get("catalogs", {}).get("default") != "iceberg_catalog":
-        errors.append("local profile: catalogs.default must be 'iceberg_catalog'")
-    local_definitions = local_parsed.get("catalogs", {}).get("definitions", [])
-    if not local_definitions or local_definitions[0].get("type") != "rest":
-        errors.append("local profile: catalogs.definitions[0].type must be 'rest'")
-
-    aws_parsed = yaml.safe_load(floe_module.render_profile(_AWS_GLUE_ENV_OVERRIDE))
-    aws_definitions = aws_parsed.get("catalogs", {}).get("definitions", [])
-    if not aws_definitions or aws_definitions[0].get("type") != "glue":
-        errors.append("aws-glue profile: catalogs.definitions[0].type must be 'glue'")
-    if aws_definitions and "create_database_if_missing" not in aws_definitions[0]:
-        errors.append("aws-glue profile: catalog definition must set create_database_if_missing")
-
-    if errors:
-        return CheckResult(name, ok=False, detail="; ".join(errors))
-    return CheckResult(name, ok=True, detail="local (rest) and aws-glue profiles rendered and parsed")
+def _iceberg_target(document: dict) -> dict:
+    return ((document.get("sink") or {}).get("accepted") or {}).get("iceberg") or {}
 
 
 def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
-    """Every `lakehouse_code/silver/*/contracts/floe/*.yml` must parse as YAML
-    and use provider-neutral storage aliases and a domain-scoped Silver
-    namespace matching `<domain>_silver` (never a shared "silver"/"gold"
-    namespace, per ADR 0002)."""
+    """The Floe project under `lakehouse_code/silver/` writes each domain to
+    its own `<domain>_silver` namespace through the logical `iceberg_catalog`
+    alias (never a shared namespace, per ADR 0004, nor a provider name).
+
+    A domain sets both in its `_domain.yml` defaults; an entity file may
+    repeat them but not point elsewhere.
+    """
     name = "floe_contract_structure"
     errors: list[str] = []
-    contract_paths = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/*.yml"))
-    if not contract_paths:
-        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/contracts/floe/*.yml files found")
+    project = repo_root / "lakehouse_code" / "silver" / "floe.yml"
+    if not project.is_file():
+        return CheckResult(name, ok=False, detail="lakehouse_code/silver/floe.yml not found")
+    domain_files = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml"))
+    if not domain_files:
+        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/contracts/floe/_domain.yml files found")
 
-    for contract_path in contract_paths:
-        rel_path = contract_path.relative_to(repo_root)
-        domain = contract_path.parents[2].name
-        expected_namespace = f"{domain}_silver"
-        document = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
-        storage_names = {d.get("name") for d in document.get("storages", {}).get("definitions", [])}
-        for required_alias in ("lakehouse_bronze", "lakehouse_silver"):
-            if required_alias not in storage_names:
-                errors.append(f"{rel_path}: storages.definitions must include {required_alias!r}")
-        for entity in document.get("entities", []):
-            sink_iceberg = entity.get("sink", {}).get("accepted", {}).get("iceberg", {})
-            namespace = sink_iceberg.get("namespace")
-            if sink_iceberg.get("catalog") == "polaris":
+    checked = 0
+    for domain_file in domain_files:
+        folder = domain_file.parents[2].name
+        expected_namespace = f"{folder}_silver"
+        domain = yaml.safe_load(domain_file.read_text(encoding="utf-8")) or {}
+        rel_domain = domain_file.relative_to(repo_root)
+        if domain.get("name") != folder:
+            errors.append(f"{rel_domain}: name must be the domain folder {folder!r}, got {domain.get('name')!r}")
+        defaults = _iceberg_target(domain.get("defaults") or {})
+        for path in sorted(domain_file.parent.glob("*.yml")):
+            document = domain if path == domain_file else yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            target = {**defaults, **_iceberg_target(document)} if path != domain_file else defaults
+            rel_path = path.relative_to(repo_root)
+            checked += 1
+            if target.get("catalog") != "iceberg_catalog":
                 errors.append(
-                    f"{rel_path}: entity {entity.get('name')!r} sink.accepted.iceberg.catalog must not "
-                    "name the 'polaris' provider directly (use the logical 'iceberg_catalog' alias)"
+                    f"{rel_path}: sink.accepted.iceberg.catalog must be the logical 'iceberg_catalog' alias, "
+                    f"got {target.get('catalog')!r}"
                 )
-            if namespace != expected_namespace:
+            if target.get("namespace") != expected_namespace:
                 errors.append(
-                    f"{rel_path}: entity {entity.get('name')!r} sink.accepted.iceberg.namespace "
-                    f"must be domain-scoped {expected_namespace!r}, got {namespace!r}"
+                    f"{rel_path}: sink.accepted.iceberg.namespace must be domain-scoped "
+                    f"{expected_namespace!r}, got {target.get('namespace')!r}"
                 )
 
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
-    return CheckResult(name, ok=True, detail=f"{len(contract_paths)} Floe contract file(s) validated")
-
-
-def _check_floe_profile_templates(repo_root: Path) -> CheckResult:
-    """Checked-in Floe runtime profile templates must parse as YAML and
-    declare the top-level shape the Floe runner expects."""
-    name = "floe_profile_templates"
-    errors: list[str] = []
-    required_keys = ("apiVersion", "kind", "metadata", "variables", "catalogs", "execution", "validation")
-    profile_paths = sorted(repo_root.glob("libs/floe/profiles/*.yml"))
-    if not profile_paths:
-        return CheckResult(name, ok=False, detail="no libs/floe/profiles/*.yml files found")
-
-    for profile_path in profile_paths:
-        rel_path = profile_path.relative_to(repo_root)
-        document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-        for required_key in required_keys:
-            if required_key not in document:
-                errors.append(f"{rel_path}: missing required top-level key {required_key!r}")
-
-    if errors:
-        return CheckResult(name, ok=False, detail="; ".join(errors))
-    return CheckResult(name, ok=True, detail=f"{len(profile_paths)} Floe profile template(s) validated")
+    return CheckResult(name, ok=True, detail=f"{checked} Floe domain and entity file(s) validated")
 
 
 def _check_helm_values_as_data(repo_root: Path) -> CheckResult:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -39,16 +40,96 @@ def test_bronze_subsetability_rejects_non_subsettable_or_required_outputs(
         project_code_check._verify_bronze_subsetability(inventory, definitions)
 
 
-def test_sequential_floe_orchestration_requires_serial_manifest_and_job_config() -> None:
+def test_sequential_floe_orchestration_requires_serial_job_config() -> None:
     product = SimpleNamespace(id="order_revenue", job_name="order_revenue_job")
-    manifest = SimpleNamespace(execution=SimpleNamespace(orchestration=SimpleNamespace(strategy="sequential")))
     job = SimpleNamespace(run_config={"execution": {"config": {"multiprocess": {"max_concurrent": 1}}}})
 
-    project_code_check._verify_sequential_floe_orchestration(product, manifest, job)
+    project_code_check._verify_sequential_floe_orchestration(product, job)
 
     job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] = 2
     with pytest.raises(RuntimeError, match="did not inherit Floe orchestration concurrency"):
-        project_code_check._verify_sequential_floe_orchestration(product, manifest, job)
+        project_code_check._verify_sequential_floe_orchestration(product, job)
+
+
+@dataclass(frozen=True)
+class _Key:
+    """Hashable like Dagster's AssetKey, which keys `asset_deps`."""
+
+    path: tuple[str, ...]
+
+
+def _key(path: tuple[str, ...]) -> _Key:
+    return _Key(path)
+
+
+def _domain_job(
+    entities: dict[str, tuple[str, str]], *, domain: str = "sales", can_subset: bool = True
+) -> SimpleNamespace:
+    """dagster-floe's asset for one domain's Job: an accepted and a rejected output per entity."""
+    outputs: dict[str, _Key] = {}
+    deps: dict[_Key, list[_Key]] = {}
+    for table, bronze in entities.items():
+        accepted, rejected = _key((domain, table)), _key((domain, f"{table}_rejected"))
+        outputs[f"{domain}__{table}__accepted"] = accepted
+        outputs[f"{domain}__{table}__rejected"] = rejected
+        deps[accepted] = deps[rejected] = [_key(bronze)]
+    return SimpleNamespace(
+        op=SimpleNamespace(tags={"dagster/compute_kind": "floe"}),
+        keys_by_output_name=outputs,
+        asset_deps=deps,
+        can_subset=can_subset,
+    )
+
+
+def _silver_inventory(*tables: str) -> SimpleNamespace:
+    silver = [SimpleNamespace(name=table, source="crm", resource=table) for table in tables or ("orders",)]
+    return SimpleNamespace(domains=[SimpleNamespace(name="sales", silver_tables=silver)])
+
+
+def test_silver_assets_must_each_depend_on_their_own_bronze_resource() -> None:
+    wired = SimpleNamespace(assets=[_domain_job({"orders": ("crm", "orders")})])
+    project_code_check._verify_silver_assets(_silver_inventory(), wired)
+
+    shared = SimpleNamespace(assets=[_domain_job({"orders": ("sources", "openlakeforge", "crm")})])
+    with pytest.raises(RuntimeError, match="must depend on its Bronze resource crm/orders"):
+        project_code_check._verify_silver_assets(_silver_inventory(), shared)
+
+
+def test_silver_assets_must_match_the_descriptor_tables() -> None:
+    extra = SimpleNamespace(assets=[_domain_job({"orders": ("crm", "orders"), "returns": ("crm", "returns")})])
+
+    with pytest.raises(RuntimeError, match="do not match the descriptor's Silver tables"):
+        project_code_check._verify_silver_assets(_silver_inventory(), extra)
+
+
+def test_a_domain_runs_as_one_subsettable_floe_job() -> None:
+    split = SimpleNamespace(
+        assets=[_domain_job({"orders": ("crm", "orders")}), _domain_job({"accounts": ("crm", "accounts")})]
+    )
+    with pytest.raises(RuntimeError, match="each domain must run as one Floe Job"):
+        project_code_check._verify_silver_assets(_silver_inventory("orders", "accounts"), split)
+
+    whole = SimpleNamespace(assets=[_domain_job({"orders": ("crm", "orders")}, can_subset=False)])
+    with pytest.raises(RuntimeError, match="must support subsets"):
+        project_code_check._verify_silver_assets(_silver_inventory(), whole)
+
+
+def test_a_declared_table_ending_in_rejected_is_not_mistaken_for_a_rejection_output() -> None:
+    inventory = _silver_inventory("orders_rejected")
+    definitions = SimpleNamespace(assets=[_domain_job({"orders_rejected": ("crm", "orders_rejected")})])
+
+    project_code_check._verify_silver_assets(inventory, definitions)
+
+
+def test_gold_assets_of_a_product_named_like_its_domain_are_not_silver() -> None:
+    gold = SimpleNamespace(
+        op=SimpleNamespace(tags={"dagster/compute_kind": "dbt"}),
+        keys_by_output_name={"revenue": _key(("sales", "revenue"))},
+        asset_deps={},
+    )
+    definitions = SimpleNamespace(assets=[_domain_job({"orders": ("crm", "orders")}), gold])
+
+    project_code_check._verify_silver_assets(_silver_inventory(), definitions)
 
 
 def _schedule_library(

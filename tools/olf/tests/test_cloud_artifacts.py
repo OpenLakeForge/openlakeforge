@@ -69,40 +69,17 @@ def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: calls.append("sync_namespaces"))
     monkeypatch.setattr(
         artifacts,
-        "activate_runtime_revision",
-        lambda root, *, via: calls.append(f"activate({via})") or "sha256:abc",
-    )
-    monkeypatch.setattr(
-        artifacts,
         "build_and_push_project_code_image",
-        lambda cfg, tls, bk, fc, *, env, revision: calls.append(f"build_push(revision={revision})"),
-    )
-    monkeypatch.setattr(
-        artifacts, "upload_runtime_manifests", lambda root, *, via: calls.append(f"upload({via})")
+        lambda cfg, tls, bk, fc, *, env: calls.append("build_push"),
     )
     monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: calls.append("set_image"))
     monkeypatch.setattr(
         artifacts, "deploy_optional_layer_artifacts", lambda environ: calls.append("deploy_optional_layers")
     )
 
-    def _fake_generate(*a, **k):  # noqa: ANN002, ANN003
-        calls.append("generate_manifests")
-        return []
-
-    backend.generate_floe_manifests = _fake_generate
-
     artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 
-    assert calls == [
-        "contract_env",
-        "sync_namespaces",
-        "generate_manifests",
-        "activate(direct)",
-        "build_push(revision=sha256:abc)",
-        "upload(direct)",
-        "deploy_optional_layers",
-        "set_image",
-    ]
+    assert calls == ["contract_env", "sync_namespaces", "build_push", "deploy_optional_layers", "set_image"]
 
 
 def test_artifacts_deploy_does_not_switch_dagster_image_when_optional_layers_fail(
@@ -120,9 +97,7 @@ def test_artifacts_deploy_does_not_switch_dagster_image_when_optional_layers_fai
 
     monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _fake_contract_env(lambda: None))
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
     monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
-    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
 
     def _raise(environ):  # noqa: ANN001, ARG001
         raise RuntimeError("optional layer deploy failed")
@@ -134,42 +109,11 @@ def test_artifacts_deploy_does_not_switch_dagster_image_when_optional_layers_fai
         set_image_called = True
 
     monkeypatch.setattr(artifacts.k8s, "set_project_code_image", _set_image)
-    backend.generate_floe_manifests = lambda *a, **k: []
 
     with pytest.raises(RuntimeError, match="optional layer deploy failed"):
         artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 
     assert set_image_called is False
-
-
-def test_artifacts_deploy_passes_backend_transport_to_artifact_steps(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config = _config(tmp_path)
-    tools = _toolkit()
-    backend = FakeCloudBackend(scope="azure", transport="port-forward")
-    seen_via: list[str] = []
-
-    monkeypatch.setattr(
-        artifacts.contract_env, "applied_contract_environment", _fake_contract_env(lambda: None)
-    )
-    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(
-        artifacts,
-        "activate_runtime_revision",
-        lambda root, *, via: seen_via.append(("activate", via)) or "sha256:abc",
-    )
-    monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        artifacts, "upload_runtime_manifests", lambda root, *, via: seen_via.append(("upload", via))
-    )
-    monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
-    monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
-    backend.generate_floe_manifests = lambda *a, **k: []
-
-    artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
-
-    assert seen_via == [("activate", "port-forward"), ("upload", "port-forward")]
 
 
 def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -181,21 +125,14 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
     monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
-    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
     monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
     monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
 
     seen_context = {}
-
-    def _fake_generate(  # noqa: ANN001
-        cfg, tls, *, repo_root, distribution_root, namespace, governance_enabled, environ, env
-    ):
-        seen_context["kube_context"] = environ.get("KUBE_CONTEXT")
-        return []
-
-    backend.generate_floe_manifests = _fake_generate
+    monkeypatch.setattr(
+        artifacts, "sync_catalog_namespaces", lambda: seen_context.update(kube_context=os.environ.get("KUBE_CONTEXT"))
+    )
 
     artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 
@@ -225,12 +162,9 @@ def test_artifacts_deploy_honors_contract_terraform_dir_override(
 
     monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _capturing_contract_env)
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
     monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
-    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
     monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
     monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
-    backend.generate_floe_manifests = lambda *a, **k: []
 
     artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 
@@ -254,12 +188,9 @@ def test_artifacts_deploy_falls_back_to_platform_terraform_dir_when_override_uns
 
     monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _capturing_contract_env)
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
     monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
-    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
     monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
     monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
-    backend.generate_floe_manifests = lambda *a, **k: []
 
     artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 

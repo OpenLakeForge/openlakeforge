@@ -73,7 +73,6 @@ def build_and_push_project_code_image(
     facts: FoundationFacts,
     *,
     env: Mapping[str, str],
-    revision: str,
 ) -> str:
     images = resolve_effective_images(config.images, facts)
     log.step(f"Logging in to the {backend.scope} registry...")
@@ -96,7 +95,6 @@ def build_and_push_project_code_image(
             build_args={
                 "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
                 "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
-                "FLOE_MANIFEST_REVISION": revision,
             },
             extra_args=("--platform", images.image_platform),
             env=env,

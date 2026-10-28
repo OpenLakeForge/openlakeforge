@@ -51,12 +51,22 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     env = {
         "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
         "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{project.distribution_root}",
-        "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE": "remote",
+        # The stage binding libs.floe_profile renders the Floe profile from;
+        # the check only builds definitions, so none of these is contacted.
+        "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "lakehouse-dev-bronze",
+        "OPENLAKEFORGE_STORAGE_SILVER_BUCKET": "lakehouse-dev-silver",
+        "OPENLAKEFORGE_STORAGE_REGION": "us-east-1",
+        "OPENLAKEFORGE_CATALOG_REST_URI": "http://polaris.olf-system:8181/api/catalog",
+        "OPENLAKEFORGE_CATALOG_TOKEN_URI": "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens",
+        "OPENLAKEFORGE_CATALOG_WAREHOUSE": "lakehouse_dev",
+        "OPENLAKEFORGE_GOVERNANCE_ENABLED": "false",
+        # The domain Jobs' binding: rendered into the profile, never submitted.
+        "OPENLAKEFORGE_PROJECT_CODE_IMAGE": "ghcr.io/openlakeforge/project-code@sha256:" + "0" * 64,
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME": "polaris-dev-floe-creds",
         "OPENLAKEFORGE_OPS_BUCKET_NAME": "openlakeforge-ops",
         "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME": "openlakeforge-ops",
         "OPENLAKEFORGE_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/artifacts",
-        "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI": "s3://openlakeforge-ops/floe/manifests",
-        "OPENLAKEFORGE_FLOE_REPORT_BASE_URI": "s3://openlakeforge-ops/floe/reports",
         "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }

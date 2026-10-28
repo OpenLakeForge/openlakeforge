@@ -250,9 +250,6 @@ locals {
     runner                    = "kubernetes-run-launcher"
     project_code_image        = "${var.project_code_image_repository}:${var.project_code_image_tag}"
     project_code_image_policy = var.project_code_image_pull_policy
-    floe_manifest_access_mode = "remote"
-    floe_manifest_base_uri    = local.floe_manifest_base_uri
-    floe_report_base_uri      = local.floe_report_base_uri
     log_base_uri              = local.log_base_uri
     run_artifact_base_uri     = local.run_artifact_base_uri
     supported_catalogs        = ["glue"]
@@ -287,12 +284,8 @@ locals {
     bucket_name              = module.s3.ops_bucket_name
     artifact_base_uri        = local.artifact_base_uri
     access_mode              = "remote"
-    base_uri                 = local.floe_manifest_base_uri
-    floe_manifest_base_uri   = local.floe_manifest_base_uri
-    floe_report_base_uri     = local.floe_report_base_uri
     log_base_uri             = local.log_base_uri
     run_artifact_base_uri    = local.run_artifact_base_uri
-    manifest_uris            = local.domain_floe_manifest_uris
     distribution_mode        = "aws-s3-upload"
     storage_ref              = local.storage_contract.logical_name
     credentials_secret_name  = null
@@ -304,17 +297,12 @@ locals {
   }
 
   artifact_contract = merge(local.artifact_registry_contract, {
-    implementation             = "artifacts.aws_ecr_and_s3"
-    adapter                    = "artifacts.aws_ecr_and_s3"
-    floe_manifest_access_mode  = local.artifact_bucket_contract.access_mode
-    floe_manifest_base_uri     = local.artifact_bucket_contract.base_uri
-    floe_manifest_uris         = local.artifact_bucket_contract.manifest_uris
-    floe_manifest_distribution = local.artifact_bucket_contract.distribution_mode
-    ops_bucket_name            = local.artifact_bucket_contract.bucket_name
-    artifact_base_uri          = local.artifact_bucket_contract.artifact_base_uri
-    floe_report_base_uri       = local.artifact_bucket_contract.floe_report_base_uri
-    log_base_uri               = local.artifact_bucket_contract.log_base_uri
-    run_artifact_base_uri      = local.artifact_bucket_contract.run_artifact_base_uri
+    implementation        = "artifacts.aws_ecr_and_s3"
+    adapter               = "artifacts.aws_ecr_and_s3"
+    ops_bucket_name       = local.artifact_bucket_contract.bucket_name
+    artifact_base_uri     = local.artifact_bucket_contract.artifact_base_uri
+    log_base_uri          = local.artifact_bucket_contract.log_base_uri
+    run_artifact_base_uri = local.artifact_bucket_contract.run_artifact_base_uri
   })
 
   secrets_contract = {

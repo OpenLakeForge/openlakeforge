@@ -92,7 +92,6 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         project_revision=_DIGEST,
         distribution_version="0.3.0-alpha.1",
         project_code_image=_IMAGE,
-        floe_manifest_revision=_DIGEST,
         provider_binding_digest=_DIGEST,
         capabilities={"analytics": False, "governance": False},
     ).resolved()
@@ -103,7 +102,6 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
             {
                 "name": entry["name"],
                 "deploymentLabels": {_ACTIVATION_LABEL: activation.activation_revision},
-                "deploymentAnnotations": {"openlakeforge.io/floe-renderer": "image:ghcr.io/malon64/floe:0.6.11"},
             }
             for entry in locations
         ]
@@ -122,7 +120,6 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         context=context,
         env={"KUBE_CONTEXT": context.kube_context},
         tools=SimpleNamespace(helm=_Helm(), resolver=None),
-        config=SimpleNamespace(floe=SimpleNamespace(image="ghcr.io/malon64/floe:0.6.11", runtime="image")),
     )
 
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", lambda *a, **k: context)
@@ -150,7 +147,6 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     monkeypatch.setattr(
         activation_module, "read_platform_globals", lambda *a, **k: _GLOBALS
     )
-    monkeypatch.setattr(activation_module, "_floe_renderer", lambda provider: "image:ghcr.io/malon64/floe:0.6.11")
     return SimpleNamespace(state=state, activation=activation, locations=locations)
 
 

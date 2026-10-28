@@ -170,18 +170,16 @@ The orchestration module owns:
   remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
-- the domain Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
 - S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
 
 Local development uses `olf deploy --provider local --phase platform` for
 Terraform-managed platform resources and
 `olf deploy --provider local --phase artifacts` for dynamic domain artifacts.
-Dagster loads the Floe asset graphs from manifests baked into the project-code
-image. Terraform provisions the ops bucket and passes remote artifact base URIs
-to Dagster; the artifact deploy phase publishes generated domain Floe
-manifests under `floe/manifests/` so the separate Floe runner pod can read them.
-Dagster launches Floe Kubernetes jobs from the image declared in the generated
-Floe manifests.
+Dagster builds the Floe asset graph in memory from the Floe project in the
+project-code image and a profile it renders from the stage's contract values,
+and runs Floe in one Kubernetes Job per domain on the same image. Terraform
+provisions the ops bucket and passes the artifact base URIs Floe reports and
+logs are written under.
 dbt-trino runs inside Dagster Kubernetes run pods from the project-code image
 and writes Gold Iceberg marts to each product's Gold namespace in the
 `lakehouse_dev` Polaris warehouse.
@@ -191,11 +189,12 @@ and writes Gold Iceberg marts to each product's Gold namespace in the
 The local observability adapter is `observability.object_log_archive`. It does
 not deploy Loki, Grafana, Prometheus, or tracing. Dagster compute logs, Floe
 reports, dbt run artifacts, and Kubernetes pod logs are archived to
-`openlakeforge-ops` using stable prefixes:
+`openlakeforge-ops` under the stage's `activations/<stage>/` prefix, using
+stable prefixes:
 
 - `logs/dagster/compute/`
 - `logs/k8s/namespace=<namespace>/date=<YYYY-MM-DD>/hour=<HH>/`
-- `floe/reports/<domain>/<product>/`
+- `floe/reports/<domain>/run_<id>/`
 - `run-artifacts/dbt/<domain>/<product>/<dagster_run_id>/`
 
 ## Secrets, Identity, and Access Contracts

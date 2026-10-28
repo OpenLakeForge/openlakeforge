@@ -31,7 +31,7 @@ for i, name in enumerate(["orders", "order_lines", "products", "channels", "prom
 
 # ---------- Bronze -> Silver ----------
 c.edge([(500, 280), (500, 370)], color="ephemeral", width=3)
-c.icon(612, 284, "job", "Floe runner Job", size=46, variant="ephemeral",
+c.icon(612, 284, "job", "Floe domain Job", size=46, variant="ephemeral",
        label2="validate · strict cast · reject")
 
 # ---------- Silver lane ----------
@@ -58,7 +58,7 @@ for i, name in enumerate(["mart_order_revenue_by_day", "mart_…_by_channel",
 
 # ---------- right column ----------
 c.cylinder(1035, 205, 200, 74, "openlakeforge-ops", color="storage",
-           sub="manifests · reports · logs")
+           sub="revisions · reports · logs")
 
 c.box(930, 370, 220, 390, "Iceberg catalog", color="control", fill="#FFFFFF")
 c.label(946, 426, "Polaris (local)", size=13, weight="700", color=C["ink"])

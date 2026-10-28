@@ -1,0 +1,9 @@
+name: "nps_responses"
+source: { ref: "crm", resource: "nps_responses" }
+schema:
+  primary_key: ["response_id"]
+  columns:
+    - { name: "response_id", type: "string", nullable: false }
+    - { name: "account_id", type: "string", nullable: false }
+    - { name: "response_date", type: "date", nullable: false }
+    - { name: "score", type: "integer", nullable: false }

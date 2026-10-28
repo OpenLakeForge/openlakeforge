@@ -1,20 +1,20 @@
 # Chart 3 — Ephemeral Kubernetes Job Lifecycle
 
 **Orchestration and ingestion run in ephemeral pods, not long-lived ones.** Clicking
-*Launch* on a Dagster job creates an ephemeral Kubernetes Job for the run pod, and that
-pod *itself* creates **one ephemeral Floe Job per entity** — sequentially, from a
-container image declared inside the Floe manifest rather than in the Dagster deployment.
-A product with five entities (e.g. `order_revenue`) runs five distinct Floe Jobs over one
-pipeline run, never concurrently. All of them are garbage-collected on TTL, so between
-runs no run pod or Floe Job remains.
+*Launch* on a Dagster job creates one ephemeral Kubernetes Job for the run pod, from the
+code location's own project-code image. The run pod lands Bronze with dlt itself, then
+launches **one Floe Kubernetes Job per domain** on the same image; that Job validates the
+domain's selected entities one after another. A product with six Silver inputs in one
+domain (e.g. `order_revenue`) creates one Floe Job that validates those six entities,
+never concurrently. Every Job is garbage-collected on TTL, so between runs no run or Floe
+pod remains.
 
-Gold is the deliberate exception: dbt does **not** spawn a pod — `dbt-trino` pushes the
-SQL into the **long-lived Trino service**, where the transformation compute and its
-resource contention live (chart 2). So Bronze (dlt) and Silver (Floe) get per-run pods
-with per-run limits, while Gold work is sized at the shared Trino coordinator. The
-upshots: the ingestion engine upgrades without rebuilding the orchestrator image, a
-failing entity cannot poison a shared worker, and the per-run footprint — everything
-except the standing platform services — returns to zero between runs.
+Gold is the deliberate exception: dbt does **not** do its work in the pod — `dbt-trino`
+pushes the SQL into the **long-lived Trino service**, where the transformation compute
+and its resource contention live (chart 2). So Bronze (dlt) is sized by the run pod,
+Silver (Floe) by each domain's Floe Job, and Gold at the shared Trino coordinator. The
+per-run footprint — everything except the standing platform services — returns to zero
+between runs.
 
 ## The run
 
@@ -28,8 +28,8 @@ sequenceDiagram
         participant API as Kubernetes API
     end
     box rgb(240,232,245) Ephemeral · per run
-        participant Run as Run pod (Job 1)
-        participant Floe as Floe runner (1 Job per entity)
+        participant Run as Run pod (Job)
+        participant Floe as Floe Job (per domain)
     end
     box rgb(233,233,237) Data plane
         participant Trino
@@ -39,21 +39,22 @@ sequenceDiagram
 
     User->>UI: Launch order_revenue_pipeline
     UI->>Daemon: enqueue run
-    Daemon->>API: create Job 1 — the run pod
+    Daemon->>API: create the run pod Job
     Note over Run: image project-code · SA dagster · TTL 1h
 
     Note over Run: ① Bronze — dlt
     Run->>S3: land raw entities in lakehouse-dev-bronze
 
-    Note over Run: ② Silver — Floe, out of process
-    loop once per entity, sequential (5 for order_revenue)
-        Run->>API: create Floe Job — image from the manifest
+    Note over Run: ② Silver — one Floe Job per domain
+    Run->>API: create the sales Floe Job (--entities, 6 for order_revenue)
+    Note over Floe: image project-code · SA dagster · TTL 1h · Secrets by reference
+    loop once per entity, sequential
         Floe->>S3: read Bronze, validate against the contract
         Floe->>Polaris: commit validated Iceberg tables (OAuth)
-        Note over Floe: rejects → quarantined CSV · timeout 600s
-        Floe-->>Run: run_finished + report URI
-        Note over Floe: this Job TTL-collected
+        Note over Floe: rejects → quarantined CSV
+        Floe->>S3: write the entity's run report
     end
+    Run->>API: poll the Job, read its pod log (Floe JSON events)
 
     Note over Run: ③ Gold — dbt, SQL runs in Trino
     Run->>Trino: dbt build (dbt-trino)
@@ -61,35 +62,38 @@ sequenceDiagram
     Trino->>S3: write Gold Iceberg data
 
     Run-->>Daemon: run succeeded · logs + artifacts already in S3
-    Note over Run: Job 1 TTL-collected — no run pods remain (Trino stays up)
+    Note over Run,Floe: Jobs TTL-collected — no run or Floe pods remain (Trino stays up)
 ```
 
-The exact values live in the manifest and the Terraform module: the run pod and every
-per-entity Floe Job use `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`; the
-Floe runner is `ghcr.io/malon64/floe:0.6.11` with `timeout_seconds: 600`, polled every
-5s; exit codes are
-`0 = success_or_rejected`, `1 = technical_failure`, `2 = aborted`; and the run pod
-carries the ~40 contract-derived environment variables plus `envFrom` secrets.
+The exact values live in the Terraform module and the stage's rendered Floe profile: the
+run pod uses `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`, carries the
+contract-derived environment variables plus `envFrom` secrets, and runs each product job
+with `max_concurrent: 1` because the profile's Floe orchestration is `sequential`. Each
+Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the non-secret
+contract values its `olf-floe-job` entrypoint re-renders the profile from, and only the
+Secrets the runner references: the Polaris Floe client, the storage keys, and the
+ingestion-bot JWT when governance is on.
 
 ## Where each engine does its work
 
 | | Floe (Silver) | dbt (Gold) |
 | --- | --- | --- |
 | Orchestrated from | The run pod | The run pod |
-| Executes in | **Its own Kubernetes Job** | **Trino** — dbt-trino pushes the SQL down |
-| Image | `ghcr.io/malon64/floe:0.6.11` — declared in the manifest | `project-code` runs the dbt CLI |
-| Upgrade path | Regenerate the manifest; no image rebuild | Bump dbt in `project-code`; Trino via Helm |
+| Executes in | **One Floe Job per domain** | **Trino** — dbt-trino pushes the SQL down |
+| Version | `floe-python`, pinned in `project-code` | `dbt-trino`, pinned in `project-code`; Trino via Helm |
+| Upgrade path | Bump `floe-python` and `dagster-floe`; rebuild `project-code` | Bump dbt in `project-code`; Trino via Helm |
 | Storage access | S3 directly + catalog commits | Trino reads/writes S3; the run pod touches no data |
-| Credentials | `polaris-floe-creds` | none — dbt reaches the catalog through Trino, which holds `polaris-trino-creds` (the bootstrap deletes the old `polaris-dbt-creds`) |
+| Credentials | `polaris-floe-creds`, a `secretKeyRef` on the Floe Job | none — dbt reaches the catalog through Trino, which holds `polaris-trino-creds` (the bootstrap deletes the old `polaris-dbt-creds`) |
 
-Floe brings its own runtime image and is invoked through a declared contract; dbt is a
-thin client in the run pod whose transformations execute inside Trino — the run pod
-never holds Gold data in memory (PR #62 replaced the earlier DuckDB materialization).
+Floe holds an entity's frames in its domain Job's memory while it validates them, so that
+Job, not the run pod, is what bounds Silver; dbt is a thin client whose transformations execute inside
+Trino — the run pod never holds Gold data in memory (PR #62 replaced the earlier DuckDB
+materialization).
 
 ## Job lifecycle
 
 `ttlSecondsAfterFinished` keeps completed Jobs from accumulating: Kubernetes deletes the
-Job and its pods an hour after they reach a terminal state, leaving the logs and reports
+Job and its pod an hour after it reaches a terminal state, leaving the logs and reports
 already written to object storage as the durable record.
 
 ```mermaid
@@ -97,13 +101,11 @@ stateDiagram-v2
     direction LR
     [*] --> Pending: Job created
     Pending --> Running: pod scheduled
-    Running --> Succeeded: exit 0
-    Running --> Failed: exit 1 / 2
-    Running --> DeadlineExceeded: timeout 600s (Floe)
+    Running --> Succeeded: run succeeded
+    Running --> Failed: run failed
     Succeeded --> TTLExpired: + 3600s
     Failed --> TTLExpired: + 3600s
-    DeadlineExceeded --> TTLExpired: + 3600s
-    TTLExpired --> [*]: Job and pods deleted
+    TTLExpired --> [*]: Job and pod deleted
 
     note right of Running
         Logs stream to object storage
@@ -121,13 +123,16 @@ stateDiagram-v2
 kubectl --context kind-openlakeforge-local -n olf-dev get jobs -w
 ```
 
-A `dagster-run-<id>` Job appears first, then one Floe runner Job per entity while the
-run pod is still `Running`, then all of them disappear an hour after completion.
+A `dagster-run-<id>` Job appears for the run, then one `floe-<domain>-<suffix>` Job
+(label `app=floe-runner`) per domain it validates; each disappears an hour after
+completion.
 
 ## Source of truth
 
-- [libs/product_dagster.py](../../../libs/product_dagster.py) — asset graph assembly, Floe manifest resolution
-- [lakehouse_code/silver/sales/contracts/floe/manifests/sales.manifest.json](../../../lakehouse_code/silver/sales/contracts/floe/manifests/sales.manifest.json) — runner spec (image, TTL, timeout, secrets), exit-code contract
+- [libs/product_dagster.py](../../../libs/product_dagster.py) — asset graph assembly from the Floe project
+- [libs/floe_profile.py](../../../libs/floe_profile.py) — the stage's Floe profile: storages, catalog, lineage, the per-domain `kubernetes_job` runner, sequential orchestration
+- [libs/floe_job.py](../../../libs/floe_job.py) — the Floe Job's entrypoint, which re-renders the profile inside the Job
+- [lakehouse_code/silver/floe.yml](../../../lakehouse_code/silver/floe.yml) — the Floe project
 - [infra/terraform/modules/orchestration/dagster/main.tf](../../../infra/terraform/modules/orchestration/dagster/main.tf) — `K8sRunLauncher`, `ttlSecondsAfterFinished`, runtime env
 - [libs/dbt/profiles/](../../../libs/dbt/profiles/) — dbt targets (`type: trino` since PR #62)
-- [ADR 0006](../../adr/0006-dagster-runtime-and-code-locations.md), [ADR 0006](../../adr/0006-dagster-runtime-and-code-locations.md), [ADR 0001](../../adr/0001-platform-baseline-and-component-stack.md)
+- [ADR 0006](../../adr/0006-dagster-runtime-and-code-locations.md), [ADR 0001](../../adr/0001-platform-baseline-and-component-stack.md)

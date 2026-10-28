@@ -11,7 +11,7 @@ show *how* it runs.
 
 | **20** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — 14 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per entity | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — 14 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
@@ -26,7 +26,7 @@ show *how* it runs.
 
 > Purple splits three ways by **what creates the Job**, which is also how chart 1 groups
 > them. *Per pipeline run*: Dagster's `K8sRunLauncher` creates the run pod, which creates
-> one Floe runner per entity — both TTL-collected within the hour, so the pipeline scales
+> one Floe Job per domain — both TTL-collected within the hour, so the pipeline scales
 > to zero between runs. *Bootstrap*: for one full stage, six Terraform
 > `kubernetes_job_v1` resource blocks (two Polaris, two OpenMetadata, PostgreSQL,
 > SeaweedFS) plus two Helm hooks (Superset's init, cert-manager's startup API check) —
@@ -55,7 +55,7 @@ coordinator-only. The ingress adds five single-replica Deployments in
 and the portal, which serves the landing page at the base domain.
 
 The purple band underneath is everything that is *not* in that 20, split by what creates
-it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
+it. **Per pipeline run**: the run pod and its Floe Jobs, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: six grouped
 categories — Polaris (metastore bootstrap and principal bootstrap), SeaweedFS (one Job
@@ -81,7 +81,7 @@ Polaris persists catalog state in PostgreSQL through JDBC, so a plain pod restar
 preserves catalog and table identity. Polaris points at the Iceberg warehouse files in
 SeaweedFS; Dagster, OpenMetadata, Superset, and Polaris share one PostgreSQL service.
 The per-run pair does the data work: the run pod lands raw data in
-object storage with **dlt**, launches the **Floe** runner (which authenticates to
+object storage with **dlt**, launches a **Floe** Job per domain (which authenticates to
 Polaris and reads/writes SeaweedFS), then calls **Trino** through dbt-trino to build
 Gold. Both Floe and dbt-trino also push OpenLineage events straight to OpenMetadata's
 native endpoint — that lineage ingestion was restored, not deferred.
@@ -92,23 +92,22 @@ native endpoint — that lineage ingestion was restored, not deferred.
 
 ## Chart 3 — Ephemeral Job Lifecycle
 
-*Launch → run pod → one Floe Job per entity → Gold via Trino → everything garbage-collected.*
+*Launch → run pod → one Floe Job per domain → Gold via Trino → everything garbage-collected.*
 
 The differentiating behavior: the Dagster run pod is itself an ephemeral Job, and it
-creates **one Floe runner Job per entity** — sequentially, from an image declared in the
-Floe manifest, not in the Dagster deployment — so a product with five entities (e.g.
-`order_revenue`) runs five distinct Floe Jobs over the course of one pipeline run, never
-concurrently. Ingestion upgrades without rebuilding the orchestrator image; failures
-isolate per entity; TTL returns the per-run footprint to zero (Gold SQL executes in the
-standing Trino service, not a per-run pod).
+creates **one Floe Job per domain** on the same project-code image, which validates
+the domain's selected entities one after another — so `order_revenue`, whose six Silver
+inputs all belong to domain `sales`, runs one Floe Job per pipeline run. Silver memory is
+bounded by that Job, not the run pod; failures isolate per domain; TTL returns the per-run
+footprint to zero (Gold SQL executes in the standing Trino service, not a per-run pod).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../assets/chart3-ephemeral-job-lifecycle-dark.svg">
-  <img alt="Ephemeral job lifecycle: the user launches a product job in Dagster; the daemon creates the run pod, which lands Bronze with dlt, creates one Floe Job per entity in sequence to validate and commit Silver through the catalog, then runs dbt-trino so Trino builds Gold; every run and Floe pod is garbage-collected after the run" src="../assets/chart3-ephemeral-job-lifecycle-light.svg">
+  <img alt="Ephemeral job lifecycle: the user launches a product job in Dagster; the daemon creates the run pod, which lands Bronze with dlt, creates one Floe Job per domain, which validates the domain's entities in sequence and commits Silver through the catalog, then runs dbt-trino so Trino builds Gold; every run and Floe pod is garbage-collected after the run" src="../assets/chart3-ephemeral-job-lifecycle-light.svg">
 </picture>
 
 > Observe it live: `kubectl -n olf-dev get jobs -w` — the run Job appears, then one
-> Floe Job per entity while it is still Running, then all of them vanish an hour later.
+> Floe Job per domain while it is still Running, then all of them vanish an hour later.
 
 Full detail — the per-engine execution table and the Job state machine — is in
 **[chart3-ephemeral-job-lifecycle.md](diagrams/chart3-ephemeral-job-lifecycle.md)**.
@@ -119,7 +118,7 @@ Full detail — the per-engine execution table and the Job state machine — is 
 to end.*
 
 Raw data lands in Bronze as-is via dlt (CSV in the seed products, any raw source); the
-Floe runner Job validates it against the contract and commits Silver Iceberg tables
+domain's Floe Job validates it against the contract and commits Silver Iceberg tables
 through the catalog; dbt builds the Gold marts with the SQL executing **in Trino**
 (dbt-trino). The catalog — Polaris locally, AWS Glue on the AWS POC — spans both curated
 layers: per-product namespaces, allowed locations, and every write committed through it,
@@ -202,17 +201,18 @@ never runs Terraform for a domain change ([ADR 0002](../adr/0002-deployment-life
 | --- | --- | --- |
 | 1 — Foundation | `olf deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
 | 2 — Platform | `olf deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
-| 3 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
+| 3 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: catalog namespaces, the project-code image (Dagster definitions, Floe contracts, dbt code), Superset dashboards, OpenMetadata data products |
 
 Phases 1 and 2 are static infrastructure that Terraform owns; phase 3 is
 dynamic and code-derived. `olf deploy --provider local` with no `--phase` chains
 1 → 2 → 3; phases 1 and 2 are idempotent no-ops when nothing changed. Phase 3,
-in order: load contract env → compile
-Floe manifests → build + load
-`project-code` → `olf artifacts upload-manifests` → `olf report import` →
-`olf openmetadata deploy-metadata` → `olf k8s set-project-code-image`, which patches
-the run-launcher ConfigMap, every Dagster deployment, and the log-archive CronJob to
-the new image before waiting on each rollout — not a bare `kubectl rollout restart`.
+in order: load contract env → `olf catalog sync-namespaces` → build + load
+`project-code` → `olf k8s set-project-code-image` → `olf report import` (analytics
+layer on) → `olf openmetadata deploy-metadata` (governance layer on). The image step
+patches the run-launcher ConfigMap, every Dagster deployment, and the log-archive
+CronJob to the new image before waiting on each rollout — not a bare `kubectl rollout
+restart`. The Floe contracts ship inside the project-code image; nothing
+Floe-specific is compiled or uploaded.
 CI validates structure, infrastructure, contracts, project-code, tooling, dbt, and
 release readiness; pull requests also run the bounded slim kind smoke.
 
@@ -241,21 +241,21 @@ are deleted on TTL; their evidence is not:
 
 ```text
 s3://openlakeforge-ops/
-├── floe/manifests/{domain}/{domain}.manifest.json          ← olf artifacts upload-manifests
-├── floe/reports/{domain}/                                  ← ephemeral Floe runner Job
-├── logs/dagster/compute/                                   ← S3ComputeLogManager
-├── logs/k8s/namespace={ns}/date={YYYY-MM-DD}/hour={HH}/    ← log-archive CronJob
-└── run-artifacts/dbt/{domain}/{product}/{dagster_run_id}/  ← run pod, post-dbt-build
+├── project/revisions/sha256/{digest}/                          ← olf project build
+└── activations/{stage}/
+    ├── floe/reports/{domain}/run_{id}/                         ← the domain's Floe Job
+    ├── logs/dagster/compute/                                   ← S3ComputeLogManager
+    ├── logs/k8s/namespace={ns}/date={YYYY-MM-DD}/hour={HH}/    ← log-archive CronJob
+    └── run-artifacts/dbt/{domain}/{product}/{dagster_run_id}/  ← run pod, post-dbt-build
 ```
 
-Only the dbt run-artifacts are keyed by Dagster run ID (`run-artifacts/dbt/{domain}/
-{product}/{dagster_run_id}/`), so those are isolable per run after the pod is gone. Floe's
-`report_base_uri` (set per manifest, e.g. `floe/reports/sales`) stops at the domain —
-successive runs overwrite the same prefix, since
-the runner's `base_args` carry no `--run-id`. The archived Kubernetes pod logs are
-partitioned only by namespace / date / hour (`libs/k8s_log_archive.py`), so isolating a
-single run from raw pod logs or from prior Floe reports needs a timestamp, not just a
-prefix.
+The dbt run-artifacts are keyed by Dagster run ID (`run-artifacts/dbt/{domain}/
+{product}/{dagster_run_id}/`) and each Floe Job writes its reports under its own
+`floe/reports/{domain}/run_{id}/` (the project's `report.path` beneath the stage's
+artifact prefix, `libs/floe_profile.py`), so both stay isolable per run after the pods
+are gone. The archived Kubernetes pod logs are partitioned only by namespace / date /
+hour (`libs/k8s_log_archive.py`), so isolating a single run from raw pod logs needs a
+timestamp, not just a prefix.
 
 ## Medallion-oriented code structure — the dynamic code
 
@@ -273,10 +273,10 @@ lakehouse_code/
 ├── bronze/<source>/                          ← source-owned
 │   ├── source.yaml                                              resource inventory
 │   └── dlt/<source>.py                       ← extract:         raw source → Bronze                      → dlt
-├── silver/<domain>/                          ← domain-owned
-│   └── contracts/floe/
-│       ├── <domain>.yml                      ← contract:        Bronze→Silver schema · PK · reject policy → Floe
-│       └── manifests/<domain>.manifest.json                     compiled, checksummed runner spec (baked + published)
+├── silver/                                   ← the Floe project: floe.yml · sources.yml
+│   └── <domain>/contracts/floe/              ← domain-owned
+│       ├── _domain.yml                       ← contract:        domain defaults · sinks · reject policy  → Floe
+│       └── <entity>.yml                                         one per entity: schema · PK
 ├── gold/<product>/                           ← product-owned
 │   └── dbt/models/gold/*.sql · sources.yml · schema.yml         Silver→Gold SQL                            → dbt-trino → Trino
 ├── pipelines/dagster/<product>.py            ← pipeline:        asset graph wiring bronze→floe→dbt        → Dagster

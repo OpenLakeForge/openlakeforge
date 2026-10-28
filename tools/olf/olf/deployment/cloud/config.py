@@ -5,7 +5,7 @@ Mirrors `olf.deployment.local.config`: plain frozen dataclasses with
 fallback semantics (`olf.deployment.env_settings`). Only the genuinely
 provider-neutral settings live here - project-code/Superset image
 selection, Helm chart caching, the platform Terraform var-file/retry
-policy, and Floe manifest generation. Foundation-specific settings (AWS
+policy. Foundation-specific settings (AWS
 region/node sizing/instance types; Azure node count/ACR name prefix) stay
 in `cloud/aws.py`/`cloud/azure.py`, matching the shell scripts' own
 provider split.
@@ -28,7 +28,6 @@ from olf.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
-from olf.deployment.floe_manifests import FloeManifestSettings
 from olf.deployment.retry import RetryPolicy
 
 _DEFAULT_SUPERSET_BASE_IMAGE = (
@@ -310,7 +309,6 @@ class CloudDeploymentConfig:
     images: CloudImageSettings
     charts: CloudChartSettings
     terraform: CloudTerraformSettings
-    floe: FloeManifestSettings
     force_foundation_down: bool
 
     @property
@@ -385,6 +383,5 @@ class CloudDeploymentConfig:
                 features=context.platform_features,
             ),
             terraform=terraform,
-            floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root, scope=scope),
             force_foundation_down=_truthy(_env(environ, f"{scope.upper()}_FOUNDATION_FORCE_DOWN", "false")),
         )

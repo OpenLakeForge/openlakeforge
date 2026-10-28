@@ -62,9 +62,10 @@ adapters follow (#131).
 Floe and dbt-trino each emit OpenLineage events straight to OpenMetadata's
 `/api/v1/openlineage/lineage` endpoint.
 
-- Floe environment profiles carry the endpoint and receive the ingestion-bot JWT
-  only through a Kubernetes Secret reference — never through a generated
-  manifest.
+- The Floe environment profile the code location renders carries the endpoint;
+  each domain's Floe Job receives the ingestion-bot JWT as `OPENLINEAGE_API_KEY`
+  through a Kubernetes Secret reference (`secretKeyRef`), and Floe reads it from
+  the environment, so the token never enters the profile or the Job spec.
 - `openlineage-dbt` ships in the project-code image; Dagster sets the product job
   name around the dbt invocation so events carry stable logical identities.
 - The dataset namespace matches the catalog identity: `polaris` locally and on
@@ -90,7 +91,7 @@ that performed the write, or it is not emitted.** Anything else is a plausible
 graph that nobody has verified.
 
 Native emission only became viable once the upstream causes were fixed — Floe
-began passing manifest entities to its lineage observer with resolved Bronze
+began passing its entities to its lineage observer with resolved Bronze
 source URIs and Silver outputs, and Gold moved from dbt-duckdb to dbt-trino,
 whose dataset namespaces resolve to the real catalog (ADR 0001).
 
@@ -107,8 +108,8 @@ scheduling an ingestion that would fail on every run.
 The complete Bronze→Silver→Gold graph resolves in OpenMetadata when the
 governance layer is enabled.
 
-Generated Floe manifests stay credential-free and provider-neutral; this ADR
-does not create an exception to that rule.
+The Floe profile stays credential-free; this ADR does not create an exception
+to that rule.
 
 Superset dashboards appear in OpenMetadata only after its dashboard ingestion
 pipeline crawls the Superset API. Report import and metadata crawl are separate
@@ -133,3 +134,8 @@ stage instead of only the canonical one.
 
 2026-10-01 (#131, #257): table stubs survive the crawl, and lineage pipeline
 entities are recorded as not created on OpenMetadata 1.13.6.
+
+2026-10-28 (#533): Floe emits lineage from one Kubernetes Job per domain, with
+the endpoint in the profile the code location renders and the JWT as a Secret
+reference on the Job; there is no generated manifest left to keep
+credential-free.

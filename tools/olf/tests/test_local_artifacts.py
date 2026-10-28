@@ -77,19 +77,9 @@ def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, 
     )
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: calls.append("sync_namespaces"))
     monkeypatch.setattr(
-        artifacts,
-        "generate_local_manifests",
-        lambda *a, **k: calls.append("generate_manifests") or [],
-    )
-    def _activate_and_record(runtime_root):  # noqa: ANN001, ANN202
-        calls.append("activate_revision")
-        return "sha256:abc"
-
-    monkeypatch.setattr(artifacts, "activate_runtime_revision", _activate_and_record)
-    monkeypatch.setattr(
         artifacts.images,
         "prepare_project_code_image",
-        lambda cfg, tls, *, env, revision: calls.append(f"prepare_project_code_image(revision={revision})"),
+        lambda cfg, tls, *, env: calls.append("prepare_project_code_image"),
     )
     monkeypatch.setattr(
         artifacts.k8s, "set_project_code_image", lambda image, namespace: calls.append("set_project_code_image")
@@ -103,38 +93,10 @@ def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, 
     assert calls == [
         "contract_env_entered",
         "sync_namespaces",
-        "generate_manifests",
-        "activate_revision",
-        "prepare_project_code_image(revision=sha256:abc)",
+        "prepare_project_code_image",
         "set_project_code_image",
         "deploy_optional_layers",
     ]
-
-
-def test_artifacts_deploy_uploads_manifests_when_image_tag_is_not_local(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    context = DeploymentContext.local(repo_root=tmp_path)
-    config = LocalDeploymentConfig.from_environment({"PROJECT_CODE_IMAGE_TAG": "v1"}, context=context)
-    tools = _toolkit()
-    calls: list[str] = []
-
-    monkeypatch.setattr(artifacts, "applied_contract_environment", _fake_contextmanager(lambda: None))
-    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(artifacts, "generate_local_manifests", lambda *a, **k: [])
-    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda runtime_root: "sha256:abc")
-    monkeypatch.setattr(
-        artifacts, "upload_runtime_manifests", lambda runtime_root: calls.append("upload_runtime_manifests")
-    )
-    monkeypatch.setattr(
-        artifacts.images, "prepare_project_code_image", lambda *a, **k: calls.append("prepare_project_code_image")
-    )
-    monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
-    monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
-
-    artifacts.artifacts_deploy(config, tools, env={})
-
-    assert calls == ["upload_runtime_manifests"]
 
 
 def _fake_contextmanager(on_enter):  # noqa: ANN001, ANN202

@@ -9,10 +9,8 @@ inspect|verify` read it back without rebuilding source. See
 this implements, and [`#154`](https://github.com/OpenLakeForge/openlakeforge/issues/154)
 for the issue that introduced it.
 
-This is a different object from `olf floe revision`, the v0.2 immutable
-Floe **runtime-artifact** revision. That one identifies one stage's rendered
-manifest set after a provider contract has resolved it. A project revision
-identifies the project **before** any stage exists.
+A project revision identifies the project **before** any stage exists: the
+stage binding is added when a stage activates it.
 
 ## Build once, promote unchanged
 
@@ -20,7 +18,7 @@ identifies the project **before** any stage exists.
 | --- | --- |
 | Project revision | What does this project contain, and what image runs it? |
 | Deployment Profile (`openlakeforge.yaml`) | Where does it run, and which stages are enabled? |
-| Floe runtime-artifact revision | What did Floe render for one stage's contract environment? |
+| Project activation | Which revision runs in one stage, bound to which provider contract? |
 
 Promotion (`#115`) activates one already-built project revision in DEV,
 validates it, then activates the same revision — same digest, no rebuild — in
@@ -52,11 +50,11 @@ names, GHCR or Docker Hub by default. See
 [CI/CD and environment promotion](../guides/promote-dev-to-prod.md) for that loop.
 
 Activation verifies every object of the published `ProjectRevision`, restores it
-to a temporary root, and renders Floe only from that root and the selected v3
+to a temporary root, and deploys only from that root and the selected v3
 provider contract. It writes an immutable `ProjectActivation` beneath
 `activations/<stage>/revisions/sha256/` and advances `ACTIVE.json` only after
 the stage's `openlakeforge-project` Helm release is ready. Project revisions
-remain equal across stages; activation and Floe revisions intentionally differ.
+remain equal across stages; only activations differ.
 
 ## Schedules are not a promotion side effect
 
@@ -90,7 +88,7 @@ catalog boundary, never part of an asset's identity.
 | Component | Source | Notes |
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/lakehouse.yaml`, `bronze/<source>/source.yaml` | Provider-neutral project truth |
-| `floe` | `silver/<domain>/contracts/floe/<domain>.yml` | The contract, never the rendered manifest |
+| `floe` | `silver/*.yml`, `silver/<domain>/contracts/floe/*.yml` | The Floe project and its contracts, never the rendered profile |
 | `dbt` | `gold/<product>/dbt/**` | Excludes `target/` and `dbt_packages/` |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |
 | `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared; validated first |
@@ -137,11 +135,11 @@ every component, reports included, by the revision's own scan.
 
 - `openlakeforge.yaml` — deployment intent (provider, stages, capabilities),
   not project content.
-- Every stage-rendered Floe artifact: generated manifests, rendered profiles,
-  and anything a provider contract resolved. These embed physical bucket
-  names, Kubernetes namespaces, catalog endpoints, and Secret references —
-  the opposite of what a promotable revision is allowed to contain. `#115`
-  regenerates them per stage from the frozen `floe` component.
+- The Floe EnvironmentProfile and anything else a provider contract resolves.
+  These name physical buckets, catalog endpoints, and Secret references —
+  the opposite of what a promotable revision is allowed to contain. The code
+  location renders the profile for its own stage when it loads, and builds
+  the Floe manifest in memory from it and the frozen `floe` component.
 - Build output: `target/`, `dbt_packages/`, `__pycache__/`, `.venv/`.
 
 ## Building and verifying
@@ -172,10 +170,8 @@ one.
 ## Content address
 
 Each component is a `{relative project path: sha256 digest}` map. The overall
-revision hashes every `<component>/<path>` entry, sorted, through the same
-primitive `olf floe revision` uses
-(`revision.aggregate_revision`) — a project with no components cannot produce
-a revision, and the hash is stable regardless of file discovery order or
+revision hashes every `<component>/<path>` entry, sorted — a project with no
+components cannot produce a revision, and the hash is stable regardless of file discovery order or
 which path on disk the project was built from.
 
 ## Publishing

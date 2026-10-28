@@ -1,11 +1,10 @@
 """Transport-neutral content-addressed artifact storage.
 
-Bucket and client resolution shared by the v0.2 Floe runtime-artifact
-revision (`olf floe revision`) and the v0.3 project revision (`olf project
-build`), so both publish through the same in-cluster/cloud S3 access path
-instead of maintaining two client builders. `RevisionStore` additionally lets
-the project revision publish to a local directory (`olf project build
---output DIR`) without a cluster or cloud credentials.
+Bucket and client resolution for the project revision (`olf project build`)
+and stage activations, through the in-cluster/cloud S3 access path.
+`RevisionStore` additionally lets the project revision publish to a local
+directory (`olf project build --output DIR`) without a cluster or cloud
+credentials.
 """
 
 from __future__ import annotations
@@ -44,8 +43,8 @@ def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
         raise ArtifactStoreError(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')")
 
     # This is the shared admin storage identity (OPENLAKEFORGE_OPS_STORAGE_*),
-    # not a stage's own OPENLAKEFORGE_STORAGE_* one: immutable revision
-    # publishing (olf.revision.REVISION_PREFIX = "floe/revisions") writes
+    # not a stage's own OPENLAKEFORGE_STORAGE_* one: immutable project
+    # revisions (olf.project_revision.REVISION_PREFIX) are published
     # outside any stage's activations/<stage> prefix, so a stage's own
     # narrower identity cannot reach it, and it lives only in the shared
     # namespace, not config.namespace()'s stage-selected one.

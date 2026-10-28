@@ -49,6 +49,10 @@ class ProjectSpec:
         return self.code_root / "silver"
 
     @property
+    def floe_project(self) -> Path:
+        return self.silver_root / "floe.yml"
+
+    @property
     def gold_root(self) -> Path:
         return self.code_root / "gold"
 
@@ -164,8 +168,10 @@ def _project_assets_check(project: ProjectSpec, inventory: LakehouseInventory | 
         path = project.bronze_root / source.name / "dlt" / f"{source.name}.py"
         if not path.is_file():
             missing.append(path.relative_to(project.root).as_posix())
-    for domain in inventory.domains:
-        path = project.silver_root / domain.name / "contracts" / "floe" / f"{domain.name}.yml"
+    floe_files = [project.floe_project] + [
+        project.silver_root / domain.name / "contracts" / "floe" / "_domain.yml" for domain in inventory.domains
+    ]
+    for path in floe_files:
         if not path.is_file():
             missing.append(path.relative_to(project.root).as_posix())
     for product in inventory.products:

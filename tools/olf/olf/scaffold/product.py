@@ -14,9 +14,7 @@ from openlakeforge_domain import load_transitional_lakehouse_inventory
 
 from olf.scaffold import _lakehouse_edit, _templates
 from olf.scaffold import domain as domain_module
-from olf.scaffold._csv import infer_columns
 from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
-from olf.scaffold._templates import FloeEntitySpec, render_floe_entity
 
 
 def _parse_target(target: str) -> tuple[str, str]:
@@ -134,25 +132,7 @@ def plan_product_new(
             )
             lakehouse_text = _lakehouse_edit.add_silver_tables(lakehouse_text, domain, new_table_lines + "\n")
 
-            contract_path = f"lakehouse_code/silver/{domain}/contracts/floe/{domain}.yml"
-            contract_file = repo_root / contract_path
-            if not contract_file.is_file():
-                raise ScaffoldError(f"{contract_path}: expected an existing Floe contract for domain {domain!r}")
-            existing_contract = contract_file.read_text(encoding="utf-8")
-            new_entities = []
-            for source, resource in inputs:
-                csv_text = domain_module.example_csv_text(repo_root, source, resource)
-                columns = infer_columns(csv_text) if csv_text is not None else ()
-                new_entities.append(
-                    render_floe_entity(
-                        FloeEntitySpec(table=resource, source=source, resource=resource, domain=domain, columns=columns)
-                    )
-                )
-            addition = "\n" + "\n\n".join(new_entities) + "\n"
-            new_contract = _lakehouse_edit.append_to_top_level_list(
-                existing_contract, "entities", addition, source_label=contract_path
-            )
-            edits.append(ScaffoldFile(contract_path, new_contract))
+            extra_files.extend(domain_module.floe_entity_files(repo_root, domain=domain, inputs=inputs))
 
     all_silver_inputs = tuple(silver_inputs) + tuple(new_table_names)
     if not all_silver_inputs:
@@ -266,4 +246,7 @@ def plan_product_new(
             "declare it in lakehouse.yaml's dashboards: list; see the bundle's README.md)."
         )
 
+    sources = domain_module.floe_sources_edit(repo_root, inputs) if inputs else None
+    if sources is not None:
+        edits.append(sources)
     return ScaffoldPlan(files=all_files, lakehouse_yaml=lakehouse_text, summary=tuple(summary), edits=tuple(edits))

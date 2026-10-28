@@ -1,0 +1,8 @@
+name: "promotions"
+source: { ref: "crm", resource: "promotions" }
+schema:
+  primary_key: ["promotion_id"]
+  columns:
+    - { name: "promotion_id", type: "string", nullable: false }
+    - { name: "promotion_name", type: "string", nullable: false }
+    - { name: "discount_type", type: "string", nullable: false }

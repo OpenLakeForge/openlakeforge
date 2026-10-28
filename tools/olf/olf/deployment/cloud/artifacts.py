@@ -1,10 +1,9 @@
 """Dynamic cloud (AWS/Azure) artifact deployment.
 
 Port of `scripts/{aws,azure}/stack/deploy-artifacts.sh`. Preserves the exact
-ordering: reconcile catalog namespaces -> generate Floe runtime artifacts ->
-activate/publish the immutable Floe revision -> build/push the project-code
-image using that revision -> upload legacy Floe manifests -> deploy optional
-Superset/OpenMetadata artifacts -> point Dagster at the image. The optional
+ordering: reconcile catalog namespaces -> build/push the project-code
+image -> deploy optional Superset/OpenMetadata artifacts -> point Dagster
+at the image. The optional
 layers deliberately run before the Dagster image switch, so a failed
 Superset/OpenMetadata deploy leaves the running deployment on its previous
 image rather than one whose optional artifacts never landed.
@@ -24,12 +23,7 @@ from pathlib import Path
 
 from olf import k8s, log
 from olf.deployment import contract_env
-from olf.deployment.artifact_steps import (
-    activate_runtime_revision,
-    deploy_optional_layer_artifacts,
-    sync_catalog_namespaces,
-    upload_runtime_manifests,
-)
+from olf.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.images import build_and_push_project_code_image, resolve_effective_images
@@ -85,31 +79,11 @@ def artifacts_deploy(
         environ=env,
         topology=config.context.topology,
         stage=config.context.stage,
-    ) as contract_environ:
+    ):
         log.step(f"Reconciling catalog namespaces from the domain descriptors for {backend.scope}...")
         sync_catalog_namespaces()
 
-        log.step(f"Generating {backend.scope} product Floe manifests for namespace '{config.namespace}'...")
-        backend.generate_floe_manifests(
-            config,
-            tools,
-            repo_root=config.paths.repo_root,
-            distribution_root=config.paths.distribution_root,
-            namespace=config.namespace,
-            governance_enabled=config.features.governance_enabled,
-            environ=contract_environ,
-            env=env,
-        )
-
-        transport = backend.artifact_transport()
-        log.step("Publishing and verifying immutable Floe runtime-artifact revision...")
-        revision_id = activate_runtime_revision(config.floe.runtime_artifact_dir, via=transport)
-        os.environ["FLOE_MANIFEST_REVISION"] = revision_id
-
-        build_and_push_project_code_image(config, tools, backend, facts, env=env, revision=revision_id)
-
-        log.step(f"Publishing product Floe runtime artifacts to the {backend.scope} ops bucket...")
-        upload_runtime_manifests(config.floe.runtime_artifact_dir, via=transport)
+        build_and_push_project_code_image(config, tools, backend, facts, env=env)
 
         # Deliberately before the Dagster image switch: the removed
         # deploy-artifacts.sh ran deploy-optional-layers first, so a failed

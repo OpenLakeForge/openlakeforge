@@ -185,6 +185,20 @@ def test_deployment_patch_syncs_dagster_current_image() -> None:
     assert sidecar_entry == {"name": "sidecar", "image": "new:tag"}
 
 
+def test_deployment_patch_syncs_the_floe_job_image() -> None:
+    """Floe's domain Jobs run on this image; a stale one runs the previous project."""
+    env = [
+        {"name": "DAGSTER_CURRENT_IMAGE", "value": "old"},
+        {"name": "OPENLAKEFORGE_PROJECT_CODE_IMAGE", "value": "old"},
+    ]
+    patch = k8s.deployment_container_patch([{"name": "dagster", "env": env}], "new:tag")
+
+    assert patch["spec"]["template"]["spec"]["containers"][0]["env"] == [
+        {"name": "DAGSTER_CURRENT_IMAGE", "value": "new:tag"},
+        {"name": "OPENLAKEFORGE_PROJECT_CODE_IMAGE", "value": "new:tag"},
+    ]
+
+
 def test_deployment_patch_combines_image_and_rollout_annotation() -> None:
     patch = k8s.deployment_container_patch(
         [{"name": "dagster"}],

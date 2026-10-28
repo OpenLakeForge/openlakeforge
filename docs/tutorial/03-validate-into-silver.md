@@ -33,52 +33,59 @@ lakehouse_code/silver/marketing/
 ├── README.md
 └── contracts/
     └── floe/
-        └── marketing.yml
+        ├── _domain.yml
+        └── campaigns.yml
 ```
+
+It also declares `marketing_platform` in `lakehouse_code/silver/sources.yml`,
+the named Bronze sources every domain's entities read from.
 
 ## 2. Read the contract
 
-`marketing.yml` is the Floe contract of the domain. Besides the storage
-definitions, it holds one entity per Silver table. This is the `campaigns`
-entity, with its columns inferred from the CSV you wrote in lesson 2:
+The Floe contract of a domain is split in two. `_domain.yml` holds what every
+entity of the domain shares:
 
 ```yaml
-entities:
-  - name: "campaigns"
-    incremental_mode: "none"
-    source:
-      format: "csv"
-      path: "marketing_platform/campaigns"
-      storage: "lakehouse_bronze"
-      cast_mode: "strict"
-    sink:
-      write_mode: "overwrite"
-      accepted:
-        format: "iceberg"
-        path: "marketing/campaigns"
-        storage: "lakehouse_silver"
-        iceberg: { catalog: "iceberg_catalog", namespace: "marketing_silver", table: "campaigns" }
-      rejected: { format: "csv", path: "floe/rejected/marketing/campaigns", storage: "lakehouse_silver" }
-    policy: { severity: "reject" }
-    schema:
-      primary_key: ["campaign_id"]
-      columns:
-        - { name: "campaign_id", type: "string", nullable: false }
-        - { name: "campaign_date", type: "date", nullable: false }
-        - { name: "channel", type: "string", nullable: false }
-        - { name: "spend", type: "number", nullable: false }
-        - { name: "conversions", type: "integer", nullable: false }
+name: "marketing"
+defaults:
+  incremental_mode: "none"
+  sink:
+    write_mode: "overwrite"
+    accepted:
+      format: "iceberg"
+      path: "marketing/{{entity.name}}"
+      storage: "lakehouse_silver"
+      iceberg: { catalog: "iceberg_catalog", namespace: "marketing_silver" }
+    rejected: { format: "csv", path: "floe/rejected/marketing/{{entity.name}}", storage: "lakehouse_silver" }
+  policy: { severity: "reject" }
+  schema:
+    normalize_columns: { enabled: true, strategy: "snake_case" }
 ```
 
-The entity file also sets CSV read options and snake_case column
-normalization, omitted here. Four parts matter:
+Each other file in the folder is one entity. `campaigns.yml` names its Bronze
+input and the columns inferred from the CSV you wrote in lesson 2:
 
-- **Source and cast mode.** Floe reads the CSV that dlt wrote to Bronze and
-  casts each value to its column type strictly.
+```yaml
+name: "campaigns"
+source: { ref: "marketing_platform", resource: "campaigns" }
+schema:
+  primary_key: ["campaign_id"]
+  columns:
+    - { name: "campaign_id", type: "string", nullable: false }
+    - { name: "campaign_date", type: "date", nullable: false }
+    - { name: "channel", type: "string", nullable: false }
+    - { name: "spend", type: "number", nullable: false }
+    - { name: "conversions", type: "integer", nullable: false }
+```
+
+Four parts matter:
+
+- **Source and cast mode.** `ref: "marketing_platform"` points at the source in
+  `sources.yml`, which reads the CSV dlt wrote to Bronze and casts each value
+  to its column type strictly.
 - **Accepted sink.** Rows that satisfy the contract are written to the Iceberg
   table `marketing_silver.campaigns`. The namespace is named after the
-  *domain*, not a product: every `marketing` product shares it, and a domain
-  has exactly one Floe contract.
+  *domain*, not a product: every `marketing` product shares it.
 - **Rejected sink.** With `severity: "reject"`, a row that breaks the contract
   goes to the CSV quarantine path `floe/rejected/marketing/campaigns` in the
   Silver bucket instead of into Silver. The run still succeeds: Floe reports
@@ -87,27 +94,29 @@ normalization, omitted here. Four parts matter:
   know which are optional. Loosen a column by hand when a value may be empty.
 
 > [!NOTE]
-> Floe turns this contract into a runner manifest during `olf deploy`. The
-> manifest is generated: never edit it by hand.
+> Nothing here names a bucket or a catalog endpoint. Dagster runs Floe, one
+> Kubernetes Job per domain, with a profile it renders for the stage it is
+> deployed to, so the same contract validates into DEV and PROD.
 
 ## Check it worked
 
 ```bash
-olf floe generate-manifests
+olf check contracts
 ```
 
-It validates each domain's contract and generates its manifest. It prints one
-`Generated` line per domain, including:
+It checks that each domain writes its own `<domain>_silver` namespace through
+the logical catalog. Among its lines:
 
 ```text
-==> Generated .../manifests/marketing/marketing.manifest.json
+[PASS] floe_contract_structure: 19 Floe domain and entity file(s) validated
 ```
 
 ## What you learned
 
 - `olf domain new` declares the Silver namespace and writes its Floe contract
-  in one step, inferring column types from the example CSV. The next deploy
-  creates the namespace in the catalog.
+  in one step -- domain defaults plus one file per entity -- inferring column
+  types from the example CSV. The next deploy creates the namespace in the
+  catalog.
 - Rows that satisfy the contract reach `marketing_silver.campaigns`; rows that
   do not are quarantined, not dropped and not mixed into Silver.
 - Silver is owned by the domain; products consume it.

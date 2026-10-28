@@ -6,8 +6,7 @@ the shared lifecycle - identical Terraform init/apply/import/destroy,
 namespace adoption, chart caching, and artifact-deployment ordering between
 AWS and Azure - and call out to a `CloudBackend` for the handful of things
 that are not shared: foundation Terraform variables, kubeconfig population,
-registry login, the default project-code/Superset image repository, and
-Floe profile selection. `cloud/aws.py`/`cloud/azure.py` provide the two
+registry login, and the default project-code/Superset image repository. `cloud/aws.py`/`cloud/azure.py` provide the two
 concrete implementations.
 """
 
@@ -125,24 +124,3 @@ class CloudBackend(Protocol):
 
     def artifact_transport(self) -> str:
         """`--via` mode for artifact revision activation/upload: 'direct' or 'port-forward'."""
-
-    def generate_floe_manifests(
-        self,
-        config: CloudDeploymentConfig,
-        tools: Toolkit,
-        *,
-        repo_root: Path,
-        distribution_root: Path,
-        namespace: str,
-        governance_enabled: bool,
-        environ: Mapping[str, str],
-        env: Mapping[str, str],
-    ) -> list[Path]:
-        """Generate product Floe manifests using this provider's profile strategy.
-
-        AWS delegates to `floe_manifests.generate_aws_manifests` (a fresh,
-        Glue-database-scoped profile per product); Azure delegates to
-        `floe_manifests.generate_local_manifests` (the same checked-in/
-        rendered `local-k8s.yml` profile copied into every product's
-        directory - Azure hits the exact same branches local does).
-        """

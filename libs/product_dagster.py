@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
-import floe_dagster.assets as floe_assets
 from dagster import (
     AssetKey,
     AssetOut,
@@ -22,21 +21,18 @@ from dagster import (
     multi_asset,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
+from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
-from floe_dagster.manifest import load_manifest
+from floe_dagster.manifest import manifest_from_config
 
 from libs.bronze_csv import BronzeLoadResult
 from libs.dbt.render_profiles import ensure_runtime_profile_dir
-from libs.floe_revision import ArtifactRevisionError, built_manifest_revision, revision_digest as _revision_digest
+from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
-from libs.s3_artifacts import is_s3_uri, read_json_uri, read_text_uri, upload_file_to_base_uri
+from libs.s3_artifacts import upload_file_to_base_uri
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
-
-_FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
-_FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
-_FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
-_FLOE_S3_REPORT_LOADER_INSTALLED = False
+FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
 
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
@@ -70,28 +66,6 @@ class SourceDefinitionSpec:
     source: str
     resources: tuple[str, ...]
     bronze_loader: Callable[[tuple[str, ...]], dict[str, BronzeLoadResult]]
-
-
-@dataclass(frozen=True)
-class DomainDefinitionSpec:
-    domain: str
-    tables: tuple[tuple[str, str, str], ...]
-
-    @property
-    def manifest_path(self) -> Path:
-        return (
-            _LAKEHOUSE_CODE_ROOT
-            / "silver"
-            / self.domain
-            / "contracts"
-            / "floe"
-            / "manifests"
-            / f"{self.domain}.manifest.json"
-        )
-
-    @property
-    def env_key(self) -> str:
-        return self.domain.upper()
 
 
 def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
@@ -151,24 +125,57 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
     return Definitions(assets=[bronze_resources])
 
 
-def build_domain_definitions(spec: DomainDefinitionSpec) -> Definitions:
-    _install_floe_s3_report_loader()
-    floe_manifest_path = _manifest_path_for_dagster(spec)
-    floe_manifest_uri = _manifest_uri_for_floe_runner(spec, floe_manifest_path)
-    floe_defs = floe_assets.load_floe_assets(
-        manifest_path=floe_manifest_path,
-        manifest_uri=floe_manifest_uri,
+@cache
+def _floe_profile() -> str:
+    return str(write_profile())
+
+
+@cache
+def _floe_manifest() -> str:
+    """The project's manifest for this stage, without its named-source index.
+
+    dagster-floe keys every entity reading a named source to one shared
+    `sources/<project>/<source>` asset. A domain's Job asset then has one
+    input per source, and no rename can split it into the per-resource
+    `<source>/<resource>` assets Bronze lands, so Silver would no longer wait
+    for Bronze. Without the index each entity gets its own source input,
+    renamed below. The Job reads the project itself (`-c`), never this file.
+    """
+    manifest = manifest_from_config(str(FLOE_PROJECT), _floe_profile())
+    manifest.pop("sources", None)
+    path = Path(_floe_profile()).with_name("manifest.json")
+    path.write_text(json.dumps(manifest))
+    return str(path)
+
+
+def build_silver_definitions() -> Definitions:
+    """Every Floe entity of the project, one subsettable asset per domain.
+
+    Each domain's asset runs as one Kubernetes Job; a run that selects only
+    some of a domain's tables passes just those entities to it. Each entity
+    reads its own Bronze resource, taken from its `source.ref`/`resource`.
+    """
+    manifest_path = _floe_manifest()
+    floe_defs = load_floe_assets(
+        manifest_path=manifest_path,
         runner=build_runner_from_env(),
         register_source_assets=False,
     )
-    replacements = {
-        AssetKey([spec.domain, f"{table}_source"]): AssetKey([source, resource])
-        for table, source, resource in spec.tables
+    entities = json.loads(Path(manifest_path).read_text())["entities"]
+    bronze = {
+        AssetKey([*entity["asset_key"][:-1], f"{entity['asset_key'][-1]}_source"]): AssetKey(
+            [entity["source"]["ref"], entity["source"]["resource"]]
+        )
+        for entity in entities
+        if entity["source"].get("ref")
     }
-    return Definitions(
-        assets=[asset.with_attributes(asset_key_replacements=replacements) for asset in floe_defs.assets],
-        resources=floe_defs.resources,
-    )
+    assets = [
+        asset.with_attributes(
+            asset_key_replacements={key: bronze[key] for key in asset.dependency_keys if key in bronze}
+        )
+        for asset in floe_defs.assets
+    ]
+    return Definitions(assets=assets)
 
 
 def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
@@ -207,8 +214,6 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         dagster_dbt_translator=ProductDbtTranslator(),
     )(_dbt_gold_assets)
 
-    domain_spec = DomainDefinitionSpec(domain=spec.domain, tables=())
-    floe_manifest_path = _manifest_path_for_dagster(domain_spec)
     product_pipeline = define_asset_job(
         name=spec.job_name,
         selection=(
@@ -218,7 +223,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 *[AssetKey([spec.product, asset_name]) for asset_name in spec.gold_assets],
             ).required_multi_asset_neighbors()
         ),
-        config=build_job_run_config_from_manifest(floe_manifest_path),
+        config=build_job_run_config_from_manifest(config_path=str(FLOE_PROJECT), profile_path=_floe_profile()),
     )
 
     return Definitions(
@@ -253,36 +258,6 @@ def build_stage_schedules(
             default_status=DefaultScheduleStatus.STOPPED,
         )
     ]
-
-
-def _install_floe_s3_report_loader() -> None:
-    global _FLOE_S3_REPORT_LOADER_INSTALLED
-    if _FLOE_S3_REPORT_LOADER_INSTALLED:
-        return
-
-    original_reader = getattr(floe_assets, "_fsspec_read_text", None)
-    if original_reader is not None:
-        def _read_remote_text(ref: str) -> str:
-            if is_s3_uri(ref):
-                return read_text_uri(ref)
-            return original_reader(ref)
-
-        floe_assets._fsspec_read_text = _read_remote_text
-        _FLOE_S3_REPORT_LOADER_INSTALLED = True
-        return
-
-    original_loader = getattr(floe_assets, "_load_local_json_document", None)
-    if original_loader is None:
-        _FLOE_S3_REPORT_LOADER_INSTALLED = True
-        return
-
-    def _load_json_document(ref: str, config_uri: str, *, label: str) -> dict:
-        if is_s3_uri(ref):
-            return read_json_uri(ref)
-        return original_loader(ref, config_uri, label=label)
-
-    floe_assets._load_local_json_document = _load_json_document
-    _FLOE_S3_REPORT_LOADER_INSTALLED = True
 
 
 def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec) -> None:
@@ -378,217 +353,3 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
 
 def _ensure_dbt_profiles_dir(spec: ProductDefinitionSpec, env: dict[str, str] | None = None) -> Path:
     return ensure_runtime_profile_dir(spec.dbt_project_dir, env=env)
-
-
-def _manifest_path_for_dagster(spec: DomainDefinitionSpec) -> str:
-    if _use_remote_manifest_for_dagster_definitions():
-        manifest_uri = _remote_manifest_uri(spec)
-        if manifest_uri is None:
-            raise RuntimeError(
-                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for domain {spec.domain}, "
-                "but no remote Floe manifest URI could be resolved for Dagster definitions."
-            )
-        try:
-            return _cache_remote_manifest_for_dagster(spec, manifest_uri)
-        except ArtifactRevisionError:
-            raise
-        except RuntimeError:
-            if _explicit_floe_dagster_manifest_source() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
-                raise
-            if spec.manifest_path.exists():
-                return str(spec.manifest_path)
-            raise
-
-    if not spec.manifest_path.exists():
-        raise RuntimeError(
-            f"Missing Floe manifest at {spec.manifest_path}. "
-            "Run 'olf floe generate-manifests --cluster-name \"${CLUSTER_NAME:-openlakeforge-local}\" "
-            "--kubeconfig-path \"${LOCAL_KUBECONFIG_PATH:-.tmp/kubeconfigs/local.yaml}\"' "
-            "before building the project-code image."
-        )
-    return str(spec.manifest_path)
-
-
-def _use_remote_manifest_for_dagster_definitions() -> bool:
-    override = _explicit_floe_dagster_manifest_source()
-    if override:
-        if override not in {"local", "remote"}:
-            raise RuntimeError(
-                "OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE must be 'local' or 'remote'; "
-                f"got {override!r}."
-            )
-        return override == "remote"
-
-    return _floe_manifest_access_mode() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE
-
-
-def _explicit_floe_dagster_manifest_source() -> str:
-    return os.environ.get("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", "").strip().lower()
-
-
-def _cache_remote_manifest_for_dagster(spec: DomainDefinitionSpec, manifest_uri: str) -> str:
-    cache_root = Path(
-        os.environ.get("OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR", "/tmp/openlakeforge-floe-manifests")
-    )
-    target = cache_root / spec.domain / f"{spec.domain}.manifest.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        manifest_content = read_text_uri(manifest_uri)
-        revision = built_manifest_revision()
-        if revision is not None:
-            _verify_revision_manifest(spec, revision, manifest_content)
-        target.write_text(manifest_content, encoding="utf-8")
-    except ArtifactRevisionError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Failed to load remote Floe manifest {manifest_uri}") from exc
-    return str(target)
-
-
-def _manifest_uri_for_floe_runner(
-    spec: DomainDefinitionSpec, manifest_path: str
-) -> str | None:
-    access_mode = _floe_manifest_access_mode()
-    if access_mode == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
-        manifest_uri = _remote_manifest_uri(spec)
-        if manifest_uri is None:
-            raise RuntimeError(
-                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for domain {spec.domain}, "
-                "but no remote Floe manifest URI could be resolved. Set "
-                f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{spec.env_key} or "
-                "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI."
-            )
-        return manifest_uri
-
-    _validate_local_floe_manifest_access(spec, manifest_path)
-    return None
-
-
-def _floe_manifest_access_mode() -> str:
-    access_mode = os.environ.get(
-        _FLOE_MANIFEST_ACCESS_MODE_ENV,
-        _FLOE_MANIFEST_ACCESS_MODE_REMOTE,
-    ).strip().lower()
-    if access_mode not in {
-        _FLOE_MANIFEST_ACCESS_MODE_REMOTE,
-        _FLOE_MANIFEST_ACCESS_MODE_LOCAL,
-    }:
-        raise RuntimeError(
-            f"{_FLOE_MANIFEST_ACCESS_MODE_ENV} must be one of "
-            f"{_FLOE_MANIFEST_ACCESS_MODE_REMOTE!r} or "
-            f"{_FLOE_MANIFEST_ACCESS_MODE_LOCAL!r}; got {access_mode!r}."
-        )
-    return access_mode
-
-
-def _validate_local_floe_manifest_access(
-    spec: DomainDefinitionSpec, manifest_path: str
-) -> None:
-    manifest = load_manifest(manifest_path)
-    runner_names = {
-        entity.runner or manifest.runners.default for entity in manifest.entities
-    }
-    runner_types: set[str] = set()
-    for runner_name in runner_names:
-        runner_definition = manifest.runners.definitions.get(runner_name)
-        if runner_definition is None:
-            raise RuntimeError(
-                f"Floe manifest {manifest_path} references unknown runner {runner_name!r}."
-            )
-        runner_types.add(runner_definition.runner_type)
-
-    non_local_runner_types = sorted(
-        runner_type for runner_type in runner_types if runner_type != "local_process"
-    )
-    if non_local_runner_types:
-        raise RuntimeError(
-            f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=local for domain {spec.domain}, "
-            f"but {manifest_path} uses runner type(s): {', '.join(non_local_runner_types)}. "
-            "Local manifest access only works when Floe executes in the same container "
-            "as Dagster. Use OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote for "
-            "Kubernetes runner pods."
-        )
-
-
-def _artifact_bucket_uri() -> str:
-    bucket = os.environ.get("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
-    if not bucket:
-        raise ArtifactRevisionError(
-            "a Floe manifest revision is configured, but "
-            "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME is not configured."
-        )
-    return f"s3://{bucket}"
-
-
-def _remote_manifest_uri(spec: DomainDefinitionSpec) -> str | None:
-    revision = built_manifest_revision()
-    if revision is not None:
-        # olf.revision publishes a revision beneath the bucket root
-        # (`floe/revisions/sha256/<digest>/...`), independent of any
-        # stage's own `activations/<stage>` prefix - a revision is not an
-        # activation. Resolving against OPENLAKEFORGE_ARTIFACT_BASE_URI
-        # (stage-scoped) would look inside that stage's activation prefix,
-        # where the revision was never published.
-        return (
-            f"{_artifact_bucket_uri()}/floe/revisions/sha256/{_revision_digest(revision)}/"
-            f"floe/manifests/{spec.domain}/{spec.domain}.manifest.json"
-        )
-
-    specific = os.environ.get(f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{spec.env_key}")
-    if specific:
-        return specific
-
-    base_uri = os.environ.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI")
-    if not base_uri:
-        return None
-
-    return f"{base_uri.rstrip('/')}/{spec.domain}/{spec.domain}.manifest.json"
-
-
-def _verify_revision_manifest(
-    spec: DomainDefinitionSpec, revision: str, manifest_content: str
-) -> None:
-    sidecar_uri = (
-        f"{_artifact_bucket_uri()}/floe/revisions/sha256/{_revision_digest(revision)}/"
-        "REVISION.json"
-    )
-    try:
-        sidecar = json.loads(read_text_uri(sidecar_uri))
-        sidecar_revision = sidecar["revision"]
-        entries = sidecar["entries"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        raise ArtifactRevisionError(f"malformed immutable revision sidecar {sidecar_uri}") from exc
-    except Exception as exc:  # noqa: BLE001
-        raise ArtifactRevisionError(f"failed to load immutable revision sidecar {sidecar_uri}") from exc
-
-    if not isinstance(sidecar_revision, str) or not isinstance(entries, dict) or not all(
-        isinstance(key, str) and isinstance(digest, str) for key, digest in entries.items()
-    ):
-        raise ArtifactRevisionError(f"malformed immutable revision sidecar {sidecar_uri}")
-    if sidecar_revision != revision:
-        raise ArtifactRevisionError(
-            f"immutable revision sidecar {sidecar_uri} declares {sidecar_revision!r}, "
-            f"not image revision {revision!r}."
-        )
-    if _aggregate_revision(entries) != revision:
-        raise ArtifactRevisionError(
-            f"immutable revision sidecar {sidecar_uri} does not aggregate to {revision!r}."
-        )
-
-    artifact_key = f"floe/manifests/{spec.domain}/{spec.domain}.manifest.json"
-    expected_digest = entries.get(artifact_key)
-    actual_digest = hashlib.sha256(manifest_content.encode("utf-8")).hexdigest()
-    if expected_digest != actual_digest:
-        raise ArtifactRevisionError(
-            f"immutable manifest {artifact_key} hashes to {actual_digest}, "
-            f"not the revision sidecar value {expected_digest!r}."
-        )
-
-
-def _aggregate_revision(entries: dict[str, str]) -> str:
-    if not entries:
-        raise ArtifactRevisionError("immutable revision sidecar has no artifact entries.")
-    hasher = hashlib.sha256()
-    for key in sorted(entries):
-        hasher.update(f"{key}\0{entries[key]}\n".encode())
-    return f"sha256:{hasher.hexdigest()}"

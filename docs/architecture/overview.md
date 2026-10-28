@@ -49,15 +49,16 @@ When you launch `<product>_pipeline` in Dagster:
 
 1. Dagster starts a short-lived run pod from your project-code image.
 2. The run pod loads each Bronze resource with dlt.
-3. For each Silver table, it starts a Floe job, one after another. Floe writes
-   accepted rows to Silver and a report to the ops bucket.
+3. For each domain the product reads, the run pod launches one Floe Kubernetes
+   Job on the same image; it validates the selected Silver tables one after
+   another, writing accepted rows to Silver and a report to the ops bucket.
 4. dbt-trino sends the Gold SQL to Trino, which does the work and writes the
    Gold tables.
 5. Floe and dbt emit OpenLineage events to OpenMetadata on Full, so lineage
    comes from the runs themselves.
 
-Run and Floe pods are removed after the run, so nothing computes between runs
-except the long-lived services. Logs, Floe reports and dbt artifacts are
+Run pods and Floe Jobs are removed after the run, so nothing computes between runs except
+the long-lived services. Logs, Floe reports and dbt artifacts are
 archived in the ops bucket.
 
 ## Deployment model
@@ -68,7 +69,7 @@ archived in the ops bucket.
 | --- | --- | --- |
 | Foundation | The cluster and image registry | Rarely |
 | Platform | The shared services and each stage | You change the preset or stages |
-| Artifacts | Your code: image, catalog namespaces, Floe manifests, Dagster code, dashboards, metadata | You change `lakehouse_code/` |
+| Artifacts | Your code: image, catalog namespaces, Dagster code, dashboards, metadata | You change `lakehouse_code/` |
 
 A code change only reruns artifacts and never touches Terraform. Shared
 services run once in the `olf-system` namespace. Each enabled stage (`dev`,

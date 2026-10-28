@@ -7,73 +7,58 @@ Binding.
 ## Context
 
 v0.3 (`#111`) promotes one immutable project revision unchanged across shared
-DEV, optional UAT, and PROD (`#154`). v0.2 already publishes an immutable
-revision — `tools/olf/olf/revision.py`, now `olf floe revision`. That revision
-covers rendered Floe runtime artifacts only: configs, profiles, and generated
-manifests, hashed after the Floe CLI renders them from the live provider
-contract environment.
+DEV, optional UAT, and PROD (`#154`). Until Floe 0.8, v0.2's immutable
+revision (`olf floe revision`) covered Floe runtime artifacts rendered from the
+live provider contract environment -- configs, profiles and generated
+manifests.
 
-That rendered output is stage-bound. A generated manifest embeds
-`report_base_uri: s3://<ops-bucket>/floe/reports/<domain>`, the Kubernetes
-`namespace`, catalog endpoints, and Kubernetes Secret names — see
-`lakehouse_code/silver/sales/contracts/floe/manifests/sales.manifest.json`.
-Hashing that output would put target-stage physical endpoints inside a
-manifest #154 requires to promote unchanged between stages, and a manifest
-generated for DEV cannot be replayed unmodified in PROD.
-
-The project-code image has the same problem one layer down.
-`images/project-code/Dockerfile` bakes `FLOE_MANIFEST_REVISION` into
-`OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT`, and `libs/product_dagster.py`
-resolved the remote Floe manifest URI from that baked value alone. Because the
-Floe revision is stage-bound, the image built against it was too — "the same
-project revision digest deploys to DEV and PROD without a rebuild" was
-unreachable.
+That rendered output is stage-bound. A generated manifest embedded the stage's
+report bucket, Kubernetes namespace, catalog endpoints and Secret names, so a
+manifest generated for DEV could not be replayed unmodified in PROD, and
+hashing it would have put target-stage endpoints inside the unit #154 requires
+to promote unchanged. The project-code image inherited the problem: it baked
+the Floe revision it was built against, so "the same digest deploys to DEV and
+PROD without a rebuild" was unreachable.
 
 ## Decision
 
 ### A project revision freezes inputs, never rendered stage output
 
-`ProjectRevision` (`tools/olf/olf/project_revision.py`) is a second,
-independently addressed revision covering the complete promotable project:
+`ProjectRevision` (`tools/olf/olf/project_revision.py`) is the one
+content-addressed revision, covering the complete promotable project:
 
 | Component | Source | Excluded because |
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/lakehouse.yaml`, `bronze/<source>/source.yaml` | — |
-| `floe` | `silver/<domain>/contracts/floe/<domain>.yml` | — |
+| `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/floe/*.yml` | — |
 | `dbt` | `gold/<product>/dbt/**` (no `target/`, `dbt_packages/`) | build output, not input |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
 | `reports` | `dashboards/superset/<dashboard>/**`, when any dashboard exists | — |
 | `image` | The project-code repository plus an immutable `@sha256:` digest | mutable tags are rejected |
 | `distribution` | `release/component-catalog.yaml` distribution version | compatibility gate at activation |
 
-`openlakeforge.yaml` (the Deployment Profile) and every stage-rendered Floe
-artifact — manifests, profiles, and any URI a provider contract resolves — are
-never in a project revision. Enabling UAT, or moving a project between
+`openlakeforge.yaml` (the Deployment Profile), the Floe EnvironmentProfile the
+code location renders for its stage, and any URI a provider contract resolves
+are never in a project revision. Enabling UAT, or moving a project between
 providers, must not invalidate an already-built revision; and a revision that
 embedded a rendered artifact could not be replayed against a different stage's
 contract environment, which is exactly what `#115` needs it to do.
 
-The Floe runtime version (`FLOE_VERSION`/`FLOE_IMAGE`, defaulted in
-`olf/floe.py`) is a distribution-level pin, not project content — it is
-already covered by the `distribution` component and is not duplicated inside
-`floe`.
+The Floe runtime version (`floe-python` and `dagster-floe`, pinned in
+`images/project-code/pyproject.toml`) is part of the image, and so is covered
+by the `image` component's digest rather than duplicated inside `floe`.
 
-### Content address, publish, and verify reuse the v0.2 primitives
+### Content address, publish, and verify
 
 Each component is a `{relative project path: sha256}` map. The aggregate
-revision is `revision.aggregate_revision` (`olf/revision.py`) over the
-flattened, `<component>/<path>`-namespaced entries — the same sorted
-`key\0digest\n` hash the Floe revision already uses, so an empty project and a
-tampered entry set fail the same way. Publication reuses the same
-immutable-write rule: an existing key with different content is a hard
+revision is a sorted `<component>/<path>\0digest\n` hash over the flattened
+entries, so an empty project and a tampered entry set fail the same way.
+Publication is immutable: an existing key with different content is a hard
 collision error, never a silent overwrite.
 
-`tools/olf/olf/artifact_store.py` extracts the bucket/client resolution both
-revisions publish through (`RevisionStore`, `S3RevisionStore` for in-cluster
-or direct cloud S3, `FilesystemRevisionStore` for `olf project build
---output DIR`) so publishing does not require two client builders. Folding
-`olf/revision.py` itself onto `RevisionStore` is deliberate follow-up, not
-part of this record — see `docs/technical-debt.md`.
+`tools/olf/olf/artifact_store.py` owns the bucket/client resolution revisions
+publish through (`RevisionStore`, `S3RevisionStore` for in-cluster or direct
+cloud S3, `FilesystemRevisionStore` for `olf project build --output DIR`).
 
 ### Validation is layered the same way as descriptors and profiles
 
@@ -107,23 +92,15 @@ provider-neutral descriptors, checked-in Floe contracts, dbt/Dagster source,
 and report assets (never a rendered artifact), so a physical endpoint or
 credential should never appear in them to begin with.
 
-### The project-code image is decoupled from the Floe revision
+### Stage binding happens on the pod
 
-`libs/product_dagster.py`'s manifest-URI resolution now prefers the
-stage-activated runtime variable (`OPENLAKEFORGE_FLOE_MANIFEST_REVISION`,
-already passed by the Dagster Terraform module on every deploy, default
-`"manual"`) over the value baked into the image at build time
-(`OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT`). The baked value remains a
-fallback for the current single-stage deploy paths, which do not yet wire the
-runtime variable — that wiring, from the platform root at activation time, is
-`#115`'s job. This record only removes the build-time coupling that would
-have blocked it: without it, one project-code image digest could never serve
-more than one Floe revision, no matter what `#115` wires.
-
-The resolution logic itself (`_built_manifest_revision`, `_revision_digest`)
-moved to `libs/floe_revision.py`, free of the Dagster/Floe imports
-`libs/product_dagster.py` carries, so it is unit-testable from `tools/olf`
-without the isolated dependency environment `olf check project-code` builds.
+Nothing a revision freezes names a stage. The Floe project's storages and
+catalog are filled in when the code location loads: `libs/floe_profile.py`
+renders the EnvironmentProfile from the provider-contract values the
+activation release sets on the pod, and dagster-floe builds the manifest in
+memory from that profile and the frozen contracts. One project-code image
+digest therefore serves every stage, and activation publishes no Floe
+artifact of its own.
 
 ### CLI surface
 
@@ -132,27 +109,26 @@ without the isolated dependency environment `olf check project-code` builds.
 | `olf project build --project P --image REF` | Validate the project, freeze its content, resolve/require a digest-pinned image, publish |
 | `olf project revision inspect --revision R` | Read a published manifest without rebuilding source |
 | `olf project revision verify --revision R` | Re-verify manifest self-consistency, the distribution-compatibility gate, and every published object's digest |
-| `olf project deploy -f PROFILE --stage STAGE --revision R` | Materialize only verified published content, render stage-bound Floe output, and activate the stage |
+| `olf project deploy -f PROFILE --stage STAGE --revision R` | Materialize only verified published content and activate the stage |
 | `olf project status -f PROFILE [--stage STAGE] [--json]` | Compare immutable activation records with the observed user deployment |
 
-`olf revision` (the v0.2 Floe runtime-artifact commands) moved to `olf floe
-revision compute|publish|activate|verify`, freeing the top-level name for the
-project revision and keeping "which revision" unambiguous from the command
-path alone.
 
 ## Consequences
 
 - `#115` consumes `ProjectRevision.project_code_image` and per-component
-  digests to activate a stage without ever rebuilding from source, and can
-  render Floe manifests against the frozen `floe` component's contracts for
-  the stage it is activating.
+  digests to activate a stage without ever rebuilding from source.
 - A revision built once is byte-identical regardless of which stage it is
   later activated in, or which path on disk the project was built from —
-  `openlakeforge.yaml` and every rendered artifact are outside its content
+  `openlakeforge.yaml` and every stage binding are outside its content
   address by construction.
-- The v0.2 Floe runtime-artifact revision is unchanged in meaning: it still
-  identifies one stage's rendered artifact set, and `#115` still activates it
-  per stage. `ProjectRevision` does not replace it; it is the layer above.
+- An activation (`ACTIVATION.json`, schema 2) binds the project revision,
+  the stage's provider-contract digest, its capabilities and the image; it
+  carries no Floe revision. Schema-1 records, written while Floe manifests
+  were rendered per stage, still read and hash exactly as published, so a
+  stage activated before the change stays inspectable. They are not a
+  rollback target: the move to Floe 0.8 is one-way, and the platform no
+  longer serves the manifests their image needs, so a deploy whose pointer
+  fails to commit over one keeps its new release and asks to be rerun.
 
 ## History
 
@@ -161,6 +137,12 @@ the project revision, stage contract binding, Floe runtime revision, enabled
 capabilities, and digest-pinned image under
 `activations/<stage>/revisions/sha256/<digest>/ACTIVATION.json`; the mutable
 `ACTIVE.json` pointer changes only after the Helm rollout succeeds.
+
+2026-10-28: Floe 0.8 builds its manifest in memory in the code location
+(#533). The v0.2 Floe runtime-artifact revision, `olf floe revision` and the
+per-stage manifest rendering at activation are removed, `ProjectActivation`
+moves to schema 2 without a Floe revision, and the `floe` component covers
+the multi-file Floe project.
 
 New record. No prior ADR modeled a promotable project revision distinct from
 the v0.2 Floe runtime-artifact revision; ADR 0009's distribution-payload

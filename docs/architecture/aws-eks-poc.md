@@ -24,7 +24,7 @@ the POC still does differently.
 | Iceberg catalog | AWS Glue Data Catalog |
 | Query path | Superset -> Trino -> Glue/S3 |
 | Orchestration | Dagster Helm release with per-domain code locations |
-| Artifacts | Floe manifests, reports, logs, and run artifacts in the S3 ops bucket |
+| Artifacts | Project revisions, Floe reports, logs, and run artifacts in the S3 ops bucket |
 | Identity | EKS Pod Identity associations for lakehouse workloads (see ADR 0010) |
 | Access | `kubectl port-forward`, matching the other POCs |
 
@@ -101,10 +101,9 @@ olf destroy --provider aws
 ```
 
 `olf deploy --provider aws` runs the foundation, platform, and artifacts phases
-in order. The artifact phase generates Floe manifests, builds and pushes
-project-code to ECR, uploads Floe manifests directly to the S3 ops bucket,
-imports Superset report assets, deploys OpenMetadata metadata, patches Dagster
-runtime images, and restarts Dagster workloads.
+in order. The artifact phase reconciles catalog namespaces, builds and pushes
+project-code to ECR, imports Superset report assets, deploys OpenMetadata
+metadata, patches Dagster runtime images, and restarts Dagster workloads.
 
 Use `olf destroy --provider aws --phase platform` followed by
 `olf destroy --provider aws --phase foundation` only when you want to tear down

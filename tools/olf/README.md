@@ -29,9 +29,6 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf images build\|load project-code\|superset` | Local Docker build and Kind load operations. |
 | `olf diagnostics collect OUTPUT_DIR` | Collect bounded host, Docker, Kubernetes, event, and pod-log evidence. |
 | `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0002). Runs first in the artifacts phase, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
-| `olf floe render-profile\|generate-manifests` | Render the Floe EnvironmentProfile YAML for the active contract env, or generate domain Floe manifests. |
-| `olf artifacts upload-manifests --via port-forward\|direct` | Publish domain Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |
-| `olf floe revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |
 | `olf project build --project P --image REF` | Build and publish the immutable `ProjectRevision` covering descriptors, Floe contracts, dbt, Dagster, reports, and the project-code image digest for one writable project (#154). |
 | `olf project graph --project P` | Print the Source → Domain → Product → Dashboard lineage declared in the project's descriptors as a Mermaid `flowchart LR`, for pasting into GitHub Markdown or the Mermaid Live Editor. |
 | `olf project revision inspect\|verify --revision R` | Inspect or verify a published `ProjectRevision` manifest without rebuilding source. |

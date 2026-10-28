@@ -62,9 +62,6 @@ def test_full_profile_defaults(tmp_path: Path) -> None:
     assert config.terraform.apply_retry.delay_seconds == 20.0
     assert config.prefetch.pull_retry.max_attempts == 5
     assert config.prefetch.pull_retry.delay_seconds == 20.0
-    assert config.floe.version == "0.6.11"
-    assert config.floe.image == "ghcr.io/malon64/floe:0.6.11"
-    assert config.floe.runtime_artifact_dir == tmp_path / ".tmp/floe-runtime/local"
     assert config.force_foundation_down is False
     assert config.features.governance_enabled is True
     assert config.features.analytics_enabled is True

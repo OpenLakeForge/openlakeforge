@@ -71,7 +71,6 @@ class GoldTable:
 class ArtifactPrefixes:
     """Object-store locations derived from an owner's logical identity."""
 
-    manifest_key: str
     floe_report_prefix: str
     dbt_artifact_prefix: str
 
@@ -156,7 +155,6 @@ class Domain:
     @property
     def artifact_prefixes(self) -> ArtifactPrefixes:
         return ArtifactPrefixes(
-            manifest_key=f"floe/manifests/{self.name}/{self.name}.manifest.json",
             floe_report_prefix=f"floe/reports/{self.name}/",
             dbt_artifact_prefix="",
         )
@@ -206,7 +204,6 @@ class PhysicalDomainNames:
     domain: str
     silver_namespace: str
     silver_schema_fqn: str
-    manifest_uri: str
 
 
 @dataclass(frozen=True)
@@ -250,10 +247,6 @@ class PhysicalInventory:
     @property
     def bronze_schema_fqns(self) -> dict[str, str]:
         return {source.source: source.bronze_schema_fqn for source in self.sources}
-
-    @property
-    def domain_floe_manifest_uris(self) -> dict[str, str]:
-        return {domain.domain: domain.manifest_uri for domain in self.domains}
 
 
 @dataclass(frozen=True)
@@ -325,10 +318,6 @@ class LakehouseInventory:
         return tuple(mart for product in self.products for mart in product.gold_mart_names)
 
     @property
-    def manifest_keys(self) -> tuple[str, ...]:
-        return tuple(domain.artifact_prefixes.manifest_key for domain in self.domains)
-
-    @property
     def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:
         return {product.name: product.openmetadata_data_product_fqns for product in self.products}
 
@@ -362,7 +351,6 @@ class LakehouseInventory:
         bronze_bucket: str,
         silver_bucket: str,
         gold_bucket: str,
-        manifest_base_uri: str,
         namespace_prefix: str = "",
     ) -> PhysicalInventory:
         """Resolve physical names from provider-contract values.
@@ -388,7 +376,6 @@ class LakehouseInventory:
                     domain=domain.name,
                     silver_namespace=physical_name,
                     silver_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
-                    manifest_uri=f"{manifest_base_uri.rstrip('/')}/{domain.name}/{domain.name}.manifest.json",
                 )
             )
         for product in self.products:

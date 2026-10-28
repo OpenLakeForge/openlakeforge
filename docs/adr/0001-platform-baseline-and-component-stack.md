@@ -33,7 +33,7 @@ to understand when it breaks.
 | Capability | Component | Notes |
 | --- | --- | --- |
 | Extraction | dlt | Writes Bronze from source systems |
-| Validation & Silver materialization | Floe | Owns Bronze→Silver; runs in its own runner image |
+| Validation & Silver materialization | Floe | Owns Bronze→Silver; runs as one Kubernetes Job per domain on the project-code image |
 | Table format | Apache Iceberg | — |
 | Gold transformation | dbt-trino | Executes through Trino; see below |
 | Query engine | Trino | Both the Gold compute engine and the analytics query path |
@@ -122,3 +122,7 @@ Every component version and chart digest is pinned in
 Merges the decisions previously recorded as ADR 0001 (v1 platform baseline),
 0002 (SeaweedFS), 0007 (Superset over Trino), and 0018 (Trino Gold
 materialization, which superseded ADR 0005's dbt-duckdb Gold).
+
+2026-10-28: Floe moved into the project-code image (`floe-python` 0.8,
+`dagster-floe`) and runs as one Kubernetes Job per domain on that image; the
+separate Floe runner image is removed (#533).

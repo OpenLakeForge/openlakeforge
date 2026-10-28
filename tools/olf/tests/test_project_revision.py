@@ -405,13 +405,17 @@ def test_dbt_local_artifacts_do_not_change_the_revision(external_project: Path) 
     assert before == after
 
 
-def test_build_rejects_a_duplicate_floe_config_in_one_domain(external_project: Path) -> None:
-    floe_dir = external_project / "lakehouse_code/silver/sales/contracts/floe"
-    original = (floe_dir / "sales.yml").read_text()
-    (floe_dir / "sales-duplicate.yml").write_text(original)
+@pytest.mark.parametrize(
+    "relative_path",
+    ["lakehouse_code/silver/sales/contracts/floe/orders.yml", "lakehouse_code/silver/sources.yml"],
+)
+def test_editing_any_file_floe_reads_moves_the_revision(external_project: Path, relative_path: str) -> None:
+    """Floe loads the project file, `sources.yml`, and every entity beside a `_domain.yml`."""
+    before = _build(external_project).revision
+    path = external_project / relative_path
+    path.write_text(path.read_text() + "# edited\n")
 
-    with pytest.raises(project_revision.ProjectRevisionError, match="one Floe configuration"):
-        _build(external_project)
+    assert _build(external_project).revision != before
 
 
 def test_build_allows_python_environment_lookups(external_project: Path) -> None:

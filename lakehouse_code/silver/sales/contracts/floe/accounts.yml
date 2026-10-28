@@ -1,0 +1,11 @@
+name: "accounts"
+source: { ref: "crm", resource: "accounts" }
+schema:
+  primary_key: ["account_id"]
+  columns:
+    - { name: "account_id", type: "string", nullable: false }
+    - { name: "account_name", type: "string", nullable: false }
+    - { name: "segment", type: "string", nullable: false }
+    - { name: "region", type: "string", nullable: false }
+    - { name: "signup_date", type: "date", nullable: false }
+    - { name: "arr", type: "number", nullable: false }

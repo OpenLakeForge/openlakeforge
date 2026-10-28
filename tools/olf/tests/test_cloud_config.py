@@ -345,7 +345,6 @@ def test_cloud_deployment_config_from_environment_builds_full_config(tmp_path: P
 
     assert config.images.project_code_tag == "aws-fixed"
     assert config.images.superset_tag == "aws-fixed"
-    assert config.floe.runtime_artifact_dir == tmp_path / ".tmp/floe-runtime/aws"
     assert config.namespace == context.namespace
     assert config.kube_context == context.kube_context
     assert config.force_foundation_down is False

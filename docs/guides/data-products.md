@@ -65,11 +65,13 @@ olf domain new marketing --input marketing_platform/campaigns
 ```
 
 A domain owns a set of Silver tables. Each `--input <source>/<resource>`
-becomes a Silver table of the same name, validated by an entity in the
-domain's Floe contract, `silver/marketing/contracts/floe/marketing.yml`. The
-contract declares column types, a primary key and a rejected-rows path; every
-column starts as `nullable: false`, so loosen a column by hand when a value
-may be empty. A domain has exactly one Floe contract: never add a second one.
+becomes a Silver table of the same name, validated by its own entity file,
+`silver/marketing/contracts/floe/<resource>.yml`, beside the domain's
+`_domain.yml`, which sets the Iceberg namespace, the rejected-rows path and the
+policy for all of them. An entity declares column types and a primary key;
+every column starts as `nullable: false`, so loosen a column by hand when a
+value may be empty. [Floe validation](../architecture/floe-validation.md)
+describes the layout.
 
 `olf product new` also creates the domain when its `--input` names a domain
 that does not exist yet, so this step is optional.
@@ -124,7 +126,7 @@ hand:
 | File | Add |
 | --- | --- |
 | `lakehouse.yaml` | A `silver_tables` entry `{name: ad_groups, source: marketing_platform, resource: ad_groups}` under the domain, and `ad_groups` in the product's `silver_inputs` |
-| `silver/marketing/contracts/floe/marketing.yml` | An `ad_groups` entity, copied from an existing one |
+| `silver/marketing/contracts/floe/ad_groups.yml` | An entity file, copied from an existing one, with `source: { ref: marketing_platform, resource: ad_groups }` |
 | `gold/<product>/dbt/models/sources.yml` | `- name: ad_groups` under the `silver` source |
 | `pipelines/dagster/<product>.py` | `"ad_groups"` in the Silver inputs tuple and `("marketing_platform", "ad_groups")` in `bronze_inputs` |
 | `gold/<product>/dbt/models/gold/<mart>.sql` | A read of `{{ source('silver', 'ad_groups') }}` |
@@ -157,10 +159,9 @@ so on a deployed stage treat it as a data migration, not an edit.
 
 | Command | Checks |
 | --- | --- |
-| `olf check contracts` | Each descriptor against its schema: identifiers, duplicates, undeclared resources |
+| `olf check contracts` | Each descriptor against its schema: identifiers, duplicates, undeclared resources; each Floe domain writes its own `<domain>_silver` namespace |
 | `olf check project-code` | The whole inventory loads in Dagster, including references between descriptors |
 | `olf check dbt` | Every product's dbt project compiles |
-| `olf floe generate-manifests` | Every domain's Floe contract is valid |
 
 Then deploy only the artifacts phase, which covers everything derived from
 `lakehouse_code/`:
@@ -169,9 +170,8 @@ Then deploy only the artifacts phase, which covers everything derived from
 olf deploy --provider local --phase artifacts
 ```
 
-It reconciles the catalog namespaces, generates the Floe manifests (never edit
-them by hand), builds the project-code image and restarts Dagster's code
-location.
+It reconciles the catalog namespaces, builds the project-code image and
+restarts Dagster's code location.
 
 ## Check it worked
 

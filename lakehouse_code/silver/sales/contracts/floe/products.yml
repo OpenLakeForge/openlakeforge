@@ -1,0 +1,9 @@
+name: "products"
+source: { ref: "crm", resource: "products" }
+schema:
+  primary_key: ["product_id"]
+  columns:
+    - { name: "product_id", type: "string", nullable: false }
+    - { name: "product_name", type: "string", nullable: false }
+    - { name: "category", type: "string", nullable: false }
+    - { name: "unit_cost", type: "number", nullable: false }

@@ -392,35 +392,49 @@ def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Pat
     assert "catalog_namespaces" in result.detail
 
 
-def test_floe_rendered_profile_passes_against_real_repo() -> None:
-    result = contracts_check._check_floe_rendered_profile()
-
-    assert result.ok, result.detail
-
-
-def _write_floe_contract(repo_root: Path, domain: str, filename: str, fixture_name: str) -> None:
-    contracts_dir = repo_root / "lakehouse_code" / "silver" / domain / "contracts" / "floe"
-    contracts_dir.mkdir(parents=True, exist_ok=True)
-    (contracts_dir / filename).write_text((FIXTURES / "floe" / fixture_name).read_text())
+def _floe_project(repo_root: Path) -> Path:
+    """A copy of the real Floe project to break one rule in."""
+    shutil.copytree(ROOT / "lakehouse_code" / "silver", repo_root / "lakehouse_code" / "silver")
+    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts" / "floe"
 
 
-def test_floe_contract_structure_rejects_shared_silver_namespace(tmp_path: Path) -> None:
-    _write_floe_contract(tmp_path, "sales", "fixture.yml", "invalid_contract_shared_silver_namespace.yml")
+def test_floe_contract_structure_rejects_an_entity_writing_a_shared_silver_namespace(tmp_path: Path) -> None:
+    floe = _floe_project(tmp_path)
+    entity = floe / "orders.yml"
+    entity.write_text(
+        entity.read_text(encoding="utf-8")
+        + 'sink: { accepted: { iceberg: { catalog: "iceberg_catalog", namespace: "silver" } } }\n',
+        encoding="utf-8",
+    )
 
     result = contracts_check._check_floe_contract_structure(tmp_path)
 
     assert not result.ok
-    assert "silver" in result.detail
+    assert "orders.yml" in result.detail and "'sales_silver'" in result.detail
+
+
+def test_floe_contract_structure_rejects_a_provider_named_catalog(tmp_path: Path) -> None:
+    domain = _floe_project(tmp_path) / "_domain.yml"
+    domain.write_text(domain.read_text(encoding="utf-8").replace('"iceberg_catalog"', '"polaris"'), encoding="utf-8")
+
+    result = contracts_check._check_floe_contract_structure(tmp_path)
+
+    assert not result.ok
+    assert "'iceberg_catalog'" in result.detail
+
+
+def test_floe_contract_structure_rejects_a_domain_named_unlike_its_folder(tmp_path: Path) -> None:
+    domain = _floe_project(tmp_path) / "_domain.yml"
+    domain.write_text(domain.read_text(encoding="utf-8").replace('name: "sales"', 'name: "revenue"'), encoding="utf-8")
+
+    result = contracts_check._check_floe_contract_structure(tmp_path)
+
+    assert not result.ok
+    assert "domain folder 'sales'" in result.detail
 
 
 def test_floe_contract_structure_passes_against_real_repo() -> None:
     result = contracts_check._check_floe_contract_structure(ROOT)
-
-    assert result.ok, result.detail
-
-
-def test_floe_profile_templates_passes_against_real_repo() -> None:
-    result = contracts_check._check_floe_profile_templates(ROOT)
 
     assert result.ok, result.detail
 

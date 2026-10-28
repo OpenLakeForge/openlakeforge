@@ -478,9 +478,9 @@ def test_domain_new_rejects_a_pre_existing_but_undeclared_domain_directory(tmp_p
     domain is declared anywhere would otherwise slip past the exact-file
     check in `check_no_existing_targets` (its name doesn't collide with any
     file the plan writes), then combine badly with what the scaffold adds --
-    e.g. two Floe contracts under one domain, which
-    scripts/artifacts/floe-manifest.sh rejects. The scaffold must refuse to
-    write into a non-empty, not-yet-owned directory at all."""
+    e.g. a stray `.yml` that Floe would load as one of the new domain's
+    entities. The scaffold must refuse to write into a non-empty,
+    not-yet-owned directory at all."""
     repo_root = _seed_repo(tmp_path)
     source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
     commit_plan(repo_root, source_plan)
@@ -571,7 +571,9 @@ def test_product_new_creates_first_product_and_domain_implicitly(tmp_path: Path)
     assert (gold / "dbt" / "models" / "gold" / "schema.yml").is_file()
     assert (gold / "dbt" / "models" / "sources.yml").is_file()
     assert (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").is_file()
-    assert (repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe" / "marketing.yml").is_file()
+    floe = repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe"
+    assert (floe / "_domain.yml").is_file()
+    assert (floe / "campaigns.yml").is_file()
 
     inventory = load_lakehouse_inventory(repo_root)
     product = next(p for p in inventory.products if p.id == "campaign_performance")
@@ -640,8 +642,10 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     )
     commit_plan(repo_root, plan)
 
-    contract_text = (repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml").read_text()
-    assert contract_text.count("incremental_mode") == 2  # employees + absences entities
+    floe = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe"
+    entity = yaml.safe_load((floe / "absences.yml").read_text(encoding="utf-8"))
+    assert entity["source"] == {"ref": "workday", "resource": "absences"}
+    assert sorted(path.name for path in floe.glob("*.yml")) == ["_domain.yml", "absences.yml", "employees.yml"]
 
     inventory = load_lakehouse_inventory(repo_root)
     hr = next(d for d in inventory.domains if d.name == "hr")
@@ -650,34 +654,22 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     assert set(headcount.silver_inputs) == {"employees", "absences"}
 
 
-def test_product_new_inserts_a_floe_entity_before_a_trailing_extra_key(tmp_path: Path) -> None:
-    """The Floe contract's entities: list is always last in a
-    scaffold-generated contract, but a hand-edited one could add another
-    top-level field after it. A new --input entity must land inside the
-    entities sequence, not get appended past that later field."""
+def test_domain_new_declares_its_source_before_a_trailing_extra_key(tmp_path: Path) -> None:
+    """A hand-edited `sources.yml` could add another top-level field after
+    `sources:`. A newly referenced source must land inside that sequence,
+    not get appended past the later field."""
     repo_root = _seed_repo(tmp_path)
-    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees", "absences"))
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
     commit_plan(repo_root, source_plan)
-    domain_plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
-    commit_plan(repo_root, domain_plan)
+    sources_path = repo_root / "lakehouse_code" / "silver" / "sources.yml"
+    sources_path.write_text(sources_path.read_text(encoding="utf-8") + "x_extra: true\n", encoding="utf-8")
 
-    contract_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml"
-    contract_path.write_text(contract_path.read_text(encoding="utf-8") + "x_extra: true\n", encoding="utf-8")
-
-    plan = plan_product_new(
-        repo_root,
-        target="hr/headcount",
-        display_name=None,
-        silver_inputs=("employees",),
-        inputs=(("workday", "absences"),),
-        gold_tables=("mart_headcount",),
-        with_report=False,
-    )
+    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
     commit_plan(repo_root, plan)
 
-    contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
-    assert {entity["name"] for entity in contract_doc["entities"]} == {"employees", "absences"}
-    assert contract_doc["x_extra"] is True
+    sources_doc = yaml.safe_load(sources_path.read_text(encoding="utf-8"))
+    assert [source["name"] for source in sources_doc["sources"]] == ["crm", "erp", "workday"]
+    assert sources_doc["x_extra"] is True
 
 
 def test_source_new_quotes_a_yaml_special_scalar_in_a_flow_style_list(tmp_path: Path) -> None:
@@ -709,39 +701,23 @@ def test_source_new_quotes_a_yaml_special_scalar_in_a_flow_style_list(tmp_path: 
     assert set(inventory.source_names) == {"crm", "erp", "on", "marketing_platform"}
 
 
-def test_product_new_converts_a_flow_style_entities_list_before_appending(tmp_path: Path) -> None:
-    """`entities: [{name: existing, ...}]` is valid, schema-accepted Floe
-    YAML; appending a new --input entity must convert it to block style
-    first, not splice a block-style entity after the already-closed flow
-    value."""
+def test_domain_new_converts_a_flow_style_sources_list_before_appending(tmp_path: Path) -> None:
+    """`sources: [{name: crm, ...}]` is valid Floe YAML; declaring a new
+    source must convert it to block style first, not splice a block-style
+    entry after the already-closed flow value."""
     repo_root = _seed_repo(tmp_path)
-    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees", "absences"))
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
     commit_plan(repo_root, source_plan)
-    domain_plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
-    commit_plan(repo_root, domain_plan)
+    sources_path = repo_root / "lakehouse_code" / "silver" / "sources.yml"
+    existing = yaml.safe_load(sources_path.read_text(encoding="utf-8"))["sources"]
+    flow = yaml.safe_dump(existing, default_flow_style=True, width=10**9).strip()
+    sources_path.write_text(f"sources: {flow}\n", encoding="utf-8")
 
-    contract_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml"
-    contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
-    dumped_entities = yaml.safe_dump(contract_doc["entities"], default_flow_style=True, width=10**9).strip()
-    flow_entities = f"entities: {dumped_entities}"
-    original_contract = contract_path.read_text(encoding="utf-8")
-    contract_text = re.sub(r"^entities:\n(.*\n)*$", flow_entities + "\n", original_contract, flags=re.MULTILINE)
-    contract_path.write_text(contract_text, encoding="utf-8")
-    assert yaml.safe_load(contract_text)["entities"][0]["name"] == "employees"
-
-    plan = plan_product_new(
-        repo_root,
-        target="hr/headcount",
-        display_name=None,
-        silver_inputs=("employees",),
-        inputs=(("workday", "absences"),),
-        gold_tables=("mart_headcount",),
-        with_report=False,
-    )
+    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
     commit_plan(repo_root, plan)
 
-    contract_result = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
-    assert {entity["name"] for entity in contract_result["entities"]} == {"employees", "absences"}
+    sources_doc = yaml.safe_load(sources_path.read_text(encoding="utf-8"))
+    assert [source["name"] for source in sources_doc["sources"]] == ["crm", "erp", "workday"]
 
 
 def test_product_new_rejects_when_domain_missing_and_no_input_given(tmp_path: Path) -> None:
@@ -888,21 +864,23 @@ def test_write_rolls_back_a_partial_write_on_filesystem_failure(
     original content restored -- not left stranded for a retry to trip
     over "refusing to overwrite existing file(s)"."""
     repo_root = _seed_repo(tmp_path)
-    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees", "absences"))
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
     commit_plan(repo_root, source_plan)
+    commit_plan(repo_root, plan_source_new(repo_root, source="greenhouse", display_name=None, resources=("absences",)))
     domain_plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
     commit_plan(repo_root, domain_plan)
 
+    # A source no entity referenced yet, so the Floe project's sources.yml is edited.
     plan = plan_product_new(
         repo_root,
         target="hr/headcount",
         display_name=None,
         silver_inputs=("employees",),
-        inputs=(("workday", "absences"),),
+        inputs=(("greenhouse", "absences"),),
         gold_tables=("mart_headcount",),
         with_report=False,
     )
-    assert plan.edits, "expected the Floe contract edit to exercise the edit-rollback path too"
+    assert plan.edits, "expected the Floe sources.yml edit to exercise the edit-rollback path too"
     contract_target = repo_root / plan.edits[0].relative_path
     original_contract = contract_target.read_text(encoding="utf-8")
     lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8")
@@ -1095,10 +1073,10 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     sources_yml = (gold / "dbt" / "models" / "sources.yml").read_text()
     assert "schema: marketing_silver" in sources_yml
 
-    floe_contract = (
-        repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe" / "marketing.yml"
+    floe_domain = (
+        repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe" / "_domain.yml"
     ).read_text()
-    assert 'namespace: "marketing_silver"' in floe_contract
+    assert 'namespace: "marketing_silver"' in floe_domain
 
     dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()
     assert '"campaigns"' in dagster_module
@@ -1191,9 +1169,8 @@ def test_csv_header_with_yaml_metacharacters_produces_valid_floe_contract(tmp_pa
     plan = plan_domain_new(repo_root, domain="hr", display_name=None, inputs=(("workday", "employees"),))
     commit_plan(repo_root, plan)
 
-    contract_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml"
-    contract_doc = yaml.safe_load(contract_path.read_text())
-    columns = contract_doc["entities"][0]["schema"]["columns"]
+    entity_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "employees.yml"
+    columns = yaml.safe_load(entity_path.read_text())["schema"]["columns"]
     assert {column["name"] for column in columns} == {"employees_id", tricky_column}
 
 
@@ -1247,6 +1224,8 @@ def _seed_empty_project(tmp_path: Path) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "__init__.py").write_text("", encoding="utf-8")
     (lakehouse_code / "lakehouse.yaml").write_text(_EMPTY_LAKEHOUSE, encoding="utf-8")
+    shutil.copy(ROOT / "lakehouse_code" / "silver" / "floe.yml", lakehouse_code / "silver" / "floe.yml")
+    (lakehouse_code / "silver" / "sources.yml").write_text("sources: []\n", encoding="utf-8")
     return tmp_path
 
 

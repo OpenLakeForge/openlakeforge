@@ -1,0 +1,9 @@
+name: "warehouses"
+source: { ref: "erp", resource: "warehouses" }
+schema:
+  primary_key: ["warehouse_id"]
+  columns:
+    - { name: "warehouse_id", type: "string", nullable: false }
+    - { name: "warehouse_name", type: "string", nullable: false }
+    - { name: "region", type: "string", nullable: false }
+    - { name: "capacity_units", type: "integer", nullable: false }

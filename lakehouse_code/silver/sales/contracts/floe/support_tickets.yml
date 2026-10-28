@@ -1,0 +1,11 @@
+name: "support_tickets"
+source: { ref: "crm", resource: "support_tickets" }
+schema:
+  primary_key: ["ticket_id"]
+  columns:
+    - { name: "ticket_id", type: "string", nullable: false }
+    - { name: "account_id", type: "string", nullable: false }
+    - { name: "opened_date", type: "date", nullable: false }
+    - { name: "priority", type: "string", nullable: false }
+    - { name: "resolution_hours", type: "integer", nullable: false }
+    - { name: "sla_met", type: "boolean", nullable: false }

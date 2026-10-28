@@ -32,6 +32,8 @@ def _layout(tmp_path: Path) -> RuntimeLayout:
     definitions.parent.mkdir(parents=True)
     definitions.write_text("defs = object()\n", encoding="utf-8")
     (definitions.parent / "__init__.py").write_text("", encoding="utf-8")
+    (definitions.parent / "silver").mkdir()
+    (definitions.parent / "silver" / "floe.yml").write_text('version: "0.8"\n', encoding="utf-8")
     (definitions.parent / "demo.txt").write_text("demo\n", encoding="utf-8")
     (definitions.parent / "__pycache__").mkdir()
     (definitions.parent / "__pycache__" / "definitions.pyc").write_bytes(b"stale")
@@ -393,6 +395,8 @@ def test_empty_init_writes_only_the_canonical_package_skeleton(tmp_path: Path) -
         "pipelines/dagster/__init__.py",
         "silver",
         "silver/__init__.py",
+        "silver/floe.yml",
+        "silver/sources.yml",
     ]
 
 

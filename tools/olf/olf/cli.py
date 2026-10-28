@@ -25,7 +25,6 @@ from olf.commands import (
     distribution,
     domain,
     e2e,
-    floe,
     github,
     images,
     init,
@@ -62,7 +61,6 @@ app.add_typer(diagnostics.app, name="diagnostics")
 app.add_typer(distribution.app, name="distribution")
 app.add_typer(images.app, name="images")
 app.add_typer(catalog.app, name="catalog")
-app.add_typer(floe.app, name="floe")
 app.add_typer(artifacts.app, name="artifacts")
 app.add_typer(auth.app, name="auth")
 app.add_typer(layers.app, name="layers")

@@ -1,0 +1,12 @@
+name: "inventory_snapshots"
+source: { ref: "erp", resource: "inventory_snapshots" }
+schema:
+  primary_key: ["snapshot_id"]
+  columns:
+    - { name: "snapshot_id", type: "string", nullable: false }
+    - { name: "snapshot_date", type: "date", nullable: false }
+    - { name: "warehouse_id", type: "string", nullable: false }
+    - { name: "product_id", type: "string", nullable: false }
+    - { name: "on_hand_units", type: "integer", nullable: false }
+    - { name: "allocated_units", type: "integer", nullable: false }
+    - { name: "reorder_point", type: "integer", nullable: false }

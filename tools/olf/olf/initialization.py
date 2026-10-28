@@ -226,12 +226,19 @@ class ProjectInitializer:
         definitions = distribution_root / "lakehouse_code" / "definitions.py"
         if not definitions.is_file():
             raise InitializationError(f"distribution is missing base definitions module: {definitions}")
+        floe_project = distribution_root / "lakehouse_code" / "silver" / "floe.yml"
+        if not floe_project.is_file():
+            raise InitializationError(f"distribution is missing the Floe project file: {floe_project}")
         target.mkdir(parents=True)
         for relative in _EMPTY_FILES:
             path = target / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("", encoding="utf-8")
         (target / "definitions.py").write_text(definitions.read_text(encoding="utf-8"), encoding="utf-8")
+        (target / "silver" / "floe.yml").write_text(floe_project.read_text(encoding="utf-8"), encoding="utf-8")
+        # `olf source new`/`domain new` declare each Bronze source here as an
+        # entity first references it.
+        (target / "silver" / "sources.yml").write_text("sources: []\n", encoding="utf-8")
         (target / "lakehouse.yaml").write_text(_EMPTY_LAKEHOUSE_YAML, encoding="utf-8")
 
     def _make_user_writable(self, root: Path) -> None:

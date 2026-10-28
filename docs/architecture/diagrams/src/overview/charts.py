@@ -40,7 +40,7 @@ def _data_path(
          optional=True)
 
     edge("M294,124 L294,212", "ctl", "launches run pod", 302, 172, "start")
-    edge("M524,124 L524,212", "ctl", "1 K8s Job per entity", 532, 172, "start")
+    edge("M524,124 L524,212", "ctl", "1 K8s Job per domain", 532, 172, "start")
     edge("M754,124 L754,212", "ctl", "dagster-dbt", 762, 172, "start")
     edge(f"M144,{y+58} L212,{y+58}", "data", "reads", 178, y + 50)
     edge(f"M834,{y+58} L902,{y+58}", "data", "SQL", 868, y + 50)
@@ -104,7 +104,7 @@ def local() -> list[Path]:
         "seaweedfs", "SeaweedFS",
         (("lakehouse-dev-bronze", "raw CSV"), ("lakehouse-dev-silver", "Iceberg tables"),
          ("lakehouse-dev-gold", "Iceberg tables")),
-        ("openlakeforge-ops", "manifests · reports"),
+        ("openlakeforge-ops", "revisions · reports"),
         ("polaris", "ICEBERG REST CATALOG", "Apache Polaris", ["Floe commits and Trino", "resolves tables here"]),
         ("postgresql", "PostgreSQL", ["Dagster · Polaris ·", "OpenMetadata · Superset"], "title"),
         "catalog via Trino hourly",

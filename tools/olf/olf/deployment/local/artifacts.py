@@ -4,10 +4,8 @@ Port of `scripts/local/stack/deploy-artifacts.sh`. Calls the existing Python
 library functions directly (in-process) instead of shelling out to
 `uv run olf ...` or sourcing `scripts/contracts/load-runtime-env.sh`.
 Preserves the exact ordering: load provider contracts -> reconcile catalog
-namespaces -> generate Floe runtime artifacts -> activate/publish the
-immutable Floe revision -> build/load the project-code image using that
-revision -> point Dagster at the image -> deploy optional Superset/
-OpenMetadata artifacts.
+namespaces -> build/load the project-code image -> point Dagster at the
+image -> deploy optional Superset/OpenMetadata artifacts.
 """
 
 from __future__ import annotations
@@ -21,25 +19,19 @@ from olf import k8s, log
 from olf.deployment import contract_env
 from olf.deployment.artifact_steps import (
     ArtifactOperationError,
-    activate_runtime_revision,
     deploy_optional_layer_artifacts,
     sync_catalog_namespaces,
-    upload_runtime_manifests,
 )
 from olf.deployment.engine import Toolkit
-from olf.deployment.floe_manifests import generate_local_manifests
 from olf.deployment.local import images
 from olf.deployment.local.config import LocalDeploymentConfig
 
 __all__ = [
     "ArtifactOperationError",
-    "activate_runtime_revision",
     "applied_contract_environment",
     "artifacts_deploy",
     "deploy_optional_layer_artifacts",
-    "generate_local_manifests",
     "sync_catalog_namespaces",
-    "upload_runtime_manifests",
 ]
 
 
@@ -76,31 +68,11 @@ def applied_contract_environment(
 
 
 def artifacts_deploy(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    with applied_contract_environment(config, environ=env or None) as contract_environ:
+    with applied_contract_environment(config, environ=env or None):
         log.step("Reconciling Polaris namespaces from the domain descriptors...")
         sync_catalog_namespaces()
 
-        log.step(f"Generating local domain Floe manifests for namespace '{config.namespace}'...")
-        generate_local_manifests(
-            config.floe,
-            tools,
-            repo_root=config.paths.repo_root,
-            distribution_root=config.paths.distribution_root,
-            namespace=config.namespace,
-            governance_enabled=config.features.governance_enabled,
-            environ=contract_environ,
-            env=env,
-        )
-
-        log.step("Publishing and verifying immutable Floe runtime-artifact revision...")
-        revision_id = activate_runtime_revision(config.floe.runtime_artifact_dir)
-        os.environ["FLOE_MANIFEST_REVISION"] = revision_id
-
-        if config.images.project_code_tag == "local":
-            images.prepare_project_code_image(config, tools, env=env, revision=revision_id)
-        else:
-            log.step("Publishing legacy Floe manifests for the supplied project-code image...")
-            upload_runtime_manifests(config.floe.runtime_artifact_dir)
+        images.prepare_project_code_image(config, tools, env=env)
 
         log.step(f"Pointing Dagster at project-code image {config.images.project_code_image}...")
         k8s.set_project_code_image(config.images.project_code_image, config.namespace)
