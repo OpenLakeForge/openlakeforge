@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from collections.abc import Callable
@@ -23,16 +22,20 @@ from dagster import (
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
-from floe_dagster.manifest import manifest_from_config
 
 from libs.bronze_csv import BronzeLoadResult
 from libs.dbt.render_profiles import ensure_runtime_profile_dir
 from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
+from openlakeforge_domain import LakehouseInventory
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
+# Names the Floe manifest, and with it each domain's op: without a name the op
+# name derives from the project's path and checksum, and every contract edit
+# would rename it, cutting the op off from its run history.
+_FLOE_MANIFEST_NAME = "openlakeforge"
 
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
@@ -130,52 +133,28 @@ def _floe_profile() -> str:
     return str(write_profile())
 
 
-@cache
-def _floe_manifest() -> str:
-    """The project's manifest for this stage, without its named-source index.
-
-    dagster-floe keys every entity reading a named source to one shared
-    `sources/<project>/<source>` asset. A domain's Job asset then has one
-    input per source, and no rename can split it into the per-resource
-    `<source>/<resource>` assets Bronze lands, so Silver would no longer wait
-    for Bronze. Without the index each entity gets its own source input,
-    renamed below. The Job reads the project itself (`-c`), never this file.
-    """
-    manifest = manifest_from_config(str(FLOE_PROJECT), _floe_profile())
-    manifest.pop("sources", None)
-    path = Path(_floe_profile()).with_name("manifest.json")
-    path.write_text(json.dumps(manifest))
-    return str(path)
-
-
-def build_silver_definitions() -> Definitions:
+def build_silver_definitions(inventory: LakehouseInventory) -> Definitions:
     """Every Floe entity of the project, one subsettable asset per domain.
 
     Each domain's asset runs as one Kubernetes Job; a run that selects only
-    some of a domain's tables passes just those entities to it. Each entity
-    reads its own Bronze resource, taken from its `source.ref`/`resource`.
+    some of a domain's tables passes just those entities to it. Each Silver
+    table depends on the Bronze resource `lakehouse.yaml` declares for it --
+    the per-resource asset Bronze lands, not dagster-floe's shared
+    `sources/<project>/<source>` key -- so Silver waits for exactly its input.
     """
-    manifest_path = _floe_manifest()
-    floe_defs = load_floe_assets(
-        manifest_path=manifest_path,
+    bronze = {
+        (domain.name, table.name): AssetKey([table.source, table.resource])
+        for domain in inventory.domains
+        for table in domain.silver_tables
+    }
+    return load_floe_assets(
+        config_path=str(FLOE_PROJECT),
+        profile_path=_floe_profile(),
+        manifest_name=_FLOE_MANIFEST_NAME,
         runner=build_runner_from_env(),
         register_source_assets=False,
+        source_key_fn=lambda entity: bronze.get(tuple(entity.asset_key)),
     )
-    entities = json.loads(Path(manifest_path).read_text())["entities"]
-    bronze = {
-        AssetKey([*entity["asset_key"][:-1], f"{entity['asset_key'][-1]}_source"]): AssetKey(
-            [entity["source"]["ref"], entity["source"]["resource"]]
-        )
-        for entity in entities
-        if entity["source"].get("ref")
-    }
-    assets = [
-        asset.with_attributes(
-            asset_key_replacements={key: bronze[key] for key in asset.dependency_keys if key in bronze}
-        )
-        for asset in floe_defs.assets
-    ]
-    return Definitions(assets=assets)
 
 
 def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
@@ -223,7 +202,9 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 *[AssetKey([spec.product, asset_name]) for asset_name in spec.gold_assets],
             ).required_multi_asset_neighbors()
         ),
-        config=build_job_run_config_from_manifest(config_path=str(FLOE_PROJECT), profile_path=_floe_profile()),
+        config=build_job_run_config_from_manifest(
+            config_path=str(FLOE_PROJECT), profile_path=_floe_profile(), manifest_name=_FLOE_MANIFEST_NAME
+        ),
     )
 
     return Definitions(

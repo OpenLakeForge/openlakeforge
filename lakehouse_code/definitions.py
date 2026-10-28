@@ -45,4 +45,4 @@ def _source_definitions(inventory: LakehouseInventory) -> list[Definitions]:
 
 
 _inventory = load_lakehouse_inventory(_LAKEHOUSE_CODE_ROOT)
-defs = Definitions.merge(*_source_definitions(_inventory), build_silver_definitions(), *_product_definitions())
+defs = Definitions.merge(*_source_definitions(_inventory), build_silver_definitions(_inventory), *_product_definitions())

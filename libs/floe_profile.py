@@ -82,7 +82,8 @@ def render_profile(environ: Mapping[str, str], *, in_job: bool = False) -> dict[
         provider = environ.get("OPENLAKEFORGE_CATALOG_PROVIDER", "")
         raise FloeProfileError(
             f"catalog {catalog_type!r} ({provider or 'unknown provider'}) is not supported: "
-            "Floe 0.8 writes Iceberg through a REST catalog only."
+            "Silver runs through a REST catalog only; a Floe Glue catalog writes every table into "
+            "one database, not each domain's own (docs/technical-debt.md)."
         )
 
     # Terraform-managed code deployments (`manage_user_deployments`) carry

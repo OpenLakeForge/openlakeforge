@@ -234,8 +234,8 @@ Glue database/schema name —
 `sales_silver` as `lakehouse_dev_sales_silver` for DEV and
 `lakehouse_prod_sales_silver` for PROD, so both stages' physical databases
 coexist in the one shared catalog without colliding. Every consumer that
-resolves a physical Glue name (Floe's per-domain profile rendering, `olf
-catalog sync-namespaces`, dbt profile/source schema config) must apply this
+resolves a physical Glue name (`olf catalog sync-namespaces`, dbt
+profile/source schema config, and Floe once Silver runs on Glue) must apply this
 same prefix — IAM scopes each stage's role to `database/<prefix>_*` regardless,
 so an unprefixed name is simply denied rather than silently reading the wrong
 stage's data. Trino's file-based access control adds a second, defense-in-depth
