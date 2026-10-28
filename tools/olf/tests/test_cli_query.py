@@ -32,6 +32,10 @@ def _write_profile(path: Path, *, provider: str = "local", stages: tuple[str, ..
     )
 
 
+def _unexpected_toolchain_lookup() -> None:
+    pytest.fail("toolchain lookup was attempted")
+
+
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     seen: list[dict] = []
@@ -77,6 +81,43 @@ def test_query_reads_the_sql_from_a_file(tmp_path: Path, calls: list[dict]) -> N
 
     assert result.exit_code == 0, result.output
     assert calls[0]["sql"] == "SELECT 2"
+
+
+@pytest.mark.parametrize("content", ["", " \n\t "])
+def test_query_rejects_an_empty_sql_file(
+    tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch, content: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
+    sql = tmp_path / "empty.sql"
+    sql.write_text(content, encoding="utf-8")
+
+    result = runner.invoke(app, ["query", "--file", str(sql)])
+
+    assert result.exit_code == 1
+    assert "the SQL is empty" in result.output
+    assert "Traceback" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert not calls
+
+
+@pytest.mark.parametrize("path_kind", ["missing", "directory"])
+def test_query_reports_an_unreadable_sql_file_without_a_traceback(
+    tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch, path_kind: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
+    sql = tmp_path / "missing.sql"
+    if path_kind == "directory":
+        sql.mkdir()
+
+    result = runner.invoke(app, ["query", "--file", str(sql)])
+
+    assert result.exit_code == 1
+    assert f"cannot read {sql}" in result.output
+    assert "Traceback" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert not calls
 
 
 def test_query_rejects_a_stage_the_profile_does_not_enable(tmp_path: Path, calls: list[dict]) -> None:
