@@ -18,7 +18,7 @@ stage binding is added when a stage activates it.
 | --- | --- |
 | Project revision | What does this project contain, and what image runs it? |
 | Deployment Profile (`openlakeforge.yaml`) | Where does it run, and which stages are enabled? |
-| Floe runtime-artifact revision | What did Floe render for one stage's contract environment? |
+| Project activation | Which revision runs in one stage, bound to which provider contract? |
 
 Promotion (`#115`) activates one already-built project revision in DEV,
 validates it, then activates the same revision — same digest, no rebuild — in
@@ -50,11 +50,11 @@ names, GHCR or Docker Hub by default. See
 [CI/CD and environment promotion](../guides/promote-dev-to-prod.md) for that loop.
 
 Activation verifies every object of the published `ProjectRevision`, restores it
-to a temporary root, and renders Floe only from that root and the selected v3
+to a temporary root, and deploys only from that root and the selected v3
 provider contract. It writes an immutable `ProjectActivation` beneath
 `activations/<stage>/revisions/sha256/` and advances `ACTIVE.json` only after
 the stage's `openlakeforge-project` Helm release is ready. Project revisions
-remain equal across stages; activation and Floe revisions intentionally differ.
+remain equal across stages; only activations differ.
 
 ## Schedules are not a promotion side effect
 
@@ -88,7 +88,7 @@ catalog boundary, never part of an asset's identity.
 | Component | Source | Notes |
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/lakehouse.yaml`, `bronze/<source>/source.yaml` | Provider-neutral project truth |
-| `floe` | `silver/<domain>/contracts/floe/<domain>.yml` | The contract, never the rendered manifest |
+| `floe` | `silver/*.yml`, `silver/<domain>/contracts/floe/*.yml` | The Floe project and its contracts, never the rendered profile |
 | `dbt` | `gold/<product>/dbt/**` | Excludes `target/` and `dbt_packages/` |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |
 | `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared; validated first |

@@ -22,7 +22,7 @@ ENGINES = [("deploy", "Dagster", "blue"), ("deploy", "Trino", "blue"),
            ("pod", "dbt", "blue"), ("deploy", "OpenMetadata", "blue")]
 for i, (kind, name, variant) in enumerate(ENGINES):
     c.icon(52 + 1076 * (i + 0.5) / 6, 138, kind, name, size=44, variant=variant)
-c.label(590, 244, "same images · same Helm charts · same SQL · same manifests",
+c.label(590, 244, "same images · same Helm charts · same SQL · same contracts",
         size=11, anchor="middle")
 
 # ---------- connector ----------
@@ -53,7 +53,7 @@ ROWS = [
         ("PostgreSQL in-cluster", "storage/postgresql", True),
         ("PostgreSQL in-cluster", "storage/postgresql", True),
         ("RDS PostgreSQL", "storage/rds-postgresql", False)]),
-    ("artifacts + images", "registry · manifest base URI", [
+    ("artifacts + images", "registry · artifact base URI", [
         ("kind image load", "foundations/local-kind", True),
         ("ACR push", "foundations/azure-aks", False),
         ("ECR · S3", "foundations/aws-eks", False)]),

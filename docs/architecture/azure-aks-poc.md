@@ -77,10 +77,9 @@ olf deploy --provider azure
 2. `--phase platform` builds and pushes the Superset image to ACR, then runs
    Terraform in `infra/terraform/environments/azure-poc`. Superset is pushed
    before Terraform because the Helm release waits for Superset pods.
-3. `--phase artifacts` generates Floe manifests, builds and pushes the
-   project-code image to ACR, uploads Floe manifests through the SeaweedFS
-   S3-compatible API via port-forward, imports Superset report bundles, deploys
-   OpenMetadata metadata, and restarts Dagster deployments.
+3. `--phase artifacts` reconciles catalog namespaces, builds and pushes the
+   project-code image to ACR, imports Superset report bundles, deploys
+   OpenMetadata metadata, and restarts Dagster deployments on the new image.
 
 Runtime images are pushed as:
 

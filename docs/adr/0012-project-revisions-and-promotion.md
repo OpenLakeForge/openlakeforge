@@ -24,8 +24,8 @@ PROD without a rebuild" was unreachable.
 
 ### A project revision freezes inputs, never rendered stage output
 
-`ProjectRevision` (`tools/olf/olf/project_revision.py`) is a second,
-independently addressed revision covering the complete promotable project:
+`ProjectRevision` (`tools/olf/olf/project_revision.py`) is the one
+content-addressed revision, covering the complete promotable project:
 
 | Component | Source | Excluded because |
 | --- | --- | --- |

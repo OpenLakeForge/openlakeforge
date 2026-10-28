@@ -78,7 +78,7 @@ Only run this after the capture pass succeeds.
 The Floe debt can move from `Resolved Upstream, Pending Verification` to
 resolved only when all of these are true:
 
-- The configured Floe runtime image is used by the launched runner pod.
+- Each domain's Floe Job runs the run pod's project-code image.
 - Captured events satisfy the event-shape checks above.
 - OpenMetadata can accept the Floe events directly.
 - OpenMetadata resolves at least one Bronze-to-Silver lineage edge without a
@@ -88,10 +88,10 @@ resolved only when all of these are true:
 
 | Failure | Likely Cause | Next Step |
 | --- | --- | --- |
-| No events captured | Lineage block not rendered into the profile or manifest; runner pod cannot reach capture service. | Inspect generated manifest, runner pod env, and capture service DNS. |
-| Non-UUID run IDs | The launched pod is not using the configured Floe runtime image or there is a Floe regression. | Check runner image in pod spec and captured event payload. |
+| No events captured | Lineage block not rendered into the profile; the Floe Job pod cannot reach the capture service. | Inspect the Floe Job pod env and the capture service DNS. |
+| Non-UUID run IDs | The domain's Floe Job is not running the expected project-code image, or there is a Floe regression. | Check the Floe Job pod's image digest against the run pod's, and the captured event payload. |
 | Empty inputs/outputs | Floe emission regression or unsupported entity path. | Reproduce with one CSV-to-Iceberg entity and compare with Floe issue #382 expectations. |
-| S3 names start with `/` | Floe S3 dataset-name fix is not active. | Confirm runtime image and file upstream regression if needed. |
+| S3 names start with `/` | Floe S3 dataset-name fix is not active. | Confirm the `floe-python` pin in the project-code image and file upstream regression if needed. |
 | OM accepts events but shows no edge | Dataset namespace/name no longer matches OM storage or Polaris entities. | Compare captured dataset names with OM container/table FQNs. |
 
 ## References

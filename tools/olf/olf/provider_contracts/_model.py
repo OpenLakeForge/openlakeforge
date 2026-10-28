@@ -100,8 +100,8 @@ class StageContract:
                 "run_artifact_base_uri": f"{stage_uri}/run-artifacts",
                 "local_upload_access_mode": ops_storage.get("local_upload_access_mode", "direct"),
                 # The shared admin identity, not this stage's own storage
-                # credentials: immutable revision publishing
-                # (olf.revision.REVISION_PREFIX = "floe/revisions") writes
+                # credentials: immutable project revisions
+                # (olf.project_revision.REVISION_PREFIX) are published
                 # outside any stage's activations/<stage> prefix, so only
                 # the admin identity - scoped to the whole ops bucket - can
                 # reach it.

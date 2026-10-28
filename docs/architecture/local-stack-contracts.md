@@ -189,11 +189,12 @@ and writes Gold Iceberg marts to each product's Gold namespace in the
 The local observability adapter is `observability.object_log_archive`. It does
 not deploy Loki, Grafana, Prometheus, or tracing. Dagster compute logs, Floe
 reports, dbt run artifacts, and Kubernetes pod logs are archived to
-`openlakeforge-ops` using stable prefixes:
+`openlakeforge-ops` under the stage's `activations/<stage>/` prefix, using
+stable prefixes:
 
 - `logs/dagster/compute/`
 - `logs/k8s/namespace=<namespace>/date=<YYYY-MM-DD>/hour=<HH>/`
-- `floe/reports/<domain>/<product>/`
+- `floe/reports/<domain>/run_<id>/`
 - `run-artifacts/dbt/<domain>/<product>/<dagster_run_id>/`
 
 ## Secrets, Identity, and Access Contracts

@@ -76,8 +76,9 @@ olf project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
 ```
 
 Activation is stage-scoped: it reconciles the stage's catalog namespaces,
-activates its Floe revision, imports its Superset reports and OpenMetadata
-metadata when those are on, and rolls out its Dagster code location. It starts
+imports its Superset reports and OpenMetadata metadata when those are on, and
+rolls out its Dagster code location, which renders the stage's Floe profile
+when it loads. It starts
 no Dagster schedule: the recurring schedules a revision defines exist only in
 PROD and are created `STOPPED`. Switch one on in the PROD Dagster when you want
 recurring runs.

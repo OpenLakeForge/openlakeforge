@@ -78,8 +78,8 @@ EY2 = ROW3 + 240  # icon top, lower sub-box
 c.box(68, ROW3 + 44, 434, 148, "Per pipeline run · Dagster creates these",
       color="ephemeral", title_size=13)
 c.icon(PER_RUN[0], EY1, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
-c.icon(PER_RUN[1], EY1, "job", "floe runner", variant="ephemeral",
-       label2="1 per entity · TTL 1h")
+c.icon(PER_RUN[1], EY1, "job", "floe job", variant="ephemeral",
+       label2="1 per domain · TTL 1h")
 
 # upper right — everything on a clock, whether K8s' or OpenMetadata's
 c.box(518, ROW3 + 44, 608, 148, "Scheduled · cluster clock",
