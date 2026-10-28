@@ -60,6 +60,10 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_CATALOG_TOKEN_URI": "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens",
         "OPENLAKEFORGE_CATALOG_WAREHOUSE": "lakehouse_dev",
         "OPENLAKEFORGE_GOVERNANCE_ENABLED": "false",
+        # The domain Jobs' binding: rendered into the profile, never submitted.
+        "OPENLAKEFORGE_PROJECT_CODE_IMAGE": "ghcr.io/openlakeforge/project-code@sha256:" + "0" * 64,
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME": "polaris-dev-floe-creds",
         "OPENLAKEFORGE_OPS_BUCKET_NAME": "openlakeforge-ops",
         "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME": "openlakeforge-ops",
         "OPENLAKEFORGE_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/artifacts",

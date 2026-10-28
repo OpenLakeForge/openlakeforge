@@ -69,6 +69,14 @@ _RUNTIME_ALIASES = (
     "OPENLINEAGE_NAMESPACE",
     "OPENLINEAGE_URL",
 )
+_FLOE_SECRET_REFERENCES = (
+    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY",
+    "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME",
+    "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+    "OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY",
+    "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME",
+    "OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY",
+)
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 # The gRPC port the platform's workspace entries expect on every code-location
 # host (modules/orchestration/dagster/main.tf, local.workspace_servers).
@@ -250,8 +258,22 @@ def _user_values(
     if activation.floe_manifest_revision:
         env.append({"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": activation.floe_manifest_revision})
         env.append({"name": "NAMESPACE", "value": namespace})
+    # Each domain's Floe Job runs on this same image in this namespace
+    # (libs/floe_profile.py); the contract's namespace default is a
+    # single-stage leftover, so the activation's own stage wins.
+    stage_env = {
+        "OPENLAKEFORGE_KUBE_NAMESPACE": namespace,
+        "OPENLAKEFORGE_PROJECT_CODE_IMAGE": f"{repository}@{digest}",
+    }
     for name in sorted(key for key in contract_environ if key.startswith("OPENLAKEFORGE_")):
-        if "SECRET" not in name and "ACCESS_KEY" not in name:
+        if "SECRET" not in name and "ACCESS_KEY" not in name and name not in stage_env:
+            env.append({"name": name, "value": contract_environ[name]})
+    env.extend({"name": name, "value": value} for name, value in stage_env.items())
+    # Names of Secrets and of keys inside them, never their values: the Floe
+    # Job spec references them so the Job resolves its own credentials. The
+    # filter above drops them only because their names mention SECRET.
+    for name in _FLOE_SECRET_REFERENCES:
+        if contract_environ.get(name):
             env.append({"name": name, "value": contract_environ[name]})
     for name in _RUNTIME_ALIASES:
         value = contract_environ.get(name)

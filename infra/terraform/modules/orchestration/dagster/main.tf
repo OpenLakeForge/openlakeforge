@@ -333,6 +333,27 @@ locals {
     },
   ]
 
+  # Each domain's Floe Job runs on the project-code image and references the
+  # Secrets below by name (libs/floe_profile.py); names only, never values.
+  # `olf deploy`'s image bump keeps OPENLAKEFORGE_PROJECT_CODE_IMAGE in step
+  # with the container image (olf/k8s.py).
+  floe_job_env = concat(
+    [
+      {
+        name  = "OPENLAKEFORGE_PROJECT_CODE_IMAGE"
+        value = "${var.project_code_image_repository}:${var.project_code_image_tag}"
+      },
+    ],
+    [
+      for item in [
+        ["OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", try(var.storage_contract.credentials_secret_name, null)],
+        ["OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", try(var.catalog_contract.floe_credentials_secret_name, null)],
+        ["OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME", local.governance_enabled ? try(var.governance_contract.ingestion_bot_secret_name, null) : null],
+        ["OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY", local.governance_enabled ? try(var.governance_contract.ingestion_bot_jwt_key, null) : null],
+      ] : { name = item[0], value = item[1] } if item[1] != null
+    ],
+  )
+
   # Conditioning the *source* list rather than the rendered result keeps both
   # branches the same type. A `? <objects> : {}` on the result is what raised
   # "Inconsistent conditional result types": Terraform cannot unify an object
@@ -382,7 +403,7 @@ locals {
     }
   ]
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.query_password_env, local.namespace_env)
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.query_password_env, local.namespace_env, local.floe_job_env)
 
   log_archive_env = concat(
     local.storage_env,

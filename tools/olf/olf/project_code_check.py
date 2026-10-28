@@ -7,6 +7,7 @@ does not depend on a checkout script or shell interpolation.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections import Counter
 from importlib import import_module
@@ -66,16 +67,16 @@ def validate(root: Path) -> None:
     """Validate product selection, Floe-derived Silver assets, and their Bronze edges."""
     from dagster import Definitions
     from dagster._core.workspace.autodiscovery import loadable_targets_from_python_module
-    from floe_dagster.definitions import build_runner_from_env
-    from floe_dagster.runner import InProcessRunner
     from openlakeforge_domain import load_lakehouse_inventory
 
     # Imported by name so mypy does not follow into the user project's tree.
     merged_defs = import_module("lakehouse_code.definitions").defs
     product_dagster_lib = cast(_ProductDagsterLibrary, import_module("libs.product_dagster"))
 
-    if not isinstance(build_runner_from_env(), InProcessRunner):
-        _fail("Floe must run in-process in the Dagster run pod; is floe-python installed?")
+    floe_profile = import_module("libs.floe_profile")
+    runner = floe_profile.render_profile(os.environ)["execution"]["runner"]
+    if runner.get("type") != "kubernetes_job" or runner.get("job_scope") != "domain":
+        _fail(f"Floe must run one Kubernetes Job per domain; the stage profile renders {runner.get('type')!r}")
     inventory = load_lakehouse_inventory(root / "lakehouse_code")
     products = tuple(inventory.products)
     if not products:
@@ -163,33 +164,42 @@ def _verify_bronze_subsetability(inventory: LakehouseInventory, definitions: obj
 
 
 def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) -> None:
-    """Require the Floe project to define exactly the descriptor's Silver tables, each fed by its own resource.
+    """Require one subsettable Floe asset per domain, defining exactly its Silver tables, each fed by its own resource.
 
-    The Bronze edge comes from the entity's `source.ref`/`resource` in Floe and
-    the table list from `lakehouse.yaml`; the two must agree.
+    Each domain's asset is one Kubernetes Job; subsettable, so a run that
+    needs some of a domain's tables runs only those entities. The Bronze edge
+    comes from the entity's `source.ref`/`resource` in Floe and the table list
+    from `lakehouse.yaml`; the two must agree.
     """
     tables = {
         (domain.name, item.name): (item.source, item.resource)
         for domain in inventory.domains
         for item in domain.silver_tables
     }
-    # dagster-floe tags each entity's op with the table it writes; the same
-    # op also emits `<table>_rejected`. Identifying Floe assets by that tag,
-    # rather than by key shape, keeps a declared `*_rejected` table and a
-    # product's Gold assets sharing a domain's name out of the comparison.
     found: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+    job_domains: list[str] = []
     for asset_def in getattr(definitions, "assets", ()):
         tags = getattr(getattr(asset_def, "op", None), "tags", None) or {}
         if tags.get("dagster/compute_kind") != "floe":
             continue
-        table = str(tags.get("floe/table", "")).rpartition(".")[2]
-        if not table:
-            _fail(f"Floe asset {sorted(tuple(key.path) for key in asset_def.keys)} has no floe/table tag")
-        dependencies = {tuple(key.path) for key in getattr(asset_def, "dependency_keys", ())}
-        for key in getattr(asset_def, "keys", ()):
-            path = tuple(key.path)
-            if path[-1] == table:
-                found[path] = dependencies
+        # dagster-floe names each entity's table output `<op>__accepted`
+        # and its rejection output `<op>__rejected`.
+        accepted = [
+            key
+            for name, key in getattr(asset_def, "keys_by_output_name", {}).items()
+            if name.endswith("__accepted")
+        ]
+        domains = {tuple(key.path)[0] for key in accepted}
+        if len(domains) != 1:
+            _fail(f"each Floe Job asset must span exactly one domain; got {sorted(domains)}")
+        if not getattr(asset_def, "can_subset", False):
+            _fail(f"Floe Job asset for domain {next(iter(domains))} must support subsets of its tables")
+        job_domains.extend(domains)
+        deps = getattr(asset_def, "asset_deps", {})
+        for key in accepted:
+            found[tuple(key.path)] = {tuple(dep.path) for dep in deps.get(key, ())}
+    if len(job_domains) != len(set(job_domains)):
+        _fail(f"each domain must run as one Floe Job; got {sorted(job_domains)}")
     if set(found) != set(tables):
         _fail(f"Floe Silver assets {sorted(found)} do not match the descriptor's Silver tables {sorted(tables)}")
     for key, bronze in tables.items():

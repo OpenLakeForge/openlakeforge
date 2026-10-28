@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from collections.abc import Callable
@@ -7,7 +8,6 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-import floe
 from dagster import (
     AssetKey,
     AssetOut,
@@ -23,6 +23,7 @@ from dagster import (
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
+from floe_dagster.manifest import manifest_from_config
 
 from libs.bronze_csv import BronzeLoadResult
 from libs.dbt.render_profiles import ensure_runtime_profile_dir
@@ -129,33 +130,51 @@ def _floe_profile() -> str:
     return str(write_profile())
 
 
-def build_silver_definitions() -> Definitions:
-    """Every Floe entity of the project, built in memory from `FLOE_PROJECT`.
+@cache
+def _floe_manifest() -> str:
+    """The project's manifest for this stage, without its named-source index.
 
-    dagster-floe gives entities that share a named source one
-    `sources/<project>/<name>` dependency; Bronze lands one asset per source
-    resource, so each entity is pointed at its own `<source>/<resource>`
-    instead, taken from the entity's `source.ref`/`resource`.
+    dagster-floe keys every entity reading a named source to one shared
+    `sources/<project>/<source>` asset. A domain's Job asset then has one
+    input per source, and no rename can split it into the per-resource
+    `<source>/<resource>` assets Bronze lands, so Silver would no longer wait
+    for Bronze. Without the index each entity gets its own source input,
+    renamed below. The Job reads the project itself (`-c`), never this file.
     """
-    profile = _floe_profile()
+    manifest = manifest_from_config(str(FLOE_PROJECT), _floe_profile())
+    manifest.pop("sources", None)
+    path = Path(_floe_profile()).with_name("manifest.json")
+    path.write_text(json.dumps(manifest))
+    return str(path)
+
+
+def build_silver_definitions() -> Definitions:
+    """Every Floe entity of the project, one subsettable asset per domain.
+
+    Each domain's asset runs as one Kubernetes Job; a run that selects only
+    some of a domain's tables passes just those entities to it. Each entity
+    reads its own Bronze resource, taken from its `source.ref`/`resource`.
+    """
+    manifest_path = _floe_manifest()
     floe_defs = load_floe_assets(
-        config_path=str(FLOE_PROJECT),
-        profile_path=profile,
+        manifest_path=manifest_path,
         runner=build_runner_from_env(),
         register_source_assets=False,
     )
+    entities = json.loads(Path(manifest_path).read_text())["entities"]
     bronze = {
-        AssetKey(entity["asset_key"]): AssetKey([entity["source"]["ref"], entity["source"]["resource"]])
-        for entity in floe.build_manifest(str(FLOE_PROJECT), profile)["entities"]
+        AssetKey([*entity["asset_key"][:-1], f"{entity['asset_key'][-1]}_source"]): AssetKey(
+            [entity["source"]["ref"], entity["source"]["resource"]]
+        )
+        for entity in entities
         if entity["source"].get("ref")
     }
-    assets = []
-    for asset in floe_defs.assets:
-        bronze_key = next((bronze[key] for key in asset.keys if key in bronze), None)
-        if bronze_key is not None:
-            named = {key: bronze_key for key in asset.dependency_keys if key.path[0] == "sources"}
-            asset = asset.with_attributes(asset_key_replacements=named)
-        assets.append(asset)
+    assets = [
+        asset.with_attributes(
+            asset_key_replacements={key: bronze[key] for key in asset.dependency_keys if key in bronze}
+        )
+        for asset in floe_defs.assets
+    ]
     return Definitions(assets=assets)
 
 

@@ -248,15 +248,22 @@ def deployment_container_patch(containers: list[dict], image: str, *, restarted_
     K8sRunLauncher derives run-pod images from the code location's
     DAGSTER_CURRENT_IMAGE, which overrides run_launcher.job_image. Bumping only
     the container image leaves run pods launching on the previous image.
+    OPENLAKEFORGE_PROJECT_CODE_IMAGE is the image Floe's domain Jobs run on,
+    and goes stale the same way.
     """
     if not containers:
         raise KubectlError("deployment has no regular containers to patch.")
 
     def one(container: dict) -> dict:
-        entry = {"name": container["name"], "image": image}
-        env = container.get("env") or []
-        if any(var.get("name") == "DAGSTER_CURRENT_IMAGE" for var in env):
-            entry["env"] = [{"name": "DAGSTER_CURRENT_IMAGE", "value": image}]
+        entry: dict = {"name": container["name"], "image": image}
+        present = {var.get("name") for var in container.get("env") or []}
+        synced = [
+            {"name": name, "value": image}
+            for name in ("DAGSTER_CURRENT_IMAGE", "OPENLAKEFORGE_PROJECT_CODE_IMAGE")
+            if name in present
+        ]
+        if synced:
+            entry["env"] = synced
         return entry
 
     template: dict = {"spec": {"containers": [one(c) for c in containers]}}

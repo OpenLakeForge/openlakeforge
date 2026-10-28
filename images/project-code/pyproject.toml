@@ -27,5 +27,9 @@ dependencies = [
   "pyOpenSSL==26.3.0",
 ]
 
+[project.scripts]
+# The entrypoint of each domain's Floe Kubernetes Job (libs/floe_profile.py).
+olf-floe-job = "libs.floe_job:main"
+
 [tool.setuptools.packages.find]
 include = ["lakehouse_code*", "libs*"]

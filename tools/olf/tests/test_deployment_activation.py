@@ -1079,3 +1079,15 @@ def test_without_a_password_contract_dbt_gets_no_trino_password() -> None:
     names = {e["name"] for e in _values()["deployments"][0]["env"]}
 
     assert not names & {"OPENLAKEFORGE_DBT_TRINO_METHOD", "OPENLAKEFORGE_DBT_TRINO_PASSWORD"}
+
+
+def test_run_pods_can_bind_floe_domain_jobs_to_their_own_image_namespace_and_secrets() -> None:
+    """Floe's Job runs on the release's own image in its stage, and references credentials by Secret name."""
+    values = _values({"OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev-default-from-contract"})
+    env = [(e["name"], e.get("value")) for e in values["deployments"][0]["env"]]
+    by_name = dict(env)
+
+    assert by_name["OPENLAKEFORGE_PROJECT_CODE_IMAGE"] == _IMAGE
+    assert [value for name, value in env if name == "OPENLAKEFORGE_KUBE_NAMESPACE"] == ["olf-dev"]
+    assert by_name["OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME"] == "seaweedfs-s3-creds"
+    assert by_name["OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"] == "polaris-floe-creds"
