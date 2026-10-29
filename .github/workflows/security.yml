@@ -122,17 +122,26 @@ jobs:
           failed=0
           while read -r name ref; do
             report="evidence/image-${name}.json"
-            # Registries rate-limit anonymous pulls from shared runner addresses.
-            for attempt in 1 2 3; do
-              trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}" </dev/null && break
-              [[ "${attempt}" == 3 ]] && exit 1
-              sleep 60
-            done
             code=1
             detail=all
             if uv run --project tools/olf --locked olf check security --waived "images:${name}" </dev/null; then
               code=0
               detail=summary
+            fi
+            # Registries rate-limit anonymous pulls from shared runner addresses. A waived
+            # image never blocks, so only an unwaived one fails on a scan that cannot run.
+            scanned=0
+            for attempt in 1 2 3; do
+              if trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}" </dev/null; then
+                scanned=1
+                break
+              fi
+              sleep 60
+            done
+            if [[ "${scanned}" == 0 ]]; then
+              echo "::warning::could not scan ${name}"
+              [[ "${code}" == 1 ]] && failed=1
+              continue
             fi
             trivy convert --format table --report "${detail}" --exit-code "${code}" "${report}" || failed=1
           done < <(uv run --project tools/olf --locked python -c "
