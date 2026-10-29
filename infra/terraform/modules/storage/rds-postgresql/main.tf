@@ -354,6 +354,7 @@ resource "kubernetes_job_v1" "bootstrap" {
   depends_on = [
     aws_db_instance.this,
     aws_eks_pod_identity_association.bootstrap,
+    aws_iam_role_policy.bootstrap,
     kubernetes_role_binding_v1.bootstrap,
   ]
 }
