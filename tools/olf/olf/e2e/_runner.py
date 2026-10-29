@@ -21,6 +21,7 @@ from olf.deployment.cloud.cluster_name import aws_cluster_name
 from olf.e2e._artifacts import check_ops_artifacts
 from olf.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
 from olf.e2e._break_glass import check_break_glass
+from olf.e2e._credential_preservation import check_credential_preservation
 from olf.e2e._dagster import launch_and_poll_dagster_jobs
 from olf.e2e._health import check_pods_ready
 from olf.e2e._ingress import (
@@ -344,5 +345,8 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
     if cfg.env == "local":
         # The scan sees only current values, so it runs before the rotation replaces the credential the whole run used.
         assertions.append(FullAssertion("identity credential exposure", check_secret_exposure))
+        assertions.append(
+            FullAssertion("credential preservation across a redeploy", check_credential_preservation, tier="drill")
+        )
         assertions.append(FullAssertion("workload secret rotation", check_secret_rotation, tier="drill"))
     return tuple(assertions)

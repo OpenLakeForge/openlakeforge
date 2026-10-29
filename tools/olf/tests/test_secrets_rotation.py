@@ -412,3 +412,28 @@ def test_the_drill_skips_without_a_resolved_deployment(monkeypatch: pytest.Monke
     _rotation.check_secret_rotation(SimpleNamespace(deployment=None))  # type: ignore[arg-type]
 
     assert called == []
+
+
+@pytest.mark.parametrize(
+    ("arch", "forced", "analytics", "builds"),
+    [
+        ("amd64", False, True, False),
+        ("arm64", False, True, True),
+        ("amd64", True, True, True),
+        ("arm64", False, False, False),
+    ],
+)
+def test_a_locally_built_superset_image_is_detected_from_the_engine_and_the_opt_in(
+    monkeypatch: pytest.MonkeyPatch, arch: str, forced: bool, analytics: bool, builds: bool
+) -> None:
+    from olf.deployment.local.config import ImageSettings
+
+    images = ImageSettings.from_environment({"BUILD_SUPERSET_IMAGE": "true"} if forced else {})
+    provider = SimpleNamespace(
+        config=SimpleNamespace(features=SimpleNamespace(analytics_enabled=analytics), images=images),
+        tools=SimpleNamespace(docker=SimpleNamespace(server_arch=lambda **_kw: arch)),
+        env={},
+    )
+    monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _context: provider)
+
+    assert secrets_rotation.builds_superset_image(object()) is builds

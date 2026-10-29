@@ -178,7 +178,8 @@ def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path
     cfg = e2e_cfg(tmp_path)
     labels = [a.label for a in _runner.full_assertions(cfg)]
     drills = [a.label for a in _runner.full_assertions(cfg) if a.tier == "drill"]
-    assert len(drills) == 8
+    assert len(drills) == 9
+    assert labels.index("identity credential exposure") < labels.index("credential preservation across a redeploy")
     assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
     assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
 

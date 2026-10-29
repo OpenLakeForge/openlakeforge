@@ -114,7 +114,10 @@ workload secret rotation drill, which comes last so the scan checks the
 credentials that were live for the whole run. It reads the **current** values of
 the identity Secrets from the cluster and looks for those exact strings: the
 four OIDC client secrets (names from the identity contract), the perimeter
-cookie secret (`oauth2-proxy-cookie`) and the Trino workload credentials. It
+cookie secret (`oauth2-proxy-cookie`), the Trino workload credentials and the
+credentials generated in-cluster since #400: the PostgreSQL admin, Polaris and
+per-database passwords, the Polaris root client secret, the OpenMetadata admin
+password and each stage's Superset `SECRET_KEY` and admin password. It
 also looks for each value base64-encoded (the form Kubernetes stores Secret data
 in) and JSON-escaped (the form in `-o json` and Terraform state). A failure names
 the surface and the Secret (`name/key`), never the value.
@@ -130,6 +133,18 @@ the run reports the original failure.
 | ConfigMaps | `kubectl get configmap -o json` in the platform namespace and every stage namespace in the provider contract, not only the stage the run selected. |
 | Diagnostics | The bundle `olf diagnostics collect` writes for each of those namespaces. |
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
+
+The drill `credential preservation across a redeploy` (`--checks all`,
+`tools/olf/olf/e2e/_credential_preservation.py`) reads the same migrated values,
+deletes the Jobs that create them (by name: `postgresql-credentials-*`,
+`superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`
+and `openmetadata-credential-replication-*`, which copies the ingestion-bot token the
+bootstrap Job rotates into the stages),
+runs a platform `terraform apply`, fails if a deleted Job was not recreated
+(a new uid), and fails by name if any value changed or disappeared. It is skipped on a stack that builds its Superset
+image locally (arm64 or `BUILD_SUPERSET_IMAGE`), because an apply outside
+`olf deploy` would put the pinned amd64 image back. It runs after the scan and before the rotation
+drill.
 
 A surface that cannot be read (no state file yet, a failed `kubectl`) is
 logged as skipped, not passed. A value shorter than 16 characters is not
