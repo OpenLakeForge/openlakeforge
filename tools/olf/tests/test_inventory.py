@@ -138,7 +138,7 @@ def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
     board = code / "dashboards" / "superset" / "revenue_board"
     (board / "datasets" / "Trino").mkdir(parents=True)
     (board / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
-    (board / "datasets" / "Trino" / "mart.yaml").write_text("schema: revenue_gold\n", encoding="utf-8")
+    (board / "datasets" / "Trino" / "mart.yml").write_text("schema: revenue_gold\n", encoding="utf-8")
     (code / "dashboards" / "superset" / "draft").mkdir()
 
     inventory = load_lakehouse_inventory(tmp_path)

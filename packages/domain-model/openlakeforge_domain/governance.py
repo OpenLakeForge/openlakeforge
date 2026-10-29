@@ -90,7 +90,8 @@ def load_governance_lakehouse_document(path: str | Path, *, allow_incomplete: bo
     for metadata in sorted(code.glob("dashboards/superset/*/metadata.yaml")):
         schemas = {
             yaml.safe_load(dataset.read_text(encoding="utf-8")).get("schema")
-            for dataset in metadata.parent.glob("datasets/*/*.yaml")
+            for dataset in (metadata.parent / "datasets").rglob("*")
+            if dataset.suffix in {".yaml", ".yml"}
         }
         served = [p["id"] for p in products if f"{p['id']}_gold" in schemas]
         dashboards.append({"name": metadata.parent.name, "products": served})
