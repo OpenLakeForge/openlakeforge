@@ -62,7 +62,7 @@ are the asset `<domain>/rejected/<table>`. The manifest is named
 | Selection | A run that needs a whole domain passes `--domain <domain>`; one that needs only some of its tables passes just those (`--entities sales.orders,sales.accounts`). |
 | Concurrency | The profile's `sequential` orchestration runs a Job's entities one after another, and becomes `max_concurrent: 1` on each product job, so one domain Job runs at a time. |
 | Credentials | Each Job receives only Secret references (`secretKeyRef`): on a REST catalog the Polaris Floe client id and secret, the storage access keys where the stage uses static keys, and, when governance is on, the OpenMetadata ingestion-bot JWT as `OPENLINEAGE_API_KEY`. No credential value enters the profile, the manifest or the Job spec. |
-| Isolation | A domain's Job has its own pod and memory; it does not share the Dagster run pod's memory or its mounted credentials. A run creates one pod per domain it touches. |
+| Isolation | A domain's Job has its own pod and memory; it does not share the Dagster run pod's memory or its mounted credentials. A run creates one pod per domain it touches. Each Job requests 500m CPU and 1 GiB and is limited to 6 GiB of memory: Floe caps DuckDB (merges, compaction) at 4 GB and needs about 2 GiB above it. The Job and its pod carry the `dagster/run-id` label of the run that started them. |
 | Run reports | Floe writes them to `floe/reports/<domain>/run_<id>/` under the stage's artifact prefix, and dagster-floe reads them back with `boto3` to attach each entity's row, accepted and rejected counts and asset-check detail. |
 
 ## Supported catalogs

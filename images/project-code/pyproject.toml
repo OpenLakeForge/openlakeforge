@@ -17,13 +17,13 @@ dependencies = [
   "dagster==1.13.7",
   "dagster-aws==0.29.7",
   "dagster-dbt==0.29.7",
-  "dagster-floe[floe]==0.4.1",
+  "dagster-floe[floe]==0.4.2",
   "dagster-k8s==0.29.7",
   "dagster-postgres==0.29.7",
   "dagster-webserver==1.13.7",
   "dbt-trino==1.10.2",
   "dlt[s3]>=1.17,<2",
-  "floe-python==0.8.3",
+  "floe-python==0.8.4",
   # Keep grpc health-check protobuf gencode compatible with Dagster's protobuf<7
   # runtime constraint.
   "grpcio-health-checking<1.77",

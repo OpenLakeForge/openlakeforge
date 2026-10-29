@@ -198,6 +198,10 @@ def _job_runner(
         # The run launcher's account: the chart grants it Jobs and pod logs
         # in the stage namespace, which is all dagster-floe needs.
         "service_account": environ.get("OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT") or "dagster",
+        # Floe caps DuckDB (merges, compaction) at 4 GB and asks for 2 GiB
+        # above it; the request stays small so a kind node can still place
+        # every domain's Job. No CPU limit: throttling only slows a Job.
+        "resources": {"cpu": "500m", "memory_mb": 1024, "memory_limit_mb": 6144},
         "timeout_seconds": 3600,
         "ttl_seconds_after_finished": 3600,
         "poll_interval_seconds": 5,

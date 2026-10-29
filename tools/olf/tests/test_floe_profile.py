@@ -154,6 +154,15 @@ def test_floe_runs_one_kubernetes_job_per_domain_on_the_project_code_image() -> 
     assert "command" not in runner
 
 
+def test_the_job_memory_limit_leaves_room_above_floes_duckdb_cap() -> None:
+    resources = _runner({**_STAGE, "AWS_REGION": "us-east-1"})["resources"]
+
+    # Floe 0.8.4 caps DuckDB at 4 GB and asks for pods sized at that + 2 GiB.
+    assert resources["memory_limit_mb"] >= 6 * 1024
+    assert resources["memory_mb"] <= resources["memory_limit_mb"]
+    assert "cpu_limit" not in resources
+
+
 def test_the_job_gets_credentials_by_reference_only() -> None:
     environ = {
         **_STAGE,
