@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from contextlib import contextmanager
 from pathlib import Path
@@ -91,18 +92,30 @@ class _Helm:
 
 
 class _Kubectl:
-    """A stage namespace holding no source bindings."""
+    """A stage namespace holding no source bindings, and the pull Secrets a test adds."""
+
+    def __init__(self) -> None:
+        self.secrets: dict[str, dict] = {}
+        self.account_secrets: list[str] = []
 
     def get(self, kind, *, name, namespace, output, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG002
+        if kind == "serviceaccount":
+            return SimpleNamespace(ok=True, stdout=" ".join(self.account_secrets))
+        if kind == "secret" and name in self.secrets:
+            return SimpleNamespace(ok=True, stdout=json.dumps(self.secrets[name]))
         return SimpleNamespace(ok=False, stdout="", stderr=f"{kind} {name!r} not found")
+
+    def patch(self, kind, name, patch, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG002
+        assert (kind, name) == ("serviceaccount", "dagster")
+        self.account_secrets = [item["name"] for item in json.loads(patch)["imagePullSecrets"]]
 
 
 class _Provider:
-    def __init__(self, context: DeploymentContext, helm: _Helm) -> None:
+    def __init__(self, context: DeploymentContext, helm: _Helm, kubectl: _Kubectl | None = None) -> None:
         self.context = context
         # As DeploymentContext.environment() does for a real provider.
         self.env: dict[str, str] = {"OLF_DISTRIBUTION_ROOT": str(context.paths.distribution_root)}
-        self.tools = SimpleNamespace(helm=helm, kubectl=_Kubectl())
+        self.tools = SimpleNamespace(helm=helm, kubectl=kubectl or _Kubectl())
         self.config = SimpleNamespace(
             charts={"dagster": SimpleNamespace(package_path=Path("unused.tgz"))},
             paths=context.paths,
@@ -128,6 +141,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     project_revision.publish(store, manifest, spec)
 
     helm = _Helm()
+    kubectl = _Kubectl()
     catalog_calls: list[str] = []
 
     monkeypatch.setattr(activation_module.contracts, "load_provider_contracts", lambda *a, **k: contract)
@@ -148,7 +162,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     providers: list[_Provider] = []
 
-    def deploy(stage: str):  # noqa: ANN202
+    def deploy(stage: str, pull_secret: str | None = None):  # noqa: ANN202
         context = DeploymentContext.local(
             repo_root=external_project,
             distribution_root=ROOT,
@@ -157,10 +171,10 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
             work_root=tmp_path / "work",
         )
         context.paths.work_root.mkdir(parents=True, exist_ok=True)
-        provider = _Provider(context, helm)
+        provider = _Provider(context, helm, kubectl)
         providers.append(provider)
         return activation_module.deploy_revision(
-            provider, revision=manifest.revision, store=store, profile_name="acceptance"
+            provider, revision=manifest.revision, store=store, profile_name="acceptance", pull_secret=pull_secret
         )
 
     return SimpleNamespace(
@@ -168,6 +182,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         contract=contract,
         store=store,
         helm=helm,
+        kubectl=kubectl,
         manifest=manifest,
         image_calls=image_calls,
         providers=providers,
@@ -1199,3 +1214,93 @@ def test_a_revision_whose_source_is_not_bound_in_the_stage_is_not_rolled_out(
 
     assert harness.helm.rollouts == []
     assert project_activation.active(harness.store, stage=StageName.DEV) is None
+
+
+def _pull_secret(*hosts: str, secret_type: str = "kubernetes.io/dockerconfigjson") -> dict:
+    config = {"auths": {host: {"auth": "dTpw"} for host in hosts}}
+    return {"type": secret_type, "data": {".dockerconfigjson": base64.b64encode(json.dumps(config).encode()).decode()}}
+
+
+def test_without_a_pull_secret_no_pod_references_one(harness) -> None:  # noqa: ANN001
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+    archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+
+    assert "imagePullSecrets" not in values
+    assert "imagePullSecrets" not in archiver
+    assert harness.kubectl.account_secrets == []
+
+
+def test_every_project_code_pod_pulls_with_the_secret(harness) -> None:  # noqa: ANN001
+    """Code servers and (through them) run pods, the log archiver, and the account Floe Jobs run as."""
+    harness.kubectl.secrets["ghcr-pull"] = _pull_secret("ghcr.io")
+    harness.kubectl.account_secrets = ["registry-credentials"]
+
+    harness.deploy("dev", pull_secret="ghcr-pull")
+
+    _, values = harness.helm.rollouts[0]
+    archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    assert values["imagePullSecrets"] == [{"name": "ghcr-pull"}]
+    assert archiver["imagePullSecrets"] == [{"name": "ghcr-pull"}]
+    # Every pod type runs as `dagster`, so the account link reaches Floe Jobs too and keeps what was listed.
+    assert values["serviceAccount"] == {"create": False, "name": "dagster"}
+    assert archiver["serviceAccountName"] == "dagster"
+    assert harness.kubectl.account_secrets == ["registry-credentials", "ghcr-pull"]
+
+
+def test_docker_hub_credentials_match_a_docker_io_image() -> None:
+    kubectl = _Kubectl()
+    kubectl.secrets["hub-pull"] = _pull_secret("https://index.docker.io/v1/")
+    context = SimpleNamespace(paths=SimpleNamespace(kubeconfig_path=None), kube_context="kind-test")
+    provider = SimpleNamespace(tools=SimpleNamespace(kubectl=kubectl), context=context, env={})
+
+    activation_module._require_pull_secret(
+        provider, "hub-pull", image="docker.io/acme/code@sha256:" + "a" * 64, namespace="olf-dev", env={}
+    )
+
+
+def test_an_unusable_pull_secret_stops_the_activation_before_any_rollout(harness) -> None:  # noqa: ANN001
+    previous = harness.deploy("dev")
+    harness.kubectl.secrets["wrong-type"] = _pull_secret("ghcr.io", secret_type="Opaque")
+    harness.kubectl.secrets["wrong-registry"] = _pull_secret("quay.io")
+    harness.kubectl.secrets["not-docker-config"] = {"type": "kubernetes.io/dockerconfigjson", "data": {}}
+
+    for name, problem in (
+        ("absent", "missing or unreadable"),
+        ("wrong-type", "must have type kubernetes.io/dockerconfigjson"),
+        ("wrong-registry", "no credentials for ghcr.io"),
+        ("not-docker-config", "has no readable .dockerconfigjson"),
+    ):
+        with pytest.raises(activation_module.ActivationError, match=problem):
+            harness.deploy("dev", pull_secret=name)
+
+    assert len(harness.helm.rollouts) == 1
+    assert project_activation.active(harness.store, stage=StageName.DEV) == previous
+    assert harness.kubectl.account_secrets == []
+
+
+def test_adding_a_pull_secret_to_the_active_revision_rolls_it_out_again(harness) -> None:  # noqa: ANN001
+    harness.kubectl.secrets["ghcr-pull"] = _pull_secret("ghcr.io")
+    harness.deploy("dev")
+
+    harness.deploy("dev", pull_secret="ghcr-pull")
+    harness.deploy("dev", pull_secret="ghcr-pull")
+
+    assert len(harness.helm.rollouts) == 2
+
+
+def test_rollback_keeps_the_pull_secret_the_live_release_used(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    harness.kubectl.secrets["ghcr-pull"] = _pull_secret("ghcr.io")
+    harness.deploy("dev", pull_secret="ghcr-pull")
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+    harness.helm.installed["olf-dev"]["deployments"][0]["deploymentLabels"][activation_module._ACTIVATION_LABEL] = "x"
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev", pull_secret="ghcr-pull")
+
+    assert harness.helm.installed["olf-dev"]["imagePullSecrets"] == [{"name": "ghcr-pull"}]

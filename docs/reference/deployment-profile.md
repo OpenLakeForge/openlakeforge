@@ -168,10 +168,35 @@ project:
 ```
 
 > [!NOTE]
-> The resolved value is exposed by `olf profile resolve` but `olf deploy` does
-> not read it yet: the deploy still takes the image from the environment
-> variables above. Deploying the example image is #539 and pulling a private
-> image with `pull_secret_ref` is #540.
+> `olf project deploy` consumes `pull_secret_ref`. `olf deploy` does not read
+> `spec.project` yet: it still takes the image from the environment variables
+> above (deploying the example image is #539).
+
+#### Pulling a private image
+
+`olf` never creates the pull Secret and never reads a registry credential.
+Create it yourself in each stage namespace that runs the project, with a
+read-only token (for GHCR, a personal access token with `read:packages`; not
+the Actions `GITHUB_TOKEN`, which expires with the workflow run):
+
+```bash
+kubectl create secret docker-registry ghcr-pull -n olf-dev \
+  --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+```
+
+Repeat for `olf-uat` and `olf-prod`. To rotate, recreate the Secret under the
+same name; running pods keep their pulled image and the next pull uses the new
+token. Before rolling anything out, `olf project deploy` checks that the Secret
+exists in the stage namespace, has type `kubernetes.io/dockerconfigjson` and
+lists the image's registry. A failed check leaves the running revision and
+`ACTIVE.json` untouched. It does not contact the registry, so an expired or
+revoked token shows up as `ImagePullBackOff` on the pod.
+
+The activation then names the Secret in `imagePullSecrets` on the code-location
+Deployments (and, through them, Dagster run pods) and on the
+`openlakeforge-k8s-log-archive` CronJob, and adds it to the stage's `dagster`
+ServiceAccount, which Floe Jobs run as. A rollback restores the Secret the
+previous release used.
 
 ### `spec.access`
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import tarfile
@@ -115,6 +116,7 @@ _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 # The gRPC port the platform's workspace entries expect on every code-location
 # host (modules/orchestration/dagster/main.tf, local.workspace_servers).
 _CODE_SERVER_PORT = 3030
+_PULL_SECRET_TYPE = "kubernetes.io/dockerconfigjson"
 
 
 class ActivationError(DeploymentPreconditionError):
@@ -216,6 +218,7 @@ def _log_archive_manifest(
     namespace: str,
     env: list[dict[str, str]],
     secrets: list[str],
+    pull_secret: str | None = None,
 ) -> dict[str, object]:
     """The compute-log archiver, rendered into the activation release.
 
@@ -247,6 +250,7 @@ def _log_archive_manifest(
                             "serviceAccountName": "dagster",
                             "automountServiceAccountToken": True,
                             "restartPolicy": "Never",
+                            **({"imagePullSecrets": [{"name": pull_secret}]} if pull_secret else {}),
                             "containers": [
                                 {
                                     "name": "archive-k8s-logs",
@@ -273,6 +277,7 @@ def _user_values(
     platform_globals: Mapping[str, Any],
     code_locations: Sequence[CodeLocation],
     image: str | None = None,
+    pull_secret: str | None = None,
 ) -> dict[str, object]:
     # `image` overrides the activation's own only on the rollback path, where
     # the target is the release that was running rather than the one the
@@ -355,7 +360,11 @@ def _user_values(
                 # this Secret. Handing it catalog and governance credentials
                 # would widen what a compromised log container reaches.
                 secrets=[storage_secret] if storage_secret else [],
+                pull_secret=pull_secret,
             )],
+        # The subchart puts this on every code server and, through the
+        # container context of includeConfigInLaunchedRuns, on the run pods.
+        **({"imagePullSecrets": [{"name": pull_secret}]} if pull_secret else {}),
         "serviceAccount": {"create": False, "name": "dagster"},
         # One deployment per contracted location, never a literal: the platform
         # renders the webserver's workspace from the same list, and
@@ -475,6 +484,78 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
         load_digest_image_into_kind(image, provider.config, provider.tools, env=env)
 
 
+def _require_pull_secret(
+    provider: DeploymentProvider, name: str, *, image: str, namespace: str, env: Mapping[str, str]
+) -> None:
+    """Refuse an activation whose image pull Secret kubelet could not use.
+
+    Checked before anything is published or rolled out, so a missing Secret
+    leaves the live release and `ACTIVE.json` untouched. The Secret's value is
+    parsed in memory for its registry hosts only; nothing from it is printed.
+    A credential that has expired or been revoked still passes: the registry
+    is not contacted, so that failure surfaces as `ImagePullBackOff`.
+    """
+    fix = (
+        f"create it in {namespace} with: kubectl create secret docker-registry {name} -n {namespace} "
+        "--docker-server=<registry> --docker-username=<user> --docker-password=<read-only token>"
+    )
+    result = provider.tools.kubectl.get(
+        "secret",
+        name=name,
+        namespace=namespace,
+        context=_kube_context(provider),
+        kubeconfig=provider.context.paths.kubeconfig_path,
+        output="json",
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        raise ActivationError(f"image pull Secret {name!r} is missing or unreadable in {namespace}; {fix}")
+    secret = json.loads(result.stdout)
+    if secret.get("type") != _PULL_SECRET_TYPE:
+        raise ActivationError(f"Secret {name!r} in {namespace} must have type {_PULL_SECRET_TYPE}; {fix}")
+    try:
+        auths = json.loads(base64.b64decode(secret["data"][".dockerconfigjson"]))["auths"]
+        if not isinstance(auths, dict):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ActivationError(f"Secret {name!r} in {namespace} has no readable .dockerconfigjson; {fix}") from None
+    host = _registry_host(_image_parts(image)[0])
+    # Docker Hub's pull secret is keyed https://index.docker.io/v1/, while an image says docker.io.
+    hosts = {
+        key.removeprefix("https://").removeprefix("http://").split("/")[0].replace("index.docker.io", "docker.io")
+        for key in auths
+    }
+    if host and host not in hosts:
+        raise ActivationError(f"Secret {name!r} in {namespace} has no credentials for {host}; {fix}")
+
+
+def _link_pull_secret(provider: DeploymentProvider, name: str, *, namespace: str, env: Mapping[str, str]) -> None:
+    """Add the Secret to the `dagster` ServiceAccount, keeping what it already lists.
+
+    Floe Jobs are created by dagster-floe, which has no pull-secret option, and
+    run as this account (libs/floe_profile.py), so the account is the only place
+    they can inherit it from. Every other project-code pod names the Secret
+    itself; this also covers them after a Helm release is reinstalled.
+    """
+    kubectl = provider.tools.kubectl
+    context, kubeconfig = _kube_context(provider), provider.context.paths.kubeconfig_path
+    listed = kubectl.get(
+        "serviceaccount",
+        name="dagster",
+        namespace=namespace,
+        context=context,
+        kubeconfig=kubeconfig,
+        output="jsonpath={.imagePullSecrets[*].name}",
+        env=env,
+    ).stdout.split()
+    if name not in listed:
+        patch = json.dumps({"imagePullSecrets": [{"name": item} for item in (*listed, name)]})
+        kubectl.patch(
+            "serviceaccount", "dagster", patch, namespace=namespace, context=context, kubeconfig=kubeconfig, env=env
+        )
+
+
 def read_platform_globals(
     provider: DeploymentProvider, *, kube_context: str, env: Mapping[str, str]
 ) -> dict[str, Any] | None:
@@ -531,6 +612,7 @@ class _RollbackTarget:
 
     image: str
     locations: tuple[CodeLocation, ...]
+    pull_secret: str | None = None
 
 
 def _rollback_target(
@@ -603,7 +685,10 @@ def _rollback_target(
             f"the current {_RELEASE!r} release in {namespace} does not declare one image and a readable module "
             "per code location, so a failed activation could not be rolled back onto it. Refusing to upgrade."
         )
-    return _RollbackTarget(image=images.pop(), locations=tuple(locations))
+    # The Secret the live release pulls with, not the profile's current one:
+    # a rollback restores what ran, and that Secret may since have been dropped.
+    pull_secrets = [item.get("name") for item in (values or {}).get("imagePullSecrets") or []]
+    return _RollbackTarget(image=images.pop(), locations=tuple(locations), pull_secret=(pull_secrets or [None])[0])
 
 
 def release_runs_activation(
@@ -612,6 +697,7 @@ def release_runs_activation(
     *,
     code_locations: Sequence[CodeLocation],
     platform_globals: Mapping[str, Any] | None = None,
+    pull_secret: str | None = None,
     env: Mapping[str, str],
 ) -> bool:
     """Whether the installed release is healthy *and* actually runs this activation.
@@ -648,6 +734,10 @@ def release_runs_activation(
         return False
     if any(revision != activation_revision for revision in deployed.values()):
         return False
+    # Adding, changing or dropping `pull_secret_ref` moves no activation input
+    # either, but it does change what the pods can pull.
+    if [item.get("name") for item in values.get("imagePullSecrets") or []] != ([pull_secret] if pull_secret else []):
+        return False
     # A platform apply can re-bind something the activation renders -- renaming
     # the Dagster credentials Secret, say -- without moving any input the
     # activation digest covers. Skipping on the label alone would leave the
@@ -656,7 +746,12 @@ def release_runs_activation(
 
 
 def deploy_revision(
-    provider: DeploymentProvider, *, revision: str, store: RevisionStore, profile_name: str
+    provider: DeploymentProvider,
+    *,
+    revision: str,
+    store: RevisionStore,
+    profile_name: str,
+    pull_secret: str | None = None,
 ) -> ProjectActivation:
     """Verify, render, roll out, then atomically make a revision active."""
     context = provider.context
@@ -684,6 +779,12 @@ def deploy_revision(
     except (ProjectRevisionError, ProviderContractError) as exc:
         raise ActivationError(str(exc)) from exc
 
+    if pull_secret:
+        _require_pull_secret(
+            provider, pull_secret, image=manifest.project_code_image, namespace=context.namespace, env=env
+        )
+        _link_pull_secret(provider, pull_secret, namespace=context.namespace, env=env)
+
     capabilities = {
         "analytics": context.features.analytics_enabled,
         "governance": context.features.governance_enabled,
@@ -709,6 +810,7 @@ def deploy_revision(
             previous.activation_revision,
             code_locations=code_locations,
             platform_globals=platform_globals,
+            pull_secret=pull_secret,
             env=env,
         )
     ):
@@ -750,6 +852,7 @@ def deploy_revision(
                 activation.activation_revision,
                 code_locations=code_locations,
                 platform_globals=platform_globals,
+                pull_secret=pull_secret,
                 env=env,
             ):
                 return activation
@@ -782,6 +885,7 @@ def deploy_revision(
                         namespace=context.namespace,
                         platform_globals=platform_globals,
                         code_locations=code_locations,
+                        pull_secret=pull_secret,
                     ),
                     sort_keys=False,
                 )
@@ -835,6 +939,7 @@ def deploy_revision(
                                 platform_globals=platform_globals,
                                 code_locations=rollback.locations,
                                 image=rollback.image,
+                                pull_secret=rollback.pull_secret,
                             ),
                             sort_keys=False,
                         )

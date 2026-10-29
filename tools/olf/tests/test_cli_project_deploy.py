@@ -28,6 +28,7 @@ from olf.deployment import contract_env
 from olf.deployment.context import DeploymentContext
 
 runner = CliRunner()
+_PROFILE = SimpleNamespace(name="test", project=None, provider=SimpleNamespace(type=SimpleNamespace(value="local")))
 
 
 def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -71,7 +72,7 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
     monkeypatch.setattr(project_cmd, "_revision_store", store)
     monkeypatch.setattr(contracts, "load_provider_contracts", lambda *_a, **_k: contract)
-    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: SimpleNamespace(name="test"))
+    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: _PROFILE)
     monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
 
     result = runner.invoke(app, ["project", "deploy", "-f", str(profile), "--stage", "prod", "--revision", "r"])
@@ -102,7 +103,7 @@ def test_an_unreadable_contract_file_fails_cleanly(
 
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", context_for)
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
-    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: SimpleNamespace(name="test"))
+    monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: _PROFILE)
     monkeypatch.setattr(
         "olf.project_revision.build_project_revision", lambda *_a, **_k: SimpleNamespace(revision="r")
     )
