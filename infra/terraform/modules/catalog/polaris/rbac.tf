@@ -48,6 +48,14 @@ resource "kubernetes_role_v1" "bootstrap" {
     verbs          = ["delete", "get", "patch", "update"]
   }
 
+  # The credentials Job checks these before creating them.
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = [local.token_broker_secret, var.bootstrap_secret_name]
+    verbs          = ["get"]
+  }
+
   rule {
     api_groups     = [""]
     resources      = ["configmaps"]
