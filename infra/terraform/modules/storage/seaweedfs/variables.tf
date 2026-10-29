@@ -78,3 +78,9 @@ variable "s3_port" {
   type        = number
   default     = 8333
 }
+
+variable "bootstrap_job_image" {
+  description = "Image of the Job that creates the S3 key Secrets when missing, pinned by digest (release/component-catalog.yaml)."
+  type        = string
+  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+}
