@@ -1,6 +1,6 @@
 # OpenLakeForge
 
-**An open-source lakehouse platform for small data teams — self-hosted, modular, and designed to run anywhere.**
+**The open-source lakehouse you own end to end — self-hosted on your Kubernetes, storage and cloud account, and small enough for one data team to run.**
 
 [![Release](https://img.shields.io/github/v/release/OpenLakeForge/openlakeforge?include_prereleases)](https://github.com/OpenLakeForge/openlakeforge/releases)  
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](/LICENSE)  
@@ -9,10 +9,21 @@
 Building a modern data platform usually means assembling and operating
 ingestion, orchestration, storage, catalog, governance and analytics tools.
 **OpenLakeForge packages those pieces into one opinionated, open-source
-lakehouse**, so small data teams can focus on data products instead of
-becoming platform engineers. Run only the core data path, add governance and
-dashboards when you need them, and keep the same architecture locally, on AWS
-or on Azure.
+lakehouse that runs entirely in your own infrastructure**, so a data team
+that has to own its platform gets a complete, tested one instead of building
+it. Run only the core data path, add governance and dashboards when you need
+them, and keep the same architecture locally, on AWS or on Azure.
+
+It is built for:
+
+- **Teams whose data must stay in their own infrastructure** — data
+  sovereignty, data residency, or sector rules (public sector, health,
+  finance) that rule out a SaaS warehouse.
+- **Data teams that already run Kubernetes** and want an open,
+  predictable-cost alternative to a proprietary warehouse, without
+  assembling the platform themselves.
+- **Consultancies and integrators** that deliver the same data platform to
+  several clients and want one tested, reproducible base.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-local-dark.svg">
@@ -23,9 +34,10 @@ or on Azure.
 
 ## Why OpenLakeForge?
 
-- 🪶 **Built for small data teams** — less operational work to run a modern lakehouse.
+- 🛡️ **Yours end to end** — your infrastructure, your storage, your data; no third-party service in the data path. Apache-2.0.
+- 🪶 **Run by a small data team** — assembled, pinned and tested, so you don't need a platform engineer to start.
+- 🔁 **Build once, promote to production** — a change becomes an immutable project revision, tested in DEV and activated unchanged in PROD.
 - 🧩 **Modular** — use the core data platform alone, or add governance and analytics.
-- 🔓 **Open and self-hosted** — your infrastructure, your storage, your data.
 - ☁️ **Deploy anywhere** — local Kubernetes, AWS and Azure share the same platform contracts.
 - 🧊 **Open table format** — Apache Iceberg keeps storage independent from the engines that use it.
 - 🏗️ **Infrastructure included** — Kubernetes, Terraform and Helm come with the platform.
@@ -59,9 +71,10 @@ expose the same platform capabilities with different implementations.
 
 |Good fit|Not yet|
 |---|---|
-|A small team that wants a working batch lakehouse without building the platform first|Streaming workloads: v1 is batch-first|
-|Keeping data on your own Kubernetes, storage and cloud account|Production-critical use: the project is alpha|
-|Moving the same project between a laptop, AWS and Azure|Teams that want a fully managed SaaS|
+|Data that must stay on your own Kubernetes, storage and cloud account|Streaming workloads: v1 is batch-first|
+|A data team on Kubernetes that wants an open alternative to a proprietary warehouse|Production-critical use: the project is alpha|
+|An integrator deploying the same platform for several clients|Teams that want a fully managed SaaS|
+|A small team that wants a batch lakehouse without building the platform first|A small team with no Kubernetes and no residency constraint: a managed warehouse is simpler|
 
 ## Quickstart
 

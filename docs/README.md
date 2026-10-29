@@ -1,6 +1,7 @@
 # OpenLakeForge documentation
 
-OpenLakeForge is an open-source, self-hosted lakehouse for small data teams.
+OpenLakeForge is an open-source lakehouse you run entirely in your own
+infrastructure, small enough for one data team to operate.
 These pages show how to install it, build data products on it, and deploy it
 to AWS or Azure.
 

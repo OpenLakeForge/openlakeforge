@@ -1,8 +1,8 @@
 # Introduction
 
-OpenLakeForge is an open-source, self-hosted lakehouse for small data teams.
-This page says what it assembles, who it is for, and what you take on when you
-run it.
+OpenLakeForge is an open-source lakehouse you run entirely in your own
+infrastructure, small enough for one data team to operate. This page says what
+it assembles, who it is for, and what you take on when you run it.
 
 ## What it is
 
@@ -34,8 +34,22 @@ runs on a laptop, AWS or Azure. See
 
 ## Who it is for
 
-A small team that wants a working batch lakehouse without first building the
-platform. Everything is code in one repository: the Deployment Profile
+Data teams that have to own their data platform and want a complete one
+without building it first:
+
+- **Teams whose data must stay in their own infrastructure.** Data
+  sovereignty, data residency or sector rules (public sector, health,
+  finance) rule out a SaaS warehouse; every component runs in your cluster,
+  storage and cloud account.
+- **Data teams that already run Kubernetes** and want an open,
+  predictable-cost alternative to a proprietary warehouse.
+- **Consultancies and integrators** that deliver the same platform to several
+  clients: one pinned, tested release they can reproduce per client.
+
+In each case the team running it is small: the platform comes assembled, so
+it does not need a dedicated platform engineer to start.
+
+Everything is code in one repository: the Deployment Profile
 (`openlakeforge.yaml`) says where the platform runs, and `lakehouse_code/`
 holds your sources, contracts, dbt models, Dagster jobs and dashboards.
 
@@ -43,9 +57,10 @@ holds your sources, contracts, dbt models, Dagster jobs and dashboards.
 
 | Good fit | Not yet |
 | --- | --- |
-| A small team that wants a batch lakehouse without building the platform first | Streaming workloads: v1 is batch-first |
-| Keeping data on your own Kubernetes, storage and cloud account | Production-critical use: the project is alpha |
-| Moving the same project between a laptop, AWS and Azure | Teams that want a fully managed SaaS |
+| Data that must stay on your own Kubernetes, storage and cloud account | Streaming workloads: v1 is batch-first |
+| A data team on Kubernetes that wants an open alternative to a proprietary warehouse | Production-critical use: the project is alpha |
+| An integrator deploying the same platform for several clients | Teams that want a fully managed SaaS |
+| A small team that wants a batch lakehouse without building the platform first | A small team with no Kubernetes and no residency constraint: a managed warehouse is simpler |
 
 ## What you operate
 
