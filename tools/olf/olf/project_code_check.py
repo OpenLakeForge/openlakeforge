@@ -343,19 +343,23 @@ def _verify_bronze_dlt_stage_state() -> None:
 
     # The loads above use local destinations; a stage loads to its S3 bucket,
     # which dlt reaches through s3fs. Opening that filesystem needs no network.
+    # Explicit keys keep the check off the host's AWS credential chain, which a
+    # stage pod's workload identity fills instead.
     from dlt.common.storages import fsspec_from_config
 
     stage_bucket = {
         "OPENLAKEFORGE_STAGE": "dev",
         "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "dev-bronze",
         "AWS_ENDPOINT_URL_S3": "http://s3.invalid",
+        "AWS_ACCESS_KEY_ID": "check-key",
+        "AWS_SECRET_ACCESS_KEY": "check-secret",
     }
     with _environment(stage_bucket):
         pipeline = bronze_dlt.bronze_pipeline("mock_api")
         try:
             fsspec_from_config(pipeline.destination_client().config)
         except Exception as exc:  # dlt raises its own MissingDependencyException
-            _fail(f"dlt cannot open a stage's S3 Bronze bucket: {exc}")
+            _fail(f"dlt cannot open a stage's S3 Bronze bucket ({type(exc).__name__}): {exc}")
 
 
 def main() -> None:
