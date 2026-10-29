@@ -184,6 +184,42 @@ This script requires `git`, `gh`, `cosign`, `uv`, `docker` (only for
 anyone: it only reads public release assets and verifies public Sigstore
 signatures.
 
+## Security scans
+
+`.github/workflows/security.yml` runs on pull requests and pushes to `main`, and
+`release.yml` calls it as its `security` job. `build`, the PyPI publishes and the
+bundle all depend on it, so a release cannot publish while a scan fails.
+
+| Scan | Covers | Pull requests | Releases |
+| --- | --- | --- | --- |
+| CodeQL | Python source | Uploads results | Fails on open critical or high alerts |
+| Trivy `fs` | `uv.lock` and `requirements.lock` dependencies, Terraform, Helm charts, Dockerfiles, and secrets in the working tree | Yes | Yes |
+| Trivy `image` | Every image pinned in `release/component-catalog.yaml` | Only when the catalog changes | Yes |
+| Trivy `image` | The `project-code` and `superset` images, scanned before they are tagged, signed or attested | No | Yes |
+
+Secret scanning reads the checked-out tree, not git history; GitHub secret
+scanning covers pushed history.
+
+**Threshold.** `trivy.yaml` fails a scan on any HIGH or CRITICAL finding. A
+vulnerability counts only when a fixed version exists. Misconfigurations and
+secrets count whether or not a fix exists.
+
+**Suppressions.** `.trivyignore.yaml` is the only suppression file for Trivy.
+Every entry needs an `owner` and an `expired_at` date no more than 90 days out,
+and a `statement` saying why. Trivy stops honouring an entry on its expiry date,
+and `olf check security` fails on an expired or unowned entry, so a suppression
+is renewed or the finding is fixed. An `images` entry waives a whole image by
+its catalog name (`k8s_bootstrap`) or built name (`superset`): the image is
+still scanned and its findings are recorded, but they no longer fail the run.
+A CodeQL alert is suppressed by dismissing it in GitHub with a comment naming
+its owner. These checks are not required on `main`, because a new advisory
+against an unchanged image would block unrelated pull requests.
+
+**Evidence.** Each run uploads Trivy's JSON reports as the `security-evidence-*`
+workflow artifacts; the repository report is named for the commit it scanned.
+A release attaches `project-code.trivy.json` and `superset.trivy.json` to the
+bundle, covered by `checksums.txt`; each names the image reference it scanned.
+
 ## Release evidence
 
 This section records what actually ran for the releases listed below, so the

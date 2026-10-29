@@ -66,6 +66,7 @@ All `new` commands validate the result before writing and accept
 | `olf check contracts` | `lakehouse.yaml`, every `source.yaml`, and the Floe project's namespaces |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | Every product's dbt project compiles |
+| `olf check security` | Every entry in `.trivyignore.yaml` has an owner and an unexpired date within 90 days; not part of `olf check all` |
 | `olf report validate [<dashboard>]` | Superset bundles are promotable |
 | `olf e2e run --env local\|aws\|azure` | The deployed platform end to end. `--suite smoke` runs the preflight checks only; `--stage` and `-f <profile>` select what to check. |
 

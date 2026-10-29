@@ -1,0 +1,136 @@
+name: Security scans
+
+# Pull requests and main run the scans; the release workflow calls this one too, so a
+# tag cannot publish while any of them fails. Policy: docs/release/releasing.md#security-scans
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (Python)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+        with:
+          languages: python
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+
+      # analyze only uploads results. Outside pull requests, fail on open
+      # critical/high alerts; a dismissed alert (with a comment naming its owner) is the
+      # CodeQL suppression.
+      - name: Fail on open critical or high alerts
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?state=open&ref=${GITHUB_REF}&per_page=100" \
+            --jq '.[] | select(.rule.security_severity_level == "critical" or .rule.security_severity_level == "high") | "\(.html_url) \(.rule.id)"')"
+          if [[ -n "${open}" ]]; then
+            echo "::error::Open critical/high CodeQL alerts:" >&2
+            echo "${open}" >&2
+            exit 1
+          fi
+
+  repository:
+    name: Trivy (dependencies, IaC, secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Check suppressions are owned and unexpired
+        run: uv run --project tools/olf --locked olf check security
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.76.1
+
+      # requirements.lock is not a name Trivy recognises, so it is named explicitly.
+      - name: Scan the repository
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          report="evidence/repository-${GITHUB_SHA}.json"
+          trivy fs --scanners vuln,secret,misconfig --file-patterns 'pip:requirements\.lock' \
+            --skip-dirs tools/olf/tests/fixtures --format json --output "${report}" .
+          trivy convert --format table --exit-code 1 "${report}"
+
+      - name: Upload scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-evidence-repository
+          path: evidence
+          if-no-files-found: ignore
+
+  catalog-images:
+    name: Trivy (pinned catalog images)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 2
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.76.1
+
+      # Pulling ~20 third-party images on every pull request would burn registry
+      # rate limits and fail unrelated changes on new CVEs; main and releases scan them all.
+      - name: Scan the images pinned in the component catalog
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]] \
+              && git diff --quiet HEAD^1 HEAD -- release/component-catalog.yaml; then
+            echo "Component catalog unchanged; its images are scanned on main and in releases."
+            exit 0
+          fi
+          mkdir -p evidence
+          failed=0
+          while read -r name ref; do
+            report="evidence/image-${name}.json"
+            trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}"
+            code=1
+            uv run --project tools/olf --locked olf check security --waived "${name}" </dev/null && code=0
+            trivy convert --format table --exit-code "${code}" "${report}" || failed=1
+          done < <(uv run --project tools/olf --locked python -c "
+          import yaml
+          for name, ref in yaml.safe_load(open('release/component-catalog.yaml'))['components']['images'].items():
+              print(name, ref)
+          ")
+          exit "${failed}"
+
+      - name: Upload scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-evidence-catalog-images
+          path: evidence
+          if-no-files-found: ignore

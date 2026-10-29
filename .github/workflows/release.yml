@@ -181,6 +181,16 @@ jobs:
             exit 1
           fi
 
+  # The same scans pull requests run (docs/release/releasing.md#security-scans); the
+  # build, PyPI and bundle jobs all depend on it, so a finding above the threshold
+  # blocks publication.
+  security:
+    name: Security scans
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/security.yml
+
   python-packages:
     name: Build and validate PyPI distributions
     needs: prepare
@@ -315,7 +325,7 @@ jobs:
 
   build:
     name: Build, sign, and attest ${{ matrix.image }}
-    needs: prepare
+    needs: [prepare, security]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -390,6 +400,27 @@ jobs:
             SUPERSET_BASE_IMAGE=${{ needs.prepare.outputs.superset_base_image }}
           outputs: type=image,name=${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.76.1
+
+      # Scans the exact image that will be tagged, signed and attested; a finding
+      # above the threshold (unless the image is waived in .trivyignore.yaml) stops
+      # the release before any of that happens.
+      - name: Scan the built image (vulnerabilities, secrets)
+        env:
+          IMAGE_REF: ${{ needs.prepare.outputs.dry_run == 'true' && steps.local_digest.outputs.image_ref || format('{0}/{1}@{2}', env.IMAGE_NAMESPACE, matrix.image, steps.build_push.outputs.digest) }}
+        run: |
+          set -euo pipefail
+          trivy image --scanners vuln,secret --format json --output "${{ matrix.image }}.trivy.json" "${IMAGE_REF}"
+          code=1
+          uv run --project tools/olf --locked olf check security --waived "${{ matrix.image }}" && code=0
+          trivy convert --format table --exit-code "${code}" "${{ matrix.image }}.trivy.json"
+
       - name: Tag the pushed digest with the release version
         if: needs.prepare.outputs.dry_run == 'false'
         id: pushed_digest
@@ -438,6 +469,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           cp "${{ matrix.image }}.spdx.json" "dist/${{ matrix.image }}.spdx.json"
+          cp "${{ matrix.image }}.trivy.json" "dist/${{ matrix.image }}.trivy.json"
           reference="${{ needs.prepare.outputs.dry_run == 'true' && steps.local_digest.outputs.manifest_reference || steps.pushed_digest.outputs.reference }}"
           printf '%s\n' "${reference}" > "dist/${{ matrix.image }}.digest.txt"
 
@@ -488,6 +520,7 @@ jobs:
           superset_reference="$(cat artifacts/superset.digest.txt)"
           cp artifacts/project-code.spdx.json "${bundle_dir}/project-code.spdx.json"
           cp artifacts/superset.spdx.json "${bundle_dir}/superset.spdx.json"
+          cp artifacts/*.trivy.json "${bundle_dir}/"
           cp python-artifacts/* "${bundle_dir}/"
 
           cp release/component-catalog.yaml "${bundle_dir}/component-catalog.yaml"
@@ -569,6 +602,7 @@ jobs:
             ${{ steps.assemble.outputs.bundle_dir }}/CHANGELOG.md
             ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
+            ${{ steps.assemble.outputs.bundle_dir }}/*.trivy.json
             ${{ steps.assemble.outputs.bundle_dir }}/*.whl
             ${{ steps.assemble.outputs.bundle_dir }}/*.tar.gz
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt
