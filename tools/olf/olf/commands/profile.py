@@ -49,7 +49,7 @@ def resolve(
     """Resolve the Deployment Profile into one effective `DeploymentTopology`."""
     try:
         profile = _load(project)
-        resolved_project = resolve_project(profile.project, profile.provider.type, os.environ)
+        resolved_project = resolve_project(profile, os.environ)
     except (DeploymentProfileError, OSError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc

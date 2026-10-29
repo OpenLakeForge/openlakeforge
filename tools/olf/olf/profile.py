@@ -723,7 +723,11 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
     )
 
 
-def resolve_project(
+def resolve_project(profile: DeploymentProfile, environ: Mapping[str, str] | None = None) -> ResolvedProject:
+    return resolve_declared_project(profile.project, profile.provider.type, environ)
+
+
+def resolve_declared_project(
     project: ProjectSpec | None, provider: Provider, environ: Mapping[str, str] | None = None
 ) -> ResolvedProject:
     """Where the project-code image comes from, in precedence order: the profile's

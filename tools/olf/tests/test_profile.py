@@ -664,8 +664,7 @@ def _schema_errors(document: dict, tmp_path: Path) -> list[str]:
 )
 def test_project_resolution_precedence(fixture, project, environ, expected, tmp_path) -> None:
     document = _with_project(project, fixture)
-    profile = validate_deployment_profile(document)
-    assert resolve_project(profile.project, profile.provider.type, environ) == ResolvedProject(*expected)
+    assert resolve_project(validate_deployment_profile(document), environ) == ResolvedProject(*expected)
     assert _schema_errors(document, tmp_path) == []
 
 
@@ -722,4 +721,4 @@ def test_the_schema_rejects_what_the_parser_rejects(project, tmp_path) -> None:
 def test_a_malformed_environment_override_fails_closed() -> None:
     profile = validate_deployment_profile(_with_project(None, _AWS))
     with pytest.raises(DeploymentProfileError, match="PROJECT_CODE_IMAGE_REPOSITORY"):
-        resolve_project(profile.project, profile.provider.type, {"PROJECT_CODE_IMAGE_REPOSITORY": "acme/code:latest"})
+        resolve_project(profile, {"PROJECT_CODE_IMAGE_REPOSITORY": "acme/code:latest"})

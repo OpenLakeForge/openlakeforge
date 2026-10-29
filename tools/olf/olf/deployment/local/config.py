@@ -24,7 +24,7 @@ from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.retry import RetryPolicy
-from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY, resolve_project
+from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY, resolve_declared_project
 
 
 @dataclass(frozen=True)
@@ -274,7 +274,7 @@ def _published_example_image(context: DeploymentContext, environ: Mapping[str, s
     must reach the cluster, never be replaced by the demo.
     """
     topology = context.topology
-    if resolve_project(topology.project, topology.provider, environ).source != "public-example":
+    if resolve_declared_project(topology.project, topology.provider, environ).source != "public-example":
         return None
     if environ.get("PROJECT_CODE_IMAGE_TAG") or platform.machine() not in ("x86_64", "AMD64"):
         return None
