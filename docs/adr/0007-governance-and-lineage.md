@@ -49,10 +49,12 @@ stage's edges land on its own `lakehouse_<stage>` tables even though schema and
 table names are identical across stages; 1.12 matched on schema and table
 alone, and could attach one stage's lineage to another's. Each stage emits
 under its own `dagster_<stage>` namespace. Exact resolution needs the stage's
-tables registered before its lineage arrives: `olf openmetadata
-deploy-metadata` seeds them at activation, and the crawl never deletes tables,
-so a crawl before the stage's first run cannot retire them (a missing table
-would fall back to the schema-and-table match). Pipeline entities are not
+schemas registered before its lineage arrives: `olf openmetadata
+deploy-metadata` seeds each `<domain>_silver` and `<product>_gold` schema at
+activation, and the crawl never deletes schemas or tables, so a crawl before
+the stage's first run cannot retire them. The tables themselves are not
+seeded: a table first seen in lineage is auto-created under its own stage's
+schema, and the crawl adopts it by name. Pipeline entities are not
 created: OpenMetadata 1.13.6 fails to auto-create OpenLineage pipelines (an
 upstream bug), so the edges are recorded without a pipeline reference, and
 nothing may rely on pipeline entities. The nightly asserts that each stage's
