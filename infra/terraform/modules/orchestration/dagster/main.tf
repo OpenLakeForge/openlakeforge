@@ -3,7 +3,6 @@ locals {
   catalog_provider   = coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")
   catalog_name       = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "lakehouse_dev")
   runtime_profile    = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
-  dbt_profile_env    = local.catalog_type == "glue" && local.catalog_provider == "aws-glue" ? "aws" : (try(var.storage_contract.provider, null) == "azure" ? "azure" : "local")
   governance_enabled = try(var.governance_contract.enabled, true)
 
   storage_env = concat(
@@ -153,24 +152,14 @@ locals {
     {
       # This account's shared default Glue catalog has no per-stage catalog
       # (#114 AWS fallback), so physical Gold schema names carry this same
-      # stage prefix as Silver's databases. dbt's Gold profile template
-      # (libs/dbt/profiles/aws.yml) is baked into the project-code image at
-      # BUILD time, provider/stage-agnostic ("one image digest deploys to
-      # every stage"), and reads this at dbt-invoke time via `env_var(...)`
-      # to prefix its build-time-baked bare schema name.
+      # stage prefix as Silver's databases. The dbt profile baked into the
+      # project-code image (libs/dbt/profiles/trino.yml) is stage-neutral
+      # and reads this at run time via `env_var(...)` to prefix its bare
+      # `<product>_gold` schema name.
       name  = "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"
       value = "${local.catalog_name}_"
     },
-    {
-      name  = "OPENLAKEFORGE_DBT_TARGET"
-      value = "aws_runtime"
-    },
-    ] : [
-    {
-      name  = "OPENLAKEFORGE_DBT_TARGET"
-      value = "local_runtime"
-    },
-  ]
+  ] : []
 
   polaris_catalog_env = local.catalog_type == "rest" ? [
     {
@@ -233,14 +222,6 @@ locals {
   ] : [])
 
   dbt_env = concat([
-    {
-      name  = "OPENLAKEFORGE_DBT_PROFILE_ENV"
-      value = local.dbt_profile_env
-    },
-    {
-      name  = "DBT_PROFILES_DIR"
-      value = "/tmp/openlakeforge-dbt-profiles"
-    },
     {
       name  = "OPENLAKEFORGE_DBT_EXECUTABLE"
       value = "dbt-ol"

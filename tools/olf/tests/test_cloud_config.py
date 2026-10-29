@@ -17,7 +17,6 @@ def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
     settings = CloudImageSettings.from_environment({}, scope="aws", image_tag="aws-abc123")
 
     assert settings.project_code_python_base_image.startswith("public.ecr.aws/docker/library/python:3.12-slim@")
-    assert settings.project_code_dbt_profile_env == "aws"
     assert settings.project_code_tag == "aws-abc123"
     assert settings.project_code_pull_policy == "Always"
     assert settings.project_code_repository == ""
@@ -29,7 +28,6 @@ def test_azure_image_settings_defaults_to_docker_hub_python_base_image() -> None
 
     assert settings.project_code_python_base_image.startswith("python:3.12-slim@")
     assert not settings.project_code_python_base_image.startswith("public.ecr.aws")
-    assert settings.project_code_dbt_profile_env == "azure"
 
 
 def test_image_platform_env_var_is_scope_prefixed() -> None:

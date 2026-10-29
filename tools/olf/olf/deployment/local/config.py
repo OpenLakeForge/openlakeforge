@@ -47,7 +47,6 @@ class ImageSettings:
     project_code_pull_policy: str
     project_code_revision: str
     project_code_python_base_image: str
-    project_code_dbt_profile_env: str
     superset_repository: str
     superset_tag: str
     superset_pull_policy: str
@@ -78,7 +77,6 @@ class ImageSettings:
                 "PROJECT_CODE_PYTHON_BASE_IMAGE",
                 "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
             ),
-            project_code_dbt_profile_env=_env(environ, "PROJECT_CODE_DBT_PROFILE_ENV", "local"),
             superset_repository=_env(environ, "SUPERSET_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/superset"),
             superset_tag=_env(environ, "SUPERSET_IMAGE_TAG", "local"),
             superset_pull_policy=_env(environ, "SUPERSET_IMAGE_PULL_POLICY", "Never"),
