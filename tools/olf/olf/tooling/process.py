@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from olf.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
-from olf.deployment.retry import RetryPolicy, RetryPredicate, run_with_retry
 from olf.tooling.redact import redact_argv
+from olf.tooling.retry import RetryPolicy, RetryPredicate, run_with_retry
 
 
 @dataclass(frozen=True)

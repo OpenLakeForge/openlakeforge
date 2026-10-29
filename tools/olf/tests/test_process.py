@@ -9,8 +9,8 @@ import pytest
 from _tooling_support import write_fake_executable, write_sleeping_executable
 
 from olf.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
-from olf.deployment.retry import RetryPolicy
 from olf.tooling.process import Command, CommandResult, ProcessRunner
+from olf.tooling.retry import RetryPolicy
 
 
 def test_successful_command_captures_output_and_duration(tmp_path: Path) -> None:

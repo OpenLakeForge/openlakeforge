@@ -36,8 +36,8 @@ if TYPE_CHECKING:
     from olf.deployment.cloud.config import CloudDeploymentConfig
     from olf.deployment.context import DeploymentPaths
     from olf.deployment.local.config import LocalDeploymentConfig
-    from olf.deployment.retry import RetryPolicy
     from olf.deployment.status import StatusReport
+    from olf.tooling.retry import RetryPolicy
 
 
 class DeploymentPhase(StrEnum):

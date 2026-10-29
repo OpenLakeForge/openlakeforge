@@ -23,9 +23,9 @@ from olf.deployment.context import topology_variables as _topology_variables
 from olf.deployment.engine import DeploymentConfig, Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
-from olf.deployment.retry import RetryPolicy, run_with_retry
 from olf.github_app import GitHubApp, store_app
 from olf.tooling.kubectl import KubeContextUnreachableError
+from olf.tooling.retry import RetryPolicy, run_with_retry
 
 _APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"

@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from olf.deployment.errors import CommandExecutionError
-from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
+from olf.tooling.retry import RetryPolicy, RetryPredicate
 
 
 def external_state_options(

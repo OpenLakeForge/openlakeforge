@@ -364,7 +364,7 @@ def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(mon
 def test_apply_targets_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     from olf.deployment.errors import CommandExecutionError
     from olf.deployment.local import platform
-    from olf.deployment.retry import RetryPolicy
+    from olf.tooling.retry import RetryPolicy
 
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
     monkeypatch.setattr(platform, "platform_var_files", lambda *a, **k: [])

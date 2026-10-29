@@ -25,8 +25,8 @@ from olf import log
 from olf.chart_pins import CHART_DEFAULTS
 from olf.deployment.context import DeploymentPaths
 from olf.deployment.env_settings import env as _env_lookup
-from olf.deployment.retry import RetryPolicy
 from olf.tooling.helm import Helm
+from olf.tooling.retry import RetryPolicy
 
 
 @dataclass(frozen=True)
