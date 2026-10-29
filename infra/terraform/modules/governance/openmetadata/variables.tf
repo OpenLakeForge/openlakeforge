@@ -83,11 +83,10 @@ variable "admin_email" {
   default     = "admin@open-metadata.org"
 }
 
-variable "admin_password" {
-  description = "OpenMetadata admin user password."
+variable "admin_secret_name" {
+  description = "Kubernetes Secret the bootstrap job creates, if missing, with the admin password (key admin-password). The job replaces OpenMetadata's built-in default with it on first run, so Terraform never holds the value."
   type        = string
-  default     = "admin"
-  sensitive   = true
+  default     = "openmetadata-admin"
 }
 
 variable "om_http_port" {

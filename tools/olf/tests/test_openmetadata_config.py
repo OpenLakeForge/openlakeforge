@@ -283,11 +283,13 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
 
     def _config(*_args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         captured["metadata_root"] = kwargs["metadata_root"]
+        captured["admin_password"] = kwargs["admin_password"]
         return SimpleNamespace(base_url=kwargs["base_url"], catalog_service="polaris")
 
     monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", staticmethod(_config))
     monkeypatch.setattr(openmetadata, "OpenMetadataClient", lambda _url, **_kwargs: object())
     monkeypatch.setattr("olf.openmetadata._auth.automation_token", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.openmetadata._auth.admin_password", lambda *_args, **_kwargs: "generated")
     order: list[str] = []
     monkeypatch.setattr(
         openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: order.append("seed"))
@@ -297,6 +299,7 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     command.deploy_openmetadata_metadata()
 
     assert captured["metadata_root"] == str(project / "lakehouse_code")
+    assert captured["admin_password"] == "generated"
     assert order == ["ingest", "seed"]
 
 
@@ -317,6 +320,7 @@ def test_openmetadata_command_reports_configuration_errors(
         raise openmetadata.OpenMetadataError("bad contract")
 
     monkeypatch.setattr(k8s, "port_forward", _port_forward)
+    monkeypatch.setattr("olf.openmetadata._auth.admin_password", lambda *_args, **_kwargs: "generated")
     monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", _invalid_config)
 
     with pytest.raises(typer.Exit) as exc_info:

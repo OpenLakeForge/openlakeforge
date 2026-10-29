@@ -82,7 +82,7 @@ def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
     from olf import k8s
     from olf import openmetadata as om
-    from olf.openmetadata._auth import automation_token
+    from olf.openmetadata._auth import admin_password, automation_token
     from olf.openmetadata._role_sync import apply_role_sync
     from olf.openmetadata._sso import apply_sso
 
@@ -110,7 +110,7 @@ def deploy_openmetadata_metadata() -> None:
                 os.environ,
                 base_url=base_url,
                 admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
-                admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
+                admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD") or admin_password(namespace),
                 metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
                 metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
                 allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),

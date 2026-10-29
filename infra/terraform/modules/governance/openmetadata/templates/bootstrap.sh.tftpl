@@ -2,7 +2,7 @@
 
   om_url="${om_url}"
   admin_email="${admin_email}"
-  admin_password="${admin_password}"
+  admin_secret="${admin_secret_name}"
 
   # Wait for OpenMetadata to become healthy
   attempt=1
@@ -37,12 +37,40 @@
   fi
 
   if [ -z "$ADMIN_JWT" ]; then
-    # Login as admin. OpenMetadata Basic Auth expects the password base64-encoded.
-    encoded_password="$(printf '%s' "$admin_password" | base64 | tr -d '\n')"
-    login_resp="$(curl -sS -X POST "$om_url/api/v1/users/login" \
-      -H "Content-Type: application/json" \
-      -d "{\"email\":\"$admin_email\",\"password\":\"$encoded_password\"}")"
+    # The Secret is created before the password is changed, so a run that
+    # dies in between finds it again. OpenMetadata requires upper and lower
+    # case, a digit and a special character; the suffix guarantees them.
+    admin_password="$(kubectl get secret "$admin_secret" -n "$NAMESPACE" --ignore-not-found \
+      -o 'go-template={{with index .data "admin-password"}}{{.}}{{end}}' | base64 -d)"
+    if [ -z "$admin_password" ]; then
+      admin_password="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)Aa1!"
+      kubectl create secret generic "$admin_secret" -n "$NAMESPACE" --from-literal=admin-password="$admin_password"
+    fi
+
+    # Basic Auth expects the password base64-encoded.
+    admin_login() {
+      curl -sS -X POST "$om_url/api/v1/users/login" -H "Content-Type: application/json" \
+        -d "{\"email\":\"$admin_email\",\"password\":\"$(printf '%s' "$1" | base64 | tr -d '\n')\"}"
+    }
+    login_resp="$(admin_login "$admin_password")"
     ADMIN_JWT="$(echo "$login_resp" | jq -r '.accessToken // empty')"
+
+    if [ -z "$ADMIN_JWT" ]; then
+      # First run: the built-in default is still set. Replace it with the Secret's.
+      login_resp="$(admin_login admin)"
+      ADMIN_JWT="$(echo "$login_resp" | jq -r '.accessToken // empty')"
+      if [ -n "$ADMIN_JWT" ]; then
+        change_code="$(curl -sS -o /dev/null -w '%%{http_code}' -X PUT "$om_url/api/v1/users/changePassword" \
+          -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
+          -d "{\"username\":\"$${admin_email%%@*}\",\"oldPassword\":\"admin\",\"newPassword\":\"$admin_password\",\"confirmPassword\":\"$admin_password\",\"requestType\":\"SELF\"}")"
+        if [ "$change_code" != "200" ]; then
+          echo "Changing the OpenMetadata admin password failed with HTTP $change_code" >&2
+          exit 1
+        fi
+        login_resp="$(admin_login "$admin_password")"
+        ADMIN_JWT="$(echo "$login_resp" | jq -r '.accessToken // empty')"
+      fi
+    fi
 
     if [ -z "$ADMIN_JWT" ]; then
       echo "Failed to obtain admin JWT" >&2

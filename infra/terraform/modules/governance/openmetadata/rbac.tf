@@ -16,7 +16,7 @@ resource "kubernetes_role_v1" "bootstrap" {
   }
 
   # `create` cannot be limited by resourceNames (ADR 0017, exception E1); every
-  # other verb is pinned to the two Secrets the Jobs manage.
+  # other verb is pinned to the Secrets the Jobs manage.
   rule {
     api_groups = [""]
     resources  = ["secrets"]
@@ -26,7 +26,7 @@ resource "kubernetes_role_v1" "bootstrap" {
   rule {
     api_groups     = [""]
     resources      = ["secrets"]
-    resource_names = [var.automation_secret_name, var.ingestion_bot_secret_name]
+    resource_names = [var.automation_secret_name, var.ingestion_bot_secret_name, var.admin_secret_name]
     verbs          = ["delete", "get", "patch", "update"]
   }
 }

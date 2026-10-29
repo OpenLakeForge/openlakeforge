@@ -90,7 +90,7 @@ locals {
   bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
     om_url                        = local.om_url
     admin_email                   = var.admin_email
-    admin_password                = var.admin_password
+    admin_secret_name             = var.admin_secret_name
     catalog_service_name          = local.catalog_service_name
     catalog_service_display_name  = local.catalog_service_display_name
     ingestion_bot_secret_name     = var.ingestion_bot_secret_name
