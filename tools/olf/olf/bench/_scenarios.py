@@ -113,6 +113,8 @@ def footprint(
                 with dagster_client(cfg) as client:
                     _pipeline.run_job(client, product.job_name, detail, timeout_seconds=target.job_timeout_seconds)
                 detail["cluster_usage"] = sampler.window(start, time.time())
+            # Reading the tables back through Trino is verification, not pipeline time.
+            with record.timed("first_pipeline_tables", product=product.id) as detail:
                 detail["gold"] = _gold_facts(cfg, [product.gold_namespace])
                 _require_rows(detail["gold"], f"{product.id} Gold")
             record.fact("installed_footprint", _footprint(cfg, nodes))
