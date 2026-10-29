@@ -21,11 +21,6 @@ locals {
   }
 }
 
-resource "random_password" "secret_key" {
-  length  = 64
-  special = false
-}
-
 resource "helm_release" "superset" {
   name       = var.release_name
   repository = local.repository
@@ -96,6 +91,15 @@ resource "helm_release" "superset" {
             }
           }
         },
+        {
+          name = "SUPERSET_SECRET_KEY"
+          valueFrom = {
+            secretKeyRef = {
+              name = local.credentials_secret_name
+              key  = "secret-key"
+            }
+          }
+        },
         ], var.oidc == null ? [] : [
         {
           name = "OIDC_CLIENT_SECRET"
@@ -107,10 +111,6 @@ resource "helm_release" "superset" {
           }
         },
       ])
-
-      extraSecretEnv = {
-        SUPERSET_SECRET_KEY = random_password.secret_key.result
-      }
     }),
     ], length(local.trust_volumes) == 0 ? [] : [
     yamlencode({
@@ -162,5 +162,5 @@ resource "helm_release" "superset" {
     }),
   ])
 
-  depends_on = [kubernetes_job_v1.oidc_secret]
+  depends_on = [kubernetes_job_v1.oidc_secret, kubernetes_job_v1.credentials]
 }
