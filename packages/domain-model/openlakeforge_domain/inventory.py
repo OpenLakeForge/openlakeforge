@@ -44,24 +44,6 @@ class Table:
 
 
 @dataclass(frozen=True)
-class SourceResource:
-    """A source-owned Bronze resource."""
-
-    source: str
-    name: str
-
-
-@dataclass(frozen=True)
-class SilverTable:
-    """A domain-owned Silver table and its source resource."""
-
-    domain: str
-    name: str
-    source: str
-    resource: str
-
-
-@dataclass(frozen=True)
 class FloeEntity:
     """A domain's Silver entity as its Floe file declares it, and the Bronze resource feeding it."""
 
@@ -69,14 +51,6 @@ class FloeEntity:
     name: str
     source: str
     resource: str
-
-
-@dataclass(frozen=True)
-class GoldTable:
-    """A product-owned Gold table."""
-
-    product: str
-    name: str
 
 
 @dataclass(frozen=True)
@@ -136,8 +110,6 @@ class Product:
     domain_name: str
     id: str
     display_name: str
-    silver_inputs: tuple[str, ...]
-    gold_tables: tuple[Table, ...]
 
     @property
     def name(self) -> str:
@@ -171,10 +143,6 @@ class Product:
     def openmetadata_data_product_fqns(self) -> tuple[str, str]:
         return self.id, f"{self.domain_name}.{self.id}"
 
-    @property
-    def gold_mart_names(self) -> tuple[str, ...]:
-        return tuple(f"{self.gold_namespace}.{table.name}" for table in self.gold_tables)
-
 
 @dataclass(frozen=True)
 class Domain:
@@ -183,7 +151,6 @@ class Domain:
     descriptor_path: Path
     name: str
     display_name: str
-    silver_tables: tuple[SilverTable, ...]
     products: tuple[Product, ...]
 
     @property
@@ -327,31 +294,6 @@ class LakehouseInventory:
         return tuple(source.name for source in self.sources)
 
     @property
-    def silver_table_count(self) -> int:
-        """Count of distinct product-reachable physical Silver relations.
-
-        A domain may declare Silver tables ahead of any product consuming
-        them (see the product-less-domain scaffolding path), so this counts
-        only tables referenced by at least one product's ``silver_inputs``,
-        not every declared table. Two products in the same domain can
-        declare the same table (they share the domain's Silver namespace),
-        so this counts unique ``(domain, table)`` pairs rather than summing
-        per-product declarations, which would double-count a shared table.
-        """
-        return sum(
-            len({name for product in domain.products for name in product.silver_inputs})
-            for domain in self.domains
-        )
-
-    @property
-    def gold_table_count(self) -> int:
-        return sum(len(product.gold_tables) for product in self.products)
-
-    @property
-    def gold_mart_names(self) -> tuple[str, ...]:
-        return tuple(mart for product in self.products for mart in product.gold_mart_names)
-
-    @property
     def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:
         return {product.name: product.openmetadata_data_product_fqns for product in self.products}
 
@@ -365,14 +307,6 @@ class LakehouseInventory:
 
     def domain_for_product(self, product: Product) -> Domain:
         return next(domain for domain in self.domains if domain.name == product.domain_name)
-
-    def resolved_silver_tables(self, product: Product) -> tuple[SilverTable, ...]:
-        domain = self.domain_for_product(product)
-        by_name = {table.name: table for table in domain.silver_tables}
-        return tuple(by_name[name] for name in product.silver_inputs)
-
-    def bronze_resources_for_product(self, product: Product) -> tuple[SourceResource, ...]:
-        return tuple(SourceResource(table.source, table.resource) for table in self.resolved_silver_tables(product))
 
     def floe_entities(self, domain: Domain) -> tuple[FloeEntity, ...]:
         """The domain's Silver entities from its Floe files, each fed by a Bronze resource a Source declares."""
@@ -461,9 +395,7 @@ def _source_table_names(source: Mapping[str, Any]) -> set[str]:
     return {resource["name"] for resource in resources if isinstance(resource, Mapping) and "name" in resource}
 
 
-def _product(
-    path: Path, domain_name: str, product: Mapping[str, Any], index: int, silver_tables: tuple[SilverTable, ...]
-) -> Product:
+def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: int) -> Product:
     label = product.get("id") or f"products[{index}]"
     product_id = product.get("id")
     if not isinstance(product_id, str) or not _IDENTIFIER_PATTERN.fullmatch(product_id):
@@ -471,24 +403,7 @@ def _product(
     display_name = product.get("displayName")
     if not isinstance(display_name, str) or not display_name:
         raise LakehouseDescriptorError(f"{path}: product {label!r}: displayName is required and must be a non-empty string")
-    inputs = product.get("silver_inputs")
-    if not isinstance(inputs, list) or not inputs:
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: silver_inputs must be a non-empty array")
-    return Product(
-        domain_name=domain_name,
-        id=product_id,
-        display_name=display_name,
-        silver_inputs=tuple(inputs),
-        gold_tables=_table_group(path, product, "gold_tables", label),
-    )
-
-
-def _silver_tables(path: Path, domain_name: str, domain: Mapping[str, Any]) -> tuple[SilverTable, ...]:
-    tables = domain["silver_tables"]["tables"]
-    return tuple(
-        SilverTable(domain=domain_name, name=table["name"], source=table["source"], resource=table["resource"])
-        for table in tables
-    )
+    return Product(domain_name=domain_name, id=product_id, display_name=display_name)
 
 
 def _read_floe_entities(lakehouse_root: Path, domain: str) -> tuple[FloeEntity, ...]:
@@ -505,21 +420,6 @@ def _read_floe_entities(lakehouse_root: Path, domain: str) -> tuple[FloeEntity, 
         except (KeyError, TypeError) as exc:
             raise LakehouseDescriptorError(f"{path}: entity must declare name and source.ref/resource") from exc
     return tuple(entities)
-
-
-def _table_group(path: Path, product: Mapping[str, Any], field: str, label: str) -> tuple[Table, ...]:
-    spec = product.get(field)
-    if not isinstance(spec, Mapping):
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: {field} is required and must be an object")
-    tables = spec.get("tables")
-    if not isinstance(tables, list) or not tables:
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: {field}.tables must be a non-empty array")
-    names = [table.get("name") for table in tables if isinstance(table, Mapping)]
-    if len(names) != len(tables) or any(not isinstance(name, str) or not name for name in names):
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: {field}.tables must contain non-empty string names")
-    if len(names) != len(set(names)):
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: {field}.tables must not contain duplicate names")
-    return tuple(Table(name=name) for name in names)
 
 
 def _validate_inventory_identities(
@@ -539,29 +439,12 @@ def _validate_inventory_identities(
         if domain.name in seen_domains:
             raise LakehouseDescriptorError(f"{domain.descriptor_path}: duplicate domain name {domain.name!r}")
         seen_domains.add(domain.name)
-        silver_by_name = {table.name: table for table in domain.silver_tables}
-        for table in domain.silver_tables:
-            source = next((candidate for candidate in sources if candidate.name == table.source), None)
-            if source is None:
-                raise LakehouseDescriptorError(
-                    f"{domain.descriptor_path}: domain {domain.name!r}: Silver table {table.name!r} references unknown source {table.source!r}"
-                )
-            if table.resource not in {resource.name for resource in source.resources}:
-                raise LakehouseDescriptorError(
-                    f"{domain.descriptor_path}: domain {domain.name!r}: Silver table {table.name!r} references unknown "
-                    f"resource {table.resource!r} of source {table.source!r}"
-                )
         for product in domain.products:
             if product.id in seen_product_ids:
                 raise LakehouseDescriptorError(
                     f"{domain.descriptor_path}: product {product.id!r}: id must be globally unique across the lakehouse"
                 )
             seen_product_ids.add(product.id)
-            unknown = [name for name in product.silver_inputs if name not in silver_by_name]
-            if unknown:
-                raise LakehouseDescriptorError(
-                    f"{domain.descriptor_path}: product {product.id!r}: silver_inputs reference unknown domain Silver tables {unknown!r}"
-                )
     seen_dashboards: set[str] = set()
     for dashboard in dashboards:
         if dashboard.name in seen_dashboards:
@@ -618,9 +501,8 @@ def load_lakehouse_inventory_from_descriptors(
         if not isinstance(domain, Mapping):
             raise LakehouseDescriptorError(f"{lakehouse_path}: domains[{index}] must be an object")
         domain_name = domain["name"]
-        silver_tables = _silver_tables(lakehouse_path, domain_name, domain)
         products = tuple(
-            _product(lakehouse_path, domain_name, product, product_index, silver_tables)
+            _product(lakehouse_path, domain_name, product, product_index)
             for product_index, product in enumerate(domain["products"])
             if isinstance(product, Mapping)
         )
@@ -629,7 +511,6 @@ def load_lakehouse_inventory_from_descriptors(
                 descriptor_path=Path(lakehouse_path),
                 name=domain_name,
                 display_name=domain["displayName"],
-                silver_tables=silver_tables,
                 products=products,
             )
         )

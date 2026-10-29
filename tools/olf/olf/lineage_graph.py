@@ -36,8 +36,8 @@ def render_lineage_graph(inventory: LakehouseInventory) -> str:
     for domain in inventory.domains:
         domain_id = _node_id("domain", domain.name)
         nodes[domain_id] = domain.display_name
-        for table in domain.silver_tables:
-            edges.add((_node_id("source", table.source), domain_id))
+        for entity in inventory.floe_entities(domain):
+            edges.add((_node_id("source", entity.source), domain_id))
         for product in domain.products:
             product_id = _node_id("product", product.id)
             nodes[product_id] = product.display_name

@@ -96,20 +96,6 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
             "inventory_reliability_gold",
         }
     )
-    assert [table.name for table in inventory.resolved_silver_tables(inventory.products[0])] == [
-        "orders",
-        "order_lines",
-        "products",
-        "channels",
-        "promotions",
-        "accounts",
-    ]
-    assert [table.name for table in inventory.products[0].gold_tables] == [
-        "mart_order_revenue_by_day",
-        "mart_order_revenue_by_channel",
-        "mart_order_revenue_margin_by_product",
-        "mart_order_revenue_by_account_segment",
-    ]
     assert inventory.products[0].openmetadata_data_product_fqns == (
         "order_revenue",
         "sales.order_revenue",
@@ -127,20 +113,6 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert {(entity.source, entity.resource) for entity in inventory.floe_entities(inventory.domains[0])} <= {
         ("crm", resource.name) for resource in inventory.sources[0].resources
     }
-    assert inventory.silver_table_count == 15  # crm.accounts counted once, shared by order_revenue+customer_health
-    assert inventory.gold_table_count == 10
-    assert inventory.gold_mart_names == (
-        "order_revenue_gold.mart_order_revenue_by_day",
-        "order_revenue_gold.mart_order_revenue_by_channel",
-        "order_revenue_gold.mart_order_revenue_margin_by_product",
-        "order_revenue_gold.mart_order_revenue_by_account_segment",
-        "customer_health_gold.mart_customer_health_score",
-        "customer_health_gold.mart_churn_risk_by_segment",
-        "customer_health_gold.mart_support_sla_by_customer",
-        "inventory_reliability_gold.mart_inventory_position",
-        "inventory_reliability_gold.mart_supplier_delivery_reliability",
-        "inventory_reliability_gold.mart_stockout_risk",
-    )
     assert inventory.openmetadata_data_products == {
         "order_revenue": ("order_revenue", "sales.order_revenue"),
         "customer_health": ("customer_health", "sales.customer_health"),
@@ -189,33 +161,8 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert inventory.domains[0].artifact_prefixes.floe_report_prefix == "floe/reports/sales/"
     assert product.definitions_module == "lakehouse_code.pipelines.dagster.revenue"
     assert inventory.job_names == ("revenue_pipeline",)
-    assert inventory.gold_mart_names == ("revenue_gold.mart_revenue",)
+    assert product.gold_namespace == "revenue_gold"
     assert inventory.silver_namespace_names == frozenset({"sales_silver"})
-
-
-def test_inventory_accepts_domain_silver_table_without_a_product_consumer(tmp_path: Path) -> None:
-    """A domain may declare Silver tables ahead of any product consuming them
-    (e.g. an HR domain seeded before its first data product exists)."""
-    lakehouse_path = _write_lakehouse(tmp_path)
-    descriptor = lakehouse_path.read_text(encoding="utf-8")
-    descriptor = descriptor.replace(
-        "        - name: orders\n          source: crm\n          resource: orders\n",
-        "        - name: orders\n"
-        "          source: crm\n"
-        "          resource: orders\n"
-        "        - name: unconsumed_orders\n"
-        "          source: crm\n"
-        "          resource: orders\n",
-    )
-    lakehouse_path.write_text(descriptor, encoding="utf-8")
-
-    inventory = load_lakehouse_inventory(tmp_path)
-
-    domain = inventory.domains[0]
-    assert {table.name for table in domain.silver_tables} == {"orders", "unconsumed_orders"}
-    # silver_table_count only counts tables reachable from a product's
-    # silver_inputs, so the unconsumed table does not inflate it.
-    assert inventory.silver_table_count == 1
 
 
 def test_a_floe_entity_reading_an_undeclared_bronze_resource_is_rejected(tmp_path: Path) -> None:
@@ -296,9 +243,6 @@ dashboards: []
     assert hr.products == ()
     assert hr.silver_namespace == "hr_silver"
     assert [product.id for product in inventory.products] == ["revenue"]
-    # silver_table_count only counts product-reachable tables, so hr's
-    # product-less employees table doesn't inflate it.
-    assert inventory.silver_table_count == 1
 
 
 def test_inventory_rejects_a_lakehouse_with_no_products_anywhere(tmp_path: Path) -> None:

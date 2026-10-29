@@ -291,7 +291,7 @@ def test_product_new_reorders_products_before_silver_tables(tmp_path: Path) -> N
     inventory = load_lakehouse_inventory(repo_root)
     sales = next(d for d in inventory.domains if d.name == "sales")
     assert "order_summary" in {p.id for p in sales.products}
-    assert {t.name for t in sales.silver_tables} >= {"orders"}
+    assert {e.name for e in inventory.floe_entities(sales)} >= {"orders"}
 
 
 def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None:
@@ -395,7 +395,7 @@ def test_product_new_handles_a_trailing_comment_on_products_and_tables_keys(tmp_
     inventory = load_lakehouse_inventory(repo_root)
     sales = next(d for d in inventory.domains if d.name == "sales")
     assert "order_summary" in {p.id for p in sales.products}
-    assert {t.name for t in sales.silver_tables} >= {"orders", "campaigns"}
+    assert {e.name for e in inventory.floe_entities(sales)} >= {"orders", "campaigns"}
 
 
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
@@ -470,7 +470,7 @@ def test_domain_new_creates_a_product_less_domain_that_validates_on_its_own(tmp_
     hr = next(d for d in inventory.domains if d.name == "hr")
     assert hr.products == ()
     assert hr.silver_namespace == "hr_silver"
-    assert {t.name for t in hr.silver_tables} == {"employees"}
+    assert {e.name for e in inventory.floe_entities(hr)} == {"employees"}
 
 
 def test_domain_new_rejects_a_pre_existing_but_undeclared_domain_directory(tmp_path: Path) -> None:
@@ -618,8 +618,8 @@ def test_one_source_resource_shared_by_two_domains_creates_no_second_ingestion(t
     inventory = load_lakehouse_inventory(repo_root)
     sales = next(d for d in inventory.domains if d.name == "sales")
     finance = next(d for d in inventory.domains if d.name == "finance")
-    sales_orders = next(t for t in sales.silver_tables if t.name == "orders")
-    finance_orders = next(t for t in finance.silver_tables if t.name == "orders")
+    sales_orders = next(e for e in inventory.floe_entities(sales) if e.name == "orders")
+    finance_orders = next(e for e in inventory.floe_entities(finance) if e.name == "orders")
     assert (sales_orders.source, sales_orders.resource) == ("crm", "orders")
     assert (finance_orders.source, finance_orders.resource) == ("crm", "orders")
 
@@ -649,9 +649,8 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
 
     inventory = load_lakehouse_inventory(repo_root)
     hr = next(d for d in inventory.domains if d.name == "hr")
-    assert {t.name for t in hr.silver_tables} == {"employees", "absences"}
-    headcount = next(p for p in hr.products if p.id == "headcount")
-    assert set(headcount.silver_inputs) == {"employees", "absences"}
+    assert {e.name for e in inventory.floe_entities(hr)} == {"employees", "absences"}
+    assert "headcount" in {p.id for p in hr.products}
 
 
 def test_domain_new_declares_its_source_before_a_trailing_extra_key(tmp_path: Path) -> None:
