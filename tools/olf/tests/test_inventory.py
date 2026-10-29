@@ -7,6 +7,7 @@ from openlakeforge_domain import (
     LakehouseDescriptorError,
     inventory_for,
     load_lakehouse_inventory,
+    load_lakehouse_inventory_from_descriptors,
 )
 
 ROOT = Path(__file__).parents[3]
@@ -122,7 +123,22 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.gold_namespace_names == frozenset(
         {"order_revenue_gold", "customer_health_gold", "inventory_reliability_gold"}
     )
-    assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_order_revenue"
+    assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_customer_health"
+
+
+def test_governance_yml_yields_the_inventory_lakehouse_yaml_does() -> None:
+    """The reference governance.yml names the same domains, products and dashboards as lakehouse.yaml."""
+    code = ROOT / "lakehouse_code"
+    legacy = load_lakehouse_inventory_from_descriptors(
+        code / "lakehouse.yaml", sorted(code.glob("bronze/*/source.yaml")), source_label=code
+    )
+    current = load_lakehouse_inventory(ROOT)
+
+    assert [(d.name, d.display_name, d.products) for d in current.domains] == [
+        (d.name, d.display_name, d.products) for d in legacy.domains
+    ]
+    assert sorted(current.dashboards, key=lambda d: d.name) == sorted(legacy.dashboards, key=lambda d: d.name)
+    assert current.source_names == legacy.source_names
 
 
 def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:

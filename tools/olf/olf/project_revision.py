@@ -361,7 +361,7 @@ def _relative_key(project: ProjectSpec, path: Path) -> str:
 
 
 def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEntries:
-    paths = [project.lakehouse_path]
+    paths = [project.governance_path]
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "source.yaml")
     entries = {

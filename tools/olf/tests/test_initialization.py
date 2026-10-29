@@ -40,7 +40,7 @@ def _layout(tmp_path: Path) -> RuntimeLayout:
     schema = distribution / "docs" / "schema"
     schema.mkdir(parents=True)
     root = Path(__file__).resolve().parents[3]
-    for name in ("lakehouse.schema.json", "source.schema.json"):
+    for name in ("governance.schema.json", "source.schema.json"):
         (schema / name).write_bytes((root / "docs" / "schema" / name).read_bytes())
     project = tmp_path / "project"
     project.mkdir()
@@ -103,16 +103,13 @@ def test_empty_init_has_no_demo_entities_and_scaffolds_to_a_strict_project(tmp_p
 
     result = initializer.initialize(empty=True)
 
-    document = yaml.safe_load((result.lakehouse_root / "lakehouse.yaml").read_text(encoding="utf-8"))
-    assert document["sources"] == []
-    assert document["domains"] == []
-    assert document["dashboards"] == []
+    assert not (result.lakehouse_root / "governance.yml").exists()
     assert not (result.lakehouse_root / "demo.txt").exists()
     assert "olf source new" in result.next_command
 
     schema_root = layout.distribution_root / "docs" / "schema"
     source_plan = plan_source_new(layout.project_root, source="crm", display_name=None, resources=("accounts",))
-    with pytest.raises(ScaffoldError, match="domains must be a non-empty array"):
+    with pytest.raises(ScaffoldError, match="no governance.yml"):
         commit_plan(layout.project_root, source_plan, schema_root=schema_root)
     commit_plan(layout.project_root, source_plan, schema_root=schema_root, allow_transitional=True)
     product_plan = plan_product_new(
@@ -191,14 +188,14 @@ def test_init_rejects_an_invalid_topology_before_touching_the_project(tmp_path: 
 def test_profile_only_adds_a_profile_to_an_existing_project_without_tools(tmp_path: Path) -> None:
     layout = _layout(tmp_path)
     (layout.project_root / "lakehouse_code").mkdir()
-    (layout.project_root / "lakehouse_code" / "lakehouse.yaml").write_text("mine\n", encoding="utf-8")
+    (layout.project_root / "lakehouse_code" / "definitions.py").write_text("mine\n", encoding="utf-8")
     manager = _Manager()
 
     result = _initializer(layout, manager).initialize(profile_only=True, stages=(StageName.DEV, StageName.PROD))
 
     assert result.profile_only
     assert manager.calls == 0
-    assert (layout.project_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8") == "mine\n"
+    assert (layout.project_root / "lakehouse_code" / "definitions.py").read_text(encoding="utf-8") == "mine\n"
     profile = validate_deployment_profile(yaml.safe_load((layout.project_root / "openlakeforge.yaml").read_text()))
     assert {stage.name.value for stage in profile.stages if stage.enabled} == {"dev", "prod"}
 
@@ -388,7 +385,6 @@ def test_empty_init_writes_only_the_canonical_package_skeleton(tmp_path: Path) -
         "definitions.py",
         "gold",
         "gold/__init__.py",
-        "lakehouse.yaml",
         "pipelines",
         "pipelines/__init__.py",
         "pipelines/dagster",
@@ -409,7 +405,7 @@ def test_empty_init_is_not_deployable_until_it_has_a_product(tmp_path: Path) -> 
     reason = project_not_runnable_reason(result.project_root)
 
     assert reason is not None
-    assert "source.yaml" in reason
+    assert "governance.yml" in reason
 
 
 def test_cli_init_empty_prints_the_scaffold_sequence(

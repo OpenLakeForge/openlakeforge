@@ -71,6 +71,18 @@ def floe_sources_edit(repo_root: Path, inputs: tuple[tuple[str, str], ...]) -> S
     )
 
 
+_GOVERNANCE = "lakehouse_code/governance.yml"
+_NEW_GOVERNANCE = "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\ndomains: []\nproducts: []\n"
+
+
+def add_governance_entry(repo_root: Path, text: str | None, key: str, entry: str) -> str:
+    """Append `entry` to governance.yml's `key:` list; `text` is the file as already edited, if it was."""
+    if text is None:
+        path = repo_root / _GOVERNANCE
+        text = path.read_text(encoding="utf-8") if path.is_file() else _NEW_GOVERNANCE
+    return _lakehouse_edit.append_to_top_level_list(text, key, entry, source_label="governance.yml")
+
+
 def build_domain_artifacts(
     repo_root: Path,
     *,
@@ -78,7 +90,7 @@ def build_domain_artifacts(
     display_name: str,
     inputs: tuple[tuple[str, str], ...],
 ) -> tuple[str, tuple[ScaffoldFile, ...], tuple[str, ...]]:
-    """Build a new domain's `lakehouse.yaml` block and its on-disk files.
+    """Build a new domain's `governance.yml` entry and its on-disk files.
 
     Returns (domain_block_text, files, silver_table_names). Shared by
     `plan_domain_new` and `plan_product_new` (which creates the domain
@@ -91,21 +103,11 @@ def build_domain_artifacts(
             f"domain {domain!r}: --input resources produce duplicate Silver table names {table_names!r}"
         )
 
-    silver_table_lines = []
-    for source, resource in inputs:
-        description = f"Validated {resource.replace('_', ' ')}."
-        silver_table_lines.append(
-            f"        - {{name: {resource}, source: {source}, resource: {resource}, description: {description}}}"
-        )
-
     domain_block = (
         f"  - name: {domain}\n"
         f"    displayName: {yaml_dq(display_name)}\n"
         f"    description: {yaml_dq(display_name + ' domain.')}\n"
         "    status: planned\n"
-        "    silver_tables:\n"
-        "      tables:\n" + "\n".join(silver_table_lines) + "\n"
-        "    products: []\n"
     )
 
     silver_dir = f"lakehouse_code/silver/{domain}"
@@ -134,7 +136,7 @@ def plan_domain_new(
 
     inventory = load_transitional_lakehouse_inventory(repo_root)
     if domain in inventory.domain_names:
-        raise ScaffoldError(f"domain {domain!r} already exists in lakehouse.yaml")
+        raise ScaffoldError(f"domain {domain!r} already exists in governance.yml")
 
     for source, resource in inputs:
         resolve_input(inventory, source, resource)
@@ -144,8 +146,7 @@ def plan_domain_new(
         repo_root, domain=domain, display_name=resolved_display_name, inputs=inputs
     )
 
-    lakehouse_text = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8")
-    lakehouse_text = _lakehouse_edit.add_domain(lakehouse_text, domain_block)
+    governance_text = add_governance_entry(repo_root, None, "domains", domain_block)
 
     summary = (
         f"Created domain {domain!r} with {len(inputs)} Silver table(s): {', '.join(table_names)}.",
@@ -153,5 +154,5 @@ def plan_domain_new(
     )
     sources = floe_sources_edit(repo_root, inputs)
     return ScaffoldPlan(
-        files=files, lakehouse_yaml=lakehouse_text, summary=summary, edits=(sources,) if sources else ()
+        files=files, governance_yml=governance_text, summary=summary, edits=(sources,) if sources else ()
     )

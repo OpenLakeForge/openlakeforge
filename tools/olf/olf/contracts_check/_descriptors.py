@@ -9,40 +9,22 @@ import jsonschema
 import yaml
 from openlakeforge_domain import (
     LakehouseDescriptorError,
-    load_lakehouse_descriptor,
+    load_governance_descriptor,
     load_source_descriptor,
 )
 
 from olf.contracts_check._report import CheckResult
 
 _SCHEMA_BY_KIND = {
-    "lakehouse": "docs/schema/lakehouse.schema.json",
+    "governance": "docs/schema/governance.schema.json",
     "source": "docs/schema/source.schema.json",
 }
-
-
-# The exact cardinality rules an `olf init --empty` project has not satisfied
-# yet. `allow_incomplete` waives these three and nothing else, so a
-# transitional project still fails on every other descriptor, identity, and
-# reference rule.
-_TRANSITIONAL_SCHEMA_GAPS: frozenset[tuple[tuple[str, ...], str]] = frozenset(
-    {
-        (("sources",), "minItems"),
-        (("domains",), "minItems"),
-        (("domains",), "contains"),
-    }
-)
-
-
-def _is_transitional_gap(error: jsonschema.ValidationError) -> bool:
-    location = tuple(str(part) for part in error.absolute_path)
-    return (location, error.validator) in _TRANSITIONAL_SCHEMA_GAPS
 
 
 def descriptor_schema_errors(
     repo_root: Path, *, schema_root: Path | None = None, allow_incomplete: bool = False
 ) -> list[str]:
-    """Validate `lakehouse_code/lakehouse.yaml` and every
+    """Validate `lakehouse_code/governance.yml` and every
     `lakehouse_code/bronze/*/source.yaml` against the canonical model and
     versioned JSON Schema. The two validators run independently; neither one
     substitutes for the other. Returns an empty list when everything is
@@ -52,21 +34,21 @@ def descriptor_schema_errors(
     `schema_root` points at the directory holding the versioned JSON Schemas
     when they live outside `repo_root` — an installed distribution keeps them
     in its immutable payload while the descriptors live in the user project.
-    `allow_incomplete` waives only the transitional cardinality gaps listed in
-    `_TRANSITIONAL_SCHEMA_GAPS`."""
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    `allow_incomplete` accepts an `olf init --empty` project, which has no
+    `governance.yml` until its first domain."""
+    governance_path = repo_root / "lakehouse_code" / "governance.yml"
     source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
-    descriptor_paths = [lakehouse_path, *source_paths]
-    if not lakehouse_path.is_file():
-        return [f"no lakehouse.yaml found under {repo_root / 'lakehouse_code'}"]
+    descriptor_paths = [*([governance_path] if governance_path.is_file() else []), *source_paths]
+    if not governance_path.is_file() and not allow_incomplete:
+        return [f"no governance.yml found under {repo_root / 'lakehouse_code'}"]
 
     errors: list[str] = []
     for descriptor_path in descriptor_paths:
         rel_path = descriptor_path.relative_to(repo_root)
-        kind = "lakehouse" if descriptor_path == lakehouse_path else "source"
+        kind = "governance" if descriptor_path == governance_path else "source"
         try:
-            if kind == "lakehouse":
-                document = load_lakehouse_descriptor(descriptor_path, allow_incomplete=allow_incomplete)
+            if kind == "governance":
+                document = load_governance_descriptor(descriptor_path)
             else:
                 document = load_source_descriptor(descriptor_path)
         except LakehouseDescriptorError as exc:
@@ -78,8 +60,6 @@ def descriptor_schema_errors(
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         validator = jsonschema.Draft202012Validator(schema)
         schema_errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
-        if allow_incomplete:
-            schema_errors = [error for error in schema_errors if not _is_transitional_gap(error)]
         for error in schema_errors:
             location = "/".join(str(part) for part in error.absolute_path) or "<root>"
             errors.append(f"{rel_path}: schema violation at {location}: {error.message}")
@@ -88,7 +68,7 @@ def descriptor_schema_errors(
 
 
 def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
-    """The `lakehouse_code/lakehouse.yaml` descriptor and every
+    """The `lakehouse_code/governance.yml` descriptor and every
     `lakehouse_code/bronze/*/source.yaml` must load via the canonical model
     and conform to its versioned JSON Schema. The two validators run
     independently; neither one substitutes for the other.
@@ -97,9 +77,9 @@ def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path |
     installed project, whose `lakehouse_code/` has no `docs/schema/` of its
     own (ADR 0009)."""
     name = "descriptor_schema_conformance"
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    governance_path = repo_root / "lakehouse_code" / "governance.yml"
     source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
-    descriptor_count = 1 + len(source_paths) if lakehouse_path.is_file() else 0
+    descriptor_count = 1 + len(source_paths) if governance_path.is_file() else 0
 
     errors = descriptor_schema_errors(repo_root, schema_root=schema_root)
     if errors:

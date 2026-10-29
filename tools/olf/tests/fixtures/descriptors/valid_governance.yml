@@ -1,0 +1,13 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain fixture.
+    status: planned
+products:
+  - id: order_revenue
+    domain: sales
+    displayName: Order Revenue
+    description: Revenue per order.
+    status: planned

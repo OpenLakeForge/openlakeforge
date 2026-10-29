@@ -18,7 +18,7 @@ def _repo_with_schemas(tmp_path: Path) -> Path:
     """A synthetic repo root carrying the real, unmodified schema files."""
     schema_dir = tmp_path / "docs" / "schema"
     schema_dir.mkdir(parents=True)
-    shutil.copy(ROOT / "docs/schema/lakehouse.schema.json", schema_dir / "lakehouse.schema.json")
+    shutil.copy(ROOT / "docs/schema/governance.schema.json", schema_dir / "governance.schema.json")
     shutil.copy(ROOT / "docs/schema/source.schema.json", schema_dir / "source.schema.json")
     shutil.copy(
         ROOT / "docs/schema/deployment-profile.schema.json", schema_dir / "deployment-profile.schema.json"
@@ -27,78 +27,38 @@ def _repo_with_schemas(tmp_path: Path) -> Path:
 
 
 def _write_descriptor(repo_root: Path, lakehouse_fixture: str, source_fixture: str = "valid_source.yaml") -> None:
-    """Write the canonical lakehouse layout: lakehouse.yaml plus one source."""
+    """Write the canonical project layout: governance.yml plus one source."""
     lakehouse_code = repo_root / "lakehouse_code"
     source_dir = lakehouse_code / "bronze" / "crm"
     source_dir.mkdir(parents=True, exist_ok=True)
-    (lakehouse_code / "lakehouse.yaml").write_text(
+    (lakehouse_code / "governance.yml").write_text(
         (FIXTURES / "descriptors" / lakehouse_fixture).read_text()
     )
     (source_dir / "source.yaml").write_text((FIXTURES / "descriptors" / source_fixture).read_text())
 
 
-def test_descriptor_schema_conformance_passes_for_valid_lakehouse(tmp_path: Path) -> None:
+def test_descriptor_schema_conformance_passes_for_valid_governance(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "valid_lakehouse.yaml")
+    _write_descriptor(repo_root, "valid_governance.yml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
     assert result.ok, result.detail
 
 
-def test_descriptor_schema_conformance_rejects_missing_source_mapping(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_missing_bronze.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert not result.ok
-    assert "source" in result.detail
 
 
-def test_descriptor_schema_conformance_rejects_physical_fqn(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_physical_fqn.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert not result.ok
-    assert "fqn" in result.detail.lower() or "physical" in result.detail.lower()
 
 
-def test_descriptor_schema_conformance_rejects_physical_path_in_lakehouse_table(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_physical_path.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert not result.ok
-    assert "path" in result.detail.lower() or "physical" in result.detail.lower()
 
 
-def test_descriptor_schema_conformance_rejects_non_identifier_table_name(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_table_name.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert not result.ok
-    assert "name" in result.detail.lower() or "pattern" in result.detail.lower()
 
 
-def test_descriptor_schema_conformance_rejects_provider_field_in_lakehouse_table(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_provider_field.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert not result.ok
-    assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
 
 
 def test_descriptor_schema_conformance_rejects_provider_field_at_lakehouse_root(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_provider_field_root.yaml")
+    _write_descriptor(repo_root, "invalid_governance_provider_field.yml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
@@ -106,19 +66,11 @@ def test_descriptor_schema_conformance_rejects_provider_field_at_lakehouse_root(
     assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
 
 
-def test_descriptor_schema_conformance_rejects_provider_field_on_table_group(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "invalid_lakehouse_table_group_field.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert not result.ok
-    assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
 
 
 def test_descriptor_schema_conformance_rejects_physical_path_in_source(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "valid_lakehouse.yaml", source_fixture="invalid_source_physical_path.yaml")
+    _write_descriptor(repo_root, "valid_governance.yml", source_fixture="invalid_source_physical_path.yaml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
@@ -488,37 +440,19 @@ def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Pa
     assert report.ok, report.render()
 
 
-def test_lakehouse_schema_rejects_a_lakehouse_with_no_products_anywhere() -> None:
-    """The versioned JSON Schema alone -- independent of the canonical
-    model, for editors and external tooling that only validate against it
-    -- must reject a lakehouse where every domain has an empty products
-    array, the same state the canonical model rejects."""
-    schema = json.loads((ROOT / "docs/schema/lakehouse.schema.json").read_text())
+
+
+def test_governance_schema_accepts_a_product_less_domain() -> None:
+    """A domain may be declared before its first product."""
+    schema = json.loads((ROOT / "docs/schema/governance.schema.json").read_text())
     validator = jsonschema.Draft202012Validator(schema)
-    document = yaml.safe_load(
-        (FIXTURES / "descriptors" / "invalid_lakehouse_no_products_anywhere.yaml").read_text()
-    )
-
-    errors = list(validator.iter_errors(document))
-
-    assert errors
-    assert any("does not contain items matching" in error.message for error in errors)
-
-
-def test_lakehouse_schema_accepts_a_product_less_domain_alongside_a_productful_one() -> None:
-    """A single product-less domain is still valid, as long as some other
-    domain in the lakehouse has at least one product."""
-    schema = json.loads((ROOT / "docs/schema/lakehouse.schema.json").read_text())
-    validator = jsonschema.Draft202012Validator(schema)
-    document = yaml.safe_load((FIXTURES / "descriptors" / "valid_lakehouse.yaml").read_text())
+    document = yaml.safe_load((FIXTURES / "descriptors" / "valid_governance.yml").read_text())
     document["domains"].append(
         {
             "name": "hr",
             "displayName": "Hr",
             "description": "HR domain.",
             "status": "planned",
-            "silver_tables": {"tables": [{"name": "employees", "source": "crm", "resource": "employees"}]},
-            "products": [],
         }
     )
 
@@ -527,52 +461,22 @@ def test_lakehouse_schema_accepts_a_product_less_domain_alongside_a_productful_o
     assert errors == []
 
 
-_TRANSITIONAL_LAKEHOUSE = """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: openlakeforge
-displayName: OpenLakeForge
-description: Empty OpenLakeForge project.
-status: planned
-sources: []
-domains: []
-dashboards: []
-"""
-
-
-def test_allow_incomplete_waives_only_the_transitional_cardinality_gaps(tmp_path: Path) -> None:
+def test_allow_incomplete_accepts_a_project_without_governance_yml(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    lakehouse_code = repo_root / "lakehouse_code"
-    lakehouse_code.mkdir()
-    (lakehouse_code / "lakehouse.yaml").write_text(_TRANSITIONAL_LAKEHOUSE)
+    (repo_root / "lakehouse_code").mkdir()
 
     assert contracts_check.descriptor_schema_errors(repo_root) != []
     assert contracts_check.descriptor_schema_errors(repo_root, allow_incomplete=True) == []
 
 
-def test_allow_incomplete_still_rejects_every_other_schema_violation(tmp_path: Path) -> None:
-    """The transitional waiver is a cardinality escape hatch, not a bypass.
 
-    A scaffold step that emits a structurally wrong descriptor must still
-    fail, even while the project legitimately has no product yet.
-    """
-    repo_root = _repo_with_schemas(tmp_path)
-    lakehouse_code = repo_root / "lakehouse_code"
-    lakehouse_code.mkdir()
-    document = yaml.safe_load(_TRANSITIONAL_LAKEHOUSE)
-    document["name"] = "Not An Identifier"
-    (lakehouse_code / "lakehouse.yaml").write_text(yaml.safe_dump(document))
 
-    errors = contracts_check.descriptor_schema_errors(repo_root, allow_incomplete=True)
-
-    assert any("name" in error for error in errors), errors
 
 
 def test_allow_incomplete_does_not_relax_source_descriptors(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     lakehouse_code = repo_root / "lakehouse_code"
     (lakehouse_code / "bronze" / "crm").mkdir(parents=True)
-    (lakehouse_code / "lakehouse.yaml").write_text(_TRANSITIONAL_LAKEHOUSE)
     source = yaml.safe_load((FIXTURES / "descriptors" / "valid_source.yaml").read_text())
     source["resources"] = []
     (lakehouse_code / "bronze" / "crm" / "source.yaml").write_text(yaml.safe_dump(source))
@@ -587,7 +491,7 @@ def test_schema_root_resolves_schemas_outside_the_project(tmp_path: Path) -> Non
     descriptors live in the user's writable project."""
     distribution = _repo_with_schemas(tmp_path / "distribution")
     project = tmp_path / "project"
-    _write_descriptor(project, "valid_lakehouse.yaml")
+    _write_descriptor(project, "valid_governance.yml")
 
     assert contracts_check.descriptor_schema_errors(
         project, schema_root=distribution / "docs" / "schema"
