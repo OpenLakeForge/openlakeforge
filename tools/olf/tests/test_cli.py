@@ -474,7 +474,7 @@ def test_superset_export_reports_refuses_with_no_declared_dashboard_and_no_targe
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
-    assert "declares no dashboard to export" in result.output
+    assert "no dashboard bundle has a metadata.yaml yet" in result.output
 
 
 def test_superset_export_reports_refuses_a_target_that_is_not_an_existing_directory(

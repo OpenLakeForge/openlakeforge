@@ -1,7 +1,7 @@
 """Typed, provider-neutral inventory derived from lakehouse descriptors.
 
-The canonical v1alpha3 inventory is composed from the ``Lakehouse`` descriptor
-at ``lakehouse_code/lakehouse.yaml`` and one ``Source`` descriptor per bronze
+The canonical inventory is composed from the ``Governance`` descriptor at
+``lakehouse_code/governance.yml`` and one ``Source`` descriptor per bronze
 source at ``lakehouse_code/bronze/<source>/source.yaml``.
 
 Canonical identities:
@@ -29,9 +29,9 @@ import yaml
 
 from .descriptors import (
     LakehouseDescriptorError,
-    load_lakehouse_descriptor,
     load_source_descriptor,
 )
+from .governance import load_governance_lakehouse_document
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -465,7 +465,7 @@ def load_lakehouse_inventory_from_descriptors(
     allow_incomplete: bool = False,
 ) -> LakehouseInventory:
     """Load and validate one Lakehouse descriptor plus its Source descriptors."""
-    lakehouse_document = load_lakehouse_descriptor(lakehouse_path, allow_incomplete=allow_incomplete)
+    lakehouse_document = load_governance_lakehouse_document(lakehouse_path, allow_incomplete=allow_incomplete)
     sources: list[Source] = []
     for source_path in source_paths:
         document = load_source_descriptor(source_path)
@@ -533,21 +533,12 @@ def load_lakehouse_inventory_from_descriptors(
     return inventory
 
 
-def _is_empty_shell(descriptor: Path) -> bool:
-    """The lakehouse.yaml `olf init --empty` once wrote: no domains, and no sources declared."""
-    document = yaml.safe_load(descriptor.read_text(encoding="utf-8"))
-    return isinstance(document, dict) and document.get("domains") == []
-
-
 def load_lakehouse_inventory(path: str | Path, *, allow_incomplete: bool = False) -> LakehouseInventory:
-    """Load and validate ``lakehouse_code/lakehouse.yaml`` plus every source."""
+    """Load and validate ``lakehouse_code/governance.yml`` plus every source."""
     lakehouse_root = _lakehouse_root(Path(path))
     lakehouse_descriptor = lakehouse_root / "governance.yml"
-    legacy_descriptor = lakehouse_root / "lakehouse.yaml"
-    if not lakehouse_descriptor.is_file() and legacy_descriptor.is_file() and not _is_empty_shell(legacy_descriptor):
-        lakehouse_descriptor = legacy_descriptor
     if not lakehouse_descriptor.is_file() and not allow_incomplete:
-        raise LakehouseDescriptorError(f"{lakehouse_root}: no governance.yml (or legacy lakehouse.yaml) found")
+        raise LakehouseDescriptorError(f"{lakehouse_root}: no governance.yml found")
     source_descriptors = sorted(lakehouse_root.glob("bronze/*/source.yaml"))
     if not source_descriptors and not allow_incomplete:
         raise LakehouseDescriptorError(f"{lakehouse_root}: no source descriptors found at bronze/*/source.yaml")

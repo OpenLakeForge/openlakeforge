@@ -1,12 +1,12 @@
 # Descriptor reference
 
 The fields and rules of the two descriptors that declare a project's data:
-`lakehouse_code/lakehouse.yaml`, one per project, and
+`lakehouse_code/governance.yml`, one per project, and
 `lakehouse_code/bronze/<source>/source.yaml`, one per source. It also lists the
 names OpenLakeForge derives from them.
 
 Both are validated against JSON Schemas,
-[`lakehouse.schema.json`](../schema/lakehouse.schema.json) and
+[`governance.schema.json`](../schema/governance.schema.json) and
 [`source.schema.json`](../schema/source.schema.json), and by the canonical
 inventory, with `olf check contracts`. Unknown fields are rejected at every
 level, and every identifier matches `^[a-z][a-z0-9_]*$`.
@@ -84,91 +84,69 @@ A loader that is a real dlt source runs it through
 - `olf check project-code` proves this with a mocked API source run as DEV
   and as PROD.
 
-## `lakehouse.yaml`
+## `governance.yml`
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: openlakeforge
-displayName: OpenLakeForge
-description: Example lakehouse.
-status: active
-sources:
-  - marketing_platform
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: marketing
     displayName: Marketing
     description: Marketing analytics data products.
     status: active
-    silver_tables:
-      tables:
-        - name: campaigns
-          source: marketing_platform
-          resource: campaigns
-          description: Validated campaign data.
-    products:
-      - id: campaign_performance
-        displayName: Campaign Performance
-        description: Campaign spend and conversion performance.
-        status: active
-        silver_inputs:
-          - campaigns
-        gold_tables:
-          tables:
-            - name: mart_campaign_performance
-              description: Campaign performance aggregated by channel.
-dashboards: []
+products:
+  - id: campaign_performance
+    domain: marketing
+    displayName: Campaign Performance
+    description: Campaign spend and conversion performance.
+    status: active
 ```
+
+The file names domains and data products and nothing else. Tables belong to a
+domain or a product by the schema they live in, so no table is listed:
+
+| Schema | Owner |
+| --- | --- |
+| `<domain>_silver` | the domain |
+| `<product>_gold` | the product, and through it the product's domain |
+
+Sources are the `bronze/*/source.yaml` files on disk. Dashboards are the
+`dashboards/superset/*/` directories that hold a `metadata.yaml`; a dashboard
+serves the products whose `<product>_gold` schema its dataset files read.
 
 ### Top level
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `apiVersion` | string | yes | `openlakeforge.io/v1alpha3` |
-| `kind` | string | yes | `Lakehouse` |
-| `name` | identifier | yes | The lakehouse's machine name. |
-| `displayName`, `description`, `status` | as for a source | yes | Metadata. |
-| `sources` | array of identifiers, at least one, unique | yes | Must match the `bronze/*/source.yaml` files on disk exactly. |
-| `domains` | array, at least one | yes | At least one domain in the lakehouse must declare a product. |
-| `dashboards` | array, may be empty | yes | Superset dashboards. |
+| `apiVersion` | string | yes | `openlakeforge.io/v1beta1` |
+| `kind` | string | yes | `Governance` |
+| `domains` | array, at least one | yes | The business domains. |
+| `products` | array, may be empty | yes | The data products. At least one is needed to check or deploy a project. |
 
 ### `domains[]`
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `name` | identifier | yes | Unique across the lakehouse. |
-| `displayName`, `description`, `status` | | yes | Metadata. |
-| `silver_tables.tables` | array, at least one, unique | yes | The domain's Silver tables. |
-| `silver_tables.tables[].name` | identifier | yes | Unique within the domain. |
-| `silver_tables.tables[].source` | identifier | yes | A source listed in `sources`. |
-| `silver_tables.tables[].resource` | identifier | yes | A resource that source declares. |
-| `silver_tables.tables[].description` | string | no | |
-| `products` | array, may be empty | yes | The domain's data products. |
+| `name` | identifier | yes | Unique across the lakehouse; also the directory `silver/<name>/`. |
+| `displayName` | string, non-empty | yes | Human-readable name. |
+| `description` | string | no | |
+| `status` | string, non-empty | no | Free text. |
 
-A domain may declare Silver tables before any product reads them; they still
-get their namespace and Floe assets.
-
-### `domains[].products[]`
+### `products[]`
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `id` | identifier | yes | Unique across the whole lakehouse, not only the domain. |
-| `displayName`, `description`, `status` | | yes | Metadata. |
-| `domain` | string | no | If written, must equal the enclosing domain's `name`. |
-| `silver_inputs` | array of identifiers, at least one, unique | yes | Silver tables of this domain the product reads. |
-| `gold_tables.tables` | array, at least one, unique | yes | The Gold tables the product publishes. |
-| `gold_tables.tables[].name` | identifier | yes | Unique within the product. |
-| `gold_tables.tables[].description` | string | no | |
+| `id` | identifier | yes | Unique across the whole lakehouse; also the directory `gold/<id>/`. |
+| `domain` | identifier | yes | Must name a domain in the file. |
+| `displayName` | string, non-empty | yes | Human-readable name. |
+| `description` | string | no | |
+| `status` | string, non-empty | no | Free text. |
 
-A table must not carry `fqn` or `fullyQualifiedName`, and `gold_tables` must
-not carry `schema`: physical names would tie the descriptor to one provider.
-
-### `dashboards[]`
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `name` | identifier | yes | Unique; also the bundle directory under `dashboards/superset/`. |
-| `products` | array of identifiers, at least one, unique | yes | Declared product ids the dashboard reads. |
+`olf check contracts` also requires one `silver/<domain>/` directory per
+domain and one `gold/<product>/` directory per product, and rejects a dbt
+model that dbt resolved into any schema but `<product>_gold` (when the
+product's `target/manifest.json` exists), since its tables would belong to no
+product.
 
 ## Implementation files
 
@@ -179,7 +157,7 @@ Each identity selects the files that implement it:
 | Source `name` | `lakehouse_code/bronze/<source>/` |
 | Domain `name` | `lakehouse_code/silver/<domain>/contracts/floe/<domain>.yml`, the domain's only Floe contract |
 | Product `id` | `lakehouse_code/gold/<id>/dbt/` and `lakehouse_code/pipelines/dagster/<id>.py` |
-| Dashboard `name` | `lakehouse_code/dashboards/superset/<name>/` |
+| Dashboard | `lakehouse_code/dashboards/superset/<name>/`, once it holds a `metadata.yaml` |
 
 ## Derived names
 
@@ -197,7 +175,9 @@ For a `crm` source, a `sales` domain and an `order_revenue` product:
 
 Tables are addressed as `<stage catalog>.<namespace>.<table>`, for example
 `lakehouse_dev.order_revenue_gold.mart_order_revenue_by_day`. The stage
-catalog is `lakehouse_<stage>`.
+catalog is `lakehouse_<stage>`. Table names are not declared in a descriptor:
+Silver tables are the entities of the domain's Floe files and Gold tables are
+the product's dbt models.
 
 Renaming a source, resource, domain, product or table changes these names, so
 on a deployed stage plan it as a data migration. `displayName`, `description`
@@ -211,21 +191,21 @@ olf check contracts
 
 | Error | Cause |
 | --- | --- |
-| Source list does not match discovered descriptors | `sources` lists a source with no `source.yaml`, or a `source.yaml` exists that `sources` does not list. |
 | Name must match source directory | `bronze/marketing_platform/source.yaml` says `name: marketing`. |
 | Invalid identifier | A name such as `campaign-performance`; use `campaign_performance`. |
-| Duplicate product id | Two products declare the same `id`, even in different domains. |
-| Silver mapping names an undeclared resource | A Silver table maps to a resource its source does not declare. |
-| Empty table group | `silver_tables: {tables: []}`, a product without `silver_inputs`, or one without Gold tables. |
-| Physical name in a descriptor | `fullyQualifiedName` or `gold_tables.schema` is set. |
+| Duplicate product id | Two products declare the same `id`. |
+| Product names an unknown domain | A product's `domain` is not in `domains`. |
+| Domain or product has no directory | `silver/<domain>/` or `gold/<product>/` is missing, or exists without an entry in `governance.yml`. |
+| Silver entity reads an unknown Bronze resource (`olf check project-code`) | A Floe entity's `source.ref`/`resource` is not a resource of a `source.yaml`. |
+| Model outside `<product>_gold` | A dbt model or project sets its own schema and a manifest shows it. |
 
 `olf check contracts` reads each descriptor on its own. `olf check
 project-code` loads the whole inventory, and catches a reference between
 descriptors that does not resolve.
 
-`olf init --empty` writes a `lakehouse.yaml` with empty `sources` and
-`domains`. Only the scaffolding commands accept it; every check and deploy
-needs at least one product.
+`olf init --empty` writes no `governance.yml`; the first `olf domain new` or
+`olf product new` creates it. Only the scaffolding commands accept a project
+without one; every check and deploy needs at least one product.
 
 ## Graph the lineage
 
@@ -237,9 +217,9 @@ This prints the ownership chain the descriptors declare as Mermaid text:
 
 | Edge | Read from |
 | --- | --- |
-| Source → Domain | `domains[].silver_tables.tables[].source` |
-| Domain → Product | `domains[].products[]` |
-| Product → Dashboard | `dashboards[].products` |
+| Source → Domain | `source.ref` of the domain's Floe entity files |
+| Domain → Product | `products[].domain` |
+| Product → Dashboard | the `<product>_gold` schema of the dashboard's dataset files |
 
 Nodes and edges are sorted, so the same descriptors always print the same text.
 Paste it into a `mermaid` code block on GitHub or into the

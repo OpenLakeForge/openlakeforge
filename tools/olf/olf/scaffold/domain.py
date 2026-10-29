@@ -10,9 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from openlakeforge_domain import LakehouseInventory, load_lakehouse_descriptor, load_transitional_lakehouse_inventory
+from openlakeforge_domain import LakehouseInventory, load_transitional_lakehouse_inventory
 
-from olf.scaffold import _lakehouse_edit, _templates
+from olf.scaffold import _templates, _yaml_edit
 from olf.scaffold._csv import infer_columns
 from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
 from olf.scaffold._templates import FloeEntitySpec
@@ -67,7 +67,7 @@ def floe_sources_edit(repo_root: Path, inputs: tuple[tuple[str, str], ...]) -> S
     addition = "".join(_templates.render_floe_source(source=source) for source in missing)
     return ScaffoldFile(
         _FLOE_SOURCES,
-        _lakehouse_edit.append_to_top_level_list(text, "sources", addition, source_label=_FLOE_SOURCES),
+        _yaml_edit.append_to_top_level_list(text, "sources", addition, source_label=_FLOE_SOURCES),
     )
 
 
@@ -75,41 +75,12 @@ _GOVERNANCE = "lakehouse_code/governance.yml"
 _NEW_GOVERNANCE = "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\ndomains: []\nproducts: []\n"
 
 
-def _governance_from_legacy(repo_root: Path) -> str:
-    """A project still on `lakehouse.yaml` keeps its domains and products when it gains a governance.yml."""
-    legacy = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    if not legacy.is_file():
-        return _NEW_GOVERNANCE
-    document = load_lakehouse_descriptor(legacy, allow_incomplete=True)
-    if not document["domains"]:
-        return _NEW_GOVERNANCE
-    fields = ("displayName", "description", "status")
-    domains = [{"name": d["name"], **{k: d[k] for k in fields if k in d}} for d in document["domains"]]
-    products = [
-        {"id": p["id"], "domain": d["name"], **{k: p[k] for k in fields if k in p}}
-        for d in document["domains"]
-        for p in d["products"]
-    ]
-    return _lakehouse_edit.dump_block(
-        {"apiVersion": "openlakeforge.io/v1beta1", "kind": "Governance", "domains": domains, "products": products}
-    )
-
-
-def migrated_governance(repo_root: Path) -> str | None:
-    """The governance.yml a project still on `lakehouse.yaml` gains with its next scaffold command."""
-    if (repo_root / _GOVERNANCE).is_file() or not (repo_root / "lakehouse_code" / "lakehouse.yaml").is_file():
-        return None
-    migrated = _governance_from_legacy(repo_root)
-    # The empty shell `olf init --empty` used to write carries nothing to migrate.
-    return None if migrated == _NEW_GOVERNANCE else migrated
-
-
 def add_governance_entry(repo_root: Path, text: str | None, key: str, entry: str) -> str:
     """Append `entry` to governance.yml's `key:` list; `text` is the file as already edited, if it was."""
     if text is None:
         path = repo_root / _GOVERNANCE
-        text = path.read_text(encoding="utf-8") if path.is_file() else _governance_from_legacy(repo_root)
-    return _lakehouse_edit.append_to_top_level_list(text, key, entry, source_label="governance.yml")
+        text = path.read_text(encoding="utf-8") if path.is_file() else _NEW_GOVERNANCE
+    return _yaml_edit.append_to_top_level_list(text, key, entry, source_label="governance.yml")
 
 
 def build_domain_artifacts(

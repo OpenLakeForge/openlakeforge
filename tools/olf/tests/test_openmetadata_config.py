@@ -18,42 +18,25 @@ APPLIED_DEV_CONTRACT = {
 
 
 
-def _write_lakehouse(root: Path, name: str = "override", domain: str = "sales", product_id: str = "widgets") -> Path:
-    """Write a canonical lakehouse layout: lakehouse.yaml plus one bronze source."""
-    lakehouse_path = root / "lakehouse.yaml"
+def _write_lakehouse(root: Path, domain: str = "sales", product_id: str = "widgets") -> Path:
+    """Write a canonical project layout: governance.yml plus one bronze source."""
+    lakehouse_path = root / "governance.yml"
     source_path = root / "bronze" / "crm" / "source.yaml"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     lakehouse_path.write_text(
-        f"""apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: {name}
-displayName: {name.title()}
-description: {name} lakehouse.
-status: planned
-sources:
-  - crm
+        f"""apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: source
-          source: crm
-          resource: source
-    products:
-      - id: {product_id}
-        displayName: {product_id.replace('_', ' ').title()}
-        description: {product_id} product.
-        status: planned
-        silver_inputs: [source]
-        gold_tables:
-          tables:
-            - name: mart_{product_id}
-dashboards:
-  - name: {product_id}_dashboard
-    products: [{product_id}]
+products:
+  - id: {product_id}
+    domain: {domain}
+    displayName: {product_id.replace('_', ' ').title()}
+    description: {product_id} product.
+    status: planned
 """,
         encoding="utf-8",
     )
@@ -183,19 +166,6 @@ def test_config_from_environment_derives_defaults_from_metadata_source_dir_overr
     assert deployer.domain_files() == [lakehouse_path, source_dir / "bronze" / "crm" / "source.yaml"]
 
 
-def test_descriptor_resolution_prefers_governance_yml(tmp_path: Path) -> None:
-    from olf.openmetadata._config import resolve_metadata_descriptor_paths
-
-    legacy = _write_lakehouse(tmp_path)
-    governance = tmp_path / "governance.yml"
-    governance.write_text("kind: Governance\n", encoding="utf-8")
-
-    paths, _label, _match = resolve_metadata_descriptor_paths(tmp_path, "")
-
-    assert paths == [governance, tmp_path / "bronze" / "crm" / "source.yaml"]
-    assert legacy.is_file()
-
-
 def test_config_from_environment_accepts_a_standalone_lakehouse_directory_override(tmp_path: Path) -> None:
     """A directory override's parent directory name must not have to match the lakehouse.
 
@@ -206,7 +176,7 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_directory_overri
     """
     metadata_dir = tmp_path / "metadata"
     metadata_dir.mkdir()
-    lakehouse_path = _write_lakehouse(metadata_dir, name="sales")
+    lakehouse_path = _write_lakehouse(metadata_dir)
 
     cfg = OpenMetadataConfig.from_environment(
         dict(APPLIED_DEV_CONTRACT),
@@ -226,15 +196,15 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_directory_overri
 
 
 def test_config_from_environment_accepts_a_standalone_lakehouse_file_override(tmp_path: Path) -> None:
-    """A metadata_source_dir naming lakehouse.yaml directly must still resolve its sibling sources.
+    """A metadata_source_dir naming governance.yml directly must still resolve its sibling sources.
 
-    Mirrors a mounted single-file override like /metadata/lakehouse.yaml. The
+    Mirrors a mounted single-file override like /metadata/governance.yml. The
     schema-FQN defaults need the bronze/*/source.yaml descriptors next to it,
-    not just the lakehouse.yaml itself.
+    not just the governance.yml itself.
     """
     metadata_dir = tmp_path / "metadata"
     metadata_dir.mkdir()
-    lakehouse_path = _write_lakehouse(metadata_dir, name="sales")
+    lakehouse_path = _write_lakehouse(metadata_dir)
 
     cfg = OpenMetadataConfig.from_environment(
         dict(APPLIED_DEV_CONTRACT),
