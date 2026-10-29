@@ -141,8 +141,12 @@ class CloudProvider:
                 f"--no-push is not supported for the {self.backend.scope} provider: "
                 "the cluster pulls the project-code image from its registry."
             )
+        # An explicit build is custom project intent: never the published example.
+        config = CloudDeploymentConfig.from_environment(
+            self._environ, context=self.config.context, reuse_published_image=False
+        )
         return images.build_and_push_project_code_image(
-            self.config, self.tools, self.backend, self.foundation_facts, env=self.env
+            config, self.tools, self.backend, self.foundation_facts, env=self.env
         )
 
     def platform_up(self) -> None:

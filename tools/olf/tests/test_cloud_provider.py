@@ -504,3 +504,22 @@ def test_doctor_reads_contracts_through_the_toolkit_resolver(tmp_path: Path, mon
     report = provider.doctor(DeploymentPhase.ALL)
 
     assert any(item.name == "aws platform provider contracts" for item in report.items)
+
+
+def test_an_explicit_image_build_never_reuses_the_published_example(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_cloud_config import _published_config
+
+    from olf.deployment.cloud import images
+
+    config = _published_config(tmp_path)
+    assert config.images.project_code_published
+    provider = CloudProvider.create(config, AwsBackend(), toolkit=_toolkit(), environ={})
+    provider.__dict__.update(foundation_facts=_FACTS, env={})
+    built: list[CloudDeploymentConfig] = []
+    monkeypatch.setattr(images, "build_and_push_project_code_image", lambda cfg, *a, **k: built.append(cfg) or "ref")
+
+    provider.build_project_image()
+
+    assert not built[0].images.project_code_published
