@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlakeforge.io/schemas/governance/v1beta1",
+  "title": "OpenLakeForge Governance",
+  "description": "Business domains and their data products. Tables, sources and dashboards are derived from project code and are not declared here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "domains"],
+  "properties": {
+    "apiVersion": {"const": "openlakeforge.io/v1beta1"},
+    "kind": {"const": "Governance"},
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "contains": {"type": "object", "properties": {"products": {"type": "array", "minItems": 1}}},
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "displayName", "products"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "displayName": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "status": {"type": "string", "minLength": 1},
+          "products": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "displayName"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+                "displayName": {"type": "string", "minLength": 1},
+                "description": {"type": "string"},
+                "status": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

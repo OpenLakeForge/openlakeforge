@@ -534,15 +534,7 @@ def _validate_inventory_identities(
             )
 
 
-def load_lakehouse_inventory_from_descriptors(
-    lakehouse_path: str | Path,
-    source_paths: Sequence[str | Path],
-    *,
-    source_label: str | Path | None = None,
-    allow_incomplete: bool = False,
-) -> LakehouseInventory:
-    """Load and validate one Lakehouse descriptor plus its Source descriptors."""
-    lakehouse_document = load_lakehouse_descriptor(lakehouse_path, allow_incomplete=allow_incomplete)
+def _load_sources(source_paths: Sequence[str | Path]) -> tuple[Source, ...]:
     sources: list[Source] = []
     for source_path in source_paths:
         document = load_source_descriptor(source_path)
@@ -566,6 +558,19 @@ def load_lakehouse_inventory_from_descriptors(
                 runtime_secrets=tuple(document.get("runtime", {}).get("secrets", ())),
             )
         )
+    return tuple(sources)
+
+
+def load_lakehouse_inventory_from_descriptors(
+    lakehouse_path: str | Path,
+    source_paths: Sequence[str | Path],
+    *,
+    source_label: str | Path | None = None,
+    allow_incomplete: bool = False,
+) -> LakehouseInventory:
+    """Load and validate one Lakehouse descriptor plus its Source descriptors."""
+    lakehouse_document = load_lakehouse_descriptor(lakehouse_path, allow_incomplete=allow_incomplete)
+    sources = _load_sources(source_paths)
     declared_sources = set(lakehouse_document["sources"])
     discovered_sources = {source.name for source in sources}
     if declared_sources != discovered_sources:
@@ -604,7 +609,7 @@ def load_lakehouse_inventory_from_descriptors(
     inventory = LakehouseInventory(
         lakehouse_root=Path(source_label) if source_label is not None else Path(lakehouse_path).parent,
         name=lakehouse_document["name"],
-        sources=tuple(sources),
+        sources=sources,
         domains=tuple(domains),
         dashboards=dashboards,
     )
