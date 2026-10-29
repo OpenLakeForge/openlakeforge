@@ -78,6 +78,18 @@ resource "kubernetes_role_v1" "bootstrap_workload" {
     resource_names = [var.automation_secret_name, var.ingestion_bot_secret_name]
     verbs          = ["delete", "get", "patch", "update"]
   }
+
+  # The Superset admin password, which the Superset module creates here. Only
+  # governed stages register their dashboards; a revoked one needs no read.
+  dynamic "rule" {
+    for_each = contains(var.workload_namespaces, each.value) ? [1] : []
+    content {
+      api_groups     = [""]
+      resources      = ["secrets"]
+      resource_names = [var.superset_admin_secret_name]
+      verbs          = ["get"]
+    }
+  }
 }
 
 resource "kubernetes_role_binding_v1" "bootstrap_workload" {

@@ -182,6 +182,7 @@ variable "stages" {
     dagster_webserver_url  = string
     dashboard_service_name = optional(string)
     superset_url           = optional(string)
+    superset_namespace     = optional(string)
   }))
 }
 
@@ -202,11 +203,10 @@ variable "superset_username" {
   default     = "admin"
 }
 
-variable "superset_password" {
-  description = "Superset API password used by OpenMetadata dashboard metadata ingestion."
+variable "superset_admin_secret_name" {
+  description = "Secret in each stage namespace that holds the Superset admin password (key admin-password). The bootstrap Job reads it there, so OpenMetadata ingestion logs in with it and Terraform never holds it."
   type        = string
-  default     = "admin"
-  sensitive   = true
+  default     = "superset-credentials"
 }
 
 variable "superset_auth_provider" {
