@@ -14,6 +14,7 @@ import inspect
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,6 @@ from openlakeforge_domain import load_source
 
 from libs.bronze_csv import BronzeLoadResult
 
-_LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 # Floe merges every pending Bronze file of an entity in one MERGE and, when a
 # key repeats, keeps its first row in URI order. A Silver run that catches up
 # on several batches must keep the newest version of a row, so the newest
@@ -113,7 +113,10 @@ def load_dlt_source(
     This is the loader contract for a source with incremental resources:
     `load_<source>_entities_to_bronze(resources, *, full_refresh=False)`.
     """
-    declared = load_source((lakehouse_root or _LAKEHOUSE_CODE_ROOT) / "bronze" / source / "source.yaml")
+    # The project imported as `lakehouse_code`: beside libs/ in the image, but a
+    # separate root when olf checks a customer project against the distribution.
+    root = lakehouse_root or Path(import_module("lakehouse_code").__file__).resolve().parent
+    declared = load_source(root / "bronze" / source / "source.yaml")
     selected = dlt_source.with_resources(*resources)
     for name in resources:
         load = declared.load_of(name)

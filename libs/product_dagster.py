@@ -23,6 +23,7 @@ from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
 from floe_dagster.manifest import ManifestEntity
 
+import lakehouse_code
 from libs.bronze_csv import BronzeLoadResult
 from libs.dbt.render_profiles import BAKED_PROFILES_DIR, ensure_baked_manifest
 from libs.floe_profile import write_profile
@@ -31,7 +32,9 @@ from libs.s3_artifacts import upload_file_to_base_uri
 from libs.source_bindings import source_binding_tags
 from openlakeforge_domain import full_refresh_scope, inventory_for
 
-_LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
+# The project imported as `lakehouse_code`: beside libs/ in the image, but a
+# separate root when olf checks a customer project against the distribution.
+_LAKEHOUSE_CODE_ROOT = Path(lakehouse_code.__file__).resolve().parent
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
 # Names the Floe manifest, and with it each domain's op: without a name the op
 # name derives from the project's path and checksum, and every contract edit
