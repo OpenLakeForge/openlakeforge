@@ -55,10 +55,6 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
     )
 
     assert fixture_cfg.inventory.job_names == ("widgets_alpha_pipeline", "widgets_beta_pipeline")
-    assert fixture_cfg.inventory.gold_mart_names == (
-        "widgets_alpha_gold.mart_alpha_summary",
-        "widgets_beta_gold.mart_beta_summary",
-    )
 
     # Dashboard identity comes from the exported Superset YAML, not the
     # descriptor's name — a title/slug that doesn't match that convention,

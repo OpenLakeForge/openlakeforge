@@ -107,15 +107,15 @@ def plan_product_new(
             bronze_inputs_by_table[resource] = (source, resource)
     else:
         target_domain = next(d for d in inventory.domains if d.name == domain)
-        existing_silver_by_name = {table.name: table for table in target_domain.silver_tables}
+        existing_silver_by_name = {entity.name: entity for entity in inventory.floe_entities(target_domain)}
         for name in silver_inputs:
             if name not in existing_silver_by_name:
                 raise ScaffoldError(
                     f"--silver-input {name!r}: domain {domain!r} has no Silver table {name!r}; "
                     f"known tables: {sorted(existing_silver_by_name)!r}"
                 )
-            table = existing_silver_by_name[name]
-            bronze_inputs_by_table[name] = (table.source, table.resource)
+            entity = existing_silver_by_name[name]
+            bronze_inputs_by_table[name] = (entity.source, entity.resource)
         for source, resource in inputs:
             if resource in existing_silver_by_name:
                 raise ScaffoldError(

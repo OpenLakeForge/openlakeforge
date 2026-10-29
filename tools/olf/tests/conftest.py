@@ -98,6 +98,15 @@ def e2e_cfg(tmp_path: Path, env: Environment = "local", suite: Suite = "full") -
     )
 
 
+def write_floe_entity(lakehouse_code: Path, domain: str, name: str, source: str, resource: str | None = None) -> None:
+    """A domain's Floe entity file; the Silver table list is read from these."""
+    entity_dir = lakehouse_code / "silver" / domain / "contracts" / "floe"
+    entity_dir.mkdir(parents=True, exist_ok=True)
+    (entity_dir / f"{name}.yml").write_text(
+        f'name: "{name}"\nsource: {{ ref: "{source}", resource: "{resource or name}" }}\n', encoding="utf-8"
+    )
+
+
 def write_two_product_fixture(root: Path, *, dashboards: tuple[tuple[str, str], ...] = ()) -> None:
     """A minimal two-product, single-domain v1alpha3 descriptor for isolation
     tests. ``dashboards`` is a sequence of ``(dashboard_name, product_id)``

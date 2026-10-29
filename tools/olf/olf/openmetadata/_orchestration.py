@@ -165,7 +165,8 @@ class OpenMetadataDeployer:
         lakehouse_path = descriptor_paths[0]
         source_paths = descriptor_paths[1:]
         try:
-            load_lakehouse_inventory_from_descriptors(lakehouse_path, source_paths)
+            inventory = load_lakehouse_inventory_from_descriptors(lakehouse_path, source_paths)
+            entities = {domain.name: inventory.floe_entities(domain) for domain in inventory.domains}
         except LakehouseDescriptorError as exc:
             raise OpenMetadataError(str(exc)) from exc
         lakehouse_document = load_lakehouse_descriptor(lakehouse_path)
@@ -181,16 +182,14 @@ class OpenMetadataDeployer:
         domain_specs: list[tuple[Path, dict]] = []
         for domain in lakehouse_document["domains"]:
             products = []
-            silver_tables = {table["name"]: table for table in domain["silver_tables"]["tables"]}
             for product in domain["products"]:
-                selected_silver = [silver_tables[name] for name in product["silver_inputs"]]
                 bronze_entries = [
                     {
-                        "name": table["resource"],
-                        "path": f"s3://{bronze_bucket}/{table['source']}/{table['resource']}",
-                        "description": resource_descriptions.get(table["source"], {}).get(table["resource"], ""),
+                        "name": entity.resource,
+                        "path": f"s3://{bronze_bucket}/{entity.source}/{entity.resource}",
+                        "description": resource_descriptions.get(entity.source, {}).get(entity.resource, ""),
                     }
-                    for table in selected_silver
+                    for entity in entities[domain["name"]]
                 ]
                 bronze_entries = list({entry["path"]: entry for entry in bronze_entries}.values())
                 products.append(

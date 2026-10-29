@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from conftest import write_floe_entity
 
 from olf import openmetadata as om
 
@@ -145,6 +146,7 @@ domains:
 dashboards: []
 """
     )
+    write_floe_entity(tmp_path, "sales", "accounts", "crm")
     cfg = om.OpenMetadataConfig.from_environment(
         {
             **APPLIED_DEV_CONTRACT,
@@ -167,7 +169,7 @@ dashboards: []
 
     with pytest.raises(
         om.OpenMetadataError,
-        match="Silver table 'accounts' references unknown resource 'accounts' of source 'crm'",
+        match="Silver entity sales/accounts reads unknown Bronze resource crm/accounts",
     ):
         om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))._domain_specs()
 
@@ -219,6 +221,7 @@ domains:
 dashboards: []
 """
     )
+    write_floe_entity(tmp_path, "sales", "orders", "crm")
     cfg = om.OpenMetadataConfig.from_environment(
         dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
@@ -314,6 +317,7 @@ domains:
 dashboards: []
 """
     )
+    write_floe_entity(tmp_path, "sales", "orders", "crm")
     cfg = om.OpenMetadataConfig.from_environment(
         {**APPLIED_DEV_CONTRACT, **(environ or {})},
         base_url="http://x",

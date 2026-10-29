@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import write_floe_entity
 from typer.testing import CliRunner
 
 from olf.cli import app
@@ -64,6 +65,7 @@ def tiny_project(tmp_path: Path) -> Path:
     (code / "bronze/crm").mkdir(parents=True)
     (code / "lakehouse.yaml").write_text(_LAKEHOUSE)
     (code / "bronze/crm/source.yaml").write_text(_SOURCE)
+    write_floe_entity(code, "sales", "orders", "crm")
     return tmp_path
 
 

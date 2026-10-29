@@ -50,6 +50,7 @@ _YAML_SUFFIXES = (".yaml", ".yml")
 _OWNERSHIP_ROOT = re.compile(r"^lakehouse_code/(?:bronze|silver|gold|dashboards/superset)/[a-z][a-z0-9_]*")
 # One entity per file: extending an existing domain adds a file beside its
 # `_domain.yml`, inside an ownership root that already has content.
+_FLOE_GLOB = "silver/*/contracts/floe/*.yml"
 _FLOE_ENTITY = re.compile(r"^lakehouse_code/silver/[a-z][a-z0-9_]*/contracts/floe/[^/]+\.yml$")
 
 
@@ -131,11 +132,8 @@ def _check_asset_key_collisions(inventory: LakehouseInventory) -> None:
         for resource in source.resources:
             register((source.name, resource.name), f"Bronze resource {source.name}/{resource.name}")
     for domain in inventory.domains:
-        for silver_table in domain.silver_tables:
-            register((domain.name, silver_table.name), f"Silver table {domain.name}/{silver_table.name}")
-    for product in inventory.products:
-        for gold_table in product.gold_tables:
-            register((product.id, gold_table.name), f"Gold table {product.id}/{gold_table.name}")
+        for entity in inventory.floe_entities(domain):
+            register((domain.name, entity.name), f"Silver table {domain.name}/{entity.name}")
 
     if collisions:
         raise ScaffoldError("; ".join(collisions))
@@ -156,14 +154,15 @@ def _verify(
         verify_lakehouse = Path(tmp) / "lakehouse_code"
         (verify_lakehouse / "bronze").mkdir(parents=True)
         resolved_schema_root = schema_root or repo_root / "docs" / "schema"
-        for source_yaml in sorted(lakehouse_src.glob("bronze/*/source.yaml")):
-            destination = verify_lakehouse / source_yaml.relative_to(lakehouse_src)
+        for descriptor in sorted((*lakehouse_src.glob("bronze/*/source.yaml"), *lakehouse_src.glob(_FLOE_GLOB))):
+            destination = verify_lakehouse / descriptor.relative_to(lakehouse_src)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(source_yaml, destination)
+            shutil.copy(descriptor, destination)
         for scaffold_file in plan.files:
-            if not scaffold_file.relative_path.startswith(_BRONZE_PREFIX):
-                continue
-            if not scaffold_file.relative_path.endswith(_SOURCE_YAML_SUFFIX):
+            is_source = scaffold_file.relative_path.startswith(_BRONZE_PREFIX) and scaffold_file.relative_path.endswith(
+                _SOURCE_YAML_SUFFIX
+            )
+            if not (is_source or _FLOE_ENTITY.match(scaffold_file.relative_path)):
                 continue
             destination = Path(tmp) / scaffold_file.relative_path
             destination.parent.mkdir(parents=True, exist_ok=True)
