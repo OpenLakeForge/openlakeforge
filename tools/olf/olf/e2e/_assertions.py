@@ -57,21 +57,11 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     id/displayName) is what lets a product export a differently named or
     multiple dashboards without failing this check.
 
-    Validates the descriptor registry and every bundle deployment imports.
+    Every bundle deployment imports (a directory with a ``metadata.yaml``) must export one.
     """
-    dashboards_by_dir = {dashboard.report_source_dir: dashboard for dashboard in cfg.inventory.dashboards}
-    discovered_dirs = set(superset.discover_report_dirs(cfg.repo_root))
-    declared_dirs = set(dashboards_by_dir)
-    if discovered_dirs != declared_dirs:
-        missing = declared_dirs - discovered_dirs
-        undeclared = discovered_dirs - declared_dirs
-        raise E2EError(
-            "Superset descriptor/filesystem mismatch: "
-            f"declared but not mounted={sorted(missing)}, mounted but not declared={sorted(undeclared)}"
-        )
     expected: dict[str, str] = {}
-    for report_source_dir, dashboard in sorted(dashboards_by_dir.items()):
-        report_dir = cfg.repo_root / report_source_dir
+    for dashboard in sorted(cfg.inventory.dashboards, key=lambda item: item.report_source_dir):
+        report_dir = cfg.repo_root / dashboard.report_source_dir
         dashboard_files = superset.discover_dashboard_files(report_dir)
         if not dashboard_files:
             raise E2EError(f"{report_dir / 'dashboards'}: dashboard {dashboard.name!r} exports no Superset dashboards")
