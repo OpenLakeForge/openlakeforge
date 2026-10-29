@@ -3,6 +3,9 @@
 Match the error, apply the fix, then run `olf deploy --provider local` again.
 Every command here assumes the local provider and the default cluster name.
 
+The kubeconfig below is the one an installed `olf` writes; in a source
+checkout it is `.tmp/kubeconfigs/local.yaml` under the repository root.
+
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `Docker engine is not reachable` | Docker is stopped, or `olf` runs in another shell | Start Docker, check `docker ps`, rerun `olf` from that shell |
@@ -15,7 +18,7 @@ Every command here assumes the local provider and the default cluster name.
 ## The cluster is unreachable
 
 ```bash
-export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
+export KUBECONFIG="${OLF_HOME:-$HOME/.openlakeforge}/state/local/kubeconfig.yaml"
 KUBECTL="$(olf toolchain path kubectl)"
 "$KUBECTL" --context kind-openlakeforge-local cluster-info
 ```
@@ -55,7 +58,7 @@ olf deploy --provider local --phase artifacts
 ## Collect evidence for a bug report
 
 ```bash
-export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
+export KUBECONFIG="${OLF_HOME:-$HOME/.openlakeforge}/state/local/kubeconfig.yaml"
 olf diagnostics collect olf-diagnostics --namespace olf-system --kube-context kind-openlakeforge-local
 ```
 

@@ -93,12 +93,14 @@ Profile fields an agent most often changes, all under `spec`:
 ## Deploy
 
 ```bash
-olf doctor --provider local
+olf doctor --provider local --phase foundation
 olf deploy --provider local
 ```
 
-`olf doctor` changes nothing and prints `PASS` or `FAIL` per check. The first
-deploy takes several minutes. `olf deploy` runs these phases in order, and
+`olf doctor` deploys nothing (it may download the managed toolchain) and
+prints `PASS` or `FAIL` per check. Before the first deploy, check only
+`--phase foundation`: the other phases check platform state that a first
+deploy creates, so they fail until then. The first deploy takes several minutes. `olf deploy` runs these phases in order, and
 `--phase` runs one:
 
 | Phase | Does | Run it alone when |
@@ -144,10 +146,12 @@ have no route: `olf forward --provider local` port-forwards every service to
 `localhost` (Dagster 3000, Trino 8080, Polaris 8181, SeaweedFS S3 9000) until
 stopped.
 
-`olf` keeps its own kubeconfig. To use kubectl:
+`olf` keeps its own kubeconfig: `$OLF_HOME/state/local/kubeconfig.yaml` for an
+installed `olf`, and `.tmp/kubeconfigs/local.yaml` under the repository root
+in a source checkout. To use kubectl with an installed `olf`:
 
 ```bash
-export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
+export KUBECONFIG="${OLF_HOME:-$HOME/.openlakeforge}/state/local/kubeconfig.yaml"
 KUBECTL="$(olf toolchain path kubectl)"
 "$KUBECTL" --context kind-openlakeforge-local get pods -A
 ```
@@ -160,8 +164,10 @@ olf e2e run --env local --suite full
 
 It launches every product's Dagster job, checks the Silver and Gold tables
 through Trino (and Superset and OpenMetadata on Full), and ends with
-`Local OpenLakeForge full e2e validation passed.` `--suite smoke` runs only
-the preflight checks; `--stage prod` checks another stage.
+`Local OpenLakeForge full e2e validation passed.` `--stage prod` checks
+another stage. Both suites run pipelines: on local, `--suite smoke` checks the
+catalog, then launches one product's job and checks its tables. Neither is a
+read-only health check; for that, use `olf status`.
 
 ## Tear down (ask first)
 
