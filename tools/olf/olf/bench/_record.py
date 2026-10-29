@@ -23,6 +23,13 @@ from typing import Any
 import olf
 
 SCHEMA_VERSION = 1
+# Variables `olf.deployment.local.config` reads to replace a pinned image or base image.
+IMAGE_OVERRIDE_ENV = (
+    "PROJECT_CODE_PYTHON_BASE_IMAGE",
+    "PROJECT_CODE_IMAGE_REPOSITORY",
+    "PROJECT_CODE_IMAGE_TAG",
+    "SUPERSET_BASE_IMAGE",
+)
 
 
 class BenchError(RuntimeError):
@@ -106,7 +113,8 @@ def environment(repo_root: Path, *, environ: Mapping[str, str] | None = None) ->
     return {
         "olf_version": olf.__version__,
         "git_commit": _output(["git", "-C", str(repo_root), "rev-parse", "HEAD"]),
-        "git_dirty": bool(_output(["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=no"])),
+        # A local edit to the deploy code changes what is measured; name the files, not just the fact.
+        "git_modified": sorted((_output(["git", "-C", str(repo_root), "diff", "--name-only", "HEAD"]) or "").split()),
         "component_catalog_sha256": _sha256(catalog) if catalog.is_file() else None,
         "host": {
             "machine": platform.machine(),
@@ -120,6 +128,7 @@ def environment(repo_root: Path, *, environ: Mapping[str, str] | None = None) ->
         "cluster_config_override": (
             {"path": cluster_config, "sha256": _sha256(Path(cluster_config))} if cluster_config else None
         ),
+        "image_overrides": {name: env[name] for name in IMAGE_OVERRIDE_ENV if env.get(name)},
     }
 
 

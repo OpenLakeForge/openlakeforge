@@ -62,10 +62,11 @@ def test_environment_records_the_catalog_pin_and_a_kind_config_override(tmp_path
     override = tmp_path / "kind.yaml"
     override.write_text("kind: Cluster\n")
 
-    facts = environment(repo, environ={"CLUSTER_CONFIG": str(override)})
+    facts = environment(repo, environ={"CLUSTER_CONFIG": str(override), "PROJECT_CODE_PYTHON_BASE_IMAGE": "py:ca"})
 
     assert len(facts["component_catalog_sha256"]) == 64
     assert facts["cluster_config_override"]["path"] == str(override)
+    assert facts["image_overrides"] == {"PROJECT_CODE_PYTHON_BASE_IMAGE": "py:ca"}
     assert facts["host"]["cpus"]
 
 
@@ -74,3 +75,5 @@ def test_environment_without_an_override_says_so(tmp_path: Path) -> None:
 
     assert facts["cluster_config_override"] is None
     assert facts["component_catalog_sha256"] is None
+    assert facts["image_overrides"] == {}
+    assert facts["git_modified"] == []
