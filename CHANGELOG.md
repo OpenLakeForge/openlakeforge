@@ -51,6 +51,12 @@ for how a release is cut and verified.
   fallback. A scaffolded product's Silver source now carries the stage
   schema prefix as the reference products do, so it resolves on an AWS
   stage (#546).
+- Activation puts only the contract values the project-code runtime reads on
+  the code location and its run pods, rather than every `OPENLAKEFORGE_*`
+  variable in the operator's environment, and takes `OPENLAKEFORGE_STAGE`
+  from the activation itself. Bronze loads read
+  `OPENLAKEFORGE_STORAGE_BRONZE_BUCKET`, with no `lakehouse-bronze` fallback
+  (#546).
 
 ### Removed
 

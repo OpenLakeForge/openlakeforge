@@ -511,7 +511,7 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
             "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3.olf-system:8333",
             "AWS_REGION": "us-east-1",
             "AWS_SECRET_ACCESS_KEY": "must-not-appear",
-            "OPENLAKEFORGE_STORAGE_BUCKET": "lakehouse-bronze",
+            "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "lakehouse-bronze",
         },
         namespace="olf-dev",
         platform_globals={},
@@ -521,7 +521,7 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
     env = {entry["name"]: entry["value"] for entry in values["deployments"][0]["env"]}
     assert env["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3.olf-system:8333"
     assert env["AWS_REGION"] == "us-east-1"
-    assert env["OPENLAKEFORGE_STORAGE_BUCKET"] == "lakehouse-bronze"
+    assert env["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "lakehouse-bronze"
     # Credential values travel by Secret reference, never inline.
     assert "AWS_SECRET_ACCESS_KEY" not in env
 
@@ -556,6 +556,86 @@ def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) 
         platform_globals={},
         code_locations=_DEFAULT_LOCATIONS,
     )
+
+
+def test_only_runtime_settings_reach_the_code_server() -> None:
+    """The operator's shell and deployer-only settings stay on the workstation (#546)."""
+    env = {
+        entry["name"]: entry.get("value")
+        for entry in _values(
+            {
+                "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+                "OPENLAKEFORGE_REPO_ROOT": "/home/operator/project",
+                "OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX": "/tmp/olf-port-forward",
+                "OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system",
+                "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
+                "OPENLAKEFORGE_STAGE": "prod",
+            }
+        )["deployments"][0]["env"]
+    }
+
+    assert env["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+    assert env["OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME"] == "seaweedfs-s3-creds"
+    assert not {
+        "OPENLAKEFORGE_REPO_ROOT",
+        "OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX",
+        "OPENLAKEFORGE_SHARED_NAMESPACE",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
+        "OPENLAKEFORGE_LOG_BASE_URI",
+    } & set(env)
+    # The activation's own stage, not one left in the operator's shell: it
+    # decides whether the PROD-only schedules exist.
+    assert env["OPENLAKEFORGE_STAGE"] == "dev"
+
+
+# Runtime reads that the stage contract does not supply, and so are not in
+# `_RUNTIME_ENV`, with where each comes from instead.
+_RUNTIME_NAMES_SET_ELSEWHERE = {
+    # Set by activation itself (`_user_values`).
+    "OPENLAKEFORGE_KUBE_NAMESPACE": "activation",
+    "OPENLAKEFORGE_PROJECT_CODE_IMAGE": "activation",
+    "OPENLAKEFORGE_STAGE": "activation",
+    "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "activation, only with the Trino CA",
+    "OPENLAKEFORGE_QUERY_TRINO_CA": "activation, only with the Trino CA",
+    "OPENLAKEFORGE_DBT_TRINO_METHOD": "activation, only with a Trino credential",
+    "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "activation, by secretKeyRef",
+    # libs.k8s_log_archive runs in its own CronJob (`_archive_env`).
+    "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
+    "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
+    "OPENLAKEFORGE_DBT_EXECUTABLE": "Terraform runtime env",
+    # libs/floe_profile.py falls back to a default; no contract emits these yet.
+    "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE": "unset, default applies",
+    "OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT": "unset, default applies",
+}
+
+
+def _names_runtime_code_reads() -> set[str]:
+    import re
+
+    pattern = re.compile(r"OPENLAKEFORGE_[A-Z0-9_]+")
+    roots = [ROOT / "libs", ROOT / "lakehouse_code", ROOT / "packages/domain-model/openlakeforge_domain"]
+    return {
+        name
+        for root in roots
+        for path in root.rglob("*")
+        if path.suffix in {".py", ".yml", ".yaml", ".sql"} and "dbt_packages" not in path.parts
+        for name in pattern.findall(path.read_text(encoding="utf-8"))
+    }
+
+
+def test_every_name_the_runtime_reads_has_a_source() -> None:
+    """A new env read in runtime code must be forwarded or say why not."""
+    from olf.deployment.activation import _RUNTIME_ENV
+
+    unaccounted = _names_runtime_code_reads() - set(_RUNTIME_ENV) - set(_RUNTIME_NAMES_SET_ELSEWHERE)
+
+    assert not unaccounted, f"add these to _RUNTIME_ENV or _RUNTIME_NAMES_SET_ELSEWHERE: {sorted(unaccounted)}"
+
+
+def test_the_runtime_allowlist_names_only_what_runtime_code_reads() -> None:
+    from olf.deployment.activation import _RUNTIME_ENV
+
+    assert not set(_RUNTIME_ENV) - _names_runtime_code_reads()
 
 
 def test_trino_https_reaches_the_code_server_with_the_ca_volume() -> None:

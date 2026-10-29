@@ -55,10 +55,6 @@ locals {
         name  = "OPENLAKEFORGE_STORAGE_OPS_BUCKET"
         value = coalesce(try(var.storage_contract.ops_bucket_name, null), var.artifact_bucket_name)
       },
-      {
-        name  = "OPENLAKEFORGE_BRONZE_BUCKET"
-        value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
-      },
     ],
   )
 

@@ -61,10 +61,10 @@ remain equal across stages; only activations differ.
 The same revision is deployed to every stage, so nothing about a schedule can
 be decided at build time. `libs.product_dagster.build_stage_schedules` decides
 it at load time from `OPENLAKEFORGE_STAGE`, which activation puts on the
-code-server container:
-`DeploymentContext.command_env` sets it, `applied_contract_environment` carries
-it into the contract environment, and `_user_values` forwards every
-`OPENLAKEFORGE_*` key onto the deployment.
+code-server container. `_user_values` takes it from the activation record's own
+stage, not from the operator's shell. Beside it, the deployment carries only
+the contract values the runtime reads (`_RUNTIME_ENV` in
+`tools/olf/olf/deployment/activation.py`), not every `OPENLAKEFORGE_*` key.
 
 | Stage the pod reports | Schedules in the code location |
 | --- | --- |
