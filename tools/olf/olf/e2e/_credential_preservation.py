@@ -19,6 +19,7 @@ CREDENTIAL_JOB_PREFIXES = (
     "postgresql-credentials-",
     "superset-credentials-",
     "polaris-token-key-",
+    "seaweedfs-credentials-",
     "openmetadata-bootstrap-",
     # Re-running the bootstrap Job rotates the ingestion-bot token; the replication Job copies it to the stages.
     "openmetadata-credential-replication-",
