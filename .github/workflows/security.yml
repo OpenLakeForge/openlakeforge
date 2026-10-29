@@ -119,6 +119,13 @@ jobs:
             exit 0
           fi
           mkdir -p evidence
+          # A separate command, so a failure to read the catalog fails the step
+          # instead of silently scanning nothing.
+          images="$(uv run --project tools/olf --locked python -c "
+          import yaml
+          for name, ref in yaml.safe_load(open('release/component-catalog.yaml'))['components']['images'].items():
+              print(name, ref)
+          ")"
           failed=0
           while read -r name ref; do
             report="evidence/image-${name}.json"
@@ -144,11 +151,7 @@ jobs:
               continue
             fi
             trivy convert --format table --report "${detail}" --exit-code "${code}" "${report}" || failed=1
-          done < <(uv run --project tools/olf --locked python -c "
-          import yaml
-          for name, ref in yaml.safe_load(open('release/component-catalog.yaml'))['components']['images'].items():
-              print(name, ref)
-          ")
+          done <<<"${images}"
           exit "${failed}"
 
       - name: Upload scan evidence

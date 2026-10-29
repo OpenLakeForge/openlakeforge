@@ -4,5 +4,6 @@
 severity:
   - HIGH
   - CRITICAL
-ignore-unfixed: true
+vulnerability:
+  ignore-unfixed: true
 ignorefile: .trivyignore.yaml
