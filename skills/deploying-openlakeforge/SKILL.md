@@ -159,13 +159,15 @@ KUBECTL="$(olf toolchain path kubectl)"
 ## Verify end to end
 
 ```bash
-olf e2e run --env local --suite full
+olf e2e run --env local --suite full --checks core
 ```
 
 It launches every product's Dagster job, checks the Silver and Gold tables
 through Trino (and Superset and OpenMetadata on Full), and ends with
 `Local OpenLakeForge full e2e validation passed.` `--stage prod` checks
-another stage. Both suites run pipelines: on local, `--suite smoke` checks the
+another stage. Without `--checks core` the suite also runs drills that restart
+shared services such as Polaris and Traefik and redeploy the platform, which
+interrupts every stage: ask the person first. Both suites run pipelines: on local, `--suite smoke` checks the
 catalog, then launches one product's job and checks its tables. Neither is a
 read-only health check; for that, use `olf status`.
 

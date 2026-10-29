@@ -24,13 +24,18 @@ KUBECTL="$(olf toolchain path kubectl)"
 ```
 
 If that fails and `docker ps --filter name=openlakeforge-local` lists no
-containers, Docker was reset and the cluster is gone. Recreate it in order:
+containers, Docker was reset and the cluster is gone, with every table in it.
+`olf deploy` alone does not recreate it: the foundation's Terraform state
+still records the cluster. With the person's approval, clear that state, then
+deploy everything:
 
 ```bash
-olf deploy --provider local --phase foundation
-olf deploy --provider local --phase platform
-olf deploy --provider local --phase artifacts
+olf destroy --provider local --phase foundation
+olf deploy --provider local
 ```
+
+With the cluster gone, the foundation destroy only drops it from state; it
+refuses to run while the cluster still exists with platform namespaces in it.
 
 ## A pod does not start
 
