@@ -72,7 +72,7 @@ def contract(
     """
     import json
 
-    from olf import contracts
+    from olf import contract_state
     from olf.deployment.errors import DeploymentError
     from olf.provider_contracts import ProviderContractError
 
@@ -82,7 +82,7 @@ def contract(
         # OLF_HOME; the process env alone reads the payload's absent state.
         # Always the applied state: exporting must never echo an earlier copy
         # the override points at (or read the file `>` is truncating).
-        payload = contracts.load_provider_contracts(
+        payload = contract_state.load_provider_contracts(
             str(context.paths.platform_terraform_dir),
             environ=context.command_env(base=os.environ),
             honor_contract_file=False,

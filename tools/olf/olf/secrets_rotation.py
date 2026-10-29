@@ -149,7 +149,7 @@ def apply_platform(context: Any, extra_args: list[str]) -> None:
 
 def portal_url(context: Any) -> str | None:
     """The portal's URL from the access contract, when it can be read."""
-    from olf.contracts import load_provider_contracts
+    from olf.contract_state import load_provider_contracts
     from olf.tooling.toolkit import Toolkit
 
     env = context.command_env(base=os.environ)

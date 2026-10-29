@@ -321,7 +321,7 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
         "olf.deployment.cloud.provider.docker_health",
         lambda *args, **kwargs: health_calls.append("docker") or None,
     )
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -335,7 +335,7 @@ def test_cloud_artifacts_doctor_requires_platform_provider_contracts(
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", facts=_FACTS)
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)
 

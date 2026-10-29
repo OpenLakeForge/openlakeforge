@@ -144,7 +144,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     kubectl = _Kubectl()
     catalog_calls: list[str] = []
 
-    monkeypatch.setattr(activation_module.contracts, "load_provider_contracts", lambda *a, **k: contract)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *a, **k: contract)
     image_calls: list[str] = []
     monkeypatch.setattr(
         activation_module, "_ensure_image", lambda provider, image, **k: image_calls.append(image)
@@ -239,7 +239,7 @@ def _build_report_harness(
 
     helm = _Helm()
 
-    monkeypatch.setattr(activation_module.contracts, "load_provider_contracts", lambda *a, **k: contract)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *a, **k: contract)
     monkeypatch.setattr(activation_module, "_ensure_image", lambda provider, image, **k: None)
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)

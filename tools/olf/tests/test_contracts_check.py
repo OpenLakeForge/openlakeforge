@@ -254,9 +254,7 @@ def test_provider_contract_fixtures_carry_no_secret_values(fixture: Path) -> Non
 
 
 def test_hcl_phase_two_invariants_rejects_secret_valued_contract_field(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        _hcl.contracts_module,
-        "load_provider_contracts",
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts",
         lambda terraform_dir, *, environ=None: {"catalog": {}, "storage": {"secret_access_key": "hunter2"}},
     )
 
@@ -372,7 +370,7 @@ def test_hcl_phase_two_invariants_passes_when_applied_state_is_clean(tmp_path: P
     def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_database_fqn": "polaris.lakehouse_dev"}}
 
-    monkeypatch.setattr(_hcl.contracts_module, "load_provider_contracts", fake_load)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", fake_load)
 
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 
@@ -384,7 +382,7 @@ def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Pat
     def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_namespaces": ["silver", "gold"]}}
 
-    monkeypatch.setattr(_hcl.contracts_module, "load_provider_contracts", fake_load)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", fake_load)
 
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 

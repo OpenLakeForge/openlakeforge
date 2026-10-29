@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from olf import config
+from olf import config, contract_state
 from olf import contracts as contracts_module
 from olf.log import fail
 
@@ -30,7 +30,7 @@ def contracts_env(
     from olf.deployment.errors import DeploymentError
 
     try:
-        provider_contracts = contracts_module.load_provider_contracts(terraform_dir)
+        provider_contracts = contract_state.load_provider_contracts(terraform_dir)
     except DeploymentError as exc:
         # A managed-toolchain provisioning failure (#127) resolving
         # terraform is a real operational problem, not "not applied yet" -

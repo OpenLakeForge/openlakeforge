@@ -137,7 +137,7 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
     config = _config(tmp_path)
     tools = _toolkit()
     backend = FakeCloudBackend(scope="aws")
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )

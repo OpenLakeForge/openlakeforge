@@ -53,7 +53,7 @@ def break_glass_command(
     if service == "trino":
         from pathlib import Path
 
-        from olf.contracts import load_provider_contracts
+        from olf.contract_state import load_provider_contracts
 
         contract_dir = Path(env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir))
         contracts = load_provider_contracts(str(contract_dir.resolve()), environ=env, resolver=tools.resolver)

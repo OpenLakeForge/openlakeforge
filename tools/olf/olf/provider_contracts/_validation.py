@@ -12,10 +12,6 @@ from urllib.parse import urlsplit
 from olf.contract_validation import ProviderContractError, _string
 from olf.profile import Provider, StageName
 
-V2_SCHEMA_VERSION = "2.0.0"
-V3_SCHEMA_VERSION = "3.0.0"
-SUPPORTED_SCHEMA_VERSIONS = frozenset({V2_SCHEMA_VERSION, V3_SCHEMA_VERSION})
-
 
 def aws_catalog_name(profile_name: str, stage: StageName | str) -> str:
     """Return the provider-derived, Glue-safe catalog name for one stage."""

@@ -224,7 +224,7 @@ class LocalProvider:
         ).resolve()
 
     def _contracts(self) -> dict | None:
-        from olf.contracts import load_provider_contracts
+        from olf.contract_state import load_provider_contracts
 
         # environ=self._environ (not bare os.environ): an installed
         # distribution's platform state lives under OLF_HOME, not next to

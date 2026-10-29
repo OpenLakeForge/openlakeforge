@@ -9,6 +9,10 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
+V2_SCHEMA_VERSION = "2.0.0"
+V3_SCHEMA_VERSION = "3.0.0"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({V2_SCHEMA_VERSION, V3_SCHEMA_VERSION})
+
 
 class ProviderContractError(ValueError):
     """Raised when a provider contract is malformed or cannot serve a stage."""

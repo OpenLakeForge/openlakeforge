@@ -8,7 +8,8 @@ from conftest import E2E_INVENTORY, e2e_cfg
 from olf.clients import dagster as dagster_client_module
 from olf.clients.base import ServiceClientError
 from olf.clients.dagster import DagsterClient, DagsterTransientError
-from olf.contracts import CONTRACT_STAGE_ENV, PROVIDER_CONTRACTS_FILE_ENV
+from olf.contract_state import PROVIDER_CONTRACTS_FILE_ENV
+from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e import _dagster
 from olf.e2e._shell import E2EConfig, E2EError
 

@@ -20,7 +20,7 @@ import pytest
 from test_cli_project_status import _contract, _topology
 from typer.testing import CliRunner
 
-from olf import contracts
+from olf import contract_state
 from olf.cli import app
 from olf.commands import project as project_cmd
 from olf.deployment import activation as activation_module
@@ -71,7 +71,7 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", context_for)
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
     monkeypatch.setattr(project_cmd, "_revision_store", store)
-    monkeypatch.setattr(contracts, "load_provider_contracts", lambda *_a, **_k: contract)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_a, **_k: contract)
     monkeypatch.setattr("olf.profile.load_deployment_profile", lambda _path, **_k: _PROFILE)
     monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
 
@@ -94,7 +94,7 @@ def test_an_unreadable_contract_file_fails_cleanly(
     contract_file = tmp_path / "contract.json"
     if content is not None:
         contract_file.write_text(content)
-    monkeypatch.setenv(contracts.PROVIDER_CONTRACTS_FILE_ENV, str(contract_file))
+    monkeypatch.setenv(contract_state.PROVIDER_CONTRACTS_FILE_ENV, str(contract_file))
 
     def context_for(_profile_file: str, *, stage: str = "", **_kwargs: object) -> DeploymentContext:
         return DeploymentContext.local(
@@ -121,7 +121,7 @@ def test_an_unreadable_contract_file_fails_cleanly(
 
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)
-    assert contracts.PROVIDER_CONTRACTS_FILE_ENV in result.output
+    assert contract_state.PROVIDER_CONTRACTS_FILE_ENV in result.output
 
 
 def test_deploy_reads_the_role_model_from_the_resolved_distribution_not_cwd(

@@ -25,7 +25,7 @@ def _toolkit() -> Toolkit:
 
 def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config(tmp_path)
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
