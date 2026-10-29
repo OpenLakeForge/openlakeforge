@@ -91,8 +91,6 @@ def _superset_template_overrides() -> list[str]:
         "--set",
         "image.pullPolicy=Never",
         "--set",
-        "extraSecretEnv.SUPERSET_SECRET_KEY=check",
-        "--set",
         "supersetNode.connections.db_host=postgresql",
         "--set",
         "supersetNode.connections.db_port=5432",
