@@ -115,6 +115,20 @@ def test_scaffolding_a_project_still_on_lakehouse_yaml_keeps_its_domains_and_pro
     assert [p.id for p in inventory.products] == ["order_revenue", "customer_health", "inventory_reliability"]
 
 
+def test_an_empty_legacy_project_scaffolds_from_source_to_product(tmp_path: Path) -> None:
+    repo_root = _seed_empty_project(tmp_path)
+    (repo_root / "lakehouse_code" / "lakehouse.yaml").write_text(
+        "apiVersion: openlakeforge.io/v1alpha3\nkind: Lakehouse\nname: openlakeforge\ndisplayName: OpenLakeForge\n"
+        "description: Empty.\nstatus: planned\nsources: []\ndomains: []\ndashboards: []\n",
+        encoding="utf-8",
+    )
+
+    _run("source", "new", "crm", "--resource", "accounts", "--repo-root", str(repo_root))
+    _run("domain", "new", "sales", "--input", "crm/accounts", "--repo-root", str(repo_root))
+
+    assert load_lakehouse_inventory(repo_root, allow_incomplete=True).domain_names == ("sales",)
+
+
 def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Path) -> None:
     """`domains: [{...}]` and `products: [{...}]` are valid YAML a hand-edited
     governance.yml may use; appending an entry must convert the list to block

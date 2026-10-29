@@ -538,7 +538,12 @@ def load_lakehouse_inventory(path: str | Path, *, allow_incomplete: bool = False
     lakehouse_root = _lakehouse_root(Path(path))
     lakehouse_descriptor = lakehouse_root / "governance.yml"
     legacy_descriptor = lakehouse_root / "lakehouse.yaml"
-    if not lakehouse_descriptor.is_file() and legacy_descriptor.is_file():
+    # The empty shell `olf init --empty` once wrote has no domains and declares no sources.
+    if (
+        not lakehouse_descriptor.is_file()
+        and legacy_descriptor.is_file()
+        and (yaml.safe_load(legacy_descriptor.read_text(encoding="utf-8")) or {}).get("domains")
+    ):
         lakehouse_descriptor = legacy_descriptor
     if not lakehouse_descriptor.is_file() and not allow_incomplete:
         raise LakehouseDescriptorError(f"{lakehouse_root}: no governance.yml (or legacy lakehouse.yaml) found")

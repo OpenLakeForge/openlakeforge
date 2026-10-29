@@ -81,6 +81,8 @@ def _governance_from_legacy(repo_root: Path) -> str:
     if not legacy.is_file():
         return _NEW_GOVERNANCE
     document = load_lakehouse_descriptor(legacy, allow_incomplete=True)
+    if not document["domains"]:
+        return _NEW_GOVERNANCE
     fields = ("displayName", "description", "status")
     domains = [{"name": d["name"], **{k: d[k] for k in fields if k in d}} for d in document["domains"]]
     products = [
@@ -97,7 +99,9 @@ def migrated_governance(repo_root: Path) -> str | None:
     """The governance.yml a project still on `lakehouse.yaml` gains with its next scaffold command."""
     if (repo_root / _GOVERNANCE).is_file() or not (repo_root / "lakehouse_code" / "lakehouse.yaml").is_file():
         return None
-    return _governance_from_legacy(repo_root)
+    migrated = _governance_from_legacy(repo_root)
+    # The empty shell `olf init --empty` used to write carries nothing to migrate.
+    return None if migrated == _NEW_GOVERNANCE else migrated
 
 
 def add_governance_entry(repo_root: Path, text: str | None, key: str, entry: str) -> str:
