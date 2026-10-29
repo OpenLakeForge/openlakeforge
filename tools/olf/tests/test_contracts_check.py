@@ -672,8 +672,20 @@ def test_hcl_structured_contracts_rejects_credential_handling_in_an_identity_mod
         assert expected in result.detail
 
 
-def test_hcl_structured_contracts_accepts_the_real_identity_modules() -> None:
-    assert _hcl._identity_module_errors(ROOT) == []
+def test_hcl_structured_contracts_rejects_credential_handling_in_the_postgresql_module(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    module = repo_root / "infra/terraform/modules/storage/postgresql"
+    module.mkdir(parents=True)
+    (module / "credentials.tf").write_text('resource "random_password" "admin" {\n  length = 32\n}\n')
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "storage/postgresql/credentials.tf: resource random_password.admin" in result.detail
+
+
+def test_hcl_structured_contracts_accepts_the_real_job_credential_modules() -> None:
+    assert _hcl._job_credential_module_errors(ROOT) == []
 
 
 def test_dex_config_expands_env_only_where_dex_does() -> None:

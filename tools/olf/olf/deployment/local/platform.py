@@ -36,6 +36,7 @@ _POLARIS_JOB_PREFIXES = (
     "dex-credentials-",
     "oauth2-proxy-cookie-",
     "trino-credentials-",
+    "postgresql-credentials-",
 )
 # Every root's shared-services namespace was named "lakehouse" and addressed
 # as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.

@@ -50,7 +50,7 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
             name = "POSTGRES_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin_credentials.metadata[0].name
+                name = local.admin_secret_name
                 key  = "postgres-password"
               }
             }
@@ -86,7 +86,7 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
             name = "POLARIS_DB_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.polaris_credentials.metadata[0].name
+                name = var.polaris_credentials_secret_name
                 key  = "password"
               }
             }
@@ -164,4 +164,6 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
   }
 
   wait_for_rollout = true
+
+  depends_on = [kubernetes_job_v1.credentials]
 }

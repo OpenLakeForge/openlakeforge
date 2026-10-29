@@ -50,6 +50,7 @@ WORKLOADS = {
 # (fnmatch, first matching subject wins). The one place to change when the ADR's pins change.
 E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file")),
+    ("postgresql-credentials", ("postgresql-*-creds",)),
     ("*-credentials", ("*-client-*",)),  # dex-credentials
     ("*-cookie", ("*-cookie",)),
     ("*-oidc-secret", ("oidc-client-*", "*-client-*")),
