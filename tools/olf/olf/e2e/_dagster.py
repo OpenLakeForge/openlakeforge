@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 from openlakeforge_domain import Product
 
@@ -24,14 +25,14 @@ DAGSTER_RELEASE_NAME = "dagster"
 DAGSTER_WEBSERVER_SERVICE_NAME = f"{DAGSTER_RELEASE_NAME}-dagster-webserver"
 
 
-def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] | None = None) -> None:
-    log.step("Launching and polling Dagster product jobs...")
+@contextmanager
+def dagster_client(cfg: E2EConfig) -> Iterator[DagsterClient]:
+    """A GraphQL client for the stage's Dagster webserver, reachable for the duration of the block."""
     assert cfg.dagster_local_port is not None
-    webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
     with access.service_url(
         f"stage/{os.environ.get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
-        service=webserver_service_name,
+        service=DAGSTER_WEBSERVER_SERVICE_NAME,
         remote_port=80,
         namespace=cfg.namespace,
         local_port=cfg.dagster_local_port,
@@ -41,8 +42,12 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
     ) as base_url:
         if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):
             raise E2EError("Dagster endpoint did not become reachable.")
-        location_names = expected_repository_location_names(cfg)
-        client = DagsterClient(f"{base_url}/graphql", expected_location_names=location_names)
+        yield DagsterClient(f"{base_url}/graphql", expected_location_names=expected_repository_location_names(cfg))
+
+
+def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] | None = None) -> None:
+    log.step("Launching and polling Dagster product jobs...")
+    with dagster_client(cfg) as client:
         timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
         for product in products or cfg.inventory.products:
             job = product.job_name
@@ -51,7 +56,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
             except ServiceClientError as exc:
                 diagnostics = _bounded_pod_diagnostics(
                     cfg,
-                    [webserver_service_name, *expected_user_code_pods(cfg, location_names)],
+                    [DAGSTER_WEBSERVER_SERVICE_NAME, *expected_user_code_pods(cfg, client.expected_location_names)],
                 )
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")

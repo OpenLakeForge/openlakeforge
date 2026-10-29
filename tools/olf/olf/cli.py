@@ -15,6 +15,7 @@ from olf.commands import (
     access,
     artifacts,
     auth,
+    bench,
     break_glass,
     catalog,
     checks,
@@ -63,6 +64,7 @@ app.add_typer(images.app, name="images")
 app.add_typer(catalog.app, name="catalog")
 app.add_typer(artifacts.app, name="artifacts")
 app.add_typer(auth.app, name="auth")
+app.add_typer(bench.app, name="bench")
 app.add_typer(layers.app, name="layers")
 app.add_typer(superset.app, name="superset")
 app.add_typer(superset.report_app, name="report")
