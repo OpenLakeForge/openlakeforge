@@ -56,7 +56,8 @@ def validate_governance_descriptor(document: Mapping[str, Any], *, source: str =
         raise LakehouseDescriptorError(f"{source}: must not contain {unexpected!r}")
     domains = {d["name"] for d in _entries(document, "domains", "name", set(), source)}
     for product in _entries(document, "products", "id", {"domain"}, source):
-        if product.get("domain") not in domains:
+        _identifier(product.get("domain"), field="domain", source=f"{source}: product {product['id']!r}")
+        if product["domain"] not in domains:
             raise LakehouseDescriptorError(
                 f"{source}: product {product['id']!r} names unknown domain {product.get('domain')!r}"
             )

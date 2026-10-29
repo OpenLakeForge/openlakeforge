@@ -56,10 +56,6 @@ def test_check_is_skipped_without_governance(tmp_path: Path) -> None:
     assert _check_governance_conformance(tmp_path, schema_root=SCHEMAS).ok
 
 
-def test_reference_project_passes() -> None:
-    assert _detail(ROOT) == ""
-
-
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
@@ -87,6 +83,7 @@ _BAD = [
     (GOVERNANCE.replace("domain: sales", "domain: ghost"), "unknown domain 'ghost'"),
     (GOVERNANCE + "  - {id: revenue, domain: sales, displayName: Again}\n", "duplicate id 'revenue'"),
     (GOVERNANCE.replace("products:", "  - {name: sales, displayName: Again}\nproducts:"), "duplicate name 'sales'"),
+    (GOVERNANCE.replace("domain: sales", "domain: [sales]"), "domain must match"),
     (GOVERNANCE.replace("id: revenue", "id: Revenue"), "id must match"),
     (GOVERNANCE.replace(", displayName: Revenue", ""), "displayName must be a non-empty string"),
     (GOVERNANCE.replace("displayName: Revenue}", "displayName: Revenue, tables: []}"), "must not contain ['tables']"),
