@@ -23,11 +23,16 @@ redis:
   architecture: standalone
   image:
     registry: docker.io
-    repository: bitnamilegacy/redis
-    tag: "7.0.10-debian-11-r4@sha256:224a79826b42869bdc72a70933efd840c5a5f10a70caafca68e57be6901e36fb"
+    repository: redis
+    tag: "7.4.12-bookworm@sha256:b6b6e3dc0c0952737748e55d5d885272840c7e42ba41ab1d5489f693419882f5"
   auth:
     enabled: false
   master:
+    # The subchart's default start script is Bitnami-specific, so run the
+    # official image's redis-server directly. Protected mode would refuse the
+    # Superset pods; the stage NetworkPolicy limits who can reach port 6379.
+    command: [redis-server]
+    args: [--save, "", --appendonly, "no", --protected-mode, "no"]
     persistence:
       enabled: false
     resources:
