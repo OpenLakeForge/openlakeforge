@@ -144,6 +144,8 @@ _DATASET = "dashboards/superset/revenue_board/datasets/Trino/mart_revenue.yaml"
         (_MODEL, "select 1\n", "reads no Silver table"),
         (_MODEL, "{{ config(alias='daily') }} select 1 from {{ source('silver', 'orders') }}", "not supported"),
         (_MODEL, "{{ config(materialized='ephemeral') }} select 1", "not supported"),
+        (_MODEL, "{{ config(enabled=false) }} select 1", "not supported"),
+        (_MODEL, "{{ config(schema='other') }} select 1", "not supported"),
         ("gold/revenue/dbt/dbt_project.yml", "name: revenue\nmodels: {+materialized: ephemeral}\n", "ephemeral"),
         (_MODEL, "select * from {{ source('silver', 'ghost') }}", "unknown domain Silver"),
         (_MODEL, "select * from {{ source('raw', 'orders') }}", "source('silver'"),

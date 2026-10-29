@@ -39,9 +39,10 @@ from .inventory import (
 # ponytail: a regex over the model text, so a call inside a Jinja comment still
 # counts. Parse dbt's manifest instead when a project hits that.
 _DBT_SOURCE_CALL = re.compile(r"""\bsource\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)""")
-# An alias renames the relation dbt creates and an ephemeral model creates none,
-# so the model name would stop being a table name.
-_DBT_UNSUPPORTED = re.compile(r"\balias\s*=|['\"]?ephemeral\b")
+# A dbt config that changes whether a model exists or where it lands means the
+# model name is no longer the table name: alias/identifier/schema rename it,
+# enabled=false and ephemeral remove it. Rejected rather than resolved offline.
+_DBT_UNSUPPORTED = re.compile(r"\b(?:alias|identifier|schema|enabled)\s*=|\bephemeral\b|\+(?:alias|schema|enabled)\s*:")
 
 
 def _yaml(path: Path) -> Mapping[str, Any]:
@@ -80,7 +81,7 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
     if _yaml(project_file).get("name") != product_id:
         raise LakehouseDescriptorError(f"{project_file}: name must be {product_id!r} to match governance")
     if _DBT_UNSUPPORTED.search(project_file.read_text(encoding="utf-8")):
-        raise LakehouseDescriptorError(f"{project_file}: dbt aliases and ephemeral models are not supported")
+        raise LakehouseDescriptorError(f"{project_file}: dbt alias, schema, enabled or ephemeral settings are not supported")
     models = sorted((dbt_dir / "models").rglob("*.sql"))
     names = [model.stem for model in models]
     if not names:
@@ -91,7 +92,7 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
     for model in models:
         text = model.read_text(encoding="utf-8")
         if _DBT_UNSUPPORTED.search(text):
-            raise LakehouseDescriptorError(f"{model}: dbt aliases and ephemeral models are not supported")
+            raise LakehouseDescriptorError(f"{model}: dbt alias, schema, enabled or ephemeral settings are not supported")
         for source, table in _DBT_SOURCE_CALL.findall(text):
             if source != "silver":
                 raise LakehouseDescriptorError(
