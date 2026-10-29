@@ -62,6 +62,17 @@ the Kubernetes names, `_` becomes `-`. Because of both conversions, a source
 with a `runtime` block, and each of its keys, must be underscore-separated
 words: `crm_api` and `base_url`, not `crm_`, `_url` or `a__b`.
 
+Where they apply:
+
+- Each product job carries the bindings of the sources it loads. They reach
+  that job's run pod only, never the code-location server.
+- Steps of one run share its pod, so every loader in a job sees every binding
+  the job carries.
+- A Bronze asset materialized outside its product job gets no binding and
+  fails with dlt's missing-config error.
+- `olf deploy` refuses to activate a revision whose sources the stage has not
+  bound. It reads Secret key names only, never values.
+
 ## `lakehouse.yaml`
 
 ```yaml
