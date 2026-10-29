@@ -13,7 +13,6 @@ from .descriptors import (
     validate_lakehouse_descriptor,
     validate_source_descriptor,
 )
-from .derive import load_governance_inventory
 from .governance import (
     GOVERNANCE_API_VERSION,
     GOVERNANCE_KIND,
@@ -67,7 +66,6 @@ __all__ = [
     "Table",
     "inventory_for",
     "load_governance_descriptor",
-    "load_governance_inventory",
     "load_lakehouse_descriptor",
     "load_lakehouse_inventory",
     "load_lakehouse_inventory_from_descriptors",

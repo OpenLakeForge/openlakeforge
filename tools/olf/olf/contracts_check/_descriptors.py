@@ -9,7 +9,6 @@ import jsonschema
 import yaml
 from openlakeforge_domain import (
     LakehouseDescriptorError,
-    load_governance_inventory,
     load_lakehouse_descriptor,
     load_source_descriptor,
 )
@@ -106,30 +105,6 @@ def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path |
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail=f"{descriptor_count} descriptor(s) validated")
-
-
-def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
-    """`lakehouse_code/governance.yml`, when present, must match its JSON Schema and
-    agree with the Floe, dbt and Dagster code it governs: every Silver domain and
-    Gold product in code is governed and the reverse, with no schema claimed by
-    another owner. Offline; nothing here reads a cluster."""
-    name = "governance_conformance"
-    path = repo_root / "lakehouse_code" / "governance.yml"
-    if not path.is_file():
-        return CheckResult(name, ok=True, detail="no governance.yml")
-    schema_path = (schema_root or repo_root / "docs/schema") / "governance.schema.json"
-    validator = jsonschema.Draft202012Validator(json.loads(schema_path.read_text(encoding="utf-8")))
-    errors = [
-        f"schema violation at {'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
-        for error in validator.iter_errors(yaml.safe_load(path.read_text(encoding="utf-8")))
-    ]
-    try:
-        load_governance_inventory(repo_root)
-    except LakehouseDescriptorError as exc:
-        errors.append(str(exc))
-    if errors:
-        return CheckResult(name, ok=False, detail="; ".join(errors))
-    return CheckResult(name, ok=True, detail="governance.yml matches project code")
 
 
 def profile_schema_errors(

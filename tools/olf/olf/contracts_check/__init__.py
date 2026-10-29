@@ -15,10 +15,10 @@ from pathlib import Path
 from olf.contracts_check._descriptors import (
     _check_deployment_profile_schema_conformance,
     _check_descriptor_schema_conformance,
-    _check_governance_conformance,
     descriptor_schema_errors,
     profile_schema_errors,
 )
+from olf.contracts_check._governance import _check_governance_conformance
 from olf.contracts_check._hcl import _check_hcl_phase_two_invariants, _check_hcl_structured_contracts
 from olf.contracts_check._rendered import (
     _check_floe_contract_structure,
