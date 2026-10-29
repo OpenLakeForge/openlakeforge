@@ -49,7 +49,7 @@ def test_full_profile_defaults(tmp_path: Path) -> None:
     assert config.cluster.config_path == tmp_path / "infra/kind/local/kind-cluster.yaml"
     assert config.cluster.wait_timeout == "120s"
     assert config.cluster.reset_existing is False
-    assert config.images.project_code_image == "ghcr.io/openlakeforge/project-code:local"
+    assert config.images.project_code_image == "ghcr.io/openlakeforge/openlakeforge/project-code:local"
     assert config.images.superset_image == "ghcr.io/openlakeforge/superset:local"
     assert config.images.project_code_pull_policy == "Never"
     assert config.charts["trino"].version == "1.42.2"

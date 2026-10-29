@@ -365,7 +365,7 @@ def client_cases(server: Server, report: Report) -> None:
     user = principal("dev")
     password = server.passwords[user]
     sql = COUNT.format(catalog="lakehouse_dev")
-    project_code, superset = "ghcr.io/openlakeforge/project-code:local", "ghcr.io/openlakeforge/superset:local"
+    project_code, superset = "ghcr.io/openlakeforge/openlakeforge/project-code:local", "ghcr.io/openlakeforge/superset:local"
 
     def run(label: str, image: str, entrypoint: str, args: list[str], expect: str = "25", mount: str = "") -> None:
         cmd = ["docker", "run", "--rm", "--network", f"container:{NAME}", "-e", f"U={user}", "-e", f"P={password}"]

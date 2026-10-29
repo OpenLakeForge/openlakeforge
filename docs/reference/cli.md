@@ -98,7 +98,7 @@ All `new` commands validate the result before writing and accept
 | `OLF_HOME` | `~/.openlakeforge` | Toolchain, platform payload, state and kubeconfigs |
 | `OLF_TOOLCHAIN_MODE` | `managed` | `host` uses Terraform, Helm, kubectl and kind from `PATH` |
 | `OLF_PORT_FORWARD` | unset | `1` makes `olf` port-forward instead of using the local ingress |
-| `PROJECT_CODE_IMAGE_REPOSITORY`, `PROJECT_CODE_IMAGE_TAG` | `ghcr.io/openlakeforge/project-code`, `local` | Where `olf project image` pushes on the local provider |
+| `PROJECT_CODE_IMAGE_REPOSITORY`, `PROJECT_CODE_IMAGE_TAG` | `ghcr.io/openlakeforge/openlakeforge/project-code`, `local` | Where `olf project image` pushes on the local provider |
 | `AWS_*`, `AZURE_*` | | Cloud settings; see [Deploy to AWS](../guides/cloud/deploy-to-aws.md) and [Deploy to Azure](../guides/cloud/deploy-to-azure.md) |
 
 ## Contributor commands

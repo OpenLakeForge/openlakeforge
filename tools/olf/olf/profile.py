@@ -70,7 +70,8 @@ _IMAGE_REPOSITORY_PATTERN_SOURCE = (
     rf"/{_REPOSITORY_NAME}(/{_REPOSITORY_NAME})*"
 )
 _IMAGE_REPOSITORY_PATTERN = re.compile(_IMAGE_REPOSITORY_PATTERN_SOURCE)
-PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/project-code"
+# The package the release publishes: `<IMAGE_NAMESPACE>/project-code` in release.yml, namespaced by the repository.
+PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/openlakeforge/project-code"
 _STAGE_FIELDS = {"enabled", "capabilities"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
 

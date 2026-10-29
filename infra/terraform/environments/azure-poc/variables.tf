@@ -71,7 +71,7 @@ variable "s3_region" {
 variable "project_code_image_repository" {
   description = "Project-code image repository used by the Dagster code server and run pods."
   type        = string
-  default     = "ghcr.io/openlakeforge/project-code"
+  default     = "ghcr.io/openlakeforge/openlakeforge/project-code"
 }
 
 variable "project_code_image_tag" {
