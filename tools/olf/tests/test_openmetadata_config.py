@@ -183,6 +183,19 @@ def test_config_from_environment_derives_defaults_from_metadata_source_dir_overr
     assert deployer.domain_files() == [lakehouse_path, source_dir / "bronze" / "crm" / "source.yaml"]
 
 
+def test_descriptor_resolution_prefers_governance_yml(tmp_path: Path) -> None:
+    from olf.openmetadata._config import resolve_metadata_descriptor_paths
+
+    legacy = _write_lakehouse(tmp_path)
+    governance = tmp_path / "governance.yml"
+    governance.write_text("kind: Governance\n", encoding="utf-8")
+
+    paths, _label, _match = resolve_metadata_descriptor_paths(tmp_path, "")
+
+    assert paths == [governance, tmp_path / "bronze" / "crm" / "source.yaml"]
+    assert legacy.is_file()
+
+
 def test_config_from_environment_accepts_a_standalone_lakehouse_directory_override(tmp_path: Path) -> None:
     """A directory override's parent directory name must not have to match the lakehouse.
 
