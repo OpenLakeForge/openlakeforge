@@ -128,20 +128,7 @@ class _PlatformScriptedRunner(RecordingRunner):
         return _ok()
 
 
-def test_platform_up_skips_superset_build_when_analytics_disabled(tmp_path: Path) -> None:
-    config = _config(tmp_path, enable_analytics="false")
-    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
-    config.charts["trino"].package_path.write_text("cached")
-    config.charts["dagster"].package_path.write_text("cached")
-    backend = FakeCloudBackend(scope="aws")
-    tools = _toolkit(_PlatformScriptedRunner())
-
-    platform.platform_up(config, tools, backend, _FACTS, env={})
-
-    assert "registry_login" not in backend.calls
-
-
-def test_platform_up_builds_superset_when_analytics_enabled(tmp_path: Path) -> None:
+def test_platform_up_does_not_log_in_to_a_registry_for_superset(tmp_path: Path) -> None:
     config = _config(tmp_path, enable_analytics="true")
     config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
     config.charts["trino"].package_path.write_text("cached")
@@ -151,23 +138,7 @@ def test_platform_up_builds_superset_when_analytics_enabled(tmp_path: Path) -> N
 
     platform.platform_up(config, tools, backend, _FACTS, env={})
 
-    assert "registry_login" in backend.calls
-
-
-def test_platform_up_builds_superset_for_an_analytics_sibling_stage(tmp_path: Path) -> None:
-    config = _config(tmp_path, topology=_topology(dev_analytics=False, prod_analytics=True))
-    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
-    config.charts["trino"].package_path.write_text("cached")
-    config.charts["dagster"].package_path.write_text("cached")
-    backend = FakeCloudBackend(scope="aws")
-    tools = _toolkit(_PlatformScriptedRunner())
-
-    platform.platform_up(config, tools, backend, _FACTS, env={})
-
-    assert config.features.analytics_enabled is False
-    assert config.context.platform_features.analytics_enabled is True
-    assert "superset" in config.charts.settings
-    assert "registry_login" in backend.calls
+    assert "registry_login" not in backend.calls
 
 
 @pytest.mark.parametrize(("scope", "provider"), [("aws", Provider.AWS), ("azure", Provider.AZURE)])

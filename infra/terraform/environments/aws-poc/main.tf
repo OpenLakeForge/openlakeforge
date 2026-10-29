@@ -604,9 +604,6 @@ module "superset" {
   namespace           = kubernetes_namespace_v1.stage[each.key].metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
   chart_package_path  = var.superset_chart_package_path
-  image_repository    = var.superset_image_repository
-  image_tag           = var.superset_image_tag
-  image_pull_policy   = var.superset_image_pull_policy
   bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
   postgresql_ssl_mode = "require"

@@ -92,24 +92,6 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
-variable "superset_image_repository" {
-  description = "Superset image repository used by the Azure POC Superset Helm release."
-  type        = string
-  default     = "ghcr.io/openlakeforge/superset"
-}
-
-variable "superset_image_tag" {
-  description = "Superset image tag used by the Azure POC Superset Helm release."
-  type        = string
-  default     = "azure-poc"
-}
-
-variable "superset_image_pull_policy" {
-  description = "Superset image pull policy used by the Azure POC Superset Helm release."
-  type        = string
-  default     = "Always"
-}
-
 variable "trino_chart_package_path" {
   description = "Optional local Trino Helm chart package used by azure-up to avoid transient GitHub chart download failures."
   type        = string

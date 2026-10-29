@@ -304,7 +304,6 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
 
     assert variables["aws_region"] == "eu-west-1"
     assert variables["project_code_image_repository"] == _FACTS.project_code_repository
-    assert variables["superset_image_repository"] == _FACTS.superset_repository
     assert set(variables.keys()) == {
         "profile_name",
         "shared_namespace",
@@ -320,9 +319,6 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
         "project_code_image_tag",
         "project_code_image_pull_policy",
         "project_code_image_revision",
-        "superset_image_repository",
-        "superset_image_tag",
-        "superset_image_pull_policy",
         "trino_chart_package_path",
         "dagster_chart_package_path",
         "openmetadata_chart_package_path",

@@ -160,9 +160,6 @@ class AzureBackend:
             "project_code_image_tag": images.project_code_tag,
             "project_code_image_pull_policy": images.project_code_pull_policy,
             "project_code_image_revision": images.project_code_revision,
-            "superset_image_repository": images.superset_repository,
-            "superset_image_tag": images.superset_tag,
-            "superset_image_pull_policy": images.superset_pull_policy,
         } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
 
     def platform_destroy_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
