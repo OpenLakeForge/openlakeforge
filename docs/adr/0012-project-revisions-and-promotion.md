@@ -102,6 +102,37 @@ memory from that profile and the frozen contracts. One project-code image
 digest therefore serves every stage, and activation publishes no Floe
 artifact of its own.
 
+dbt and dlt bind the same way (#546):
+
+- **dbt.** The image carries one profile, `libs/dbt/profiles/trino.yml`,
+  whose host, port, user and catalog are `env_var()` references with no
+  default, so a pod missing one fails instead of reaching another stage.
+  The image bakes a manifest parsed with placeholder values that no stage
+  uses. It exists only so Dagster can load definitions. Each run re-parses
+  in a fresh target path with its pod's values, and the run's own manifest
+  is the one uploaded.
+- **dlt.** A source's `source.yaml` names the keys its loader reads
+  (`runtime.config` / `runtime.secrets`). The stage binds their values in the
+  ConfigMap `olf-source-<id>` and the Secret `olf-source-<id>-credentials` in
+  its own namespace. A product job's run pod receives them as dlt's own
+  `SOURCES__<ID>__<KEY>` names. Incremental state lives in the stage's Bronze
+  bucket under the pipeline `<stage>__<source>`, so no stage reads another's
+  cursor.
+- **What a pod receives.** The code location's container gets only the
+  contract values the runtime reads (`_RUNTIME_ENV`), plus the stage itself.
+  A source's bindings go to the run pods of the jobs that load it, never to
+  the code server.
+
+Changing a stage's endpoint, credential or bucket therefore changes neither
+the revision digest nor the image. A source binding is read when a run pod
+starts, so editing its ConfigMap or Secret takes effect on the next run
+without a redeploy. A provider-contract value reaches the code location
+through its Helm release, so changing one means activating the same revision
+again. `olf deploy` refuses an activation whose sources the stage has not
+bound, and reads Secret key names only. The [provider
+contracts](../architecture/provider-contracts.md#where-stage-bindings-reach-a-workload)
+document lists each path and its limits.
+
 ### CLI surface
 
 | Command | Behavior |
@@ -148,6 +179,14 @@ the multi-file Floe project.
 reference products no longer track a rendered copy, and `olf dbt parse` /
 `olf check dbt` render the profile outside the project, so a local parse
 cannot change the revision.
+
+2026-10-29: dbt, dlt and the code location bind on the pod (#546). The
+image carries one environment-variable-only dbt profile and a stage-neutral
+manifest that every run re-parses. dlt sources declare their runtime keys in
+`source.yaml` and receive per-stage ConfigMap and Secret bindings on their
+jobs' run pods. dlt state is scoped to `<stage>__<source>` in the stage's
+Bronze bucket, and the code location receives an explicit allowlist of
+contract values instead of every `OPENLAKEFORGE_*` key.
 
 New record. No prior ADR modeled a promotable project revision distinct from
 the v0.2 Floe runtime-artifact revision; ADR 0009's distribution-payload

@@ -279,6 +279,49 @@ to one DEV stage without changing current v0.2 environment output. A v3
 contract is not permitted to choose DEV implicitly: callers must select the
 stage they are configuring.
 
+## Where stage bindings reach a workload
+
+A project revision and its image name no stage (ADR 0012). Each workload reads
+its stage's values from its own pod's environment, set when that stage is
+activated.
+
+| Workload | Receives | From | Missing value |
+| --- | --- | --- | --- |
+| Code-location server | The contract values the runtime reads (`_RUNTIME_ENV` in `tools/olf/olf/deployment/activation.py`), `OPENLAKEFORGE_STAGE`, and the storage, Floe-catalog and lineage Secrets | The stage's provider contract, through the activation's Helm release | The value is absent. The allowlist test fails when runtime code reads a name nothing sets. |
+| Run pod | Everything the server has (`includeConfigInLaunchedRuns`), plus the source bindings of its job | The release, plus the job's `dagster-k8s/config` tag | Kubernetes does not start a pod whose ConfigMap or Secret key is absent |
+| Floe Job | The contract values the run pod forwards to it | dagster-floe | `libs/floe_profile.py` raises naming the variable |
+| dbt in a run pod | `OPENLAKEFORGE_QUERY_TRINO_*`, `OPENLAKEFORGE_DBT_TRINO_*`, `OPENLAKEFORGE_CATALOG_NAME` and `_SCHEMA_PREFIX` | The run pod's env, through the profile's `env_var()` | dbt fails to render the profile |
+| dlt loader in a run pod | `SOURCES__<ID>__<KEY>` for each key in `source.yaml` `runtime`, and the stage's Bronze bucket and S3 settings | ConfigMap `olf-source-<id>` and Secret `olf-source-<id>-credentials` in the stage namespace | dlt raises its missing-config error; `bronze_pipeline` raises if the stage or bucket is unset |
+
+**Precedence.** A source binding is the only source of its `SOURCES__*` name.
+The project and the image set none. A loader's code default never applies
+either, because the key is required (`dlt.config.value` / `dlt.secrets.value`).
+For dlt's S3 credentials, a key the stage sets wins. An unset key falls back to
+the pod's default AWS credential chain, which is how a cloud workload identity
+is picked up.
+
+**Fail closed.** `olf deploy` refuses to activate a revision whose sources the
+stage has not bound. It names each missing ConfigMap, Secret or key, and
+reads Secret key names only, never values. A binding removed after
+activation stops the next run pod from starting. No workload falls back to
+another stage's value.
+
+**Rotation.** Each run pod resolves its ConfigMap and Secret references when
+it starts. Editing a source binding therefore applies to the next run, with
+no rebuild and no redeploy. Changing a provider-contract value, such as a
+bucket or catalog, means activating the same revision again: the digest is
+unchanged, and the release carries the new value.
+
+**Limits.**
+
+- A run pod hosts every step of its run, so each loader in a job sees every
+  source binding that job carries.
+- A Bronze asset materialized outside its product job gets no source
+  binding.
+- Per-source isolation within one job would need a pod per step, and is not
+  enforced.
+- Run-pod sizing is not a stage binding yet (#323, #325).
+
 ## Stable capability interfaces
 
 Consumers depend on fields such as storage URI and bucket, catalog type and

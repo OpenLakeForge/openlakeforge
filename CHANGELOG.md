@@ -30,7 +30,8 @@ for how a release is cut and verified.
   `<stage>__<source>` pipeline, so DEV and PROD cursors never mix (#546).
   The project-code image installs `dlt[s3]` for that bucket, with `boto3`
   pinned to 1.43.117, the newest `botocore` that `s3fs`'s `aiobotocore`
-  accepts.
+  accepts. `aiohttp`, which `s3fs` brings in, is held at 3.14.4 or later
+  for CVE-2026-111064, CVE-2026-111066 and GHSA-2g87-pp6c-29x5.
 
 ### Changed
 
