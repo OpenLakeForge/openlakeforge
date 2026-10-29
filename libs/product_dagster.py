@@ -21,13 +21,13 @@ from dagster import (
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
+from floe_dagster.manifest import ManifestEntity
 
 from libs.bronze_csv import BronzeLoadResult
 from libs.dbt.render_profiles import BAKED_PROFILES_DIR, ensure_baked_manifest
 from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
-from openlakeforge_domain import LakehouseInventory
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
@@ -132,27 +132,29 @@ def _floe_profile() -> str:
     return str(write_profile())
 
 
-def build_silver_definitions(inventory: LakehouseInventory) -> Definitions:
+def _bronze_resource(entity: ManifestEntity) -> AssetKey | None:
+    # The per-resource asset Bronze lands, not dagster-floe's shared
+    # `sources/<project>/<source>` key, so Silver waits for exactly its input.
+    if entity.source_ref and entity.source_resource:
+        return AssetKey([entity.source_ref, entity.source_resource])
+    return None
+
+
+def build_silver_definitions() -> Definitions:
     """Every Floe entity of the project, one subsettable asset per domain.
 
     Each domain's asset runs as one Kubernetes Job; a run that selects only
     some of a domain's tables passes just those entities to it. Each Silver
-    table depends on the Bronze resource `lakehouse.yaml` declares for it --
-    the per-resource asset Bronze lands, not dagster-floe's shared
-    `sources/<project>/<source>` key -- so Silver waits for exactly its input.
+    table depends on the Bronze resource its entity reads (`source.ref`,
+    `source.resource`).
     """
-    bronze = {
-        (domain.name, table.name): AssetKey([table.source, table.resource])
-        for domain in inventory.domains
-        for table in domain.silver_tables
-    }
     return load_floe_assets(
         config_path=str(FLOE_PROJECT),
         profile_path=_floe_profile(),
         manifest_name=_FLOE_MANIFEST_NAME,
         runner=build_runner_from_env(),
         register_source_assets=False,
-        source_key_fn=lambda entity: bronze.get(tuple(entity.asset_key)),
+        source_key_fn=_bronze_resource,
     )
 
 

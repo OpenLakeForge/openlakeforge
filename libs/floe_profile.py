@@ -39,10 +39,13 @@ _JOB_ENV = (
     "OPENLAKEFORGE_ARTIFACT_BASE_URI",
     "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY",
     "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY",
+    "OPENLAKEFORGE_CATALOG_GLUE_REGION",
+    "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX",
     "OPENLAKEFORGE_CATALOG_NAME",
     "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE",
     "OPENLAKEFORGE_CATALOG_PROVIDER",
     "OPENLAKEFORGE_CATALOG_REST_URI",
+    "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX",
     "OPENLAKEFORGE_CATALOG_TOKEN_URI",
     "OPENLAKEFORGE_CATALOG_TYPE",
     "OPENLAKEFORGE_CATALOG_WAREHOUSE",
@@ -78,12 +81,11 @@ def render_profile(environ: Mapping[str, str], *, in_job: bool = False) -> dict[
         return value
 
     catalog_type = environ.get("OPENLAKEFORGE_CATALOG_TYPE", "rest")
-    if catalog_type != "rest":
+    if catalog_type not in ("rest", "glue"):
         provider = environ.get("OPENLAKEFORGE_CATALOG_PROVIDER", "")
         raise FloeProfileError(
             f"catalog {catalog_type!r} ({provider or 'unknown provider'}) is not supported: "
-            "Silver runs through a REST catalog only; a Floe Glue catalog writes every table into "
-            "one database, not each domain's own (docs/technical-debt.md)."
+            "Floe writes Iceberg through a REST or AWS Glue catalog."
         )
 
     # Terraform-managed code deployments (`manage_user_deployments`) carry
@@ -120,31 +122,51 @@ def render_profile(environ: Mapping[str, str], *, in_job: bool = False) -> dict[
         storages.append(storage)
 
     silver_bucket = required("OPENLAKEFORGE_STORAGE_SILVER_BUCKET")
-    prefix = environ.get("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "").strip()
-    if "://" not in prefix:
-        prefix = f"s3://{silver_bucket}/{prefix.lstrip('/')}".rstrip("/")
     # The Secret is mounted whole (`envSecrets`), so its keys arrive under
     # their own names; Floe expands `${...}` from the environment at run time
     # and the credential itself never enters the profile.
     client_id = environ.get("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY") or "POLARIS_FLOE_CLIENT_ID"
     client_secret = environ.get("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY") or "POLARIS_FLOE_CLIENT_SECRET"
-    catalog = {
-        "name": CATALOG_NAME,
-        "type": "rest",
-        "uri": required("OPENLAKEFORGE_CATALOG_REST_URI"),
-        "credential": f"client_credentials:${{{client_id}}}:${{{client_secret}}}",
-        "warehouse": environ.get("OPENLAKEFORGE_CATALOG_WAREHOUSE") or required("OPENLAKEFORGE_CATALOG_NAME"),
-        "oauth2_server_uri": required("OPENLAKEFORGE_CATALOG_TOKEN_URI"),
-        "scope": environ.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE") or "PRINCIPAL_ROLE:ALL",
-        "warehouse_storage": "lakehouse_silver",
-        "warehouse_prefix": prefix,
-    }
+    catalog: dict[str, object]
+    if catalog_type == "glue":
+        # One Glue database per domain, named as `olf catalog sync-namespaces`
+        # creates it: the stage's prefix (the catalog is shared by every
+        # stage) and the domain's Silver namespace, which Floe substitutes
+        # for `{domain}`. Credentials are the pod's own AWS identity.
+        catalog = {
+            "name": CATALOG_NAME,
+            "type": "glue",
+            "region": environ.get("OPENLAKEFORGE_CATALOG_GLUE_REGION") or region,
+            "database": required("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX") + "{domain}",
+            "create_database_if_missing": False,
+            "warehouse_storage": "lakehouse_silver",
+            "warehouse_prefix": _absolute_prefix(
+                silver_bucket, environ.get("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX") or "warehouse/iceberg"
+            ),
+        }
+    else:
+        catalog = {
+            "name": CATALOG_NAME,
+            "type": "rest",
+            "uri": required("OPENLAKEFORGE_CATALOG_REST_URI"),
+            "credential": f"client_credentials:${{{client_id}}}:${{{client_secret}}}",
+            "warehouse": environ.get("OPENLAKEFORGE_CATALOG_WAREHOUSE") or required("OPENLAKEFORGE_CATALOG_NAME"),
+            "oauth2_server_uri": required("OPENLAKEFORGE_CATALOG_TOKEN_URI"),
+            "scope": environ.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE") or "PRINCIPAL_ROLE:ALL",
+            "warehouse_storage": "lakehouse_silver",
+            "warehouse_prefix": _absolute_prefix(silver_bucket, environ.get("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "")),
+        }
 
     lineage_on = _governance_enabled(environ)
     runner = (
         {"type": "local"}
         if in_job
-        else _job_runner(environ, required, client_id=client_id, client_secret=client_secret, lineage=lineage_on)
+        else _job_runner(
+            environ,
+            required,
+            polaris_client=(client_id, client_secret) if catalog_type == "rest" else None,
+            lineage=lineage_on,
+        )
     )
     profile: dict[str, object] = {
         "apiVersion": "floe/v1",
@@ -162,10 +184,16 @@ def render_profile(environ: Mapping[str, str], *, in_job: bool = False) -> dict[
             "url": required("OPENLINEAGE_URL"),
             "endpoint": environ.get("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage"),
             "namespace": environ.get("OPENLINEAGE_NAMESPACE", "dagster"),
-            "dataset_namespace": environ.get("OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE", "polaris"),
+            "dataset_namespace": environ.get("OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE")
+            or ("aws_glue" if catalog_type == "glue" else "polaris"),
             "timeout_secs": 5,
         }
     return profile
+
+
+def _absolute_prefix(bucket: str, prefix: str) -> str:
+    prefix = prefix.strip()
+    return prefix if "://" in prefix else f"s3://{bucket}/{prefix.lstrip('/')}".rstrip("/")
 
 
 def _governance_enabled(environ: Mapping[str, str]) -> bool:
@@ -179,8 +207,7 @@ def _job_runner(
     environ: Mapping[str, str],
     required: Callable[[str], str],
     *,
-    client_id: str,
-    client_secret: str,
+    polaris_client: tuple[str, str] | None,
     lineage: bool,
 ) -> dict[str, object]:
     # The run pod's own image: its Floe project and entrypoint are the ones
@@ -192,14 +219,10 @@ def _job_runner(
     namespace = environ.get("OPENLAKEFORGE_KUBE_NAMESPACE") or required("NAMESPACE")
     # Secrets travel by reference: the Job resolves them from its own
     # namespace, and no credential value enters the profile or the Job spec.
-    secrets = [
-        {"name": client_id, "secret_name": required("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"), "key": client_id},
-        {
-            "name": client_secret,
-            "secret_name": required("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"),
-            "key": client_secret,
-        },
-    ]
+    secrets: list[dict[str, str]] = []
+    if polaris_client is not None:
+        catalog_secret = required("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME")
+        secrets.extend({"name": key, "secret_name": catalog_secret, "key": key} for key in polaris_client)
     storage_secret = environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "")
     if storage_secret:
         for name, key_env in (

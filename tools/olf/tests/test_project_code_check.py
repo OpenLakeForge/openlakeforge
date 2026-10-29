@@ -66,16 +66,16 @@ def _domain_job(
     entities: dict[str, tuple[str, str]], *, domain: str = "sales", can_subset: bool = True
 ) -> SimpleNamespace:
     """dagster-floe's asset for one domain's Job: an accepted and a rejected output per entity."""
-    outputs: dict[str, _Key] = {}
+    specs: list[SimpleNamespace] = []
     deps: dict[_Key, list[_Key]] = {}
     for table, bronze in entities.items():
-        accepted, rejected = _key((domain, table)), _key((domain, f"{table}_rejected"))
-        outputs[f"{domain}__{table}__accepted"] = accepted
-        outputs[f"{domain}__{table}__rejected"] = rejected
+        accepted, rejected = _key((domain, table)), _key((domain, "rejected", table))
+        specs.append(SimpleNamespace(key=accepted, metadata={"floe/entity": table, "floe/output": "accepted"}))
+        specs.append(SimpleNamespace(key=rejected, metadata={"floe/entity": table, "floe/output": "rejected"}))
         deps[accepted] = deps[rejected] = [_key(bronze)]
     return SimpleNamespace(
         op=SimpleNamespace(tags={"dagster/compute_kind": "floe"}),
-        keys_by_output_name=outputs,
+        specs=specs,
         asset_deps=deps,
         can_subset=can_subset,
     )
@@ -124,7 +124,7 @@ def test_a_declared_table_ending_in_rejected_is_not_mistaken_for_a_rejection_out
 def test_gold_assets_of_a_product_named_like_its_domain_are_not_silver() -> None:
     gold = SimpleNamespace(
         op=SimpleNamespace(tags={"dagster/compute_kind": "dbt"}),
-        keys_by_output_name={"revenue": _key(("sales", "revenue"))},
+        specs=[SimpleNamespace(key=_key(("sales", "revenue")), metadata={})],
         asset_deps={},
     )
     definitions = SimpleNamespace(assets=[_domain_job({"orders": ("crm", "orders")}), gold])
