@@ -102,7 +102,7 @@
         "roles": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["precedence", "grants"],
+          "required": ["precedence", "grants", "data_access"],
           "properties": {
             "precedence": {
               "type": "array",
@@ -117,6 +117,19 @@
                 "type": "object",
                 "minProperties": 1,
                 "additionalProperties": {"$ref": "#/definitions/nonEmptyString"}
+              }
+            },
+            "data_access": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "propertyNames": {"enum": ["dev", "uat", "prod"]},
+                "additionalProperties": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": {"enum": ["bronze", "silver", "gold"]},
+                  "additionalProperties": {"enum": ["read", "write"]}
+                }
               }
             }
           }

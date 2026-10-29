@@ -89,6 +89,14 @@ or differs in any way from `release/identity-roles.yaml` (read from the
 distribution root, so an installed payload ships it). The published schema
 `docs/schema/provider-contracts.schema.json` covers the shape.
 
+The same file carries `data_access`, the person's data access by stage and
+medallion layer ([ADR 0019](0019-data-plane-authorization-deferral.md)): the
+mapping keyed by canonical role that the boundary below reserves. It is held
+to the same rules (closed vocabulary, monotonic on every stage and layer,
+equal to the release file) plus one of its own: each stage row is a shape a
+Polaris catalog role can express. It is carried and validated only; Polaris
+enforces it in a later build step of ADR 0019.
+
 ### Boundary: OpenLakeForge roles versus cloud IAM
 
 | | OpenLakeForge roles | Cloud IAM (AWS IAM, Azure managed identity) |
@@ -538,3 +546,7 @@ the first boot; an admin automation bot replaces basic login for `olf`. 1.13.6
 has no claim-based admin mapping, so every signed-in person starts at the read
 baseline until the role sync lands. Details in
 `docs/architecture/identity/identity-service-permissions.md`.
+
+Data access (ADR 0019, build step 1): `release/identity-roles.yaml` gains
+`data_access`, rendered into `shared.identity.roles` with the rest of the file
+and validated by `olf`; nothing enforces it yet.

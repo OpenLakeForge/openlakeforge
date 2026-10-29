@@ -144,13 +144,17 @@ identical on every provider because each root renders it with
     "grants": {
       "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"},
       "query": {"platform-admin": "yes", "data-engineer": "yes"}
+    },
+    "data_access": {
+      "analyst": {"dev": {"gold": "read"}, "uat": {"gold": "read"}, "prod": {"gold": "read"}},
+      "viewer": {"uat": {"gold": "read"}, "prod": {"gold": "read"}}
     }
   }
 }
 ```
 
-(`grants` is abbreviated here; the full matrix is in the ADR and the release
-file.)
+(`grants` and `data_access` are abbreviated here; the full matrices are in the
+ADRs and the release file.)
 
 | Rule | Why |
 | --- | --- |
@@ -158,6 +162,9 @@ file.)
 | every role named in `grants` is in `precedence` | the role vocabulary is closed |
 | every `grants` key is a service a route can publish (`orchestration`, `reporting`, `governance_service`, `query`) | the perimeter resolves route ref, to service, to roles |
 | grants are monotonic across `precedence` | multi-role union equals the highest role |
+| `data_access` names only roles in `precedence`, stages `dev`, `uat`, `prod`, layers `bronze`, `silver`, `gold`, and `read` or `write` | the same closed vocabulary; an absent role, stage or layer is no access |
+| each `data_access` stage row is every layer `write`, every layer `read`, or `gold: read` alone | the only rows Polaris catalog roles express ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md), section 5) |
+| `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`; nothing enforces it yet: Polaris grants arrive in a later build step |
 
 With `implementation: identity.oidc` (ADR 0014 seam 2, #24) the binding also
 carries the issuer. No field is issuer-specific; everything is keyed by a

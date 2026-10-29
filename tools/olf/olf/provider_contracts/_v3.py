@@ -73,9 +73,53 @@ _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets
 _GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity", "portal"}
 IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 
+# Data access is ordered so monotonicity is a comparison; absent is none.
+_DATA_ACCESS_LEVELS = {"read": 1, "write": 2}
+_MEDALLION_LAYERS = ("bronze", "silver", "gold")
+# Polaris enforces data_access as catalog roles (ADR 0019, section 5), and these
+# are the only stage rows those roles express. Another shape would validate
+# here and then be silently widened or narrowed by the catalog.
+_DATA_ACCESS_SHAPES = (
+    {layer: "write" for layer in _MEDALLION_LAYERS},
+    {layer: "read" for layer in _MEDALLION_LAYERS},
+    {"gold": "read"},
+)
+
+
+def _data_access(value: object, precedence: list[str], *, where: str) -> None:
+    by_role = _mapping(value, where=where)
+    for role, by_stage in by_role.items():
+        if role not in precedence:
+            raise ProviderContractError(f"{where} names unknown role {role!r}")
+        for stage, layers in _mapping(by_stage, where=f"{where}.{role}").items():
+            if stage not in {name.value for name in StageName}:
+                raise ProviderContractError(f"{where}.{role} names unknown stage {stage!r}")
+            row = _mapping(layers, where=f"{where}.{role}.{stage}")
+            for layer, access in row.items():
+                if layer not in _MEDALLION_LAYERS:
+                    raise ProviderContractError(f"{where}.{role}.{stage} names unknown layer {layer!r}")
+                if not isinstance(access, str) or access not in _DATA_ACCESS_LEVELS:
+                    raise ProviderContractError(f"{where}.{role}.{stage}.{layer} must be read or write")
+            if dict(row) not in _DATA_ACCESS_SHAPES:
+                raise ProviderContractError(
+                    f"{where}.{role}.{stage} must be every layer write, every layer read, or gold read alone"
+                )
+
+    def level(role: str, stage: StageName, layer: str) -> int:
+        access = by_role.get(role, {}).get(stage.value, {}).get(layer)
+        return _DATA_ACCESS_LEVELS.get(access, 0)
+
+    for higher, lower in zip(precedence, precedence[1:], strict=False):
+        for stage in StageName:
+            for layer in _MEDALLION_LAYERS:
+                if level(higher, stage, layer) < level(lower, stage, layer):
+                    raise ProviderContractError(
+                        f"{where} is not monotonic: {lower!r} reaches {stage.value} {layer} further than {higher!r}"
+                    )
+
 
 def _identity_roles(value: object, *, where: str) -> Mapping[str, Any]:
-    document = _fields(value, where=where, required={"precedence", "grants"})
+    document = _fields(value, where=where, required={"precedence", "grants", "data_access"})
     precedence = document["precedence"]
     if not isinstance(precedence, list) or not precedence:
         raise ProviderContractError(f"{where}.precedence must be a non-empty list of unique role names")
@@ -99,6 +143,7 @@ def _identity_roles(value: object, *, where: str) -> Mapping[str, Any]:
                 f"{where}.grants.{service} is not monotonic: a role may only hold a grant "
                 "if every higher-precedence role holds one"
             )
+    _data_access(document["data_access"], precedence, where=f"{where}.data_access")
     return document
 
 

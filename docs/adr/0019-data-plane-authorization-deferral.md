@@ -2,7 +2,9 @@
 
 ## Status
 
-Decided, **not built**: this is the design for #367. **Binding today:**
+Decided, **build step 1 of 8 landed**: this is the design for #367. Step 1
+puts `data_access` in the role model, validated by `olf` and enforced by
+nothing yet. **Binding today:**
 v0.5-alpha has service-level authorization only, and nothing in it restricts
 which tables a signed-in user reads (Context). **Decided for the build:**
 `olf query` stops running through `kubectl exec` as the stage's shared
@@ -407,3 +409,8 @@ the person path so Polaris also decides file access; this adds SeaweedFS STS
 and two verification items. Settled the open questions: `uat` takes the PROD
 column for every role, `viewer` included, and the Trino people catalogs are
 named `<stage>`.
+
+Build step 1: `data_access` in `release/identity-roles.yaml`, rendered into
+`shared.identity.roles` by every root and validated by `olf` (vocabulary,
+monotonic on every stage and layer, the three catalog-role shapes); the
+provider-contract schema gains the section.

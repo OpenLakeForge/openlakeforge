@@ -1375,6 +1375,10 @@ def _drop_identity_roles(contract: dict) -> None:
     del contract["shared"]["identity"]["roles"]
 
 
+def _data_access(contract: dict) -> dict:
+    return contract["shared"]["identity"]["roles"]["data_access"]
+
+
 @pytest.mark.parametrize(
     ("mutate", "match"),
     [
@@ -1406,6 +1410,49 @@ def _drop_identity_roles(contract: dict) -> None:
         ),
         (
             lambda contract: contract["shared"]["identity"]["roles"]["precedence"].append("auditor"),
+            "differs from release/identity-roles.yaml",
+        ),
+        (
+            lambda contract: contract["shared"]["identity"]["roles"].pop("data_access"),
+            "missing required fields \\['data_access'\\]",
+        ),
+        (
+            lambda contract: _data_access(contract).__setitem__("guest", {"prod": {"gold": "read"}}),
+            "data_access names unknown role 'guest'",
+        ),
+        (
+            lambda contract: _data_access(contract)["viewer"].__setitem__("staging", {"gold": "read"}),
+            "data_access.viewer names unknown stage 'staging'",
+        ),
+        (
+            lambda contract: _data_access(contract)["viewer"].__setitem__("prod", {"platinum": "read"}),
+            "data_access.viewer.prod names unknown layer 'platinum'",
+        ),
+        (
+            lambda contract: _data_access(contract)["viewer"].__setitem__("prod", {"gold": "own"}),
+            "data_access.viewer.prod.gold must be read or write",
+        ),
+        (
+            lambda contract: _data_access(contract)["viewer"].__setitem__("prod", {"gold": ["read"]}),
+            "data_access.viewer.prod.gold must be read or write",
+        ),
+        (
+            # Silver alone is no catalog role Polaris can express.
+            lambda contract: _data_access(contract)["data-engineer"].__setitem__("prod", {"silver": "read"}),
+            "data_access.data-engineer.prod must be every layer write, every layer read, or gold read alone",
+        ),
+        (
+            # viewer reads DEV Gold, which analyst above it may not.
+            lambda contract: (
+                _data_access(contract)["analyst"].pop("dev"),
+                _data_access(contract)["viewer"].__setitem__("dev", {"gold": "read"}),
+            ),
+            "not monotonic: 'viewer' reaches dev gold further than 'analyst'",
+        ),
+        (
+            lambda contract: _data_access(contract)["data-engineer"].__setitem__(
+                "prod", {"bronze": "write", "silver": "write", "gold": "write"}
+            ),
             "differs from release/identity-roles.yaml",
         ),
     ],
