@@ -67,6 +67,11 @@ class ImageSettings:
         return f"{self.project_code_repository}:{self.project_code_tag}"
 
     @property
+    def project_code_build_image(self) -> str:
+        """Where an explicit build lands: a `repo:version@sha256:...` reference cannot be a build tag."""
+        return f"{self.project_code_repository}:local" if self.project_code_published else self.project_code_image
+
+    @property
     def superset_image(self) -> str:
         return f"{self.superset_repository}:{self.superset_tag}"
 

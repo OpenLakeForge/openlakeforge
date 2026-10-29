@@ -75,7 +75,7 @@ def load(
     settings, tools = _local_config(cluster_name, project_root=project_root)
     try:
         if image == "project-code":
-            reference = settings.images.project_code_image
+            reference = settings.images.project_code_build_image
         elif image == "superset":
             reference = settings.images.superset_image
         else:
