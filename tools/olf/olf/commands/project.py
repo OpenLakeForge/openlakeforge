@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -25,8 +26,6 @@ app.add_typer(revision_app, name="revision")
 
 
 def _profile_provider(context, *, var_file: str = ""):  # noqa: ANN001, ANN202
-    import os
-
     from olf.deployment.engine import Toolkit, build_provider
     from olf.deployment.errors import DeploymentError
 
@@ -141,7 +140,7 @@ def deploy(
     from olf.artifact_store import ArtifactStoreError
     from olf.deployment.activation import ActivationError, deploy_revision
     from olf.deployment.errors import DeploymentError
-    from olf.profile import load_deployment_profile
+    from olf.profile import load_deployment_profile, resolve_project
     from olf.project_activation import ProjectActivationError
     from olf.project_revision import ProjectRevisionError
 
@@ -155,6 +154,7 @@ def deploy(
                 revision=revision,
                 store=store,
                 profile_name=profile.name,
+                pull_secret=resolve_project(profile, os.environ).pull_secret_name,
             )
     except (ActivationError, ArtifactStoreError, DeploymentError, ProjectActivationError, ProjectRevisionError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
