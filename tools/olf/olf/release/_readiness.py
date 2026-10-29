@@ -318,8 +318,9 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         )
     },
 }
-# Not part of the deployed stack: build bases.
-_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
+# Not part of the deployed stack: build bases. `project_code` is the example image a release stamps into its own
+# catalog (release.yml); no committed file deploys it, so there is nothing to compare it against.
+_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base", "project_code"})
 
 
 def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:

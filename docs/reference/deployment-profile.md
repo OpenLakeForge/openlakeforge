@@ -151,6 +151,18 @@ The image repository resolves in this order, first match wins
 
 Existing profiles have no `spec.project` and keep working unchanged.
 
+On the `local` provider the public example is the project-code image the release
+published, pinned by digest in the `project_code` entry of the package's
+`release/component-catalog.yaml`. `olf deploy` pulls it once on the workstation
+and loads it into kind, so no Docker build and no registry credential is needed
+and the pods pull nothing. A
+source checkout carries no such entry (a release stamps in the digest of the
+image built from its own commit), so there `olf deploy` builds the example
+locally. So does anything that is not the unmodified example: a `lakehouse_code/`
+in your project that differs from the bundled one, `PROJECT_CODE_IMAGE_TAG`, or
+a machine that is not amd64 (the release image is amd64 only).
+AWS and Azure still build and push the image to their registry.
+
 ```yaml
 # Local, your own image on GHCR (private: also name the pull secret).
 project:

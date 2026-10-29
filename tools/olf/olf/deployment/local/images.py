@@ -46,17 +46,17 @@ def build_project_code_image(
     log.step(f"Pulling project-code Python base image: {images.project_code_python_base_image}")
     tools.docker.pull(images.project_code_python_base_image, env=env, retry_policy=images.pull_retry)
 
-    log.step(f"Building project-code image: {images.project_code_image}")
+    log.step(f"Building project-code image: {images.project_code_build_image}")
     with project_code_build_context(config.paths) as build_context:
         tools.docker.build(
             build_context,
-            tag=images.project_code_image,
+            tag=images.project_code_build_image,
             file=build_context / "images/project-code/Dockerfile",
             build_args={"PYTHON_BASE_IMAGE": images.project_code_python_base_image},
             env=env,
             retry_policy=images.build_retry,
         )
-    return images.project_code_image
+    return images.project_code_build_image
 
 
 def load_image_into_kind(image: str, config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
@@ -136,6 +136,13 @@ def prepare_project_code_image(
     *,
     env: Mapping[str, str],
 ) -> None:
+    if config.images.project_code_published:
+        # An artifacts-only run may follow a deploy of a different image, so nothing else has put this one on the nodes.
+        log.step("Ensuring the published project-code image is available to kind...")
+        from olf.deployment.local.prefetch import load_image_into_nodes
+
+        load_image_into_nodes(config, tools, config.images.project_code_image, env=env)
+        return
     if config.images.project_code_tag != "local":
         return
     log.step("Building local project-code image...")

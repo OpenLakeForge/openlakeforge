@@ -237,3 +237,39 @@ def test_prepare_project_code_image_builds_and_loads(tmp_path: Path) -> None:
 
     assert any(c.argv[1] == "build" for c in runner.calls)
     assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)
+
+
+_PIN = "ghcr.io/o/project-code:1.0.0-alpha.1@sha256:" + "a" * 64
+
+
+def _published(tmp_path: Path) -> LocalDeploymentConfig:
+    from dataclasses import replace
+
+    from olf.deployment.local.config import ImageSettings
+
+    return replace(_config(tmp_path), images=ImageSettings.from_environment({}, published=_PIN))
+
+
+def test_prepare_project_code_image_loads_the_published_image_instead_of_building(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.deployment.local import prefetch
+
+    loaded: list[str] = []
+    monkeypatch.setattr(prefetch, "load_image_into_nodes", lambda cfg, tls, image, *, env: loaded.append(image))
+    runner = _ScriptedRunner()
+
+    images.prepare_project_code_image(_published(tmp_path), _toolkit(runner), env={})
+
+    assert loaded == [_PIN]
+    assert runner.calls == []
+
+
+def test_an_explicit_build_never_uses_the_published_digest_as_its_tag(tmp_path: Path) -> None:
+    runner = _ScriptedRunner()
+
+    built = images.build_project_code_image(_published(tmp_path), _toolkit(runner), env={})
+
+    assert built == "ghcr.io/o/project-code:local"
+    argv = next(c.argv for c in runner.calls if c.argv[1] == "build")
+    assert argv[argv.index("-t") + 1] == built

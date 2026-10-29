@@ -131,6 +131,14 @@ def test_check_images_match_deployment_sources_ignores_build_only_images() -> No
     assert result.ok, result.detail
 
 
+def test_a_release_stamped_example_image_is_not_flagged_as_unregistered() -> None:
+    """The release workflow adds `project_code` to the catalog it packages; the check must still pass there."""
+    catalog = load_catalog(ROOT / "release/component-catalog.yaml")
+    catalog["components"]["images"]["project_code"] = "ghcr.io/o/project-code:0.5.0-alpha.1@sha256:" + "a" * 64
+    result = _readiness._check_images_match_deployment_sources(ROOT, catalog)
+    assert result.ok, result.detail
+
+
 def test_check_images_match_deployment_sources_catches_a_tag_bump_the_catalog_missed(
     tmp_path: Path,
 ) -> None:

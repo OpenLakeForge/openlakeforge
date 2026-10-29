@@ -258,6 +258,7 @@ class DeploymentTopology:
     stage_services: tuple[str, ...] = _STAGE_SERVICES
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
+    project: ProjectSpec | None = None
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -718,20 +719,26 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         stages=tuple(resolved),
         access=profile.access,
         identity=profile.identity,
+        project=profile.project,
     )
 
 
 def resolve_project(profile: DeploymentProfile, environ: Mapping[str, str] | None = None) -> ResolvedProject:
+    return resolve_declared_project(profile.project, profile.provider.type, environ)
+
+
+def resolve_declared_project(
+    project: ProjectSpec | None, provider: Provider, environ: Mapping[str, str] | None = None
+) -> ResolvedProject:
     """Where the project-code image comes from, in precedence order: the profile's
     `spec.project.image`, then `PROJECT_CODE_IMAGE_REPOSITORY` (or its
     `<PROVIDER>_` alias), then the provider registry for a project declared
     without an image, and the public example only when nothing was declared. A
     declared project therefore never resolves to the example."""
-    project = profile.project
     repository = project.repository if project else None
     if project and project.image:
         return ResolvedProject("profile", repository, project.image.repository, project.image.pull_secret_name)
-    prefix = profile.provider.type.value.upper()
+    prefix = provider.value.upper()
     env = (environ or {}).get("PROJECT_CODE_IMAGE_REPOSITORY") or (environ or {}).get(
         f"{prefix}_PROJECT_CODE_IMAGE_REPOSITORY"
     )

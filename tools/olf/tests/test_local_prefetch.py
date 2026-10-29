@@ -250,3 +250,15 @@ def test_prefetch_deletes_each_archive_once_every_node_loaded_it(tmp_path: Path)
     prefetch.prefetch_images(config, tools, env={}, work_dir=scratch)
 
     assert list(scratch.iterdir()) == []
+
+
+def test_selected_images_loads_the_published_example_only_when_deployed() -> None:
+    catalog = {**_CATALOG, "project_code": "ghcr.io/o/project-code:1@sha256:" + "b" * 64}
+    features = DeploymentFeatures(governance_enabled=False, analytics_enabled=False)
+
+    assert catalog["project_code"] in prefetch.selected_images(
+        features, server_arch="amd64", catalog_images=catalog, project_code=True
+    )
+    assert catalog["project_code"] not in prefetch.selected_images(
+        features, server_arch="amd64", catalog_images=catalog
+    )
