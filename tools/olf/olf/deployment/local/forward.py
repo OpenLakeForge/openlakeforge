@@ -72,7 +72,7 @@ def local_forward_spec(config: LocalDeploymentConfig, tools: Toolkit, *, env: Ma
     if dagster_pod is not None:
         banner.append("  Dagster UI:       http://localhost:3000")
     if config.features.analytics_enabled:
-        banner.append("  Superset UI:      http://localhost:8088  (admin / admin)")
+        banner.append("  Superset UI:      http://localhost:8088  (admin; password in Secret superset-credentials)")
     if config.features.governance_enabled:
         banner.append("  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)")
     banner += [

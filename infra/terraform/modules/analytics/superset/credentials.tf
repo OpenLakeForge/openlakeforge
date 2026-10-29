@@ -1,7 +1,8 @@
-# The SECRET_KEY is created in-cluster, only if missing, so Terraform never
-# holds it (#400, docs/architecture/identity/identity-credentials.md). Redeploy
-# reuses it. Rotating it is not supported: Superset encrypts stored database
-# passwords with it.
+# The SECRET_KEY and the admin password are created in-cluster, only if
+# missing, so Terraform never holds a value (#400,
+# docs/architecture/identity/identity-credentials.md). Redeploy reuses them;
+# rotating the password is deleting the Secret and replacing this Job. Rotating
+# the key is not supported: Superset encrypts stored database passwords with it.
 locals {
   credentials_secret_name = "${var.release_name}-credentials"
   # Earlier releases put the key in the chart's own Secret. Reading it back
@@ -17,7 +18,7 @@ locals {
         -o 'go-template={{with index .data "SUPERSET_SECRET_KEY"}}{{.}}{{end}}' | base64 -d)"
       [ -n "$secret_key" ] || secret_key="$(rand 64)"
       kubectl create secret generic "${local.credentials_secret_name}" -n "$NAMESPACE" \
-        --from-literal=secret-key="$secret_key"
+        --from-literal=secret-key="$secret_key" --from-literal=admin-password="$(rand 32)"
     fi
   SH
 }

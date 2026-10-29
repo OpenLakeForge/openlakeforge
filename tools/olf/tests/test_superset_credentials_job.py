@@ -1,4 +1,4 @@
-"""The Superset credentials Job (#400) creates the SECRET_KEY only when missing."""
+"""The Superset credentials Job (#400) creates the SECRET_KEY and admin password only when missing."""
 
 from __future__ import annotations
 
@@ -34,12 +34,13 @@ def _run_job(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["sh", "-ec", _script()], env=env, capture_output=True, text=True)
 
 
-def test_a_fresh_install_gets_a_key(tmp_path: Path) -> None:
+def test_a_fresh_install_gets_a_key_and_an_admin_password(tmp_path: Path) -> None:
     result = _run_job(tmp_path)
 
     secret = tmp_path / "secrets/olf-dev/superset-credentials"
     assert result.returncode == 0, result.stderr
     assert len((secret / "secret-key").read_text()) == 64
+    assert len((secret / "admin-password").read_text()) == 32
 
 
 def test_an_existing_chart_key_is_kept_so_stored_connection_passwords_stay_readable(tmp_path: Path) -> None:
@@ -53,13 +54,14 @@ def test_an_existing_chart_key_is_kept_so_stored_connection_passwords_stay_reada
     assert (tmp_path / "secrets/olf-dev/superset-credentials/secret-key").read_text() == "key-from-the-old-release"
 
 
-def test_a_rerun_keeps_the_key_and_prints_no_value(tmp_path: Path) -> None:
+def test_a_rerun_keeps_both_values_and_prints_no_value(tmp_path: Path) -> None:
     first = _run_job(tmp_path)
     secret = tmp_path / "secrets/olf-dev/superset-credentials"
-    values = [(secret / "secret-key").read_text()]
+    names = ("secret-key", "admin-password")
+    values = [(secret / name).read_text() for name in names]
 
     second = _run_job(tmp_path)
 
     assert (first.returncode, second.returncode) == (0, 0), first.stderr + second.stderr
-    assert [(secret / "secret-key").read_text()] == values
+    assert [(secret / name).read_text() for name in names] == values
     assert not any(value in first.stdout + second.stdout for value in values)

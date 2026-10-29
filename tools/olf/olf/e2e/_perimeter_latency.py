@@ -16,7 +16,7 @@ from typing import Any
 
 import requests
 
-from olf import access, config, log
+from olf import access, config, log, superset
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._identity_github import REQUEST_TIMEOUT, dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
 from olf.e2e._perimeter import PORTAL_REF
@@ -136,9 +136,10 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
         browser, _ = sign_in_with_stub(routes[PORTAL_REF], login, stub_host(cfg))
         cookies = {c.name: c.value or "" for c in browser.cookies}
         # Superset's own API login is the same on both paths; only the route differs.
+        password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
         auth = requests.post(
             f"{direct_url}/api/v1/security/login",
-            json={"username": "admin", "password": "admin", "provider": "db", "refresh": True},
+            json={"username": "admin", "password": password, "provider": "db", "refresh": True},
             timeout=REQUEST_TIMEOUT,
         )
         auth.raise_for_status()
