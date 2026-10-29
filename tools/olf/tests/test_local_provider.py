@@ -268,6 +268,20 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
     assert pushed == []
 
 
+def test_the_image_command_returns_the_published_example_without_building(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    import platform
+
+    from test_local_config import _PIN, _published_config
+
+    from olf.deployment.local import images
+
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(images, "build_project_code_image", lambda *a, **k: pytest.fail("built"))
+    provider = LocalProvider.create(_published_config(tmp_path), toolkit=_toolkit(), environ={})
+
+    assert provider.build_project_image() == _PIN
+
+
 def _github_provider(tmp_path: Path) -> LocalProvider:
     from dataclasses import replace
 

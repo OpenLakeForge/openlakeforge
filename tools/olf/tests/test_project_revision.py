@@ -31,6 +31,22 @@ def test_revision_is_stable_across_repeated_builds(external_project: Path) -> No
     assert first.to_json() == second.to_json()
 
 
+def test_the_published_example_image_is_frozen_into_the_revision_without_docker(external_project: Path) -> None:
+    pin = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0@sha256:" + "c" * 64
+
+    def no_docker(_image: str) -> str:
+        raise AssertionError("a digest-pinned reference needs no Docker")
+
+    manifest = project_revision.build_project_revision(
+        _spec(external_project),
+        image=pin,
+        distribution_version=_DISTRIBUTION_VERSION,
+        resolve_image_digest_with=no_docker,
+    )
+
+    assert manifest.project_code_image == pin
+
+
 def test_revision_is_stable_across_a_copy_at_a_different_path(external_project: Path, tmp_path: Path) -> None:
     import shutil
 

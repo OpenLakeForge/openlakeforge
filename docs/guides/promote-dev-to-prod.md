@@ -51,7 +51,9 @@ registry (ECR, ACR) is used and you set nothing.
 Build the revision once. `olf project image` builds the project-code image,
 pushes it, loads it into kind and ends with a digest-pinned reference;
 `olf project build` freezes your descriptors, Floe contracts, dbt projects,
-Dagster code, reports and that image into a revision and prints its id:
+Dagster code, reports and that image into a revision and prints its id. An
+unmodified example project with no `spec.project` skips the image build:
+`olf project image` prints the release-pinned reference instead (a source checkout has no pin and builds).
 
 ```bash
 IMAGE="$(olf project image -f openlakeforge.yaml | tee /dev/stderr | tail -n 1)"

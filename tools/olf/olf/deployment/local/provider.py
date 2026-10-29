@@ -116,9 +116,13 @@ class LocalProvider:
         digest `olf project build` requires -- a kind-only image has just a
         local config Id, which is not pullable. The kind load still happens
         either way so the default `Never` pull policy keeps working.
+
+        The unmodified example is already published by digest: that reference is the result, with no build.
         """
         from olf.deployment.local import images
 
+        if self.config.images.project_code_published:
+            return self.config.images.project_code_image
         image = images.build_project_code_image(self.config, self.tools, env=self.env)
         if push:
             log.step(f"Pushing project-code image: {image}")

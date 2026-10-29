@@ -129,6 +129,8 @@ class CloudProvider:
     def build_project_image(self, *, push: bool = True) -> str:
         """Build and push the project-code image, returning its pushed reference.
 
+        The unmodified example is already published by digest: that reference is the result, with no build.
+
         `push` is accepted for a uniform provider surface and must stay true: a
         cloud cluster can only pull from its registry, so an unpushed build
         could never be activated.
@@ -136,17 +138,15 @@ class CloudProvider:
         from olf.deployment.cloud import images
         from olf.deployment.errors import DeploymentPreconditionError
 
+        if self.config.images.project_code_published:
+            return self.config.images.project_code_image
         if not push:
             raise DeploymentPreconditionError(
                 f"--no-push is not supported for the {self.backend.scope} provider: "
                 "the cluster pulls the project-code image from its registry."
             )
-        # An explicit build is custom project intent: never the published example.
-        config = CloudDeploymentConfig.from_environment(
-            self._environ, context=self.config.context, reuse_published_image=False
-        )
         return images.build_and_push_project_code_image(
-            config, self.tools, self.backend, self.foundation_facts, env=self.env
+            self.config, self.tools, self.backend, self.foundation_facts, env=self.env
         )
 
     def platform_up(self) -> None:
