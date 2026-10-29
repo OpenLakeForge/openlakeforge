@@ -63,17 +63,19 @@ class ScaffoldFile:
 
 @dataclass(frozen=True)
 class ScaffoldPlan:
-    """A fully-resolved set of file writes plus the updated lakehouse.yaml.
+    """A fully-resolved set of file writes plus the updated governance.yml.
 
     ``files`` are brand-new paths -- the commit engine refuses to write any
     of them if the path already exists. ``edits`` are pre-existing files
     (e.g. an existing domain's Floe contract gaining a new entity) that are
     replaced with new, verified content; they are exempt from the
     already-exists check because replacing them *is* the operation.
+    ``governance_yml`` is None when the plan leaves governance untouched
+    (``source new``).
     """
 
     files: tuple[ScaffoldFile, ...]
-    lakehouse_yaml: str
+    governance_yml: str | None
     summary: tuple[str, ...]
     edits: tuple[ScaffoldFile, ...] = ()
 

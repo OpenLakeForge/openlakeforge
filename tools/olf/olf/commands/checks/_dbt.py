@@ -110,7 +110,7 @@ def _validate_dbt_relation_contract(project: Path, *, root: Path, catalog: str) 
     inventory = load_lakehouse_inventory(root / "lakehouse_code")
     descriptor = next((item for item in inventory.products if item.id == product), None)
     if descriptor is None:
-        raise typer.Exit(code=fail(f"cannot resolve dbt product {product!r} from lakehouse.yaml"))
+        raise typer.Exit(code=fail(f"cannot resolve dbt product {product!r} from governance.yml"))
     manifest = json.loads(manifest_path.read_text())
     expected_gold = f"{product}_gold"
     expected_silver = f"{descriptor.domain_name}_silver"

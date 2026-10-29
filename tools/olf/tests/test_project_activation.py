@@ -127,11 +127,11 @@ def test_materialize_uses_only_verified_published_content(external_project: Path
     store = FilesystemRevisionStore(tmp_path / "store")
     project_revision.publish(store, manifest, spec)
 
-    source = external_project / "lakehouse_code" / "lakehouse.yaml"
+    source = external_project / "lakehouse_code" / "governance.yml"
     source.write_text("mutated after publish\n")
     restored = project_revision.materialize(store, manifest, tmp_path / "materialized")
 
-    assert (restored / "lakehouse_code" / "lakehouse.yaml").read_text() != source.read_text()
+    assert (restored / "lakehouse_code" / "governance.yml").read_text() != source.read_text()
 
 
 def test_materialize_rejects_path_escape(tmp_path: Path) -> None:

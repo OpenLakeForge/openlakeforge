@@ -28,17 +28,6 @@ from olf.profile import (
 from olf.toolchain.manager import ToolchainManager
 from olf.toolchain.spec import MANAGED_TOOLS
 
-_EMPTY_LAKEHOUSE_YAML = """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: openlakeforge
-displayName: OpenLakeForge
-description: Empty OpenLakeForge project. Add a source and product before deployment.
-status: planned
-sources: []
-domains: []
-dashboards: []
-"""
-
 _EMPTY_FILES = (
     "__init__.py",
     "bronze/__init__.py",
@@ -155,9 +144,9 @@ class ProjectInitializer:
         if profile_only:
             # An existing project (a 0.2 one, say) gains only its profile: no
             # code is copied, so neither the toolchain nor Docker is needed.
-            if not (target / "lakehouse.yaml").is_file():
+            if not (target / "definitions.py").is_file():
                 raise InitializationError(
-                    f"--profile-only needs an existing project: {target / 'lakehouse.yaml'} not found"
+                    f"--profile-only needs an existing project: {target / 'definitions.py'} not found"
                 )
             _write_profile(profile_target, profile)
             return InitializationResult(
@@ -242,7 +231,6 @@ class ProjectInitializer:
         # `olf source new`/`domain new` declare each Bronze source here as an
         # entity first references it.
         (target / "silver" / "sources.yml").write_text("sources: []\n", encoding="utf-8")
-        (target / "lakehouse.yaml").write_text(_EMPTY_LAKEHOUSE_YAML, encoding="utf-8")
 
     def _make_user_writable(self, root: Path) -> None:
         """Hand the copied tree to the user.

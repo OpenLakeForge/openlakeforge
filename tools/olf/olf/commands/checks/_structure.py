@@ -140,6 +140,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "libs/s3_artifacts.py",
     "lakehouse_code/__init__.py",
     "lakehouse_code/definitions.py",
+    "lakehouse_code/governance.yml",
     "lakehouse_code/lakehouse.yaml",
     "lakehouse_code/bronze/__init__.py",
     "lakehouse_code/bronze/crm/source.yaml",

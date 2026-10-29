@@ -37,8 +37,8 @@ class ProjectSpec:
         return self.root / "lakehouse_code"
 
     @property
-    def lakehouse_path(self) -> Path:
-        return self.code_root / "lakehouse.yaml"
+    def governance_path(self) -> Path:
+        return self.code_root / "governance.yml"
 
     @property
     def bronze_root(self) -> Path:
@@ -132,7 +132,7 @@ def validate_project(project: ProjectSpec) -> ProjectValidationReport:
 def _canonical_layout_check(project: ProjectSpec) -> ProjectCheck:
     required_files = {
         "openlakeforge.yaml": project.profile_path,
-        "lakehouse_code/lakehouse.yaml": project.lakehouse_path,
+        "lakehouse_code/governance.yml": project.governance_path,
     }
     required_directories = {
         "lakehouse_code/": project.code_root,

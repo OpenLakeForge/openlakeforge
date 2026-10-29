@@ -33,7 +33,7 @@ def _seed_repo(tmp_path: Path) -> Path:
     shutil.copytree(ROOT / "lakehouse_code", tmp_path / "lakehouse_code")
     schema_dir = tmp_path / "docs" / "schema"
     schema_dir.mkdir(parents=True)
-    shutil.copy(ROOT / "docs/schema/lakehouse.schema.json", schema_dir / "lakehouse.schema.json")
+    shutil.copy(ROOT / "docs/schema/governance.schema.json", schema_dir / "governance.schema.json")
     shutil.copy(ROOT / "docs/schema/source.schema.json", schema_dir / "source.schema.json")
     return tmp_path
 
@@ -94,204 +94,81 @@ def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Pa
     )
 
 
-def test_source_new_handles_a_flow_style_sources_list(tmp_path: Path) -> None:
-    """`sources: [crm, erp]` is valid, schema-accepted YAML the descriptor
-    could legitimately use; appending to it must not splice a block-style
-    list item directly after the flow list (invalid YAML)."""
+
+
+def test_scaffolding_a_project_still_on_lakehouse_yaml_keeps_its_domains_and_products(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = re.sub(r"sources:\n(  - \w+\n)+", "sources: [crm, erp]\n", text)
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["sources"] == ["crm", "erp"]
-
-    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
-
-
-def test_product_new_handles_a_flow_style_non_empty_products_list(tmp_path: Path) -> None:
-    """A domain may represent its existing products as a schema-valid,
-    non-empty flow sequence (`products: [{id: ..., ...}]`); appending a new
-    product must convert it, not fail to even locate the field."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = re.sub(
-        r"    products:\n(      - id: order_revenue\n(?:.*\n)*?)(?=  - name: supply_chain)",
-        "    products: [{id: order_revenue, displayName: Order Revenue, description: d, "
-        "status: active, silver_inputs: [orders], gold_tables: {tables: [{name: mart_order_revenue}]}}, "
-        "{id: customer_health, displayName: Customer Health, description: d, status: active, "
-        "silver_inputs: [accounts], gold_tables: {tables: [{name: mart_customer_health}]}}]\n",
-        text,
+    (repo_root / "lakehouse_code" / "governance.yml").unlink()
+    commit_plan(
+        repo_root, plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
     )
-    lakehouse_path.write_text(text, encoding="utf-8")
-    parsed = yaml.safe_load(text)
-    sales_domain = next(d for d in parsed["domains"] if d["name"] == "sales")
-    assert [p["id"] for p in sales_domain["products"]] == ["order_revenue", "customer_health"]
 
-    plan = plan_product_new(
+    commit_plan(
         repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
+        plan_domain_new(
+            repo_root, domain="marketing", display_name=None, inputs=(("marketing_platform", "campaigns"),)
+        ),
     )
-    commit_plan(repo_root, plan)
 
     inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
+    assert inventory.domain_names == ("sales", "supply_chain", "marketing")
+    assert [p.id for p in inventory.products] == ["order_revenue", "customer_health", "inventory_reliability"]
 
 
-def test_source_new_preserves_a_trailing_comment_after_a_flow_style_list(tmp_path: Path) -> None:
-    """Converting a flow-style `sources: [crm, erp]` to block style must not
-    delete unrelated content (a comment, a blank line) that sits between the
-    flow-list line and the next top-level key."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = re.sub(
-        r"sources:\n(  - \w+\n)+",
-        "sources: [crm, erp]\n# TODO: add the marketing source once it's ready.\n\n",
-        text,
+def test_an_empty_legacy_project_scaffolds_from_source_to_product(tmp_path: Path) -> None:
+    repo_root = _seed_empty_project(tmp_path)
+    (repo_root / "lakehouse_code" / "lakehouse.yaml").write_text(
+        "apiVersion: openlakeforge.io/v1alpha3\nkind: Lakehouse\nname: openlakeforge\ndisplayName: OpenLakeForge\n"
+        "description: Empty.\nstatus: planned\nsources: []\ndomains: []\ndashboards: []\n",
+        encoding="utf-8",
     )
-    lakehouse_path.write_text(text, encoding="utf-8")
 
-    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
-    commit_plan(repo_root, plan)
+    _run("source", "new", "crm", "--resource", "accounts", "--repo-root", str(repo_root))
+    _run("domain", "new", "sales", "--input", "crm/accounts", "--repo-root", str(repo_root))
 
-    result_text = lakehouse_path.read_text(encoding="utf-8")
-    assert "# TODO: add the marketing source once it's ready." in result_text
-    inventory = load_lakehouse_inventory(repo_root)
-    assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
+    assert load_lakehouse_inventory(repo_root, allow_incomplete=True).domain_names == ("sales",)
 
 
-def test_domain_new_handles_a_flow_style_domains_list(tmp_path: Path) -> None:
-    """`domains: [{name: sales, ...}]` is valid, schema-accepted YAML;
-    appending a new domain must convert it, not splice a block-style item
-    after the already-closed flow value."""
+def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Path) -> None:
+    """`domains: [{...}]` and `products: [{...}]` are valid YAML a hand-edited
+    governance.yml may use; appending an entry must convert the list to block
+    style rather than splice a block item after a closed flow value."""
     repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    domains_block_match = re.search(r"^domains:\n(.*\n)+?(?=^dashboards:)", text, re.MULTILINE)
-    parsed_domains = yaml.safe_load(text)["domains"]
-    flow_domains = "domains: " + yaml.safe_dump(parsed_domains, default_flow_style=True, width=10**9).strip() + "\n"
-    text = text[: domains_block_match.start()] + flow_domains + text[domains_block_match.end() :]
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
-
-    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("crm", "orders"),))
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    assert {d.name for d in inventory.domains} == {"sales", "supply_chain", "hr"}
-
-
-def test_product_new_locates_an_existing_domain_in_a_flow_style_domains_list(tmp_path: Path) -> None:
-    """Adding a product to a domain that already exists must find that
-    domain even when the whole `domains:` sequence is flow-style -- the
-    same conversion `add_domain()` does before appending a new domain is
-    needed by the lookup path too, not just the append path."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    domains_block_match = re.search(r"^domains:\n(.*\n)+?(?=^dashboards:)", text, re.MULTILINE)
-    parsed_domains = yaml.safe_load(text)["domains"]
-    flow_domains = "domains: " + yaml.safe_dump(parsed_domains, default_flow_style=True, width=10**9).strip() + "\n"
-    text = text[: domains_block_match.start()] + flow_domains + text[domains_block_match.end() :]
-    lakehouse_path.write_text(text, encoding="utf-8")
-
-    plan = plan_product_new(
+    (repo_root / "lakehouse_code" / "governance.yml").write_text(
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        "domains: [{name: sales, displayName: Sales}, {name: supply_chain, displayName: Supply Chain}]\n"
+        "products: [{id: order_revenue, domain: sales, displayName: Order Revenue}]\n",
+        encoding="utf-8",
+    )
+    commit_plan(
+        repo_root, plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    )
+    commit_plan(
         repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
+        plan_domain_new(
+            repo_root, domain="marketing", display_name=None, inputs=(("marketing_platform", "campaigns"),)
+        ),
     )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
-
-
-def test_product_new_locates_a_domain_that_is_itself_a_flow_mapping_item(tmp_path: Path) -> None:
-    """`domains:` can be block-style while one of its items is a single-line
-    flow mapping (`  - {name: sales, ...}`) -- schema-valid, but not covered
-    by `_domains_span`'s whole-sequence flow conversion. `_domain_span` must
-    parse such an item as a mapping to find its name, then convert it to
-    block style so a field can still be located/inserted inside it."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    sales_block_match = re.search(r"^  - name: sales\n(?:.*\n)+?(?=^  - name: supply_chain)", text, re.MULTILINE)
-    parsed_domains = yaml.safe_load(text)["domains"]
-    sales_domain = next(d for d in parsed_domains if d["name"] == "sales")
-    flow_sales = "  - " + yaml.safe_dump(sales_domain, default_flow_style=True, width=10**9).strip() + "\n"
-    text = text[: sales_block_match.start()] + flow_sales + text[sales_block_match.end() :]
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
-
-    plan = plan_product_new(
+    commit_plan(
         repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
+        plan_product_new(
+            repo_root,
+            target="marketing/campaign_performance",
+            display_name=None,
+            silver_inputs=("campaigns",),
+            inputs=(),
+            gold_tables=("mart_campaign_performance",),
+            with_report=False,
+        ),
     )
-    commit_plan(repo_root, plan)
 
-    inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
+    document = yaml.safe_load((repo_root / "lakehouse_code" / "governance.yml").read_text(encoding="utf-8"))
+    assert [d["name"] for d in document["domains"]] == ["sales", "supply_chain", "marketing"]
+    assert [(p["id"], p["domain"]) for p in document["products"]] == [
+        ("order_revenue", "sales"),
+        ("campaign_performance", "marketing"),
+    ]
 
-
-def test_product_new_reorders_products_before_silver_tables(tmp_path: Path) -> None:
-    """Schema doesn't require `silver_tables` before `products` within a
-    domain; appending a new product to a domain that reverses this order
-    must land inside the products sequence, not past whatever field follows
-    it."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    # Swap the sales domain's silver_tables: and products: blocks textually,
-    # preserving the file's established block-style formatting exactly --
-    # a full yaml.safe_dump round-trip would reformat with PyYAML's own
-    # (differently-indented) list style, not what this module is built for.
-    match = re.search(
-        r"(    silver_tables:\n(?:      .*\n)+?)(    products:\n(?:      .*\n)+?)(?=  - name: supply_chain)",
-        text,
-    )
-    assert match is not None
-    text = text[: match.start()] + match.group(2) + match.group(1) + text[match.end() :]
-    lakehouse_path.write_text(text, encoding="utf-8")
-    reloaded_sales = next(d for d in yaml.safe_load(text)["domains"] if d["name"] == "sales")
-    assert list(reloaded_sales.keys()).index("products") < list(reloaded_sales.keys()).index("silver_tables")
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
-    )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert "order_summary" in {p.id for p in sales.products}
-    assert {e.name for e in inventory.floe_entities(sales)} >= {"orders"}
 
 
 def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None:
@@ -308,106 +185,22 @@ def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None
     assert source_doc["displayName"] == tricky_name
 
 
-def test_product_new_finds_a_domain_whose_name_field_is_not_first(tmp_path: Path) -> None:
-    """A schema-valid domain can order its fields any way; `name` need not
-    be first. add_product() (and add_silver_tables()'s --input path) must
-    still locate the domain by its list-item marker, not by assuming
-    `- name:` opens the entry."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = text.replace(
-        "  - name: sales\n    displayName: Sales\n",
-        "  - displayName: Sales\n    name: sales\n",
-        1,
-    )
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
-    )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert "order_summary" in {p.id for p in sales.products}
 
 
-def test_product_new_finds_a_domain_with_a_quoted_or_commented_name(tmp_path: Path) -> None:
-    """`name: "sales"` (quoted) and `name: sales  # primary` (inline
-    comment) are both schema-valid spellings of the same scalar; the domain
-    lookup must parse the value, not match the raw source text."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = text.replace('  - name: sales\n', '  - name: "sales"  # primary\n', 1)
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
-    )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert "order_summary" in {p.id for p in sales.products}
 
 
-def test_product_new_handles_a_trailing_comment_on_products_and_tables_keys(tmp_path: Path) -> None:
-    """`tables: # core dims` and `products: # inventory` are schema-valid;
-    the locator regexes for those fields must tolerate a trailing inline
-    comment the same way the flow-list matcher already does."""
-    repo_root = _seed_repo(tmp_path)
-    source_plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
-    commit_plan(repo_root, source_plan)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = text.replace("      tables:\n", "      tables:  # core dims\n", 1)
-    text = text.replace("    products:\n", "    products:  # revenue and health\n", 1)
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(("marketing_platform", "campaigns"),),
-        gold_tables=("mart_order_summary",),
-        with_report=False,
-    )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    sales = next(d for d in inventory.domains if d.name == "sales")
-    assert "order_summary" in {p.id for p in sales.products}
-    assert {e.name for e in inventory.floe_entities(sales)} >= {"orders", "campaigns"}
 
 
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)
-    lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text()
+    lakehouse_before = (repo_root / "lakehouse_code" / "governance.yml").read_text()
 
     with pytest.raises(ScaffoldError, match=r"must match"):
         plan_source_new(repo_root, source="Bad-Name", display_name=None, resources=("x",))
 
     assert _tree(repo_root) == before
-    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_before
+    assert (repo_root / "lakehouse_code" / "governance.yml").read_text() == lakehouse_before
 
 
 @pytest.mark.parametrize("keyword", ["yes", "no", "true", "false", "on", "off", "null"])
@@ -419,13 +212,13 @@ def test_source_new_rejects_a_yaml_keyword_identifier_and_writes_nothing(tmp_pat
     descriptor that fails to round-trip."""
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)
-    lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text()
+    lakehouse_before = (repo_root / "lakehouse_code" / "governance.yml").read_text()
 
     with pytest.raises(ScaffoldError, match=r"YAML boolean/null keyword"):
         plan_source_new(repo_root, source=keyword, display_name=None, resources=("campaigns",))
 
     assert _tree(repo_root) == before
-    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_before
+    assert (repo_root / "lakehouse_code" / "governance.yml").read_text() == lakehouse_before
 
 
 def test_source_new_rejects_duplicate_source_and_writes_nothing(tmp_path: Path) -> None:
@@ -443,14 +236,14 @@ def test_source_new_refuses_to_overwrite_an_existing_target_file(tmp_path: Path)
     plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
     commit_plan(repo_root, plan)
     before = _tree(repo_root)
-    lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text()
+    lakehouse_before = (repo_root / "lakehouse_code" / "governance.yml").read_text()
 
-    with pytest.raises(ScaffoldError, match=r"already exists in lakehouse.yaml"):
+    with pytest.raises(ScaffoldError, match=r"already exists"):
         plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
         commit_plan(repo_root, plan)
 
     assert _tree(repo_root) == before
-    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_before
+    assert (repo_root / "lakehouse_code" / "governance.yml").read_text() == lakehouse_before
 
 
 # --------------------------------------------------------------------------
@@ -653,70 +446,8 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     assert "headcount" in {p.id for p in hr.products}
 
 
-def test_domain_new_declares_its_source_before_a_trailing_extra_key(tmp_path: Path) -> None:
-    """A hand-edited `sources.yml` could add another top-level field after
-    `sources:`. A newly referenced source must land inside that sequence,
-    not get appended past the later field."""
-    repo_root = _seed_repo(tmp_path)
-    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
-    commit_plan(repo_root, source_plan)
-    sources_path = repo_root / "lakehouse_code" / "silver" / "sources.yml"
-    sources_path.write_text(sources_path.read_text(encoding="utf-8") + "x_extra: true\n", encoding="utf-8")
-
-    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
-    commit_plan(repo_root, plan)
-
-    sources_doc = yaml.safe_load(sources_path.read_text(encoding="utf-8"))
-    assert [source["name"] for source in sources_doc["sources"]] == ["crm", "erp", "workday"]
-    assert sources_doc["x_extra"] is True
 
 
-def test_source_new_quotes_a_yaml_special_scalar_in_a_flow_style_list(tmp_path: Path) -> None:
-    """`sources: [crm, erp, "on"]` is valid, schema-accepted YAML -- "on" is
-    a perfectly valid source identifier (`^[a-z][a-z0-9_]*$`). Converting
-    the flow list to block style must re-emit it as the quoted string "on",
-    not the bare scalar `on`, which YAML 1.1 loaders (including PyYAML's
-    SafeLoader) read back as the boolean True."""
-    repo_root = _seed_repo(tmp_path)
-    on_dir = repo_root / "lakehouse_code" / "bronze" / "on"
-    on_dir.mkdir(parents=True)
-    (on_dir / "source.yaml").write_text(
-        'apiVersion: openlakeforge.io/v1alpha3\nkind: Source\nname: "on"\ndisplayName: "On"\n'
-        'description: "On source system."\nstatus: planned\nresources:\n  - name: events\n'
-        '    description: Raw CSV events.\n',
-        encoding="utf-8",
-    )
-
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = re.sub(r"sources:\n(  - \S+\n)+", 'sources: [crm, erp, "on"]\n', text)
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["sources"] == ["crm", "erp", "on"]
-
-    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    assert set(inventory.source_names) == {"crm", "erp", "on", "marketing_platform"}
-
-
-def test_domain_new_converts_a_flow_style_sources_list_before_appending(tmp_path: Path) -> None:
-    """`sources: [{name: crm, ...}]` is valid Floe YAML; declaring a new
-    source must convert it to block style first, not splice a block-style
-    entry after the already-closed flow value."""
-    repo_root = _seed_repo(tmp_path)
-    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
-    commit_plan(repo_root, source_plan)
-    sources_path = repo_root / "lakehouse_code" / "silver" / "sources.yml"
-    existing = yaml.safe_load(sources_path.read_text(encoding="utf-8"))["sources"]
-    flow = yaml.safe_dump(existing, default_flow_style=True, width=10**9).strip()
-    sources_path.write_text(f"sources: {flow}\n", encoding="utf-8")
-
-    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
-    commit_plan(repo_root, plan)
-
-    sources_doc = yaml.safe_load(sources_path.read_text(encoding="utf-8"))
-    assert [source["name"] for source in sources_doc["sources"]] == ["crm", "erp", "workday"]
 
 
 def test_product_new_rejects_when_domain_missing_and_no_input_given(tmp_path: Path) -> None:
@@ -804,7 +535,7 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     `metadata.yaml` -- what makes a directory a bundle to
     `discover_report_dirs`/`validate_report_registry` -- so the draft is
     invisible to both the descriptor/tree parity check and the promotion
-    contract until a real dashboard is exported and declared."""
+    contract until a real dashboard is exported."""
     from olf import superset
 
     repo_root = _seed_repo(tmp_path)
@@ -827,7 +558,7 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     assert (dashboard_dir / "datasets" / "OpenLakeForge_Trino" / "mart_order_summary.yaml").is_file()
     readme = (dashboard_dir / "README.md").read_text(encoding="utf-8")
     assert "SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/order_summary" in readme
-    assert "dashboards:" in readme and "order_summary" in readme
+    assert "metadata.yaml" in readme
     # #229: `olf report export` accepts an explicit, existing SUPERSET_REPORT_SOURCE_DIR
     # even with zero declared dashboards, so the README no longer needs a
     # declare-before-export ordering workaround for a project's first dashboard.
@@ -844,13 +575,13 @@ def test_running_the_same_command_twice_is_refused_not_reapplied(tmp_path: Path)
     repo_root = _seed_repo(tmp_path)
     plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
     commit_plan(repo_root, plan)
-    lakehouse_after_first = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text()
+    lakehouse_after_first = (repo_root / "lakehouse_code" / "governance.yml").read_text()
 
     with pytest.raises(ScaffoldError):
         plan_again = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
         commit_plan(repo_root, plan_again)
 
-    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_after_first
+    assert (repo_root / "lakehouse_code" / "governance.yml").read_text() == lakehouse_after_first
 
 
 def test_write_rolls_back_a_partial_write_on_filesystem_failure(
@@ -882,7 +613,7 @@ def test_write_rolls_back_a_partial_write_on_filesystem_failure(
     assert plan.edits, "expected the Floe sources.yml edit to exercise the edit-rollback path too"
     contract_target = repo_root / plan.edits[0].relative_path
     original_contract = contract_target.read_text(encoding="utf-8")
-    lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8")
+    lakehouse_before = (repo_root / "lakehouse_code" / "governance.yml").read_text(encoding="utf-8")
 
     from pathlib import Path as PathClass
 
@@ -905,7 +636,7 @@ def test_write_rolls_back_a_partial_write_on_filesystem_failure(
     for scaffold_file in plan.files:
         assert not (repo_root / scaffold_file.relative_path).exists(), scaffold_file.relative_path
     assert contract_target.read_text(encoding="utf-8") == original_contract
-    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8") == lakehouse_before
+    assert (repo_root / "lakehouse_code" / "governance.yml").read_text(encoding="utf-8") == lakehouse_before
 
     # A retry after the transient failure clears must succeed cleanly.
     commit_plan(repo_root, plan)
@@ -914,18 +645,23 @@ def test_write_rolls_back_a_partial_write_on_filesystem_failure(
     assert "headcount" in {p.id for p in hr.products}
 
 
-def test_write_restores_lakehouse_yaml_when_its_own_write_fails(
+def test_write_restores_governance_yml_when_its_own_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """lakehouse.yaml's write is the last step of `_write`, not a special
+    """governance.yml's write is the last step of `_write`, not a special
     case exempt from rollback -- if it fails partway through (e.g. the disk
     fills while writing it), its own original content must be restored too,
     not just the new files created earlier in the same call."""
     repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    lakehouse_path = repo_root / "lakehouse_code" / "governance.yml"
     lakehouse_before = lakehouse_path.read_text(encoding="utf-8")
 
-    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    commit_plan(
+        repo_root, plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    )
+    plan = plan_domain_new(
+        repo_root, domain="marketing", display_name=None, inputs=(("marketing_platform", "campaigns"),)
+    )
 
     from pathlib import Path as PathClass
 
@@ -933,12 +669,12 @@ def test_write_restores_lakehouse_yaml_when_its_own_write_fails(
 
     def flaky_write_text(self, *args, **kwargs):
         if self == lakehouse_path:
-            raise OSError("simulated disk failure writing lakehouse.yaml")
+            raise OSError("simulated disk failure writing governance.yml")
         return real_write_text(self, *args, **kwargs)
 
     monkeypatch.setattr(PathClass, "write_text", flaky_write_text)
 
-    with pytest.raises(OSError, match="simulated disk failure writing lakehouse.yaml"):
+    with pytest.raises(OSError, match="simulated disk failure writing governance.yml"):
         commit_plan(repo_root, plan)
 
     monkeypatch.undo()
@@ -992,60 +728,6 @@ def test_write_rolls_back_a_file_whose_own_write_partially_failed(
     assert "marketing_platform" in inventory.source_names
 
 
-def test_add_domain_and_add_source_terminate_a_missing_final_newline(tmp_path: Path) -> None:
-    """Property order is unconstrained at every level of the document, so
-    `domains:`/`sources:` can legally be the document's last top-level key
-    (e.g. `dashboards:` placed before them) -- not just `dashboards:`,
-    which is merely the common case. Appending must still not concatenate
-    onto an unterminated last line."""
-    from olf.scaffold import _lakehouse_edit
-
-    reordered_no_trailing_newline = (
-        "apiVersion: openlakeforge.io/v1alpha3\n"
-        "kind: Lakehouse\n"
-        "name: test\n"
-        "displayName: Test\n"
-        "description: Test lakehouse.\n"
-        "status: planned\n"
-        "dashboards: []\n"
-        "sources:\n"
-        "  - crm"
-    )
-    result = _lakehouse_edit.add_source(reordered_no_trailing_newline, "erp")
-    assert yaml.safe_load(result)["sources"] == ["crm", "erp"]
-
-    reordered_domains_last = (
-        "apiVersion: openlakeforge.io/v1alpha3\n"
-        "kind: Lakehouse\n"
-        "name: test\n"
-        "displayName: Test\n"
-        "description: Test lakehouse.\n"
-        "status: planned\n"
-        "sources:\n"
-        "  - crm\n"
-        "dashboards: []\n"
-        "domains:\n"
-        "  - name: sales\n"
-        "    displayName: Sales\n"
-        "    description: d\n"
-        "    status: planned\n"
-        "    silver_tables:\n"
-        "      tables:\n"
-        "        - {name: orders, source: crm, resource: orders}\n"
-        "    products: []"
-    )
-    domain_block = (
-        "  - name: hr\n"
-        "    displayName: HR\n"
-        "    description: d\n"
-        "    status: planned\n"
-        "    silver_tables:\n"
-        "      tables:\n"
-        "        - {name: employees, source: crm, resource: employees}\n"
-        "    products: []\n"
-    )
-    result = _lakehouse_edit.add_domain(reordered_domains_last, domain_block)
-    assert {d["name"] for d in yaml.safe_load(result)["domains"]} == {"sales", "hr"}
 
 
 # --------------------------------------------------------------------------
@@ -1205,19 +887,6 @@ def test_cli_source_new_end_to_end(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 
 
-_EMPTY_LAKEHOUSE = """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: openlakeforge
-displayName: OpenLakeForge
-description: Empty OpenLakeForge project. Add a source and product before deployment.
-status: planned
-sources: []
-domains: []
-dashboards: []
-"""
-
-
 def _seed_empty_project(tmp_path: Path) -> Path:
     """The tree `olf init --empty` leaves behind, without the toolchain work."""
     lakehouse_code = tmp_path / "lakehouse_code"
@@ -1225,7 +894,6 @@ def _seed_empty_project(tmp_path: Path) -> Path:
         directory = lakehouse_code / package if package else lakehouse_code
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "__init__.py").write_text("", encoding="utf-8")
-    (lakehouse_code / "lakehouse.yaml").write_text(_EMPTY_LAKEHOUSE, encoding="utf-8")
     shutil.copy(ROOT / "lakehouse_code" / "silver" / "floe.yml", lakehouse_code / "silver" / "floe.yml")
     (lakehouse_code / "silver" / "sources.yml").write_text("sources: []\n", encoding="utf-8")
     return tmp_path

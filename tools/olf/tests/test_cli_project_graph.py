@@ -89,7 +89,7 @@ def test_graph_fails_without_a_lakehouse_descriptor(tmp_path: Path) -> None:
     result = runner.invoke(app, ["project", "graph", "--project", str(tmp_path)])
 
     assert result.exit_code != 0
-    assert "lakehouse.yaml" in result.output
+    assert "governance.yml" in result.output
 
 
 def test_graph_of_the_demo_project_names_every_owner_and_is_repeatable() -> None:
