@@ -1,4 +1,9 @@
-# SeaweedFS S3-compatible object storage for the local kind cluster.
+# SeaweedFS S3-compatible object storage for the local kind cluster and the
+# Azure POC. Master, filer and volume data sit on PVCs from the cluster's
+# default storage class, so replacing a pod (upgrade, eviction, node restart)
+# keeps every object that Polaris and OpenMetadata still reference (#241).
+# Logs stay on emptyDir. The sizes are fixed defaults until the profile can
+# size storage (#326).
 global:
   seaweedfs:
     loggingLevel: 1
@@ -14,7 +19,8 @@ master:
   replicas: 1
   affinity: ""
   data:
-    type: "emptyDir"
+    type: "persistentVolumeClaim"
+    size: 1Gi
   logs:
     type: "emptyDir"
   resources:
@@ -29,7 +35,8 @@ volume:
   affinity: ""
   dataDirs:
     - name: data1
-      type: "emptyDir"
+      type: "persistentVolumeClaim"
+      size: 20Gi
       # One volume server holds every collection: ops plus bronze/silver/gold
       # per enabled stage. A collection's first write grows 7 volumes
       # (SeaweedFS's default growth for replication 000), and a write that
@@ -50,7 +57,8 @@ filer:
   replicas: 1
   affinity: ""
   data:
-    type: "emptyDir"
+    type: "persistentVolumeClaim"
+    size: 5Gi
   logs:
     type: "emptyDir"
   resources:
