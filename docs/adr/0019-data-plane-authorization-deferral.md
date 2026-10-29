@@ -1,167 +1,344 @@
-# ADR 0019: Data-plane authorization is deferred
+# ADR 0019: Data-plane authorization — Dex identity, Polaris grants
 
 ## Status
 
-Decided. **Binding today:** v0.5-alpha has service-level authorization only;
-nothing in it restricts which tables, rows or columns a signed-in user reads.
-**Assessed, not built:** the per-user path through Trino impersonation and
-Superset. The follow-up is #367 (v1.0), sequenced ahead of the governance
-work (#54-#57).
+Decided, **not built**: this is the design for #367. **Binding today:**
+v0.5-alpha has service-level authorization only, and nothing in it restricts
+which tables a signed-in user reads (Context). **Decided for the build:**
+`olf query` stops running through `kubectl exec` as the stage's shared
+principal. A person signs in with Dex, Trino authenticates the token, and the
+person's canonical role reaches Polaris, whose grants decide which stage and
+layer they read or write. Scope is the local provider with
+`spec.identity.issuer: github`. AWS and Glue are out of scope by decision
+(below). Superset, dbt and OpenMetadata keep their shared stage principals
+(ADR 0016); per-user access through Superset stays deferred.
 
-Every claim below carries a mark. **V** is verified against the cited
-documentation or source (read, not run). **T** is to test: derived or assumed,
-and not exercised here. Pins are from `release/component-catalog.yaml`: Trino
-480 (chart 1.42.2), Superset 6.1.0 (chart 0.15.5), Polaris 1.4.0.
+Every claim below carries a mark. **V** is verified against the cited source
+or documentation (read, not run). **T** is to test: derived or assumed, and
+not run. Pins: Trino 480 and the Apache Iceberg 1.10.1 client it builds
+against (`dep.iceberg.version` in Trino's `pom.xml` at tag 480), Polaris
+1.4.0, Dex v2.46.0 (`release/component-catalog.yaml`). Polaris sources are
+read at tag `apache-polaris-1.4.0`, Iceberg at `apache-iceberg-1.10.1`.
 
 ## Context
 
 The canonical role decides which services a person reaches (ADR 0014). It does
-not decide what they read once inside. Superset connects to Trino as one
-shared principal per stage (ADR 0016, `identity-callers.md`), and Trino reaches
-the catalog and object storage with its own credentials (ADR 0015). The end
-user's identity never leaves Superset, so every Superset user has the data
-access of that one principal.
+not decide what they read once inside. Stated plainly for operators: **today a
+user's role narrows what they can reach through Superset** (`analyst` and
+`viewer` hold `schema_access` on the Gold schemas only; `platform-admin` and
+`data-engineer` hold all-database access, `identity-service-permissions.md`),
+**but nothing below Superset enforces it.** Trino sees one shared principal per
+stage, so anything that bypasses Superset's checks reaches everything that
+principal reads. Do not load data of differing sensitivity into a deployment
+whose users should not all see it. That stays true for Superset after this
+design is built.
 
-Stated plainly for operators: **in v0.5-alpha a user's role narrows what they can
-reach through Superset** (`analyst` and `viewer` hold `schema_access` on the
-Gold schemas only; `platform-admin` and `data-engineer` hold all-database
-access, `identity-service-permissions.md`), **but nothing below Superset
-enforces it.** Trino sees one shared principal per stage, so the catalog and
-storage apply no per-user restriction, and anything that bypasses Superset's
-checks reaches everything that principal reads. Do not load data of differing sensitivity
-into a deployment whose users should not all see it.
+`olf query` today (`olf/commands/query.py`, `olf/trino.py`) runs the Trino CLI
+inside the coordinator pod with `kubectl exec`, as `olf-<stage>-runtime`, the
+stage principal that also writes. Who may query is who holds `pods/exec` on the
+coordinator; the person's role plays no part, and every caller is the same
+Trino user.
+
+The goal is a per-person query path: a person runs `olf query` from a
+workstation with no kubeconfig, signs in through Dex, and their canonical role
+decides what they read and write, per stage and per medallion layer.
+
+### Why Polaris grants, not Trino rules
+
+The previous version of this record chose Trino file-based rules keyed by
+canonical role, because Trino is the one enforcement point Polaris and Glue
+share (ADR 0015). This design reverses that for the person path:
+
+| # | Finding | Mark | Reference |
+| --- | --- | --- | --- |
+| 1 | Trino 480 cannot read groups from a token: the `jwt` and `oauth2` authenticators' property lists have no groups field, and file-based rules match `group` only through a `file` or `ldap` group provider. A role in Trino would need a group file synced from GitHub membership | V | Trino 480 docs, JWT authentication, OAuth 2.0 authentication |
+| 2 | Polaris reads roles from a claim: `quarkus.oidc.roles.role-claim-path` selects it, and the principal-roles mapper keeps the values matching `filter` and rewrites each through an ordered list of `regex` / `replacement` mappings | V | `DefaultPrincipalRolesMapper`, `OidcTenantConfiguration.PrincipalRolesMapper` |
+| 3 | The roles active on a request are the token's mapped roles that the principal was also granted in Polaris; a role the token does not carry is not active | V | `DefaultAuthenticator.resolvePrincipalRoles` (ADR 0015) |
+| 4 | Polaris catalogs are already per stage (`lakehouse_<stage>`, one per stage catalog in the bootstrap), so a grant on a catalog is a grant on a stage. The stage binding needs no rewritten Trino user name, which the previous version listed as an open prerequisite | V | `modules/catalog/polaris/templates/bootstrap.sh.tftpl` |
+| 5 | Iceberg data files are read with Trino's own S3 key and vended credentials are off, so Polaris does not gate file reads directly. It gates the table metadata: `LOAD_TABLE` needs `TABLE_READ_PROPERTIES`, `UPDATE_TABLE` needs `TABLE_WRITE_PROPERTIES`, a direct create `TABLE_CREATE`. Without the metadata Trino has no file to read and no commit to make | V (operations); T (no read path in the Iceberg connector skips `loadTable`) | `PolarisAuthorizableOperation`; `modules/query/trino/main.tf` |
+
+So the role check lives where the role claim can be read without a sync, and
+the stage boundary is the catalog boundary that already exists. The cost is
+the one ADR 0015 named: table policy written against Polaris does nothing on
+Glue. **Accepted:** AWS gets no per-person query path from this design. AWS's
+`olf query` already refuses the provider (`commands/query.py`), and Glue with
+Lake Formation stays a separate adapter if it is ever wanted.
 
 ## Decision
 
-1. **Defer.** v0.5-alpha ships service-level authorization only, and says so in
-   the release notes (`CHANGELOG.md`) and `identity-callers.md`.
-2. **Do not foreclose.** The assessment below finds no v0.5 decision that rules
-   out per-user data access. Two are accepted costs (foreclosure review).
-3. **Enforce at Trino.** When built, per-user policy is Trino file-based access
-   control keyed by canonical role, the one point that is identical for
-   Polaris and Glue (ADR 0015). Catalog and storage policy are defence in
-   depth, not the first line.
-4. **Superset propagates identity by impersonation**, not by one connection
-   per user, as the first candidate (below). #367 confirms or replaces it.
+### 1. The access matrix
 
-## Trino 480: impersonation
+| Role | DEV Bronze, Silver | DEV Gold | PROD Bronze, Silver | PROD Gold |
+| --- | --- | --- | --- | --- |
+| `platform-admin` | read, write | read, write | read, write | read, write |
+| `data-engineer` | read, write | read, write | read | read |
+| `analyst` | — | read | — | read |
+| `viewer` | — | — | — | read |
 
-| # | Claim | Mark | Reference |
+"Write" is DML and DDL on tables, views and namespaces, which is Polaris
+`CATALOG_MANAGE_CONTENT`. It is not grant management: no role administers
+Polaris access through SQL, and the matrix changes only by a deploy.
+`platform-admin`'s "full access" is this row; administering grants stays the
+bootstrap's (section 4).
+
+The matrix is monotonic, as ADR 0014 requires for every grant: each role
+reaches everything the role below it reaches, so a person in several mapped
+teams holds the union, which is the highest role's row. `viewer` was asked as
+"read-only PROD"; it is PROD Gold only, which keeps that rule (maintainer
+decision while drafting this record).
+
+`uat` is not in the request. Until the maintainer says otherwise, it takes the
+PROD column for `platform-admin`, `data-engineer` and `analyst`, and nothing
+for `viewer`. Open question 1.
+
+### 2. Where the matrix lives
+
+It is product-level and fixed, like the service grants, so it is a section of
+`release/identity-roles.yaml` keyed by canonical role: the "fifth mapping keyed
+by canonical role" ADR 0014 reserves.
+
+```yaml
+data_access:  # role -> stage -> layer -> read | write; absent is none
+  platform-admin:
+    dev:  {bronze: write, silver: write, gold: write}
+    uat:  {bronze: write, silver: write, gold: write}
+    prod: {bronze: write, silver: write, gold: write}
+  data-engineer:
+    dev:  {bronze: write, silver: write, gold: write}
+    uat:  {bronze: read, silver: read, gold: read}
+    prod: {bronze: read, silver: read, gold: read}
+  analyst:
+    dev:  {gold: read}
+    uat:  {gold: read}
+    prod: {gold: read}
+  viewer:
+    prod: {gold: read}
+```
+
+`olf` validates it with the rules it applies to `grants`: roles inside
+`precedence`, stages inside the stage enum, layers `bronze`, `silver`, `gold`,
+and monotonic in both senses (a higher role holds at least the access of a
+lower one on every stage and layer). The provider contract carries it in
+`shared.identity.roles` like the rest of the file, and the published schema
+gains the section.
+
+Polaris can express only three shapes per stage catalog, so validation also
+rejects a row that is not one of them: all layers `write`, all layers `read`,
+or `gold: read` alone (section 4). A fourth shape is a new catalog role, added
+when a role needs it.
+
+### 3. The request path
+
+```mermaid
+sequenceDiagram
+    actor P as Person
+    participant O as olf query
+    participant D as Dex
+    participant X as Perimeter (query_api)
+    participant T as Trino
+    participant C as Polaris
+    P->>O: olf query --stage prod "SELECT ..."
+    O->>D: device authorization, client olf-cli
+    D-->>P: verification URL and user code (GitHub sign-in)
+    D-->>O: access token (email, groups, federated_claims), refresh token
+    O->>X: POST /v1/statement, Bearer token, extra credential token
+    X->>T: forwarded after token and role-floor check
+    T->>T: JWT authenticator: user = email; rules allow people catalogs only
+    T->>C: loadTable on lakehouse_prod, Bearer = the person's token
+    C->>C: mixed auth: Dex JWKS, principal github, roles from groups
+    C-->>T: table metadata, or 403 for a role without the grant
+    T-->>O: rows, or the Polaris denial
+```
+
+| Step | Piece | Detail | Mark |
 | --- | --- | --- | --- |
-| 1 | The session user is the `X-Trino-User` header if sent, otherwise the authenticated user. With authentication the authenticated identity is kept as the principal and only the user is replaced | V | `HttpRequestSessionContextFactory.buildSessionIdentity`, tag 480 |
-| 2 | Two checks run on a request. `checkCanSetUser(principal, user)` always; `checkCanImpersonateUser(authenticated identity, user)` only when the authenticated user differs from the requested one | V | `HttpRequestSessionContextFactory.extractAuthorizedIdentity`, tag 480 |
-| 3 | File-based `impersonation` rules take `original_user`, `original_role`, `new_user` (required, may use captured groups) and `allow`; the first match wins and no match denies | V | Trino 480 docs, file-based access control, "Impersonation rules" |
-| 4 | With no `impersonation` rules but `principals` rules present, impersonation is allowed (the principal rules are assumed to govern it). With neither, it is denied | V | same page |
-| 5 | `principals` rules are marked **deprecated** in 480; the docs point to user mapping plus `impersonation` rules | V | same page, "Principal rules" |
-| 6 | Today's mechanism (ADR 0016: `principals` rules, a DEV credential acting as `alice` on DEV only, `cannot become user bob` otherwise) was run on 480 | V | ADR 0016 cases g1-g3 |
-| 7 | Replacing the `principals` rules with `impersonation` rules does **not** keep the stage binding once end users are allowed: after DEV's principal becomes `alice`, catalog and table rules evaluate `alice`, so denying `olf-prod-runtime` as a target does not keep `alice` out of PROD catalogs. Without impersonation targets, a request for another principal is denied and a request for its own user skips the check | T | derived from claims 1-4 and 6; not run |
-| 8 | Rules can match `group`; groups come from a group provider, which is `file` or `ldap`. The OAuth2 authentication page lists no option that reads groups from a token | V | Trino 480 docs, group mapping; OAuth2 authentication |
-| 9 | Iceberg table data is read with Trino's own S3 key and the catalog is created without vended credentials, so Trino rules are the only per-user check on data files | V | ADR 0015, `modules/query/trino/main.tf` |
+| 1 | Dex client | A new public static client `olf-cli` with the device authorization grant. Scopes `openid email groups federated:id offline_access`: `email` names the Trino user, `groups` carries the roles, `federated:id` the connector id (step 6), `offline_access` a refresh token | T (device flow and public-client registration on v2.46.0) |
+| 2 | Token cache | `<OLF_HOME>/auth/oidc-<base_domain>.json`, mode 0600, beside the existing `olf/auth/state.py` provider state. Refreshed when the access token has under 60 seconds left; Dex's session policy bounds it (ADR 0014: tokens 5 min, refresh idle 30 min, absolute 10 h) | — |
+| 3 | Transport | `olf` speaks Trino's HTTP protocol with `requests` (already a dependency): `POST https://trino.<base_domain>/v1/statement`, then each `nextUri`. Every request carries `Authorization: Bearer` with a token refreshed if due; the submission also carries `X-Trino-Extra-Credential: token=<the same token>` and `X-Trino-Catalog` set to the stage's people catalog. Issuer and Trino URLs come from the profile's `spec.access.base_domain`, so no kubeconfig is needed. The local CA is trusted the way `olf access trust` already prints | T (protocol use) |
+| 4 | Perimeter | A route `query_api`: host `trino.<base_domain>`, path prefix `/v1`, behind a perimeter instance that accepts a bearer JWT for audience `olf-cli` (oauth2-proxy `--skip-jwt-bearer-tokens`) at the `viewer` floor. The existing `query` route (the Web UI) keeps the `data-engineer` floor. The service passwords (ADR 0016) then cannot be used through the ingress without also holding a member's Dex token | T (oauth2-proxy applies `--allowed-group` to bearer sessions) |
+| 5 | Trino authentication | `http-server.authentication.type=PASSWORD,JWT`. JWT: `key-file=https://auth.<base_domain>/keys`, `required-issuer`, `required-audience=olf-cli`, `principal-field=email`. A token minted for the perimeter, Superset, OpenMetadata or the Trino UI client carries another audience and is refused | V (properties); T (Dex's `aud` is the requesting client id, read in Dex's scope documentation; JWKS fetch through the CoreDNS rewrite) |
+| 6 | Trino rules | A user containing `@` (an e-mail) may use the people catalogs only, with `allow: all` (Polaris decides). Service principals keep their catalogs. A `principals` rule lets an e-mail principal become only itself, before ADR 0016's final deny. A `queries` rule lets a person view and kill only their own queries: today `rules.json` has no `queries` section, so every user may view every query | V (no `queries` rules means all users view all queries: Trino 480 file-based access control); T (rules) |
+| 7 | People catalog | One more Trino catalog per stage on the same Polaris warehouse, named `<stage>` (`dev`, `uat`, `prod`; open question 2): `iceberg.rest-catalog.session=USER`, `iceberg.rest-catalog.session-timeout=0s`, and an OAuth2 credential of a Polaris principal `trino-people-<stage>` that holds no grant | V (properties) |
+| 8 | Token to Polaris | With `session=USER` Trino passes the user's extra credentials to the Iceberg client and adds an unsigned JWT of its own as `JWT_TOKEN_TYPE`. The Iceberg client uses a `token` credential as the bearer **before** trying any token exchange. So the person's Dex token reaches Polaris; a request without it falls through to exchanging Trino's unsigned JWT, which Polaris does not accept (ADR 0015), and fails closed | V (`TrinoRestCatalog.convert`; `OAuth2Manager.maybeCreateChildSession`); T (Polaris's refusal of the exchange) |
+| 9 | Session cache | The Iceberg session is cached per `<user>-<source>` with `expireAfterAccess(session-timeout)`, the default one hour. A person querying more often than that would keep presenting their first, expired token, so the people catalog sets the timeout to zero and builds the session from the current token each time. Wrapping a bearer token makes no network call | V (`AuthSessionCache`, `IcebergRestCatalogConfig`: `@MinDuration("0ms")`); T (zero disables reuse) |
+| 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `oidc.authServeUrl` `https://auth.<base_domain>`, discovery off with the JWKS path set (as Trino's UI does, because Dex is served by Traefik), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `nameClaimPath: federated_claims/connector_id`; roles from `groups` | V (mapper reads a nested claim and calls `toString`, `ClaimsLocator`); T (CA trust in the JVM, ADR 0015; `quarkus.oidc.token.audience` as the audience check) |
+| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles; the token's `groups` decide which are active (finding 3). Revocation is Dex's: a person removed from a team loses the role at their next refresh, within 5 minutes, with no Polaris change | V (connector id `github` in `modules/identity/dex/main.tf`); T (Dex emits `federated_claims` on access tokens) |
 
-### How a verified workload credential impersonates an end user
+### 4. Polaris objects
 
-1. Superset authenticates to Trino as `olf-<stage>-runtime` (password, ADR
-   0016), the verified principal.
-2. It sends the signed-in user's name as `X-Trino-User`. Trino sees an
-   authenticated user that differs from the requested one (claim 2).
-3. An `impersonation` rule lets exactly that principal become end users:
-   `original_user: olf-<stage>-runtime`, `new_user` matching the end-user name
-   pattern. Catalog, schema and table rules then evaluate the end user.
+Names carry the `olf-` prefix so they never collide with the workload
+principals and roles the bootstrap already creates.
 
-What this means for the design:
+| Object | Scope | Content | Created by, phase |
+| --- | --- | --- | --- |
+| Principal `github` | realm | Granted the four principal roles below | Polaris bootstrap Job, platform |
+| Principal roles `olf-platform-admin`, `olf-data-engineer`, `olf-analyst`, `olf-viewer` | realm | Each assigned the catalog roles its `data_access` row needs, per stage catalog | bootstrap, platform |
+| Catalog role `olf-write` | each `lakehouse_<stage>` | `CATALOG_MANAGE_CONTENT` on the catalog | bootstrap, platform |
+| Catalog role `olf-read` | each `lakehouse_<stage>` | On the catalog: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | bootstrap, platform |
+| Catalog role `olf-gold-read` | each `lakehouse_<stage>` | `NAMESPACE_LIST` on the catalog; on **each Gold namespace**: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | catalog grant: bootstrap, platform; namespace grants: `olf catalog sync-namespaces`, artifacts |
+| Principal `trino-people-<stage>` | realm | No catalog role. The people catalog's own credential, used for the configuration call | bootstrap, platform |
+| Principal-roles mapper | Polaris chart values | `filter` matching every claim value in `role_mapping`; one mapping per value, `^<quoted value>$` to `PRINCIPAL_ROLE:olf-<role>`, rendered by the local root from `role_mapping`, so keyed by canonical role | Terraform, platform |
 
-- **Trino trusts Superset's assertion.** The credential proves which service
-  is calling, not which person. The guarantee is only as strong as Superset's
-  own authentication and its refusal to let a client choose the name (Superset
-  section, claim 3).
-- **Deny the service names first.** Rules are first-match (claim 3), so a
-  `deny` rule for every service principal (`olf-*-runtime`, `openmetadata`)
-  must precede the allow, or a stage credential could become another stage's
-  principal. That alone does not keep stages apart: an end user the DEV
-  credential may become is evaluated by the catalog rules as itself (prerequisite 6). T.
-- **End-user names must not collide with service names.** GitHub logins are
-  free text (ADR 0018) and could equal a service principal. The Trino user
-  needs a namespace or a pattern the service names cannot match. T.
-- **Roles reach Trino only through a group provider** (claim 8). The
-  `groups` claim from Dex (ADR 0018) is read by the perimeter and Superset,
-  not Trino. A Trino group provider fed from the same canonical
-  role mapping, or user-keyed rules generated from it, is the "fifth mapping
-  keyed by canonical role" ADR 0014 reserves. T: which of the two.
+`TABLE_READ_DATA` implies `TABLE_READ_PROPERTIES` and `TABLE_LIST` in Polaris's
+privilege hierarchy (V, `PolarisAuthorizerImpl` super-privileges). It is
+chosen over `TABLE_READ_PROPERTIES` so that a read grant still means read, and
+no more, if vended credentials are ever turned on. Grants on a catalog apply to
+everything in it (T).
 
-## Superset 6.1.0: per-user propagation
+Gold namespaces come from the descriptors, not from a list in shared code:
+`PhysicalProductNames.gold_namespace` in the domain model, resolved by the same
+inventory `sync-namespaces` already uses. Granting on a namespace the artifacts
+phase creates keeps rule 3 of `AGENTS.md`: the platform apply never waits for
+user code. A pruned namespace takes its grants with it.
+
+**Accepted cost:** the stage deployer principal gains `CATALOG_MANAGE_ACCESS` on
+its own stage catalog to make those grants. It already holds
+`CATALOG_MANAGE_METADATA`, which can drop any table there; the added power is
+granting within that one catalog, including to itself. The alternative, a
+nested `gold` parent namespace with one grant, means re-laying every Gold
+namespace and is not worth it for this.
+
+`NAMESPACE_LIST` at catalog level lets `analyst` and `viewer` see the names of
+Bronze and Silver namespaces in `SHOW SCHEMAS`, not their tables. Without it a
+Gold-only role cannot list schemas at all (T). Accepted.
+
+### 5. `olf query`
+
+| Behaviour | Detail |
+| --- | --- |
+| Default | With `spec.identity.issuer: github` and `spec.access`, `olf query` uses the person path above. It signs in on first use or when the refresh token has expired, printing Dex's verification URL and code |
+| `--as-workload` | Today's path, kept: `kubectl exec` as `olf-<stage>-runtime`. It is the break-glass path when Dex is down (ADR 0014 lists Trino through its internal Service) and the one `olf e2e` uses. Who may use it is still who holds `pods/exec`, a platform-admin in practice |
+| No issuer | With no `spec.identity`, or `issuer: external`, `olf query` keeps the workload path: there is no Dex client to sign in with. An external issuer would need its own principal mapping and is not designed here |
+| Denial | Polaris's 403 reaches the person as a Trino error. `olf` names the role it read from the token, the stage and the schema, and says which role grants the access, from `data_access` |
+| Docstring | "It is not per-user access" becomes false on the person path and is rewritten with the build |
+
+### 6. Limits accepted
+
+| Limit | Why it is accepted |
+| --- | --- |
+| A write that commits after the token expires fails at the commit. Polaris receives the token captured when the query was submitted; `olf` refreshes before submitting, so a statement has about 5 minutes to reach its commit (T) | `olf query` is for inspection and small changes. Loads belong to pipelines, which keep their workload credentials. A longer Dex token lifetime would loosen the ADR 0014 session bound for every client |
+| Polaris records the principal `github` and the active roles, not the person | Trino's query log records the person (user = e-mail). Per-person principals would need GitHub membership synced into Polaris (rejected below) |
+| The extra credential is the bearer: a client that holds another person's token gets that person's grants | Possession of a bearer token is the authority, as on every OIDC path. Trino keeps extra credentials out of the session it serialises into query information (V, `SessionRepresentation`), so the token is not shown in the UI or `system.runtime.queries` |
+| Gold-only roles see Bronze and Silver namespace names | Section 4 |
+| Superset users keep the shared stage principal | The Context paragraph stays true for Superset. A later step can point a Superset database at the people catalog with Superset's per-database OAuth2 (Superset table below, claims 6 and 7) |
+| Nothing for AWS or Azure | AWS uses Glue, out of scope by decision. Azure runs Polaris but has no Dex adapter yet (ADR 0014); it gains the path when it does |
+
+### 7. What changes in other records when this is built
+
+Each lands with the change that makes it true (`AGENTS.md`, "One change per
+pull request").
+
+| Record | Change |
+| --- | --- |
+| ADR 0014 | `data_access` beside `grants`; the `query_api` service row (all four roles); `olf-cli` as a fifth Dex client |
+| ADR 0015 | The deferral ends for one caller: `mixed` with OIDC for people tokens. Every workload keeps Polaris's own credentials, so pipelines still do not depend on the issuer |
+| ADR 0016 | `/v1` accepts Dex bearer tokens for audience `olf-cli`, which its Web UI section rejected while no caller needed it; the people catalogs and their rules |
+| `identity-callers.md`, `identity-classes.md` | `olf query` becomes a class-1 (human) caller from the workstation through the ingress; the workload path stays class 2 |
+| `docs/reference/roles-and-permissions.md` | The data-access matrix |
+
+## Build sequence
+
+Split along the seams `AGENTS.md` names, each with its tests:
+
+1. Role model: `data_access` in `release/identity-roles.yaml`, the schema,
+   `olf` validation (monotonic, three shapes). Contract only; nothing reads it.
+2. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
+   objects of section 4 except the namespace grants. Settle verification items
+   1-4 first.
+3. `olf catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
+   the deployer's `CATALOG_MANAGE_ACCESS`.
+4. Trino: `PASSWORD,JWT`, the people catalogs, the rules of step 6.
+5. Dex `olf-cli` client and the `query_api` route and perimeter instance.
+6. `olf query` person path, `--as-workload`, the token cache, and `olf e2e`
+   cases: per role through the stub GitHub users the e2e already runs, an
+   `analyst` denied DEV Silver, a `viewer` denied DEV Gold, a
+   `data-engineer` writing DEV and denied writing PROD, a `platform-admin`
+   writing PROD; with Dex scaled to zero, the person path fails closed and
+   `--as-workload` still answers.
+7. Docs of section 7 not already landed.
+
+## Verification before building
+
+The **T** items that could change the design, to run on kind first:
+
+1. Polaris 1.4.0 trusts the local CA for the Dex JWKS (ADR 0015 to-verify),
+   with discovery off.
+2. Dex v2.46.0 access tokens carry `email`, `groups` and `federated_claims`
+   for the scopes of step 1, with `aud` equal to `olf-cli`.
+3. Polaris refuses the token exchange of Trino's unsigned JWT (step 8), so a
+   missing extra credential fails closed rather than falling back to
+   `trino-people-<stage>`.
+4. Catalog-level grants apply to every namespace and table, and a Gold-only
+   role can run `SHOW SCHEMAS` with `NAMESPACE_LIST`.
+5. `session-timeout=0s` builds a fresh session per request with a refreshed
+   token (step 9).
+6. No Iceberg read path in Trino 480 reaches data files without `loadTable`
+   (finding 5): metadata tables, `$files`, `table_changes`, time travel.
+7. oauth2-proxy applies `--allowed-group` to a bearer session (step 4).
+8. A device-flow sign-in can be driven against the e2e's stub GitHub.
+
+## Superset 6.1.0: per-user propagation (carried forward)
+
+Not part of this decision; kept as the record for the Superset follow-up.
 
 | # | Claim | Mark | Reference |
 | --- | --- | --- | --- |
 | 1 | A database has an `impersonate_user` flag; the imported Trino connections set it `false` | V | `superset/models/core.py`; `lakehouse_code/dashboards/superset/*/databases/openlakeforge_trino.yaml` |
 | 2 | When set, the Trino engine spec puts the effective username in the driver's `user` connect argument | V | `superset/db_engine_specs/trino.py`, `impersonate_user` |
-| 3 | The effective user is the logged-in user's name from the request context, not client input; with no request context (no `g.user`) it falls back to the connection URL's user, i.e. the shared principal | V | `core.py`, `Database.get_effective_user` |
-| 4 | The feature flag `IMPERSONATE_WITH_EMAIL_PREFIX` swaps the name for the part of the user's email before `@` | V | `core.py`, `_get_sqla_engine` |
+| 3 | The effective user is the logged-in user's name from the request context, not client input; with no request context it falls back to the connection URL's user, the shared principal | V | `core.py`, `Database.get_effective_user` |
+| 4 | `IMPERSONATE_WITH_EMAIL_PREFIX` swaps the name for the part of the e-mail before `@` | V | `core.py`, `_get_sqla_engine` |
 | 5 | The `trino` driver sends its `user` argument as `X-Trino-User` | T | driver not read |
-| 6 | The Trino engine spec sets `supports_oauth2`. With a per-database OAuth2 configuration, the user's token for that database is sent as an `Authorization: Bearer` header alongside the user name | V | `trino.py`, `impersonate_user`; `core.py`, `get_oauth2_access_token` |
-| 7 | That OAuth2 token comes from a flow configured on the database (`oauth2_client_info`), not from the SSO session. Whether the SSO session token can serve is not established | T | `core.py` read; no deployment |
-| 8 | Using claim 6 needs Trino to accept the token: an `OAUTH2` or `JWT` authenticator beside `PASSWORD`, with the token's user name matching a Trino rule. ADR 0016 already needs `OAUTH2` for the Trino UI | T | Trino side not built |
-| 9 | Result caching: the cache key includes the user only when the database impersonates **and** `CACHE_IMPERSONATION` is on, or `CACHE_QUERY_BY_USER` is on, or the database sets `per_user_caching`. `CACHE_IMPERSONATION` defaults to `False` | V | `superset/common/query_object.py`; `superset/config.py` |
+| 6 | The Trino engine spec sets `supports_oauth2`. With a per-database OAuth2 configuration, the user's token for that database is sent as `Authorization: Bearer` alongside the user name | V | `trino.py`, `impersonate_user`; `core.py`, `get_oauth2_access_token` |
+| 7 | That token comes from a flow configured on the database (`oauth2_client_info`), not from the SSO session | T | `core.py` read; no deployment |
+| 8 | Result caching keys on the user only when the database impersonates **and** `CACHE_IMPERSONATION` is on, or `CACHE_QUERY_BY_USER` is on, or the database sets `per_user_caching`. `CACHE_IMPERSONATION` defaults to `False` | V | `superset/common/query_object.py`; `superset/config.py` |
 
-### Cost
+Turning on per-user access in Superset without per-user caching serves one
+user's cached result to another (claim 8). Cache warm-up, alerts and reports
+run as an executor identity (`CACHE_WARMUP_EXECUTORS`, `ALERT_REPORTS_EXECUTORS`)
+whose Trino identity is not established. Both must be settled by that
+follow-up.
 
-| Area | Finding | Mark |
-| --- | --- | --- |
-| Correctness | Turning on `impersonate_user` without `CACHE_IMPERSONATION` serves one user's cached result to another. The flag is a prerequisite, not a tuning option | V (claim 9) |
-| Cache sharing | With the user in the key, a dashboard's cache is per person. Hit rate falls by roughly the number of distinct viewers per dashboard and Redis use rises the same way. No measurement | T |
-| Connection pooling | Connections are created with `NullPool` by default and the engine is built on each use, so there is no pool for impersonation to defeat. Trino's protocol is per-query HTTP | V (code); T (cost) |
-| Trino per query | One extra impersonation check and per-user rule evaluation. Expected negligible beside query time; not measured | T |
-| Background paths | Cache warm-up resolves `CACHE_WARMUP_EXECUTORS` (default: the chart owner) and runs as that account, with no username when none resolves; alerts and reports use `ALERT_REPORTS_EXECUTORS` (default: the owner). Which of these identities reaches Trino, and what it may read, is not established | V (config, `tasks/cache.py`); T (Trino identity) |
-| Metadata browsing | Whether SQL Lab and dataset editors list only tables the user may read, and whether metadata caches are shared across users | T |
-| Username source | The name is Superset's account name. Its derivation from Dex (ADR 0018) may not match the Trino rule pattern, and `IMPERSONATE_WITH_EMAIL_PREFIX` would change it again | T |
+## Rejected alternatives
 
-## Foreclosure review
-
-| v0.5 decision | Rules out per-user access? | Why |
-| --- | --- | --- |
-| Shared per-stage Trino principal (ADR 0016) | No (avoided) | The principal is the verified service identity that impersonation rules authorise. Cases g1-g3 show it acting as other users. Keeping it is the deferral itself |
-| Password-file authentication, not JWT (ADR 0016) | No | Impersonation needs only the service credential. Superset OAuth2 passthrough (claim 8) adds an authenticator beside `PASSWORD`; it does not replace it |
-| `principals` rules (ADR 0016) | No, but accepted debt | Deprecated in 480 (claim 5) and not the shape to extend. #367 replaces them with `impersonation` rules and re-runs the isolation cases (claim 7) |
-| GitHub teams and Dex (ADR 0018) | No (avoided) | Roles stay canonical (ADR 0014). Cost: the `groups` claim does not reach Trino (claim 8), so a role-to-group mapping is added, and GitHub logins need a namespace |
-| Keycloak replaced by Dex | No | Nothing per-user is stored in Trino, Superset or the catalog. A rename of users costs nothing before beta |
-| Trino reads storage with its own key (ADR 0015) | Storage-level policy: **accepted** | Vended credentials stay off, so only Trino enforces per-user policy. Anything with the bucket credentials (Floe, dbt, Dagster) is outside it by design |
-| Polaris `internal` authentication (ADR 0015) | No | Polaris sees the stage principal. Per-user identity at the catalog is optional defence in depth, not a prerequisite for Trino policy |
-| Catalogs `lakehouse_<stage>` with catalog and table rules | No | The rules file already has `tables` rules; per-user rules are added, not restructured |
-| OpenMetadata reads every stage catalog (ADR 0016, `read-only`) | Metadata and sample data: **accepted** | It is a service principal. What an OpenMetadata user sees is governed by #56, not by Trino policy. Not assessed here |
-| Imported Superset connections set `impersonate_user: false` | No | A report-import change flips it. The cache flag must flip with it (Superset claim 9) |
-| Local NetworkPolicy (ADR 0017) | No | Network-level only |
-
-## Prerequisites for per-user data access (#367)
-
-1. Trino authentication enforced (ADR 0016, migration step 4) before any
-   impersonation: an unauthenticated Trino accepts any `X-Trino-User`.
-2. `principals` rules replaced by ordered `impersonation` rules, service names
-   denied first; isolation cases extended and run on 480 (Trino claim 7).
-3. A stable, collision-free end-user name from Dex to Superset to Trino.
-4. A role-to-Trino mapping keyed by canonical role: group provider or generated
-   user rules (ADR 0014, fifth mapping), with table-level rules per role.
-5. Superset: `impersonate_user` on with `CACHE_IMPERSONATION` on, a decision on
-   `IMPERSONATE_WITH_EMAIL_PREFIX`, and an executor policy: which identity warm-up, alerts and reports use
-   and what it may read in Trino.
-6. Effective users qualified by stage: `new_user` rewritten to a stage-scoped
-   name with catalog rules keyed by it, or another input that keeps the
-   original stage principal, so a DEV `alice` cannot read PROD (Trino claim
-   7). T.
-7. A measurement of the dashboard cost on kind with several users (Superset
-   cost table).
-8. A decision on the catalog layer: Polaris session identity (ADR 0015) and
-   Glue with Lake Formation stay separate adapters.
-9. `olf e2e` cases: an `analyst` denied a table a `data-engineer` reads, through
-   Superset, and a cache check that one user's result is not served to another.
+| Option | Why not |
+| --- | --- |
+| Trino file-based rules keyed by canonical role (this record's previous decision) | Trino 480 reads no groups from a token (finding 1), so roles would reach it only through a group file synced from GitHub, and a stage-scoped user name would be needed to keep DEV and PROD apart. Its one advantage, working on Glue too, is out of scope |
+| `session=USER` on the existing `lakehouse_<stage>` catalogs | Every workload caller would lose its catalog access: with no `token` credential the Iceberg client exchanges Trino's unsigned JWT, which Polaris does not accept (step 8) |
+| One Polaris principal per person | Needs a job copying GitHub team membership into Polaris principals, with revocation as late as that job runs. The token's `groups` already carry the role, and Polaris intersects them with the grants (finding 3) |
+| One Polaris principal per role, chosen by Trino | A Trino catalog has one catalog credential and cannot pick one per user |
+| Polaris `external` authentication | Disables Polaris's own token endpoint, which the bootstrap Job and every workload use (ADR 0015) |
+| A workload principal impersonating the person (`X-Trino-User`) | The workstation would hold a service password, and Trino would trust the client's claim of who the person is |
+| Keep `kubectl exec`, mapping Kubernetes RBAC to roles | Kubernetes RBAC is not the role model and needs a kubeconfig per person (ADR 0014's boundary between roles and infrastructure access) |
 
 ## Consequences
 
-- No code, Terraform or contract changes.
-- The release notes say what the platform does not do and what to avoid
-  loading; they make no claim of data-level authorization.
-- The ADR 0016 `principals` choice is knowingly on a deprecated Trino feature
-  until #367.
+- No code, Terraform or contract changes in this record; the build sequence
+  above makes them.
+- Once built, a person's role is enforced below Superset for `olf query`, on the
+  local provider with the GitHub issuer, and nowhere else.
+- Human queries depend on Dex; pipelines, dashboards and the
+  `--as-workload` path do not.
+- The ADR 0016 `principals` rules stay, with one rule added for e-mail
+  principals, until they are replaced by `impersonation` rules.
+
+## Open questions
+
+1. `uat`: the proposal gives it the PROD column for every role but `viewer`.
+2. People catalog names: `<stage>` reads well in SQL
+   (`prod.order_revenue_gold.mart_order_revenue_by_day`) but sits beside the
+   workload catalogs `lakehouse_<stage>`. `lakehouse_<stage>_people` is the
+   unambiguous alternative.
 
 ## History
 
 New record (#179): the deferral, the Trino 480 and Superset 6.1.0 assessments,
 the foreclosure review and the prerequisites.
+
+Rewritten as the design for #367. The decision to enforce per-user policy in
+Trino with rules keyed by canonical role is replaced by Polaris grants reached
+through Dex tokens, because Trino 480 reads no groups from a token and Polaris
+does; AWS and Glue are left out by decision. Absorbed: the Trino 480
+impersonation analysis (now a rejected alternative), the foreclosure review
+(its accepted costs are in "Limits accepted"), and the nine prerequisites (now
+the build sequence and the verification list). The Superset assessment is
+carried forward unchanged.

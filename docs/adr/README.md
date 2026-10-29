@@ -34,7 +34,7 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0016](0016-trino-workload-authentication.md) | **Trino workload authentication** — password-file authentication over HTTPS for Superset, dbt, OpenMetadata and `olf e2e`; `principals` rules bind each verified credential to one stage user; proven in a standalone container, callers not yet migrated |
 | [0017](0017-local-network-policy-and-rbac.md) | **Local NetworkPolicy and RBAC** — default-deny ingress and egress for `olf-system` and stage namespaces with a derived flow table, an enforcing-dataplane gate and canary, the RBAC inventory with its exceptions, and the conformance plan; design only, nothing built |
 | [0018](0018-github-is-the-forge.md) | **GitHub is the forge** — source, CI, release and project images on GitHub today; client CD in GitHub Actions and people and roles from GitHub organisation teams through Dex are decided; `olf users` removed |
-| [0019](0019-data-plane-authorization-deferral.md) | **Data-plane authorization is deferred** — v0.5-alpha has service-level authorization only; Trino 480 impersonation and Superset 6.1.0 propagation assessed (V/T marked), foreclosure review, and the prerequisites for per-user data access (#367) |
+| [0019](0019-data-plane-authorization-deferral.md) | **Data-plane authorization — Dex identity, Polaris grants** — decided, not built: today service-level only; `olf query` moves to Dex sign-in, with the canonical role reaching Polaris, whose per-stage catalog grants decide read and write by layer (`analyst` Gold, `viewer` PROD Gold, `data-engineer` DEV write and PROD read); AWS and Glue out of scope; Superset stays on the shared principal (V/T marked, #367) |
 
 ## Related
 
