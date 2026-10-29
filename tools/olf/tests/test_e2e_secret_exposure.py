@@ -126,6 +126,8 @@ def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monke
         ("olf-dev", "superset-credentials", "secret-key"): "s" * 64,
         ("olf-dev", "superset-credentials", "admin-password"): "short",
         ("olf-dev", "postgresql-dagster-dev-creds", "postgresql-password"): "d" * 32,
+        ("olf-system", "seaweedfs-s3-creds", "AWS_SECRET_ACCESS_KEY"): "a" * 40,
+        ("olf-dev", "seaweedfs-dev-s3-creds", "AWS_SECRET_ACCESS_KEY"): "b" * 40,
     }
 
     def secret_value(name: str, key: str, namespace: str, **_kwargs: Any) -> str:
@@ -134,7 +136,10 @@ def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monke
         return values[(namespace, name, key)]
 
     def listing(_cfg: Any, args: list[str]) -> str:
-        names = {"olf-system": ["postgresql-admin-creds"], "olf-dev": ["postgresql-dagster-dev-creds", "dagster-x"]}
+        names = {
+            "olf-system": ["postgresql-admin-creds", "seaweedfs-s3-creds"],
+            "olf-dev": ["postgresql-dagster-dev-creds", "dagster-x", "seaweedfs-dev-s3-creds"],
+        }
         return "\n".join(f"secret/{name}" for name in names[args[3]])
 
     monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
@@ -145,4 +150,6 @@ def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monke
         "olf-system/postgresql-admin-creds/postgres-password": "p" * 32,
         "olf-dev/superset-credentials/secret-key": "s" * 64,
         "olf-dev/postgresql-dagster-dev-creds/postgresql-password": "d" * 32,
+        "olf-system/seaweedfs-s3-creds/AWS_SECRET_ACCESS_KEY": "a" * 40,
+        "olf-dev/seaweedfs-dev-s3-creds/AWS_SECRET_ACCESS_KEY": "b" * 40,
     }

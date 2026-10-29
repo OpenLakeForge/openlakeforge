@@ -43,9 +43,11 @@ MIGRATED_PLATFORM_SECRETS = (
     ("postgresql-polaris-creds", "password"),
     ("polaris-bootstrap-credentials", "ROOT_CLIENT_SECRET"),
     ("openmetadata-admin", "admin-password"),
+    ("seaweedfs-s3-creds", "AWS_SECRET_ACCESS_KEY"),
 )
 MIGRATED_SCANNED_SECRETS = (("superset-credentials", "secret-key"), ("superset-credentials", "admin-password"))
 DATABASE_SECRET = re.compile(r"postgresql-.+-creds")
+STAGE_S3_SECRET = re.compile(r"seaweedfs-.+-s3-creds")
 LOG_TAIL_LINES = 2000
 
 Surfaces = Mapping[str, str | None]
@@ -120,6 +122,11 @@ def migrated_credentials(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[st
             (namespace, name, "postgresql-password")
             for name in _secret_names(cfg, namespace)
             if DATABASE_SECRET.fullmatch(name) and name not in platform_names
+        ]
+        refs += [
+            (namespace, name, "AWS_SECRET_ACCESS_KEY")
+            for name in _secret_names(cfg, namespace)
+            if STAGE_S3_SECRET.fullmatch(name)
         ]
     found: dict[str, str] = {}
     for namespace, name, key in refs:

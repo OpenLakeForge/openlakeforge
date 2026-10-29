@@ -17,75 +17,6 @@ locals {
   }
 }
 
-# Until the auth config is assembled in-cluster, Terraform reads the keys back
-# to write it, so they are in state through these two reads only.
-data "kubernetes_secret_v1" "admin" {
-  metadata {
-    name      = var.credentials_secret_name
-    namespace = var.namespace
-  }
-
-  depends_on = [kubernetes_job_v1.credentials]
-}
-
-data "kubernetes_secret_v1" "stage" {
-  for_each = var.stage_credentials
-
-  metadata {
-    name      = each.value.credentials_secret_name
-    namespace = each.value.namespace
-  }
-
-  depends_on = [kubernetes_job_v1.credentials]
-}
-
-# SeaweedFS reads this immutable configuration at S3 gateway startup. Keeping
-# the identities here, rather than minting credentials only in Kubernetes,
-# makes a stage Secret incapable of authenticating as a different stage.
-resource "kubernetes_secret_v1" "s3_auth_config" {
-  metadata {
-    name      = "${var.release_name}-s3-auth"
-    namespace = var.namespace
-    labels    = local.labels
-  }
-
-  data = {
-    seaweedfs_s3_config = jsonencode({
-      identities = concat(
-        [{
-          name        = "openlakeforge-platform"
-          credentials = [{ accessKey = data.kubernetes_secret_v1.admin.data["AWS_ACCESS_KEY_ID"], secretKey = data.kubernetes_secret_v1.admin.data["AWS_SECRET_ACCESS_KEY"] }]
-          actions     = ["Admin"]
-        }],
-        [for stage, binding in var.stage_credentials : {
-          name = "openlakeforge-${stage}"
-          credentials = [{
-            accessKey = data.kubernetes_secret_v1.stage[stage].data["AWS_ACCESS_KEY_ID"]
-            secretKey = data.kubernetes_secret_v1.stage[stage].data["AWS_SECRET_ACCESS_KEY"]
-          }]
-          # Bronze/Silver/Gold are wholly stage-exclusive buckets, so the
-          # bucket-level grant is already scoped. The ops bucket is shared
-          # across every stage's activation artifacts, so its grant is
-          # further scoped to this stage's own prefix - SeaweedFS matches the
-          # action's bucket/key component with filepath.Match, so a trailing
-          # `*` confines it to `activations/<stage>/...` and denies every
-          # other stage's prefix in the same bucket.
-          actions = concat(
-            flatten([for bucket in [
-              binding.bronze_bucket_name,
-              binding.silver_bucket_name,
-              binding.gold_bucket_name,
-            ] : ["Read:${bucket}", "Write:${bucket}", "List:${bucket}"]]),
-            [for action in ["Read", "Write", "List"] : "${action}:${binding.ops_bucket_name}/activations/${stage}*"],
-          )
-        }],
-      )
-    })
-  }
-
-  type = "Opaque"
-}
-
 resource "helm_release" "seaweedfs" {
   name       = var.release_name
   repository = local.repository
@@ -108,10 +39,12 @@ resource "helm_release" "seaweedfs" {
         domainName           = "${var.namespace}.svc.cluster.local"
         createBuckets        = []
         enableAuth           = true
-        existingConfigSecret = kubernetes_secret_v1.s3_auth_config.metadata[0].name
+        existingConfigSecret = local.auth_secret_name
       }
     }),
   ]
+
+  depends_on = [kubernetes_job_v1.credentials]
 }
 
 resource "kubernetes_service_v1" "bucket_virtual_host" {
