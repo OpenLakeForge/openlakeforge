@@ -158,7 +158,9 @@ and loads it into kind, so no Docker build and no registry credential is needed
 and the pods pull nothing. A
 source checkout carries no such entry (a release stamps in the digest of the
 image built from its own commit), so there `olf deploy` builds the example
-locally. Setting `PROJECT_CODE_IMAGE_TAG` also opts out of the pinned image.
+locally. So does anything that is not the unmodified example: a `lakehouse_code/`
+in your project that differs from the bundled one, `PROJECT_CODE_IMAGE_TAG`, or
+a machine that is not amd64 (the release image is amd64 only).
 AWS and Azure still build and push the image to their registry.
 
 ```yaml

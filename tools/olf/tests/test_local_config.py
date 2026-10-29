@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import platform
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -212,13 +214,24 @@ def test_a_user_var_file_resolves_against_the_project_not_the_payload(tmp_path: 
 _PIN = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0-alpha.1@sha256:" + "a" * 64
 
 
-def _published_config(tmp_path: Path, environ: dict[str, str] | None = None, *, project: ProjectSpec | None = None):
+@pytest.fixture(autouse=True)
+def _amd64(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+
+
+def _published_config(
+    tmp_path: Path,
+    environ: dict[str, str] | None = None,
+    *,
+    project: ProjectSpec | None = None,
+    project_root: Path | None = None,
+):
     catalog = _write_full_catalog(tmp_path)
     catalog.write_text(catalog.read_text() + f"  images:\n    project_code: {_PIN}\n")
     topology = replace(
         legacy_single_stage_topology(provider=ProfileProvider.LOCAL, preset=Preset.FULL), project=project
     )
-    context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
+    context = DeploymentContext.local(repo_root=project_root or tmp_path, distribution_root=tmp_path, topology=topology)
     return LocalDeploymentConfig.from_environment(environ or {}, context=context)
 
 
@@ -240,6 +253,27 @@ def test_a_customer_project_never_deploys_the_example(tmp_path: Path) -> None:
         assert not images.project_code_published
         assert images.project_code_pull_policy == "Never"
         assert "@sha256:" not in images.project_code_image
+
+
+def test_edits_to_the_writable_project_are_never_replaced_by_the_example(tmp_path: Path) -> None:
+    bundled = tmp_path / "lakehouse_code"
+    bundled.mkdir()
+    (bundled / "definitions.py").write_text("defs = 1\n")
+    project = tmp_path / "work"
+    shutil.copytree(bundled, project / "lakehouse_code")
+    (project / "lakehouse_code" / "__pycache__").mkdir()
+    (project / "lakehouse_code" / "__pycache__" / "x.pyc").write_bytes(b"cache")
+
+    assert _published_config(tmp_path, project_root=project).images.project_code_published
+
+    (project / "lakehouse_code" / "new_product.py").write_text("edited = 1\n")
+    assert not _published_config(tmp_path, project_root=project).images.project_code_published
+
+
+def test_a_non_amd64_machine_builds_the_example_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+
+    assert not _published_config(tmp_path).images.project_code_published
 
 
 def test_a_pin_without_a_digest_fails_clearly() -> None:
