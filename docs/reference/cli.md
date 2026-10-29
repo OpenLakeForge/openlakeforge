@@ -75,7 +75,7 @@ All `new` commands validate the result before writing and accept
 | Command | Does |
 | --- | --- |
 | `olf platform apply -f openlakeforge.yaml` | Create the cluster, shared services and every enabled stage, without your code. |
-| `olf project image -f openlakeforge.yaml` | Build and push the project-code image; prints a digest-pinned reference. |
+| `olf project image -f openlakeforge.yaml` | Build and push the project-code image; prints a digest-pinned reference. For the unmodified public example it prints the release-pinned reference and builds nothing. |
 | `olf project build --project . --image <ref>` | Build and publish an immutable revision; prints its id. |
 | `olf project deploy -f openlakeforge.yaml --stage <s> --revision <id>` | Activate a revision in a stage without rebuilding. |
 | `olf project status -f openlakeforge.yaml` | The revision active in each stage. |

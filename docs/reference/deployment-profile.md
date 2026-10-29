@@ -163,8 +163,10 @@ in your project that differs from the bundled one, `PROJECT_CODE_IMAGE_TAG`, or
 a machine that is not amd64 (the release image is amd64 only).
 On `aws` and `azure` the same pin is deployed as it is, with the same conditions
 (a non-amd64 `*_IMAGE_PLATFORM` also builds): the cluster pulls the public
-package, and nothing is built or pushed to ECR or ACR. Anything else, and every
-explicit `olf project image`, builds and pushes to the provider registry.
+package, and nothing is built or pushed to ECR or ACR. Anything else builds and
+pushes to the provider registry. For the example, `olf project image` prints that
+pinned reference without building, so `olf project build` and `olf project deploy`
+promote one image digest through the stages.
 
 ```yaml
 # Local, your own image on GHCR (private: also name the pull secret).
