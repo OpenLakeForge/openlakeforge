@@ -55,6 +55,9 @@ _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project de
 # capabilities. For AWS, set provider.type: aws and provider.region; for Azure,
 # set provider.type: azure (its region comes from the foundation tfvars,
 # AZURE_TFVARS_FILE).
+# With no spec.project the public example image is used. To use your own code,
+# add spec.project with image.repository (and repository: the source URL, for
+# provenance); a private image also names image.pull_secret_ref.name.
 # Authentication is off until you add spec.identity (local only; ADR 0014).
 # Check it with: olf profile validate --project .
 # access.issuer: none is local-only (plain HTTP); remove it for aws or azure.

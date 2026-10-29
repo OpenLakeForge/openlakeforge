@@ -86,6 +86,25 @@ errors, and `docs/schema/deployment-profile.schema.json` for the versioned,
 tool-checkable shape. Neither substitutes for the other, and both are
 exercised by `olf check contracts`.
 
+### `spec.project`: the customer's source and image registry
+
+An optional `spec.project` declares `repository` (the source URL, provenance
+only: `olf` builds the checked-out directory and never trusts a ref's mutable
+head), `image.repository` (`host[:port]/path`, no tag or digest) and
+`image.pull_secret_ref.name` (a Kubernetes Secret created out-of-band). The
+profile carries references, never credentials: unknown fields, credentials in a
+URL and a registry-less image reference are rejected. `spec.identity.github`
+stays platform human roles; it never holds registry credentials. ADR 0012 still
+keeps `openlakeforge.yaml` out of a `ProjectRevision`.
+
+`olf.profile.resolve_project` picks the image repository in a fixed order:
+explicit profile, then `PROJECT_CODE_IMAGE_REPOSITORY` (compatibility
+override), then the provider registry (ECR or ACR) for a declared project
+without an image, and the public example only when `spec.project` is absent.
+A declared project never resolves to the example, and a local project must name
+its image because kind has no registry. Existing profiles are unchanged. The
+resolver exposes the result; wiring it into the deploy is #539 and #540.
+
 ### Resolution is deterministic
 
 | Input | Effective result |
@@ -113,7 +132,8 @@ becomes a no-op promise, which is worse than deferring it:
 `runtime`, personal workspace policy, platform/compute/storage sizing or
 availability, raw namespaces, replicas, resources, Helm values, Terraform
 modules or backends, IAM policies, credentials, images, PVCs, buckets,
-catalogs, and generated endpoints. `DeploymentTopology` carries only logical
+catalogs, and generated endpoints (the project image repository and pull secret
+*name* of `spec.project` are the declared exception: user-owned references). `DeploymentTopology` carries only logical
 service identities (`catalog`, `query`, `metadata_database`, `governance` as
 shared services; `orchestration`, `reporting` per stage) — never namespaces,
 Helm releases, or endpoints. The one exception is `identity` (`issuer_url`,
@@ -178,3 +198,7 @@ fifth topology concept; omitted, it defaults to the local evaluation install.
 issuer `issuer_url`, `role_claim`, `role_mapping`) selecting the OIDC issuer.
 The seam is owned by ADR 0014; the resolved topology carries it and the
 provider contract must match it.
+
+`spec.project` (#538) added in place: the customer's source and image registry
+as references, with a fixed resolution order and no credentials. The earlier
+"images" exclusion is narrowed to what the paragraph above allows.

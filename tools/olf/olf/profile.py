@@ -19,6 +19,7 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -38,7 +39,7 @@ _IDENTIFIER_PATTERN = re.compile(_IDENTIFIER_PATTERN_SOURCE)
 
 _ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
 _METADATA_FIELDS = {"name"}
-_SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity"}
+_SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
 _IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "github"}
@@ -56,6 +57,20 @@ _DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]
 _SECRET_DATA_KEY = re.compile(r"[-._a-zA-Z0-9]+")
 # Dot-separated DNS labels; every route host is `<service>[.<stage>].<base_domain>`.
 _BASE_DOMAIN_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
+# spec.project (ADR 0011): a source URL (provenance) and an image repository, never a credential.
+_PROJECT_FIELDS = {"repository", "image"}
+_PROJECT_IMAGE_FIELDS = {"repository", "pull_secret_ref"}
+_PULL_SECRET_REF_FIELDS = {"name"}
+_REGISTRY_LABEL = r"[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+_REPOSITORY_NAME = r"[a-z0-9]+([._-][a-z0-9]+)*"
+# `host[:port]/path`, no tag or digest. The registry host is mandatory: a bare `acme/code` means Docker Hub
+# implicitly, and a profile that silently pulls from there is the ambiguity this contract rejects.
+_IMAGE_REPOSITORY_PATTERN_SOURCE = (
+    rf"((localhost|{_REGISTRY_LABEL}(\.{_REGISTRY_LABEL})+)(:[0-9]{{1,5}})?|{_REGISTRY_LABEL}:[0-9]{{1,5}})"
+    rf"/{_REPOSITORY_NAME}(/{_REPOSITORY_NAME})*"
+)
+_IMAGE_REPOSITORY_PATTERN = re.compile(_IMAGE_REPOSITORY_PATTERN_SOURCE)
+PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/project-code"
 _STAGE_FIELDS = {"enabled", "capabilities"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
 
@@ -151,6 +166,37 @@ class IdentitySpec:
 
 
 @dataclass(frozen=True)
+class ProjectImageSpec:
+    """Where the customer's project-code image lives. `pull_secret_name` names a
+    Kubernetes `kubernetes.io/dockerconfigjson` Secret created out-of-band; the
+    profile never carries the credential (#540 consumes the reference)."""
+
+    repository: str
+    pull_secret_name: str | None = None
+
+
+@dataclass(frozen=True)
+class ProjectSpec:
+    """The customer's project, declared (ADR 0011). `repository` is provenance
+    only: `olf` builds the checked-out directory, never a fetched ref."""
+
+    repository: str | None = None
+    image: ProjectImageSpec | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedProject:
+    """Where the project-code image comes from. `source` is the precedence tier
+    that won; `image_repository is None` means the provider registry (ECR/ACR),
+    known only once the foundation exists."""
+
+    source: str  # profile | environment | provider-default | public-example
+    repository: str | None
+    image_repository: str | None
+    pull_secret_name: str | None = None
+
+
+@dataclass(frozen=True)
 class StageCapabilities:
     analytics: bool = False
     governance: bool = False
@@ -175,6 +221,7 @@ class DeploymentProfile:
     stages: tuple[StageSpec, ...]
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
+    project: ProjectSpec | None = None
 
     def stage(self, name: StageName) -> StageSpec | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -393,6 +440,72 @@ def _validate_github(document: object, *, where: str, distribution_root: Path | 
     return GitHubSpec(organization=org, teams=teams, oauth_app_secret_ref=oauth, host=host)
 
 
+def _image_repository(value: object, *, where: str) -> str:
+    if not isinstance(value, str) or len(value) > 255 or not _IMAGE_REPOSITORY_PATTERN.fullmatch(value):
+        raise DeploymentProfileError(
+            f"{where} must be a registry repository such as ghcr.io/acme/lakehouse-code: "
+            "host first, lowercase, no tag, digest or credentials"
+        )
+    return value
+
+
+def _validate_project(document: object, *, source: str, provider: Provider) -> ProjectSpec:
+    where = f"{source}: spec.project"
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{where} must be an object")
+    _forbid_unexpected(document, _PROJECT_FIELDS, where=where)
+    if not document:
+        raise DeploymentProfileError(f"{where} must declare 'repository' or 'image'; omit the block for the example")
+    repository = document.get("repository")
+    if "repository" in document:
+        try:
+            parts = urlsplit(repository) if isinstance(repository, str) else None
+        except ValueError:
+            parts = None
+        # No userinfo over https, and never a password: a token in a URL is a credential in the profile.
+        if (
+            parts is None
+            or parts.scheme not in ("https", "ssh")
+            or not parts.hostname
+            or parts.password is not None
+            or (parts.scheme == "https" and parts.username is not None)
+            or parts.query
+            or parts.fragment
+            or not parts.path.strip("/")
+            or re.search(r"\s", str(repository))
+        ):
+            raise DeploymentProfileError(
+                f"{where}.repository must be an https:// or ssh:// URL without credentials, query or fragment"
+            )
+    image = None
+    if "image" in document:
+        raw = document["image"]
+        if not isinstance(raw, Mapping):
+            raise DeploymentProfileError(f"{where}.image must be an object")
+        _forbid_unexpected(raw, _PROJECT_IMAGE_FIELDS, where=f"{where}.image")
+        if "repository" not in raw:
+            raise DeploymentProfileError(f"{where}.image: missing required field 'repository'")
+        pull_secret_name = None
+        if "pull_secret_ref" in raw:
+            ref = raw["pull_secret_ref"]
+            if not isinstance(ref, Mapping):
+                raise DeploymentProfileError(f"{where}.image.pull_secret_ref must be an object")
+            _forbid_unexpected(ref, _PULL_SECRET_REF_FIELDS, where=f"{where}.image.pull_secret_ref")
+            if not is_secret_name(ref.get("name")):
+                raise DeploymentProfileError(
+                    f"{where}.image.pull_secret_ref.name is not a valid Kubernetes Secret name"
+                )
+            pull_secret_name = ref["name"]
+        image = ProjectImageSpec(
+            repository=_image_repository(raw["repository"], where=f"{where}.image.repository"),
+            pull_secret_name=pull_secret_name,
+        )
+    # The clouds have a registry of their own to default to; kind has none, so a local project must name one.
+    if provider == Provider.LOCAL and image is None:
+        raise DeploymentProfileError(f"{where}.image is required on provider 'local' (there is no default registry)")
+    return ProjectSpec(repository=repository, image=image)
+
+
 def _validate_identity(document: object, *, source: str, distribution_root: Path | None = None) -> IdentitySpec:
     where = f"{source}: spec.identity"
     if not isinstance(document, Mapping):
@@ -542,6 +655,7 @@ def validate_deployment_profile(
         if "identity" in spec
         else None
     )
+    project = _validate_project(spec["project"], source=source, provider=provider.type) if "project" in spec else None
     if provider.type == Provider.LOCAL and identity is not None and access is None:
         raise DeploymentProfileError(
             f"{source}: spec.identity requires spec.access on the local provider (sign-in needs the route hostnames)"
@@ -560,7 +674,7 @@ def validate_deployment_profile(
             "use no spec.access, or on provider 'local' a base_domain ending in '.localhost'"
         )
     return DeploymentProfile(
-        name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity
+        name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity, project=project
     )
 
 
@@ -605,6 +719,27 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         access=profile.access,
         identity=profile.identity,
     )
+
+
+def resolve_project(profile: DeploymentProfile, environ: Mapping[str, str] | None = None) -> ResolvedProject:
+    """Where the project-code image comes from, in precedence order: the profile's
+    `spec.project.image`, then `PROJECT_CODE_IMAGE_REPOSITORY` (or its
+    `<PROVIDER>_` alias), then the provider registry for a project declared
+    without an image, and the public example only when nothing was declared. A
+    declared project therefore never resolves to the example."""
+    project = profile.project
+    repository = project.repository if project else None
+    if project and project.image:
+        return ResolvedProject("profile", repository, project.image.repository, project.image.pull_secret_name)
+    prefix = profile.provider.type.value.upper()
+    env = (environ or {}).get("PROJECT_CODE_IMAGE_REPOSITORY") or (environ or {}).get(
+        f"{prefix}_PROJECT_CODE_IMAGE_REPOSITORY"
+    )
+    if env:
+        return ResolvedProject("environment", repository, _image_repository(env, where="PROJECT_CODE_IMAGE_REPOSITORY"))
+    if project:
+        return ResolvedProject("provider-default", repository, None)
+    return ResolvedProject("public-example", None, PUBLIC_EXAMPLE_IMAGE_REPOSITORY)
 
 
 def legacy_single_stage_topology(*, provider: Provider, preset: Preset) -> DeploymentTopology:
