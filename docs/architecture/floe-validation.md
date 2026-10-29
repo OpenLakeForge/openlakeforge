@@ -58,7 +58,7 @@ are the asset `<domain>/rejected/<table>`. The manifest is named
 
 | Concern | How it works |
 | --- | --- |
-| Execution | The profile's runner is `kubernetes_job` with `job_scope: domain`. A run that materializes a domain's asset launches one Kubernetes Job for that domain in the stage namespace, on the run pod's own project-code image and the `dagster` service account. The Job's `olf-floe-job` entrypoint (`libs/floe_job.py`) re-renders the stage profile from the non-secret contract values forwarded in its environment, then execs `floe run` unchanged. |
+| Execution | The profile's runner is `kubernetes_job` with `job_scope: domain`. A run that materializes a domain's asset launches one Kubernetes Job for that domain in the stage namespace, on the run pod's own project-code image and the `dagster` service account. The Job runs plain `floe run`; dagster-floe passes it the run pod's rendered profile as text (`-p env:FLOE_PROFILE_CONTENT`), and deletes the Job if the Dagster run is terminated or times out. |
 | Selection | A run that needs a whole domain passes `--domain <domain>`; one that needs only some of its tables passes just those (`--entities sales.orders,sales.accounts`). |
 | Concurrency | The profile's `sequential` orchestration runs a Job's entities one after another, and becomes `max_concurrent: 1` on each product job, so one domain Job runs at a time. |
 | Credentials | Each Job receives only Secret references (`secretKeyRef`): on a REST catalog the Polaris Floe client id and secret, the storage access keys where the stage uses static keys, and, when governance is on, the OpenMetadata ingestion-bot JWT as `OPENLINEAGE_API_KEY`. No credential value enters the profile, the manifest or the Job spec. |

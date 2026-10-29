@@ -69,9 +69,9 @@ The exact values live in the Terraform module and the stage's rendered Floe prof
 run pod uses `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`, carries the
 contract-derived environment variables plus `envFrom` secrets, and runs each product job
 with `max_concurrent: 1` because the profile's Floe orchestration is `sequential`. Each
-Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the non-secret
-contract values its `olf-floe-job` entrypoint re-renders the profile from, and only the
-Secrets the runner references: the Polaris Floe client, the storage keys, and the
+Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the run pod's
+rendered profile as text in `FLOE_PROFILE_CONTENT`, and only the Secrets the runner
+references: the Polaris Floe client, the storage keys, and the
 ingestion-bot JWT when governance is on.
 
 ## Where each engine does its work
@@ -131,7 +131,6 @@ completion.
 
 - [libs/product_dagster.py](../../../libs/product_dagster.py) — asset graph assembly from the Floe project
 - [libs/floe_profile.py](../../../libs/floe_profile.py) — the stage's Floe profile: storages, catalog, lineage, the per-domain `kubernetes_job` runner, sequential orchestration
-- [libs/floe_job.py](../../../libs/floe_job.py) — the Floe Job's entrypoint, which re-renders the profile inside the Job
 - [lakehouse_code/silver/floe.yml](../../../lakehouse_code/silver/floe.yml) — the Floe project
 - [infra/terraform/modules/orchestration/dagster/main.tf](../../../infra/terraform/modules/orchestration/dagster/main.tf) — `K8sRunLauncher`, `ttlSecondsAfterFinished`, runtime env
 - [libs/dbt/profiles/](../../../libs/dbt/profiles/) — the dbt profile template, one per query engine (`trino.yml`); every stage value is an `env_var()` reference

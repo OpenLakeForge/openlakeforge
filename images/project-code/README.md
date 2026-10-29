@@ -23,9 +23,8 @@ OpenLakeForge libraries. The code location builds the Floe manifest in memory
 from the project and the EnvironmentProfile `libs/floe_profile.py` renders from
 the stage's contract values, so the image carries no generated manifest and no
 stage binding for Floe. Floe itself runs in one Kubernetes Job per domain on
-this same image, through the `olf-floe-job` console script
-(`libs/floe_job.py`), which re-renders that profile inside the Job before
-running `floe`. See [Floe validation](../../docs/architecture/floe-validation.md).
+this same image; dagster-floe passes that profile to the Job as text, so the
+Job runs plain `floe`. See [Floe validation](../../docs/architecture/floe-validation.md).
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `olf deploy --provider aws --phase artifacts`.
