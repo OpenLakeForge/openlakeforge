@@ -14,6 +14,14 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Added
+
+- `source.yaml` accepts an optional `runtime` block naming the settings
+  (`config`) and credentials (`secrets`) a source's loader reads, as key names
+  only. Each stage binds the values in a ConfigMap `olf-source-<source>` and a
+  Secret `olf-source-<source>-credentials`, which reach dlt as
+  `SOURCES__<SOURCE>__<KEY>` (#546).
+
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image

@@ -41,9 +41,26 @@ resources:
 | `resources` | array, at least one | yes | The source's table-like inputs. |
 | `resources[].name` | identifier | yes | Unique within the source. |
 | `resources[].description` | string | no | Human-readable description. |
+| `runtime.config` | array of key names | no | Names of the non-secret settings the loader reads, such as an API base URL. |
+| `runtime.secrets` | array of key names | no | Names of the credentials the loader reads, such as an API token. A name appears in at most one of the two lists. |
 
 A resource has no schema here: its columns belong to the Floe contract of each
 domain that reads it.
+
+`runtime` lists key names, never values: each stage binds its own. For a
+source `crm_api` with `runtime: {config: [base_url], secrets: [api_token]}`:
+
+| Key | Bound by the stage in | Reaches the loader as |
+| --- | --- | --- |
+| `base_url` | ConfigMap `olf-source-crm-api` | `SOURCES__CRM_API__BASE_URL` |
+| `api_token` | Secret `olf-source-crm-api-credentials` | `SOURCES__CRM_API__API_TOKEN` |
+
+These are the names dlt itself resolves for a `@dlt.source` in
+`bronze/crm_api/dlt/crm_api.py`, so the loader reads them with
+`dlt.config.value` and `dlt.secrets.value`, and fails if one is missing. In
+the Kubernetes names, `_` becomes `-`. Because of both conversions, a source
+with a `runtime` block, and each of its keys, must be underscore-separated
+words: `crm_api` and `base_url`, not `crm_`, `_url` or `a__b`.
 
 ## `lakehouse.yaml`
 

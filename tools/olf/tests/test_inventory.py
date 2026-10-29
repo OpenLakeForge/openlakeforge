@@ -313,3 +313,69 @@ dashboards: []
 
     with pytest.raises(LakehouseDescriptorError, match=r"must declare at least one product"):
         load_lakehouse_inventory(tmp_path)
+
+
+def _write_source_runtime(root: Path, runtime: str) -> None:
+    source_path = root / "lakehouse_code" / "bronze" / "crm" / "source.yaml"
+    source_path.write_text(_source() + runtime, encoding="utf-8")
+
+
+def test_a_source_declares_its_runtime_keys_and_derives_their_stage_bindings(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path)
+    _write_source_runtime(tmp_path, "runtime:\n  config: [base_url]\n  secrets: [api_token]\n")
+
+    (source,) = load_lakehouse_inventory(tmp_path).sources
+
+    assert source.runtime_config == ("base_url",)
+    assert source.runtime_secrets == ("api_token",)
+    assert source.config_map_name == "olf-source-crm"
+    assert source.credentials_secret_name == "olf-source-crm-credentials"
+    assert source.runtime_env_name("api_token") == "SOURCES__CRM__API_TOKEN"
+
+
+def test_a_source_without_runtime_keys_needs_no_bindings(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path)
+
+    (source,) = load_lakehouse_inventory(tmp_path).sources
+
+    assert source.runtime_config == () and source.runtime_secrets == ()
+
+
+@pytest.mark.parametrize("name", ["crm_", "crm__api"])
+def test_a_source_with_runtime_keys_needs_a_name_that_maps_to_valid_bindings(tmp_path: Path, name: str) -> None:
+    """`crm_` would bind ConfigMap `olf-source-crm-`, which Kubernetes rejects."""
+    _write_lakehouse(tmp_path, source=name)
+    source_path = tmp_path / "lakehouse_code" / "bronze" / name / "source.yaml"
+    source_path.write_text(_source(source=name) + "runtime:\n  config: [base_url]\n", encoding="utf-8")
+
+    with pytest.raises(LakehouseDescriptorError, match="underscore-separated words"):
+        load_lakehouse_inventory(tmp_path)
+
+
+def test_binding_names_are_valid_kubernetes_names_for_an_underscored_source() -> None:
+    from openlakeforge_domain.inventory import Source
+
+    source = Source(descriptor_path=Path("source.yaml"), name="marketing_platform", display_name="M", resources=())
+
+    assert source.config_map_name == "olf-source-marketing-platform"
+    assert source.runtime_env_name("base_url") == "SOURCES__MARKETING_PLATFORM__BASE_URL"
+
+
+@pytest.mark.parametrize(
+    ("runtime", "message"),
+    [
+        ("runtime:\n  config: [base_url]\n  secrets: [base_url]\n", "listed twice"),
+        ("runtime:\n  config: [Base-URL]\n", r"runtime.config\[0\] must match"),
+        ("runtime:\n  values: {base_url: https://api.example}\n", "config and secrets keys only"),
+        ("runtime:\n  secrets: api_token\n", "runtime.secrets must be an array"),
+        # dlt reads `__` as a section break: `a__b` + `c` and `a` + `b__c` would share a variable.
+        ("runtime:\n  secrets: [api__token]\n", "underscore-separated words"),
+        ("runtime:\n  config: [base_url_]\n", "underscore-separated words"),
+    ],
+)
+def test_a_source_runtime_block_names_keys_only(tmp_path: Path, runtime: str, message: str) -> None:
+    _write_lakehouse(tmp_path)
+    _write_source_runtime(tmp_path, runtime)
+
+    with pytest.raises(LakehouseDescriptorError, match=message):
+        load_lakehouse_inventory(tmp_path)
