@@ -166,7 +166,13 @@ curl --resolve dagster-dev.olf.localhost:80:127.0.0.1 http://dagster-dev.olf.loc
 ```
 
 With sign-in off, Superset opens as its local Admin and OpenMetadata accepts
-`admin@open-metadata.org` / `admin`. Over plain HTTP, the Trino Web UI shows a
+`admin@open-metadata.org` with the password in Secret `openmetadata-admin`:
+
+```bash
+kubectl -n olf-system get secret openmetadata-admin -o jsonpath='{.data.admin-password}' | base64 -d
+```
+
+Over plain HTTP, the Trino Web UI shows a
 fixed user, `olf-web`, instead of a login form; per-person identity in the UI
 needs HTTPS (#425). To require sign-in, see
 [Connect GitHub](identity/connect-github.md).

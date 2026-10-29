@@ -17,8 +17,12 @@ preset is deployed and every product's job has run once (the end-to-end run of
 http://openmetadata.olf.localhost
 ```
 
-Sign in with the local development credentials `admin@open-metadata.org` /
-`admin`.
+Sign in as `admin@open-metadata.org`. The deployment generated the password
+into Secret `openmetadata-admin`; read it with:
+
+```bash
+kubectl -n olf-system get secret openmetadata-admin -o jsonpath='{.data.admin-password}' | base64 -d
+```
 
 ## 2. Find the domain and data product
 

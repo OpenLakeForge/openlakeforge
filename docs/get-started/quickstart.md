@@ -71,8 +71,8 @@ no sign-in: authentication stays off until you add `spec.identity`.
 > [!NOTE]
 > A profile without `spec.identity` publishes nothing beyond your machine:
 > locally, only on `*.localhost`. With the Full preset and sign-in off, Superset opens as Admin
-> and OpenMetadata keeps its `admin@open-metadata.org` / `admin` login, which
-> `olf status` shows. To serve HTTPS, see
+> and OpenMetadata keeps its `admin@open-metadata.org` login, with the password
+> in Secret `openmetadata-admin`, as `olf status` notes. To serve HTTPS, see
 > [Serve HTTPS](../guides/local-installation.md#serve-https); to sign in with
 > GitHub, see [Connect GitHub](../guides/identity/connect-github.md).
 
