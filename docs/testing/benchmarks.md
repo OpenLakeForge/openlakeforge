@@ -8,7 +8,7 @@ ceilings, not targets; #329 draws the conclusions.
 
 | Command | Scenario | Measures |
 | --- | --- | --- |
-| `olf bench footprint [--clean]` | A: install and idle | Each `olf deploy` phase, time to the first Trino query, the first product pipeline with its Gold rows, pods per namespace, node storage, and CPU/RAM installed versus after `--settle-seconds` and over `--idle-seconds` |
+| `olf bench footprint [--clean\|--existing]` | A: install and idle | Each `olf deploy` phase (skipped with `--existing`, which measures the running deployment), time to the first Trino query, the first product pipeline with its Gold rows, pods per namespace, node storage, and CPU/RAM installed versus after `--settle-seconds` and over `--idle-seconds` |
 | `olf bench etl --scale N [--delta D]` | B: end-to-end ETL | The CSV fixtures replicated N times through every product job, a no-change rerun, then a reload at N+D replicas: wall-clock per run and per layer, cluster CPU/RAM per layer, rows, checksums, Iceberg data files, bytes and snapshots |
 
 Each run writes `result.json` and one log per `olf` subprocess under
