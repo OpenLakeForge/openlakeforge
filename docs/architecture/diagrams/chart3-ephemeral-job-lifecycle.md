@@ -70,8 +70,9 @@ run pod uses `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`, carri
 contract-derived environment variables plus `envFrom` secrets, and runs each product job
 with `max_concurrent: 1` because the profile's Floe orchestration is `sequential`. Each
 Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the run pod's
-rendered profile as text in `FLOE_PROFILE_CONTENT`, and only the Secrets the runner
-references: the Polaris Floe client, the storage keys, and the
+rendered profile as text in `FLOE_PROFILE_CONTENT`, the Dagster run id and job name
+(the parent run of its lineage events), a 6 GiB memory limit, and only the Secrets the
+runner references: the Polaris Floe client, the storage keys, and the
 ingestion-bot JWT when governance is on.
 
 ## Where each engine does its work
