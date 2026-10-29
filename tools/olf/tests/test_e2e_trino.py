@@ -20,17 +20,40 @@ def test_check_catalog_namespaces_reports_missing_descriptor_namespace(
         _trino.check_catalog_namespaces(e2e_cfg(tmp_path))
 
 
+def _trino_listing(monkeypatch: pytest.MonkeyPatch, tables: dict[str, list[str]]) -> None:
+    """Answer `SHOW TABLES IN <catalog>.<schema>` from `tables`, keyed by schema."""
+    monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
+    monkeypatch.setattr(
+        _trino, "trino_query", lambda _cfg, sql: "\n".join(tables.get(sql.rsplit(".", 1)[-1], []))
+    )
+
+
 def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     product = E2E_INVENTORY.default_product
-    silver_table_names = "\n".join(table.name for table in E2E_INVENTORY.resolved_silver_tables(product))
-    values = iter((str(len(product.gold_tables)), "0"))
-    monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
-    monkeypatch.setattr(_trino, "trino_query", lambda _cfg, _sql: silver_table_names)
-    monkeypatch.setattr(_trino, "trino_scalar", lambda _cfg, _sql: next(values))
+    _trino_listing(monkeypatch, {product.silver_namespace: ["orders"], product.gold_namespace: ["mart"]})
+    monkeypatch.setattr(_trino, "trino_scalar", lambda _cfg, _sql: "0")
 
     with pytest.raises(E2EError, match="expected iceberg"):
+        _trino.check_trino_product_tables_and_marts(e2e_cfg(tmp_path, suite="smoke"), product)
+
+
+def test_product_table_check_requires_a_gold_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    product = E2E_INVENTORY.default_product
+    _trino_listing(monkeypatch, {product.silver_namespace: ["orders"]})
+
+    with pytest.raises(E2EError, match=f"{product.id}: Trino lists no tables"):
+        _trino.check_trino_product_tables_and_marts(e2e_cfg(tmp_path, suite="smoke"), product)
+
+
+def test_product_table_check_rejects_a_silver_table_no_floe_entity_declares(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    product = E2E_INVENTORY.default_product
+    _trino_listing(monkeypatch, {product.silver_namespace: ["orders", "stray"], product.gold_namespace: ["mart"]})
+
+    with pytest.raises(E2EError, match="no Floe entity declares: stray"):
         _trino.check_trino_product_tables_and_marts(e2e_cfg(tmp_path, suite="smoke"), product)
 
 

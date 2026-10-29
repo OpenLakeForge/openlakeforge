@@ -17,7 +17,7 @@ from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, Open
 from olf.clients.superset import SupersetClient
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
-from olf.e2e._trino import stage_catalog_name
+from olf.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.openmetadata._auth import automation_token
 
 
@@ -131,9 +131,8 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             stage_contract=stages[stage],
             database_fqn=database_fqn,
         )
-        assert_openmetadata_stage_lineage(
-            client, stage=stage, database_fqn=database_fqn, tables=cfg.inventory.gold_mart_names
-        )
+        gold_tables = [table for product in cfg.inventory.products for table in product_gold_tables(cfg, product)]
+        assert_openmetadata_stage_lineage(client, stage=stage, database_fqn=database_fqn, tables=gold_tables)
 
 
 def assert_openmetadata_stage_lineage(

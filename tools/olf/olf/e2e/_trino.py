@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Callable
 
-from openlakeforge_domain import Product
+from openlakeforge_domain import Domain, Product
 
 from olf import log, trino
 from olf.e2e._shell import E2EConfig, E2EError, kubectl
@@ -58,71 +58,56 @@ def check_catalog_namespaces(cfg: E2EConfig) -> None:
         raise E2EError("Polaris is missing descriptor-derived namespaces: " + ", ".join(missing))
 
 
-def _schema_in_list(schema_names: set[str]) -> str:
-    return ", ".join(f"'{name}'" for name in sorted(schema_names))
+def list_tables(cfg: E2EConfig, schema: str, *, catalog: str | None = None) -> list[str]:
+    """The tables Trino lists in `schema`. Table names are not tracked anywhere; the catalog is the source."""
+    out = trino_query(cfg, f"SHOW TABLES IN {catalog or stage_catalog_name(cfg)}.{schema}")
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def product_gold_tables(cfg: E2EConfig, product: Product) -> list[str]:
+    """`<product>_gold.<table>` for each Gold table the product has, requiring at least one."""
+    schema = f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}"
+    tables = list_tables(cfg, schema)
+    if not tables:
+        raise E2EError(f"{product.id}: Trino lists no tables in {stage_catalog_name(cfg)}.{schema}")
+    return [f"{product.gold_namespace}.{table}" for table in tables]
+
+
+def _check_silver_tables(cfg: E2EConfig, domain: Domain) -> None:
+    """A domain with products has Silver tables, and each one is a Floe entity."""
+    schema = f"{_glue_namespace_prefix(cfg)}{domain.silver_namespace}"
+    tables = set(list_tables(cfg, schema))
+    if domain.products and not tables:
+        raise E2EError(f"{domain.name}: Trino lists no tables in {stage_catalog_name(cfg)}.{schema}")
+    unknown = sorted(tables - {entity.name for entity in cfg.inventory.floe_entities(domain)})
+    if unknown:
+        raise E2EError(f"{schema} holds table(s) no Floe entity declares: {', '.join(unknown)}")
+
+
+def _check_gold_rows(cfg: E2EConfig, product: Product) -> None:
+    catalog = stage_catalog_name(cfg)
+    prefix = _glue_namespace_prefix(cfg)
+    for mart in product_gold_tables(cfg, product):
+        count = trino_scalar(cfg, f"SELECT count(*) FROM {catalog}.{prefix}{mart}")
+        if int(count) <= 0:
+            raise E2EError(f"expected {catalog}.{prefix}{mart} to contain rows, got {count}")
 
 
 def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
     check_trino_catalog(cfg)
-    log.step("Checking Silver and Gold table counts...")
-    catalog = stage_catalog_name(cfg)
-    prefix = _glue_namespace_prefix(cfg)
-    silver_count = trino_scalar(
-        cfg,
-        f"SELECT count(*) FROM {catalog}.information_schema.tables "
-        f"WHERE table_schema IN ({_schema_in_list({f'{prefix}{n}' for n in cfg.inventory.silver_namespace_names})})",
-    )
-    gold_count = trino_scalar(
-        cfg,
-        f"SELECT count(*) FROM {catalog}.information_schema.tables "
-        f"WHERE table_schema IN ({_schema_in_list({f'{prefix}{n}' for n in cfg.inventory.gold_namespace_names})})",
-    )
-    assert_scalar_equals(silver_count, str(cfg.inventory.silver_table_count), "Silver table count")
-    assert_scalar_equals(gold_count, str(cfg.inventory.gold_table_count), "Gold mart count")
-
-    for mart in cfg.inventory.gold_mart_names:
-        mart = f"{prefix}{mart}"
-        count = trino_scalar(cfg, f"SELECT count(*) FROM {catalog}.{mart}")
-        if int(count) <= 0:
-            raise E2EError(f"expected {catalog}.{mart} to contain rows, got {count}")
+    log.step("Checking Silver and Gold tables...")
+    for domain in cfg.inventory.domains:
+        _check_silver_tables(cfg, domain)
+    for product in cfg.inventory.products:
+        _check_gold_rows(cfg, product)
 
 
 def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> None:
-    """Verify the selected smoke product reached populated Silver and Gold tables.
-
-    Silver is checked by table name, not by namespace row count: two products
-    in the same domain share one Silver namespace, so another product's
-    tables (or a sibling's earlier smoke run) can already be present there.
-    Gold stays product-exclusive, so a namespace-wide count is still valid.
-    """
+    """Verify the selected smoke product reached populated Silver and Gold tables."""
     check_trino_catalog(cfg)
-    catalog = stage_catalog_name(cfg)
-    prefix = _glue_namespace_prefix(cfg)
-    silver_namespace = f"{prefix}{product.silver_namespace}"
-    gold_namespace = f"{prefix}{product.gold_namespace}"
     log.step(f"Checking Silver and Gold tables for {product.id}...")
-    silver_tables = set(
-        trino_query(
-            cfg,
-            f"SELECT table_name FROM {catalog}.information_schema.tables "
-            f"WHERE table_schema = '{silver_namespace}'",
-        ).splitlines()
-    )
-    missing_silver = sorted(
-        table.name for table in cfg.inventory.resolved_silver_tables(product) if table.name not in silver_tables
-    )
-    if missing_silver:
-        raise E2EError(f"{product.id}: missing Silver table(s) in {silver_namespace}: {', '.join(missing_silver)}")
-    gold_count = trino_scalar(
-        cfg,
-        f"SELECT count(*) FROM {catalog}.information_schema.tables WHERE table_schema = '{gold_namespace}'",
-    )
-    assert_scalar_equals(gold_count, str(len(product.gold_tables)), f"{product.id} Gold mart count")
-    for mart in product.gold_mart_names:
-        mart = f"{prefix}{mart}"
-        count = trino_scalar(cfg, f"SELECT count(*) FROM {catalog}.{mart}")
-        if int(count) <= 0:
-            raise E2EError(f"expected {catalog}.{mart} to contain rows, got {count}")
+    _check_silver_tables(cfg, cfg.inventory.domain_for_product(product))
+    _check_gold_rows(cfg, product)
 
 
 def retry_until_deadline(

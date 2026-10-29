@@ -25,6 +25,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .descriptors import (
     LakehouseDescriptorError,
     load_lakehouse_descriptor,
@@ -52,6 +54,16 @@ class SourceResource:
 @dataclass(frozen=True)
 class SilverTable:
     """A domain-owned Silver table and its source resource."""
+
+    domain: str
+    name: str
+    source: str
+    resource: str
+
+
+@dataclass(frozen=True)
+class FloeEntity:
+    """A domain's Silver entity as its Floe file declares it, and the Bronze resource feeding it."""
 
     domain: str
     name: str
@@ -362,6 +374,18 @@ class LakehouseInventory:
     def bronze_resources_for_product(self, product: Product) -> tuple[SourceResource, ...]:
         return tuple(SourceResource(table.source, table.resource) for table in self.resolved_silver_tables(product))
 
+    def floe_entities(self, domain: Domain) -> tuple[FloeEntity, ...]:
+        """The domain's Silver entities from its Floe files, each fed by a Bronze resource a Source declares."""
+        resources = {(source.name, resource.name) for source in self.sources for resource in source.resources}
+        entities = _read_floe_entities(self.lakehouse_root, domain.name)
+        for entity in entities:
+            if (entity.source, entity.resource) not in resources:
+                raise LakehouseDescriptorError(
+                    f"{self.lakehouse_root}: Silver entity {domain.name}/{entity.name} reads unknown Bronze "
+                    f"resource {entity.source}/{entity.resource}"
+                )
+        return entities
+
     @property
     def gold_namespace_names(self) -> frozenset[str]:
         return frozenset(product.gold_namespace for product in self.products)
@@ -465,6 +489,22 @@ def _silver_tables(path: Path, domain_name: str, domain: Mapping[str, Any]) -> t
         SilverTable(domain=domain_name, name=table["name"], source=table["source"], resource=table["resource"])
         for table in tables
     )
+
+
+def _read_floe_entities(lakehouse_root: Path, domain: str) -> tuple[FloeEntity, ...]:
+    entity_dir = lakehouse_root / "silver" / domain / "contracts" / "floe"
+    entities = []
+    for path in sorted(entity_dir.glob("*.yml")):
+        if path.name == "_domain.yml":
+            continue
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        try:
+            entities.append(
+                FloeEntity(domain, document["name"], document["source"]["ref"], document["source"]["resource"])
+            )
+        except (KeyError, TypeError) as exc:
+            raise LakehouseDescriptorError(f"{path}: entity must declare name and source.ref/resource") from exc
+    return tuple(entities)
 
 
 def _table_group(path: Path, product: Mapping[str, Any], field: str, label: str) -> tuple[Table, ...]:
