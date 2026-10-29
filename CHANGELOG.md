@@ -46,6 +46,11 @@ for how a release is cut and verified.
   names and no longer depends on the provider. Each run re-parses with its
   stage's values and uploads its own manifest, run results and log rather
   than the baked manifest (#546).
+- The reference products' `dbt_project.yml` and `sources.yml`, and those
+  `olf product new` writes, read the stage catalog with no `lakehouse_dev`
+  fallback. A scaffolded product's Silver source now carries the stage
+  schema prefix as the reference products do, so it resolves on an AWS
+  stage (#546).
 
 ### Removed
 

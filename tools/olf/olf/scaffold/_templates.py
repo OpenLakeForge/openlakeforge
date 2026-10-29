@@ -201,7 +201,7 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   {product}:
-    +database: "{{{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}}}"
+    +database: "{{{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}}}"
     +materialized: table
     +on_table_exists: replace
     +meta:
@@ -222,8 +222,8 @@ def render_dbt_sources_yml(*, domain: str, tables: tuple[tuple[str, str], ...]) 
         "",
         "sources:",
         "  - name: silver",
-        "    database: \"{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}\"",
-        f"    schema: {domain}_silver",
+        "    database: \"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\"",
+        f"    schema: \"{{{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}}}{domain}_silver\"",
         f"    description: Floe-owned {domain.replace('_', ' ').title()} Silver Iceberg tables.",
         "    tables:",
     ]

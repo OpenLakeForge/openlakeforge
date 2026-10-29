@@ -11,7 +11,7 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   order_revenue:
-    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
+    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
     +materialized: table
     +on_table_exists: replace
     +meta:

@@ -8,8 +8,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 PROJECTS = sorted(REPO_ROOT.glob("lakehouse_code/gold/*/dbt"))
-LINEAGE_DATABASE_ENV = "OPENLAKEFORGE_CATALOG_NAME"
-LINEAGE_DATABASE_DEFAULT = "lakehouse_dev"
+# No default: an unset stage catalog fails the run instead of reaching DEV.
+STAGE_CATALOG = "\"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\""
 
 
 def test_every_product_profile_takes_its_stage_from_the_environment() -> None:
@@ -121,19 +121,13 @@ def test_all_models_request_atomic_trino_replacement() -> None:
         project_text = (project / "dbt_project.yml").read_text(encoding="utf-8")
         assert "+materialized: table" in project_text
         assert "+on_table_exists: replace" in project_text
-        assert (
-            f"+database: \"{{{{ env_var('{LINEAGE_DATABASE_ENV}', '{LINEAGE_DATABASE_DEFAULT}') }}}}\""
-            in project_text
-        )
+        assert f"+database: {STAGE_CATALOG}" in project_text
 
 
 def test_all_silver_sources_use_the_lineage_catalog() -> None:
     for project in PROJECTS:
         source_text = (project / "models/sources.yml").read_text(encoding="utf-8")
-        assert (
-            f"database: \"{{{{ env_var('{LINEAGE_DATABASE_ENV}', '{LINEAGE_DATABASE_DEFAULT}') }}}}\""
-            in source_text
-        )
+        assert f"database: {STAGE_CATALOG}" in source_text
 
 
 def test_all_gold_models_use_explicit_join_keys_for_trino() -> None:
