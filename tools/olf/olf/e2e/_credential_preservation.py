@@ -29,6 +29,10 @@ def check_credential_preservation(cfg: E2EConfig) -> None:
     if cfg.deployment is None:
         log.info("Skipping the credential preservation drill: it needs a resolved deployment.")
         return
+    if secrets_rotation.builds_superset_image(cfg.deployment):
+        # An unrestricted apply is not `olf deploy`: it would put the release-pinned amd64 image back.
+        log.info("Skipping the credential preservation drill: this stack runs a locally built Superset image.")
+        return
     namespaces = scan_namespaces(cfg, load_provider_contracts_or_raise(cfg))
     before = migrated_credentials(cfg, namespaces)
     if not before:

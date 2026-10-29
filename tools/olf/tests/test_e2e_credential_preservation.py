@@ -53,6 +53,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cluster: Cluster, afte
     monkeypatch.setattr(preservation, "migrated_credentials", lambda _cfg, _namespaces: next(reads))
     monkeypatch.setattr(preservation, "kubectl", cluster.kubectl)
     monkeypatch.setattr(secrets_rotation, "check_platform_state", lambda _ctx: None)
+    monkeypatch.setattr(secrets_rotation, "builds_superset_image", lambda _ctx: False)
     monkeypatch.setattr(secrets_rotation, "apply_platform", cluster.apply)
     preservation.check_credential_preservation(replace(e2e_cfg(tmp_path), deployment=object()))
 
@@ -104,6 +105,19 @@ def test_a_cluster_without_credential_jobs_is_an_error_not_a_pass(
     assert cluster.applies == 0
 
 
+def test_the_drill_is_skipped_on_a_stack_with_a_locally_built_superset_image(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cluster = Cluster()
+    monkeypatch.setattr(secrets_rotation, "builds_superset_image", lambda _ctx: True)
+    monkeypatch.setattr(secrets_rotation, "apply_platform", cluster.apply)
+    monkeypatch.setattr(preservation, "kubectl", cluster.kubectl)
+
+    preservation.check_credential_preservation(replace(e2e_cfg(tmp_path), deployment=object()))
+
+    assert cluster.applies == 0 and len(cluster.jobs) == 5
+
+
 def test_the_drill_is_skipped_without_a_resolved_deployment(tmp_path: Path) -> None:
     preservation.check_credential_preservation(e2e_cfg(tmp_path))
 
@@ -114,6 +128,7 @@ def test_a_cluster_with_no_migrated_credential_is_an_error_not_a_pass(
     monkeypatch.setattr(preservation, "load_provider_contracts_or_raise", lambda _cfg: {})
     monkeypatch.setattr(preservation, "scan_namespaces", lambda _cfg, _contracts: ("olf-system",))
     monkeypatch.setattr(preservation, "migrated_credentials", lambda _cfg, _namespaces: {})
+    monkeypatch.setattr(secrets_rotation, "builds_superset_image", lambda _ctx: False)
 
     with pytest.raises(E2EError, match="nothing to preserve"):
         preservation.check_credential_preservation(replace(e2e_cfg(tmp_path), deployment=object()))

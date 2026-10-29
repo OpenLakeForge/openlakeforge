@@ -141,7 +141,9 @@ deletes the Jobs that create them (by name: `postgresql-credentials-*`,
 and `openmetadata-credential-replication-*`, which copies the ingestion-bot token the
 bootstrap Job rotates into the stages),
 runs a platform `terraform apply`, fails if a deleted Job was not recreated
-(a new uid), and fails by name if any value changed or disappeared. It runs after the scan and before the rotation
+(a new uid), and fails by name if any value changed or disappeared. It is skipped on a stack that builds its Superset
+image locally (arm64 or `BUILD_SUPERSET_IMAGE`), because an apply outside
+`olf deploy` would put the pinned amd64 image back. It runs after the scan and before the rotation
 drill.
 
 A surface that cannot be read (no state file yet, a failed `kubectl`) is
