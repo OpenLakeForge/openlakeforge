@@ -143,6 +143,61 @@
         ]
       },
       "roles": {
+        "data_access": {
+          "analyst": {
+            "dev": {
+              "gold": "read"
+            },
+            "prod": {
+              "gold": "read"
+            },
+            "uat": {
+              "gold": "read"
+            }
+          },
+          "data-engineer": {
+            "dev": {
+              "bronze": "write",
+              "gold": "write",
+              "silver": "write"
+            },
+            "prod": {
+              "bronze": "read",
+              "gold": "read",
+              "silver": "read"
+            },
+            "uat": {
+              "bronze": "read",
+              "gold": "read",
+              "silver": "read"
+            }
+          },
+          "platform-admin": {
+            "dev": {
+              "bronze": "write",
+              "gold": "write",
+              "silver": "write"
+            },
+            "prod": {
+              "bronze": "write",
+              "gold": "write",
+              "silver": "write"
+            },
+            "uat": {
+              "bronze": "write",
+              "gold": "write",
+              "silver": "write"
+            }
+          },
+          "viewer": {
+            "prod": {
+              "gold": "read"
+            },
+            "uat": {
+              "gold": "read"
+            }
+          }
+        },
         "grants": {
           "governance_service": {
             "analyst": "read",
