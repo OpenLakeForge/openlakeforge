@@ -115,5 +115,34 @@ def test_every_stage_namespace_is_scanned_not_only_the_selected_one() -> None:
 def test_failing_to_list_the_secrets_is_an_error_not_no_trino_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: None)
 
-    with pytest.raises(E2EError, match="Trino credentials"):
+    with pytest.raises(E2EError, match="cannot list the Secrets"):
         exposure._trino_secret_refs(_cfg())
+
+
+def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    values = {
+        ("olf-system", "openmetadata-admin", "admin-password"): "o" * 28,
+        ("olf-system", "postgresql-admin-creds", "postgres-password"): "p" * 32,
+        ("olf-dev", "superset-credentials", "secret-key"): "s" * 64,
+        ("olf-dev", "superset-credentials", "admin-password"): "short",
+        ("olf-dev", "postgresql-dagster-dev-creds", "postgresql-password"): "d" * 32,
+    }
+
+    def secret_value(name: str, key: str, namespace: str, **_kwargs: Any) -> str:
+        if (namespace, name, key) not in values:
+            raise k8s.KubectlError("not found")
+        return values[(namespace, name, key)]
+
+    def listing(_cfg: Any, args: list[str]) -> str:
+        names = {"olf-system": ["postgresql-admin-creds"], "olf-dev": ["postgresql-dagster-dev-creds", "dagster-x"]}
+        return "\n".join(f"secret/{name}" for name in names[args[3]])
+
+    monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
+    monkeypatch.setattr(exposure, "_kubectl_text", listing)
+
+    assert exposure.migrated_credentials(_cfg(), ("olf-system", "olf-dev")) == {
+        "olf-system/openmetadata-admin/admin-password": "o" * 28,
+        "olf-system/postgresql-admin-creds/postgres-password": "p" * 32,
+        "olf-dev/superset-credentials/secret-key": "s" * 64,
+        "olf-dev/postgresql-dagster-dev-creds/postgresql-password": "d" * 32,
+    }
