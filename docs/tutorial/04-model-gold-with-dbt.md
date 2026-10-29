@@ -24,7 +24,7 @@ Created product marketing/campaign_performance with 1 Gold table(s): mart_campai
 
 `--silver-input` names a Silver table of the domain that the product reads,
 and `--gold-table` a mart it produces. The command adds the product to
-`lakehouse_code/lakehouse.yaml` and creates:
+`lakehouse_code/governance.yml` and creates:
 
 ```text
 lakehouse_code/
@@ -151,7 +151,7 @@ for other output.
 ## What you learned
 
 - `olf product new` creates a product-owned dbt project and a Dagster module
-  and registers the product in `lakehouse.yaml`.
+  and registers the product in `governance.yml`.
 - `olf query` reads any Silver or Gold table of a stage from your machine.
 - Gold is plain SQL over declared Silver sources; tests run as part of the
   build.

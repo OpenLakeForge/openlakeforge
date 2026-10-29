@@ -47,7 +47,6 @@ olf source new marketing_platform --resource campaigns
 
 ```text
 Created source 'marketing_platform' with 1 resource(s): campaigns.
-Added 'marketing_platform' to lakehouse_code/lakehouse.yaml sources.
 ```
 
 The command validates its result before it writes anything, and writes
@@ -130,7 +129,7 @@ in lesson 4.
 olf check contracts
 ```
 
-It validates `lakehouse_code/lakehouse.yaml` and every `source.yaml` against
+It validates `lakehouse_code/governance.yml` and every `source.yaml` against
 the project schemas. It prints one `[PASS]` line per check, including:
 
 ```text

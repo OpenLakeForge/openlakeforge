@@ -64,7 +64,7 @@ All `new` commands validate the result before writing and accept
 | --- | --- |
 | `olf profile validate --project .` | `openlakeforge.yaml` |
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
-| `olf check contracts` | `lakehouse.yaml`, every `source.yaml`, and the Floe project's namespaces |
+| `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | Every product's dbt project compiles |
 | `olf check security` | Every entry in `.trivyignore.yaml` has an owner and an unexpired date within 90 days; not part of `olf check all` |
