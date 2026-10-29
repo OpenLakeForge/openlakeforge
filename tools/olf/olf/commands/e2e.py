@@ -26,6 +26,11 @@ def e2e_run(
         "network flows and RBAC, break-glass, perimeter latency, issuer outage, secret rotation); 'all' runs them.",
     ),
     stage: str = typer.Option("", "--stage", help="Stage to validate: dev, uat, or prod. Defaults to dev."),
+    profile: str = typer.Option(
+        "",
+        "--profile",
+        help="Deprecated single-DEV preset shorthand: 'full' or 'slim'. Pass the value `olf deploy --profile` used.",
+    ),
     profile_file: str = typer.Option(
         "",
         "--file",
@@ -69,7 +74,11 @@ def e2e_run(
     # `_parse_v3` refuses a contract whose name disagrees with the topology
     # this command resolves. `-f` is what lets a deployment driven from a
     # profile elsewhere - `olf platform apply -f`, `olf project deploy -f` -
-    # be validated against that same file instead of the project root.
+    # be validated against that same file instead of the project root, and
+    # `--profile` does the same for `olf deploy --profile`, whose shorthand
+    # topology is named "legacy" rather than after the project profile.
+    if profile and profile_file:
+        raise typer.Exit(code=fail("--profile and --file are mutually exclusive."))
     if profile_file:
         context = deployment_context_for_profile(profile_file, stage=stage)
         if context.provider.value != env:
@@ -78,7 +87,7 @@ def e2e_run(
             )
     else:
         context = deployment_context(
-            env, profile="", namespace="", cluster_name="", project_root=project_root, stage=stage
+            env, profile=profile, namespace="", cluster_name="", project_root=project_root, stage=stage
         )
     try:
         with applied_runtime_environment(context, env=env) as kube_context:
