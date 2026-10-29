@@ -76,14 +76,11 @@ from olf.deployment.engine import (
     DeploymentEngine,
     DeploymentPhase,
     DeploymentProvider,
-    Toolkit,
     build_provider,
 )
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, parse_provider_contracts
-from olf.tooling.aws import AwsSdk
-from olf.tooling.azure import AzureSdk
 from olf.tooling.docker import Docker
 from olf.tooling.helm import Helm
 from olf.tooling.kind import Kind
@@ -91,6 +88,7 @@ from olf.tooling.kubectl import Kubectl
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 from olf.tooling.terraform import Terraform
+from olf.tooling.toolkit import Toolkit
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -177,8 +175,6 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsSdk(),
-        azure=AzureSdk(),
     )
 
 

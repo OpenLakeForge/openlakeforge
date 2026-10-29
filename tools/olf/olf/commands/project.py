@@ -26,8 +26,9 @@ app.add_typer(revision_app, name="revision")
 
 
 def _profile_provider(context, *, var_file: str = ""):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import Toolkit, build_provider
+    from olf.deployment.engine import build_provider
     from olf.deployment.errors import DeploymentError
+    from olf.tooling.toolkit import Toolkit
 
     try:
         env = context.command_env(base=os.environ)

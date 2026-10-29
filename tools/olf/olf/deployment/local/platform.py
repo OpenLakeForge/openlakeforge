@@ -20,12 +20,13 @@ from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
 from olf.deployment.context import stage_namespace
 from olf.deployment.context import topology_variables as _topology_variables
-from olf.deployment.engine import DeploymentConfig, Toolkit
+from olf.deployment.engine import DeploymentConfig
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.github_app import GitHubApp, store_app
 from olf.tooling.kubectl import KubeContextUnreachableError
 from olf.tooling.retry import RetryPolicy, run_with_retry
+from olf.tooling.toolkit import Toolkit
 
 _APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"

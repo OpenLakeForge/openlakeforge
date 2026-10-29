@@ -168,7 +168,7 @@ def command_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl:
 
     cluster = context(tmp_path, **ctx)
     monkeypatch.setattr(command, "deployment_context", lambda *a, **k: cluster)
-    monkeypatch.setattr("olf.deployment.engine.Toolkit.default", lambda **_: SimpleNamespace(kubectl=kubectl))
+    monkeypatch.setattr("olf.tooling.toolkit.Toolkit.default", lambda **_: SimpleNamespace(kubectl=kubectl))
     real = secrets_rotation.rotate_client
     monkeypatch.setattr(
         secrets_rotation,

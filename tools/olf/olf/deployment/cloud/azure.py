@@ -14,11 +14,11 @@ from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import topology_variables
-from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.portforward import ForwardTarget
-from olf.tooling.azure import ACR_USERNAME
+from olf.tooling.azure import ACR_USERNAME, AzureSdk
+from olf.tooling.toolkit import Toolkit
 
 _DEFAULT_CLUSTER_NAME = "aks-openlakeforge-poc"
 
@@ -26,9 +26,12 @@ _DEFAULT_CLUSTER_NAME = "aks-openlakeforge-poc"
 class AzureBackend:
     scope = "azure"
 
+    def __init__(self, azure: AzureSdk | None = None) -> None:
+        self._azure = azure or AzureSdk()
+
     def preflight(self, tools: Toolkit, *, env: Mapping[str, str]) -> None:
         try:
-            tools.azure.account_show(env=env)
+            self._azure.account_show(env=env)
         except Exception as exc:
             raise DeploymentPreconditionError(
                 f"Azure is not authenticated. Run 'olf auth login --provider azure': {exc}"
@@ -100,14 +103,14 @@ class AzureBackend:
         )
 
     def cluster_reachable(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> bool:
-        return tools.azure.aks_show(
+        return self._azure.aks_show(
             facts.cluster_name, resource_group=_resource_group(facts), env=env, check=False
         ).ok
 
     def update_kubeconfig(
         self, tools: Toolkit, facts: FoundationFacts, *, kubeconfig_path: Path, env: Mapping[str, str]
     ) -> None:
-        tools.azure.aks_get_credentials(
+        self._azure.aks_get_credentials(
             facts.cluster_name,
             resource_group=_resource_group(facts),
             kubeconfig_path=kubeconfig_path,
@@ -138,7 +141,7 @@ class AzureBackend:
         """
         registry_host = repository.split("/", 1)[0]
         acr_name = registry_host.split(".", 1)[0] if registry_host else ""
-        password = tools.azure.acr_login(acr_name, env=env)
+        password = self._azure.acr_login(acr_name, env=env)
         tools.docker.login(registry_host, username=ACR_USERNAME, password=password, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:

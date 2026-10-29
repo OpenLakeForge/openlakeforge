@@ -15,8 +15,8 @@ import typer
 
 from olf import config
 from olf.commands._shared import fail
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 workflow_app = typer.Typer(help="GitHub release-workflow safety checks.")

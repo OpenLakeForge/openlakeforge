@@ -256,7 +256,7 @@ def test_publish_fails_closed_when_a_source_file_changes_after_build(
 def test_resolve_image_digest_rejects_a_local_config_id_without_a_repo_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.deployment import engine as engine_module
+    from olf.tooling import toolkit as toolkit_module
     from olf.tooling.process import CommandResult
 
     class _FakeDocker:
@@ -269,7 +269,7 @@ def test_resolve_image_digest_rejects_a_local_config_id_without_a_repo_digest(
     class _FakeToolkit:
         docker = _FakeDocker()
 
-    monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
+    monkeypatch.setattr(toolkit_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
 
     with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
         project_revision.resolve_image_digest("ghcr.io/openlakeforge/openlakeforge-project-code:local")
@@ -568,7 +568,7 @@ def test_validate_rejects_a_sidecar_with_an_unknown_component_name(external_proj
 def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_repository(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.deployment import engine as engine_module
+    from olf.tooling import toolkit as toolkit_module
     from olf.tooling.process import CommandResult
 
     wrong_repo_digest = "docker.io/someone-else/project-code@sha256:" + "1" * 64
@@ -586,7 +586,7 @@ def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_rep
     class _FakeToolkit:
         docker = _FakeDocker()
 
-    monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
+    monkeypatch.setattr(toolkit_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
 
     resolved = project_revision.resolve_image_digest("ghcr.io/openlakeforge/openlakeforge-project-code:local")
 
@@ -596,7 +596,7 @@ def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_rep
 def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_repository(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.deployment import engine as engine_module
+    from olf.tooling import toolkit as toolkit_module
     from olf.tooling.process import CommandResult
 
     class _FakeDocker:
@@ -616,7 +616,7 @@ def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_re
     class _FakeToolkit:
         docker = _FakeDocker()
 
-    monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
+    monkeypatch.setattr(toolkit_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
 
     with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
         project_revision.resolve_image_digest("ghcr.io/openlakeforge/openlakeforge-project-code:local")

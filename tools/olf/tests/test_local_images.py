@@ -6,12 +6,12 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local import images
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.toolkit import Toolkit
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL, environ: dict | None = None) -> LocalDeploymentConfig:
@@ -20,8 +20,6 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL, environ: dict | 
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.aws import AwsCli
-    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -39,8 +37,6 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 

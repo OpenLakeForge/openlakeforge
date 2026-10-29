@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from olf import log
-from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.engine import DeploymentPhase
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.docker import ambient_registry_env
+from olf.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext

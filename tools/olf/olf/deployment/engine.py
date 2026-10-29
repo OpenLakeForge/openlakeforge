@@ -2,9 +2,7 @@
 
 `DeploymentEngine` sequences a `DeploymentProvider`'s lifecycle steps in the
 order ADR 0002 requires (foundation -> platform -> dynamic artifacts, never
-the other way around). `Toolkit` bundles the process-execution primitives
-every provider needs, including the SDK-backed AWS and Azure adapters used by
-the cloud provider (issue #125). `build_provider` is the single seam that
+the other way around). `build_provider` is the single seam that
 dispatches on `context.provider` - nothing provider-specific otherwise
 belongs in this module.
 """
@@ -20,15 +18,7 @@ from typing import TYPE_CHECKING, Protocol, TypeGuard
 from olf.deployment.context import DeploymentContext, Provider
 from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
 from olf.deployment.inspection import DoctorReport, project_not_runnable_reason
-from olf.tooling.aws import AwsSdk
-from olf.tooling.azure import AzureSdk
-from olf.tooling.docker import Docker
-from olf.tooling.helm import Helm
-from olf.tooling.kind import Kind
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import ProcessRunner
-from olf.tooling.resolver import ExecutableResolver, build_resolver
-from olf.tooling.terraform import Terraform
+from olf.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:
     from olf.deployment.charts import ChartSetting
@@ -46,43 +36,6 @@ class DeploymentPhase(StrEnum):
     PREFETCH = "prefetch"
     PLATFORM = "platform"
     ARTIFACTS = "artifacts"
-
-
-@dataclass(frozen=True)
-class Toolkit:
-    """The process-execution primitives shared by every provider."""
-
-    runner: ProcessRunner
-    resolver: ExecutableResolver
-    terraform: Terraform
-    helm: Helm
-    kubectl: Kubectl
-    docker: Docker
-    kind: Kind
-    aws: AwsSdk
-    azure: AzureSdk
-
-    @classmethod
-    def default(
-        cls,
-        *,
-        log_commands: bool = False,
-        overrides: Mapping[str, Path] | None = None,
-        environ: Mapping[str, str] | None = None,
-    ) -> Toolkit:
-        runner = ProcessRunner(log_commands=log_commands)
-        resolver = build_resolver(overrides=overrides, environ=environ)
-        return cls(
-            runner=runner,
-            resolver=resolver,
-            terraform=Terraform(runner, resolver),
-            helm=Helm(runner, resolver),
-            kubectl=Kubectl(runner, resolver),
-            docker=Docker(runner, resolver),
-            kind=Kind(runner, resolver),
-            aws=AwsSdk(),
-            azure=AzureSdk(),
-        )
 
 
 class ChartCatalog(Protocol):

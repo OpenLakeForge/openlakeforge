@@ -13,10 +13,10 @@ import platform
 from collections.abc import Mapping
 
 from olf import log
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.project_code import project_code_build_context
+from olf.tooling.toolkit import Toolkit
 
 
 def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:

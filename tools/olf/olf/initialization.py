@@ -13,7 +13,6 @@ from pathlib import Path
 
 import yaml
 
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError, ExecutableNotFoundError
 from olf.deployment.inspection import docker_health
 from olf.distribution import DistributionError, RuntimeLayout, runtime_layout
@@ -27,6 +26,7 @@ from olf.profile import (
 )
 from olf.toolchain.manager import ToolchainManager
 from olf.toolchain.spec import MANAGED_TOOLS
+from olf.tooling.toolkit import Toolkit
 
 _EMPTY_LAKEHOUSE_YAML = """apiVersion: openlakeforge.io/v1alpha3
 kind: Lakehouse

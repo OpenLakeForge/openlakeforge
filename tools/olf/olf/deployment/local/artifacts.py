@@ -22,9 +22,9 @@ from olf.deployment.artifact_steps import (
     deploy_optional_layer_artifacts,
     sync_catalog_namespaces,
 )
-from olf.deployment.engine import Toolkit
 from olf.deployment.local import images
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.tooling.toolkit import Toolkit
 
 __all__ = [
     "ArtifactOperationError",

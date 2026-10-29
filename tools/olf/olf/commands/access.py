@@ -75,7 +75,7 @@ def trust(
     and other tools on the workstation.
     """
     from olf.access import LOCAL_CA_KEY, LOCAL_CA_SECRET
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
     context = deployment_context(
         "local",

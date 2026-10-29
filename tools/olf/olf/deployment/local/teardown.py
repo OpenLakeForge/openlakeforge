@@ -11,10 +11,10 @@ from collections.abc import Mapping
 
 from olf import log
 from olf.deployment import kube_ops
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.local.platform import platform_destroy_variables, platform_var_files, restore_stock_corefile
+from olf.tooling.toolkit import Toolkit
 
 LEGACY_HELM_RELEASES = ("trino", "polaris", "seaweedfs", "garage")
 

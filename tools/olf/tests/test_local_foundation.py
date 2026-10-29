@@ -8,13 +8,13 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local import foundation
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.profile import AccessSpec
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.toolkit import Toolkit
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 _REAL_LISTENING = foundation._listening
@@ -41,8 +41,6 @@ def _config(tmp_path: Path) -> LocalDeploymentConfig:
 
 def _toolkit_with_runner(runner: RecordingRunner) -> Toolkit:
     resolver = PathExecutableResolver(overrides={tool: Path(tool) for tool in _TOOLS})
-    from olf.tooling.aws import AwsCli
-    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -57,8 +55,6 @@ def _toolkit_with_runner(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 

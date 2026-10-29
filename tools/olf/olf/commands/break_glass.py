@@ -26,7 +26,7 @@ def break_glass_command(
     Ports bind to 127.0.0.1; Superset and OpenMetadata open a shell in their pod.
     The perimeter and every Ingress are left untouched.
     """
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
     if service not in break_glass.TARGETS:
         raise typer.Exit(code=fail(f"unknown service {service!r}; expected one of {', '.join(break_glass.TARGETS)}"))

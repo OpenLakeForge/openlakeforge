@@ -22,8 +22,9 @@ app_help = "Deployment lifecycle: foundation, platform, and artifact orchestrati
 
 
 def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import DeploymentEngine, Toolkit, build_provider
+    from olf.deployment.engine import DeploymentEngine, build_provider
     from olf.deployment.errors import DeploymentError
+    from olf.tooling.toolkit import Toolkit
 
     try:
         tooling_env = context.command_env(base=os.environ)

@@ -21,7 +21,7 @@ from olf.deployment.errors import DeploymentError, ExecutableNotFoundError, Tool
 from olf.tooling.resolver import ManagedExecutableResolver
 
 if TYPE_CHECKING:
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
 
 @dataclass(frozen=True)
