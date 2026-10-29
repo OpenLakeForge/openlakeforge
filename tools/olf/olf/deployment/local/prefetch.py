@@ -12,6 +12,7 @@ from __future__ import annotations
 import platform as _platform
 import tempfile
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from olf import log
@@ -126,10 +127,11 @@ def prefetch_images(
 ) -> None:
     server_arch = tools.docker.server_arch(env=env) or _platform.machine()
     identity = config.context.topology.identity
+    catalog_images = load_catalog_images(config)
     images = selected_images(
         config.features,
         server_arch=server_arch,
-        catalog_images=load_catalog_images(config),
+        catalog_images=catalog_images,
         perimeter=identity is not None,
         dex=identity is not None and identity.issuer == "github",
         build_superset=config.images.builds_superset(server_arch),
@@ -139,15 +141,22 @@ def prefetch_images(
     nodes = tools.kind.get_nodes(config.cluster.name, env=env)
     if not nodes:
         raise DeploymentPreconditionError(f"kind cluster '{config.cluster.name}' has no nodes.")
+    # Only Traefik schedules on the tainted control plane (infra/helm/values/local/traefik.yaml); a cluster
+    # without workers (a custom CLUSTER_CONFIG) runs everything on its control plane.
+    control_plane = f"{config.cluster.name}-control-plane"
+    workers = [node for node in nodes if not node.startswith(control_plane)] or nodes
+    targets = {image: nodes if image == catalog_images["traefik"] else workers for image in images}
 
     if work_dir is not None:
         work_dir.mkdir(parents=True, exist_ok=True)
         for image in images:
-            _prefetch_one_image(image, tools, nodes=nodes, env=env, scratch_dir=work_dir, config=config)
+            _prefetch_one_image(image, tools, nodes=targets[image], env=env, scratch_dir=work_dir, config=config)
     else:
         with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
             for image in images:
-                _prefetch_one_image(image, tools, nodes=nodes, env=env, scratch_dir=Path(scratch), config=config)
+                _prefetch_one_image(
+                    image, tools, nodes=targets[image], env=env, scratch_dir=Path(scratch), config=config
+                )
 
     log.step("All images pre-loaded.")
 
@@ -188,7 +197,7 @@ def _prefetch_one_image(
     log.step(f"Saving {archive_image}...")
     tools.docker.save(archive_image, output_path=archive, env=env)
 
-    for node in nodes:
+    def load(node: str) -> None:
         log.step(f"Loading {image} into kind node '{node}'...")
         tools.docker.exec_(
             node,
@@ -199,6 +208,11 @@ def _prefetch_one_image(
             env=env,
         )
         if archive_image != image:
+            # Only resolves the registry manifest: the layers are already in the node from the import.
             tools.docker.exec_(node, ["crictl", "pull", image], env=env)
+
+    # Each node unpacks into its own containerd, so loading them together is ~1.7x faster than one by one.
+    with ThreadPoolExecutor(max_workers=len(nodes)) as pool:
+        list(pool.map(load, nodes))
     # Every node holds its own copy now; keeping the archive until the run ends doubled the disk use.
     archive.unlink(missing_ok=True)

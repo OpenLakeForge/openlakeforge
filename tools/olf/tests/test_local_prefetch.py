@@ -258,3 +258,24 @@ def test_selected_images_loads_the_published_example_only_when_deployed() -> Non
     assert catalog["project_code"] not in prefetch.selected_images(
         features, server_arch="amd64", catalog_images=catalog
     )
+
+
+def test_prefetch_imports_into_workers_and_traefik_into_every_node(tmp_path: Path) -> None:
+    nodes = ("openlakeforge-local-control-plane", "openlakeforge-local-worker", "openlakeforge-local-worker2")
+
+    class _ThreeNodes(_ScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            if argv[1:3] == ["get", "nodes"]:
+                return CommandResult(argv=(), returncode=0, stdout="\n".join(nodes), stderr="", duration_seconds=0.0)
+            return super().run(command, **kwargs)
+
+    runner = _ThreeNodes()
+    config = _config(tmp_path, profile=Profile.SLIM)
+    assert config.cluster.name == "openlakeforge-local"
+    prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path)
+
+    imported = [c.argv[4] for c in runner.calls if "import" in c.argv and "ctr" in c.argv]
+    images = prefetch.selected_images(config.features, server_arch="amd64", catalog_images=_CATALOG, perimeter=False)
+    assert imported.count(nodes[1]) == imported.count(nodes[2]) == len(images)
+    assert imported.count(nodes[0]) == 1  # Traefik only
