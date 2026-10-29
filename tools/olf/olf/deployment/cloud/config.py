@@ -28,6 +28,7 @@ from olf.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
+from olf.deployment.project_code import published_example_image, split_published_image
 from olf.deployment.retry import RetryPolicy
 
 _DEFAULT_SUPERSET_BASE_IMAGE = (
@@ -114,6 +115,8 @@ class CloudImageSettings:
     pull_retry: RetryPolicy
     build_retry: RetryPolicy
     push_retry: RetryPolicy
+    # True when project_code_* is the release-published example image: nothing to build or push.
+    project_code_published: bool = False
 
     @property
     def project_code_image(self) -> str:
@@ -124,7 +127,9 @@ class CloudImageSettings:
         return f"{self.superset_repository}:{self.superset_tag}"
 
     @classmethod
-    def from_environment(cls, environ: Mapping[str, str], *, scope: str, image_tag: str) -> CloudImageSettings:
+    def from_environment(
+        cls, environ: Mapping[str, str], *, scope: str, image_tag: str, published: str | None = None
+    ) -> CloudImageSettings:
         """Build settings for `scope` ("aws" or "azure").
 
         `project_code_repository`/`superset_repository` are empty when not
@@ -132,14 +137,22 @@ class CloudImageSettings:
         `SUPERSET_IMAGE_REPOSITORY` - `CloudProvider` fills in the
         foundation-derived registry (ECR/ACR) once it resolves, mirroring
         the shell scripts' `${VAR:-$(terraform output ...)}` fallback.
+
+        `published`: a `repository:version@sha256:...` example image to deploy as it is instead of building and
+        pushing one to the provider registry. The cluster pulls it from the public registry, so no pull is repeated
+        once a node has it.
         """
+        repository, tag, pull_policy = "", image_tag, "Always"
+        if published:
+            repository, tag = split_published_image(published)
+            pull_policy = "IfNotPresent"
         return cls(
             project_code_repository=_image_env(
-                environ, scope=scope, name="PROJECT_CODE_IMAGE_REPOSITORY", default=""
+                environ, scope=scope, name="PROJECT_CODE_IMAGE_REPOSITORY", default=repository
             ),
-            project_code_tag=_image_env(environ, scope=scope, name="PROJECT_CODE_IMAGE_TAG", default=image_tag),
+            project_code_tag=_image_env(environ, scope=scope, name="PROJECT_CODE_IMAGE_TAG", default=tag),
             project_code_pull_policy=_image_env(
-                environ, scope=scope, name="PROJECT_CODE_IMAGE_PULL_POLICY", default="Always"
+                environ, scope=scope, name="PROJECT_CODE_IMAGE_PULL_POLICY", default=pull_policy
             ),
             project_code_revision=_image_env(
                 environ, scope=scope, name="PROJECT_CODE_IMAGE_REVISION", default="manual"
@@ -168,6 +181,7 @@ class CloudImageSettings:
             push_retry=_retry_policy(
                 environ, specific_attempts="DOCKER_PUSH_ATTEMPTS", specific_delay="DOCKER_PUSH_RETRY_DELAY_SECONDS"
             ),
+            project_code_published=bool(published),
         )
 
 
@@ -368,7 +382,14 @@ class CloudDeploymentConfig:
                 )
         return cls(
             context=context,
-            images=CloudImageSettings.from_environment(environ, scope=scope, image_tag=tag),
+            images=CloudImageSettings.from_environment(
+                environ,
+                scope=scope,
+                image_tag=tag,
+                published=None
+                if environ.get(f"{scope.upper()}_PROJECT_CODE_IMAGE_TAG")
+                else published_example_image(context, environ),
+            ),
             charts=CloudChartSettings.from_environment(
                 environ,
                 helm_cache_dir=context.paths.helm_cache_dir,

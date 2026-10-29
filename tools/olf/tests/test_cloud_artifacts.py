@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -80,6 +81,23 @@ def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, 
     artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 
     assert calls == ["contract_env", "sync_namespaces", "build_push", "deploy_optional_layers", "set_image"]
+
+
+def test_artifacts_deploy_skips_the_build_for_the_published_example_image(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base = _config(tmp_path)
+    config = replace(base, images=replace(base.images, project_code_published=True))
+    built: list[str] = []
+    monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _fake_contract_env(lambda: None))
+    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
+    monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: built.append("build"))
+    monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
+    monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
+
+    artifacts.artifacts_deploy(config, _toolkit(), FakeCloudBackend(scope="aws", transport="direct"), _FACTS, env={})
+
+    assert built == []
 
 
 def test_artifacts_deploy_does_not_switch_dagster_image_when_optional_layers_fail(

@@ -424,3 +424,41 @@ def test_cloud_deployment_config_var_file_argument_never_reaches_azure_platform_
 
     assert config.terraform.var_file is None
     assert config.terraform.foundation_var_file == explicit
+
+
+_PIN = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0-alpha.1@sha256:" + "a" * 64
+
+
+def _published_config(tmp_path: Path, environ: dict[str, str] | None = None, *, project=None) -> CloudDeploymentConfig:
+    from dataclasses import replace
+
+    from test_local_config import _write_full_catalog
+
+    from olf.profile import Preset, legacy_single_stage_topology
+    from olf.profile import Provider as ProfileProvider
+
+    catalog = _write_full_catalog(tmp_path)
+    catalog.write_text(catalog.read_text() + f"  images:\n    project_code: {_PIN}\n")
+    topology = replace(legacy_single_stage_topology(provider=ProfileProvider.AWS, preset=Preset.SLIM), project=project)
+    context = DeploymentContext.aws(repo_root=tmp_path, distribution_root=tmp_path, topology=topology)
+    return CloudDeploymentConfig.from_environment(environ or {}, context=context)
+
+
+def test_no_customer_project_deploys_the_published_example_by_digest(tmp_path: Path) -> None:
+    images = _published_config(tmp_path).images
+
+    assert images.project_code_published
+    assert images.project_code_image == _PIN
+    assert images.project_code_pull_policy == "IfNotPresent"
+
+
+def test_a_customer_project_never_deploys_the_example(tmp_path: Path) -> None:
+    from olf.profile import ProjectSpec
+
+    for images in (
+        _published_config(tmp_path, project=ProjectSpec(repository="https://example.com/acme/code.git")).images,
+        _published_config(tmp_path, {"PROJECT_CODE_IMAGE_REPOSITORY": "ghcr.io/acme/code"}).images,
+        _published_config(tmp_path, {"AWS_PROJECT_CODE_IMAGE_TAG": "dev"}).images,
+    ):
+        assert not images.project_code_published
+        assert "@sha256:" not in images.project_code_image

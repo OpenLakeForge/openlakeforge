@@ -9,9 +9,8 @@ Superset/OpenMetadata deploy leaves the running deployment on its previous
 image rather than one whose optional artifacts never landed.
 
 Unlike local (which only builds the project-code image when the tag is
-still the `local` placeholder), cloud always builds and pushes a freshly
-tagged image - there is no "reuse an already-pushed image" shortcut in the
-shell scripts this replaces.
+still the `local` placeholder), cloud builds and pushes a freshly tagged
+image unless the release-published example image is deployed as it is.
 """
 
 from __future__ import annotations
@@ -83,7 +82,10 @@ def artifacts_deploy(
         log.step(f"Reconciling catalog namespaces from the domain descriptors for {backend.scope}...")
         sync_catalog_namespaces()
 
-        build_and_push_project_code_image(config, tools, backend, facts, env=env)
+        if config.images.project_code_published:
+            log.step("Deploying the release-published example project-code image; nothing to build or push.")
+        else:
+            build_and_push_project_code_image(config, tools, backend, facts, env=env)
 
         # Deliberately before the Dagster image switch: the removed
         # deploy-artifacts.sh ran deploy-optional-layers first, so a failed

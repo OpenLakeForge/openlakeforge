@@ -13,8 +13,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 from olf.deployment.charts import ChartSetting, resolve_chart_settings
 from olf.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.deployment.env_settings import env as _env
@@ -22,9 +20,9 @@ from olf.deployment.env_settings import float_env as _float_env
 from olf.deployment.env_settings import int_env as _int_env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
-from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.project_code import published_example_image, split_published_image
 from olf.deployment.retry import RetryPolicy
-from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY, resolve_declared_project
+from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY
 
 
 @dataclass(frozen=True)
@@ -84,12 +82,9 @@ class ImageSettings:
         """`published`: a `repository:version@sha256:...` reference to deploy instead of building locally."""
         repository, tag, pull_policy = PUBLIC_EXAMPLE_IMAGE_REPOSITORY, "local", "Never"
         if published:
-            if "@sha256:" not in published:
-                raise DeploymentPreconditionError(f"the pinned example project image {published!r} has no digest.")
-            name, _, digest = published.partition("@")
-            repository, _, version = name.rpartition(":")
+            repository, version = split_published_image(published)
             # The image is loaded into kind by prefetch, so the pod never needs registry credentials.
-            tag, pull_policy = f"{version}@{digest}", "IfNotPresent"
+            tag, pull_policy = version, "IfNotPresent"
         return cls(
             project_code_repository=_env(environ, "PROJECT_CODE_IMAGE_REPOSITORY", repository),
             project_code_tag=_env(environ, "PROJECT_CODE_IMAGE_TAG", tag),
@@ -252,44 +247,6 @@ class PrefetchSettings:
         )
 
 
-_GENERATED_PARTS = frozenset({"__pycache__", "target", "dbt_packages", "logs"})
-
-
-def _code_tree(root: Path) -> dict[str, bytes]:
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in root.rglob("*")
-        if path.is_file() and not _GENERATED_PARTS.intersection(path.relative_to(root).parts)
-    }
-
-
-def _published_example_image(context: DeploymentContext, environ: Mapping[str, str]) -> str | None:
-    """The release-pinned example project image, only when the project is the unmodified example.
-
-    The catalog of a source checkout does not carry the pin: a release stamps its own digest in when it publishes the
-    image (`release.yml`), so that image and the bundled `lakehouse_code/` come from the same commit. A checkout
-    without one builds the example locally instead. The same goes for a declared project, an image override, an
-    explicit `PROJECT_CODE_IMAGE_TAG`, a non-amd64 machine (the release image is amd64 only) and a writable
-    `lakehouse_code/` that differs from the bundled one: `olf init` writes no `spec.project`, and a user's edits
-    must reach the cluster, never be replaced by the demo.
-    """
-    topology = context.topology
-    if resolve_declared_project(topology.project, topology.provider, environ).source != "public-example":
-        return None
-    if environ.get("PROJECT_CODE_IMAGE_TAG") or platform.machine() not in ("x86_64", "AMD64"):
-        return None
-    catalog_path = context.paths.distribution_root / "release/component-catalog.yaml"
-    if not catalog_path.is_file():
-        return None
-    components = (yaml.safe_load(catalog_path.read_text()) or {}).get("components") or {}
-    pinned = (components.get("images") or {}).get("project_code")
-    project_code = context.paths.repo_root / "lakehouse_code"
-    bundled = context.paths.distribution_root / "lakehouse_code"
-    if pinned and project_code != bundled and _code_tree(project_code) != _code_tree(bundled):
-        return None
-    return pinned
-
-
 @dataclass(frozen=True)
 class LocalDeploymentConfig:
     context: DeploymentContext
@@ -333,7 +290,13 @@ class LocalDeploymentConfig:
         return cls(
             context=context,
             cluster=ClusterSettings.from_environment(environ, repo_root=distribution_root, cluster_name=cluster_name),
-            images=ImageSettings.from_environment(environ, published=_published_example_image(context, environ)),
+            images=ImageSettings.from_environment(
+                environ,
+                # The release image is amd64 only, and kind runs the host's architecture.
+                published=published_example_image(context, environ)
+                if platform.machine() in ("x86_64", "AMD64")
+                else None,
+            ),
             charts=ChartSettings.from_environment(
                 environ,
                 helm_cache_dir=context.paths.helm_cache_dir,
