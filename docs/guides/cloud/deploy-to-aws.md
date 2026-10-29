@@ -17,7 +17,7 @@ Profile does.
   [Install and configure a local deployment](../local-installation.md).
 - A running Docker engine: the deploy builds and pushes images.
 - An AWS identity allowed to create a VPC, an EKS cluster and its node group,
-  ECR repositories, IAM roles and EKS Pod Identity associations, an RDS
+  an ECR repository, IAM roles and EKS Pod Identity associations, an RDS
   instance, S3 buckets and Glue databases. `AdministratorAccess` in a
   dedicated account is the simplest choice.
 
@@ -114,7 +114,7 @@ It runs three phases, which you can also run one at a time with `--phase`:
 
 | Phase | Creates |
 | --- | --- |
-| `foundation` | VPC with two public subnets, EKS and its node group, ECR repositories, IAM roles |
+| `foundation` | VPC with two public subnets, EKS and its node group, an ECR repository, IAM roles |
 | `platform` | S3 buckets, Glue databases, RDS PostgreSQL, Trino, Dagster; Superset and OpenMetadata with the Full preset |
 | `artifacts` | Builds and pushes the project-code image to ECR and deploys your data products |
 

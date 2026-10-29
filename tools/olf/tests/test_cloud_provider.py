@@ -343,71 +343,19 @@ def test_cloud_artifacts_doctor_requires_platform_provider_contracts(
     assert contracts_item.ok is False
 
 
-def test_full_platform_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_platform_doctor_does_not_require_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", facts=_FACTS)
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
     required: list[str] = []
-    health_calls: list[str] = []
     monkeypatch.setattr(
         "olf.deployment.cloud.provider.base_report",
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
-    monkeypatch.setattr(
-        "olf.deployment.cloud.provider.docker_health",
-        lambda *args, **kwargs: health_calls.append("docker") or None,
-    )
 
     provider.doctor(DeploymentPhase.PLATFORM)
 
-    assert required == ["terraform", "kubectl", "helm", "docker"]
-    assert health_calls == ["docker"]
-
-
-def test_platform_doctor_requires_docker_when_a_non_selected_stage_has_analytics(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Mirrors platform_up()'s own aggregate capability check: a slim selected
-    DEV stage must not hide the Docker requirement/health check for a
-    platform apply that builds Superset because some other enabled stage
-    (PROD here) turned analytics on."""
-    from olf.deployment.context import Provider
-    from olf.profile import (
-        DeploymentProfile,
-        Preset,
-        ProviderSpec,
-        StageCapabilities,
-        StageName,
-        StageSpec,
-        resolve_topology,
-    )
-
-    topology = resolve_topology(
-        DeploymentProfile(
-            name="acme-data",
-            provider=ProviderSpec(type=Provider.AWS),
-            preset=Preset.SLIM,
-            stages=(
-                StageSpec(name=StageName.DEV, capabilities=StageCapabilities()),
-                StageSpec(name=StageName.PROD, capabilities=StageCapabilities(analytics=True, governance=True)),
-            ),
-        )
-    )
-    context = DeploymentContext.aws(repo_root=tmp_path, topology=topology)
-    config = CloudDeploymentConfig.from_environment({}, context=context)
-    assert config.features.analytics_enabled is False
-    assert config.context.platform_features.analytics_enabled is True
-    provider = CloudProvider.create(config, FakeCloudBackend(scope="aws", facts=_FACTS), toolkit=_toolkit(), environ={})
-    required: list[str] = []
-    monkeypatch.setattr(
-        "olf.deployment.cloud.provider.base_report",
-        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
-    )
-    monkeypatch.setattr("olf.deployment.cloud.provider.docker_health", lambda *args, **kwargs: None)
-
-    provider.doctor(DeploymentPhase.PLATFORM)
-
-    assert "docker" in required
+    assert required == ["terraform", "kubectl", "helm"]
 
 
 def test_azure_foundation_doctor_reports_missing_required_tfvars(tmp_path: Path) -> None:

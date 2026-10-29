@@ -18,11 +18,6 @@ output "project_code_ecr_repository_url" {
   value       = try(local.foundation_contract.ecr_project_code_repository_url, null)
 }
 
-output "superset_ecr_repository_url" {
-  description = "AWS ECR repository URL used for Superset images."
-  value       = try(local.foundation_contract.ecr_superset_repository_url, null)
-}
-
 output "catalog_contract" {
   description = "Non-secret Iceberg catalog contract consumed by platform modules."
   value       = local.catalog_contract

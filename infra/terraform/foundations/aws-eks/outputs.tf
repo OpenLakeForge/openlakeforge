@@ -53,11 +53,6 @@ output "project_code_ecr_repository_url" {
   value       = aws_ecr_repository.project_code.repository_url
 }
 
-output "superset_ecr_repository_url" {
-  description = "ECR repository URL for the custom Superset runtime image."
-  value       = aws_ecr_repository.superset.repository_url
-}
-
 output "foundation_contract" {
   description = "Provider-neutral AWS EKS foundation contract."
   value = {
@@ -78,6 +73,5 @@ output "foundation_contract" {
     workload_identity_enabled       = true
     workload_identity_type          = "eks-pod-identity"
     ecr_project_code_repository_url = aws_ecr_repository.project_code.repository_url
-    ecr_superset_repository_url     = aws_ecr_repository.superset.repository_url
   }
 }

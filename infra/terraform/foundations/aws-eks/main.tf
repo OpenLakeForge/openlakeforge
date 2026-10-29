@@ -297,17 +297,3 @@ resource "aws_ecr_repository" "project_code" {
 
   tags = local.common_tags
 }
-
-resource "aws_ecr_repository" "superset" {
-  name                 = var.superset_ecr_repository_name
-  image_tag_mutability = "MUTABLE"
-
-  # See project_code above: allow destroy to drop a non-empty repository.
-  force_delete = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.common_tags
-}

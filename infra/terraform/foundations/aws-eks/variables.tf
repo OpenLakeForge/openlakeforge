@@ -70,8 +70,3 @@ variable "project_code_ecr_repository_name" {
   default     = "openlakeforge/project-code"
 }
 
-variable "superset_ecr_repository_name" {
-  description = "ECR repository name for the custom Superset runtime image."
-  type        = string
-  default     = "openlakeforge/superset"
-}
