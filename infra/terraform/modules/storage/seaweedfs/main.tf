@@ -12,32 +12,31 @@ locals {
   s3_service_name     = "${var.release_name}-s3"
   master_service_name = "${var.release_name}-master"
   filer_service_name  = "${var.release_name}-filer-client"
-  access_key_id       = "olf${random_id.s3_access_key.hex}"
   bucket_job_annotations = {
     "openlakeforge.io/seaweedfs-release-revision" = tostring(helm_release.seaweedfs.metadata.revision)
   }
 }
 
-resource "random_id" "s3_access_key" {
-  byte_length = 8
+# Until the auth config is assembled in-cluster, Terraform reads the keys back
+# to write it, so they are in state through these two reads only.
+data "kubernetes_secret_v1" "admin" {
+  metadata {
+    name      = var.credentials_secret_name
+    namespace = var.namespace
+  }
+
+  depends_on = [kubernetes_job_v1.credentials]
 }
 
-resource "random_password" "s3_secret_key" {
-  length  = 40
-  special = false
-}
-
-resource "random_id" "stage_s3_access_key" {
+data "kubernetes_secret_v1" "stage" {
   for_each = var.stage_credentials
 
-  byte_length = 8
-}
+  metadata {
+    name      = each.value.credentials_secret_name
+    namespace = each.value.namespace
+  }
 
-resource "random_password" "stage_s3_secret_key" {
-  for_each = var.stage_credentials
-
-  length  = 40
-  special = false
+  depends_on = [kubernetes_job_v1.credentials]
 }
 
 # SeaweedFS reads this immutable configuration at S3 gateway startup. Keeping
@@ -55,14 +54,14 @@ resource "kubernetes_secret_v1" "s3_auth_config" {
       identities = concat(
         [{
           name        = "openlakeforge-platform"
-          credentials = [{ accessKey = local.access_key_id, secretKey = random_password.s3_secret_key.result }]
+          credentials = [{ accessKey = data.kubernetes_secret_v1.admin.data["AWS_ACCESS_KEY_ID"], secretKey = data.kubernetes_secret_v1.admin.data["AWS_SECRET_ACCESS_KEY"] }]
           actions     = ["Admin"]
         }],
         [for stage, binding in var.stage_credentials : {
           name = "openlakeforge-${stage}"
           credentials = [{
-            accessKey = "olf${random_id.stage_s3_access_key[stage].hex}"
-            secretKey = random_password.stage_s3_secret_key[stage].result
+            accessKey = data.kubernetes_secret_v1.stage[stage].data["AWS_ACCESS_KEY_ID"]
+            secretKey = data.kubernetes_secret_v1.stage[stage].data["AWS_SECRET_ACCESS_KEY"]
           }]
           # Bronze/Silver/Gold are wholly stage-exclusive buckets, so the
           # bucket-level grant is already scoped. The ops bucket is shared
@@ -82,43 +81,6 @@ resource "kubernetes_secret_v1" "s3_auth_config" {
         }],
       )
     })
-  }
-
-  type = "Opaque"
-}
-
-# One Secret per namespace that runs a workload reading object storage: a
-# Secret cannot be read across namespaces, and stage-scoped services no
-# longer share this module's own namespace.
-resource "kubernetes_secret_v1" "s3_credentials" {
-  for_each = toset(concat([var.namespace], var.workload_namespaces))
-
-  metadata {
-    name      = var.credentials_secret_name
-    namespace = each.value
-    labels    = local.labels
-  }
-
-  data = {
-    AWS_ACCESS_KEY_ID     = local.access_key_id
-    AWS_SECRET_ACCESS_KEY = random_password.s3_secret_key.result
-  }
-
-  type = "Opaque"
-}
-
-resource "kubernetes_secret_v1" "stage_s3_credentials" {
-  for_each = var.stage_credentials
-
-  metadata {
-    name      = each.value.credentials_secret_name
-    namespace = each.value.namespace
-    labels    = local.labels
-  }
-
-  data = {
-    AWS_ACCESS_KEY_ID     = "olf${random_id.stage_s3_access_key[each.key].hex}"
-    AWS_SECRET_ACCESS_KEY = random_password.stage_s3_secret_key[each.key].result
   }
 
   type = "Opaque"
