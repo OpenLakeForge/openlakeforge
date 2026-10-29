@@ -92,10 +92,7 @@ def build_and_push_project_code_image(
             build_context,
             tag=images.project_code_image,
             file=build_context / "images/project-code/Dockerfile",
-            build_args={
-                "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
-                "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
-            },
+            build_args={"PYTHON_BASE_IMAGE": images.project_code_python_base_image},
             extra_args=("--platform", images.image_platform),
             env=env,
             retry_policy=images.build_retry,

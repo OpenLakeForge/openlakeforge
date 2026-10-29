@@ -294,7 +294,7 @@ def _user_values(
         - {""}
     )
     # The CA that signs Trino's certificate, for dbt in the run pods; the
-    # profile reads these names (libs/dbt/profiles/local.yml).
+    # profile reads these names (libs/dbt/profiles/trino.yml).
     ca_configmap = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", "")
     tls_pod: dict[str, Any] = {}
     if ca_configmap and contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"):

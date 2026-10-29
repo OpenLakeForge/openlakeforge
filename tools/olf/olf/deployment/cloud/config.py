@@ -106,7 +106,6 @@ class CloudImageSettings:
     project_code_pull_policy: str
     project_code_revision: str
     project_code_python_base_image: str
-    project_code_dbt_profile_env: str
     superset_repository: str
     superset_tag: str
     superset_pull_policy: str
@@ -150,9 +149,6 @@ class CloudImageSettings:
                 scope=scope,
                 name="PROJECT_CODE_PYTHON_BASE_IMAGE",
                 default=_DEFAULT_PYTHON_BASE_IMAGE[scope],
-            ),
-            project_code_dbt_profile_env=_image_env(
-                environ, scope=scope, name="PROJECT_CODE_DBT_PROFILE_ENV", default=scope
             ),
             superset_repository=_image_env(environ, scope=scope, name="SUPERSET_IMAGE_REPOSITORY", default=""),
             superset_tag=_image_env(environ, scope=scope, name="SUPERSET_IMAGE_TAG", default=image_tag),

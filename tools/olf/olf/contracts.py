@@ -703,12 +703,12 @@ def build_contract_env(
             "OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON",
             json.dumps(schema_fqn_physical.gold_namespaces, separators=(",", ":")),
         )
-    # dbt's per-product Gold profile template (libs/dbt/profiles/aws.yml)
-    # bakes its bare `{{GOLD_SCHEMA}}` (e.g. "order_revenue_gold") at
-    # project-code image BUILD time - the image is provider/stage-agnostic
-    # ("one image digest deploys to every stage"), so it cannot know this
-    # account's shared-catalog namespace_prefix. Prepend it at dbt-invoke
-    # time instead, via this runtime-only env var the template reads with
+    # The dbt profile (libs/dbt/profiles/trino.yml) bakes its bare
+    # `{{GOLD_SCHEMA}}` (e.g. "order_revenue_gold") at project-code image
+    # BUILD time - the image is provider/stage-agnostic ("one image digest
+    # deploys to every stage"), so it cannot know this account's
+    # shared-catalog namespace_prefix. Prepend it at dbt-invoke time
+    # instead, via this runtime-only env var the profile reads with
     # `env_var(...)` alongside its build-time-baked schema name.
     env.set("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", f"{catalog_name}_" if is_glue else "")
     if not om_catalog_service_user_set:

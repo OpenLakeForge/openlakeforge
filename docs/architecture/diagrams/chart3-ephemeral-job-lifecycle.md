@@ -134,5 +134,5 @@ completion.
 - [libs/floe_job.py](../../../libs/floe_job.py) — the Floe Job's entrypoint, which re-renders the profile inside the Job
 - [lakehouse_code/silver/floe.yml](../../../lakehouse_code/silver/floe.yml) — the Floe project
 - [infra/terraform/modules/orchestration/dagster/main.tf](../../../infra/terraform/modules/orchestration/dagster/main.tf) — `K8sRunLauncher`, `ttlSecondsAfterFinished`, runtime env
-- [libs/dbt/profiles/](../../../libs/dbt/profiles/) — dbt targets (`type: trino` since PR #62)
+- [libs/dbt/profiles/](../../../libs/dbt/profiles/) — the dbt profile template, one per query engine (`trino.yml`); every stage value is an `env_var()` reference
 - [ADR 0006](../../adr/0006-dagster-runtime-and-code-locations.md), [ADR 0001](../../adr/0001-platform-baseline-and-component-stack.md)

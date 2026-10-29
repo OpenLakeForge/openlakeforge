@@ -56,6 +56,10 @@ for how a release is cut and verified.
 - The provider-contract fields `floe_manifest_*`, `floe_report_base_uri` and
   `domain_floe_manifest_uris`, their Terraform outputs and Dagster env, and
   the bucket-root `floe/manifests|revisions|reports` storage grants.
+- The `PROJECT_CODE_DBT_PROFILE_ENV` image setting and the
+  `OPENLAKEFORGE_DBT_TARGET`, `OPENLAKEFORGE_DBT_PROFILE_ENV` and
+  `DBT_PROFILES_DIR` variables on Dagster pods. The dbt profile no longer
+  depends on the provider (#546), so nothing reads them.
 
 ### Migration
 
