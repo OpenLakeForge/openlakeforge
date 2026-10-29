@@ -59,3 +59,18 @@ variable "databases" {
   }))
   default = []
 }
+
+variable "cluster_name" {
+  description = "EKS cluster the bootstrap Job's service account is bound to for EKS Pod Identity."
+  type        = string
+}
+
+variable "region" {
+  description = "AWS region of the RDS-managed master password secret."
+  type        = string
+}
+
+variable "bootstrap_job_image" {
+  description = "Image that creates the database Secrets and reads the master password: needs kubectl, the AWS CLI and jq."
+  type        = string
+}

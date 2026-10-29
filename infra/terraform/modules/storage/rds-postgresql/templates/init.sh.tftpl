@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+PGPASSWORD="$(cat /master/password)"
+export PGPASSWORD
+
 until PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$POSTGRES_USER" -d postgres -c "select 1" >/dev/null 2>&1; do
   sleep 5
 done

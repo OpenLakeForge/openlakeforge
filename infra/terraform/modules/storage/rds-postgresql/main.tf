@@ -32,22 +32,39 @@ locals {
     database_env_prefixes = [for database in var.databases : local.database_env_prefixes[database.key]]
   })
 
+  # Per database: the Secret name and every namespace that runs a consumer.
+  credentials_script = templatefile("${path.module}/templates/credentials.sh.tftpl", {
+    databases = join(" ", [
+      for database in var.databases :
+      "${database.credentials_secret_name}=${join(",", distinct(concat([var.namespace], database.namespaces)))}"
+    ])
+  })
+
+  credential_secret_names = {
+    for namespace in distinct(concat([var.namespace], [for secret in values(local.database_secrets) : secret.namespace])) :
+    namespace => [for secret in values(local.database_secrets) : secret.name if secret.namespace == namespace]
+  }
+
   bootstrap_hash = substr(sha256(jsonencode({
-    script    = local.bootstrap_script
-    databases = var.databases
+    script      = local.bootstrap_script
+    credentials = local.credentials_script
+    image       = var.bootstrap_job_image
+    databases   = var.databases
   })), 0, 12)
 }
 
-resource "random_password" "master" {
-  length  = 32
-  special = false
-}
-
-resource "random_password" "database" {
-  for_each = local.databases_by_key
-
-  length  = 32
-  special = false
+# Passwords are not generated in Terraform (#400, docs/architecture/identity/
+# identity-credentials.md). RDS creates and rotates the master password in
+# Secrets Manager, and the bootstrap Job below creates each database password in
+# the cluster only if missing, so state holds neither. The Secrets earlier
+# releases wrote stay in the cluster and the Job keeps them: the upgrade rotates
+# no database password. Drop these blocks once every environment has applied
+# past this change.
+removed {
+  from = kubernetes_secret_v1.database_credentials
+  lifecycle {
+    destroy = false
+  }
 }
 
 resource "aws_security_group" "this" {
@@ -95,13 +112,14 @@ resource "aws_db_instance" "this" {
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.this.id]
   username               = var.master_username
-  password               = random_password.master.result
-  db_name                = "postgres"
-  publicly_accessible    = false
-  skip_final_snapshot    = true
-  deletion_protection    = false
-  apply_immediately      = true
-  storage_encrypted      = true
+  # State keeps the Secrets Manager ARN, never the password.
+  manage_master_user_password = true
+  db_name                     = "postgres"
+  publicly_accessible         = false
+  skip_final_snapshot         = true
+  deletion_protection         = false
+  apply_immediately           = true
+  storage_encrypted           = true
 
   tags = {
     Project     = "openlakeforge"
@@ -109,34 +127,92 @@ resource "aws_db_instance" "this" {
   }
 }
 
-# Key 'postgresql-password' is the Dagster and Superset Helm charts' own
-# convention; every database uses it so consumers stay interchangeable.
-resource "kubernetes_secret_v1" "database_credentials" {
-  for_each = local.database_secrets
-
+# The Job's identity: Kubernetes RBAC to create the database Secrets, and an
+# IAM role (EKS Pod Identity) to read the RDS-managed master password. Nothing
+# else in the cluster is bound to the role.
+resource "kubernetes_service_account_v1" "bootstrap" {
   metadata {
-    name      = each.value.name
-    namespace = each.value.namespace
-    labels    = local.labels
-  }
-
-  data = {
-    "postgresql-password" = random_password.database[each.value.key].result
-  }
-
-  type = "Opaque"
-}
-
-resource "kubernetes_secret_v1" "master" {
-  metadata {
-    name      = "${var.name_prefix}-rds-master"
+    name      = "${var.name_prefix}-rds-bootstrap"
     namespace = var.namespace
     labels    = local.labels
   }
+}
 
-  data = {
-    username = var.master_username
-    password = random_password.master.result
+resource "aws_iam_role" "bootstrap" {
+  name = "${var.cluster_name}-${var.name_prefix}-rds-bootstrap"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "bootstrap" {
+  name = "read-master-password"
+  role = aws_iam_role.bootstrap.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = aws_db_instance.this.master_user_secret[0].secret_arn
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "bootstrap" {
+  cluster_name    = var.cluster_name
+  namespace       = var.namespace
+  service_account = kubernetes_service_account_v1.bootstrap.metadata[0].name
+  role_arn        = aws_iam_role.bootstrap.arn
+}
+
+# `create` cannot be limited by resourceNames, so it covers every Secret in the
+# namespace (ADR 0017 exception E1); reading is limited to the Secrets the Job
+# owns there.
+resource "kubernetes_role_v1" "bootstrap" {
+  for_each = local.credential_secret_names
+
+  metadata {
+    name      = "${var.name_prefix}-rds-bootstrap"
+    namespace = each.key
+    labels    = local.labels
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["secrets"]
+    verbs      = ["create"]
+  }
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = each.value
+    verbs          = ["get"]
+  }
+}
+
+resource "kubernetes_role_binding_v1" "bootstrap" {
+  for_each = kubernetes_role_v1.bootstrap
+
+  metadata {
+    name      = each.value.metadata[0].name
+    namespace = each.key
+    labels    = local.labels
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = each.value.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account_v1.bootstrap.metadata[0].name
+    namespace = var.namespace
   }
 }
 
@@ -159,7 +235,48 @@ resource "kubernetes_job_v1" "bootstrap" {
       }
 
       spec {
-        restart_policy = "Never"
+        restart_policy       = "Never"
+        service_account_name = kubernetes_service_account_v1.bootstrap.metadata[0].name
+
+        volume {
+          name = "master"
+          empty_dir {
+            medium = "Memory"
+          }
+        }
+
+        # Creates the database Secrets if missing and hands the master
+        # password to the psql container through memory-backed storage.
+        init_container {
+          name    = "credentials"
+          image   = var.bootstrap_job_image
+          command = ["/bin/sh", "-ec"]
+          args    = [local.credentials_script]
+
+          env {
+            name = "NAMESPACE"
+            value_from {
+              field_ref {
+                field_path = "metadata.namespace"
+              }
+            }
+          }
+
+          env {
+            name  = "AWS_REGION"
+            value = var.region
+          }
+
+          env {
+            name  = "MASTER_SECRET_ARN"
+            value = aws_db_instance.this.master_user_secret[0].secret_arn
+          }
+
+          volume_mount {
+            name       = "master"
+            mount_path = "/master"
+          }
+        }
 
         container {
           name  = "bootstrap"
@@ -184,23 +301,14 @@ resource "kubernetes_job_v1" "bootstrap" {
           }
 
           env {
-            name = "POSTGRES_USER"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret_v1.master.metadata[0].name
-                key  = "username"
-              }
-            }
+            name  = "POSTGRES_USER"
+            value = var.master_username
           }
 
-          env {
-            name = "PGPASSWORD"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret_v1.master.metadata[0].name
-                key  = "password"
-              }
-            }
+          volume_mount {
+            name       = "master"
+            mount_path = "/master"
+            read_only  = true
           }
 
           dynamic "env" {
@@ -225,7 +333,7 @@ resource "kubernetes_job_v1" "bootstrap" {
               name = "${local.database_env_prefixes[env.key]}_PASSWORD"
               value_from {
                 secret_key_ref {
-                  name = kubernetes_secret_v1.database_credentials["${env.key}/${var.namespace}"].metadata[0].name
+                  name = env.value.credentials_secret_name
                   key  = "postgresql-password"
                 }
               }
@@ -245,5 +353,7 @@ resource "kubernetes_job_v1" "bootstrap" {
 
   depends_on = [
     aws_db_instance.this,
+    aws_eks_pod_identity_association.bootstrap,
+    kubernetes_role_binding_v1.bootstrap,
   ]
 }
