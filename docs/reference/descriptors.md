@@ -73,6 +73,17 @@ Where they apply:
 - `olf deploy` refuses to activate a revision whose sources the stage has not
   bound. It reads Secret key names only, never values.
 
+A loader that is a real dlt source runs it through
+`libs.bronze_dlt.bronze_pipeline(<source>)`:
+
+- Files land at `<stage Bronze bucket>/<source>/<resource>/`, the path Floe
+  reads Bronze from.
+- dlt's incremental state lives in that same bucket, under the pipeline
+  `<stage>__<source>`. Each run starts from an empty working directory and
+  restores its cursor from its own stage, so a DEV run cannot move PROD's.
+- `olf check project-code` proves this with a mocked API source run as DEV
+  and as PROD.
+
 ## `lakehouse.yaml`
 
 ```yaml

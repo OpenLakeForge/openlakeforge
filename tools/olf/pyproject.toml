@@ -75,11 +75,14 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unreachable = true
 
-# Dagster and Floe ship no type information, and `lakehouse_code`/`libs` are
-# user-project roots that are not importable from the CLI package.
+# Dagster, Floe and dlt are installed only in the project-code environment
+# `olf check project-code` builds, and `lakehouse_code`/`libs` are user-project
+# roots that are not importable from the CLI package.
 [[tool.mypy.overrides]]
 module = [
   "dagster.*",
+  "dlt",
+  "dlt.*",
   "floe_dagster.*",
   "lakehouse_code.*",
   "libs.*",

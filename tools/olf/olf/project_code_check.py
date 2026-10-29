@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from collections import Counter
+from contextlib import contextmanager
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     from openlakeforge_domain import LakehouseInventory, Product
 
@@ -137,6 +139,7 @@ def validate(root: Path) -> None:
         _fail("merged definitions do not contain every product asset")
     _verify_shared_assets(inventory, merged_keys_list)
     _verify_stage_schedules(inventory, product_dagster_lib)
+    _verify_bronze_dlt_stage_state()
     Definitions.validate_loadable(merged_defs)
     merged_defs.get_repository_def().load_all_definitions()
 
@@ -265,6 +268,78 @@ def _verify_shared_assets(inventory: LakehouseInventory, asset_keys: list[tuple[
     for key, count in counts.items():
         if count > 1 and asset_keys.count(key) != 1:
             _fail(f"shared asset {key[0]}/{key[1]} must have exactly one definition")
+
+
+@contextmanager
+def _environment(values: Mapping[str, str]) -> Iterator[None]:
+    previous = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _verify_bronze_dlt_stage_state() -> None:
+    """One dlt source, promoted unchanged, keeps each stage's bindings and state its own (#546).
+
+    A mocked external API stands in for a real one, so the check needs no
+    network: it serves different records per base URL. DEV and PROD run the
+    same source with their own `SOURCES__*` bindings, as the run pod receives
+    them, into their own destination. A second run on a fresh working
+    directory must resume from the state in its own destination only.
+    """
+    import dlt
+
+    bronze_dlt = import_module("libs.bronze_dlt")
+    api = {
+        "https://api.dev.example": [{"id": 1, "updated_at": 1}, {"id": 2, "updated_at": 2}],
+        "https://api.prod.example": [{"id": 10, "updated_at": 1}],
+    }
+    calls: list[tuple[str, str]] = []
+
+    @dlt.source(name="mock_api")
+    def mock_api(base_url: str = dlt.config.value, api_token: str = dlt.secrets.value) -> object:
+        @dlt.resource(write_disposition="append")
+        # dlt reads the cursor from this default argument; it is dlt's own idiom.
+        def records(
+            updated_at: Any = dlt.sources.incremental("updated_at", initial_value=0),  # noqa: B008
+        ) -> Iterator[object]:
+            calls.append((base_url, api_token))
+            yield [row for row in api[base_url] if row["updated_at"] > updated_at.last_value]
+
+        return records
+
+    def load(stage: str, bucket: Path) -> int:
+        bindings = {
+            "OPENLAKEFORGE_STAGE": stage,
+            "SOURCES__MOCK_API__BASE_URL": f"https://api.{stage}.example",
+            "SOURCES__MOCK_API__API_TOKEN": f"{stage}-token",
+        }
+        with _environment(bindings):
+            pipeline = bronze_dlt.bronze_pipeline("mock_api", bucket_url=bucket.as_uri())
+            pipeline.run(mock_api(), loader_file_format="jsonl")
+        return int(pipeline.last_trace.last_normalize_info.row_counts.get("records", 0))
+
+    with tempfile.TemporaryDirectory(prefix="olf-dlt-check-") as work:
+        dev, prod = Path(work, "dev-bronze"), Path(work, "prod-bronze")
+        first = (load("dev", dev), load("prod", prod))
+        api["https://api.dev.example"].append({"id": 3, "updated_at": 3})
+        second = (load("dev", dev), load("prod", prod))
+        if first != (2, 1) or second != (1, 0):
+            _fail(f"dlt incremental state is not per stage: loaded {first} then {second} (dev, prod) rows")
+        if sorted(set(calls)) != [("https://api.dev.example", "dev-token"), ("https://api.prod.example", "prod-token")]:
+            _fail(f"a stage read another stage's source bindings: {sorted(set(calls))}")
+        for stage, bucket in (("dev", dev), ("prod", prod)):
+            states = {path.name.split("__")[0] for path in (bucket / "mock_api" / "_dlt_pipeline_state").iterdir()}
+            if states != {stage}:
+                _fail(f"{stage}'s Bronze destination holds dlt state for {sorted(states)}")
+            if not any((bucket / "mock_api" / "records").iterdir()):
+                _fail(f"{stage}'s records did not land under <bucket>/mock_api/records/, where Floe reads Bronze")
 
 
 def main() -> None:
