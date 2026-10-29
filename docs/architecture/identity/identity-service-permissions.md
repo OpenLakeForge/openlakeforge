@@ -162,7 +162,7 @@ what a connection can read.
 
 | Item | Today | Target |
 | --- | --- | --- |
-| `admin` / `admin` login form | Chart `init.createAdmin` with a literal password | Under `AUTH_OAUTH` the browser path has no password handler: `SupersetAuthView` serves GET only and `AuthOAuthView` has no password route (**V**); that the page shows no form is **T**. Keep a database user only for automation |
+| `admin` login form | Chart `init.createAdmin`, with the password from Secret `superset-credentials` (#400) | Under `AUTH_OAUTH` the browser path has no password handler: `SupersetAuthView` serves GET only and `AuthOAuthView` has no password route (**V**); that the page shows no form is **T**. Keep a database user only for automation |
 | REST login used by `olf report import`, e2e, and the OpenMetadata Superset connection | `provider: "db"` on `/api/v1/security/login` | **V** `api.py` selects the `db` provider without checking `AUTH_TYPE`, so it keeps working. **T** on the running stack |
 | Identity | `admin` | A dedicated `olf-automation` Admin user for import and e2e; a separate Alpha user for the OpenMetadata connection (read-only endpoints; **T** which role suffices). Passwords from a Secret created by the bootstrap Job (#181), referenced by `secretKeyRef`. The chart's `create-admin ... \|\| true` does not change an existing password, so the init script must use `fab reset-password` or a new user (**T**) |
 | Collision | n/a | Role sync never touches database users (**V** it runs only in `auth_user_oauth`), and the namespaced OIDC username keeps the two apart |

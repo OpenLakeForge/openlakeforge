@@ -31,6 +31,8 @@ class ReportStageError(RuntimeError):
 # Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
 SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
 SUPERSET_PASSWORD_MASK = "XXXXXXXXXX"
+# Created in-cluster by the Superset module, release "superset".
+ADMIN_SECRET = "superset-credentials"
 _TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
 # The placeholder a checked-in database YAML carries. `build_report_bundle`
 # replaces it with the target stage's connection, and `unpack_export_bundle`
@@ -557,6 +559,11 @@ def bundle_schema_perms(bundle_path: Path) -> set[str]:
     }
 
 
+def admin_password_for(namespace: str, override: str = "", *, kube_context: str | None = None) -> str:
+    """The Superset admin password: an explicit override, else the Secret the Superset module's Job created."""
+    return override or k8s.secret_value(ADMIN_SECRET, "admin-password", namespace, kube_context=kube_context)
+
+
 def deploy_reports(
     repo_root: Path,
     namespace: str,
@@ -594,7 +601,8 @@ def deploy_reports(
     work_dir.mkdir(parents=True, exist_ok=True)
     trino_password = k8s.secret_value(credential_secret, "password", namespace) if credential_secret else ""
     with superset_base_url(namespace) as base_url:
-        client = SupersetClient(base_url, username=admin_username, password=admin_password)
+        password = admin_password_for(namespace, admin_password)
+        client = SupersetClient(base_url, username=admin_username, password=password)
         client.login()
         schema_perms: set[str] = set()
         for report_dir in report_dirs:
@@ -636,7 +644,8 @@ def export_report(
     local_bundle = work_dir / bundle_name
 
     with superset_base_url(namespace) as base_url:
-        client = SupersetClient(base_url, username=admin_username, password=admin_password)
+        password = admin_password_for(namespace, admin_password)
+        client = SupersetClient(base_url, username=admin_username, password=password)
         client.login()
         log.step(f"Exporting dashboard '{dashboard}' from Superset")
         local_bundle.write_bytes(client.export_dashboard(dashboard))

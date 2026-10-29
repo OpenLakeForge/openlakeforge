@@ -672,7 +672,7 @@ def test_hcl_structured_contracts_rejects_credential_handling_in_an_identity_mod
         assert expected in result.detail
 
 
-@pytest.mark.parametrize("module_path", ["storage/postgresql", "catalog/polaris"])
+@pytest.mark.parametrize("module_path", ["storage/postgresql", "catalog/polaris", "analytics/superset"])
 def test_hcl_structured_contracts_rejects_credential_handling_in_job_modules(tmp_path: Path, module_path: str) -> None:
     repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
     module = repo_root / "infra/terraform/modules" / module_path

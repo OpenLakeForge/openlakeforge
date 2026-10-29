@@ -51,11 +51,12 @@ WORKLOADS = {
 E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file")),
     ("postgresql-credentials", ("postgresql-*-creds",)),
+    ("superset-credentials", ("superset-credentials", "superset-env")),
     ("*-credentials", ("*-client-*",)),  # dex-credentials
     ("*-cookie", ("*-cookie",)),
     ("*-oidc-secret", ("oidc-client-*", "*-client-*")),
     ("polaris-bootstrap", ("polaris-*",)),
-    ("openmetadata-bootstrap", ("openmetadata-automation-bot", "openmetadata-ingestion-bot")),
+    ("openmetadata-bootstrap", ("openmetadata-automation-bot", "openmetadata-ingestion-bot", "superset-credentials")),
     ("publish-local-ca", ("local-ca",)),
 )
 # ADR 0017 E2 to E5: (role kind, role glob, subject glob, the only resources a risky rule may name).

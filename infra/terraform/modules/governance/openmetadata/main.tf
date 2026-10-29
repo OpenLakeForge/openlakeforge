@@ -101,7 +101,7 @@ locals {
     stages_json_b64               = base64encode(jsonencode(var.stages))
     lineage_pipeline_service      = var.stages[var.canonical_stage].pipeline_service_name
     superset_username             = var.superset_username
-    superset_password             = var.superset_password
+    superset_admin_secret_name    = var.superset_admin_secret_name
     superset_auth_provider        = var.superset_auth_provider
     superset_verify_ssl           = var.superset_verify_ssl
     sso_enabled                   = local.oidc_security_config == null ? "" : "true"

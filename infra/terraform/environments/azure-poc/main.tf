@@ -303,6 +303,7 @@ module "openmetadata" {
       dagster_webserver_url  = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}"
       dashboard_service_name = contains(keys(local.analytics_stages), name) ? "superset_${name}" : null
       superset_url           = contains(keys(local.analytics_stages), name) ? "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}" : null
+      superset_namespace     = contains(keys(local.analytics_stages), name) ? local.stage_namespaces[name] : null
     }
   }
   # Read from module.trino, not the contract, so the bootstrap Job that runs
