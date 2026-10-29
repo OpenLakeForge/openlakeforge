@@ -143,6 +143,11 @@ every component, reports included, by the revision's own scan.
 - dbt `profiles.yml`, wherever it sits. The image carries one, rendered by
   `libs/dbt/render_profiles.py` outside `lakehouse_code/`, whose connection
   values the run pod's stage environment supplies.
+- Source bindings and dlt state. A `source.yaml` names the keys its loader
+  reads; their values live in the stage's `olf-source-<id>` ConfigMap and
+  Secret. dlt's cursors live in the stage's Bronze bucket under
+  `<stage>__<source>`. See [where stage bindings reach a
+  workload](provider-contracts.md#where-stage-bindings-reach-a-workload).
 - Build output: `target/`, `dbt_packages/`, `logs/`, `__pycache__/`, `.venv/`.
 
 ## Building and verifying
