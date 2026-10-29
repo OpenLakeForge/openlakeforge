@@ -149,6 +149,11 @@ def _lakehouse_descriptor_paths(lakehouse_path: Path) -> list[Path]:
     return [lakehouse_path, *source_paths]
 
 
+def _descriptor_in(directory: Path) -> Path:
+    governance = directory / "governance.yml"
+    return governance if governance.is_file() else directory / "lakehouse.yaml"
+
+
 def resolve_metadata_descriptor_paths(
     metadata_root: Path, metadata_source_dir: str
 ) -> tuple[list[Path], Path, bool]:
@@ -170,19 +175,19 @@ def resolve_metadata_descriptor_paths(
             raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
         if path.is_file():
             return _lakehouse_descriptor_paths(path), path, False
-        lakehouse_path = path / "lakehouse.yaml"
+        lakehouse_path = _descriptor_in(path)
         if lakehouse_path.is_file():
             return _lakehouse_descriptor_paths(lakehouse_path), path, False
-        candidates = sorted(path.glob("*/lakehouse.yaml"))
+        candidates = sorted(path.glob("*/governance.yml")) or sorted(path.glob("*/lakehouse.yaml"))
         if candidates:
             return _lakehouse_descriptor_paths(candidates[0]), path, True
-        raise OpenMetadataError(f"OpenMetadata metadata source contains no lakehouse.yaml: {path}")
+        raise OpenMetadataError(f"OpenMetadata metadata source contains no governance.yml: {path}")
 
     if not metadata_root.exists():
         raise OpenMetadataError(f"OpenMetadata metadata root does not exist: {metadata_root}")
-    lakehouse_path = metadata_root / "lakehouse.yaml"
+    lakehouse_path = _descriptor_in(metadata_root)
     if not lakehouse_path.is_file():
-        raise OpenMetadataError(f"OpenMetadata metadata root has no lakehouse.yaml: {metadata_root}")
+        raise OpenMetadataError(f"OpenMetadata metadata root has no governance.yml: {metadata_root}")
     return _lakehouse_descriptor_paths(lakehouse_path), metadata_root, True
 
 

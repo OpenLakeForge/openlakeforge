@@ -125,6 +125,50 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_order_revenue"
 
 
+def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
+    code = tmp_path / "lakehouse_code"
+    (code / "bronze" / "crm").mkdir(parents=True)
+    (code / "bronze" / "crm" / "source.yaml").write_text(_source(), encoding="utf-8")
+    (code / "governance.yml").write_text(
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        "domains:\n  - {name: sales, displayName: Sales}\n"
+        "products:\n  - {id: revenue, domain: sales, displayName: Revenue}\n",
+        encoding="utf-8",
+    )
+    board = code / "dashboards" / "superset" / "revenue_board"
+    (board / "datasets" / "Trino").mkdir(parents=True)
+    (board / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
+    (board / "datasets" / "Trino" / "mart.yaml").write_text("schema: revenue_gold\n", encoding="utf-8")
+    (code / "dashboards" / "superset" / "draft").mkdir()
+
+    inventory = load_lakehouse_inventory(tmp_path)
+
+    assert inventory.source_names == ("crm",)
+    assert [(p.domain_name, p.id) for p in inventory.products] == [("sales", "revenue")]
+    assert [(d.name, d.products) for d in inventory.dashboards] == [("revenue_board", ("revenue",))]
+
+
+def test_governance_yml_wins_over_lakehouse_yaml(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path, product_id="legacy")
+    code = tmp_path / "lakehouse_code"
+    (code / "governance.yml").write_text(
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        "domains:\n  - {name: sales, displayName: Sales}\n"
+        "products:\n  - {id: current, domain: sales, displayName: Current}\n",
+        encoding="utf-8",
+    )
+
+    assert [p.id for p in load_lakehouse_inventory(tmp_path).products] == ["current"]
+
+
+def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_allowed(tmp_path: Path) -> None:
+    (tmp_path / "lakehouse_code").mkdir()
+
+    with pytest.raises(LakehouseDescriptorError, match="no governance.yml"):
+        load_lakehouse_inventory(tmp_path)
+    assert load_lakehouse_inventory(tmp_path, allow_incomplete=True).domains == ()
+
+
 def test_inventory_for_caches_by_resolved_repo_root() -> None:
     assert inventory_for(ROOT) is inventory_for(ROOT)
     assert inventory_for(ROOT) is inventory_for(str(ROOT))

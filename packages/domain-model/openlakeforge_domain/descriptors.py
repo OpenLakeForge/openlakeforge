@@ -364,7 +364,11 @@ def validate_lakehouse_descriptor(
 
 
 def load_lakehouse_descriptor(path: str | Path, *, allow_incomplete: bool = False) -> dict[str, Any]:
-    """Load and validate the v1alpha3 Lakehouse descriptor at ``path``."""
+    """Load and validate the Lakehouse descriptor at ``path`` (``governance.yml`` or legacy ``lakehouse.yaml``)."""
+    if Path(path).name == "governance.yml":
+        from .governance import load_governance_lakehouse_document
+
+        return load_governance_lakehouse_document(path, allow_incomplete=allow_incomplete)
     source = str(path)
     with Path(path).open(encoding="utf-8") as handle:
         document = yaml.safe_load(handle)

@@ -22,8 +22,11 @@ _ENTRY_FIELDS = {"displayName", "description", "status"}
 
 def _entries(document: Mapping[str, Any], key: str, id_field: str, extra: set[str], source: str) -> list[Mapping[str, Any]]:
     entries = document.get(key)
-    if not isinstance(entries, list) or not entries:
-        raise LakehouseDescriptorError(f"{source}: {key} must be a non-empty array")
+    if not isinstance(entries, list):
+        raise LakehouseDescriptorError(f"{source}: {key} must be an array")
+    # A domain may exist before its first product (`olf domain new`).
+    if not entries and key == "domains":
+        raise LakehouseDescriptorError(f"{source}: domains must be a non-empty array")
     seen: set[str] = set()
     for entry in entries:
         if not isinstance(entry, Mapping):
@@ -61,6 +64,45 @@ def validate_governance_descriptor(document: Mapping[str, Any], *, source: str =
             raise LakehouseDescriptorError(
                 f"{source}: product {product['id']!r} names unknown domain {product.get('domain')!r}"
             )
+
+
+def _without_domain(product: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in product.items() if key != "domain"}
+
+
+def load_governance_lakehouse_document(path: str | Path, *, allow_incomplete: bool = False) -> dict[str, Any]:
+    """``governance.yml`` as the document shape the inventory loader consumes.
+
+    Sources are the Bronze source directories and dashboards the Superset report
+    directories, so neither is declared twice. A dashboard serves the products
+    whose ``<product>_gold`` schema its datasets read.
+    """
+    code = Path(path).parent
+    # An `olf init --empty` project has no governance.yml until its first domain.
+    if allow_incomplete and not Path(path).is_file():
+        document: Mapping[str, Any] = {"domains": [], "products": []}
+    else:
+        document = load_governance_descriptor(path)
+    products = document["products"]
+    if not products and not allow_incomplete:
+        raise LakehouseDescriptorError(f"{path}: governance.yml must declare at least one product")
+    dashboards = []
+    for metadata in sorted(code.glob("dashboards/superset/*/metadata.yaml")):
+        schemas = {
+            yaml.safe_load(dataset.read_text(encoding="utf-8")).get("schema")
+            for dataset in metadata.parent.glob("datasets/*/*.yaml")
+        }
+        served = [p["id"] for p in products if f"{p['id']}_gold" in schemas]
+        dashboards.append({"name": metadata.parent.name, "products": served})
+    return {
+        "name": "openlakeforge",
+        "sources": sorted(p.parent.name for p in code.glob("bronze/*/source.yaml")),
+        "domains": [
+            {**domain, "products": [_without_domain(p) for p in products if p["domain"] == domain["name"]]}
+            for domain in document["domains"]
+        ],
+        "dashboards": dashboards,
+    }
 
 
 def load_governance_descriptor(path: str | Path) -> dict[str, Any]:
