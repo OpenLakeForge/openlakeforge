@@ -19,7 +19,7 @@ _BANNER_LINES: dict[str, str] = {
     "polaris": "  Polaris API:      http://localhost:8181",
     "trino": "  Trino UI:         http://localhost:8080",
     "dagster": "  Dagster UI:       http://localhost:3000",
-    "superset": "  Superset UI:      http://localhost:8088  (admin / admin)",
+    "superset": "  Superset UI:      http://localhost:8088  (admin; password in Secret superset-credentials)",
     "openmetadata": "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)",
 }
 

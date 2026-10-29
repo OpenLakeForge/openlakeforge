@@ -108,8 +108,9 @@ directory.
 - The dashboard is found by the uuid stored in the bundle, which survives a
   rename in Superset. For a draft with nothing exported yet, set
   `SUPERSET_DASHBOARD` to its uuid or slug.
-- `SUPERSET_ADMIN_USERNAME` and `SUPERSET_ADMIN_PASSWORD` default to `admin`
-  and `admin`.
+- `SUPERSET_ADMIN_USERNAME` defaults to `admin`. The password is read from
+  the `superset-credentials` Secret in the stage namespace; set
+  `SUPERSET_ADMIN_PASSWORD` to use another Superset.
 
 The export writes a stage-neutral bundle: it replaces DEV's live Trino
 connection with the placeholder each deploy rewrites, so the same bundle can be

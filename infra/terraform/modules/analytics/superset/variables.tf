@@ -56,13 +56,6 @@ variable "admin_username" {
   default     = "admin"
 }
 
-variable "admin_password" {
-  description = "Local Superset admin password."
-  type        = string
-  default     = "admin"
-  sensitive   = true
-}
-
 variable "admin_email" {
   description = "Local Superset admin email."
   type        = string

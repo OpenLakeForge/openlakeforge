@@ -12,7 +12,7 @@ TEMPLATE = (
 
 # A stand-in for kubectl that keeps Secrets as files, one directory per Secret.
 FAKE_KUBECTL = """\
-import base64, os, re, sys
+import base64, json, os, re, sys
 from pathlib import Path
 
 root, a = Path(os.environ["FAKE"]), sys.argv[1:]
@@ -29,6 +29,9 @@ elif a[:3] == ["create", "secret", "generic"]:
     d.mkdir(parents=True)  # fails like the API server does when the Secret exists
     for x in (x for x in a if x.startswith("--from-literal=")):
         k, v = x[len("--from-literal="):].split("=", 1)
+        (d / k).write_text(v)
+elif a[:2] == ["patch", "secret"]:
+    for k, v in json.loads(a[a.index("-p") + 1])["stringData"].items():
         (d / k).write_text(v)
 else:
     sys.exit("unsupported: " + " ".join(a))

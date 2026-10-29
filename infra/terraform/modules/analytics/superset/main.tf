@@ -72,13 +72,18 @@ resource "helm_release" "superset" {
           "helm.sh/hook"               = "post-install,post-upgrade"
           "helm.sh/hook-delete-policy" = "before-hook-creation,hook-succeeded"
         }
-        adminUser = {
-          username  = var.admin_username
-          firstname = "OpenLakeForge"
-          lastname  = "Admin"
-          email     = var.admin_email
-          password  = var.admin_password
-        }
+        # The chart's script puts the admin password into the init Job's
+        # Secret, so this one reads it from the environment. Resetting it on
+        # every run makes the Secret authoritative for an existing admin too.
+        initscript = <<-SH
+          #!/bin/sh
+          set -eu
+          superset db upgrade
+          superset init
+          superset fab create-admin --username "${var.admin_username}" --firstname OpenLakeForge --lastname Admin \
+            --email "${var.admin_email}" --password "$ADMIN_PASSWORD" || true
+          superset fab reset-password --username "${var.admin_username}" --password "$ADMIN_PASSWORD"
+        SH
       }
 
       extraEnvRaw = concat([
@@ -97,6 +102,15 @@ resource "helm_release" "superset" {
             secretKeyRef = {
               name = local.credentials_secret_name
               key  = "secret-key"
+            }
+          }
+        },
+        {
+          name = "ADMIN_PASSWORD"
+          valueFrom = {
+            secretKeyRef = {
+              name = local.credentials_secret_name
+              key  = "admin-password"
             }
           }
         },

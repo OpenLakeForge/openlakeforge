@@ -130,7 +130,7 @@ def deploy_superset_reports(stage: str = "") -> None:
         declared_report_dirs=declared_report_dirs,
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
-        admin_password=config.env("SUPERSET_ADMIN_PASSWORD", "admin"),
+        admin_password=config.env("SUPERSET_ADMIN_PASSWORD"),
         schema_prefix=target.schema_prefix,
         extra=target.extra,
         credential_secret=target.credential_secret,
@@ -230,7 +230,7 @@ def export_superset_reports(stage: str = "") -> None:
         ),
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
-        admin_password=config.env("SUPERSET_ADMIN_PASSWORD", "admin"),
+        admin_password=config.env("SUPERSET_ADMIN_PASSWORD"),
         dashboard=os.environ.get("SUPERSET_DASHBOARD") or _default_dashboard(),
         schema_prefix=target.schema_prefix,
     )
