@@ -50,3 +50,9 @@ variable "polaris_credentials_secret_name" {
   type        = string
   default     = "postgresql-polaris-creds"
 }
+
+variable "bootstrap_job_image" {
+  description = "Image of the Job that creates the credential Secrets when missing, pinned by digest (release/component-catalog.yaml)."
+  type        = string
+  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+}

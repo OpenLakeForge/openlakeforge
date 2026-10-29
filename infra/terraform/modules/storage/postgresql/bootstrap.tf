@@ -41,7 +41,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             name = "POSTGRES_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin_credentials.metadata[0].name
+                name = local.admin_secret_name
                 key  = "postgres-password"
               }
             }
@@ -50,7 +50,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             name = "PGPASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.admin_credentials.metadata[0].name
+                name = local.admin_secret_name
                 key  = "postgres-password"
               }
             }
@@ -90,7 +90,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             name = "POLARIS_DB_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.polaris_credentials.metadata[0].name
+                name = var.polaris_credentials_secret_name
                 key  = "password"
               }
             }

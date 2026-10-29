@@ -22,6 +22,16 @@ hashes the value. `olf check contracts` fails if an identity module declares a
 `random_*` resource, a Secret resource or a Secret data source, or has a
 sensitive or unwrapped output.
 
+The in-cluster PostgreSQL module follows the same rule (#400): the Job
+`postgresql-credentials-<hash>` creates the admin, Polaris and per-database
+Secrets if missing, and copies each database password into the namespaces that
+run its consumers. Rotating a database password is not automated: PostgreSQL
+applies a new value only when its bootstrap Job re-runs. The admin password is
+set once, when the data volume is first initialised, so deleting
+`postgresql-admin-creds` on a live volume locks the platform out of PostgreSQL.
+Back that Secret up with the data volume. `olf check contracts` applies the
+no-`random_*`, no-Secret rule to this module too.
+
 Clusters deployed before this change hold Secrets Terraform generated.
 `removed { lifecycle { destroy = false } }` blocks make state forget them
 without deleting them, and the Job keeps an existing Secret, so the upgrade
@@ -80,7 +90,7 @@ here, not migrated. All are in the debt register
 
 | Credential | Generator | Secret reference | Terraform observes value |
 | --- | --- | --- | --- |
-| PostgreSQL admin, per-service database users (including `dex`) | `random_password` | `postgresql-*-creds` Secrets | Yes |
+| PostgreSQL admin, per-service database users (including `dex`) and the Polaris database user (#400) | In-cluster Job `postgresql-credentials-<hash>` (`modules/storage/postgresql/credentials.tf`), create-if-missing, 32 random alphanumeric characters | `postgresql-*-creds` Secrets, one copy per consuming namespace | No |
 | SeaweedFS S3 admin and per-stage keys | `random_id` and `random_password` | Secrets from the SeaweedFS module | Yes |
 | Polaris root client | `random_password` | `var.bootstrap_secret_name` | Yes |
 | Superset `SECRET_KEY` | `random_password` | Helm `extraSecretEnv` | Yes |

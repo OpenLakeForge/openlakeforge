@@ -156,13 +156,19 @@ def _root_output_errors(env: str, tf_path: Path) -> list[str]:
     return errors
 
 
-def _identity_module_errors(repo_root: Path) -> list[str]:
-    """#181: an identity module never generates or reads a credential. An
+# Modules whose credentials an in-cluster Job creates (#181, #400). The rest of
+# #400 adds a module here as it migrates.
+_JOB_CREDENTIAL_MODULES = ("identity", "storage/postgresql")
+
+
+def _job_credential_module_errors(repo_root: Path) -> list[str]:
+    """#181, #400: these modules never generate or read a credential. An
     in-cluster Job creates the Secret; Terraform only names it. A `random_*`
     resource, a Terraform-written Secret or a read of one puts the value in
     state."""
     errors: list[str] = []
-    for tf_path in sorted((repo_root / "infra/terraform/modules/identity").rglob("*.tf")):
+    modules = repo_root / "infra/terraform/modules"
+    for tf_path in sorted(path for module in _JOB_CREDENTIAL_MODULES for path in (modules / module).rglob("*.tf")):
         where = tf_path.relative_to(repo_root).as_posix()
         document = _parse_hcl(tf_path)
         for kind, banned in (("resource", ("random_", "kubernetes_secret")), ("data", ("kubernetes_secret",))):
@@ -246,7 +252,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
         )
 
         if env == _ENVIRONMENT_ROOTS[0]:
-            errors.extend(_identity_module_errors(repo_root))
+            errors.extend(_job_credential_module_errors(repo_root))
 
         main_path = repo_root / "infra/terraform/environments" / env / "main.tf"
         if not main_path.is_file():
