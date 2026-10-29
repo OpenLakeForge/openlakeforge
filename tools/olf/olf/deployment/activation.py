@@ -69,13 +69,43 @@ _RUNTIME_ALIASES = (
     "OPENLINEAGE_NAMESPACE",
     "OPENLINEAGE_URL",
 )
-_FLOE_SECRET_REFERENCES = (
+# The stage contract values the project-code runtime reads (libs/, the dbt
+# profile and projects, lakehouse_code/), and nothing else. Forwarding every
+# OPENLAKEFORGE_* name in the operator's process also shipped workstation
+# paths, deployer Secret names and settings no workload reads (#546). The
+# *_SECRET_NAME and *_KEY names are Secret and key names the Floe Job spec
+# references, never credential values. tests/test_deployment_activation.py
+# fails when runtime code reads a name this list does not account for.
+_RUNTIME_ENV = (
+    "OPENLAKEFORGE_ARTIFACT_BASE_URI",
+    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY",
     "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY",
     "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME",
+    "OPENLAKEFORGE_CATALOG_NAME",
+    "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE",
+    "OPENLAKEFORGE_CATALOG_PROVIDER",
+    "OPENLAKEFORGE_CATALOG_REST_URI",
+    "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX",
+    "OPENLAKEFORGE_CATALOG_TOKEN_URI",
+    "OPENLAKEFORGE_CATALOG_TYPE",
+    "OPENLAKEFORGE_CATALOG_WAREHOUSE",
+    "OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX",
+    "OPENLAKEFORGE_DBT_TRINO_USER",
+    "OPENLAKEFORGE_GOVERNANCE_ENABLED",
+    "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
     "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+    "OPENLAKEFORGE_QUERY_TRINO_HOST",
+    "OPENLAKEFORGE_QUERY_TRINO_PORT",
+    "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT",
+    "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
     "OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY",
+    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
     "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME",
+    "OPENLAKEFORGE_STORAGE_ENDPOINT",
+    "OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS",
+    "OPENLAKEFORGE_STORAGE_REGION",
     "OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY",
+    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
 )
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 # The gRPC port the platform's workspace entries expect on every code-location
@@ -253,21 +283,16 @@ def _user_values(
     ]
     # Each domain's Floe Job runs on this same image in this namespace
     # (libs/floe_profile.py); the contract's namespace default is a
-    # single-stage leftover, so the activation's own stage wins.
+    # single-stage leftover, so the activation's own stage wins. The stage
+    # gates PROD-only schedules (libs/product_dagster.py), so it comes from
+    # the activation record rather than whatever the operator's shell held.
     stage_env = {
         "OPENLAKEFORGE_KUBE_NAMESPACE": namespace,
         "OPENLAKEFORGE_PROJECT_CODE_IMAGE": f"{repository}@{digest}",
+        "OPENLAKEFORGE_STAGE": activation.stage.value,
     }
-    for name in sorted(key for key in contract_environ if key.startswith("OPENLAKEFORGE_")):
-        if "SECRET" not in name and "ACCESS_KEY" not in name and name not in stage_env:
-            env.append({"name": name, "value": contract_environ[name]})
+    env.extend({"name": name, "value": contract_environ[name]} for name in _RUNTIME_ENV if name in contract_environ)
     env.extend({"name": name, "value": value} for name, value in stage_env.items())
-    # Names of Secrets and of keys inside them, never their values: the Floe
-    # Job spec references them so the Job resolves its own credentials. The
-    # filter above drops them only because their names mention SECRET.
-    for name in _FLOE_SECRET_REFERENCES:
-        if contract_environ.get(name):
-            env.append({"name": name, "value": contract_environ[name]})
     for name in _RUNTIME_ALIASES:
         value = contract_environ.get(name)
         if value:
