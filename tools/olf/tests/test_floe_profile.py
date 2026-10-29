@@ -1,4 +1,3 @@
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from libs import floe_job  # noqa: E402
 from libs.floe_profile import FloeProfileError, render_profile  # noqa: E402
 
 _STAGE = {
@@ -126,7 +124,6 @@ def test_a_glue_job_carries_no_polaris_credentials() -> None:
     runner = render_profile(_GLUE_STAGE)["execution"]["runner"]
 
     assert not [secret for secret in runner["secrets"] if secret["name"].startswith("POLARIS_")]
-    assert runner["env"]["OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"] == "lakehouse_dev_"
 
 
 def test_a_catalog_floe_cannot_write_through_is_refused() -> None:
@@ -153,10 +150,11 @@ def test_floe_runs_one_kubernetes_job_per_domain_on_the_project_code_image() -> 
     assert runner["image"] == _STAGE["OPENLAKEFORGE_PROJECT_CODE_IMAGE"]
     assert runner["namespace"] == "olf-dev"
     assert runner["service_account"] == "dagster"
-    assert runner["command"] == "olf-floe-job"
+    # dagster-floe hands the Job the profile's text, so it runs Floe's own `floe` with no wrapper.
+    assert "command" not in runner
 
 
-def test_the_job_gets_the_contract_values_and_credentials_by_reference_only() -> None:
+def test_the_job_gets_credentials_by_reference_only() -> None:
     environ = {
         **_STAGE,
         "AWS_REGION": "us-east-1",
@@ -168,11 +166,11 @@ def test_the_job_gets_the_contract_values_and_credentials_by_reference_only() ->
         "AWS_SECRET_ACCESS_KEY": "must-not-appear",
         "POLARIS_FLOE_CLIENT_SECRET": "must-not-appear",
     }
-    runner = _runner(environ)
+    profile = render_profile(environ)
+    runner = profile["execution"]["runner"]
 
-    assert runner["env"]["OPENLAKEFORGE_CATALOG_REST_URI"] == _STAGE["OPENLAKEFORGE_CATALOG_REST_URI"]
-    assert runner["env"]["AWS_REGION"] == "us-east-1"
-    assert "must-not-appear" not in str(runner)
+    # The Job reads this whole profile, so no credential value may enter it.
+    assert "must-not-appear" not in str(profile)
     assert {(s["name"], s["secret_name"], s["key"]) for s in runner["secrets"]} == {
         ("POLARIS_FLOE_CLIENT_ID", "polaris-dev-floe-creds", "POLARIS_FLOE_CLIENT_ID"),
         ("POLARIS_FLOE_CLIENT_SECRET", "polaris-dev-floe-creds", "POLARIS_FLOE_CLIENT_SECRET"),
@@ -180,17 +178,6 @@ def test_the_job_gets_the_contract_values_and_credentials_by_reference_only() ->
         ("AWS_SECRET_ACCESS_KEY", "seaweedfs-dev-s3-creds", "AWS_SECRET_ACCESS_KEY"),
         ("OPENLINEAGE_API_KEY", "openmetadata-ingestion-bot", "OPENMETADATA_INGESTION_BOT_JWT"),
     }
-
-
-def test_the_job_renders_the_same_stage_profile_from_what_it_was_given() -> None:
-    environ = {**_STAGE, "AWS_REGION": "us-east-1", "OPENLINEAGE_URL": "http://openmetadata:8585"}
-    runner = _runner(environ)
-    in_job = render_profile({**runner["env"], "POLARIS_FLOE_CLIENT_ID": "x"}, in_job=True)
-    outside = render_profile(environ)
-
-    assert in_job["execution"]["runner"] == {"type": "local"}
-    for section in ("storages", "catalogs", "lineage"):
-        assert in_job[section] == outside[section]
 
 
 def test_terraform_managed_pods_name_the_namespace_and_image_their_own_way() -> None:
@@ -208,19 +195,3 @@ def test_a_pod_that_cannot_name_its_image_is_refused() -> None:
 
     with pytest.raises(FloeProfileError, match="OPENLAKEFORGE_PROJECT_CODE_IMAGE"):
         render_profile(environ)
-
-
-def test_the_job_entrypoint_renders_the_profile_where_floe_reads_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for name, value in {**_STAGE, "AWS_REGION": "us-east-1", "POLARIS_FLOE_CLIENT_ID": "x"}.items():
-        monkeypatch.setenv(name, value)
-    executed: list[list[str]] = []
-    monkeypatch.setattr(floe_job.os, "execvp", lambda _file, argv: executed.append(argv))
-    profile = tmp_path / "openlakeforge-floe" / "profile.yml"
-    args = ["run", "-c", "/opt/project/floe.yml", "-p", str(profile), "--quiet", "--entities", "orders,accounts"]
-
-    floe_job.main(args)
-
-    assert executed == [["floe", *args]]
-    assert json.loads(profile.read_text())["execution"]["runner"] == {"type": "local"}

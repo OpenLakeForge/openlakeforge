@@ -36,11 +36,12 @@ for how a release is cut and verified.
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image
-  (`floe-python` 0.8.2, `dagster-floe` 0.4.0). The code location builds the
+  (`floe-python` 0.8.3, `dagster-floe` 0.4.1). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
   renders for its own stage, and each domain runs as one Kubernetes Job on the
-  same image (`olf-floe-job`): a whole-domain run passes `--domain`, a partial
-  one only the entities it needs. There is no Floe runner image, no Job per
+  same image, which receives that profile as text and runs plain `floe`: a
+  whole-domain run passes `--domain`, a partial one only the entities it
+  needs. Terminating a Dagster run, or its timeout, deletes the domain's Job. There is no Floe runner image, no Job per
   entity, and no generated, published or versioned manifest (#533, ADR 0006).
 - The Silver contracts are one Floe project: `lakehouse_code/silver/floe.yml`
   with named Bronze sources in `silver/sources.yml`, and per domain a

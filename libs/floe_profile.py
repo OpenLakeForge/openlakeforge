@@ -8,9 +8,8 @@ every run pod alike, so one image serves every stage and nothing stage-bound
 is baked into it or published beside it.
 
 Floe runs one Kubernetes Job per domain (`job_scope: domain`) on this same
-image. dagster-floe runs it as `floe run -c <project> -p <profile>`, so the
-profile path must exist in the Job too: its entrypoint (`libs.floe_job`)
-renders the same profile there from the contract values forwarded below.
+image. dagster-floe hands the Job this profile's text (`-p env:...`), so the
+Job runs plain `floe run` and needs only the credentials, by Secret reference.
 
 Kept free of Dagster/Floe imports so `tools/olf` can unit test it.
 """
@@ -28,51 +27,12 @@ from pathlib import Path
 CATALOG_NAME = "iceberg_catalog"
 
 
-# Every non-secret value `render_profile` reads, handed to the Job so the
-# entrypoint renders the stage's profile from the same inputs.
-_JOB_ENV = (
-    "AWS_ALLOW_HTTP",
-    "AWS_DEFAULT_REGION",
-    "AWS_ENDPOINT_URL_S3",
-    "AWS_REGION",
-    "AWS_S3_FORCE_PATH_STYLE",
-    "OPENLAKEFORGE_ARTIFACT_BASE_URI",
-    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY",
-    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY",
-    "OPENLAKEFORGE_CATALOG_GLUE_REGION",
-    "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX",
-    "OPENLAKEFORGE_CATALOG_NAME",
-    "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE",
-    "OPENLAKEFORGE_CATALOG_PROVIDER",
-    "OPENLAKEFORGE_CATALOG_REST_URI",
-    "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX",
-    "OPENLAKEFORGE_CATALOG_TOKEN_URI",
-    "OPENLAKEFORGE_CATALOG_TYPE",
-    "OPENLAKEFORGE_CATALOG_WAREHOUSE",
-    "OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX",
-    "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE",
-    "OPENLAKEFORGE_GOVERNANCE_ENABLED",
-    "OPENLAKEFORGE_STAGE",
-    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
-    "OPENLAKEFORGE_STORAGE_ENDPOINT",
-    "OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS",
-    "OPENLAKEFORGE_STORAGE_REGION",
-    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
-    "OPENLINEAGE_ENDPOINT",
-    "OPENLINEAGE_NAMESPACE",
-    "OPENLINEAGE_URL",
-)
-# The Job's entrypoint: a console script, because Floe's profile takes a
-# single `command` string and appends `run -c ... --entities ...` as args.
-JOB_COMMAND = "olf-floe-job"
-
-
 class FloeProfileError(RuntimeError):
     """The stage contract on this pod cannot drive a Floe 0.8 run."""
 
 
-def render_profile(environ: Mapping[str, str], *, in_job: bool = False) -> dict[str, object]:
-    """The stage's profile; `in_job` renders it for the Floe Job itself, which runs Floe locally."""
+def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
+    """The stage's profile, read from the contract values on this pod."""
 
     def required(name: str) -> str:
         value = environ.get(name, "").strip()
@@ -158,15 +118,11 @@ def render_profile(environ: Mapping[str, str], *, in_job: bool = False) -> dict[
         }
 
     lineage_on = _governance_enabled(environ)
-    runner = (
-        {"type": "local"}
-        if in_job
-        else _job_runner(
-            environ,
-            required,
-            polaris_client=(client_id, client_secret) if catalog_type == "rest" else None,
-            lineage=lineage_on,
-        )
+    runner = _job_runner(
+        environ,
+        required,
+        polaris_client=(client_id, client_secret) if catalog_type == "rest" else None,
+        lineage=lineage_on,
     )
     profile: dict[str, object] = {
         "apiVersion": "floe/v1",
@@ -242,11 +198,9 @@ def _job_runner(
         # The run launcher's account: the chart grants it Jobs and pod logs
         # in the stage namespace, which is all dagster-floe needs.
         "service_account": environ.get("OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT") or "dagster",
-        "command": JOB_COMMAND,
         "timeout_seconds": 3600,
         "ttl_seconds_after_finished": 3600,
         "poll_interval_seconds": 5,
-        "env": {name: environ[name] for name in _JOB_ENV if environ.get(name)},
         "secrets": secrets,
     }
 
@@ -258,13 +212,10 @@ def profile_path(directory: Path | None = None) -> Path:
 def write_profile(
     environ: Mapping[str, str] | None = None,
     directory: Path | None = None,
-    *,
-    target: Path | None = None,
-    in_job: bool = False,
 ) -> Path:
     """Render the profile for this pod's stage and return its path (JSON is valid YAML)."""
-    target = target or profile_path(directory)
+    target = profile_path(directory)
     target.parent.mkdir(parents=True, exist_ok=True)
-    profile = render_profile(os.environ if environ is None else environ, in_job=in_job)
+    profile = render_profile(os.environ if environ is None else environ)
     target.write_text(json.dumps(profile, indent=2) + "\n")
     return target

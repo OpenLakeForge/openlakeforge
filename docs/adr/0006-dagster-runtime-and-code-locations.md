@@ -53,17 +53,18 @@ The profile's runner is `kubernetes_job` with `job_scope: domain`: dagster-floe
 builds one subsettable asset per domain, and a run that materializes it
 launches one Kubernetes Job per domain in the stage namespace, under the
 `dagster` service account the run launcher already uses. The Job runs on the
-same project-code image digest as the run pod, through the `olf-floe-job`
-entrypoint (`libs/floe_job.py`), and validates the selected entities one after
-another (`sequential` orchestration). Only the entities the run selected are
+same project-code image digest as the run pod, runs plain `floe run`, and
+validates the selected entities one after another (`sequential`
+orchestration). Only the entities the run selected are
 passed to it.
 
 The profile is rendered on the pod rather than at activation because it is
 the only stage-bound Floe input: rendering it from the contract values the
 activation release already sets keeps one image digest valid for every stage.
-The Job re-renders the same profile from the non-secret contract values
-forwarded in its environment; credentials reach it only as Secret references,
-so no credential value enters the profile, the manifest or the Job spec.
+dagster-floe hands the Job that profile's text (`-p env:FLOE_PROFILE_CONTENT`);
+credentials reach it only as Secret references, which the profile names as
+`${...}`, so no credential value enters the profile, the manifest or the Job
+spec.
 
 The trade-off is a pod per domain per run against isolation: Floe does not
 share the run pod's memory or mounted credentials, and each domain's Job holds
