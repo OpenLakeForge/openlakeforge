@@ -1,0 +1,9 @@
+# Release security threshold, shared by the repository, catalog-image and built-image scans.
+# A finding fails the scan when it is HIGH or CRITICAL, has a published fix (vulnerabilities
+# only), and is not suppressed in .trivyignore.yaml.
+severity:
+  - HIGH
+  - CRITICAL
+vulnerability:
+  ignore-unfixed: true
+ignorefile: .trivyignore.yaml

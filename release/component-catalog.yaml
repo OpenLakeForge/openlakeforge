@@ -134,6 +134,9 @@ components:
     actions/download-artifact: d3f86a106a0bac45b974a628896c90dbdf5c8093
     pypa/gh-action-pypi-publish: dc37677b2e1c63e2034f94d8a5b11f265b73ba33
     softprops/action-gh-release: fe965f7af51af5f2602596916f38a38df2e33de0
+    github/codeql-action/init: 9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+    github/codeql-action/analyze: 9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+    aquasecurity/setup-trivy: 81e514348e19b6112ce2a7e3ecbafe19c1e1f567
 update_process:
   owner: release-engineering
   steps:

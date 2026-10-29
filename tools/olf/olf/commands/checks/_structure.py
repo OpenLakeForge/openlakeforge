@@ -255,6 +255,8 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "tools/olf/olf/tooling/aws.py",
     "tools/olf/olf/tooling/azure.py",
     ".github/workflows/release.yml",
+    ".github/workflows/security.yml",
+    ".trivyignore.yaml",
     "docs/adr/0008-olf-owns-orchestration-and-toolchain.md",
 )
 

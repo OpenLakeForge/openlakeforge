@@ -1,0 +1,90 @@
+# Scan suppressions. Policy: docs/release/releasing.md#security-scans
+# Every entry needs owner and expired_at (at most 90 days out); `olf check security` enforces it.
+# Entries below were found by the first run of the scans and are not fixed here: upgrade or
+# replace the component, then delete the entry.
+
+vulnerabilities:
+  - {id: CVE-2026-69247, owner: malon64, expired_at: 2026-12-15, statement: "cryptography 49.0.0 in project-code lock"}
+  - {id: CVE-2026-112940, owner: malon64, expired_at: 2026-12-15, statement: "filelock 3.30.3 in project-code lock"}
+  - {id: CVE-2026-104851, owner: malon64, expired_at: 2026-12-15, statement: "fsspec 2025.3.0 in project-code lock"}
+  - {id: CVE-2026-78676, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-114145, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-69097, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-76218, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-76219, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-76220, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-76222, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-78675, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-78677, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-87817, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-87819, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-23mf-xhv8-69c2, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-3f7w-8rr8-f37f, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-6p8h-3wgx-97gf, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-94p4-4cq8-9g67, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-f9j4-qggq-h239, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-fjr4-x663-mwxc, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-jm78-9fvv-mhgr, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-m64x-33q8-m5h7, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-r9mr-m37c-5fr3, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: GHSA-w8jc-g24h-crhw, owner: malon64, expired_at: 2026-12-15, statement: "gitpython 3.1.52 in project-code lock"}
+  - {id: CVE-2026-75507, owner: malon64, expired_at: 2026-12-15, statement: "graphql-core 3.2.11 in project-code lock"}
+  - {id: CVE-2026-75508, owner: malon64, expired_at: 2026-12-15, statement: "graphql-core 3.2.11 in project-code lock"}
+  - {id: CVE-2026-114613, owner: malon64, expired_at: 2026-12-15, statement: "msgpack 1.2.1 in project-code lock"}
+  - {id: CVE-2026-49272, owner: malon64, expired_at: 2026-12-15, statement: "oauthlib 3.3.1 in project-code lock"}
+  - {id: CVE-2026-54284, owner: malon64, expired_at: 2026-12-15, statement: "sqlparse 0.5.5 in project-code lock"}
+  - {id: CVE-2026-59893, owner: malon64, expired_at: 2026-12-15, statement: "sqlparse 0.5.5 in project-code lock"}
+  - {id: CVE-2026-71491, owner: malon64, expired_at: 2026-12-15, statement: "sqlparse 0.5.5 in project-code lock"}
+  - {id: CVE-2026-97687, owner: malon64, expired_at: 2026-12-15, statement: "urllib3 2.7.0 in project-code lock"}
+  - {id: CVE-2026-97689, owner: malon64, expired_at: 2026-12-15, statement: "urllib3 2.7.0 in project-code lock"}
+
+misconfigurations:
+  - {id: DS-0002, owner: malon64, expired_at: 2026-12-15, statement: "Image user should not be 'root'"}
+  - {id: AWS-0031, owner: malon64, expired_at: 2026-12-15, statement: "ECR images tags shouldn't be mutable."}
+  - {id: AWS-0039, owner: malon64, expired_at: 2026-12-15, statement: "EKS should have the encryption of secrets enabled"}
+  - {id: AWS-0040, owner: malon64, expired_at: 2026-12-15, statement: "EKS Clusters should have the public access disabled"}
+  - {id: AWS-0041, owner: malon64, expired_at: 2026-12-15, statement: "EKS cluster should not have open CIDR range for public access"}
+  - {id: AZU-0041, owner: malon64, expired_at: 2026-12-15, statement: "Ensure AKS has an API Server Authorized IP Ranges enabled"}
+  - {id: AZU-0043, owner: malon64, expired_at: 2026-12-15, statement: "Ensure AKS cluster has Network Policy configured"}
+  - {id: AWS-0132, owner: malon64, expired_at: 2026-12-15, statement: "S3 encryption should use Customer Managed Keys"}
+  - {id: AWS-0104, owner: malon64, expired_at: 2026-12-15, statement: "A security group rule should not allow unrestricted egress to any IP address."}
+
+# Waives an image by name; it is still scanned and reported.
+images:
+  - {name: cert_manager_acmesolver, owner: malon64, expired_at: 2026-12-15, statement: "5 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: cert_manager_cainjector, owner: malon64, expired_at: 2026-12-15, statement: "5 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: cert_manager_controller, owner: malon64, expired_at: 2026-12-15, statement: "6 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: cert_manager_startupapicheck, owner: malon64, expired_at: 2026-12-15, statement: "5 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: cert_manager_webhook, owner: malon64, expired_at: 2026-12-15, statement: "5 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: dagster_control_plane, owner: malon64, expired_at: 2026-12-15, statement: "127 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: dex, owner: malon64, expired_at: 2026-12-15, statement: "30 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: openmetadata_ingestion, owner: malon64, expired_at: 2026-12-15, statement: "docker.getcollate.io rate-limits anonymous pulls, so it was not scanned at first run"}
+  - {name: k8s_bootstrap, owner: malon64, expired_at: 2026-12-15, statement: "719 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: oauth2_proxy, owner: malon64, expired_at: 2026-12-15, statement: "6 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: opensearch, owner: malon64, expired_at: 2026-12-15, statement: "463 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: polaris, owner: malon64, expired_at: 2026-12-15, statement: "124 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: polaris_admin_tool, owner: malon64, expired_at: 2026-12-15, statement: "102 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: portal, owner: malon64, expired_at: 2026-12-15, statement: "10 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: postgres, owner: malon64, expired_at: 2026-12-15, statement: "35 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: project_code_base, owner: malon64, expired_at: 2026-12-15, statement: "56 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: seaweedfs, owner: malon64, expired_at: 2026-12-15, statement: "79 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: superset_base, owner: malon64, expired_at: 2026-12-15, statement: "570 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: superset_init, owner: malon64, expired_at: 2026-12-15, statement: "61 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: superset_redis, owner: malon64, expired_at: 2026-12-15, statement: "171 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: traefik, owner: malon64, expired_at: 2026-12-15, statement: "6 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: trino, owner: malon64, expired_at: 2026-12-15, statement: "115 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: project-code, owner: malon64, expired_at: 2026-12-15, statement: "built image, findings from the first release dry run"}
+  - {name: superset, owner: malon64, expired_at: 2026-12-15, statement: "built image, findings from the first release dry run"}
+
+# CodeQL alerts, keyed "<rule id>:<path>"; triage each as a fix or a dismissal in GitHub.
+codeql:
+  - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/test_local_teardown.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/test_local_provider.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/test_deployment_status.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/test_auth.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/insecure-protocol:tools/olf/olf/e2e/github_stub.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/insecure-protocol:tools/olf/olf/e2e/_ingress.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/clear-text-logging-sensitive-data:tools/olf/olf/log.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/clear-text-logging-sensitive-data:tools/olf/olf/aws_credential_process.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/clear-text-storage-sensitive-data:docs/testing/trino_workload_auth_proof.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
+  - {name: "py/clear-text-storage-sensitive-data:tools/olf/olf/access.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}

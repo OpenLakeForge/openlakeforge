@@ -14,6 +14,7 @@ from olf.commands.checks._docs import docs
 from olf.commands.checks._flows import flows
 from olf.commands.checks._infra import infra
 from olf.commands.checks._project_code import project_code
+from olf.commands.checks._security import security
 from olf.commands.checks._structure import structure
 
 app = typer.Typer(help="Repository validation and contributor checks.")
@@ -27,6 +28,7 @@ app.command("infra")(infra)
 app.command("lockfiles")(lockfiles)
 app.command("project-code")(project_code)
 app.command("dbt")(dbt)
+app.command("security")(security)
 
 
 @app.command("all")
