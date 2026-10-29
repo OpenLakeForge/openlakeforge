@@ -323,6 +323,24 @@ def test_e2e_run_without_a_profile_file_keeps_resolving_the_project_root(
     assert contract_env_calls[0]["topology"].profile_name == "project-default"
 
 
+def test_e2e_run_profile_shorthand_resolves_the_topology_olf_deploy_profile_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
+) -> None:
+    """`olf deploy --profile full` records the "legacy" topology in the v3
+    contract; without the shorthand here, `olf e2e run` re-resolved the
+    project profile and `_parse_v3` refused the name mismatch (#581)."""
+    _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
+
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: None)
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local", "--profile", "full"])
+
+    assert result.exit_code == 0, result.output
+    topology = contract_env_calls[0]["topology"]
+    assert (topology.profile_name, topology.preset.value) == ("legacy", "full")
+
+
 def test_e2e_run_stage_selects_a_stage_of_the_profile_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
 ) -> None:

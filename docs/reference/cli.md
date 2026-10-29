@@ -27,7 +27,8 @@ under `OLF_HOME/state/<provider>/`.
 | `--var-file` | none | A Terraform variables file (cloud) |
 
 `--profile slim|full` is a deprecated shorthand for a single-DEV profile; use
-`spec.preset` in `openlakeforge.yaml` instead.
+`spec.preset` in `openlakeforge.yaml` instead. A stack deployed with it is
+validated with the same flag: `olf e2e run --env local --profile slim`.
 
 ## Create a project
 
