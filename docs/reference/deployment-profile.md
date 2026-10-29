@@ -126,7 +126,7 @@ A disabled stage resolves both capabilities to `false` whatever was written.
 ### `spec.project`
 
 Omit the block and the deployment uses OpenLakeForge's public example image
-(`ghcr.io/openlakeforge/project-code`). Declare it and the deployment is yours:
+(`ghcr.io/openlakeforge/openlakeforge/project-code`). Declare it and the deployment is yours:
 it never falls back to the example.
 
 | Field | Type | Required | Meaning |

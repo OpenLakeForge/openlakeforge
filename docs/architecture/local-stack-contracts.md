@@ -169,7 +169,7 @@ The orchestration module owns:
 - one user-code pod by default; a multi-entry `code_locations` configuration
   remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher
-- the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
+- the local project-code image reference `ghcr.io/openlakeforge/openlakeforge/project-code:local`
 - S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
 
 Local development uses `olf deploy --provider local --phase platform` for

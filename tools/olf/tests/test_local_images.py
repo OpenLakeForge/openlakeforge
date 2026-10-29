@@ -95,7 +95,7 @@ def test_build_project_code_image_bakes_no_stage_or_revision_binding(tmp_path: P
 
     image = images.build_project_code_image(config, tools, env={})
 
-    assert image == "ghcr.io/openlakeforge/project-code:local"
+    assert image == "ghcr.io/openlakeforge/openlakeforge/project-code:local"
     build_call = next(c for c in runner.calls if c.argv[1] == "build")
     # One image serves every stage: nothing stage- or revision-bound is baked in.
     assert not any("REVISION=" in arg or "STAGE=" in arg for arg in build_call.argv)
@@ -107,7 +107,7 @@ def test_load_image_into_kind_raises_when_image_missing(tmp_path: Path) -> None:
     tools = _toolkit(_ScriptedRunner(image_exists=False))
 
     with pytest.raises(DeploymentPreconditionError, match="does not exist"):
-        images.load_image_into_kind("ghcr.io/openlakeforge/project-code:local", config, tools, env={})
+        images.load_image_into_kind("ghcr.io/openlakeforge/openlakeforge/project-code:local", config, tools, env={})
 
 
 def test_load_image_into_kind_raises_when_cluster_missing(tmp_path: Path) -> None:
@@ -115,7 +115,7 @@ def test_load_image_into_kind_raises_when_cluster_missing(tmp_path: Path) -> Non
     tools = _toolkit(_ScriptedRunner(image_exists=True, cluster_exists=False))
 
     with pytest.raises(DeploymentPreconditionError, match="does not exist"):
-        images.load_image_into_kind("ghcr.io/openlakeforge/project-code:local", config, tools, env={})
+        images.load_image_into_kind("ghcr.io/openlakeforge/openlakeforge/project-code:local", config, tools, env={})
 
 
 def test_load_image_into_kind_loads_when_present(tmp_path: Path) -> None:
@@ -123,7 +123,7 @@ def test_load_image_into_kind_loads_when_present(tmp_path: Path) -> None:
     runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
     tools = _toolkit(runner)
 
-    images.load_image_into_kind("ghcr.io/openlakeforge/project-code:local", config, tools, env={})
+    images.load_image_into_kind("ghcr.io/openlakeforge/openlakeforge/project-code:local", config, tools, env={})
 
     assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)
 

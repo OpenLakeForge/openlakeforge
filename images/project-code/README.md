@@ -6,7 +6,7 @@ domain Dagster code.
 The image is built locally as:
 
 ```text
-ghcr.io/openlakeforge/project-code:local
+ghcr.io/openlakeforge/openlakeforge/project-code:local
 ```
 
 Build and load the image into kind with:
