@@ -20,6 +20,8 @@ CREDENTIAL_JOB_PREFIXES = (
     "superset-credentials-",
     "polaris-token-key-",
     "openmetadata-bootstrap-",
+    # Re-running the bootstrap Job rotates the ingestion-bot token; the replication Job copies it to the stages.
+    "openmetadata-credential-replication-",
 )
 
 

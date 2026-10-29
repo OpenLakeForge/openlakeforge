@@ -21,9 +21,12 @@ class Cluster:
         self.jobs = {
             ("olf-system", "postgresql-credentials-abc"): "uid-1",
             ("olf-dev", "superset-credentials-def"): "uid-2",
+            ("olf-system", "openmetadata-bootstrap-3"): "uid-4",
+            ("olf-system", "openmetadata-credential-replication-1a"): "uid-5",
             ("olf-system", "dagster-daemon"): "uid-3",  # not a credential Job
         }
         self.recreates = recreates
+        self.deleted: list[tuple[str, str]] = []
         self.applies = 0
 
     def kubectl(self, _cfg: object, args: list[str], **_kwargs: object) -> str:
@@ -31,13 +34,15 @@ class Cluster:
             items = [{"metadata": {"namespace": ns, "name": name, "uid": uid}} for (ns, name), uid in self.jobs.items()]
             return json.dumps({"items": items})
         assert args[:2] == ["delete", "job"]
-        del self.jobs[(args[args.index("-n") + 1], args[2])]
+        key = (args[args.index("-n") + 1], args[2])
+        del self.jobs[key]
+        self.deleted.append(key)
         return ""
 
     def apply(self, _context: object, _args: list[str]) -> None:
         self.applies += 1
         if self.recreates:
-            for ns, name in (("olf-system", "postgresql-credentials-abc"), ("olf-dev", "superset-credentials-def")):
+            for ns, name in self.deleted:
                 self.jobs[(ns, name)] = f"new-{name}"
 
 
@@ -61,6 +66,7 @@ def test_unchanged_credentials_pass_once_the_credential_jobs_are_recreated(
 
     assert cluster.applies == 1
     assert cluster.jobs[("olf-system", "dagster-daemon")] == "uid-3"
+    assert ("olf-system", "openmetadata-credential-replication-1a") in cluster.deleted
 
 
 def test_an_apply_that_leaves_the_jobs_deleted_fails_instead_of_passing_untested(

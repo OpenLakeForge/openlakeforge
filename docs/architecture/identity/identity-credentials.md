@@ -137,7 +137,9 @@ the run reports the original failure.
 The drill `credential preservation across a redeploy` (`--checks all`,
 `tools/olf/olf/e2e/_credential_preservation.py`) reads the same migrated values,
 deletes the Jobs that create them (by name: `postgresql-credentials-*`,
-`superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`),
+`superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`
+and `openmetadata-credential-replication-*`, which copies the ingestion-bot token the
+bootstrap Job rotates into the stages),
 runs a platform `terraform apply`, fails if a deleted Job was not recreated
 (a new uid), and fails by name if any value changed or disappeared. It runs after the scan and before the rotation
 drill.
