@@ -32,22 +32,28 @@ jobs:
       - name: Analyze
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
 
-      # analyze only uploads results. Outside pull requests, fail on open
-      # critical/high alerts; a dismissed alert (with a comment naming its owner) is the
-      # CodeQL suppression.
+      # analyze only uploads results. Outside pull requests, fail on open critical/high
+      # alerts that .trivyignore.yaml does not waive (CodeQL has no suppression file).
+      - name: Setup uv
+        if: github.event_name != 'pull_request'
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
       - name: Fail on open critical or high alerts
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          open="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?state=open&ref=${GITHUB_REF}&per_page=100" \
-            --jq '.[] | select(.rule.security_severity_level == "critical" or .rule.security_severity_level == "high") | "\(.html_url) \(.rule.id)"')"
-          if [[ -n "${open}" ]]; then
-            echo "::error::Open critical/high CodeQL alerts:" >&2
-            echo "${open}" >&2
-            exit 1
-          fi
+          alerts="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?state=open&ref=${GITHUB_REF}&per_page=100" \
+            --jq '.[] | select(.rule.security_severity_level == "critical" or .rule.security_severity_level == "high") | "\(.rule.id):\(.most_recent_instance.location.path) \(.html_url)"')"
+          failed=0
+          while read -r key url; do
+            [[ -z "${key}" ]] && continue
+            uv run --project tools/olf --locked olf check security --waived "codeql:${key}" </dev/null && continue
+            echo "::error::Open CodeQL alert ${key}: ${url}"
+            failed=1
+          done <<<"${alerts}"
+          exit "${failed}"
 
   repository:
     name: Trivy (dependencies, IaC, secrets)
@@ -116,10 +122,19 @@ jobs:
           failed=0
           while read -r name ref; do
             report="evidence/image-${name}.json"
-            trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}"
+            # Registries rate-limit anonymous pulls from shared runner addresses.
+            for attempt in 1 2 3; do
+              trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}" </dev/null && break
+              [[ "${attempt}" == 3 ]] && exit 1
+              sleep 60
+            done
             code=1
-            uv run --project tools/olf --locked olf check security --waived "${name}" </dev/null && code=0
-            trivy convert --format table --exit-code "${code}" "${report}" || failed=1
+            detail=all
+            if uv run --project tools/olf --locked olf check security --waived "images:${name}" </dev/null; then
+              code=0
+              detail=summary
+            fi
+            trivy convert --format table --report "${detail}" --exit-code "${code}" "${report}" || failed=1
           done < <(uv run --project tools/olf --locked python -c "
           import yaml
           for name, ref in yaml.safe_load(open('release/component-catalog.yaml'))['components']['images'].items():

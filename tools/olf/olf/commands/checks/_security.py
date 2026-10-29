@@ -13,7 +13,8 @@ from olf.commands.checks._shared import _root
 
 # Trivy reads the vulnerabilities/misconfigurations/secrets sections natively and drops an
 # entry once its expired_at passes. `images` is ours: a waived image is still scanned and
-# reported, but its findings stop failing the scan.
+# reported, but its findings stop failing the scan. `codeql` entries name an alert as
+# "<rule id>:<path>", because CodeQL has no suppression file of its own.
 SUPPRESSIONS = ".trivyignore.yaml"
 # The remediation window: a suppression buys time to fix, not a permanent waiver.
 MAX_SUPPRESSION_DAYS = 90
@@ -41,9 +42,9 @@ def suppression_errors(root: Path, today: date) -> list[str]:
     return errors
 
 
-def is_image_waived(root: Path, name: str, today: date) -> bool:
-    """Whether an unexpired waiver names this image."""
-    for entry in _load(root).get("images") or []:
+def is_waived(root: Path, section: str, name: str, today: date) -> bool:
+    """Whether an unexpired waiver in this section names the finding or image."""
+    for entry in _load(root).get(section) or []:
         expires = entry.get("expired_at")
         if entry.get("name") == name and isinstance(expires, date) and expires >= today:
             return True
@@ -52,12 +53,13 @@ def is_image_waived(root: Path, name: str, today: date) -> bool:
 
 def security(
     repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
-    waived: str = typer.Option("", "--waived", help="Exit 0 only if this image has an unexpired waiver."),
+    waived: str = typer.Option("", "--waived", help="SECTION:NAME. Exit 0 only if that entry has an unexpired waiver."),
 ) -> None:
     """Validate the security-scan suppression file."""
     root = _root(repo_root)
     if waived:
-        raise typer.Exit(code=0 if is_image_waived(root, waived, date.today()) else 1)
+        section, _, name = waived.partition(":")
+        raise typer.Exit(code=0 if is_waived(root, section, name, date.today()) else 1)
     errors = suppression_errors(root, date.today())
     if errors:
         raise typer.Exit(code=fail("\n".join(errors)))

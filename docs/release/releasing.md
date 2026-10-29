@@ -211,8 +211,8 @@ and `olf check security` fails on an expired or unowned entry, so a suppression
 is renewed or the finding is fixed. An `images` entry waives a whole image by
 its catalog name (`k8s_bootstrap`) or built name (`superset`): the image is
 still scanned and its findings are recorded, but they no longer fail the run.
-A CodeQL alert is suppressed by dismissing it in GitHub with a comment naming
-its owner. These checks are not required on `main`, because a new advisory
+A `codeql` entry waives an open alert by `<rule id>:<path>`, because CodeQL has
+no suppression file of its own. These checks are not required on `main`, because a new advisory
 against an unchanged image would block unrelated pull requests.
 
 **Evidence.** Each run uploads Trivy's JSON reports as the `security-evidence-*`

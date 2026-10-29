@@ -37,11 +37,12 @@ def test_rejects_missing_owner_expired_and_distant_dates(tmp_path: Path) -> None
     assert "D: expired_at must be a YYYY-MM-DD date" in errors[3]
 
 
-def test_image_waiver_applies_until_it_expires(tmp_path: Path) -> None:
+def test_waiver_applies_until_it_expires(tmp_path: Path) -> None:
     _errors(
         tmp_path,
         "images:\n  - {name: a, owner: x, expired_at: 2026-11-01}\n  - {name: b, owner: x, expired_at: 2026-10-31}\n",
     )
-    assert _security.is_image_waived(tmp_path, "a", TODAY)
-    assert not _security.is_image_waived(tmp_path, "b", TODAY)
-    assert not _security.is_image_waived(tmp_path, "c", TODAY)
+    assert _security.is_waived(tmp_path, "images", "a", TODAY)
+    assert not _security.is_waived(tmp_path, "images", "b", TODAY)
+    assert not _security.is_waived(tmp_path, "images", "c", TODAY)
+    assert not _security.is_waived(tmp_path, "codeql", "a", TODAY)

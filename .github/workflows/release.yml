@@ -418,7 +418,7 @@ jobs:
           set -euo pipefail
           trivy image --scanners vuln,secret --format json --output "${{ matrix.image }}.trivy.json" "${IMAGE_REF}"
           code=1
-          uv run --project tools/olf --locked olf check security --waived "${{ matrix.image }}" && code=0
+          uv run --project tools/olf --locked olf check security --waived "images:${{ matrix.image }}" && code=0
           trivy convert --format table --exit-code "${code}" "${{ matrix.image }}.trivy.json"
 
       - name: Tag the pushed digest with the release version
