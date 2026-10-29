@@ -90,12 +90,19 @@ class _Helm:
         self.ready.discard(namespace)
 
 
+class _Kubectl:
+    """A stage namespace holding no source bindings."""
+
+    def get(self, kind, *, name, namespace, output, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG002
+        return SimpleNamespace(ok=False, stdout="", stderr=f"{kind} {name!r} not found")
+
+
 class _Provider:
     def __init__(self, context: DeploymentContext, helm: _Helm) -> None:
         self.context = context
         # As DeploymentContext.environment() does for a real provider.
         self.env: dict[str, str] = {"OLF_DISTRIBUTION_ROOT": str(context.paths.distribution_root)}
-        self.tools = SimpleNamespace(helm=helm)
+        self.tools = SimpleNamespace(helm=helm, kubectl=_Kubectl())
         self.config = SimpleNamespace(
             charts={"dagster": SimpleNamespace(package_path=Path("unused.tgz"))},
             paths=context.paths,
@@ -1163,3 +1170,32 @@ def test_run_pods_can_bind_floe_domain_jobs_to_their_own_image_namespace_and_sec
     assert [value for name, value in env if name == "OPENLAKEFORGE_KUBE_NAMESPACE"] == ["olf-dev"]
     assert by_name["OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME"] == "seaweedfs-s3-creds"
     assert by_name["OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"] == "polaris-floe-creds"
+
+
+def test_a_revision_whose_source_is_not_bound_in_the_stage_is_not_rolled_out(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """A missing stage binding would surface only as a run pod that cannot start."""
+    from openlakeforge_domain.inventory import Source
+
+    real = activation_module.load_lakehouse_inventory
+
+    def with_a_bound_source(path):  # noqa: ANN001, ANN202
+        inventory = real(path)
+        bound = Source(
+            descriptor_path=Path("source.yaml"),
+            name="crm_api",
+            display_name="CRM API",
+            resources=(),
+            runtime_config=("base_url",),
+            runtime_secrets=("api_token",),
+        )
+        return SimpleNamespace(sources=(*inventory.sources, bound))
+
+    monkeypatch.setattr(activation_module, "load_lakehouse_inventory", with_a_bound_source)
+
+    with pytest.raises(activation_module.ActivationError, match="olf-source-crm-api-credentials"):
+        harness.deploy("dev")
+
+    assert harness.helm.rollouts == []
+    assert project_activation.active(harness.store, stage=StageName.DEV) is None

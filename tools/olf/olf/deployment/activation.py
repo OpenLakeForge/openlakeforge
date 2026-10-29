@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from openlakeforge_domain import load_lakehouse_inventory
 
 from olf import contracts
 from olf.artifact_store import RevisionStore
@@ -24,6 +25,7 @@ from olf.deployment.charts import prepare_chart
 from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.source_bindings import missing_source_bindings
 from olf.distribution import distribution_version_at
 from olf.profile import StageName
 from olf.project_activation import ProjectActivation, ProjectActivationError, commit_active
@@ -381,6 +383,28 @@ def _user_values(
     }
 
 
+def _require_source_bindings(
+    provider: DeploymentProvider, *, root: Path, namespace: str, env: Mapping[str, str]
+) -> None:
+    sources = load_lakehouse_inventory(root / "lakehouse_code").sources
+    bound = [source for source in sources if source.runtime_config or source.runtime_secrets]
+    if not bound:
+        return
+    problems = missing_source_bindings(
+        bound,
+        kubectl=provider.tools.kubectl,
+        namespace=namespace,
+        context=_kube_context(provider),
+        kubeconfig=provider.context.paths.kubeconfig_path,
+        env=env,
+    )
+    if problems:
+        raise ActivationError(
+            "the revision's sources need stage bindings this stage does not have; create them, then redeploy:\n  "
+            + "\n  ".join(problems)
+        )
+
+
 _QUERY_CA_DIR = "/etc/olf/query-ca"
 _USER_SUBCHART = "charts/dagster-user-deployments/"
 
@@ -729,6 +753,10 @@ def deploy_revision(
                 env=env,
             ):
                 return activation
+            # Before anything is published or rolled out: a source the revision
+            # binds per stage but this stage has not bound would only fail
+            # later, as a run pod that cannot start.
+            _require_source_bindings(provider, root=root, namespace=context.namespace, env=env)
             # Report import (#130) must run inside this stage-scoped contract
             # environment: it is what makes `deploy_optional_layer_artifacts`
             # below read the revision `materialize()`d above, under `root`,

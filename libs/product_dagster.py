@@ -28,6 +28,8 @@ from libs.dbt.render_profiles import BAKED_PROFILES_DIR, ensure_baked_manifest
 from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
+from libs.source_bindings import source_binding_tags
+from openlakeforge_domain import inventory_for
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
@@ -211,6 +213,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         config=build_job_run_config_from_manifest(
             config_path=str(FLOE_PROJECT), profile_path=_floe_profile(), manifest_name=_FLOE_MANIFEST_NAME
         ),
+        tags=_bronze_source_binding_tags(spec) or None,
     )
 
     return Definitions(
@@ -218,6 +221,13 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         jobs=[product_pipeline],
         schedules=build_stage_schedules(spec),
     )
+
+
+def _bronze_source_binding_tags(spec: ProductDefinitionSpec) -> dict[str, str]:
+    """The stage bindings of the sources this job loads, for its run pod (libs/source_bindings.py)."""
+    loaded = {source for source, _ in spec.bronze_inputs}
+    sources = [source for source in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if source.name in loaded]
+    return source_binding_tags(sources)
 
 
 def build_stage_schedules(

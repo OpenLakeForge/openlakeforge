@@ -21,6 +21,10 @@ for how a release is cut and verified.
   only. Each stage binds the values in a ConfigMap `olf-source-<source>` and a
   Secret `olf-source-<source>-credentials`, which reach dlt as
   `SOURCES__<SOURCE>__<KEY>` (#546).
+- A product job puts the stage bindings of the sources it loads on its run
+  pod, as ConfigMap and Secret key references, and an activation is refused
+  while the stage lacks one; the check reads Secret key names, never values
+  (#546).
 
 ### Changed
 
