@@ -100,3 +100,30 @@ def test_profile_resolve_fails_closed_for_an_invalid_profile(tmp_path: Path) -> 
     result = runner.invoke(app, ["profile", "resolve", "--project", str(tmp_path), "--json"])
 
     assert result.exit_code == 1
+
+
+def test_profile_resolve_reports_where_the_project_image_comes_from(tmp_path: Path) -> None:
+    (tmp_path / "openlakeforge.yaml").write_text(
+        _VALID_PROFILE + "  project:\n    image:\n      repository: ghcr.io/acme/code\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["profile", "resolve", "--project", str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["project"] == {
+        "source": "profile",
+        "repository": None,
+        "image_repository": "ghcr.io/acme/code",
+        "pull_secret_name": None,
+    }
+
+
+def test_profile_resolve_rejects_a_malformed_image_override(tmp_path: Path) -> None:
+    (tmp_path / "openlakeforge.yaml").write_text(_VALID_PROFILE, encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["profile", "resolve", "--project", str(tmp_path)], env={"PROJECT_CODE_IMAGE_REPOSITORY": "acme/code:1"}
+    )
+
+    assert result.exit_code == 1
+    assert "PROJECT_CODE_IMAGE_REPOSITORY" in result.output

@@ -81,6 +81,7 @@ spec:
 | `stages` | object | yes | | Which lifecycle stages exist. |
 | `access` | object | no | absent: no ingress | How user-facing services are published. |
 | `identity` | object | no | absent: sign-in off | Who may sign in and which roles they hold. |
+| `project` | object | no | absent: the public example image | Your project's source repository and image registry. |
 
 ### `spec.provider`
 
@@ -121,6 +122,56 @@ Each stage takes:
 The preset defaults apply only when the stage has no `capabilities` object at
 all. Once `capabilities` is written, a capability it leaves out is `false`.
 A disabled stage resolves both capabilities to `false` whatever was written.
+
+### `spec.project`
+
+Omit the block and the deployment uses OpenLakeForge's public example image
+(`ghcr.io/openlakeforge/project-code`). Declare it and the deployment is yours:
+it never falls back to the example.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `repository` | `https://` or `ssh://` URL | no | Where the project's source lives. Provenance only: `olf project image` and `build` use the checked-out directory, never a fetched ref. |
+| `image.repository` | `host[:port]/path` | no on `aws`/`azure` (the provider registry, ECR or ACR, is used), yes on `local` | The project-code image repository. Registry host first, lowercase, no tag or digest. A bare `acme/code` is rejected, not read as Docker Hub. |
+| `image.pull_secret_ref.name` | Kubernetes Secret name | no | A `kubernetes.io/dockerconfigjson` Secret you create in each stage namespace, for a private image. The profile holds the name, never the credential. |
+
+The block must declare `repository` or `image`. Unknown fields (`password`,
+`token`, ...), credentials or a query string in a URL, and a tag or digest on
+the image are rejected, as is a pull secret without an `image`.
+
+The image repository resolves in this order, first match wins
+(`olf profile resolve` prints the winner as `project.source`):
+
+1. `spec.project.image.repository` (`profile`);
+2. `PROJECT_CODE_IMAGE_REPOSITORY`, or its `AWS_`/`AZURE_` alias
+   (`environment`; a malformed value is an error);
+3. the provider registry, for a project that declares only `repository` on
+   `aws` or `azure` (`provider-default`);
+4. the public example, only when `spec.project` is absent (`public-example`).
+
+Existing profiles have no `spec.project` and keep working unchanged.
+
+```yaml
+# Local, your own image on GHCR (private: also name the pull secret).
+project:
+  repository: https://github.com/acme/lakehouse.git
+  image:
+    repository: ghcr.io/acme/lakehouse-code
+    pull_secret_ref: {name: ghcr-pull}
+# AWS: ECR is the default registry, so only the source is declared.
+project:
+  repository: https://github.com/acme/lakehouse.git
+# AWS/Azure with an explicit registry.
+project:
+  image:
+    repository: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/acme/lakehouse-code  # or acme.azurecr.io/...
+```
+
+> [!NOTE]
+> The resolved value is exposed by `olf profile resolve` but `olf deploy` does
+> not read it yet: the deploy still takes the image from the environment
+> variables above. Deploying the example image is #539 and pulling a private
+> image with `pull_secret_ref` is #540.
 
 ### `spec.access`
 
@@ -201,6 +252,7 @@ Secrets the contract names, as described in ADR 0014.
 | Region is cloud-only | `spec.provider.region` is set with `type: local`. |
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
 | Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf forward`. |
+| A local project names its image | `type: local` declares `spec.project` without `image.repository`: kind has no default registry. |
 | Plain HTTP is local-only | `spec.access.issuer` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
 | Issuer shape | `external` lacks `issuer_url`, `role_claim` or `role_mapping`; `github` lacks `github` or sets `issuer_url`, `role_claim` or `role_mapping`; `github` is set without `issuer: github`; `client_ids` is set without `issuer: external`. |
 

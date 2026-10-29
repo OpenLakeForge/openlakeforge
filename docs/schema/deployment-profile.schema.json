@@ -21,7 +21,7 @@
       "additionalProperties": false,
       "required": ["provider", "preset", "stages"],
       "if": {"properties": {"provider": {"properties": {"type": {"const": "local"}}}}},
-      "then": {"dependentRequired": {"identity": ["access"]}},
+      "then": {"dependentRequired": {"identity": ["access"]}, "properties": {"project": {"required": ["image"]}}},
       "properties": {
         "provider": {
           "type": "object",
@@ -33,6 +33,41 @@
           }
         },
         "preset": {"enum": ["slim", "full"]},
+        "project": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "The customer's project. Omit the block to use the public example image. Never a credential: the pull secret is a reference to a Kubernetes Secret.",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "pattern": "^(https://[^\\s@?#/]+|ssh://([^\\s@:?#/]+@)?[^\\s@?#/]+)/[^\\s?#]*[^\\s?#/][^\\s?#]*$",
+              "description": "Source URL, provenance only: olf builds the checked-out directory. Credentials in the URL are rejected."
+            },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository"],
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "maxLength": 255,
+                  "pattern": "^((localhost|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+)(:[0-9]{1,5})?|[a-z0-9]([a-z0-9-]*[a-z0-9])?:[0-9]{1,5})/[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$",
+                  "description": "Registry repository, host first, without tag or digest. Loose copy; the olf Python validator is the authority."
+                },
+                "pull_secret_ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name"],
+                  "description": "kubernetes.io/dockerconfigjson Secret created out-of-band, for a private image.",
+                  "properties": {
+                    "name": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"}
+                  }
+                }
+              }
+            }
+          }
+        },
         "access": {
           "type": "object",
           "additionalProperties": false,

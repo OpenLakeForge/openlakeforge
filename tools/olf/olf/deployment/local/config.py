@@ -20,6 +20,7 @@ from olf.deployment.env_settings import int_env as _int_env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
 from olf.deployment.retry import RetryPolicy
+from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class ImageSettings:
     def from_environment(cls, environ: Mapping[str, str]) -> ImageSettings:
         return cls(
             project_code_repository=_env(
-                environ, "PROJECT_CODE_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/project-code"
+                environ, "PROJECT_CODE_IMAGE_REPOSITORY", PUBLIC_EXAMPLE_IMAGE_REPOSITORY
             ),
             project_code_tag=_env(environ, "PROJECT_CODE_IMAGE_TAG", "local"),
             project_code_pull_policy=_env(environ, "PROJECT_CODE_IMAGE_PULL_POLICY", "Never"),

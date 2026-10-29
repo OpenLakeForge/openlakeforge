@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 import typer
 
-from olf.profile import DeploymentProfile, DeploymentProfileError, load_deployment_profile, resolve_topology
+from olf.profile import (
+    DeploymentProfile,
+    DeploymentProfileError,
+    load_deployment_profile,
+    resolve_project,
+    resolve_topology,
+)
 from olf.project import ProjectSpec
 
 app = typer.Typer(help="Validate and resolve the OpenLakeForge Deployment Profile.")
@@ -41,13 +49,14 @@ def resolve(
     """Resolve the Deployment Profile into one effective `DeploymentTopology`."""
     try:
         profile = _load(project)
+        resolved_project = resolve_project(profile, os.environ)
     except (DeploymentProfileError, OSError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
     topology = resolve_topology(profile)
     if json_output:
-        typer.echo(topology.render_json())
+        typer.echo(json.dumps(json.loads(topology.render_json()) | {"project": vars(resolved_project)}, sort_keys=True))
         return
 
     typer.echo(f"provider={topology.provider.value} region={topology.region} preset={topology.preset.value}")
@@ -56,3 +65,7 @@ def resolve(
             f"  {stage.name.value}: enabled={stage.enabled} "
             f"analytics={stage.capabilities.analytics} governance={stage.capabilities.governance}"
         )
+    typer.echo(
+        f"project: source={resolved_project.source} image={resolved_project.image_repository or 'provider registry'} "
+        f"pull_secret={resolved_project.pull_secret_name}"
+    )

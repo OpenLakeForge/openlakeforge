@@ -11,14 +11,17 @@ from olf.profile import (
     AccessSpec,
     DeploymentProfileError,
     Preset,
+    ResolvedProject,
     StageName,
     legacy_single_stage_topology,
     load_deployment_profile,
+    resolve_project,
     resolve_topology,
     validate_deployment_profile,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "profiles"
+SCHEMAS = Path(__file__).resolve().parents[3] / "docs" / "schema"
 
 
 def _load_fixture(name: str) -> dict:
@@ -611,3 +614,111 @@ def test_authentication_off_is_allowed_on_local_with_or_without_access() -> None
     assert validate_deployment_profile(document).identity is None
     document["spec"]["access"] = {}
     assert validate_deployment_profile(document).identity is None
+
+
+# --- spec.project (#538) ---------------------------------------------------
+
+_CODE = "ghcr.io/acme/code"
+_GHCR = {"repository": "https://github.com/acme/lakehouse.git", "image": {"repository": "ghcr.io/acme/lakehouse-code"}}
+_PRIVATE = {"image": {"repository": _CODE, "pull_secret_ref": {"name": "ghcr-pull"}}}
+_AWS = "valid_full_aws_with_uat_prod.yaml"
+_EXAMPLE = "ghcr.io/openlakeforge/project-code"
+_ECR = "123456789012.dkr.ecr.eu-west-1.amazonaws.com/acme/code"
+_ENV = "PROJECT_CODE_IMAGE_REPOSITORY"
+_SSH = "ssh://git@github.com/acme/l.git"
+_SLASH = "https://example.com/acme/l.git/"
+_OTHER = {_ENV: "ghcr.io/o/x"}
+
+
+def _with_project(project: object, fixture: str = "valid_slim_local.yaml") -> dict:
+    document = _load_fixture(fixture)
+    if project is not None:
+        document["spec"]["project"] = project
+    return document
+
+
+def _schema_errors(document: dict, tmp_path: Path) -> list[str]:
+    from olf.contracts_check._descriptors import profile_schema_errors
+
+    (tmp_path / "openlakeforge.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    return [e for e in profile_schema_errors(tmp_path, schema_root=SCHEMAS) if "schema violation" in e]
+
+
+@pytest.mark.parametrize(
+    ("fixture", "project", "environ", "expected"),
+    [
+        ("valid_slim_local.yaml", None, {}, ("public-example", None, _EXAMPLE, None)),
+        (_AWS, None, {}, ("public-example", None, _EXAMPLE, None)),
+        ("valid_slim_local.yaml", _GHCR, {}, ("profile", _GHCR["repository"], "ghcr.io/acme/lakehouse-code", None)),
+        ("valid_slim_local.yaml", _PRIVATE, {}, ("profile", None, _CODE, "ghcr-pull")),
+        # a declared image beats the environment
+        ("valid_slim_local.yaml", _PRIVATE, _OTHER, ("profile", None, _CODE, "ghcr-pull")),
+        # the environment beats the provider default and the example
+        ("valid_slim_local.yaml", None, _OTHER, ("environment", None, "ghcr.io/o/x", None)),
+        (_AWS, None, {"AWS_" + _ENV: "ghcr.io/o/x"}, ("environment", None, "ghcr.io/o/x", None)),
+        # a cloud project without an image resolves to the provider registry, never the example
+        (_AWS, {"repository": _SSH}, {}, ("provider-default", _SSH, None, None)),
+        (_AWS, {"repository": _SLASH}, {}, ("provider-default", _SLASH, None, None)),
+        (_AWS, {"image": {"repository": _ECR}}, {}, ("profile", None, _ECR, None)),
+    ],
+)
+def test_project_resolution_precedence(fixture, project, environ, expected, tmp_path) -> None:
+    document = _with_project(project, fixture)
+    assert resolve_project(validate_deployment_profile(document), environ) == ResolvedProject(*expected)
+    assert _schema_errors(document, tmp_path) == []
+
+
+_BAD_URL = "without credentials"
+
+
+@pytest.mark.parametrize(
+    ("project", "match"),
+    [
+        ({}, "must declare"),
+        ({"repository": "https://github.com/acme/x.git"}, "image is required on provider 'local'"),
+        ({"image": {}}, "missing required field 'repository'"),
+        ({"image": {"pull_secret_ref": {"name": "s"}}}, "missing required field 'repository'"),
+        ({"image": {"repository": "acme/code"}}, "registry repository"),
+        ({"image": {"repository": _CODE + ":latest"}}, "registry repository"),
+        ({"image": {"repository": _CODE + "@sha256:" + "a" * 64}}, "registry repository"),
+        ({"image": {"repository": "ghcr.io/Acme/code"}}, "registry repository"),
+        ({"image": {"repository": "https://" + _CODE}}, "registry repository"),
+        ({"image": {"repository": "user:pw@" + _CODE}}, "registry repository"),
+        ({"image": {"repository": _CODE, "password": "x"}}, "must not contain"),
+        ({"image": {"repository": _CODE, "pull_secret_ref": {"name": "Bad_Name"}}}, "Secret name"),
+        ({"image": {"repository": _CODE, "pull_secret_ref": {"name": "s", "value": "x"}}}, "must not contain"),
+        ({"image": {"repository": _CODE, "pull_secret_ref": "ghcr-pull"}}, "must be an object"),
+        ({"image": {"repository": _CODE}, "repository": "https://tok:x@github.com/a/b.git"}, _BAD_URL),
+        ({"image": {"repository": _CODE}, "repository": "https://ghp_abc@github.com/a/b.git"}, _BAD_URL),
+        ({"image": {"repository": _CODE}, "repository": "https://github.com/a/b.git?token=1"}, _BAD_URL),
+        ({"image": {"repository": _CODE}, "repository": "git@github.com:a/b.git"}, _BAD_URL),
+        ({"image": {"repository": _CODE}, "repository": "https://github.com"}, _BAD_URL),
+        ({"image": {"repository": _CODE}, "token": "x"}, "must not contain"),
+        (_CODE, "must be an object"),
+    ],
+)
+def test_project_rejects_partial_ambiguous_and_credential_bearing_config(project, match) -> None:
+    with pytest.raises(DeploymentProfileError, match=match):
+        validate_deployment_profile(_with_project(project))
+
+
+@pytest.mark.parametrize(
+    "project",
+    [
+        {},
+        {"image": {"repository": "acme/code"}},
+        {"image": {"repository": _CODE + ":v1"}},
+        {"image": {"repository": _CODE, "password": "x"}},
+        {"image": {"repository": _CODE}, "repository": "https://tok:x@github.com/a/b.git"},
+        {"image": {"repository": _CODE}, "repository": "git@github.com:a/b.git"},
+        {"repository": "https://github.com/a/b.git"},
+    ],
+)
+def test_the_schema_rejects_what_the_parser_rejects(project, tmp_path) -> None:
+    assert _schema_errors(_with_project(project), tmp_path)
+
+
+def test_a_malformed_environment_override_fails_closed() -> None:
+    profile = validate_deployment_profile(_with_project(None, _AWS))
+    with pytest.raises(DeploymentProfileError, match="PROJECT_CODE_IMAGE_REPOSITORY"):
+        resolve_project(profile, {"PROJECT_CODE_IMAGE_REPOSITORY": "acme/code:latest"})
