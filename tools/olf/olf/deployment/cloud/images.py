@@ -1,7 +1,6 @@
-"""Cloud (AWS/Azure) Superset and project-code image build/push.
+"""Cloud (AWS/Azure) project-code image build/push.
 
-Port of `scripts/{aws,azure}/images/{build-push-superset,build-push-
-project-code}.sh`. Unlike the local provider (which loads images into
+Port of `scripts/{aws,azure}/images/build-push-project-code.sh`. Unlike the local provider (which loads images into
 kind), cloud images are pushed to the provider's registry (ECR/ACR) after
 `CloudBackend.registry_login`.
 """
@@ -29,41 +28,7 @@ def resolve_effective_images(images: CloudImageSettings, facts: FoundationFacts)
     return replace(
         images,
         project_code_repository=images.project_code_repository or facts.project_code_repository,
-        superset_repository=images.superset_repository or facts.superset_repository,
     )
-
-
-def build_and_push_superset_image(
-    config: CloudDeploymentConfig,
-    tools: Toolkit,
-    backend: CloudBackend,
-    facts: FoundationFacts,
-    *,
-    env: Mapping[str, str],
-) -> str:
-    images = resolve_effective_images(config.images, facts)
-    log.step(f"Logging in to the {backend.scope} registry...")
-    backend.registry_login(tools, facts, repository=images.superset_repository, env=env)
-
-    log.step(f"Pulling Superset base image: {images.superset_base_image}")
-    tools.docker.pull(
-        images.superset_base_image, platform=images.image_platform, env=env, retry_policy=images.pull_retry
-    )
-
-    log.step(f"Building Superset image: {images.superset_image}")
-    tools.docker.build(
-        config.paths.distribution_root / "images/superset",
-        tag=images.superset_image,
-        file=config.paths.distribution_root / "images/superset/Dockerfile",
-        build_args={"SUPERSET_BASE_IMAGE": images.superset_base_image},
-        extra_args=("--platform", images.image_platform),
-        env=env,
-        retry_policy=images.build_retry,
-    )
-
-    log.step(f"Pushing Superset image: {images.superset_image}")
-    tools.docker.push(images.superset_image, env=env, retry_policy=images.push_retry)
-    return images.superset_image
 
 
 def build_and_push_project_code_image(

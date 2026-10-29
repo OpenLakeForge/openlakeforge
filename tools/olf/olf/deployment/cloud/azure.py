@@ -95,7 +95,6 @@ class AzureBackend:
             cluster_name=cluster_name,
             kube_context=cluster_name,
             project_code_repository=f"{acr_login_server}/openlakeforge/project-code",
-            superset_repository=f"{acr_login_server}/openlakeforge/superset",
             azure_resource_group=resource_group,
             azure_acr_name=acr_name,
         )
@@ -130,8 +129,8 @@ class AzureBackend:
         server or repository path - derive it from `repository`'s registry
         host (`<name>.azurecr.io/...` -> `<name>`) rather than always using
         `facts.azure_acr_name`. `repository` is the *effective* repository
-        (after `AZURE_PROJECT_CODE_IMAGE_REPOSITORY`/
-        `AZURE_SUPERSET_IMAGE_REPOSITORY` overrides), matching the AWS
+        (after an
+        `AZURE_PROJECT_CODE_IMAGE_REPOSITORY` override), matching the AWS
         backend's equivalent fix: an override pointed at a different ACR
         must still authenticate against *that* registry, not the
         foundation's default - and must not depend on `facts.azure_acr_name`

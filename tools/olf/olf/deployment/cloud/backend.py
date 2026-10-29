@@ -6,7 +6,7 @@ the shared lifecycle - identical Terraform init/apply/import/destroy,
 namespace adoption, chart caching, and artifact-deployment ordering between
 AWS and Azure - and call out to a `CloudBackend` for the handful of things
 that are not shared: foundation Terraform variables, kubeconfig population,
-registry login, and the default project-code/Superset image repository. `cloud/aws.py`/`cloud/azure.py` provide the two
+registry login, and the default project-code image repository. `cloud/aws.py`/`cloud/azure.py` provide the two
 concrete implementations.
 """
 
@@ -53,7 +53,6 @@ class FoundationFacts:
     cluster_name: str
     kube_context: str
     project_code_repository: str
-    superset_repository: str
     aws_region: str | None = None
     azure_resource_group: str | None = None
     azure_acr_name: str | None = None
@@ -97,8 +96,8 @@ class CloudBackend(Protocol):
         """Authenticate against the registry that hosts `repository`.
 
         `repository` is the *effective* image repository being pushed to
-        (after `PROJECT_CODE_IMAGE_REPOSITORY`/`SUPERSET_IMAGE_REPOSITORY`
-        overrides are applied), not necessarily the foundation's default -
+        (after `PROJECT_CODE_IMAGE_REPOSITORY`
+        override is applied), not necessarily the foundation's default -
         an override pointed at a different ECR registry must still get
         credentials for that registry, matching the removed shell scripts
         (`registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"`).

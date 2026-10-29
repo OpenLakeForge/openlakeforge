@@ -20,7 +20,6 @@ _FACTS = FoundationFacts(
     cluster_name="aks-openlakeforge-poc",
     kube_context="aks-openlakeforge-poc",
     project_code_repository="openlakeforgepoc.azurecr.io/openlakeforge/project-code",
-    superset_repository="openlakeforgepoc.azurecr.io/openlakeforge/superset",
     azure_resource_group="openlakeforge-poc-rg",
     azure_acr_name="openlakeforgepoc",
 )
@@ -179,7 +178,6 @@ def test_resolve_foundation_facts_falls_back_to_acr_login_server_prefix_when_acr
     assert facts.azure_resource_group == "openlakeforge-poc-rg"
     assert facts.azure_acr_name == "openlakeforgepoc"
     assert facts.project_code_repository == "openlakeforgepoc.azurecr.io/openlakeforge/project-code"
-    assert facts.superset_repository == "openlakeforgepoc.azurecr.io/openlakeforge/superset"
 
 
 def test_resolve_foundation_facts_tolerates_missing_acr_login_server_output(tmp_path: Path) -> None:
@@ -210,7 +208,6 @@ def test_resolve_foundation_facts_tolerates_missing_acr_login_server_output(tmp_
     assert facts.azure_resource_group == "openlakeforge-poc-rg"
     assert facts.azure_acr_name == ""
     assert facts.project_code_repository == "/openlakeforge/project-code"
-    assert facts.superset_repository == "/openlakeforge/superset"
 
 
 def test_resolve_foundation_facts_uses_acr_name_output_when_present(tmp_path: Path) -> None:
@@ -265,7 +262,7 @@ def test_registry_login_uses_acr_login_with_acr_name(tmp_path: Path) -> None:  #
 
 
 def test_registry_login_derives_acr_name_from_an_overridden_repository(tmp_path: Path) -> None:  # noqa: ARG001
-    """AZURE_PROJECT_CODE_IMAGE_REPOSITORY/AZURE_SUPERSET_IMAGE_REPOSITORY
+    """AZURE_PROJECT_CODE_IMAGE_REPOSITORY
     can point at a different ACR than the foundation's default - the login
     must target *that* registry, matching the AWS backend's equivalent fix,
     not the foundation's `facts.azure_acr_name`.
@@ -297,7 +294,6 @@ def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_regi
         cluster_name="aks-openlakeforge-poc",
         kube_context="aks-openlakeforge-poc",
         project_code_repository="",
-        superset_repository="",
         azure_resource_group="openlakeforge-poc-rg",
         azure_acr_name="",
     )

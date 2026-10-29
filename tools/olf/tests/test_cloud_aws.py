@@ -22,7 +22,6 @@ _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
     kube_context="eks-openlakeforge-poc",
     project_code_repository="123456789012.dkr.ecr.eu-west-1.amazonaws.com/openlakeforge/project-code",
-    superset_repository="123456789012.dkr.ecr.eu-west-1.amazonaws.com/openlakeforge/superset",
     aws_region="eu-west-1",
 )
 
@@ -175,7 +174,6 @@ def test_resolve_foundation_facts_reads_all_four_outputs(tmp_path: Path) -> None
                 "cluster_name": "eks-openlakeforge-poc",
                 "aws_region": "eu-west-1",
                 "project_code_ecr_repository_url": "123.dkr.ecr.eu-west-1.amazonaws.com/project-code",
-                "superset_ecr_repository_url": "123.dkr.ecr.eu-west-1.amazonaws.com/superset",
             }
             return _ok(outputs[name])
 
@@ -187,7 +185,6 @@ def test_resolve_foundation_facts_reads_all_four_outputs(tmp_path: Path) -> None
     assert facts.kube_context == "eks-openlakeforge-poc"
     assert facts.aws_region == "eu-west-1"
     assert facts.project_code_repository == "123.dkr.ecr.eu-west-1.amazonaws.com/project-code"
-    assert facts.superset_repository == "123.dkr.ecr.eu-west-1.amazonaws.com/superset"
 
 
 def test_resolve_foundation_facts_tolerates_missing_registry_outputs(tmp_path: Path) -> None:
@@ -206,7 +203,7 @@ def test_resolve_foundation_facts_tolerates_missing_registry_outputs(tmp_path: P
             argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
             name = argv[-1]
-            if name in ("project_code_ecr_repository_url", "superset_ecr_repository_url"):
+            if name == "project_code_ecr_repository_url":
                 raise CommandExecutionError(argv, 1, stderr=f"no output named {name!r}")
             outputs = {"cluster_name": "eks-openlakeforge-poc", "aws_region": "eu-west-1"}
             return _ok(outputs[name])
@@ -218,7 +215,6 @@ def test_resolve_foundation_facts_tolerates_missing_registry_outputs(tmp_path: P
     assert facts.cluster_name == "eks-openlakeforge-poc"
     assert facts.aws_region == "eu-west-1"
     assert facts.project_code_repository == ""
-    assert facts.superset_repository == ""
 
 
 def test_update_kubeconfig_uses_eks_update_kubeconfig_with_alias(tmp_path: Path) -> None:
@@ -268,7 +264,7 @@ def test_registry_login_uses_ecr_password_via_docker_login(tmp_path: Path) -> No
 
 
 def test_registry_login_uses_the_effective_repository_not_the_foundation_default(tmp_path: Path) -> None:
-    """A PROJECT_CODE_IMAGE_REPOSITORY/SUPERSET_IMAGE_REPOSITORY override pointed at a
+    """A PROJECT_CODE_IMAGE_REPOSITORY override pointed at a
     different ECR registry than the foundation's default must still get credentials
     for *that* registry - matching the removed shell scripts, which always derived
     `registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"` from the effective repository.
