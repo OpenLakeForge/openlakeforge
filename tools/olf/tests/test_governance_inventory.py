@@ -63,6 +63,18 @@ def test_inventory_is_derived_from_code_with_no_table_lists(tmp_path: Path) -> N
     assert [(d.name, d.products) for d in inventory.dashboards] == [("revenue_board", ("revenue",))]
 
 
+def test_formatting_variants_do_not_change_the_derived_inventory(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    code = project / "lakehouse_code"
+    (code / _MODEL).write_text("select * from {{ source ('silver',\n 'orders') }}\n", encoding="utf-8")
+    (code / _DATASET).rename(code / _DATASET.replace(".yaml", ".yml"))
+
+    inventory = load_governance_inventory(project)
+
+    assert inventory.products[0].silver_inputs == ("orders",)
+    assert inventory.dashboards[0].products == ("revenue",)
+
+
 def test_reference_project_derives_what_lakehouse_yaml_declares(tmp_path: Path) -> None:
     code = tmp_path / "lakehouse_code"
     shutil.copytree(ROOT / "lakehouse_code", code, ignore=shutil.ignore_patterns("__pycache__"))
@@ -130,6 +142,7 @@ _DATASET = "dashboards/superset/revenue_board/datasets/Trino/mart_revenue.yaml"
         ("gold/revenue/dbt/dbt_project.yml", None, "no dbt project"),
         (_MODEL, None, "no dbt models"),
         (_MODEL, "select 1\n", "reads no Silver table"),
+        (_MODEL, "{{ config(alias='daily') }} select * from {{ source('silver', 'orders') }}", "aliases are not"),
         (_MODEL, "select * from {{ source('silver', 'ghost') }}", "unknown domain Silver"),
         (_MODEL, "select * from {{ source('raw', 'orders') }}", "source('silver'"),
         ("gold/revenue/dbt/models/other/mart_revenue.sql", "select 1", "duplicate dbt model"),
