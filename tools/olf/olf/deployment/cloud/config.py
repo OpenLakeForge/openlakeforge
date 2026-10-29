@@ -344,6 +344,7 @@ class CloudDeploymentConfig:
         *,
         context: DeploymentContext,
         var_file: Path | None = None,
+        reuse_published_image: bool = True,
     ) -> CloudDeploymentConfig:
         scope = context.provider.value
         project_root = context.paths.repo_root
@@ -386,9 +387,12 @@ class CloudDeploymentConfig:
                 environ,
                 scope=scope,
                 image_tag=tag,
-                published=None
-                if environ.get(f"{scope.upper()}_PROJECT_CODE_IMAGE_TAG")
-                else published_example_image(context, environ),
+                published=published_example_image(context, environ)
+                if reuse_published_image
+                and not environ.get(f"{scope.upper()}_PROJECT_CODE_IMAGE_TAG")
+                # The release image is amd64 only; any other requested platform is built.
+                and _env(environ, f"{scope.upper()}_IMAGE_PLATFORM", "linux/amd64") == "linux/amd64"
+                else None,
             ),
             charts=CloudChartSettings.from_environment(
                 environ,

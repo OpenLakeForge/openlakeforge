@@ -162,9 +162,9 @@ locally. So does anything that is not the unmodified example: a `lakehouse_code/
 in your project that differs from the bundled one, `PROJECT_CODE_IMAGE_TAG`, or
 a machine that is not amd64 (the release image is amd64 only).
 On `aws` and `azure` the same pin is deployed as it is, with the same conditions
-(except the amd64 host): the cluster pulls the public package, and nothing is
-built or pushed to ECR or ACR. Anything else builds and pushes to the provider
-registry.
+(a non-amd64 `*_IMAGE_PLATFORM` also builds): the cluster pulls the public
+package, and nothing is built or pushed to ECR or ACR. Anything else, and every
+explicit `olf project image`, builds and pushes to the provider registry.
 
 ```yaml
 # Local, your own image on GHCR (private: also name the pull secret).
