@@ -20,7 +20,7 @@ def _inventory(
     for name in ("orders", "order_lines"):
         write_floe_entity(root, domain_name, name, "crm")
     domain = Domain(
-        descriptor_path=Path("lakehouse.yaml"),
+        descriptor_path=Path("governance.yml"),
         name=domain_name,
         display_name="Sales",
         products=(product,),

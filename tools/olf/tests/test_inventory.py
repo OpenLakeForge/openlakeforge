@@ -7,7 +7,6 @@ from openlakeforge_domain import (
     LakehouseDescriptorError,
     inventory_for,
     load_lakehouse_inventory,
-    load_lakehouse_inventory_from_descriptors,
 )
 
 ROOT = Path(__file__).parents[3]
@@ -109,19 +108,6 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_customer_health"
 
 
-def test_governance_yml_yields_the_inventory_lakehouse_yaml_does() -> None:
-    """The reference governance.yml names the same domains, products and dashboards as lakehouse.yaml."""
-    code = ROOT / "lakehouse_code"
-    legacy = load_lakehouse_inventory_from_descriptors(
-        code / "lakehouse.yaml", sorted(code.glob("bronze/*/source.yaml")), source_label=code
-    )
-    current = load_lakehouse_inventory(ROOT)
-
-    assert [(d.name, d.display_name, d.products) for d in current.domains] == [
-        (d.name, d.display_name, d.products) for d in legacy.domains
-    ]
-    assert sorted(current.dashboards, key=lambda d: d.name) == sorted(legacy.dashboards, key=lambda d: d.name)
-    assert current.source_names == legacy.source_names
 
 
 def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
@@ -147,18 +133,6 @@ def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
     assert [(d.name, d.products) for d in inventory.dashboards] == [("revenue_board", ("revenue",))]
 
 
-def test_governance_yml_wins_over_lakehouse_yaml(tmp_path: Path) -> None:
-    _write_lakehouse(tmp_path)
-    code = tmp_path / "lakehouse_code"
-    (code / "lakehouse.yaml").write_text("not read: governance.yml is present\n", encoding="utf-8")
-    (code / "governance.yml").write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
-        "domains:\n  - {name: sales, displayName: Sales}\n"
-        "products:\n  - {id: current, domain: sales, displayName: Current}\n",
-        encoding="utf-8",
-    )
-
-    assert [p.id for p in load_lakehouse_inventory(tmp_path).products] == ["current"]
 
 
 def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_allowed(tmp_path: Path) -> None:
@@ -169,13 +143,6 @@ def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_a
     assert load_lakehouse_inventory(tmp_path, allow_incomplete=True).domains == ()
 
 
-@pytest.mark.parametrize("content", ["not a mapping\n", "- unexpected\n"])
-def test_a_malformed_legacy_descriptor_is_a_descriptor_error(tmp_path: Path, content: str) -> None:
-    (tmp_path / "lakehouse_code").mkdir()
-    (tmp_path / "lakehouse_code" / "lakehouse.yaml").write_text(content, encoding="utf-8")
-
-    with pytest.raises(LakehouseDescriptorError):
-        load_lakehouse_inventory(tmp_path, allow_incomplete=True)
 
 
 def test_inventory_for_caches_by_resolved_repo_root() -> None:

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from openlakeforge_domain import (
     LakehouseDescriptorError,
-    load_lakehouse_descriptor,
+    load_governance_lakehouse_document,
     load_lakehouse_inventory_from_descriptors,
     load_source_descriptor,
 )
@@ -160,7 +160,7 @@ class OpenMetadataDeployer:
         descriptor_paths = self.domain_files()
         if not descriptor_paths:
             raise OpenMetadataError(
-                f"No OpenMetadata lakehouse descriptor found under {self.config.metadata_root}/lakehouse.yaml"
+                f"No OpenMetadata lakehouse descriptor found under {self.config.metadata_root}/governance.yml"
             )
         lakehouse_path = descriptor_paths[0]
         source_paths = descriptor_paths[1:]
@@ -169,7 +169,7 @@ class OpenMetadataDeployer:
             entities = {domain.name: inventory.floe_entities(domain) for domain in inventory.domains}
         except LakehouseDescriptorError as exc:
             raise OpenMetadataError(str(exc)) from exc
-        lakehouse_document = load_lakehouse_descriptor(lakehouse_path)
+        lakehouse_document = load_governance_lakehouse_document(lakehouse_path)
         resource_descriptions: dict[str, dict[str, str]] = {}
         for source_path in source_paths:
             source_document = load_source_descriptor(source_path)

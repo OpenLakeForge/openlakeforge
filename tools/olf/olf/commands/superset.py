@@ -49,7 +49,7 @@ def _validate_report_target_dir(project_root: Path, override: str) -> None:
 @report_app.command("validate")
 def report_validate(
     dashboard: str = typer.Argument(
-        "", help="One dashboard declared in lakehouse.yaml; defaults to every declared dashboard."
+        "", help="One dashboard bundle under dashboards/superset; defaults to every bundle with a metadata.yaml."
     ),
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
@@ -64,10 +64,9 @@ def report_validate(
         root = writable_project_root(project_root)
         declared = {item.name: item.report_source_dir for item in inventory_for(root).dashboards}
         if dashboard and dashboard not in declared:
-            raise typer.BadParameter(f"{dashboard!r} is not a dashboard declared in lakehouse.yaml")
-        # Without a named dashboard this also enforces descriptor/tree parity:
-        # an undeclared bundle is never packaged, so validating only what is
-        # declared would report a project clean that cannot promote its tree.
+            raise typer.BadParameter(
+                f"{dashboard!r} is not a dashboard bundle (a dashboards/superset directory with a metadata.yaml)"
+            )
         selected = (
             [declared[dashboard]] if dashboard else superset.validate_report_registry(root, tuple(declared.values()))
         )
@@ -120,7 +119,10 @@ def deploy_superset_reports(stage: str = "") -> None:
     declared_report_dirs = tuple(dashboard.report_source_dir for dashboard in inventory.dashboards)
     override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
     if override is not None and override not in declared_report_dirs:
-        raise typer.BadParameter(f"SUPERSET_REPORT_SOURCE_DIR {override!r} is not declared in lakehouse.yaml")
+        raise typer.BadParameter(
+            f"SUPERSET_REPORT_SOURCE_DIR {override!r} is not a dashboard bundle "
+            "(a dashboards/superset directory with a metadata.yaml)"
+        )
     log.step(f"Importing Superset reports into stage '{target.stage}' (namespace {target.namespace})")
     superset.deploy_reports(
         project.root,
@@ -197,8 +199,8 @@ def export_superset_reports(stage: str = "") -> None:
         default_dashboard = Dashboard(name=Path(override).name, products=())
     else:
         raise typer.BadParameter(
-            "lakehouse.yaml declares no dashboard to export; "
-            "set SUPERSET_REPORT_SOURCE_DIR to target an undeclared bundle"
+            "no dashboard bundle has a metadata.yaml yet; "
+            "set SUPERSET_REPORT_SOURCE_DIR to export into a new bundle"
         )
 
     if os.environ.get("SUPERSET_DASHBOARD_TITLE"):

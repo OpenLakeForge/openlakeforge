@@ -149,24 +149,19 @@ def _lakehouse_descriptor_paths(lakehouse_path: Path) -> list[Path]:
     return [lakehouse_path, *source_paths]
 
 
-def _descriptor_in(directory: Path) -> Path:
-    governance = directory / "governance.yml"
-    return governance if governance.is_file() else directory / "lakehouse.yaml"
-
-
 def resolve_metadata_descriptor_paths(
     metadata_root: Path, metadata_source_dir: str
 ) -> tuple[list[Path], Path, bool]:
     """Resolve the descriptors an OpenMetadata deploy will actually read.
 
-    ``metadata_source_dir`` may name a single ``lakehouse.yaml`` file, a
-    lakehouse root directory, or a metadata root containing a lakehouse.yaml.
+    ``metadata_source_dir`` may name a single ``governance.yml`` file, a
+    lakehouse root directory, or a metadata root containing a governance.yml.
     Returns ``(descriptor_paths, source_label, require_directory_match)`` so
     callers computing the schema-FQN defaults use exactly the descriptors that
     will be deployed, not ``metadata_root`` unconditionally. ``descriptor_paths``
-    is always ``[lakehouse.yaml, *bronze source descriptors]``. The single-file
+    is always ``[governance.yml, *bronze source descriptors]``. The single-file
     and single-directory shapes name an arbitrary parent directory (for
-    example a mounted ``/metadata/lakehouse.yaml``), so
+    example a mounted ``/metadata/governance.yml``), so
     ``require_directory_match`` is ``False`` for those.
     """
     if metadata_source_dir:
@@ -175,17 +170,17 @@ def resolve_metadata_descriptor_paths(
             raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
         if path.is_file():
             return _lakehouse_descriptor_paths(path), path, False
-        lakehouse_path = _descriptor_in(path)
+        lakehouse_path = path / "governance.yml"
         if lakehouse_path.is_file():
             return _lakehouse_descriptor_paths(lakehouse_path), path, False
-        candidates = sorted(path.glob("*/governance.yml")) or sorted(path.glob("*/lakehouse.yaml"))
+        candidates = sorted(path.glob("*/governance.yml"))
         if candidates:
             return _lakehouse_descriptor_paths(candidates[0]), path, True
         raise OpenMetadataError(f"OpenMetadata metadata source contains no governance.yml: {path}")
 
     if not metadata_root.exists():
         raise OpenMetadataError(f"OpenMetadata metadata root does not exist: {metadata_root}")
-    lakehouse_path = _descriptor_in(metadata_root)
+    lakehouse_path = metadata_root / "governance.yml"
     if not lakehouse_path.is_file():
         raise OpenMetadataError(f"OpenMetadata metadata root has no governance.yml: {metadata_root}")
     return _lakehouse_descriptor_paths(lakehouse_path), metadata_root, True
@@ -198,7 +193,7 @@ def _default_schema_fqns(
 
     Used for direct local CLI execution, where the contract environment has
     not resolved OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON. Reads
-    the same descriptors the deploy reads (lakehouse.yaml plus every bronze
+    the same descriptors the deploy reads (governance.yml plus every bronze
     source descriptor), so an OPENMETADATA_METADATA_SOURCE_DIR override that
     names a different lakehouse still gets matching defaults.
     """
