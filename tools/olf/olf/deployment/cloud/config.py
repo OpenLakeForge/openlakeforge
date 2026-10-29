@@ -3,7 +3,7 @@
 Mirrors `olf.deployment.local.config`: plain frozen dataclasses with
 `from_environment` classmethods built on the same `${VAR:-default}`
 fallback semantics (`olf.deployment.env_settings`). Only the genuinely
-provider-neutral settings live here - project-code/Superset image
+provider-neutral settings live here - project-code image
 selection, Helm chart caching, the platform Terraform var-file/retry
 policy. Foundation-specific settings (AWS
 region/node sizing/instance types; Azure node count/ACR name prefix) stay
@@ -31,9 +31,6 @@ from olf.deployment.env_settings import truthy as _truthy
 from olf.deployment.project_code import published_example_image, split_published_image
 from olf.deployment.retry import RetryPolicy
 
-_DEFAULT_SUPERSET_BASE_IMAGE = (
-    "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
-)
 _DEFAULT_PYTHON_BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
 _DEFAULT_PYTHON_BASE_IMAGE = {
     "aws": f"public.ecr.aws/docker/library/python:3.12-slim@{_DEFAULT_PYTHON_BASE_IMAGE_DIGEST}",
@@ -107,10 +104,6 @@ class CloudImageSettings:
     project_code_pull_policy: str
     project_code_revision: str
     project_code_python_base_image: str
-    superset_repository: str
-    superset_tag: str
-    superset_pull_policy: str
-    superset_base_image: str
     image_platform: str
     pull_retry: RetryPolicy
     build_retry: RetryPolicy
@@ -122,19 +115,14 @@ class CloudImageSettings:
     def project_code_image(self) -> str:
         return f"{self.project_code_repository}:{self.project_code_tag}"
 
-    @property
-    def superset_image(self) -> str:
-        return f"{self.superset_repository}:{self.superset_tag}"
-
     @classmethod
     def from_environment(
         cls, environ: Mapping[str, str], *, scope: str, image_tag: str, published: str | None = None
     ) -> CloudImageSettings:
         """Build settings for `scope` ("aws" or "azure").
 
-        `project_code_repository`/`superset_repository` are empty when not
-        explicitly overridden via `PROJECT_CODE_IMAGE_REPOSITORY`/
-        `SUPERSET_IMAGE_REPOSITORY` - `CloudProvider` fills in the
+        `project_code_repository` is empty when not explicitly
+        overridden via `PROJECT_CODE_IMAGE_REPOSITORY` - `CloudProvider` fills in the
         foundation-derived registry (ECR/ACR) once it resolves, mirroring
         the shell scripts' `${VAR:-$(terraform output ...)}` fallback.
 
@@ -162,14 +150,6 @@ class CloudImageSettings:
                 scope=scope,
                 name="PROJECT_CODE_PYTHON_BASE_IMAGE",
                 default=_DEFAULT_PYTHON_BASE_IMAGE[scope],
-            ),
-            superset_repository=_image_env(environ, scope=scope, name="SUPERSET_IMAGE_REPOSITORY", default=""),
-            superset_tag=_image_env(environ, scope=scope, name="SUPERSET_IMAGE_TAG", default=image_tag),
-            superset_pull_policy=_image_env(
-                environ, scope=scope, name="SUPERSET_IMAGE_PULL_POLICY", default="Always"
-            ),
-            superset_base_image=_image_env(
-                environ, scope=scope, name="SUPERSET_BASE_IMAGE", default=_DEFAULT_SUPERSET_BASE_IMAGE
             ),
             image_platform=_env(environ, f"{scope.upper()}_IMAGE_PLATFORM", "linux/amd64"),
             pull_retry=_retry_policy(

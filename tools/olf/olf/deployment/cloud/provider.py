@@ -232,9 +232,7 @@ class CloudProvider:
         required = ["terraform", "kubectl"]
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
-        needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (
-            phase == DeploymentPhase.PLATFORM and self.context.platform_features.analytics_enabled
-        )
+        needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS)
         if needs_docker:
             required.append("docker")
         items = base_report(

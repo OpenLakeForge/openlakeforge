@@ -18,7 +18,7 @@ the POC still does differently.
 | Boundary | AWS POC implementation |
 | --- | --- |
 | Cluster foundation | EKS, AWS VPC CNI, two public subnets, managed node group |
-| Runtime images | ECR repositories for project-code and Superset |
+| Runtime images | ECR repository for project-code; Superset is pulled by its pinned digest |
 | Object storage | S3 buckets for Bronze, Silver, Gold, and ops artifacts |
 | Metadata database | RDS PostgreSQL for Dagster, OpenMetadata, and Superset |
 | Iceberg catalog | AWS Glue Data Catalog |
@@ -39,7 +39,7 @@ model from always-on compute to pay-per-data-scanned queries.
 - VPC, internet gateway, route table, and two public subnets.
 - EKS control plane and managed node group.
 - EKS VPC CNI, CoreDNS, kube-proxy, EBS CSI, and Pod Identity agent add-ons.
-- ECR repositories for project-code and Superset.
+- An ECR repository for project-code.
 - An EKS Pod Identity role/association for the EBS CSI driver (see ADR 0010).
 
 `infra/terraform/environments/aws-poc` consumes the foundation state and creates:

@@ -46,14 +46,12 @@ def test_image_settings_repository_overrides_are_honored() -> None:
     settings = CloudImageSettings.from_environment(
         {
             "PROJECT_CODE_IMAGE_REPOSITORY": "123.dkr.ecr.eu-west-1.amazonaws.com/project-code",
-            "SUPERSET_IMAGE_REPOSITORY": "123.dkr.ecr.eu-west-1.amazonaws.com/superset",
         },
         scope="aws",
         image_tag="aws-abc123",
     )
 
     assert settings.project_code_image == "123.dkr.ecr.eu-west-1.amazonaws.com/project-code:aws-abc123"
-    assert settings.superset_image == "123.dkr.ecr.eu-west-1.amazonaws.com/superset:aws-abc123"
 
 
 def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -> None:
@@ -61,8 +59,6 @@ def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -
         aliases = {
             f"{scope.upper()}_PROJECT_CODE_IMAGE_REPOSITORY": "registry.example/project-code",
             f"{scope.upper()}_PROJECT_CODE_IMAGE_TAG": f"{scope}-custom",
-            f"{scope.upper()}_SUPERSET_IMAGE_REPOSITORY": "registry.example/superset",
-            f"{scope.upper()}_SUPERSET_IMAGE_TAG": f"{scope}-custom",
         }
         settings = CloudImageSettings.from_environment(aliases, scope=scope, image_tag=f"{scope}-default")
         generic_wins = CloudImageSettings.from_environment(
@@ -70,7 +66,6 @@ def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -
         )
 
         assert settings.project_code_image == f"registry.example/project-code:{scope}-custom"
-        assert settings.superset_image == f"registry.example/superset:{scope}-custom"
         assert generic_wins.project_code_tag == "generic"
 
 
@@ -342,7 +337,6 @@ def test_cloud_deployment_config_from_environment_builds_full_config(tmp_path: P
     config = CloudDeploymentConfig.from_environment({"AWS_IMAGE_TAG": "aws-fixed"}, context=context)
 
     assert config.images.project_code_tag == "aws-fixed"
-    assert config.images.superset_tag == "aws-fixed"
     assert config.namespace == context.namespace
     assert config.kube_context == context.kube_context
     assert config.force_foundation_down is False
