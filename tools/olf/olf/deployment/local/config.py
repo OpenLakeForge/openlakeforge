@@ -50,7 +50,7 @@ class ImageSettings:
     project_code_python_base_image: str
     superset_repository: str
     superset_tag: str
-    superset_pull_policy: str
+    superset_build: bool
     superset_base_image: str
     pull_retry: RetryPolicy
     build_retry: RetryPolicy
@@ -63,6 +63,10 @@ class ImageSettings:
     @property
     def superset_image(self) -> str:
         return f"{self.superset_repository}:{self.superset_tag}"
+
+    def builds_superset(self, server_arch: str) -> bool:
+        """The release publishes Superset for amd64 only, so any other Docker engine builds it, as does a maintainer."""
+        return self.superset_build or server_arch not in ("amd64", "x86_64")
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str]) -> ImageSettings:
@@ -80,7 +84,7 @@ class ImageSettings:
             ),
             superset_repository=_env(environ, "SUPERSET_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/superset"),
             superset_tag=_env(environ, "SUPERSET_IMAGE_TAG", "local"),
-            superset_pull_policy=_env(environ, "SUPERSET_IMAGE_PULL_POLICY", "Never"),
+            superset_build=_truthy(_env(environ, "BUILD_SUPERSET_IMAGE", "false")),
             superset_base_image=_env(
                 environ,
                 "SUPERSET_BASE_IMAGE",

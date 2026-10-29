@@ -52,14 +52,17 @@ _INSPECT = '[{"Id": "sha256:0123456789abcdef0123"}]'
 
 
 class _ScriptedRunner(RecordingRunner):
-    def __init__(self, *, image_exists: bool = True, cluster_exists: bool = True) -> None:
+    def __init__(self, *, image_exists: bool = True, cluster_exists: bool = True, arch: str = "amd64") -> None:
         super().__init__()
+        self._arch = arch
         self._image_exists = image_exists
         self._cluster_exists = cluster_exists
 
     def run(self, command, **kwargs):  # type: ignore[override]
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+        if argv[1:2] == ["version"]:
+            return _ok(f"{self._arch}\n")
         if argv[1:3] == ["image", "inspect"]:
             code = 0 if self._image_exists else 1
             return CommandResult(argv=(), returncode=code, stdout=_INSPECT, stderr="", duration_seconds=0.0)
@@ -180,18 +183,18 @@ def test_prepare_superset_image_skips_when_analytics_disabled(tmp_path: Path) ->
     assert runner.calls == []
 
 
-def test_prepare_superset_image_skips_when_tag_is_not_local(tmp_path: Path) -> None:
-    config = _config(tmp_path, environ={"SUPERSET_IMAGE_TAG": "v1.0.0"})
+def test_prepare_superset_image_uses_the_release_pin_on_amd64(tmp_path: Path) -> None:
+    config = _config(tmp_path)
     runner = _ScriptedRunner()
     tools = _toolkit(runner)
 
-    images.prepare_superset_image(config, tools, env={})
+    assert images.prepare_superset_image(config, tools, env={}) is None
 
-    assert runner.calls == []
+    assert not any(c.argv[1] in ("build", "pull", "tag") for c in runner.calls)
 
 
-def test_prepare_superset_image_builds_and_loads_when_enabled_and_local(tmp_path: Path) -> None:
-    config = _config(tmp_path)
+def test_prepare_superset_image_builds_and_loads_when_a_maintainer_opts_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, environ={"BUILD_SUPERSET_IMAGE": "true"})
     runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
     tools = _toolkit(runner)
 
@@ -203,6 +206,16 @@ def test_prepare_superset_image_builds_and_loads_when_enabled_and_local(tmp_path
     assert any(a[1] == "build" for a in argvs)
     assert ["docker", "tag", f"{repo}:local", f"{repo}:{tag}"] in argvs
     assert ["kind", "load", "docker-image", f"{repo}:{tag}", "--name", "openlakeforge-local"] in argvs
+
+
+def test_prepare_superset_image_builds_on_an_engine_the_release_does_not_publish_for(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    runner = _ScriptedRunner(arch="arm64")
+
+    tag = images.prepare_superset_image(config, _toolkit(runner), env={})
+
+    assert tag == "local-0123456789ab"
+    assert any(c.argv[1] == "build" for c in runner.calls)
 
 
 def test_prepare_project_code_image_skips_when_tag_is_not_local(tmp_path: Path) -> None:

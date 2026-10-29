@@ -272,6 +272,11 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         repository_key_path=("initImage", "repository"),
         tag_key_path=("initImage", "tag"),
     ),
+    "superset": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/superset.yaml",),
+        repository_key_path=("image", "repository"),
+        tag_key_path=("image", "tag"),
+    ),
     "superset_redis": _ImageDeploymentSource(
         paths=("infra/helm/values/local/superset.yaml",),
         registry_key_path=("redis", "image", "registry"),

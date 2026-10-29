@@ -270,8 +270,6 @@ locals {
     logical_name              = "runtime_images"
     project_code_image        = "${var.project_code_image_repository}:${var.project_code_image_tag}"
     project_code_image_policy = var.project_code_image_pull_policy
-    superset_image            = "${var.superset_image_repository}:${var.superset_image_tag}"
-    superset_image_policy     = var.superset_image_pull_policy
     distribution_mode         = "kind-load"
     target_cluster            = local.kubernetes_platform_contract.cluster_name
     local_only                = true

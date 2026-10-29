@@ -217,12 +217,22 @@ def test_full_identity_selection_matches_the_catalog_pins() -> None:
     for name in (
         "seaweedfs", "traefik", "cert_manager_controller", "cert_manager_webhook", "cert_manager_cainjector",
         "postgres", "trino", "polaris", "polaris_admin_tool", "opensearch", "openmetadata_ingestion",
-        "superset_base", "superset_init", "superset_redis", "oauth2_proxy", "dex",
+        "superset", "superset_init", "superset_redis", "oauth2_proxy", "dex",
     ):  # fmt: skip
         assert prefetch.archive_reference(_CATALOG[name]) in tags, name
     # no preloaded tag drifts from the catalog; only the OpenMetadata server is pinned outside it
     pinned = {prefetch.archive_reference(v) for v in _CATALOG.values()}
     assert tags - pinned == {prefetch.archive_reference(prefetch._OPENMETADATA_SERVER_IMAGE)}
+
+
+def test_a_locally_built_superset_is_not_prefetched() -> None:
+    features = DeploymentFeatures(governance_enabled=False, analytics_enabled=True)
+    built = prefetch.selected_images(
+        features, server_arch="arm64", catalog_images=_CATALOG, build_superset=True
+    )
+
+    assert _CATALOG["superset"] not in built
+    assert _CATALOG["superset_redis"] in built
 
 
 def test_prefetch_deletes_each_archive_once_every_node_loaded_it(tmp_path: Path) -> None:

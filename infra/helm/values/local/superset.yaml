@@ -11,6 +11,12 @@ bootstrapScript: |
 extraEnv:
   PYTHONPATH: /app/pythonpath
 
+# OpenLakeForge's prebuilt image, published and signed by the release workflow
+# (release/component-catalog.yaml, superset).
+image:
+  repository: ghcr.io/openlakeforge/openlakeforge/superset
+  tag: "0.5.0-alpha.1@sha256:ef312c379b0f58faa77e70192cc909b730f4a228fed1ce1614b5bed0118eb08e"
+
 initImage:
   repository: apache/superset
   tag: "dockerize@sha256:afe59523a6c8774c3b16d0f44146b2e52f327a7d26a47b4cc63b904fcdedf057"

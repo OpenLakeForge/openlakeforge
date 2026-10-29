@@ -33,21 +33,21 @@ variable "base_values_file" {
 }
 
 variable "image_repository" {
-  description = "Superset image repository with OpenLakeForge runtime drivers."
+  description = "Overrides the release-pinned Superset image repository from the base values file; null keeps the pin."
   type        = string
-  default     = "ghcr.io/openlakeforge/superset"
+  default     = null
 }
 
 variable "image_tag" {
-  description = "Superset image tag."
+  description = "Overrides the release-pinned Superset image tag from the base values file; null keeps the pin."
   type        = string
-  default     = "local"
+  default     = null
 }
 
 variable "image_pull_policy" {
-  description = "Superset image pull policy."
+  description = "Overrides the Superset image pull policy; null keeps the chart default."
   type        = string
-  default     = "Never"
+  default     = null
 }
 
 variable "admin_username" {

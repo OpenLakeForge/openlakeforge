@@ -93,21 +93,21 @@ variable "project_code_image_revision" {
 }
 
 variable "superset_image_repository" {
-  description = "Superset image repository used by the local Superset Helm release."
+  description = "Maintainer override of the release-pinned Superset image repository; null deploys the pin in infra/helm/values/local/superset.yaml."
   type        = string
-  default     = "ghcr.io/openlakeforge/superset"
+  default     = null
 }
 
 variable "superset_image_tag" {
-  description = "Superset image tag used by the local Superset Helm release."
+  description = "Maintainer override of the release-pinned Superset image tag; null deploys the pin."
   type        = string
-  default     = "local"
+  default     = null
 }
 
 variable "superset_image_pull_policy" {
-  description = "Superset image pull policy used by the local Superset Helm release."
+  description = "Maintainer override of the Superset image pull policy; null keeps the chart default."
   type        = string
-  default     = "Never"
+  default     = null
 }
 
 variable "trino_chart_package_path" {
