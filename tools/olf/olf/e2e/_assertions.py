@@ -38,7 +38,8 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
         try:
-            dashboards = SupersetClient(base_url).dashboards()
+            password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
+            dashboards = SupersetClient(base_url, password=password).dashboards()
         except ServiceClientError as exc:
             raise E2EError(str(exc)) from exc
     assert_superset_dashboards(dashboards, discovered_dashboards(cfg))

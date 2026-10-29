@@ -65,3 +65,15 @@ def test_a_rerun_keeps_both_values_and_prints_no_value(tmp_path: Path) -> None:
     assert (first.returncode, second.returncode) == (0, 0), first.stderr + second.stderr
     assert [(secret / name).read_text() for name in names] == values
     assert not any(value in first.stdout + second.stdout for value in values)
+
+
+def test_a_secret_made_with_the_key_alone_gets_an_admin_password_and_keeps_the_key(tmp_path: Path) -> None:
+    secret = tmp_path / "secrets/olf-dev/superset-credentials"
+    secret.mkdir(parents=True)
+    (secret / "secret-key").write_text("key-from-the-first-release")
+
+    result = _run_job(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (secret / "secret-key").read_text() == "key-from-the-first-release"
+    assert len((secret / "admin-password").read_text()) == 32

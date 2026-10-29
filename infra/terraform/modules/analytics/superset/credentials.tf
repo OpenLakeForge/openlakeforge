@@ -13,6 +13,12 @@ locals {
     rand() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"; }
     if kubectl get secret "${local.credentials_secret_name}" -n "$NAMESPACE" >/dev/null 2>&1; then
       echo "Secret ${local.credentials_secret_name} exists; keeping it"
+      # #586 created it with the key alone.
+      if [ -z "$(kubectl get secret "${local.credentials_secret_name}" -n "$NAMESPACE" \
+        -o 'go-template={{with index .data "admin-password"}}{{.}}{{end}}')" ]; then
+        kubectl patch secret "${local.credentials_secret_name}" -n "$NAMESPACE" \
+          -p "{\"stringData\":{\"admin-password\":\"$(rand 32)\"}}"
+      fi
     else
       secret_key="$(kubectl get secret "${local.legacy_env_secret_name}" -n "$NAMESPACE" --ignore-not-found \
         -o 'go-template={{with index .data "SUPERSET_SECRET_KEY"}}{{.}}{{end}}' | base64 -d)"
@@ -40,7 +46,7 @@ resource "kubernetes_service_account_v1" "credentials" {
 }
 
 # `create` cannot be limited by resourceNames (ADR 0017 exception E1); reading
-# is limited to the two Secrets this Job looks at.
+# is limited to the two Secrets this Job looks at, and patching to its own.
 resource "kubernetes_role_v1" "credentials" {
   metadata {
     name      = "${var.release_name}-credentials"
@@ -57,6 +63,12 @@ resource "kubernetes_role_v1" "credentials" {
     resources      = ["secrets"]
     resource_names = [local.credentials_secret_name, local.legacy_env_secret_name]
     verbs          = ["get"]
+  }
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = [local.credentials_secret_name]
+    verbs          = ["patch"]
   }
 }
 
