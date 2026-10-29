@@ -8,7 +8,9 @@ version = "0.3.0"
 description = "OpenLakeForge project-code runtime package."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "boto3==1.43.120",
+  # dlt[s3] loads Bronze through s3fs, whose aiobotocore caps botocore below
+  # 1.43.118; raise this pin only with an aiobotocore that accepts it.
+  "boto3==1.43.117",
   "dagster==1.13.7",
   "dagster-aws==0.29.7",
   "dagster-dbt==0.29.7",
@@ -17,7 +19,7 @@ dependencies = [
   "dagster-postgres==0.29.7",
   "dagster-webserver==1.13.7",
   "dbt-trino==1.10.2",
-  "dlt>=1.17,<2",
+  "dlt[s3]>=1.17,<2",
   "floe-python==0.8.2",
   # Keep grpc health-check protobuf gencode compatible with Dagster's protobuf<7
   # runtime constraint.

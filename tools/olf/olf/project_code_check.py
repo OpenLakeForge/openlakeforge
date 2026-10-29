@@ -341,6 +341,22 @@ def _verify_bronze_dlt_stage_state() -> None:
             if not any((bucket / "mock_api" / "records").iterdir()):
                 _fail(f"{stage}'s records did not land under <bucket>/mock_api/records/, where Floe reads Bronze")
 
+    # The loads above use local destinations; a stage loads to its S3 bucket,
+    # which dlt reaches through s3fs. Opening that filesystem needs no network.
+    from dlt.common.storages import fsspec_from_config
+
+    stage_bucket = {
+        "OPENLAKEFORGE_STAGE": "dev",
+        "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "dev-bronze",
+        "AWS_ENDPOINT_URL_S3": "http://s3.invalid",
+    }
+    with _environment(stage_bucket):
+        pipeline = bronze_dlt.bronze_pipeline("mock_api")
+        try:
+            fsspec_from_config(pipeline.destination_client().config)
+        except Exception as exc:  # dlt raises its own MissingDependencyException
+            _fail(f"dlt cannot open a stage's S3 Bronze bucket: {exc}")
+
 
 def main() -> None:
     try:
