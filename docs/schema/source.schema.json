@@ -30,8 +30,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "config": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}},
-        "secrets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}}
+        "config": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"}},
+        "secrets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"}}
       }
     }
   }

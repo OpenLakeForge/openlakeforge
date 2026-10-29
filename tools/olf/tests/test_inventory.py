@@ -341,6 +341,17 @@ def test_a_source_without_runtime_keys_needs_no_bindings(tmp_path: Path) -> None
     assert source.runtime_config == () and source.runtime_secrets == ()
 
 
+@pytest.mark.parametrize("name", ["crm_", "crm__api"])
+def test_a_source_with_runtime_keys_needs_a_name_that_maps_to_valid_bindings(tmp_path: Path, name: str) -> None:
+    """`crm_` would bind ConfigMap `olf-source-crm-`, which Kubernetes rejects."""
+    _write_lakehouse(tmp_path, source=name)
+    source_path = tmp_path / "lakehouse_code" / "bronze" / name / "source.yaml"
+    source_path.write_text(_source(source=name) + "runtime:\n  config: [base_url]\n", encoding="utf-8")
+
+    with pytest.raises(LakehouseDescriptorError, match="underscore-separated words"):
+        load_lakehouse_inventory(tmp_path)
+
+
 def test_binding_names_are_valid_kubernetes_names_for_an_underscored_source() -> None:
     from openlakeforge_domain.inventory import Source
 
@@ -357,6 +368,9 @@ def test_binding_names_are_valid_kubernetes_names_for_an_underscored_source() ->
         ("runtime:\n  config: [Base-URL]\n", r"runtime.config\[0\] must match"),
         ("runtime:\n  values: {base_url: https://api.example}\n", "config and secrets keys only"),
         ("runtime:\n  secrets: api_token\n", "runtime.secrets must be an array"),
+        # dlt reads `__` as a section break: `a__b` + `c` and `a` + `b__c` would share a variable.
+        ("runtime:\n  secrets: [api__token]\n", "underscore-separated words"),
+        ("runtime:\n  config: [base_url_]\n", "underscore-separated words"),
     ],
 )
 def test_a_source_runtime_block_names_keys_only(tmp_path: Path, runtime: str, message: str) -> None:

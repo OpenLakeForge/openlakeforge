@@ -20,6 +20,11 @@ LAKEHOUSE_KIND = "Lakehouse"
 SOURCE_KIND = "Source"
 _PRODUCT_IDENTIFIER_PATTERN = r"[a-z][a-z0-9_]*"
 _IDENTIFIER_PATTERN = re.compile(rf"^{_PRODUCT_IDENTIFIER_PATTERN}$")
+# Underscore-separated words, no `_` at either end or doubled. A source that
+# declares runtime keys turns its name into Kubernetes object names (`_` -> `-`,
+# which may not end a name) and both into dlt variables (`__` separates dlt
+# config sections), so `crm_` or `a__b` cannot be bound unambiguously.
+_RUNTIME_WORDS_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
 
 class LakehouseDescriptorError(ValueError):
@@ -79,6 +84,11 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
                 f"{source}: resources[{index}] must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
             )
     if "runtime" in document:
+        if not _RUNTIME_WORDS_PATTERN.fullmatch(document["name"]):
+            raise LakehouseDescriptorError(
+                f"{source}: a source with runtime keys needs a name of underscore-separated words "
+                f"(no leading, trailing or doubled '_'); got {document['name']!r}"
+            )
         _validate_source_runtime(document["runtime"], source=source)
     unexpected = set(document) - {
         "apiVersion",
@@ -113,6 +123,11 @@ def _validate_source_runtime(runtime: object, *, source: str) -> None:
             raise LakehouseDescriptorError(f"{source}: runtime.{group} must be an array of key names")
         for index, key in enumerate(keys):
             name = _identifier(key, field=f"runtime.{group}[{index}]", source=source)
+            if not _RUNTIME_WORDS_PATTERN.fullmatch(name):
+                raise LakehouseDescriptorError(
+                    f"{source}: runtime.{group}[{index}] must be underscore-separated words "
+                    f"(no leading, trailing or doubled '_'); got {name!r}"
+                )
             if name in listed:
                 raise LakehouseDescriptorError(
                     f"{source}: runtime key {name!r} is listed twice (runtime.{listed[name]} and runtime.{group})"
