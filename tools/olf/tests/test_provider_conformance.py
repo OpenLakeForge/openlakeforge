@@ -105,7 +105,6 @@ _FOUNDATION_FACTS = FoundationFacts(
     cluster_name="olf-conformance",
     kube_context="olf-conformance",
     project_code_repository="registry.example/project-code",
-    superset_repository="registry.example/superset",
 )
 
 # `DeploymentProvider`'s own members, read off the Protocol rather than

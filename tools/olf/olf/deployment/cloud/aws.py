@@ -91,14 +91,10 @@ class AwsBackend:
         project_code_repository = output_raw_or_empty(
             tools, foundation_terraform_dir, "project_code_ecr_repository_url", env=env
         )
-        superset_repository = output_raw_or_empty(
-            tools, foundation_terraform_dir, "superset_ecr_repository_url", env=env
-        )
         return FoundationFacts(
             cluster_name=cluster_name,
             kube_context=cluster_name,
             project_code_repository=project_code_repository,
-            superset_repository=superset_repository,
             aws_region=aws_region,
         )
 

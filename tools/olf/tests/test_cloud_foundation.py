@@ -365,7 +365,6 @@ def test_require_foundation_facts_returns_facts_when_reachable(tmp_path: Path) -
         cluster_name="eks-openlakeforge-poc",
         kube_context="eks-openlakeforge-poc",
         project_code_repository="123.dkr.ecr.eu-west-1.amazonaws.com/project-code",
-        superset_repository="123.dkr.ecr.eu-west-1.amazonaws.com/superset",
         aws_region="eu-west-1",
     )
     backend = FakeCloudBackend(scope="aws", facts=facts)

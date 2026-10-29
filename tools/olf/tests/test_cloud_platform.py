@@ -20,7 +20,6 @@ _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
     kube_context="eks-openlakeforge-poc",
     project_code_repository="123.dkr.ecr.eu-west-1.amazonaws.com/project-code",
-    superset_repository="123.dkr.ecr.eu-west-1.amazonaws.com/superset",
     aws_region="eu-west-1",
 )
 

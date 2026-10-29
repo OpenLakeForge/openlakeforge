@@ -67,7 +67,6 @@ class FakeCloudBackend:
             cluster_name="fake-cluster",
             kube_context="fake-cluster",
             project_code_repository="registry/project-code",
-            superset_repository="registry/superset",
         )
 
     def cluster_reachable(
