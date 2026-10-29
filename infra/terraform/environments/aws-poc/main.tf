@@ -242,6 +242,9 @@ module "rds_postgresql" {
   allowed_cidr_blocks = [local.foundation_contract.vpc_cidr_block]
   instance_class      = var.rds_instance_class
   databases           = values(local.stage_databases)
+  cluster_name        = local.foundation_contract.cluster_name
+  region              = local.aws_region
+  bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
 
   depends_on = [
     kubernetes_namespace_v1.stage,
