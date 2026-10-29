@@ -15,9 +15,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypeGuard
 
-from olf.deployment.context import DeploymentContext, Provider
+from olf.deployment.context import DeploymentContext
 from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
 from olf.deployment.inspection import DoctorReport, project_not_runnable_reason
+from olf.profile import Provider
 from olf.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:

@@ -265,7 +265,7 @@ def _write_profile(root: Path, *, provider: str = "local", stages: str = "    de
 
 def test_the_deployment_profile_decides_the_stages(tmp_path: Path) -> None:
     from olf.commands._shared import resolve_topology
-    from olf.deployment.context import Provider
+    from olf.profile import Provider
 
     _write_profile(tmp_path, stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
 
@@ -276,7 +276,7 @@ def test_the_deployment_profile_decides_the_stages(tmp_path: Path) -> None:
 
 def test_an_explicit_preset_selects_the_deprecated_single_dev_shorthand(tmp_path: Path) -> None:
     from olf.commands._shared import resolve_topology
-    from olf.deployment.context import Provider
+    from olf.profile import Provider
 
     _write_profile(tmp_path, stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
 
@@ -288,7 +288,7 @@ def test_an_explicit_preset_selects_the_deprecated_single_dev_shorthand(tmp_path
 
 def test_a_profile_for_another_provider_does_not_describe_this_deployment(tmp_path: Path) -> None:
     from olf.commands._shared import resolve_topology
-    from olf.deployment.context import Provider
+    from olf.profile import Provider
 
     _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
 
@@ -300,7 +300,7 @@ def test_a_profile_for_another_provider_does_not_describe_this_deployment(tmp_pa
 
 def test_an_invalid_profile_fails_closed(tmp_path: Path) -> None:
     from olf.commands._shared import resolve_topology
-    from olf.deployment.context import Provider
+    from olf.profile import Provider
 
     (tmp_path / "openlakeforge.yaml").write_text("apiVersion: openlakeforge.io/v1alpha1\nkind: NotAProfile\n")
 

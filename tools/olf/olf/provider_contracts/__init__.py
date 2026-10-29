@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from olf.contract_validation import ProviderContractError
 from olf.profile import DeploymentTopology
 from olf.provider_contracts._model import CodeLocation, ProviderContracts, SharedPlatformContract, StageContract
 from olf.provider_contracts._v2 import _adapt_v2
@@ -19,7 +20,6 @@ from olf.provider_contracts._validation import (
     SUPPORTED_SCHEMA_VERSIONS,
     V2_SCHEMA_VERSION,
     V3_SCHEMA_VERSION,
-    ProviderContractError,
     aws_catalog_name,
 )
 

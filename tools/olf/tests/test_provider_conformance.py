@@ -5,7 +5,7 @@ this suite asserted that *every* adapter satisfies the same contract, so an
 adapter could diverge and only fail at runtime, on the provider nobody
 exercises locally (issue #188).
 
-The parameter list is `olf.deployment.context.Provider` itself rather than a
+The parameter list is `olf.profile.Provider` itself rather than a
 literal list, so a provider is enrolled the moment the enum names it: adding
 one fails here — with a message naming the contract it broke — until its
 `DeploymentContext` factory, its `build_provider` branch, its captured
@@ -70,7 +70,7 @@ from conftest import CONFORMANCE_STAGES, write_two_product_fixture
 
 from olf.contracts import build_contract_env
 from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.context import DeploymentContext, Provider
+from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import (
     DeploymentConfig,
     DeploymentEngine,
@@ -79,7 +79,7 @@ from olf.deployment.engine import (
     build_provider,
 )
 from olf.deployment.errors import DeploymentPreconditionError
-from olf.profile import StageName, resolve_topology, validate_deployment_profile
+from olf.profile import Provider, StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, parse_provider_contracts
 from olf.tooling.docker import Docker
 from olf.tooling.helm import Helm

@@ -7,7 +7,8 @@ import os
 import typer
 
 from olf import break_glass
-from olf.commands._shared import deployment_context, fail
+from olf.commands._shared import deployment_context
+from olf.log import fail
 
 
 def break_glass_command(

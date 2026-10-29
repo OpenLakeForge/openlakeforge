@@ -14,8 +14,8 @@ from pathlib import Path
 import typer
 
 from olf import config
-from olf.commands._shared import fail
 from olf.deployment.errors import DeploymentError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.log import fail
 from olf.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")

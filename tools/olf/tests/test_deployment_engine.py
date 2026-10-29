@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.context import DeploymentContext, Provider
+from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
 from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
+from olf.profile import Provider
 
 ROOT = Path(__file__).resolve().parents[3]
 

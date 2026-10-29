@@ -9,7 +9,7 @@ import pytest
 import yaml
 from conftest import FakeSuperset
 
-from olf import k8s, superset
+from olf import dashboard_checks, k8s, superset
 from olf.contracts import build_contract_env
 from olf.profile import resolve_topology, validate_deployment_profile
 
@@ -391,7 +391,7 @@ def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     checked_in = _write_report_bundle(tmp_path)
     (checked_in / "databases" / "trino.yaml").write_text(
         "database_name: Trino\n"
-        f"sqlalchemy_uri: {superset.STAGE_NEUTRAL_SQLALCHEMY_URI}\n"
+        f"sqlalchemy_uri: {dashboard_checks.STAGE_NEUTRAL_SQLALCHEMY_URI}\n"
         "extra:\n  metadata_params: {}\n  engine_params: {}\n"
         f"uuid: {_DATABASE_UUID}\n"
     )
@@ -435,7 +435,7 @@ def test_unpack_export_bundle_keeps_connect_args_it_did_not_add(tmp_path: Path) 
     superset.unpack_export_bundle(bundle_path, tmp_path / "out", schema_prefix="lakehouse_prod_")
 
     database = yaml.safe_load((tmp_path / "out" / "databases" / "trino.yaml").read_text())
-    assert database["sqlalchemy_uri"] == superset.STAGE_NEUTRAL_SQLALCHEMY_URI
+    assert database["sqlalchemy_uri"] == dashboard_checks.STAGE_NEUTRAL_SQLALCHEMY_URI
     assert database["extra"] == {"engine_params": {"connect_args": {"timezone": "UTC"}}}
     assert yaml.safe_load((tmp_path / "out" / "datasets" / "mart.yaml").read_text())["schema"] == "order_revenue_gold"
 

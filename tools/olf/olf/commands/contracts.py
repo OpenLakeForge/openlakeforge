@@ -9,7 +9,7 @@ import typer
 
 from olf import config
 from olf import contracts as contracts_module
-from olf.commands._shared import fail
+from olf.log import fail
 
 app = typer.Typer(help="Provider-contract runtime environment helpers.")
 

@@ -242,8 +242,7 @@ def test_a_v2_contract_refuses_to_answer_for_another_stage() -> None:
     another stage would hand that stage DEV's namespace, catalog, and
     capability flags while reporting success."""
     from olf.contracts import ProviderContractError
-    from olf.deployment.context import Provider
-    from olf.profile import Preset, StageName, legacy_single_stage_topology
+    from olf.profile import Preset, Provider, StageName, legacy_single_stage_topology
 
     contracts = load_fixture("local-provider-contracts.json")
     topology = legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.SLIM)

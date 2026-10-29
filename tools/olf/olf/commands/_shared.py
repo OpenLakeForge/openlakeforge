@@ -13,17 +13,7 @@ import typer
 
 from olf import config, log
 from olf.deployment.cloud.cluster_name import aws_cluster_name
-
-
-def log_step(message: str) -> None:
-    """Announce a CLI step."""
-    log.step(message)
-
-
-def fail(message: str) -> int:
-    """Log error and return exit code 1."""
-    log.error(message)
-    return 1
+from olf.log import fail
 
 
 def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa: ANN001, ANN202
@@ -94,10 +84,10 @@ def deployment_context(
     `olf e2e run` ends up validating a different deployment than `olf deploy`
     just created.
     """
-    from olf.deployment.context import DeploymentContext, Profile, Provider
+    from olf.deployment.context import DeploymentContext, Profile
     from olf.deployment.errors import DeploymentPreconditionError
     from olf.distribution import DistributionError, runtime_layout
-    from olf.profile import StageName
+    from olf.profile import Provider, StageName
 
     try:
         resolved_provider = Provider(provider)
@@ -180,10 +170,10 @@ def deployment_context_for_profile(
     ``var_file`` is accepted by callers for a uniform command shape; Terraform
     wiring remains in the provider config built from the returned context.
     """
-    from olf.deployment.context import DeploymentContext, Profile, Provider
+    from olf.deployment.context import DeploymentContext, Profile
     from olf.deployment.errors import DeploymentPreconditionError
     from olf.distribution import DistributionError, runtime_layout
-    from olf.profile import DeploymentProfileError, StageName, load_deployment_profile, resolve_topology
+    from olf.profile import DeploymentProfileError, Provider, StageName, load_deployment_profile, resolve_topology
 
     path = Path(profile_file).resolve()
     try:

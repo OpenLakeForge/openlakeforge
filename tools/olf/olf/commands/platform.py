@@ -7,7 +7,8 @@ from pathlib import Path
 
 import typer
 
-from olf.commands._shared import deployment_context_for_profile, fail
+from olf.commands._shared import deployment_context_for_profile
+from olf.log import fail
 
 app = typer.Typer(help="Plan and apply static foundation/platform infrastructure.")
 

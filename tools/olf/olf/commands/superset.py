@@ -12,7 +12,7 @@ import typer
 from openlakeforge_domain import inventory_for
 
 from olf import config, log
-from olf.commands._shared import fail
+from olf.log import fail
 
 if TYPE_CHECKING:
     from olf.superset import StageReportTarget

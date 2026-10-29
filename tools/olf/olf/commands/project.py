@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from olf.commands._shared import deployment_context_for_profile, fail
+from olf.commands._shared import deployment_context_for_profile
+from olf.log import fail
 from olf.project import ProjectSpec, validate_project
 
 if TYPE_CHECKING:

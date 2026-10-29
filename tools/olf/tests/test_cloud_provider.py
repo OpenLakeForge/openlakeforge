@@ -45,10 +45,10 @@ def _config(tmp_path: Path) -> CloudDeploymentConfig:
 
 
 def test_status_reports_every_owned_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.deployment.context import Provider
     from olf.profile import (
         DeploymentProfile,
         Preset,
+        Provider,
         ProviderSpec,
         StageCapabilities,
         StageName,

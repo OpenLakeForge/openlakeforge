@@ -13,9 +13,9 @@ from openlakeforge_domain import load_lakehouse_inventory
 from olf import project_activation, project_revision
 from olf.artifact_store import FilesystemRevisionStore
 from olf.deployment import activation as activation_module
-from olf.deployment.context import DeploymentContext, Provider
+from olf.deployment.context import DeploymentContext
 from olf.distribution import distribution_version_at
-from olf.profile import StageName, resolve_topology, validate_deployment_profile
+from olf.profile import Provider, StageName, resolve_topology, validate_deployment_profile
 from olf.project import ProjectSpec
 from olf.provider_contracts import CodeLocation
 
