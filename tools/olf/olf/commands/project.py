@@ -176,7 +176,7 @@ def status(
         stage_code_locations,
     )
     from olf.deployment.contract_env import applied_contract_environment
-    from olf.profile import StageName
+    from olf.profile import StageName, load_deployment_profile, resolve_project
     from olf.project_activation import ProjectActivationError
     from olf.project_activation import active as active_activation
     from olf.provider_contracts import ProviderContractError
@@ -184,6 +184,9 @@ def status(
     selected = (StageName(stage),) if stage else None
     initial = deployment_context_for_profile(profile_file, stage=stage or "dev")
     stages = selected or initial.enabled_stages
+    pull_secret = resolve_project(
+        load_deployment_profile(Path(profile_file), distribution_root=initial.paths.distribution_root), os.environ
+    ).pull_secret_name
     reports: list[dict[str, object]] = []
     try:
         for item in stages:
@@ -280,6 +283,7 @@ def status(
                             activation.activation_revision,
                             code_locations=code_locations,
                             platform_globals=platform_globals,
+                            pull_secret=pull_secret,
                             env=provider.env,
                         )
                     )

@@ -96,7 +96,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         capabilities={"analytics": False, "governance": False},
     ).resolved()
 
-    state = SimpleNamespace(contract=contract, deployments=None)
+    state = SimpleNamespace(contract=contract, deployments=None, pull_secret=None, release_pull_secrets=[])
     if state.deployments is None:
         state.deployments = [
             {
@@ -113,7 +113,13 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         def get_values(self, release, **kwargs):  # noqa: ANN001, ANN202, ARG002
             return SimpleNamespace(
                 ok=True,
-                stdout=json.dumps({"deployments": state.deployments, "global": _GLOBALS}),
+                stdout=json.dumps(
+                    {
+                        "deployments": state.deployments,
+                        "global": _GLOBALS,
+                        "imagePullSecrets": [{"name": name} for name in state.release_pull_secrets],
+                    }
+                ),
             )
 
     provider = SimpleNamespace(
@@ -126,6 +132,16 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *a, **k: provider)
     monkeypatch.setattr(project_cmd, "_artifact_transport", lambda *a, **k: object())
     monkeypatch.setattr(contracts, "load_provider_contracts", lambda *a, **k: state.contract)
+    monkeypatch.setattr(
+        "olf.profile.load_deployment_profile",
+        lambda *a, **k: SimpleNamespace(
+            project=SimpleNamespace(
+                repository=None,
+                image=SimpleNamespace(repository="ghcr.io/acme/code", pull_secret_name=state.pull_secret),
+            ),
+            provider=SimpleNamespace(type=SimpleNamespace(value="local")),
+        ),
+    )
 
     from olf import artifact_store, project_activation
     from olf.deployment import activation as activation_module
@@ -157,6 +173,16 @@ def test_status_reports_a_stage_whose_release_matches_its_pointer(stage) -> None
     report = json.loads(result.output)["stages"][0]
     assert report["stage"] == "dev"
     assert report["state"] == "active"
+
+
+def test_status_compares_the_release_with_the_profiles_pull_secret(stage) -> None:  # noqa: ANN001
+    stage.state.pull_secret, stage.state.release_pull_secrets = "ghcr-pull", ["ghcr-pull"]
+    args = ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"]
+
+    assert json.loads(runner.invoke(app, args).output)["stages"][0]["state"] == "active"
+
+    stage.state.release_pull_secrets = []
+    assert json.loads(runner.invoke(app, args).output)["stages"][0]["state"] == "drifted"
 
 
 def test_status_reports_drift_when_a_contracted_location_is_missing(stage) -> None:  # noqa: ANN001

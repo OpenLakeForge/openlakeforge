@@ -521,7 +521,11 @@ def _require_pull_secret(
     except (KeyError, TypeError, ValueError):
         raise ActivationError(f"Secret {name!r} in {namespace} has no readable .dockerconfigjson; {fix}") from None
     host = _registry_host(_image_parts(image)[0])
-    hosts = {key.removeprefix("https://").removeprefix("http://").split("/")[0] for key in auths}
+    # Docker Hub's pull secret is keyed https://index.docker.io/v1/, while an image says docker.io.
+    hosts = {
+        key.removeprefix("https://").removeprefix("http://").split("/")[0].replace("index.docker.io", "docker.io")
+        for key in auths
+    }
     if host and host not in hosts:
         raise ActivationError(f"Secret {name!r} in {namespace} has no credentials for {host}; {fix}")
 

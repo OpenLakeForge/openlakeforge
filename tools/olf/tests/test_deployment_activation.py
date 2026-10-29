@@ -1249,6 +1249,17 @@ def test_every_project_code_pod_pulls_with_the_secret(harness) -> None:  # noqa:
     assert harness.kubectl.account_secrets == ["registry-credentials", "ghcr-pull"]
 
 
+def test_docker_hub_credentials_match_a_docker_io_image() -> None:
+    kubectl = _Kubectl()
+    kubectl.secrets["hub-pull"] = _pull_secret("https://index.docker.io/v1/")
+    context = SimpleNamespace(paths=SimpleNamespace(kubeconfig_path=None), kube_context="kind-test")
+    provider = SimpleNamespace(tools=SimpleNamespace(kubectl=kubectl), context=context, env={})
+
+    activation_module._require_pull_secret(
+        provider, "hub-pull", image="docker.io/acme/code@sha256:" + "a" * 64, namespace="olf-dev", env={}
+    )
+
+
 def test_an_unusable_pull_secret_stops_the_activation_before_any_rollout(harness) -> None:  # noqa: ANN001
     previous = harness.deploy("dev")
     harness.kubectl.secrets["wrong-type"] = _pull_secret("ghcr.io", secret_type="Opaque")
