@@ -41,7 +41,7 @@
           "properties": {
             "repository": {
               "type": "string",
-              "pattern": "^(https://[^\\s@?#/]+|ssh://([^\\s@:?#/]+@)?[^\\s@?#/]+)/[^\\s?#]*[^\\s?#/]$",
+              "pattern": "^(https://[^\\s@?#/]+|ssh://([^\\s@:?#/]+@)?[^\\s@?#/]+)/[^\\s?#]*[^\\s?#/][^\\s?#]*$",
               "description": "Source URL, provenance only: olf builds the checked-out directory. Credentials in the URL are rejected."
             },
             "image": {

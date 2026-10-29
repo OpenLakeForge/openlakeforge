@@ -626,6 +626,7 @@ _EXAMPLE = "ghcr.io/openlakeforge/project-code"
 _ECR = "123456789012.dkr.ecr.eu-west-1.amazonaws.com/acme/code"
 _ENV = "PROJECT_CODE_IMAGE_REPOSITORY"
 _SSH = "ssh://git@github.com/acme/l.git"
+_SLASH = "https://example.com/acme/l.git/"
 _OTHER = {_ENV: "ghcr.io/o/x"}
 
 
@@ -657,6 +658,7 @@ def _schema_errors(document: dict, tmp_path: Path) -> list[str]:
         (_AWS, None, {"AWS_" + _ENV: "ghcr.io/o/x"}, ("environment", None, "ghcr.io/o/x", None)),
         # a cloud project without an image resolves to the provider registry, never the example
         (_AWS, {"repository": _SSH}, {}, ("provider-default", _SSH, None, None)),
+        (_AWS, {"repository": _SLASH}, {}, ("provider-default", _SLASH, None, None)),
         (_AWS, {"image": {"repository": _ECR}}, {}, ("profile", None, _ECR, None)),
     ],
 )
