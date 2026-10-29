@@ -92,6 +92,11 @@ class _BlockIndentDumper(yaml.SafeDumper):
         return super().increase_indent(flow, False)
 
 
+def dump_block(document: object) -> str:
+    """`document` as block YAML in this module's list indentation."""
+    return yaml.dump(document, Dumper=_BlockIndentDumper, default_flow_style=False, sort_keys=False)
+
+
 def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
     """Render one already-parsed flow-list item (a scalar or a mapping, e.g.
     a dashboard `{name: ..., products: [...]}`) as block-style lines at

@@ -9,6 +9,7 @@ from openlakeforge_domain import load_transitional_lakehouse_inventory
 from olf.scaffold import _templates
 from olf.scaffold._csv import placeholder_example_csv
 from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case
+from olf.scaffold.domain import migrated_governance
 
 
 def plan_source_new(
@@ -61,4 +62,4 @@ def plan_source_new(
     summary = (
         f"Created source {source!r} with {len(resources)} resource(s): {', '.join(resources)}.",
     )
-    return ScaffoldPlan(files=tuple(files), governance_yml=None, summary=summary)
+    return ScaffoldPlan(files=tuple(files), governance_yml=migrated_governance(repo_root), summary=summary)
