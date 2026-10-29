@@ -20,7 +20,7 @@ from olf import config, k8s, log
 from olf.clients.base import ServiceClientError
 from olf.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
-from olf.e2e._trino import trino_query
+from olf.e2e._trino import list_tables, trino_query
 
 
 def _sibling_stage(cfg: E2EConfig) -> str | None:
@@ -177,22 +177,20 @@ def _stage_bucket(provider_contracts: dict[str, Any], stage: str, layer: str) ->
     return str(bucket)
 
 
-def _materialized_tables(cfg: E2EConfig) -> list[tuple[str, str]]:
-    """(layer, schema.table) for every Silver input and Gold mart a product owns."""
-    tables = {("gold", mart) for mart in cfg.inventory.gold_mart_names}
-    for product in cfg.inventory.products:
-        namespace = cfg.inventory.domain_for_product(product).silver_namespace
-        tables.update(
-            ("silver", f"{namespace}.{table.name}") for table in cfg.inventory.resolved_silver_tables(product)
-        )
-    return sorted(tables)
+def _materialized_tables(cfg: E2EConfig, catalog: str) -> list[tuple[str, str]]:
+    """(layer, schema.table) for every table Trino lists in a Silver or Gold schema."""
+    schemas = [("silver", domain.silver_namespace) for domain in cfg.inventory.domains]
+    schemas += [("gold", product.gold_namespace) for product in cfg.inventory.products]
+    return sorted(
+        (layer, f"{schema}.{table}") for layer, schema in schemas for table in list_tables(cfg, schema, catalog=catalog)
+    )
 
 
 def _check_table_locations(cfg: E2EConfig, provider_contracts: dict[str, Any], stage: str) -> None:
     """Every Silver and Gold table has data files, all in the stage's own
     bucket for its layer."""
     catalog = f"lakehouse_{stage}"
-    for layer, table in _materialized_tables(cfg):
+    for layer, table in _materialized_tables(cfg, catalog):
         expected = _stage_bucket(provider_contracts, stage, layer)
         schema, name = table.split(".", 1)
         paths = {

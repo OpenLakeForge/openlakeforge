@@ -111,6 +111,15 @@ _STAGE_BUCKETS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _listed_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_isolation, "list_tables", lambda _cfg, _schema, catalog=None: ["alpha", "beta"])
+
+
+def _materialized(cfg) -> list[tuple[str, str]]:  # noqa: ANN001
+    return _isolation._materialized_tables(cfg, "lakehouse_prod")
+
+
 def _stub_files(
     monkeypatch: pytest.MonkeyPatch,
     cfg,  # noqa: ANN001
@@ -123,7 +132,7 @@ def _stub_files(
     stage's as its table files plus `unregistered` objects no table references."""
     own = {
         table: f"s3://prod-{layer}/{table.replace('.', '/')}/data/{table}-00000.parquet"
-        for layer, table in _isolation._materialized_tables(cfg)
+        for layer, table in _materialized(cfg)
     }
     queried: list[str] = []
 
@@ -147,19 +156,14 @@ def test_stage_data_check_covers_every_declared_table(monkeypatch: pytest.Monkey
 
     _isolation.check_stage_data_is_its_own(cfg, _STAGE_BUCKETS, "prod", "dev")
 
-    # Straight from the product descriptors -- each product's Gold tables and
-    # declared Silver inputs -- not from the helper under test.
+    # Every table Trino lists in a domain's Silver schema and a product's Gold schema.
     declared = {
-        *(
-            f"{product.gold_namespace}.{table.name}"
-            for product in cfg.inventory.products
-            for table in product.gold_tables
-        ),
-        *(
-            f"{cfg.inventory.domain_for_product(product).silver_namespace}.{name}"
-            for product in cfg.inventory.products
-            for name in product.silver_inputs
-        ),
+        f"{schema}.{table}"
+        for schema in (
+            *(domain.silver_namespace for domain in cfg.inventory.domains),
+            *(product.gold_namespace for product in cfg.inventory.products),
+        )
+        for table in ("alpha", "beta")
     }
     assert set(queried) == declared
     assert len(queried) == len(declared) > 0
@@ -169,7 +173,7 @@ def test_stage_data_check_rejects_a_table_reading_the_sibling_stages_bucket(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
-    layer, table = _isolation._materialized_tables(cfg)[0]
+    layer, table = _materialized(cfg)[0]
     _stub_files(monkeypatch, cfg, {table: f"s3://dev-{layer}/{table}/data/x.parquet"})
 
     with pytest.raises(E2EError, match=f"{table} reads data files from .*dev-{layer}"):
@@ -181,7 +185,7 @@ def test_stage_data_check_rejects_sibling_files_copied_into_the_stages_own_bucke
 ) -> None:
     """Location passes -- the copy sits in PROD's bucket -- but the name is DEV's."""
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
-    layer, table = _isolation._materialized_tables(cfg)[0]
+    layer, table = _materialized(cfg)[0]
     _stub_files(
         monkeypatch,
         cfg,
@@ -216,7 +220,7 @@ def test_stage_data_check_defers_to_a_sibling_that_has_written_nothing(
 
 def test_stage_data_check_rejects_a_table_with_no_data_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-prod")
-    _, empty = _isolation._materialized_tables(cfg)[0]
+    _, empty = _materialized(cfg)[0]
     _stub_files(monkeypatch, cfg, {empty: ""})
 
     with pytest.raises(E2EError, match="has no data files"):

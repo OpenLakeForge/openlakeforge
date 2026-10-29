@@ -116,6 +116,17 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     )
     assert inventory.domains[0].artifact_prefixes.floe_report_prefix == "floe/reports/sales/"
     assert inventory.domain_names == ("sales", "supply_chain")
+    assert [entity.name for entity in inventory.floe_entities(inventory.domains[1])] == [
+        "inventory_snapshots",
+        "purchase_orders",
+        "shipments",
+        "stockout_events",
+        "suppliers",
+        "warehouses",
+    ]
+    assert {(entity.source, entity.resource) for entity in inventory.floe_entities(inventory.domains[0])} <= {
+        ("crm", resource.name) for resource in inventory.sources[0].resources
+    }
     assert inventory.silver_table_count == 15  # crm.accounts counted once, shared by order_revenue+customer_health
     assert inventory.gold_table_count == 10
     assert inventory.gold_mart_names == (
@@ -205,6 +216,20 @@ def test_inventory_accepts_domain_silver_table_without_a_product_consumer(tmp_pa
     # silver_table_count only counts tables reachable from a product's
     # silver_inputs, so the unconsumed table does not inflate it.
     assert inventory.silver_table_count == 1
+
+
+def test_a_floe_entity_reading_an_undeclared_bronze_resource_is_rejected(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path)
+    entity_dir = tmp_path / "lakehouse_code" / "silver" / "sales" / "contracts" / "floe"
+    entity_dir.mkdir(parents=True)
+    (entity_dir / "_domain.yml").write_text('name: "sales"\n', encoding="utf-8")
+    (entity_dir / "orders.yml").write_text('name: "orders"\nsource: { ref: "crm", resource: "orders" }\n')
+    (entity_dir / "refunds.yml").write_text('name: "refunds"\nsource: { ref: "crm", resource: "refunds" }\n')
+
+    inventory = load_lakehouse_inventory(tmp_path)
+
+    with pytest.raises(LakehouseDescriptorError, match=r"sales/refunds reads unknown Bronze resource crm/refunds"):
+        inventory.floe_entities(inventory.domains[0])
 
 
 def test_inventory_accepts_domain_with_no_products(tmp_path: Path) -> None:

@@ -82,8 +82,8 @@ def _domain_job(
 
 
 def _silver_inventory(*tables: str) -> SimpleNamespace:
-    silver = [SimpleNamespace(name=table, source="crm", resource=table) for table in tables or ("orders",)]
-    return SimpleNamespace(domains=[SimpleNamespace(name="sales", silver_tables=silver)])
+    entities = [SimpleNamespace(name=table, source="crm", resource=table) for table in tables or ("orders",)]
+    return SimpleNamespace(domains=[SimpleNamespace(name="sales")], floe_entities=lambda _domain: entities)
 
 
 def test_silver_assets_must_each_depend_on_their_own_bronze_resource() -> None:
@@ -95,10 +95,10 @@ def test_silver_assets_must_each_depend_on_their_own_bronze_resource() -> None:
         project_code_check._verify_silver_assets(_silver_inventory(), shared)
 
 
-def test_silver_assets_must_match_the_descriptor_tables() -> None:
+def test_silver_assets_must_match_the_floe_entities() -> None:
     extra = SimpleNamespace(assets=[_domain_job({"orders": ("crm", "orders"), "returns": ("crm", "returns")})])
 
-    with pytest.raises(RuntimeError, match="do not match the descriptor's Silver tables"):
+    with pytest.raises(RuntimeError, match="do not match the Floe entities"):
         project_code_check._verify_silver_assets(_silver_inventory(), extra)
 
 

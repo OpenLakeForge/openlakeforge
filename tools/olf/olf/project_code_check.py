@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
 
-    from openlakeforge_domain import LakehouseInventory, Product
+    from openlakeforge_domain import FloeEntity, LakehouseInventory, Product
 
 
 # Dagster, Floe and the project's `libs` package are untyped or not importable
@@ -101,16 +101,18 @@ def validate(root: Path) -> None:
     _verify_silver_assets(inventory, merged_defs)
 
     canonical_bronze = {(source.name, item.name) for source in inventory.sources for item in source.resources}
-    canonical_silver = {(domain.name, item.name) for domain in inventory.domains for item in domain.silver_tables}
-    canonical_gold = {(product.id, item.name) for product in products for item in product.gold_tables}
+    entities = {
+        (domain.name, entity.name): entity for domain in inventory.domains for entity in inventory.floe_entities(domain)
+    }
+    canonical_silver = set(entities)
+    canonical_gold = {key for key in merged_keys if key[0] in product_ids}
     all_product_keys: set[tuple[str, ...]] = set()
 
     for product in products:
         inputs = _product_inputs(product)
-        expected_inputs = {item.name for item in inventory.resolved_silver_tables(product)}
-        if set(inputs) != expected_inputs:
-            _fail(f"{product.id} Silver inputs do not match lakehouse descriptor")
         domain = product.domain_name
+        if not inputs or any((domain, name) not in entities for name in inputs):
+            _fail(f"{product.id} Silver inputs are not all Floe entities of domain {domain}")
 
         definition_keys = set(_asset_keys(product_defs[product.id]))
         all_product_keys.update(definition_keys)
@@ -123,9 +125,9 @@ def validate(root: Path) -> None:
         job = merged_defs.resolve_job_def(product.job_name)
         _verify_sequential_floe_orchestration(product, job)
         selected = {tuple(key.path) for key in job.asset_layer.selected_asset_keys}
-        expected_bronze = {(item.source, item.name) for item in inventory.bronze_resources_for_product(product)}
         expected_silver = {(domain, item) for item in inputs}
-        expected_gold = {(product.id, item.name) for item in product.gold_tables}
+        expected_bronze = {(entities[key].source, entities[key].resource) for key in expected_silver}
+        expected_gold = {key for key in definition_keys if key[0] == product.id}
         if selected & canonical_bronze != expected_bronze:
             _fail(f"{product.job_name} does not select exactly its Bronze inputs")
         if selected & canonical_silver != expected_silver:
@@ -137,7 +139,7 @@ def validate(root: Path) -> None:
 
     if not all_product_keys <= merged_keys:
         _fail("merged definitions do not contain every product asset")
-    _verify_shared_assets(inventory, merged_keys_list)
+    _verify_shared_assets(inventory, entities, merged_keys_list)
     _verify_stage_schedules(inventory, product_dagster_lib)
     _verify_bronze_dlt_stage_state()
     Definitions.validate_loadable(merged_defs)
@@ -171,13 +173,13 @@ def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) ->
 
     Each domain's asset is one Kubernetes Job; subsettable, so a run that
     needs some of a domain's tables runs only those entities. The Bronze edge
-    comes from the entity's `source.ref`/`resource` in Floe and the table list
-    from `lakehouse.yaml`; the two must agree.
+    comes from the entity's `source.ref`/`resource` in Floe, and the Silver
+    tables are the domain's Floe entities.
     """
     tables = {
-        (domain.name, item.name): (item.source, item.resource)
+        (domain.name, entity.name): (entity.source, entity.resource)
         for domain in inventory.domains
-        for item in domain.silver_tables
+        for entity in inventory.floe_entities(domain)
     }
     found: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
     job_domains: list[str] = []
@@ -202,7 +204,7 @@ def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) ->
     if len(job_domains) != len(set(job_domains)):
         _fail(f"each domain must run as one Floe Job; got {sorted(job_domains)}")
     if set(found) != set(tables):
-        _fail(f"Floe Silver assets {sorted(found)} do not match the descriptor's Silver tables {sorted(tables)}")
+        _fail(f"Floe Silver assets {sorted(found)} do not match the Floe entities {sorted(tables)}")
     for key, bronze in tables.items():
         if bronze not in found[key]:
             _fail(f"Silver asset {'/'.join(key)} must depend on its Bronze resource {'/'.join(bronze)}")
@@ -254,17 +256,12 @@ def _verify_daily_cron(schedule: _Schedule) -> None:
         _fail(f"{schedule.name} must run once a day; got {schedule.cron_schedule!r}")
 
 
-def _verify_shared_assets(inventory: LakehouseInventory, asset_keys: list[tuple[str, ...]]) -> None:
-    counts = Counter(
-        (item.source, item.name)
-        for product in inventory.products
-        for item in inventory.bronze_resources_for_product(product)
-    )
-    counts.update(
-        (item.domain, item.name)
-        for product in inventory.products
-        for item in inventory.resolved_silver_tables(product)
-    )
+def _verify_shared_assets(
+    inventory: LakehouseInventory, entities: Mapping[tuple[str, str], FloeEntity], asset_keys: list[tuple[str, ...]]
+) -> None:
+    inputs = [(product.domain_name, name) for product in inventory.products for name in _product_inputs(product)]
+    counts = Counter((entities[key].source, entities[key].resource) for key in inputs)
+    counts.update(inputs)
     for key, count in counts.items():
         if count > 1 and asset_keys.count(key) != 1:
             _fail(f"shared asset {key[0]}/{key[1]} must have exactly one definition")
