@@ -22,7 +22,7 @@ from olf.deployment.local.platform import require_no_shared_namespace_replacemen
 from olf.deployment.retry import RetryPolicy, run_with_retry
 
 _NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
-_POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-", "postgresql-credentials-")
+_POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-")
 
 
 def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
