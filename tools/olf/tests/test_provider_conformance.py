@@ -36,6 +36,7 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -755,6 +756,82 @@ def test_contract_environment_resolves_only_the_stage_it_was_built_for(provider:
         f"_STAGE_DERIVED_EXPORTS if it is built from one, or to _CAPABILITY_GATED_EXPORTS if it varies because "
         f"a stage turned a capability off. Leaving it here means a stage-carrying value nobody asserts."
     )
+
+
+def _stage_pod_env(contract: dict[str, Any], topology: Any, stage: Any) -> dict[str, str]:
+    """The env a stage's code location runs with: its contract exports through activation's filter."""
+    from olf.deployment.activation import _user_values
+    from olf.project_activation import ProjectActivation
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=stage.name)
+    activation = ProjectActivation(
+        deployment_profile=contract["deployment"]["profile_name"],
+        provider=contract["deployment"]["provider"],
+        stage=stage.name,
+        project_name="demo",
+        project_revision="sha256:" + "b" * 64,
+        distribution_version="0.0.0",
+        project_code_image="ghcr.io/acme/project-code@sha256:" + "a" * 64,
+        provider_binding_digest="sha256:" + "d" * 64,
+        capabilities={"analytics": stage.reporting is not None, "governance": stage.governance is not None},
+    ).resolved()
+    values = _user_values(
+        activation,
+        contract_environ=exports,
+        namespace=stage.namespace,
+        platform_globals={},
+        code_locations=stage.code_locations,
+    )
+    return {entry["name"]: entry["value"] for entry in values["deployments"][0]["env"] if "value" in entry}
+
+
+@pytest.mark.parametrize("provider", [Provider.LOCAL, Provider.AZURE])
+def test_each_stage_renders_a_floe_profile_bound_to_its_own_contract(provider: Provider) -> None:
+    """The last hop #546 asks to prove: contract, then activation's pod env, then the Floe profile.
+
+    The export-level test above stops at the contract environment. This one
+    renders the profile from what activation actually puts on the pod, so a
+    Floe input the runtime allowlist drops, or one stage's value reaching
+    another stage's profile, fails here rather than in a run.
+    """
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from libs.floe_profile import render_profile
+
+    contract = _contract(provider)
+    topology = _topology_of(contract)
+    parsed = parse_provider_contracts(contract, topology)
+    assert len(parsed.stages) > 1
+
+    for name, stage in parsed.stages.items():
+        profile = render_profile(_stage_pod_env(contract, topology, stage))
+
+        buckets = {storage["name"]: storage["bucket"] for storage in profile["storages"]["definitions"]}
+        assert buckets["lakehouse_bronze"] == stage.storage["bronze"]["bucket_name"]
+        assert buckets["lakehouse_silver"] == stage.storage["silver"]["bucket_name"]
+        (catalog,) = profile["catalogs"]["definitions"]
+        assert catalog["warehouse"] == stage.catalog.get("warehouse", stage.catalog["catalog_name"])
+        runner = profile["execution"]["runner"]
+        assert runner["namespace"] == stage.namespace
+        assert profile["metadata"]["name"] == name.value
+        others = {other.value for other in parsed.stages if other != name}
+        rendered = json.dumps(profile)
+        assert not [other for other in others if _names_stage(rendered, other)], (
+            f"{provider.value}'s {name.value!r} Floe profile names another stage: {rendered}"
+        )
+
+
+def test_an_aws_glue_stage_pod_refuses_floe_explicitly() -> None:
+    """Silver does not run on Glue yet (docs/technical-debt.md); the pod must say so, not misbehave."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from libs.floe_profile import FloeProfileError, render_profile
+
+    contract = _contract(Provider.AWS)
+    topology = _topology_of(contract)
+    for stage in parse_provider_contracts(contract, topology).stages.values():
+        with pytest.raises(FloeProfileError, match="Silver runs through a REST catalog only"):
+            render_profile(_stage_pod_env(contract, topology, stage))
 
 
 def test_a_stage_bucket_that_extends_another_stages_name_is_not_a_leak() -> None:
