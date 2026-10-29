@@ -63,8 +63,8 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
                     "includeViews": False,
                     "includeTags": False,
                     # Trino lists every catalog; only this stage's is crawled.
-                    # Nothing is marked deleted: `deploy-metadata` seeds table
-                    # stubs before their first run materializes them (#131).
+                    # Nothing is marked deleted: `deploy-metadata` seeds the
+                    # domain-tagged schemas before their first run materializes tables (#131).
                     "databaseFilterPattern": {"includes": [f"^{environ['OPENLAKEFORGE_CATALOG_NAME']}$"]},
                     "markDeletedDatabases": False,
                     "markDeletedSchemas": False,

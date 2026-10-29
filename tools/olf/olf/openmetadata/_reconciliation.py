@@ -63,89 +63,19 @@ class OpenMetadataReconciler:
             "environment."
         )
 
-    def resolve_table_asset(self, asset):
-        if isinstance(asset, str):
-            asset_type = "table"
-            fqn = asset
-        elif isinstance(asset, dict):
-            asset_type = asset.get("type", "table")
-            fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
-        else:
-            raise OpenMetadataError(f"Unsupported asset entry: {asset!r}")
-
-        if asset_type != "table":
-            raise OpenMetadataError(
-                f"Unsupported OpenMetadata data-product asset type '{asset_type}'. Only 'table' is supported."
-            )
-        if not fqn:
-            raise OpenMetadataError(f"OpenMetadata data-product asset is missing 'fqn': {asset!r}")
-        self.require_stage_scoped(fqn, "table")
-
-        encoded_fqn = urllib.parse.quote(fqn, safe="")
-        try:
-            table = self.client.request("GET", f"/api/v1/tables/name/{encoded_fqn}?fields=domains")
-        except OpenMetadataError as exc:
-            if "HTTP 404" in str(exc):
-                return None, fqn
-            raise
-
-        table_id = table.get("id")
-        if not table_id:
-            raise OpenMetadataError(f"OpenMetadata table lookup for '{fqn}' did not return an id: {table}")
-        return {
-            "id": table_id,
-            "type": "table",
-            "name": table.get("name"),
-            "fullyQualifiedName": table.get("fullyQualifiedName", fqn),
-            "displayName": table.get("displayName"),
-            "domains": table.get("domains") or [],
-        }, None
-
-    def resolve_domain_ref(self, domain_name):
-        encoded_name = urllib.parse.quote(domain_name, safe="")
-        domain = self.client.request("GET", f"/api/v1/domains/name/{encoded_name}")
-        domain_id = domain.get("id")
-        if not domain_id:
-            raise OpenMetadataError(f"OpenMetadata domain lookup for '{domain_name}' did not return an id: {domain}")
-        return {
-            "id": domain_id,
-            "type": "domain",
-            "name": domain.get("name", domain_name),
-            "fullyQualifiedName": domain.get("fullyQualifiedName", domain_name),
-            "displayName": domain.get("displayName"),
-        }
-
-    @staticmethod
-    def _domain_matches(existing, expected) -> bool:
-        return (
-            existing.get("id") == expected.get("id")
-            or existing.get("fullyQualifiedName") == expected.get("fullyQualifiedName")
-            or existing.get("name") == expected.get("name")
-        )
-
-    def ensure_table_domains(self, table_refs, domain_refs) -> None:
-        for table_ref in table_refs:
-            existing_domains = table_ref.get("domains") or []
-            missing_domains = [
-                domain_ref
-                for domain_ref in domain_refs
-                if not any(self._domain_matches(existing, domain_ref) for existing in existing_domains)
-            ]
-            if not missing_domains:
-                continue
-            domains = existing_domains + missing_domains
-            self.client.request(
-                "PATCH",
-                f"/api/v1/tables/{table_ref['id']}",
-                json_body=[{"op": "add", "path": "/domains", "value": domains}],
-                content_type="application/json-patch+json",
-            )
-            table_ref["domains"] = domains
-            print(
-                "Assigned OpenMetadata domain(s) "
-                f"{', '.join(domain['fullyQualifiedName'] for domain in missing_domains)} "
-                f"to table: {table_ref['fullyQualifiedName']}"
-            )
+    def list_schema_tables(self, schema_fqn: str) -> list[dict]:
+        """Asset references for the tables a schema holds so far."""
+        self.require_stage_scoped(schema_fqn, "database schema")
+        query = f"databaseSchema={urllib.parse.quote(schema_fqn, safe='')}&limit=1000"
+        refs: list[dict] = []
+        after = None
+        while True:
+            suffix = f"&after={urllib.parse.quote(after, safe='')}" if after else ""
+            page = self.client.request("GET", f"/api/v1/tables?{query}{suffix}")
+            refs += [{"id": table["id"], "type": "table"} for table in page.get("data", [])]
+            after = (page.get("paging") or {}).get("after")
+            if not after:
+                return refs
 
     def ensure_storage_service(self) -> None:
         aws_config = {"awsRegion": self.config.storage_region}
@@ -179,14 +109,11 @@ class OpenMetadataReconciler:
         self.client.request("PUT", "/api/v1/containers", json_body=payload, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata container: {full_path}")
 
-    def ensure_database_schema(self, schema_fqn: str) -> None:
-        """Create the databaseSchema a table stub is about to reference.
+    def ensure_database_schema(self, schema_fqn: str, domain: str | None = None) -> None:
+        """Create the databaseSchema and set its domain ahead of the Trino ingestion.
 
-        Phase 1 used to pre-create these alongside the Polaris namespaces it
-        owned. Now that namespaces are reconciled in Phase 2 (ADR 0002), the
-        schema entity has to be created here instead -- OpenMetadata rejects a
-        table whose `databaseSchema` does not resolve, and the Polaris crawler
-        that would otherwise discover it has not run yet at seeding time.
+        The schema is where ownership lives: tables the ingestion discovers
+        under it inherit the domain. The ingestion adopts this entity by FQN.
         """
         database_fqn, _, name = schema_fqn.rpartition(".")
         if not database_fqn or not name:
@@ -194,19 +121,9 @@ class OpenMetadataReconciler:
         self.require_stage_scoped(schema_fqn, "database schema")
         if schema_fqn in self._ensured_schema_fqns:
             return
-        self.client.request(
-            "PUT",
-            "/api/v1/databaseSchemas",
-            json_body={"name": name, "database": database_fqn},
-            ok_statuses=(200, 201),
-        )
+        payload: dict = {"name": name, "database": database_fqn}
+        if domain:
+            payload["domains"] = [domain]
+        self.client.request("PUT", "/api/v1/databaseSchemas", json_body=payload, ok_statuses=(200, 201))
         self._ensured_schema_fqns.add(schema_fqn)
         print(f"Upserted OpenMetadata database schema: {schema_fqn}")
-
-    def ensure_table_stub(self, schema_fqn, name, description) -> None:
-        self.require_stage_scoped(schema_fqn, "table")
-        payload = {"name": name, "databaseSchema": schema_fqn, "columns": []}
-        if description:
-            payload["description"] = description
-        self.client.request("PUT", "/api/v1/tables", json_body=payload, ok_statuses=(200, 201))
-        print(f"Upserted OpenMetadata table stub: {schema_fqn}.{name}")
