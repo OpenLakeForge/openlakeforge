@@ -39,10 +39,28 @@ from .inventory import (
 # ponytail: a regex over the model text, so a call inside a Jinja comment still
 # counts. Parse dbt's manifest instead when a project hits that.
 _DBT_SOURCE_CALL = re.compile(r"""\bsource\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)""")
-# A dbt config that changes whether a model exists or where it lands means the
+# A dbt setting that changes whether a model exists or where it lands means the
 # model name is no longer the table name: alias/identifier/schema rename it,
-# enabled=false and ephemeral remove it. Rejected rather than resolved offline.
-_DBT_UNSUPPORTED = re.compile(r"\b(?:alias|identifier|schema|enabled)\s*=|\bephemeral\b|\+(?:alias|schema|enabled)\s*:")
+# enabled and ephemeral remove it. Rejected rather than resolved offline.
+_DBT_CONFIG_CALL = re.compile(r"\bconfig\s*\((.*?)\)\s*\}\}", re.DOTALL)
+_DBT_UNSUPPORTED_CALL = re.compile(r"\b(?:alias|identifier|schema|enabled)\s*=|\bephemeral\b")
+_DBT_UNSUPPORTED_KEYS = frozenset({"alias", "identifier", "schema", "enabled"})
+_UNSUPPORTED = "dbt alias, identifier, schema, enabled and ephemeral settings are not supported"
+
+
+def _has_unsupported_setting(node: object) -> bool:
+    if not isinstance(node, Mapping):
+        return False
+    return any(
+        str(key).lstrip("+") in _DBT_UNSUPPORTED_KEYS
+        or (str(key).lstrip("+") == "materialized" and value == "ephemeral")
+        or _has_unsupported_setting(value)
+        for key, value in node.items()
+    )
+
+
+def _subdirs(path: Path) -> set[str]:
+    return {p.name for p in path.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))} if path.is_dir() else set()
 
 
 def _yaml(path: Path) -> Mapping[str, Any]:
@@ -52,18 +70,30 @@ def _yaml(path: Path) -> Mapping[str, Any]:
     return document
 
 
+def _require_own_namespace(path: Path, contract: object, domain: str) -> None:
+    """A Floe contract may name only its own domain's Silver schema (``<domain>_silver``)."""
+    node: object = contract
+    for key in ("sink", "accepted", "iceberg", "namespace"):
+        node = node.get(key) if isinstance(node, Mapping) else None
+    if node not in (None, f"{domain}_silver"):
+        raise LakehouseDescriptorError(f"{path}: namespace {node!r} claims a schema other than {domain}_silver")
+
+
 def _silver_tables(root: Path, domain: str) -> tuple[SilverTable, ...]:
     floe_dir = root / "silver" / domain / "contracts" / "floe"
     domain_file = floe_dir / "_domain.yml"
     if not domain_file.is_file():
         raise LakehouseDescriptorError(f"{domain_file}: domain {domain!r} has no Floe domain contract")
-    if _yaml(domain_file).get("name") != domain:
+    domain_contract = _yaml(domain_file)
+    if domain_contract.get("name") != domain:
         raise LakehouseDescriptorError(f"{domain_file}: name must be {domain!r} to match governance")
+    _require_own_namespace(domain_file, domain_contract.get("defaults"), domain)
     tables: dict[str, SilverTable] = {}
     for path in sorted(floe_dir.glob("*.yml")):
         if path == domain_file:
             continue
         entity = _yaml(path)
+        _require_own_namespace(path, entity, domain)
         name, ref = entity.get("name"), entity.get("source")
         if not isinstance(ref, Mapping) or not name or not ref.get("ref") or not ref.get("resource"):
             raise LakehouseDescriptorError(f"{path}: a Floe entity needs a name and a source ref and resource")
@@ -80,8 +110,15 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
         raise LakehouseDescriptorError(f"{project_file}: product {product_id!r} has no dbt project")
     if _yaml(project_file).get("name") != product_id:
         raise LakehouseDescriptorError(f"{project_file}: name must be {product_id!r} to match governance")
-    if _DBT_UNSUPPORTED.search(project_file.read_text(encoding="utf-8")):
-        raise LakehouseDescriptorError(f"{project_file}: dbt alias, schema, enabled or ephemeral settings are not supported")
+    project = _yaml(project_file)
+    if project.get("model-paths", ["models"]) != ["models"]:
+        raise LakehouseDescriptorError(f"{project_file}: model-paths other than ['models'] are not supported")
+    if _has_unsupported_setting(project.get("models")):
+        raise LakehouseDescriptorError(f"{project_file}: {_UNSUPPORTED}")
+    for properties in sorted((dbt_dir / "models").rglob("*.y*ml")):
+        for entry in (yaml.safe_load(properties.read_text(encoding="utf-8")) or {}).get("models") or []:
+            if isinstance(entry, Mapping) and _has_unsupported_setting(entry.get("config")):
+                raise LakehouseDescriptorError(f"{properties}: {_UNSUPPORTED}")
     models = sorted((dbt_dir / "models").rglob("*.sql"))
     names = [model.stem for model in models]
     if not names:
@@ -91,8 +128,8 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
     inputs: list[str] = []
     for model in models:
         text = model.read_text(encoding="utf-8")
-        if _DBT_UNSUPPORTED.search(text):
-            raise LakehouseDescriptorError(f"{model}: dbt alias, schema, enabled or ephemeral settings are not supported")
+        if any(_DBT_UNSUPPORTED_CALL.search(call) for call in _DBT_CONFIG_CALL.findall(text)):
+            raise LakehouseDescriptorError(f"{model}: {_UNSUPPORTED}")
         for source, table in _DBT_SOURCE_CALL.findall(text):
             if source != "silver":
                 raise LakehouseDescriptorError(
@@ -130,12 +167,12 @@ def _dashboards(root: Path, products: tuple[Product, ...]) -> tuple[Dashboard, .
 
 
 def _reject_ungoverned(root: Path, domains: tuple[Domain, ...]) -> None:
+    """Each domain, product and Dagster module in code needs its governance entry, and the reverse."""
     products = {product.id for domain in domains for product in domain.products}
     pipelines = {path.stem for path in (root / "pipelines" / "dagster").glob("*.py") if path.stem != "__init__"}
     for label, found, governed in (
-        ("Silver domain", {p.parts[-4] for p in (root / "silver").glob("*/contracts/floe/_domain.yml")},
-         {domain.name for domain in domains}),
-        ("Gold product", {p.parts[-3] for p in (root / "gold").glob("*/dbt/dbt_project.yml")}, products),
+        ("Silver domain", _subdirs(root / "silver"), {domain.name for domain in domains}),
+        ("Gold product", _subdirs(root / "gold"), products),
         ("Dagster module", pipelines, products),
     ):
         if found - governed:

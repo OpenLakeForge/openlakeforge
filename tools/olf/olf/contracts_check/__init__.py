@@ -15,6 +15,7 @@ from pathlib import Path
 from olf.contracts_check._descriptors import (
     _check_deployment_profile_schema_conformance,
     _check_descriptor_schema_conformance,
+    _check_governance_conformance,
     descriptor_schema_errors,
     profile_schema_errors,
 )
@@ -54,6 +55,7 @@ def run_contracts_check(
 
     report = ContractsCheckReport()
     report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_governance_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(
         _check_deployment_profile_schema_conformance(
             root, schema_root=dist_root / "docs" / "schema", distribution_root=dist_root

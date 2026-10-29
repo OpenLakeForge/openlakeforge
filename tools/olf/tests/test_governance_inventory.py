@@ -75,6 +75,14 @@ def test_formatting_variants_do_not_change_the_derived_inventory(tmp_path: Path)
     assert inventory.dashboards[0].products == ("revenue",)
 
 
+def test_sql_that_merely_mentions_config_words_is_accepted(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    sql = "select 'ephemeral' as kind from {{ source('silver', 'orders') }} where enabled = true"
+    (project / "lakehouse_code" / _MODEL).write_text(sql, encoding="utf-8")
+
+    assert load_governance_inventory(project).products[0].silver_inputs == ("orders",)
+
+
 def test_reference_project_derives_what_lakehouse_yaml_declares(tmp_path: Path) -> None:
     code = tmp_path / "lakehouse_code"
     shutil.copytree(ROOT / "lakehouse_code", code, ignore=shutil.ignore_patterns("__pycache__"))
@@ -124,6 +132,7 @@ def _break(tmp_path: Path, relative: str, text: str | None) -> Path:
 
 
 _ORDERS = "silver/sales/contracts/floe/orders.yml"
+_DOMAIN = "silver/sales/contracts/floe/_domain.yml"
 _DUP = "silver/sales/contracts/floe/dup.yml"
 _MODEL = "gold/revenue/dbt/models/gold/mart_revenue.sql"
 _DATASET = "dashboards/superset/revenue_board/datasets/Trino/mart_revenue.yaml"
@@ -145,6 +154,14 @@ _DATASET = "dashboards/superset/revenue_board/datasets/Trino/mart_revenue.yaml"
         (_MODEL, "{{ config(alias='daily') }} select 1 from {{ source('silver', 'orders') }}", "not supported"),
         (_MODEL, "{{ config(materialized='ephemeral') }} select 1", "not supported"),
         (_MODEL, "{{ config(enabled=false) }} select 1", "not supported"),
+        ("gold/revenue/dbt/dbt_project.yml", "name: revenue\nmodel-paths: [sql]\n", "model-paths"),
+        ("gold/revenue/dbt/dbt_project.yml", "name: revenue\nmodels: {revenue: {+schema: elsewhere}}\n", "schema"),
+        ("gold/revenue/dbt/models/m.yml", "models:\n- name: mart_revenue\n  config: {schema: elsewhere}\n", "schema"),
+        (_DOMAIN, "name: sales\ndefaults: {sink: {accepted: {iceberg: {namespace: hr_silver}}}}\n", "claims a schema"),
+        (_ORDERS, "name: orders\nsource: {ref: crm, resource: orders}\nsink: {accepted: {iceberg: {namespace: x}}}\n",
+         "claims a schema"),
+        ("silver/hr/__init__.py", "", "Silver domain ['hr'] is not in governance.yml"),
+        ("gold/stray/__init__.py", "", "Gold product ['stray'] is not in governance.yml"),
         (_MODEL, "{{ config(schema='other') }} select 1", "not supported"),
         ("gold/revenue/dbt/dbt_project.yml", "name: revenue\nmodels: {+materialized: ephemeral}\n", "ephemeral"),
         (_MODEL, "select * from {{ source('silver', 'ghost') }}", "unknown domain Silver"),
@@ -199,3 +216,18 @@ def test_valid_governance_passes_model_and_schema(tmp_path: Path) -> None:
     document = load_governance_descriptor(path)
     schema = json.loads((ROOT / "docs/schema/governance.schema.json").read_text(encoding="utf-8"))
     assert not list(jsonschema.Draft202012Validator(schema).iter_errors(document))
+
+
+def test_contracts_check_skips_without_governance_and_reports_code_mismatches(tmp_path: Path) -> None:
+    from olf.contracts_check._descriptors import _check_governance_conformance
+
+    schemas = ROOT / "docs/schema"
+    assert _check_governance_conformance(tmp_path, schema_root=schemas).ok
+
+    project = _project(tmp_path)
+    assert _check_governance_conformance(project, schema_root=schemas).ok
+
+    (project / "lakehouse_code/gold/stray").mkdir()
+    result = _check_governance_conformance(project, schema_root=schemas)
+    assert not result.ok
+    assert "Gold product ['stray'] is not in governance.yml" in result.detail
