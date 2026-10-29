@@ -185,6 +185,15 @@ def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_a
     assert load_lakehouse_inventory(tmp_path, allow_incomplete=True).domains == ()
 
 
+@pytest.mark.parametrize("content", ["not a mapping\n", "- unexpected\n"])
+def test_a_malformed_legacy_descriptor_is_a_descriptor_error(tmp_path: Path, content: str) -> None:
+    (tmp_path / "lakehouse_code").mkdir()
+    (tmp_path / "lakehouse_code" / "lakehouse.yaml").write_text(content, encoding="utf-8")
+
+    with pytest.raises(LakehouseDescriptorError):
+        load_lakehouse_inventory(tmp_path, allow_incomplete=True)
+
+
 def test_inventory_for_caches_by_resolved_repo_root() -> None:
     assert inventory_for(ROOT) is inventory_for(ROOT)
     assert inventory_for(ROOT) is inventory_for(str(ROOT))
