@@ -1071,7 +1071,10 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
 
     gold = repo_root / "lakehouse_code" / "gold" / "campaign_performance"
     sources_yml = (gold / "dbt" / "models" / "sources.yml").read_text()
-    assert "schema: marketing_silver" in sources_yml
+    # No default for the catalog: an unset stage binding fails the run
+    # instead of reaching DEV; the Silver schema carries the stage prefix.
+    assert "database: \"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\"" in sources_yml
+    assert "schema: \"{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}marketing_silver\"" in sources_yml
 
     floe_domain = (
         repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe" / "_domain.yml"
