@@ -472,7 +472,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
         def __init__(self, _url: str, *, expected_location_names: list[str]) -> None:
             received_location_names.extend(expected_location_names)
 
-        def launch(self, _job: str) -> str:
+        def launch(self, _job: str, *, tags=None) -> str:  # noqa: ANN001
             return "run-1"
 
         def poll(self, _job: str, _run_id: str, *, timeout_seconds: int) -> None:
@@ -505,3 +505,27 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
 
     assert timeouts == [_dagster.DAGSTER_JOB_TIMEOUT_SECONDS] * len(E2E_INVENTORY.job_names)
     assert received_location_names == ["openlakeforge-dagster"]
+
+
+def test_dagster_launch_puts_the_requested_tags_on_the_run() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def request_json(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        calls.append({"query": query, "variables": variables})
+        if "query Workspace" in query:
+            location = {
+                "name": "openlakeforge-dagster",
+                "locationOrLoadError": {
+                    "__typename": "RepositoryLocation",
+                    "repositories": [{"name": "__repository__", "pipelines": [{"name": "order_revenue_pipeline"}]}],
+                },
+            }
+            return {"data": {"workspaceOrError": {"__typename": "Workspace", "locationEntries": [location]}}}
+        return {"data": {"launchRun": {"__typename": "LaunchRunSuccess", "run": {"runId": "run-1"}}}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+    client.launch("order_revenue_pipeline", tags={"openlakeforge/full_refresh": "bronze"})
+
+    tags = calls[-1]["variables"]["executionParams"]["executionMetadata"]["tags"]
+    assert {"key": "openlakeforge/full_refresh", "value": "bronze"} in tags
+    assert any(tag["key"] == "openlakeforge/e2e-key" for tag in tags)

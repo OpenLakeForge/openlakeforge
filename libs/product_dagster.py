@@ -29,7 +29,7 @@ from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
 from libs.source_bindings import source_binding_tags
-from openlakeforge_domain import inventory_for
+from openlakeforge_domain import full_refresh_scope, inventory_for
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
@@ -69,10 +69,16 @@ class ProductDefinitionSpec:
 class SourceDefinitionSpec:
     source: str
     resources: tuple[str, ...]
-    bronze_loader: Callable[[tuple[str, ...]], dict[str, BronzeLoadResult]]
+    bronze_loader: Callable[..., dict[str, BronzeLoadResult]]
 
 
 def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
+    # A source with an incremental resource has a loader that takes
+    # `full_refresh` (libs.bronze_dlt.load_dlt_source); a full-only source
+    # reloads everything on every run, so its loader has nothing to refresh.
+    declared = next(source for source in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if source.name == spec.source)
+    incremental = any(resource.load.incremental for resource in declared.resources)
+
     @multi_asset(
         name=f"{spec.source}_bronze_resources",
         outs={
@@ -97,7 +103,11 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
                 for resource in spec.resources
                 if context.selected_output_names is None or resource in context.selected_output_names
             )
-            results = spec.bronze_loader(selected)
+            if incremental:
+                full_refresh = full_refresh_scope(context.run.tags) == "bronze"
+                results = spec.bronze_loader(selected, full_refresh=full_refresh)
+            else:
+                results = spec.bronze_loader(selected)
         finally:
             if previous_run_id is None:
                 os.environ.pop("DAGSTER_RUN_ID", None)
@@ -185,8 +195,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         )
         previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
         os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
+        # Both scopes rebuild Gold: after a Bronze reload, an incremental model
+        # would otherwise keep rows its rebuilt inputs no longer hold.
+        full_refresh = full_refresh_scope(context.run.tags) is not None
         try:
-            invocation = dbt.cli(["build"], context=context)
+            invocation = dbt.cli(["build", *(["--full-refresh"] if full_refresh else [])], context=context)
             yield from invocation.stream()
         finally:
             if previous_job_name is None:

@@ -142,6 +142,7 @@ def validate(root: Path) -> None:
     _verify_shared_assets(inventory, entities, merged_keys_list)
     _verify_stage_schedules(inventory, product_dagster_lib)
     _verify_bronze_dlt_stage_state()
+    _verify_bronze_dlt_load_modes()
     Definitions.validate_loadable(merged_defs)
     merged_defs.get_repository_def().load_all_definitions()
 
@@ -357,6 +358,101 @@ def _verify_bronze_dlt_stage_state() -> None:
             fsspec_from_config(pipeline.destination_client().config)
         except Exception as exc:  # dlt raises its own MissingDependencyException
             _fail(f"dlt cannot open a stage's S3 Bronze bucket ({type(exc).__name__}): {exc}")
+
+
+_LOAD_MODES_SOURCE = """\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: mock_api
+displayName: Mock API
+description: A mocked API for the load-mode check.
+status: planned
+resources:
+  - name: records
+    load: { mode: incremental, cursor: updated_at, primary_key: [id] }
+  - name: lookups
+"""
+
+
+def _verify_bronze_dlt_load_modes() -> None:
+    """`source.yaml` load modes drive what a dlt load writes to Bronze (#343).
+
+    An incremental resource appends only the rows past its cursor, and a run
+    with nothing new writes nothing; a full resource replaces its files; a full
+    refresh drops an incremental resource's files and cursor and extracts it
+    all again. Newer batches must sort first, since Floe keeps the first row of
+    a repeated key.
+    """
+    import dlt
+
+    bronze_dlt = import_module("libs.bronze_dlt")
+    records = [{"id": 1, "updated_at": 1, "v": "a"}, {"id": 2, "updated_at": 2, "v": "b"}]
+
+    def source(cursor: str = "updated_at") -> object:
+        @dlt.source(name="mock_api")
+        def mock_api() -> object:
+            @dlt.resource(name="records")
+            # dlt reads the cursor from this default argument; it is dlt's own idiom.
+            def records_resource(
+                updated_at: Any = dlt.sources.incremental(cursor, initial_value=0),  # noqa: B008
+            ) -> Iterator[object]:
+                yield [row for row in records if row["updated_at"] > updated_at.last_value]
+
+            @dlt.resource
+            def lookups() -> Iterator[object]:
+                yield [{"code": "x"}, {"code": "y"}]
+
+            return records_resource, lookups
+
+        return mock_api()
+
+    with tempfile.TemporaryDirectory(prefix="olf-dlt-modes-") as work:
+        root, bucket = Path(work, "lakehouse_code"), Path(work, "bronze")
+        (root / "bronze" / "mock_api").mkdir(parents=True)
+        (root / "bronze" / "mock_api" / "source.yaml").write_text(_LOAD_MODES_SOURCE, encoding="utf-8")
+
+        def load(*, full_refresh: bool = False, cursor: str = "updated_at") -> dict[str, int]:
+            with _environment({"OPENLAKEFORGE_STAGE": "dev"}):
+                results = bronze_dlt.load_dlt_source(
+                    "mock_api",
+                    source(cursor),
+                    ("records", "lookups"),
+                    full_refresh=full_refresh,
+                    bucket_url=bucket.as_uri(),
+                    lakehouse_root=root,
+                )
+            return {name: result.rows for name, result in results.items()}
+
+        def files(resource: str) -> list[str]:
+            return sorted(path.name for path in (bucket / "mock_api" / resource).glob("*.parquet"))
+
+        first, unchanged = load(), load()
+        if first != {"records": 2, "lookups": 2} or unchanged != {"records": 0, "lookups": 2}:
+            _fail(f"dlt load modes: first run loaded {first}, a run with no change loaded {unchanged}")
+        if len(files("records")) != 1 or len(files("lookups")) != 1:
+            _fail(f"dlt load modes: Bronze holds {files('records')} and {files('lookups')} after an unchanged run")
+
+        records[0] = {"id": 1, "updated_at": 3, "v": "a2"}
+        records.append({"id": 3, "updated_at": 4, "v": "c"})
+        delta = load()
+        batches = files("records")
+        if delta["records"] != 2 or len(batches) != 2:
+            _fail(f"dlt load modes: a changed and a new row loaded {delta['records']} row(s) into {batches}")
+        newest = import_module("pyarrow.parquet").read_table(bucket / "mock_api" / "records" / batches[0])
+        if sorted(newest.column("id").to_pylist()) != [1, 3]:
+            _fail(f"dlt load modes: the newest batch does not sort first in Bronze: {batches}")
+
+        refreshed = load(full_refresh=True)
+        if refreshed["records"] != 3 or len(files("records")) != 1:
+            _fail(f"dlt load modes: a full refresh loaded {refreshed['records']} row(s) into {files('records')}")
+
+        try:
+            load(cursor="v")
+        except RuntimeError as exc:
+            if "updated_at" not in str(exc):
+                _fail(f"dlt load modes: a cursor mismatch failed without naming the declared cursor: {exc}")
+        else:
+            _fail("dlt load modes: a connector whose cursor is not the declared one loaded anyway")
 
 
 def main() -> None:

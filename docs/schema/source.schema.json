@@ -21,7 +21,26 @@
         "required": ["name"],
         "properties": {
           "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-          "description": {"type": "string"}
+          "description": {"type": "string"},
+          "load": {
+            "description": "How a run extracts the resource. 'full' (the default) replaces the Bronze files on every run; 'incremental' appends the rows past the cursor's last value, and Silver merges them on primary_key.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode"],
+            "properties": {
+              "mode": {"enum": ["full", "incremental"]},
+              "cursor": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+              "primary_key": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+              }
+            },
+            "if": {"properties": {"mode": {"const": "incremental"}}},
+            "then": {"required": ["cursor", "primary_key"]},
+            "else": {"not": {"required": ["cursor"]}}
+          }
         }
       }
     },

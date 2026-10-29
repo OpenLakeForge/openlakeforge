@@ -23,6 +23,7 @@ from olf.contracts_check._hcl import _check_hcl_phase_two_invariants, _check_hcl
 from olf.contracts_check._rendered import (
     _check_floe_contract_structure,
     _check_helm_values_as_data,
+    _check_silver_load_modes,
 )
 from olf.contracts_check._report import CheckResult, ContractsCheckReport
 
@@ -64,5 +65,6 @@ def run_contracts_check(
     report.results.append(_check_hcl_structured_contracts(dist_root))
     report.results.append(_check_hcl_phase_two_invariants(dist_root))
     report.results.append(_check_floe_contract_structure(root))
+    report.results.append(_check_silver_load_modes(root))
     report.results.append(_check_helm_values_as_data(dist_root))
     return report

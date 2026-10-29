@@ -52,6 +52,7 @@ All `new` commands validate the result before writing and accept
 | `olf forward` | Port-forward every service to `localhost` until Ctrl-C. |
 | `olf doctor` | Check the host, tools, project and cloud authentication without changing anything. |
 | `olf plan` | Show the Terraform plan of the foundation or platform. |
+| `olf product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). Incremental unless `--full-refresh bronze\|gold`; see [Full refresh](descriptors.md#full-refresh). |
 | `olf query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |
 | `olf access trust` | Export the local CA and print the commands to trust it. |
 | `olf github connect` | Create the GitHub App for sign-in and store its credentials. |

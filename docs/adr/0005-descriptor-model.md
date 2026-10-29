@@ -48,6 +48,20 @@ against the typed model. The schemas are closed against unknown fields, which
 is what enforces provider-neutrality (ADR 0003): a `bucket` or `catalog` key is
 rejected rather than ignored.
 
+### Load modes are declared where each layer is owned
+
+A `Source` resource declares `load.mode`: `full` (the default) or
+`incremental`, with a `cursor` and a `primary_key`. These are column names,
+never values or queries. The connector still owns how it reads the cursor.
+Silver's mode stays in the Floe contract and Gold's in the dbt model, because
+Floe and dbt own those layers. `olf check contracts` checks that the Bronze
+and Silver modes fit together.
+
+A full refresh is a property of one run, not of a descriptor. The run tag
+`openlakeforge/full_refresh` (`bronze` or `gold`) is the contract between
+`olf product run` and the project-code runtime; `openlakeforge_domain.runs`
+holds it. `docs/reference/descriptors.md` lists what each scope rebuilds.
+
 ### `openlakeforge-domain-model` is the only implementation
 
 The `packages/domain-model/` distribution, imported as `openlakeforge_domain`,
@@ -114,3 +128,7 @@ no host command needs a Gold table name. `olf e2e` lists the
 tables in a stage's `<product>_gold` and `<domain>_silver` schemas through
 Trino. A project still on `lakehouse.yaml` does not load; rewrite it as
 `governance.yml` (alpha, no production deployments).
+
+2026-10-30 (#342, #343, #344): `Source` resources gained an optional `load`
+block, and the full-refresh run tag was added. The field is optional and
+defaults to today's behaviour, so `Source` stays `v1alpha3`.

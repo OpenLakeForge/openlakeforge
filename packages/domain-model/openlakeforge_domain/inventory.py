@@ -37,10 +37,24 @@ _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 @dataclass(frozen=True)
+class ResourceLoad:
+    """How a source resource is extracted: `full` replaces Bronze, `incremental` appends past `cursor`."""
+
+    mode: str = "full"
+    cursor: str | None = None
+    primary_key: tuple[str, ...] = ()
+
+    @property
+    def incremental(self) -> bool:
+        return self.mode == "incremental"
+
+
+@dataclass(frozen=True)
 class Table:
     """A provider-neutral logical table or source resource."""
 
     name: str
+    load: ResourceLoad = ResourceLoad()
 
 
 @dataclass(frozen=True)
@@ -95,6 +109,12 @@ class Source:
         is `bronze/<source>/dlt/<source>.py`, so the section is the source id.
         """
         return f"SOURCES__{self.name.upper()}__{key.upper()}"
+
+    def load_of(self, resource: str) -> ResourceLoad:
+        for table in self.resources:
+            if table.name == resource:
+                return table.load
+        raise LakehouseDescriptorError(f"{self.descriptor_path}: source {self.name!r} declares no resource {resource!r}")
 
 
 @dataclass(frozen=True)
@@ -406,6 +426,12 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
     return Product(domain_name=domain_name, id=product_id, display_name=display_name)
 
 
+def _resource_load(load: Mapping[str, Any] | None) -> ResourceLoad:
+    if not load:
+        return ResourceLoad()
+    return ResourceLoad(mode=load["mode"], cursor=load.get("cursor"), primary_key=tuple(load.get("primary_key", ())))
+
+
 def _read_floe_entities(lakehouse_root: Path, domain: str) -> tuple[FloeEntity, ...]:
     entity_dir = lakehouse_root / "silver" / domain / "contracts" / "floe"
     entities = []
@@ -457,6 +483,28 @@ def _validate_inventory_identities(
             )
 
 
+def load_source(source_path: str | Path) -> Source:
+    """Load and validate one `bronze/<source>/source.yaml`, without the rest of the inventory."""
+    document = load_source_descriptor(source_path)
+    name = document["name"]
+    if name != Path(source_path).parent.name:
+        raise LakehouseDescriptorError(
+            f"{source_path}: name {name!r} must match source directory {Path(source_path).parent.name!r}"
+        )
+    return Source(
+        descriptor_path=Path(source_path),
+        name=name,
+        display_name=document["displayName"],
+        resources=tuple(
+            Table(name=resource["name"], load=_resource_load(resource.get("load")))
+            for resource in document["resources"]
+            if isinstance(resource, Mapping) and "name" in resource
+        ),
+        runtime_config=tuple(document.get("runtime", {}).get("config", ())),
+        runtime_secrets=tuple(document.get("runtime", {}).get("secrets", ())),
+    )
+
+
 def load_lakehouse_inventory_from_descriptors(
     lakehouse_path: str | Path,
     source_paths: Sequence[str | Path],
@@ -466,29 +514,7 @@ def load_lakehouse_inventory_from_descriptors(
 ) -> LakehouseInventory:
     """Load and validate one Lakehouse descriptor plus its Source descriptors."""
     lakehouse_document = load_governance_lakehouse_document(lakehouse_path, allow_incomplete=allow_incomplete)
-    sources: list[Source] = []
-    for source_path in source_paths:
-        document = load_source_descriptor(source_path)
-        name = document["name"]
-        if name != Path(source_path).parent.name:
-            raise LakehouseDescriptorError(
-                f"{source_path}: name {name!r} must match source directory {Path(source_path).parent.name!r}"
-            )
-        resources = tuple(
-            Table(name=resource["name"])
-            for resource in document["resources"]
-            if isinstance(resource, Mapping) and "name" in resource
-        )
-        sources.append(
-            Source(
-                descriptor_path=Path(source_path),
-                name=name,
-                display_name=document["displayName"],
-                resources=resources,
-                runtime_config=tuple(document.get("runtime", {}).get("config", ())),
-                runtime_secrets=tuple(document.get("runtime", {}).get("secrets", ())),
-            )
-        )
+    sources = [load_source(source_path) for source_path in source_paths]
     declared_sources = set(lakehouse_document["sources"])
     discovered_sources = {source.name for source in sources}
     if declared_sources != discovered_sources:

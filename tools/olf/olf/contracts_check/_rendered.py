@@ -60,6 +60,60 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail=f"{checked} Floe domain and entity file(s) validated")
 
 
+_INCREMENTAL_WRITE_MODES = ("append", "merge_scd1", "merge_scd2")
+
+
+def _check_silver_load_modes(repo_root: Path) -> CheckResult:
+    """Each Silver entity's Floe load mode fits the Bronze resource it reads.
+
+    An incremental resource lands only its new rows as new files, so its
+    entity must read new files only (`incremental_mode: file`) and keep the
+    rows it already has (`append` or a merge). A full resource lands its whole
+    extract on every run, so appending it would duplicate every row.
+    """
+    from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+
+    name = "silver_load_modes"
+    try:
+        inventory = load_lakehouse_inventory(repo_root / "lakehouse_code")
+    except LakehouseDescriptorError as exc:
+        return CheckResult(name, ok=False, detail=str(exc))
+    loads = {(source.name, table.name): table.load for source in inventory.sources for table in source.resources}
+    errors: list[str] = []
+    checked = 0
+    for domain_file in sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml")):
+        defaults = (yaml.safe_load(domain_file.read_text(encoding="utf-8")) or {}).get("defaults") or {}
+        for path in sorted(domain_file.parent.glob("*.yml")):
+            if path == domain_file:
+                continue
+            entity = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            source = entity.get("source") or {}
+            load = loads.get((source.get("ref"), source.get("resource")))
+            if load is None:
+                continue
+            checked += 1
+            mode = entity.get("incremental_mode", defaults.get("incremental_mode", "none"))
+            write_mode = (entity.get("sink") or {}).get("write_mode") or (defaults.get("sink") or {}).get(
+                "write_mode", "overwrite"
+            )
+            rel_path = path.relative_to(repo_root)
+            resource = f"{source['ref']}/{source['resource']}"
+            if load.incremental and (mode != "file" or write_mode not in _INCREMENTAL_WRITE_MODES):
+                errors.append(
+                    f"{rel_path}: reads incremental resource {resource}, so it needs incremental_mode 'file' and "
+                    f"write_mode one of {list(_INCREMENTAL_WRITE_MODES)!r}; got {mode!r} and {write_mode!r}"
+                )
+            elif not load.incremental and write_mode == "append":
+                errors.append(
+                    f"{rel_path}: appends full resource {resource}, which would add every row again on each run; "
+                    "use overwrite or a merge"
+                )
+
+    if errors:
+        return CheckResult(name, ok=False, detail="; ".join(errors))
+    return CheckResult(name, ok=True, detail=f"{checked} Silver entity load mode(s) validated")
+
+
 def _check_helm_values_as_data(repo_root: Path) -> CheckResult:
     """Parse the static Dagster Helm values input as data. Does not invoke
     `helm template` -- that remains `check-infra.sh`'s job."""
