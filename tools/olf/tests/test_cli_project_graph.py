@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import write_floe_entity
+from conftest import write_dataset_fixture, write_floe_entity, write_governance
 from typer.testing import CliRunner
 
 from olf.cli import app
@@ -13,39 +13,6 @@ from olf.cli import app
 ROOT = Path(__file__).parents[3]
 
 runner = CliRunner()
-
-_LAKEHOUSE = """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: tiny
-displayName: Tiny
-description: Tiny lakehouse.
-status: planned
-sources:
-  - crm
-domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: revenue
-        displayName: Revenue
-        description: Revenue product.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_revenue
-dashboards:
-  - name: revenue_board
-    products: [revenue]
-"""
 
 _SOURCE = """\
 apiVersion: openlakeforge.io/v1alpha3
@@ -63,8 +30,9 @@ resources:
 def tiny_project(tmp_path: Path) -> Path:
     code = tmp_path / "lakehouse_code"
     (code / "bronze/crm").mkdir(parents=True)
-    (code / "lakehouse.yaml").write_text(_LAKEHOUSE)
+    write_governance(code, sales=("revenue",))
     (code / "bronze/crm/source.yaml").write_text(_SOURCE)
+    write_dataset_fixture(code / "dashboards" / "superset" / "revenue_board", "revenue")
     write_floe_entity(code, "sales", "orders", "crm")
     return tmp_path
 

@@ -30,34 +30,17 @@ resources:
     description: Raw sales orders.
 """
     )
-    (tmp_path / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: active
-sources:
-  - crm
+    (tmp_path / "governance.yml").write_text(
+        """apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain
+  - {name: sales, displayName: Sales, description: Sales domain, status: active}
+products:
+  - id: order_revenue
+    domain: sales
+    displayName: Sales Order Revenue
+    description: Revenue from orders.
     status: active
-    silver_tables:
-      tables:
-        - {name: raw_orders, source: crm, resource: orders}
-        - {name: raw_order_lines, source: crm, resource: orders}
-    products:
-      - id: order_revenue
-        displayName: Sales Order Revenue
-        description: Revenue from orders.
-        status: active
-        silver_inputs: [raw_orders, raw_order_lines]
-        gold_tables:
-          tables:
-            - name: mart_order_revenue
-dashboards: []
 """
     )
     cfg = OpenMetadataConfig.from_environment(

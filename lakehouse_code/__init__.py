@@ -3,7 +3,7 @@
 ``lakehouse_code/`` is the provider-neutral, descriptor-driven contract between
 data teams and the OpenLakeForge platform:
 
-- ``lakehouse.yaml`` — the ``Lakehouse`` descriptor (v1alpha3).
+- ``governance.yml`` — the ``Governance`` descriptor: domains and products.
 - ``bronze/<source>/source.yaml`` — per-source ``Source`` descriptors and the
   dlt extract code that lands each source's resources in Bronze.
 - ``silver/<domain>/contracts/floe/`` — Floe validation contracts and their

@@ -96,39 +96,6 @@ def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Pa
 
 
 
-def test_scaffolding_a_project_still_on_lakehouse_yaml_keeps_its_domains_and_products(tmp_path: Path) -> None:
-    repo_root = _seed_repo(tmp_path)
-    (repo_root / "lakehouse_code" / "governance.yml").unlink()
-    commit_plan(
-        repo_root, plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
-    )
-
-    commit_plan(
-        repo_root,
-        plan_domain_new(
-            repo_root, domain="marketing", display_name=None, inputs=(("marketing_platform", "campaigns"),)
-        ),
-    )
-
-    inventory = load_lakehouse_inventory(repo_root)
-    assert inventory.domain_names == ("sales", "supply_chain", "marketing")
-    assert [p.id for p in inventory.products] == ["order_revenue", "customer_health", "inventory_reliability"]
-
-
-def test_an_empty_legacy_project_scaffolds_from_source_to_product(tmp_path: Path) -> None:
-    repo_root = _seed_empty_project(tmp_path)
-    (repo_root / "lakehouse_code" / "lakehouse.yaml").write_text(
-        "apiVersion: openlakeforge.io/v1alpha3\nkind: Lakehouse\nname: openlakeforge\ndisplayName: OpenLakeForge\n"
-        "description: Empty.\nstatus: planned\nsources: []\ndomains: []\ndashboards: []\n",
-        encoding="utf-8",
-    )
-
-    _run("source", "new", "crm", "--resource", "accounts", "--repo-root", str(repo_root))
-    _run("domain", "new", "sales", "--input", "crm/accounts", "--repo-root", str(repo_root))
-
-    assert load_lakehouse_inventory(repo_root, allow_incomplete=True).domain_names == ("sales",)
-
-
 def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Path) -> None:
     """`domains: [{...}]` and `products: [{...}]` are valid YAML a hand-edited
     governance.yml may use; appending an entry must convert the list to block

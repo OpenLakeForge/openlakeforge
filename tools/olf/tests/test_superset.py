@@ -153,7 +153,7 @@ def test_deploy_reports_still_fails_for_a_declared_but_missing_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The empty-registry skip must not swallow a real misconfiguration: a
-    dashboard declared in lakehouse.yaml whose bundle is missing from disk
+    dashboard whose bundle is missing from disk
     is not the same state as nothing being declared at all, and must still
     fail loudly (and, since it's a descriptor problem, before ever touching
     the cluster)."""

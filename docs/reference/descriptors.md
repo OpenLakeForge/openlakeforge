@@ -6,7 +6,7 @@ The fields and rules of the two descriptors that declare a project's data:
 names OpenLakeForge derives from them.
 
 Both are validated against JSON Schemas,
-[`lakehouse.schema.json`](../schema/lakehouse.schema.json) and
+[`governance.schema.json`](../schema/governance.schema.json) and
 [`source.schema.json`](../schema/source.schema.json), and by the canonical
 inventory, with `olf check contracts`. Unknown fields are rejected at every
 level, and every identifier matches `^[a-z][a-z0-9_]*$`.

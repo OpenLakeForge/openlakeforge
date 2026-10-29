@@ -7,45 +7,18 @@ from openlakeforge_domain import (
     LakehouseDescriptorError,
     inventory_for,
     load_lakehouse_inventory,
-    load_lakehouse_inventory_from_descriptors,
 )
 
 ROOT = Path(__file__).parents[3]
 
 
-def _lakehouse(product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> str:
-    return f"""\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - {source}
-domains:
-  - name: {domain}
-    displayName: {domain.title()}
-    description: {domain} domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: {source}
-          resource: orders
-    products:
-      - id: {product_id}
-        displayName: {product_id.replace('_', ' ').title()}
-        description: {product_id} product.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_{product_id}
-dashboards:
-  - name: {product_id}_dashboard
-    products: [{product_id}]
-"""
+def _governance(*domains: tuple[str, tuple[str, ...]]) -> str:
+    entries = "".join(f"  - {{name: {d}, displayName: {d.title()}}}\n" for d, _ in domains)
+    products = "".join(f"  - {{id: {p}, domain: {d}, displayName: {p.title()}}}\n" for d, ids in domains for p in ids)
+    return (
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        f"domains:\n{entries}products:{chr(10) + products if products else ' []' + chr(10)}"
+    )
 
 
 def _source(source: str = "crm", resource: str = "orders") -> str:
@@ -61,15 +34,13 @@ resources:
 """
 
 
-def _write_lakehouse(root: Path, product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> Path:
+def _write_lakehouse(root: Path, product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> None:
     lakehouse_dir = root / "lakehouse_code"
     lakehouse_dir.mkdir(parents=True, exist_ok=True)
-    lakehouse_path = lakehouse_dir / "lakehouse.yaml"
-    lakehouse_path.write_text(_lakehouse(product_id=product_id, domain=domain, source=source), encoding="utf-8")
+    (lakehouse_dir / "governance.yml").write_text(_governance((domain, (product_id,))), encoding="utf-8")
     source_path = lakehouse_dir / "bronze" / source / "source.yaml"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_text(_source(source=source), encoding="utf-8")
-    return lakehouse_path
 
 
 def test_seed_inventory_derives_every_product_expectation() -> None:
@@ -126,21 +97,6 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_customer_health"
 
 
-def test_governance_yml_yields_the_inventory_lakehouse_yaml_does() -> None:
-    """The reference governance.yml names the same domains, products and dashboards as lakehouse.yaml."""
-    code = ROOT / "lakehouse_code"
-    legacy = load_lakehouse_inventory_from_descriptors(
-        code / "lakehouse.yaml", sorted(code.glob("bronze/*/source.yaml")), source_label=code
-    )
-    current = load_lakehouse_inventory(ROOT)
-
-    assert [(d.name, d.display_name, d.products) for d in current.domains] == [
-        (d.name, d.display_name, d.products) for d in legacy.domains
-    ]
-    assert sorted(current.dashboards, key=lambda d: d.name) == sorted(legacy.dashboards, key=lambda d: d.name)
-    assert current.source_names == legacy.source_names
-
-
 def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
     code = tmp_path / "lakehouse_code"
     (code / "bronze" / "crm").mkdir(parents=True)
@@ -164,19 +120,6 @@ def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
     assert [(d.name, d.products) for d in inventory.dashboards] == [("revenue_board", ("revenue",))]
 
 
-def test_governance_yml_wins_over_lakehouse_yaml(tmp_path: Path) -> None:
-    _write_lakehouse(tmp_path, product_id="legacy")
-    code = tmp_path / "lakehouse_code"
-    (code / "governance.yml").write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
-        "domains:\n  - {name: sales, displayName: Sales}\n"
-        "products:\n  - {id: current, domain: sales, displayName: Current}\n",
-        encoding="utf-8",
-    )
-
-    assert [p.id for p in load_lakehouse_inventory(tmp_path).products] == ["current"]
-
-
 def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_allowed(tmp_path: Path) -> None:
     (tmp_path / "lakehouse_code").mkdir()
 
@@ -186,9 +129,9 @@ def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_a
 
 
 @pytest.mark.parametrize("content", ["not a mapping\n", "- unexpected\n"])
-def test_a_malformed_legacy_descriptor_is_a_descriptor_error(tmp_path: Path, content: str) -> None:
+def test_a_malformed_governance_yml_is_a_descriptor_error(tmp_path: Path, content: str) -> None:
     (tmp_path / "lakehouse_code").mkdir()
-    (tmp_path / "lakehouse_code" / "lakehouse.yaml").write_text(content, encoding="utf-8")
+    (tmp_path / "lakehouse_code" / "governance.yml").write_text(content, encoding="utf-8")
 
     with pytest.raises(LakehouseDescriptorError):
         load_lakehouse_inventory(tmp_path, allow_incomplete=True)
@@ -255,50 +198,7 @@ def test_inventory_accepts_domain_with_no_products(tmp_path: Path) -> None:
     for the all-domains-empty case, which is rejected)."""
     lakehouse_dir = tmp_path / "lakehouse_code"
     lakehouse_dir.mkdir(parents=True)
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - workday
-  - crm
-domains:
-  - name: hr
-    displayName: Hr
-    description: hr domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: employees
-          source: workday
-          resource: employees
-    products: []
-  - name: sales
-    displayName: Sales
-    description: sales domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: revenue
-        displayName: Revenue
-        description: revenue product.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_revenue
-dashboards: []
-""",
-        encoding="utf-8",
-    )
+    (lakehouse_dir / "governance.yml").write_text(_governance(("hr", ()), ("sales", ("revenue",))), encoding="utf-8")
     workday_path = lakehouse_dir / "bronze" / "workday" / "source.yaml"
     workday_path.parent.mkdir(parents=True)
     workday_path.write_text(_source(source="workday", resource="employees"), encoding="utf-8")
@@ -320,31 +220,7 @@ def test_inventory_rejects_a_lakehouse_with_no_products_anywhere(tmp_path: Path)
     downstream tooling (default_product, check-dbt.sh, e2e) requires one."""
     lakehouse_dir = tmp_path / "lakehouse_code"
     lakehouse_dir.mkdir(parents=True)
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - workday
-domains:
-  - name: hr
-    displayName: Hr
-    description: hr domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: employees
-          source: workday
-          resource: employees
-    products: []
-dashboards: []
-""",
-        encoding="utf-8",
-    )
+    (lakehouse_dir / "governance.yml").write_text(_governance(("hr", ())), encoding="utf-8")
     source_path = lakehouse_dir / "bronze" / "workday" / "source.yaml"
     source_path.parent.mkdir(parents=True)
     source_path.write_text(_source(source="workday", resource="employees"), encoding="utf-8")

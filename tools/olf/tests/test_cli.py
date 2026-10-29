@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from conftest import write_orders_repo
 from typer.testing import CliRunner
 
 import olf
@@ -365,55 +366,8 @@ def test_superset_export_reports_selects_the_bundles_dashboard_by_uuid_not_title
 ) -> None:
     """Renaming the dashboard in Superset must not break re-export: the
     checked-in uuid identifies it, whatever its title or displayName say."""
+    write_orders_repo(tmp_path, "orders", dashboards=("orders",))
     lakehouse_dir = tmp_path / "lakehouse_code"
-    source_dir = lakehouse_dir / "bronze" / "crm"
-    source_dir.mkdir(parents=True)
-    (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Source
-name: crm
-displayName: CRM
-description: CRM source.
-status: planned
-resources:
-  - name: orders
-""",
-        encoding="utf-8",
-    )
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - crm
-domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: orders
-        displayName: Sales Orders Product Metadata Name
-        description: Sales orders.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_orders
-dashboards:
-  - name: orders
-    products: [orders]
-""",
-        encoding="utf-8",
-    )
     dashboards_dir = lakehouse_dir / "dashboards" / "superset" / "orders" / "dashboards"
     dashboards_dir.mkdir(parents=True)
     (dashboards_dir / "Live_1.yaml").write_text(
@@ -439,53 +393,8 @@ def _seed_project_with_no_declared_dashboards(tmp_path: Path, *, bundle_dir_name
     zero declared dashboards, and an undeclared report bundle directory that
     has no `dashboards/*.yaml` yet -- the draft state export-reports must be
     able to target."""
+    write_orders_repo(tmp_path, "orders", dashboards=())
     lakehouse_dir = tmp_path / "lakehouse_code"
-    source_dir = lakehouse_dir / "bronze" / "crm"
-    source_dir.mkdir(parents=True)
-    (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Source
-name: crm
-displayName: CRM
-description: CRM source.
-status: planned
-resources:
-  - name: orders
-""",
-        encoding="utf-8",
-    )
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - crm
-domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain.
-    status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: orders
-        displayName: Sales Orders Product Metadata Name
-        description: Sales orders.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_orders
-dashboards: []
-""",
-        encoding="utf-8",
-    )
     (lakehouse_dir / "dashboards" / "superset" / bundle_dir_name).mkdir(parents=True)
     return tmp_path
 

@@ -107,11 +107,27 @@ def write_floe_entity(lakehouse_code: Path, domain: str, name: str, source: str,
     )
 
 
+def write_governance(lakehouse_code: Path, **products_by_domain: tuple[str, ...]) -> None:
+    """A governance.yml naming each domain and its products."""
+    domains = "".join(f"  - {{name: {d}, displayName: {d.title()}}}\n" for d in products_by_domain)
+    products = "".join(
+        f"  - {{id: {p}, domain: {d}, displayName: {p.title()}}}\n"
+        for d, ids in products_by_domain.items()
+        for p in ids
+    )
+    (lakehouse_code / "governance.yml").write_text(
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        f"domains:\n{domains}products:{chr(10) + products if products else ' []' + chr(10)}",
+        encoding="utf-8",
+    )
+
+
 def write_two_product_fixture(root: Path, *, dashboards: tuple[tuple[str, str], ...] = ()) -> None:
-    """A minimal two-product, single-domain v1alpha3 descriptor for isolation
-    tests. ``dashboards`` is a sequence of ``(dashboard_name, product_id)``
-    pairs to declare in the top-level ``dashboards:`` list; the caller still
-    has to write the actual Superset export via ``write_dashboard_fixture``.
+    """A minimal two-product, single-domain lakehouse for isolation tests.
+
+    ``dashboards`` is a sequence of ``(dashboard_name, product_id)`` pairs; each
+    gets a bundle whose dataset reads the product's Gold schema. The caller still
+    has to write the Superset export via ``write_dashboard_fixture``.
     """
     lakehouse_dir = root / "lakehouse_code"
     source_dir = lakehouse_dir / "bronze" / "widgets_source"
@@ -129,48 +145,37 @@ resources:
 """,
         encoding="utf-8",
     )
-    dashboards_yaml = ""
-    if dashboards:
-        entries = "\n".join(f"  - name: {name}\n    products: [{product}]" for name, product in dashboards)
-        dashboards_yaml = f"dashboards:\n{entries}\n"
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        f"""\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Widgets fixture lakehouse.
+    write_governance(lakehouse_dir, widgets=("widgets_alpha", "widgets_beta"))
+    for name, product in dashboards:
+        write_dataset_fixture(lakehouse_dir / "dashboards" / "superset" / name, product)
+
+
+def write_dataset_fixture(report_dir: Path, product: str) -> None:
+    """A dashboard bundle with `metadata.yaml` and one dataset reading `<product>_gold`."""
+    (report_dir / "datasets").mkdir(parents=True, exist_ok=True)
+    (report_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
+    (report_dir / "datasets" / "d.yaml").write_text(f"schema: {product}_gold\n", encoding="utf-8")
+
+
+def write_orders_repo(tmp_path: Path, *products: str, dashboards: tuple[str, ...]) -> None:
+    """A `crm` source and a `sales` domain with `products`; each dashboard bundle reads `orders_gold`."""
+    source_dir = tmp_path / "lakehouse_code" / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
 status: planned
-sources:
-  - widgets_source
-domains:
-  - name: widgets
-    displayName: Widgets
-    description: Widgets domain fixture.
-    status: planned
-    silver_tables:
-      tables:
-        - {{name: source, source: widgets_source, resource: source}}
-    products:
-      - id: widgets_alpha
-        displayName: Widgets Alpha
-        description: Alpha product.
-        status: planned
-        silver_inputs: [source]
-        gold_tables:
-          tables:
-            - name: mart_alpha_summary
-      - id: widgets_beta
-        displayName: Widgets Beta
-        description: Beta product.
-        status: planned
-        silver_inputs: [source]
-        gold_tables:
-          tables:
-            - name: mart_beta_summary
-{dashboards_yaml}""",
+resources:
+  - name: orders
+""",
         encoding="utf-8",
     )
+    write_governance(tmp_path / "lakehouse_code", sales=products)
+    for name in dashboards:
+        write_dataset_fixture(tmp_path / "lakehouse_code" / "dashboards" / "superset" / name, "orders")
 
 
 def write_dashboard_fixture(repo_root: Path, report_source_dir: str, file_name: str, *, slug: str, title: str) -> None:

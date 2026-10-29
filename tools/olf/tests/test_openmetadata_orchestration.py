@@ -116,34 +116,17 @@ resources:
   - name: customers
 """
     )
-    (tmp_path / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: active
-sources: [crm]
+    (tmp_path / "governance.yml").write_text(
+        """apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain.
+  - {name: sales, displayName: Sales, description: Sales domain, status: active}
+products:
+  - id: customer_health
+    domain: sales
+    displayName: Customer Health
+    description: Customer health product.
     status: active
-    silver_tables:
-      tables:
-        - name: accounts
-          source: crm
-          resource: accounts
-    products:
-      - id: customer_health
-        displayName: Customer Health
-        description: Customer health product.
-        status: active
-        silver_inputs: [accounts]
-        gold_tables:
-          tables:
-            - name: mart_customer_health
-dashboards: []
 """
     )
     write_floe_entity(tmp_path, "sales", "accounts", "crm")
@@ -190,35 +173,17 @@ resources:
     description: Raw sales orders.
 """
     )
-    (tmp_path / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: active
-sources:
-  - crm
+    (tmp_path / "governance.yml").write_text(
+        """apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain
+  - {name: sales, displayName: Sales, description: Sales domain, status: active}
+products:
+  - id: order_revenue
+    domain: sales
+    displayName: Sales Order Revenue
+    description: Revenue from orders.
     status: active
-    silver_tables:
-      tables:
-        - name: raw_orders
-          source: crm
-          resource: orders
-    products:
-      - id: order_revenue
-        displayName: Sales Order Revenue
-        description: Revenue from orders.
-        status: active
-        silver_inputs: [raw_orders]
-        gold_tables:
-          tables:
-            - name: mart_order_revenue
-dashboards: []
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")
@@ -283,38 +248,17 @@ resources:
     description: Raw sales orders.
 """
     )
-    (tmp_path / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: active
-sources:
-  - crm
+    (tmp_path / "governance.yml").write_text(
+        """apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
-  - name: sales
-    displayName: Sales
-    description: Sales domain
+  - {name: sales, displayName: Sales, description: Sales domain, status: active}
+products:
+  - id: order_revenue
+    domain: sales
+    displayName: Sales Order Revenue
+    description: Revenue from orders.
     status: active
-    silver_tables:
-      tables:
-        - name: raw_orders
-          source: crm
-          resource: orders
-        - name: raw_order_lines
-          source: crm
-          resource: orders
-    products:
-      - id: order_revenue
-        displayName: Sales Order Revenue
-        description: Revenue from orders.
-        status: active
-        silver_inputs: [raw_orders, raw_order_lines]
-        gold_tables:
-          tables:
-            - name: mart_order_revenue
-dashboards: []
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")
