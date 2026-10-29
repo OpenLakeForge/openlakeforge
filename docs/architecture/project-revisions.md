@@ -140,8 +140,9 @@ every component, reports included, by the revision's own scan.
   the opposite of what a promotable revision is allowed to contain. The code
   location renders the profile for its own stage when it loads, and builds
   the Floe manifest in memory from it and the frozen `floe` component.
-- dbt `profiles.yml`, wherever it sits: the stage's query connection,
-  rendered from provider contracts by `libs/dbt/render_profiles.py`.
+- dbt `profiles.yml`, wherever it sits. The image carries one, rendered by
+  `libs/dbt/render_profiles.py` outside `lakehouse_code/`, whose connection
+  values the run pod's stage environment supplies.
 - Build output: `target/`, `dbt_packages/`, `logs/`, `__pycache__/`, `.venv/`.
 
 ## Building and verifying

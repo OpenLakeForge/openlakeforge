@@ -29,7 +29,10 @@ running `floe`. See [Floe validation](../../docs/architecture/floe-validation.md
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `olf deploy --provider aws --phase artifacts`.
-The dbt profile rendered into the image is selected with
-`PROJECT_CODE_DBT_PROFILE_ENV` (`local`, `azure`, or `aws`). The Docker build
-renders `libs/dbt/profiles/<env>.yml` into each product project before baking
-dbt manifests.
+dbt is bound the same way. The Docker build renders one `profiles.yml` from
+`libs/dbt/profiles/trino.yml` into `generated/dbt-profiles/`, outside
+`lakehouse_code/`. Every connection value in it is an `env_var()` reference
+that the run pod's stage environment fills. The build also bakes each
+product's `target/manifest.json` with placeholder catalog and schema names.
+Dagster reads that manifest for the asset graph, and each run re-parses with
+its own stage's values, so one image serves every stage and provider.

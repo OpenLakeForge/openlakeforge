@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
@@ -24,7 +23,7 @@ from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
 
 from libs.bronze_csv import BronzeLoadResult
-from libs.dbt.render_profiles import ensure_runtime_profile_dir
+from libs.dbt.render_profiles import BAKED_PROFILES_DIR, ensure_baked_manifest
 from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
@@ -167,29 +166,34 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         def get_group_name(self, dbt_resource_props) -> str:
             return spec.product
 
+        def get_metadata(self, dbt_resource_props) -> dict:
+            # The manifest is parsed once for every stage, with placeholder
+            # catalog and schema names; the relation it names is no stage's.
+            metadata = dict(super().get_metadata(dbt_resource_props))
+            metadata.pop("dagster/table_name", None)
+            return metadata
+
     def _dbt_gold_assets(context):
-        dbt_target = os.environ.get("OPENLAKEFORGE_DBT_TARGET", "local_runtime")
-        dbt_profiles_dir = _ensure_dbt_profiles_dir(spec)
         dbt = DbtCliResource(
             project_dir=str(spec.dbt_project_dir),
-            profiles_dir=str(dbt_profiles_dir),
-            target=dbt_target,
+            profiles_dir=str(BAKED_PROFILES_DIR),
             dbt_executable=os.environ.get("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol"),
         )
         previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
         os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
         try:
-            yield from dbt.cli(["build"], context=context).stream()
+            invocation = dbt.cli(["build"], context=context)
+            yield from invocation.stream()
         finally:
             if previous_job_name is None:
                 os.environ.pop("OPENLINEAGE_DBT_JOB_NAME", None)
             else:
                 os.environ["OPENLINEAGE_DBT_JOB_NAME"] = previous_job_name
-        _upload_dbt_artifacts(context, spec)
+        _upload_dbt_artifacts(context, spec, invocation.target_path)
 
     _dbt_gold_assets.__name__ = f"{spec.product}_dbt_gold_assets"
     dbt_gold_assets = dbt_assets(
-        manifest=_ensure_dbt_manifest(spec),
+        manifest=ensure_baked_manifest(spec.dbt_project_dir),
         dagster_dbt_translator=ProductDbtTranslator(),
     )(_dbt_gold_assets)
 
@@ -241,27 +245,27 @@ def build_stage_schedules(
     ]
 
 
-def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec) -> None:
+def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec, target_path: Path) -> None:
     base_uri = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
     if not base_uri:
         context.log.warning("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI is not set; skipping dbt artifact upload")
         return
 
     run_id = getattr(context, "run_id", None) or "unknown"
-    artifact_candidates = [
-        spec.dbt_project_dir / "target" / "manifest.json",
-        spec.dbt_project_dir / "target" / "run_results.json",
-        spec.dbt_project_dir / "target" / "sources.json",
-        spec.dbt_project_dir / "logs" / "dbt.log",
-    ]
+    # The run's own artifacts: dagster-dbt points DBT_TARGET_PATH and
+    # DBT_LOG_PATH at a per-invocation directory, while target/manifest.json
+    # is the stage-neutral one baked into the image.
+    artifact_candidates = {
+        "target/manifest.json": target_path / "manifest.json",
+        "target/run_results.json": target_path / "run_results.json",
+        "target/sources.json": target_path / "sources.json",
+        "logs/dbt.log": target_path / "dbt.log",
+    }
 
-    for artifact_path in artifact_candidates:
+    for artifact, artifact_path in artifact_candidates.items():
         if not artifact_path.exists():
             continue
-        relative_key = (
-            f"dbt/{spec.domain}/{spec.product}/{run_id}/"
-            f"{artifact_path.relative_to(spec.dbt_project_dir).as_posix()}"
-        )
+        relative_key = f"dbt/{spec.domain}/{spec.product}/{run_id}/{artifact}"
         uri = upload_file_to_base_uri(artifact_path, base_uri=base_uri, relative_key=relative_key)
         log_event(
             context.log,
@@ -272,65 +276,6 @@ def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec) -> None:
             product=spec.product,
             dagster_run_id=run_id,
             asset_key=f"{spec.product}/dbt_gold_assets",
-            artifact=str(artifact_path.relative_to(spec.dbt_project_dir)),
+            artifact=artifact,
             uri=uri,
         )
-
-
-def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
-    manifest_path = spec.dbt_project_dir / "target" / "manifest.json"
-    if manifest_path.exists():
-        return manifest_path
-
-    env = os.environ.copy()
-    env.setdefault("AWS_ACCESS_KEY_ID", "openlakeforge")
-    env.setdefault("AWS_SECRET_ACCESS_KEY", "openlakeforge")
-    env.setdefault("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-    env.setdefault("AWS_REGION", env["OPENLAKEFORGE_STORAGE_REGION"])
-    env.setdefault("AWS_DEFAULT_REGION", env["AWS_REGION"])
-    env.setdefault("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3.olf-system:8333")
-    env.setdefault("AWS_ENDPOINT_URL_S3", env["OPENLAKEFORGE_STORAGE_ENDPOINT"])
-    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.olf-system")
-    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
-    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
-    env.setdefault("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
-    env.setdefault("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
-    env.setdefault("OPENLAKEFORGE_CATALOG_TYPE", "rest")
-    env.setdefault("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
-    env.setdefault("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
-    env.setdefault(
-        "OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens"
-    )
-    env.setdefault("OPENLAKEFORGE_CATALOG_WAREHOUSE", "lakehouse_dev")
-    env.setdefault("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    profiles_dir = _ensure_dbt_profiles_dir(spec, env=env)
-
-    subprocess.run(
-        [
-            "dbt",
-            "deps",
-            "--project-dir",
-            str(spec.dbt_project_dir),
-        ],
-        check=True,
-        env=env,
-    )
-    subprocess.run(
-        [
-            "dbt",
-            "parse",
-            "--project-dir",
-            str(spec.dbt_project_dir),
-            "--profiles-dir",
-            str(profiles_dir),
-            "--target",
-            "local",
-        ],
-        check=True,
-        env=env,
-    )
-    return manifest_path
-
-
-def _ensure_dbt_profiles_dir(spec: ProductDefinitionSpec, env: dict[str, str] | None = None) -> Path:
-    return ensure_runtime_profile_dir(spec.dbt_project_dir, env=env)

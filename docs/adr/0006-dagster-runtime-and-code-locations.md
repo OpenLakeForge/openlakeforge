@@ -71,6 +71,24 @@ only the Secrets its runner names. [Floe
 validation](../architecture/floe-validation.md) describes the layout and the
 catalogs Floe 0.8 supports.
 
+### dbt reads its stage from the pod environment
+
+The image holds one dbt profile, rendered at build from
+`libs/dbt/profiles/trino.yml` into `generated/dbt-profiles/`. Every
+connection value in it (host, port, TLS, user, catalog, schema prefix) is an
+`env_var()` reference with no stage default. The build also parses each
+product's manifest once, with placeholder values
+(`libs/dbt/render_profiles.py`). Dagster reads that manifest for the asset
+graph. Its asset keys come from domain, product and node names, never from a
+catalog or schema, so the graph is the same in every stage.
+
+Each `dbt build` gets its own target path from dagster-dbt and re-parses with
+the run pod's environment. The image ships no partial-parse state, so the SQL
+a run executes, its lineage and the run artifacts it uploads name that
+stage's relations. A stage that leaves a required variable unset fails the
+run. It cannot fall back to another stage's catalog. The cost is a full dbt
+parse per run, which is seconds per product.
+
 ### One merged code location by default
 
 The deployed configuration is a single location named `openlakeforge-dagster`,
@@ -148,3 +166,9 @@ core lets dagster-floe build the manifest in memory, so the separate runner
 image and the `s3://` manifests published at activation are gone. Floe still
 runs in Kubernetes Jobs, now one per domain on the project-code image rather
 than one per entity.
+
+2026-10-28: dbt reads its stage from the pod environment (#546). The
+provider-specific profiles (`local`, `aws`, `azure`) and the image's
+`DBT_PROFILE_ENV` choice are replaced by one profile of `env_var()`
+references, and the manifest baked at build is parsed with placeholders
+instead of the local DEV catalog.

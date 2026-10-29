@@ -1,0 +1,15 @@
+{{PROFILE_NAME}}:
+  target: runtime
+  outputs:
+    runtime:
+      type: trino
+      method: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_METHOD', 'none') }}"
+      host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST') }}"
+      port: "{{ (env_var('OPENLAKEFORGE_QUERY_TRINO_TLS_PORT') if env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') == 'https' else env_var('OPENLAKEFORGE_QUERY_TRINO_PORT')) | int }}"
+      user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER') }}"
+      password: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD', '') or none }}"
+      http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
+      cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
+      database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
+      schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
+      threads: 1

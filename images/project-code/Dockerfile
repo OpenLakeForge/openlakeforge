@@ -1,6 +1,5 @@
 ARG PYTHON_BASE_IMAGE=python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 FROM ${PYTHON_BASE_IMAGE}
-ARG DBT_PROFILE_ENV=local
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,15 +22,11 @@ COPY libs ./libs
 # network-backed build environment for each provider image.
 RUN pip install --no-cache-dir --no-build-isolation --no-deps .
 
-# Render environment-specific dbt profiles, then pre-generate dbt manifests with
-# the lightweight local target so code-server pods do not parse on every rollout.
-RUN set -e; \
-    python -m libs.dbt.render_profiles --environment "${DBT_PROFILE_ENV}" --write; \
-    for project_dir in $(find lakehouse_code/gold -path "*/dbt/dbt_project.yml" -type f -exec dirname {} \; | sort); do \
-      dbt deps --project-dir "${project_dir}"; \
-      dbt parse --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local; \
-      echo "dbt manifest baked at ${project_dir}/target/manifest.json"; \
-    done
+# One dbt profile for every stage and provider, made only of env_var()
+# references the pod's stage environment fills at run time, plus a manifest per
+# product parsed once with placeholder values (libs/dbt/render_profiles.py), so
+# code-server pods neither render nor parse on rollout.
+RUN python -m libs.dbt.render_profiles --bake
 
 RUN mkdir -p "${DAGSTER_HOME}"
 

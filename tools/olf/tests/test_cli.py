@@ -210,7 +210,9 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
         "kubeconfig_path": "",
         "project_root": "",
     }
-    assert commands[-1][-2:] == ["--target", "aws_runtime"]
+    # One profile serves every provider; its only output is the default.
+    assert commands[-1][1] == "parse"
+    assert "--target" not in commands[-1]
 
 
 def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
@@ -253,7 +255,7 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
     result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
 
     assert result.exit_code == 0
-    assert commands[-1][-2:] == ["--target", "local_runtime"]
+    assert commands[-1][1] == "parse"
     assert str(project) in commands[-1]
 
 
@@ -305,15 +307,6 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
     # The rendered profile is a stage binding, so it must not land in the
     # project the revision freezes (#546).
     assert not (project / "profiles.yml").exists()
-    assert commands[-1][-2:] == ["--target", "local_runtime"]
-
-
-def test_dbt_parse_selects_outputs_declared_by_provider_profiles() -> None:
-    from olf.commands import dbt
-
-    assert dbt._target_for_provider("local") == "local_runtime"
-    assert dbt._target_for_provider("aws") == "aws_runtime"
-    assert dbt._target_for_provider("azure") == "local_runtime"
 
 
 def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
