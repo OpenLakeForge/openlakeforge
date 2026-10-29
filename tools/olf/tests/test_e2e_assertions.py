@@ -507,7 +507,13 @@ def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
     def _port_forward(*_args, **_kwargs):  # noqa: ANN202
         yield 18585
 
+    def _secret_value(name: str, *_args: object, **_kwargs: object) -> str:
+        if name != "openmetadata-admin":  # no automation bot: basic login
+            raise _assertions.k8s.KubectlError("not found")
+        return "generated"
+
     checked: list[str] = []
+    monkeypatch.setattr(_assertions.k8s, "secret_value", _secret_value)
     monkeypatch.setattr(_assertions.k8s, "port_forward", _port_forward)
     monkeypatch.setattr(_assertions.k8s, "http_wait", lambda *_a, **_k: True)
     monkeypatch.setattr(_assertions, "assert_openmetadata_assets", lambda *_a: checked.append("assets"))
