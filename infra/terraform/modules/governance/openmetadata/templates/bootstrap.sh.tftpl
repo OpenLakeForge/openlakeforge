@@ -383,12 +383,14 @@
 
     dashboard_service="$(stage_field "$stage" dashboard_service_name)"
     if [ -n "$dashboard_service" ]; then
+      superset_password="$(kubectl get secret "${superset_admin_secret_name}" -n "$(stage_field "$stage" superset_namespace)" \
+        -o 'go-template={{index .data "admin-password"}}' | base64 -d)"
       register_service dashboardServices "$(jq -n \
         --arg name "$dashboard_service" \
         --arg display "Superset Reporting ($stage)" \
         --arg host_port "$(stage_field "$stage" superset_url)" \
         --arg username "${superset_username}" \
-        --arg password "${superset_password}" \
+        --arg password "$superset_password" \
         --arg provider "${superset_auth_provider}" \
         --arg verify_ssl "${superset_verify_ssl}" \
         '{name: $name, displayName: $display, serviceType: "Superset", connection: {config: {type: "Superset", hostPort: $host_port, connection: {provider: $provider, username: $username, password: $password, verifySSL: $verify_ssl}}}}')" \

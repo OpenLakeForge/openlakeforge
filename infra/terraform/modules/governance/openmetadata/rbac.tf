@@ -78,6 +78,14 @@ resource "kubernetes_role_v1" "bootstrap_workload" {
     resource_names = [var.automation_secret_name, var.ingestion_bot_secret_name]
     verbs          = ["delete", "get", "patch", "update"]
   }
+
+  # The Superset admin password, which the Superset module creates here.
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = [var.superset_admin_secret_name]
+    verbs          = ["get"]
+  }
 }
 
 resource "kubernetes_role_binding_v1" "bootstrap_workload" {
