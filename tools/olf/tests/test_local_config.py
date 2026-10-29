@@ -19,7 +19,7 @@ def _write_full_catalog(repo_root: Path, *, overrides: dict[str, str] | None = N
     real `component-catalog.yaml` always declares all of them, so a partial
     fixture would make `CatalogChart.load` raise for any chart beyond the
     one(s) a given test focuses on."""
-    from olf.deployment.charts import CHART_DEFAULTS
+    from olf.chart_pins import CHART_DEFAULTS
 
     overrides = overrides or {}
     lines = ["components:", "  helm:", "    charts:"]
