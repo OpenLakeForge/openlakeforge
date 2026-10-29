@@ -25,6 +25,12 @@ for how a release is cut and verified.
   pod, as ConfigMap and Secret key references, and an activation is refused
   while the stage lacks one; the check reads Secret key names, never values
   (#546).
+- `libs.bronze_dlt.bronze_pipeline` runs a dlt source into the stage's
+  Bronze bucket, with its incremental state stored there under a
+  `<stage>__<source>` pipeline, so DEV and PROD cursors never mix (#546).
+  The project-code image installs `dlt[s3]` for that bucket, with `boto3`
+  pinned to 1.43.117, the newest `botocore` that `s3fs`'s `aiobotocore`
+  accepts.
 
 ### Changed
 
