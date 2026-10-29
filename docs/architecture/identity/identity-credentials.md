@@ -136,10 +136,10 @@ the run reports the original failure.
 
 The drill `credential preservation across a redeploy` (`--checks all`,
 `tools/olf/olf/e2e/_credential_preservation.py`) reads the same migrated values,
-deletes the Jobs that create them (`postgresql-credentials`,
-`superset-credentials`, `polaris-token-key`, `governance-bootstrap`), runs a
-platform `terraform apply` so each script runs again, and fails by name if any
-value changed or disappeared. It runs after the scan and before the rotation
+deletes the Jobs that create them (by name: `postgresql-credentials-*`,
+`superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`),
+runs a platform `terraform apply`, fails if a deleted Job was not recreated
+(a new uid), and fails by name if any value changed or disappeared. It runs after the scan and before the rotation
 drill.
 
 A surface that cannot be read (no state file yet, a failed `kubectl`) is
