@@ -76,7 +76,7 @@ labels expressing intended sequence within a milestone.
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
 | `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract both `pyproject.toml` files must match |
-| `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json` | Schemas `lakehouse.yaml` and `source.yaml` validate against |
+| `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `lakehouse.yaml`, `source.yaml` and `governance.yml` validate against |
 | `docs/schema/deployment-profile.schema.json` | Schema for Deployment Profiles |
 
 ## Architectural rules

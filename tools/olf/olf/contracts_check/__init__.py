@@ -18,6 +18,7 @@ from olf.contracts_check._descriptors import (
     descriptor_schema_errors,
     profile_schema_errors,
 )
+from olf.contracts_check._governance import _check_governance_conformance
 from olf.contracts_check._hcl import _check_hcl_phase_two_invariants, _check_hcl_structured_contracts
 from olf.contracts_check._rendered import (
     _check_floe_contract_structure,
@@ -54,6 +55,7 @@ def run_contracts_check(
 
     report = ContractsCheckReport()
     report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_governance_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(
         _check_deployment_profile_schema_conformance(
             root, schema_root=dist_root / "docs" / "schema", distribution_root=dist_root

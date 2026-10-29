@@ -13,6 +13,12 @@ from .descriptors import (
     validate_lakehouse_descriptor,
     validate_source_descriptor,
 )
+from .governance import (
+    GOVERNANCE_API_VERSION,
+    GOVERNANCE_KIND,
+    load_governance_descriptor,
+    validate_governance_descriptor,
+)
 from .inventory import (
     ArtifactPrefixes,
     CatalogNamespace,
@@ -36,6 +42,8 @@ from .inventory import (
 )
 
 __all__ = [
+    "GOVERNANCE_API_VERSION",
+    "GOVERNANCE_KIND",
     "LAKEHOUSE_API_VERSION",
     "LAKEHOUSE_KIND",
     "SOURCE_API_VERSION",
@@ -57,11 +65,13 @@ __all__ = [
     "Source",
     "Table",
     "inventory_for",
+    "load_governance_descriptor",
     "load_lakehouse_descriptor",
     "load_lakehouse_inventory",
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
     "load_source_descriptor",
+    "validate_governance_descriptor",
     "validate_lakehouse_descriptor",
     "validate_source_descriptor",
 ]
