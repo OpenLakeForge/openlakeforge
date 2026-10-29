@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.local.config import LocalDeploymentConfig
+from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.local.config import ImageSettings, LocalDeploymentConfig
+from olf.profile import Preset, ProjectImageSpec, ProjectSpec, legacy_single_stage_topology
+from olf.profile import Provider as ProfileProvider
 
 
 def _write_full_catalog(repo_root: Path, *, overrides: dict[str, str] | None = None) -> Path:
@@ -201,3 +207,41 @@ def test_a_user_var_file_resolves_against_the_project_not_the_payload(tmp_path: 
     config = LocalDeploymentConfig.from_environment({"LOCAL_TFVARS_FILE": "custom.tfvars"}, context=context)
 
     assert config.terraform.var_file == project / "custom.tfvars"
+
+
+_PIN = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0-alpha.1@sha256:" + "a" * 64
+
+
+def _published_config(tmp_path: Path, environ: dict[str, str] | None = None, *, project: ProjectSpec | None = None):
+    catalog = _write_full_catalog(tmp_path)
+    catalog.write_text(catalog.read_text() + f"  images:\n    project_code: {_PIN}\n")
+    topology = replace(
+        legacy_single_stage_topology(provider=ProfileProvider.LOCAL, preset=Preset.FULL), project=project
+    )
+    context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
+    return LocalDeploymentConfig.from_environment(environ or {}, context=context)
+
+
+def test_no_customer_project_deploys_the_published_example_by_digest(tmp_path: Path) -> None:
+    images = _published_config(tmp_path).images
+
+    assert images.project_code_published
+    assert images.project_code_image == _PIN
+    assert images.project_code_pull_policy == "IfNotPresent"
+
+
+def test_a_customer_project_never_deploys_the_example(tmp_path: Path) -> None:
+    declared = ProjectSpec(image=ProjectImageSpec(repository="localhost:5001/acme/code"))
+    for images in (
+        _published_config(tmp_path, project=declared).images,
+        _published_config(tmp_path, {"PROJECT_CODE_IMAGE_REPOSITORY": "localhost:5001/acme/code"}).images,
+        _published_config(tmp_path, {"PROJECT_CODE_IMAGE_TAG": "dev"}).images,
+    ):
+        assert not images.project_code_published
+        assert images.project_code_pull_policy == "Never"
+        assert "@sha256:" not in images.project_code_image
+
+
+def test_a_pin_without_a_digest_fails_clearly() -> None:
+    with pytest.raises(DeploymentPreconditionError, match="no digest"):
+        ImageSettings.from_environment({}, published="ghcr.io/o/project-code:0.5.0-alpha.1")

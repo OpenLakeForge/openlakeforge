@@ -74,8 +74,11 @@ def selected_images(
     perimeter: bool = True,
     dex: bool = False,
     build_superset: bool = False,
+    project_code: bool = False,
 ) -> tuple[str, ...]:
     names = list(_ALWAYS)
+    if project_code:
+        names.append("project_code")
     if features.governance_enabled:
         names += ["opensearch", "openmetadata_ingestion"]
     if features.analytics_enabled:
@@ -130,6 +133,7 @@ def prefetch_images(
         perimeter=identity is not None,
         dex=identity is not None and identity.issuer == "github",
         build_superset=config.images.builds_superset(server_arch),
+        project_code=config.images.project_code_published,
     )
 
     nodes = tools.kind.get_nodes(config.cluster.name, env=env)
