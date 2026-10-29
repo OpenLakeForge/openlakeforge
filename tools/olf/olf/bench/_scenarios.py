@@ -71,17 +71,24 @@ def footprint(
     *,
     session: Session,
     clean: bool,
+    install: bool = True,
     settle_seconds: int,
     idle_seconds: int,
     sample_interval: float,
 ) -> None:
-    """Scenario A: clean install to first Gold rows, then the installed and steady-state footprint."""
+    """Scenario A: clean install to first Gold rows, then the installed and steady-state footprint.
+
+    Without `install`, the deployment already running is measured from the first query on.
+    """
     if clean:
         with record.timed("destroy_before_install", excluded_from_install=True):
             olf_command(target, ["destroy", "--force"], project_root=target.project_root, log_name="destroy")
     with ExitStack() as stack:
         sampler: _resources.Sampler | None = None
-        for phase in DEPLOY_PHASES:
+        if not install:
+            nodes = _resources.kind_nodes(target.cluster_name)
+            sampler = stack.enter_context(_resources.Sampler(nodes, interval=sample_interval))
+        for phase in DEPLOY_PHASES if install else ():
             with record.timed(f"deploy_{phase}") as detail:
                 start = time.time()
                 olf_command(target, ["deploy", "--phase", phase], project_root=target.project_root, log_name=phase)
@@ -92,10 +99,11 @@ def footprint(
                 else:
                     detail["cluster_usage"] = sampler.window(start, time.time())
         assert sampler is not None
-        record.fact(
-            "install_total",
-            {"seconds": round(sum(m.seconds or 0 for m in record.measurements if m.name.startswith("deploy_")), 3)},
-        )
+        if install:
+            record.fact(
+                "install_total",
+                {"seconds": round(sum(m.seconds or 0 for m in record.measurements if m.name.startswith("deploy_")), 3)},
+            )
         with session(target.project_root) as cfg:
             with record.timed("time_to_first_query") as detail:
                 detail["attempts"] = _first_query(cfg)

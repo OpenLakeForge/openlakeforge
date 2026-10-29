@@ -20,6 +20,9 @@ _OUTPUT_HELP = "Result directory; defaults to <project-root>/.tmp/bench/<scenari
 @app.command("footprint")
 def footprint_command(
     clean: bool = typer.Option(False, "--clean", help="Destroy any existing local deployment first."),
+    existing: bool = typer.Option(
+        False, "--existing", help="Measure the running deployment: no install, start at the first query."
+    ),
     settle_seconds: int = typer.Option(120, "--settle-seconds", help="Wait after the first pipeline before idling."),
     idle_seconds: int = typer.Option(300, "--idle-seconds", help="Length of the steady-state sample window."),
     sample_interval: float = typer.Option(5.0, "--sample-interval", help="Seconds between node usage samples."),
@@ -30,6 +33,8 @@ def footprint_command(
     """Scenario A: phase-by-phase install, first query, first pipeline, installed and idle footprint."""
     from olf import bench
 
+    if clean and existing:
+        raise typer.Exit(code=fail("--clean and --existing are mutually exclusive."))
     _run(
         "footprint",
         project_root,
@@ -40,11 +45,13 @@ def footprint_command(
             target,
             session=session,
             clean=clean,
+            install=not existing,
             settle_seconds=settle_seconds,
             idle_seconds=idle_seconds,
             sample_interval=sample_interval,
         ),
         clean=clean,
+        existing=existing,
     )
 
 

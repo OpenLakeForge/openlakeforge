@@ -52,3 +52,27 @@ def test_a_failed_run_exits_non_zero_and_still_writes_its_result(
     document = json.loads((tmp_path / "out" / "result.json").read_text())
     assert document["status"] == "failed"
     assert document["measurements"][0]["error"] == "kubelet did not start"
+
+
+def test_existing_measures_the_running_deployment_without_installing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict = {}
+
+    def footprint(record, target, **kwargs):  # noqa: ANN001, ANN202
+        seen.update(kwargs)
+
+    monkeypatch.setattr(bench, "footprint", footprint)
+
+    result = _invoke(tmp_path, "footprint", "--existing")
+
+    assert result.exit_code == 0, result.output
+    assert seen["install"] is False
+    assert json.loads((tmp_path / "out" / "result.json").read_text())["environment"]["parameters"]["existing"] is True
+
+
+def test_clean_and_existing_cannot_be_combined(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, "footprint", "--clean", "--existing")
+
+    assert result.exit_code == 1
+    assert not (tmp_path / "out" / "result.json").exists()
