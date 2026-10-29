@@ -9,6 +9,7 @@ export, `kind get nodes` during prefetch).
 from __future__ import annotations
 
 import json
+import platform
 from collections.abc import Mapping
 
 from olf import log
@@ -109,13 +110,15 @@ def load_digest_image_into_kind(
 
 
 def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str | None:
-    """Maintainer opt-in (`BUILD_SUPERSET_IMAGE`): build `images/superset` and load it into kind.
+    """Build `images/superset` and load it into kind where the release-pinned image cannot be used.
 
-    Returns the content tag to deploy instead of the release-pinned image, or None. `:local` never changes, so a
-    rebuilt image would leave the pod spec identical and Helm would not roll the pods; re-tagging by image ID
-    makes a changed image a changed spec.
+    That is a maintainer opt-in (`BUILD_SUPERSET_IMAGE`) or a non-amd64 Docker engine. Returns the content tag to
+    deploy instead of the pin, or None. `:local` never changes, so a rebuilt image would leave the pod spec
+    identical and Helm would not roll the pods; re-tagging by image ID makes a changed image a changed spec.
     """
-    if not (config.features.analytics_enabled and config.images.superset_build):
+    if not config.features.analytics_enabled:
+        return None
+    if not config.images.builds_superset(tools.docker.server_arch(env=env) or platform.machine()):
         return None
     log.step("Building local Superset platform image...")
     image = build_superset_image(config, tools, env=env)

@@ -4,9 +4,11 @@
 workflow builds, signs and publishes it by digest, and `olf deploy --provider
 local` pulls the digest pinned as `superset` in `release/component-catalog.yaml`
 (the same reference sits in `infra/helm/values/local/superset.yaml`; `olf release
-check` keeps them equal). Nobody building from a release builds it.
+check` keeps them equal).
 
-Maintainers changing this directory build and deploy their own copy:
+The published image is amd64 only. On any other Docker engine (an Apple Silicon
+workstation, say) `olf deploy` builds it from this directory instead. Maintainers
+changing this directory do the same on any engine:
 
 ```bash
 BUILD_SUPERSET_IMAGE=true uv run --project tools/olf --locked olf deploy --provider local

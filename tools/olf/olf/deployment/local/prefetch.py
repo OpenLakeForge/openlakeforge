@@ -73,12 +73,14 @@ def selected_images(
     catalog_images: Mapping[str, str],
     perimeter: bool = True,
     dex: bool = False,
+    build_superset: bool = False,
 ) -> tuple[str, ...]:
     names = list(_ALWAYS)
     if features.governance_enabled:
         names += ["opensearch", "openmetadata_ingestion"]
     if features.analytics_enabled:
-        names += ["superset", "superset_init", "superset_redis"]
+        # A locally built Superset is loaded by the platform phase, not pulled.
+        names += ["superset_init", "superset_redis"] + ([] if build_superset else ["superset"])
     if perimeter:
         names.append("oauth2_proxy")
     if dex:
@@ -127,6 +129,7 @@ def prefetch_images(
         catalog_images=load_catalog_images(config),
         perimeter=identity is not None,
         dex=identity is not None and identity.issuer == "github",
+        build_superset=config.images.builds_superset(server_arch),
     )
 
     nodes = tools.kind.get_nodes(config.cluster.name, env=env)

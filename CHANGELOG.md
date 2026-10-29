@@ -26,9 +26,10 @@ for how a release is cut and verified.
 
 - A local Full deploy pulls OpenLakeForge's prebuilt, signed Superset image by
   the digest pinned in `release/component-catalog.yaml` (`superset`) instead of
-  building it on the machine; Slim does no Superset image work. Maintainers
-  changing `images/superset/` set `BUILD_SUPERSET_IMAGE=true` to build and load
-  their own. AWS and Azure still build and push it (#542).
+  building it on the machine; Slim does no Superset image work. The release
+  publishes amd64 only, so other Docker engines still build it, as do
+  maintainers who set `BUILD_SUPERSET_IMAGE=true` after changing
+  `images/superset/`. AWS and Azure still build and push it (#542).
 - Floe 0.8, the Python core, runs inside the project-code image
   (`floe-python` 0.8.2, `dagster-floe` 0.4.0). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it

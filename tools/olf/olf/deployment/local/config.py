@@ -63,6 +63,10 @@ class ImageSettings:
     def superset_image(self) -> str:
         return f"{self.superset_repository}:{self.superset_tag}"
 
+    def builds_superset(self, server_arch: str) -> bool:
+        """The release publishes Superset for amd64 only, so any other Docker engine builds it, as does a maintainer."""
+        return self.superset_build or server_arch not in ("amd64", "x86_64")
+
     @classmethod
     def from_environment(cls, environ: Mapping[str, str]) -> ImageSettings:
         return cls(
