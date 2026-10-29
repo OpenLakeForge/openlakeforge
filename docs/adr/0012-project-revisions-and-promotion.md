@@ -29,7 +29,7 @@ content-addressed revision, covering the complete promotable project:
 
 | Component | Source | Excluded because |
 | --- | --- | --- |
-| `descriptors` | `lakehouse_code/lakehouse.yaml`, `bronze/<source>/source.yaml` | — |
+| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml` | — |
 | `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/floe/*.yml` | — |
 | `dbt` | `gold/<product>/dbt/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
@@ -179,6 +179,10 @@ the multi-file Floe project.
 reference products no longer track a rendered copy, and `olf dbt parse` /
 `olf check dbt` render the profile outside the project, so a local parse
 cannot change the revision.
+
+2026-10-29: the `descriptors` component freezes `governance.yml` in place of
+`lakehouse.yaml` (#545). Domains and products are the only business metadata
+the file carries; sources and dashboards are found from their directories.
 
 2026-10-29: dbt, dlt and the code location bind on the pod (#546). The
 image carries one environment-variable-only dbt profile and a stage-neutral
