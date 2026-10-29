@@ -24,6 +24,15 @@
           "description": {"type": "string"}
         }
       }
+    },
+    "runtime": {
+      "description": "Names of the settings and credentials the source's loader reads. Each stage binds the values in its own ConfigMap and Secret; never put a value here.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "config": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}},
+        "secrets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}}
+      }
     }
   }
 }

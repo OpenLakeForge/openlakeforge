@@ -83,10 +83,32 @@ class Source:
     name: str
     display_name: str
     resources: tuple[Table, ...]
+    # Names of the settings and credentials its loader needs, never values:
+    # each stage binds them in the ConfigMap and Secret below.
+    runtime_config: tuple[str, ...] = ()
+    runtime_secrets: tuple[str, ...] = ()
 
     @property
     def bronze_namespace(self) -> str:
         return f"{self.name}_bronze"
+
+    @property
+    def config_map_name(self) -> str:
+        # Kubernetes names allow no `_` and source ids allow no `-`, so the
+        # mapping cannot make two sources collide.
+        return f"olf-source-{self.name.replace('_', '-')}"
+
+    @property
+    def credentials_secret_name(self) -> str:
+        return f"{self.config_map_name}-credentials"
+
+    def runtime_env_name(self, key: str) -> str:
+        """The variable dlt reads `key` from: `SOURCES__<section>__<key>`.
+
+        dlt names a source's config section after its module, and the loader
+        is `bronze/<source>/dlt/<source>.py`, so the section is the source id.
+        """
+        return f"SOURCES__{self.name.upper()}__{key.upper()}"
 
 
 @dataclass(frozen=True)
@@ -540,6 +562,8 @@ def load_lakehouse_inventory_from_descriptors(
                 name=name,
                 display_name=document["displayName"],
                 resources=resources,
+                runtime_config=tuple(document.get("runtime", {}).get("config", ())),
+                runtime_secrets=tuple(document.get("runtime", {}).get("secrets", ())),
             )
         )
     declared_sources = set(lakehouse_document["sources"])

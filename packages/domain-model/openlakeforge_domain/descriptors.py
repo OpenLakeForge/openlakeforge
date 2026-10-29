@@ -78,11 +78,46 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
             raise LakehouseDescriptorError(
                 f"{source}: resources[{index}] must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
             )
-    unexpected = set(document) - {"apiVersion", "kind", "name", "displayName", "description", "status", "resources"}
+    if "runtime" in document:
+        _validate_source_runtime(document["runtime"], source=source)
+    unexpected = set(document) - {
+        "apiVersion",
+        "kind",
+        "name",
+        "displayName",
+        "description",
+        "status",
+        "resources",
+        "runtime",
+    }
     if unexpected:
         raise LakehouseDescriptorError(
             f"{source}: must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
         )
+
+
+def _validate_source_runtime(runtime: object, *, source: str) -> None:
+    # Key names only: their values are a stage's to bind, in its own ConfigMap
+    # and Secret, so a revision promotes unchanged from DEV to PROD (#546).
+    if not isinstance(runtime, Mapping):
+        raise LakehouseDescriptorError(f"{source}: runtime must be an object")
+    unexpected = set(runtime) - {"config", "secrets"}
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: runtime must not contain {sorted(unexpected)!r}; it names config and secrets keys only"
+        )
+    listed: dict[str, str] = {}
+    for group in ("config", "secrets"):
+        keys = runtime.get(group, [])
+        if not isinstance(keys, list):
+            raise LakehouseDescriptorError(f"{source}: runtime.{group} must be an array of key names")
+        for index, key in enumerate(keys):
+            name = _identifier(key, field=f"runtime.{group}[{index}]", source=source)
+            if name in listed:
+                raise LakehouseDescriptorError(
+                    f"{source}: runtime key {name!r} is listed twice (runtime.{listed[name]} and runtime.{group})"
+                )
+            listed[name] = group
 
 
 def _validate_table_group(product: Mapping[str, Any], *, group: str, source: str) -> None:
