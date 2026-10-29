@@ -380,42 +380,27 @@ resources:
 """,
         encoding="utf-8",
     )
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - crm
+    (lakehouse_dir / "governance.yml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: orders
-        displayName: Sales Orders Product Metadata Name
-        description: Sales orders.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_orders
-dashboards:
-  - name: orders
-    products: [orders]
+products:
+  - id: orders
+    domain: sales
+    displayName: Sales Orders Product Metadata Name
+    description: Sales orders.
+    status: planned
 """,
         encoding="utf-8",
     )
     dashboards_dir = lakehouse_dir / "dashboards" / "superset" / "orders" / "dashboards"
     dashboards_dir.mkdir(parents=True)
+    (dashboards_dir.parent / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
     (dashboards_dir / "Live_1.yaml").write_text(
         "dashboard_title: The Actual Live Dashboard Title\nslug: sales-orders-live\n"
         "uuid: 0b5f2f0e-6a43-4d8e-9a59-7c2d0f4a1e11\n",
@@ -454,35 +439,21 @@ resources:
 """,
         encoding="utf-8",
     )
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - crm
+    (lakehouse_dir / "governance.yml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: orders
-        displayName: Sales Orders Product Metadata Name
-        description: Sales orders.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_orders
-dashboards: []
+products:
+  - id: orders
+    domain: sales
+    displayName: Sales Orders Product Metadata Name
+    description: Sales orders.
+    status: planned
 """,
         encoding="utf-8",
     )
