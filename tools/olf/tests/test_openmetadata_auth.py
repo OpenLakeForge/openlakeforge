@@ -38,3 +38,10 @@ def test_basic_login_is_skipped_with_the_automation_token() -> None:
     reconciler.login()
 
     assert client.token == "bot"
+
+
+def test_admin_password_is_the_secret_unless_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "secret_value", lambda name, key, namespace, **_kw: f"{name}/{key}")
+
+    assert _auth.admin_password("olf-system") == "openmetadata-admin/admin-password"
+    assert _auth.admin_password("olf-system", "chosen") == "chosen"
