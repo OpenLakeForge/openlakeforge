@@ -158,7 +158,7 @@ def _root_output_errors(env: str, tf_path: Path) -> list[str]:
 
 # Modules whose credentials an in-cluster Job creates (#181, #400). The rest of
 # #400 adds a module here as it migrates.
-_JOB_CREDENTIAL_MODULES = ("identity", "storage/postgresql")
+_JOB_CREDENTIAL_MODULES = ("identity", "storage/postgresql", "catalog/polaris")
 
 
 def _job_credential_module_errors(repo_root: Path) -> list[str]:

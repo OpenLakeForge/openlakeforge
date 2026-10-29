@@ -44,7 +44,7 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
             name = "POLARIS_BOOTSTRAP_CREDENTIALS"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                name = var.bootstrap_secret_name
                 key  = "POLARIS_BOOTSTRAP_CREDENTIALS"
               }
             }
@@ -54,7 +54,7 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
             name = "ROOT_CLIENT_ID"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                name = var.bootstrap_secret_name
                 key  = "ROOT_CLIENT_ID"
               }
             }
@@ -64,7 +64,7 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
             name = "ROOT_CLIENT_SECRET"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                name = var.bootstrap_secret_name
                 key  = "ROOT_CLIENT_SECRET"
               }
             }
@@ -166,7 +166,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             name = "ROOT_CLIENT_ID"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                name = var.bootstrap_secret_name
                 key  = "ROOT_CLIENT_ID"
               }
             }
@@ -176,7 +176,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             name = "ROOT_CLIENT_SECRET"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                name = var.bootstrap_secret_name
                 key  = "ROOT_CLIENT_SECRET"
               }
             }

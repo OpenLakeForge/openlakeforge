@@ -37,12 +37,6 @@ output "contract" {
   ]
 }
 
-output "root_client_secret" {
-  description = "Generated local Polaris root client secret. Exposed only for debugging."
-  value       = random_password.root_client_secret.result
-  sensitive   = true
-}
-
 output "stage_contracts" {
   description = "Stage-owned catalog bindings written by the shared Polaris bootstrap job."
   value = {

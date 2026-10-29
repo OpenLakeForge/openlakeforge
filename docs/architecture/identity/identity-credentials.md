@@ -92,7 +92,7 @@ here, not migrated. All are in the debt register
 | --- | --- | --- | --- |
 | PostgreSQL admin, per-service database users (including `dex`) and the Polaris database user (#400) | In-cluster Job `postgresql-credentials-<hash>` (`modules/storage/postgresql/credentials.tf`), create-if-missing, 32 random alphanumeric characters | `postgresql-*-creds` Secrets, one copy per consuming namespace | No |
 | SeaweedFS S3 admin and per-stage keys | `random_id` and `random_password` | Secrets from the SeaweedFS module | Yes |
-| Polaris root client | `random_password` | `var.bootstrap_secret_name` | Yes |
+| Polaris root client (#400) | Polaris module Job `polaris-token-key-<hash>`, in-cluster, create-if-absent, 32 random alphanumeric characters | `polaris-bootstrap-credentials` | No |
 | Superset `SECRET_KEY` | `random_password` | Helm `extraSecretEnv` | Yes |
 | Superset admin and OpenMetadata admin | Literal default `admin` / `admin` (module variable defaults; the local root does not override them) | Helm values; `olf` reads `SUPERSET_ADMIN_PASSWORD` and `OPENMETADATA_ADMIN_PASSWORD` with the same defaults | Yes (a constant) |
 | Polaris token-signing key | Polaris module Job, in-cluster, create-if-absent | `<release>-token-broker` (`symmetric.key`) | No |

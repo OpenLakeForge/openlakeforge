@@ -1,22 +1,18 @@
-resource "random_password" "root_client_secret" {
-  length  = 32
-  special = false
+# Earlier releases generated the root client secret in Terraform. The Secret
+# stays in the cluster and the Job below keeps it, so the upgrade rotates
+# nothing. Drop the blocks once every environment has applied past this change.
+removed {
+  from = random_password.root_client_secret
+  lifecycle {
+    destroy = false
+  }
 }
 
-resource "kubernetes_secret_v1" "bootstrap_credentials" {
-  metadata {
-    name      = var.bootstrap_secret_name
-    namespace = var.namespace
-    labels    = local.labels
+removed {
+  from = kubernetes_secret_v1.bootstrap_credentials
+  lifecycle {
+    destroy = false
   }
-
-  data = {
-    POLARIS_BOOTSTRAP_CREDENTIALS = "${local.realm},${local.root_client_id},${random_password.root_client_secret.result}"
-    ROOT_CLIENT_ID                = local.root_client_id
-    ROOT_CLIENT_SECRET            = random_password.root_client_secret.result
-  }
-
-  type = "Opaque"
 }
 
 # Polaris signs the OAuth tokens it issues. Without a configured key the chart
@@ -25,6 +21,9 @@ resource "kubernetes_secret_v1" "bootstrap_credentials" {
 # The key is created in-cluster, only if missing, so Terraform never holds the
 # value (#181, docs/architecture/identity/identity-credentials.md) and a redeploy does
 # not rotate it. Rotation is deleting the Secret and re-running the Job.
+# The root client secret is created by the same Job for the same reason (#400).
+# Replacing it is not just deleting the Secret: the metastore keeps the root
+# credential it was bootstrapped with.
 locals {
   token_broker_secret = "${var.release_name}-token-broker"
   token_broker_script = <<-SH
@@ -33,6 +32,15 @@ locals {
     else
       kubectl create secret generic "${local.token_broker_secret}" -n "$NAMESPACE" \
         --from-literal=symmetric.key="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
+    fi
+    if kubectl get secret "${var.bootstrap_secret_name}" -n "$NAMESPACE" >/dev/null 2>&1; then
+      echo "Secret ${var.bootstrap_secret_name} exists; keeping it"
+    else
+      root_secret="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)"
+      kubectl create secret generic "${var.bootstrap_secret_name}" -n "$NAMESPACE" \
+        --from-literal=POLARIS_BOOTSTRAP_CREDENTIALS="${local.realm},${local.root_client_id},$root_secret" \
+        --from-literal=ROOT_CLIENT_ID="${local.root_client_id}" \
+        --from-literal=ROOT_CLIENT_SECRET="$root_secret"
     fi
   SH
 }
@@ -133,7 +141,7 @@ resource "helm_release" "polaris" {
           name = "POLARIS_BOOTSTRAP_CREDENTIALS"
           valueFrom = {
             secretKeyRef = {
-              name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+              name = var.bootstrap_secret_name
               key  = "POLARIS_BOOTSTRAP_CREDENTIALS"
             }
           }

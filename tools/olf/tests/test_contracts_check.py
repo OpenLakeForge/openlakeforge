@@ -672,16 +672,17 @@ def test_hcl_structured_contracts_rejects_credential_handling_in_an_identity_mod
         assert expected in result.detail
 
 
-def test_hcl_structured_contracts_rejects_credential_handling_in_the_postgresql_module(tmp_path: Path) -> None:
+@pytest.mark.parametrize("module_path", ["storage/postgresql", "catalog/polaris"])
+def test_hcl_structured_contracts_rejects_credential_handling_in_job_modules(tmp_path: Path, module_path: str) -> None:
     repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
-    module = repo_root / "infra/terraform/modules/storage/postgresql"
+    module = repo_root / "infra/terraform/modules" / module_path
     module.mkdir(parents=True)
     (module / "credentials.tf").write_text('resource "random_password" "admin" {\n  length = 32\n}\n')
 
     result = contracts_check._check_hcl_structured_contracts(repo_root)
 
     assert not result.ok
-    assert "storage/postgresql/credentials.tf: resource random_password.admin" in result.detail
+    assert f"{module_path}/credentials.tf: resource random_password.admin" in result.detail
 
 
 def test_hcl_structured_contracts_accepts_the_real_job_credential_modules() -> None:
