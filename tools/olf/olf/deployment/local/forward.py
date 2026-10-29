@@ -74,7 +74,7 @@ def local_forward_spec(config: LocalDeploymentConfig, tools: Toolkit, *, env: Ma
     if config.features.analytics_enabled:
         banner.append("  Superset UI:      http://localhost:8088  (admin; password in Secret superset-credentials)")
     if config.features.governance_enabled:
-        banner.append("  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)")
+        banner.append("  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org; Secret openmetadata-admin)")
     banner += [
         "  Trino UI:         http://localhost:8080",
         "  Polaris API:      http://localhost:8181",

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 def _auth_off_notes(governance: bool) -> tuple[str, ...]:
-    login = " OpenMetadata login: admin@open-metadata.org / admin" if governance else ""
+    login = " OpenMetadata login: admin@open-metadata.org (password in Secret openmetadata-admin)" if governance else ""
     return (f"Authentication is off.{login}",)
 
 
