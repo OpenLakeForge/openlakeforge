@@ -182,12 +182,10 @@ def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) ->
         tags = getattr(getattr(asset_def, "op", None), "tags", None) or {}
         if tags.get("dagster/compute_kind") != "floe":
             continue
-        # dagster-floe names each entity's table output `<op>__accepted`
-        # and its rejection output `<op>__rejected`.
+        # dagster-floe marks each entity's table `floe/output: accepted` and
+        # its quarantine table `floe/output: rejected`.
         accepted = [
-            key
-            for name, key in getattr(asset_def, "keys_by_output_name", {}).items()
-            if name.endswith("__accepted")
+            spec.key for spec in getattr(asset_def, "specs", ()) if spec.metadata.get("floe/output") == "accepted"
         ]
         domains = {tuple(key.path)[0] for key in accepted}
         if len(domains) != 1:

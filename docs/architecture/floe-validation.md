@@ -48,11 +48,12 @@ baked into it.
 dagster-floe builds the manifest in memory from the project and the rendered
 profile (`manifest_from_config`); no manifest is generated, published or
 versioned. [The Dagster integration](../../libs/product_dagster.py) loads one
-subsettable asset per domain and points each Silver table at its own Bronze
-resource `<source>/<resource>` as `lakehouse.yaml` declares it, through
+subsettable asset per domain and points each Silver table at the Bronze
+resource its entity reads, `<source.ref>/<source.resource>`, through
 dagster-floe's `source_key_fn`; left alone, dagster-floe would key every entity
 of a named source to one shared `sources/<project>/<source>` asset, and Silver
-would not wait for the Bronze resource it reads. The manifest is named
+would not wait for the Bronze resource it reads. Each entity's quarantined rows
+are the asset `<domain>/rejected/<table>`. The manifest is named
 (`openlakeforge`), so each domain's op keeps its name across contract edits.
 
 | Concern | How it works |
@@ -60,19 +61,21 @@ would not wait for the Bronze resource it reads. The manifest is named
 | Execution | The profile's runner is `kubernetes_job` with `job_scope: domain`. A run that materializes a domain's asset launches one Kubernetes Job for that domain in the stage namespace, on the run pod's own project-code image and the `dagster` service account. The Job's `olf-floe-job` entrypoint (`libs/floe_job.py`) re-renders the stage profile from the non-secret contract values forwarded in its environment, then execs `floe run` unchanged. |
 | Selection | A run that needs a whole domain passes `--domain <domain>`; one that needs only some of its tables passes just those (`--entities sales.orders,sales.accounts`). |
 | Concurrency | The profile's `sequential` orchestration runs a Job's entities one after another, and becomes `max_concurrent: 1` on each product job, so one domain Job runs at a time. |
-| Credentials | Each Job receives only Secret references (`secretKeyRef`): the Polaris Floe client id and secret, the storage access keys, and, when governance is on, the OpenMetadata ingestion-bot JWT as `OPENLINEAGE_API_KEY`. No credential value enters the profile, the manifest or the Job spec. |
+| Credentials | Each Job receives only Secret references (`secretKeyRef`): on a REST catalog the Polaris Floe client id and secret, the storage access keys where the stage uses static keys, and, when governance is on, the OpenMetadata ingestion-bot JWT as `OPENLINEAGE_API_KEY`. No credential value enters the profile, the manifest or the Job spec. |
 | Isolation | A domain's Job has its own pod and memory; it does not share the Dagster run pod's memory or its mounted credentials. A run creates one pod per domain it touches. |
 | Run reports | Floe writes them to `floe/reports/<domain>/run_<id>/` under the stage's artifact prefix, and dagster-floe reads them back with `boto3` to attach each entity's row, accepted and rejected counts and asset-check detail. |
 
 ## Supported catalogs
 
-Silver runs through a REST catalog: the local and Azure providers use Polaris.
-Floe 0.8.1 can also write through AWS Glue, but a Glue catalog definition names
-one database for every table it writes, while each OpenLakeForge domain has its
-own stage-prefixed Glue database; until the two are reconciled the profile
-renderer refuses a Glue stage with an explicit error rather than producing a
-profile that writes Silver into the wrong database. AWS parity is a cloud-beta
-item.
+The local and Azure providers write Silver through Polaris, a REST catalog. An
+AWS stage writes through AWS Glue: its catalog definition names the database
+`<stage prefix>{domain}`, which Floe completes with each domain's Silver
+namespace, so `sales` lands in `lakehouse_dev_sales_silver`, the database
+`olf catalog sync-namespaces` creates. Floe never creates a Glue database
+itself, and the Job authenticates with the pod's own AWS identity. Glue
+supports `overwrite` and `append`; merge write modes need a REST catalog. The
+AWS writer path is still a rollout gate in the
+[technical-debt register](../technical-debt.md).
 
 ## Capability comparison at the Bronze-to-Silver boundary
 

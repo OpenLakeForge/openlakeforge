@@ -821,17 +821,35 @@ def test_each_stage_renders_a_floe_profile_bound_to_its_own_contract(provider: P
         )
 
 
-def test_an_aws_glue_stage_pod_refuses_floe_explicitly() -> None:
-    """Silver does not run on Glue yet (docs/technical-debt.md); the pod must say so, not misbehave."""
+def test_each_aws_stage_writes_silver_into_its_own_glue_databases() -> None:
+    """The account's one Glue catalog is shared by every stage, so each stage's
+    profile must name its own prefixed database per domain -- the one
+    `olf catalog sync-namespaces` creates -- from what activation puts on the pod."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from libs.floe_profile import FloeProfileError, render_profile
+    from libs.floe_profile import render_profile
 
     contract = _contract(Provider.AWS)
     topology = _topology_of(contract)
-    for stage in parse_provider_contracts(contract, topology).stages.values():
-        with pytest.raises(FloeProfileError, match="Silver runs through a REST catalog only"):
-            render_profile(_stage_pod_env(contract, topology, stage))
+    parsed = parse_provider_contracts(contract, topology)
+
+    for name, stage in parsed.stages.items():
+        profile = render_profile(_stage_pod_env(contract, topology, stage))
+
+        (catalog,) = profile["catalogs"]["definitions"]
+        assert catalog["type"] == "glue"
+        assert catalog["database"] == f"{stage.catalog['catalog_name']}_{{domain}}"
+        assert catalog["create_database_if_missing"] is False
+        buckets = {storage["name"]: storage["bucket"] for storage in profile["storages"]["definitions"]}
+        assert buckets["lakehouse_silver"] == stage.storage["silver"]["bucket_name"]
+        runner = profile["execution"]["runner"]
+        assert runner["namespace"] == stage.namespace
+        assert not [secret for secret in runner["secrets"] if secret["name"].startswith("POLARIS_")]
+        others = {other.value for other in parsed.stages if other != name}
+        rendered = json.dumps(profile)
+        assert not [other for other in others if _names_stage(rendered, other)], (
+            f"aws's {name.value!r} Floe profile names another stage: {rendered}"
+        )
 
 
 def test_a_stage_bucket_that_extends_another_stages_name_is_not_a_leak() -> None:

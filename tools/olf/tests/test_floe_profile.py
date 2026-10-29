@@ -85,9 +85,53 @@ def test_missing_region_is_refused() -> None:
         render_profile(_STAGE)
 
 
-def test_glue_catalog_is_refused() -> None:
-    with pytest.raises(FloeProfileError, match="REST catalog only"):
-        render_profile({**_STAGE, "AWS_REGION": "us-east-1", "OPENLAKEFORGE_CATALOG_TYPE": "glue"})
+_GLUE_STAGE = {
+    **_STAGE,
+    "AWS_REGION": "eu-west-1",
+    "OPENLAKEFORGE_CATALOG_TYPE": "glue",
+    "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
+    "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX": "lakehouse_dev_",
+    "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX": "warehouse/iceberg",
+    "OPENLINEAGE_URL": "http://openmetadata:8585",
+}
+
+
+def test_a_glue_stage_writes_each_domain_into_its_own_prefixed_database() -> None:
+    profile = render_profile(_GLUE_STAGE)
+
+    (catalog,) = profile["catalogs"]["definitions"]
+    # Floe puts the domain's Silver namespace (`sales_silver`) where `{domain}`
+    # stands: `lakehouse_dev_sales_silver`, as `olf catalog sync-namespaces` names it.
+    assert catalog == {
+        "name": "iceberg_catalog",
+        "type": "glue",
+        "region": "eu-west-1",
+        "database": "lakehouse_dev_{domain}",
+        "create_database_if_missing": False,
+        "warehouse_storage": "lakehouse_silver",
+        "warehouse_prefix": "s3://lakehouse-silver/warehouse/iceberg",
+    }
+    assert profile["lineage"]["dataset_namespace"] == "aws_glue"
+
+
+def test_a_glue_stage_without_its_database_prefix_is_refused() -> None:
+    # Unprefixed, every stage would share one database per domain in the account's one catalog.
+    environ = {name: value for name, value in _GLUE_STAGE.items() if name != "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"}
+
+    with pytest.raises(FloeProfileError, match="OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"):
+        render_profile(environ)
+
+
+def test_a_glue_job_carries_no_polaris_credentials() -> None:
+    runner = render_profile(_GLUE_STAGE)["execution"]["runner"]
+
+    assert not [secret for secret in runner["secrets"] if secret["name"].startswith("POLARIS_")]
+    assert runner["env"]["OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"] == "lakehouse_dev_"
+
+
+def test_a_catalog_floe_cannot_write_through_is_refused() -> None:
+    with pytest.raises(FloeProfileError, match="REST or AWS Glue catalog"):
+        render_profile({**_STAGE, "AWS_REGION": "us-east-1", "OPENLAKEFORGE_CATALOG_TYPE": "unity"})
 
 
 def test_an_empty_oauth_scope_falls_back_to_all_principal_roles() -> None:

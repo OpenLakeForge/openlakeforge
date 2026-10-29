@@ -25,7 +25,7 @@ for how a release is cut and verified.
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image
-  (`floe-python` 0.8.1, `dagster-floe` 0.3.1). The code location builds the
+  (`floe-python` 0.8.2, `dagster-floe` 0.4.0). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
   renders for its own stage, and each domain runs as one Kubernetes Job on the
   same image (`olf-floe-job`): a whole-domain run passes `--domain`, a partial
@@ -35,7 +35,10 @@ for how a release is cut and verified.
   with named Bronze sources in `silver/sources.yml`, and per domain a
   `_domain.yml` of sink defaults plus one file per entity. `olf domain new`
   and `olf product new` write this layout. Each Silver asset depends on the
-  Bronze resource `lakehouse.yaml` declares for it.
+  Bronze resource its entity reads, and its quarantined rows are the asset
+  `<domain>/rejected/<table>`.
+- Silver runs on AWS Glue stages: each domain writes into its stage-prefixed
+  Glue database (`overwrite` and `append`; merges need a REST catalog).
 - Stage activations are written as `ACTIVATION.json` schema 2, without a Floe
   manifest revision; schema-1 records still read and verify as published.
   `olf project status --json` no longer reports `floe_manifest_revision`.
@@ -89,8 +92,9 @@ for how a release is cut and verified.
 - The upgrade is one-way: a deploy never rolls a stage back to an activation
   made before Floe 0.8. If its pointer fails to commit over one, the new
   release stays installed and the deploy asks to be rerun.
-- Silver does not run on an AWS Glue stage yet: the profile renderer refuses
-  it (see `docs/technical-debt.md`).
+- Dagster asset keys of Floe's quarantined rows move from
+  `<domain>/<table>_rejected` to `<domain>/rejected/<table>`; their history
+  stays under the old keys.
 - Delete any `lakehouse_code/gold/<product>/dbt/profiles.yml` from version
   control; OpenLakeForge renders it for each stage.
 
