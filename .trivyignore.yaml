@@ -58,6 +58,7 @@ images:
   - {name: cert_manager_webhook, owner: malon64, expired_at: 2026-12-15, statement: "5 fixable HIGH/CRITICAL findings at first scan"}
   - {name: dagster_control_plane, owner: malon64, expired_at: 2026-12-15, statement: "127 fixable HIGH/CRITICAL findings at first scan"}
   - {name: dex, owner: malon64, expired_at: 2026-12-15, statement: "30 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: openmetadata_ingestion, owner: malon64, expired_at: 2026-12-15, statement: "docker.getcollate.io rate-limits anonymous pulls, so it was not scanned at first run"}
   - {name: k8s_bootstrap, owner: malon64, expired_at: 2026-12-15, statement: "719 fixable HIGH/CRITICAL findings at first scan"}
   - {name: oauth2_proxy, owner: malon64, expired_at: 2026-12-15, statement: "6 fixable HIGH/CRITICAL findings at first scan"}
   - {name: opensearch, owner: malon64, expired_at: 2026-12-15, statement: "463 fixable HIGH/CRITICAL findings at first scan"}
