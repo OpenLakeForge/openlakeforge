@@ -103,6 +103,15 @@ def _silver_tables(root: Path, domain: str) -> tuple[SilverTable, ...]:
     return tuple(tables.values())
 
 
+def _require_domain_silver_source(path: Path, source: Mapping[str, Any], domain: str) -> None:
+    """The dbt `silver` source must read the product's own domain schema, table for table."""
+    if not str(source.get("schema", "")).endswith(f"{domain}_silver"):
+        raise LakehouseDescriptorError(f"{path}: source 'silver' must read the schema {domain}_silver")
+    for table in source.get("tables") or []:
+        if isinstance(table, Mapping) and {"identifier", "schema", "database"} & set(table):
+            raise LakehouseDescriptorError(f"{path}: silver source table {table.get('name')!r} must not remap its relation")
+
+
 def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Product:
     dbt_dir = root / "gold" / product_id / "dbt"
     project_file = dbt_dir / "dbt_project.yml"
@@ -116,9 +125,13 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
     if _has_unsupported_setting(project.get("models")):
         raise LakehouseDescriptorError(f"{project_file}: {_UNSUPPORTED}")
     for properties in sorted((dbt_dir / "models").rglob("*.y*ml")):
-        for entry in (yaml.safe_load(properties.read_text(encoding="utf-8")) or {}).get("models") or []:
+        document = yaml.safe_load(properties.read_text(encoding="utf-8")) or {}
+        for entry in document.get("models") or []:
             if isinstance(entry, Mapping) and _has_unsupported_setting(entry.get("config")):
                 raise LakehouseDescriptorError(f"{properties}: {_UNSUPPORTED}")
+        for source in document.get("sources") or []:
+            if isinstance(source, Mapping) and source.get("name") == "silver":
+                _require_domain_silver_source(properties, source, domain)
     models = sorted((dbt_dir / "models").rglob("*.sql"))
     names = [model.stem for model in models]
     if not names:

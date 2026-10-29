@@ -157,6 +157,9 @@ _DATASET = "dashboards/superset/revenue_board/datasets/Trino/mart_revenue.yaml"
         ("gold/revenue/dbt/dbt_project.yml", "name: revenue\nmodel-paths: [sql]\n", "model-paths"),
         ("gold/revenue/dbt/dbt_project.yml", "name: revenue\nmodels: {revenue: {+schema: elsewhere}}\n", "schema"),
         ("gold/revenue/dbt/models/m.yml", "models:\n- name: mart_revenue\n  config: {schema: elsewhere}\n", "schema"),
+        ("gold/revenue/dbt/models/s.yml", "sources:\n- name: silver\n  schema: hr_silver\n", "must read the schema"),
+        ("gold/revenue/dbt/models/s.yml", "sources:\n- name: silver\n  schema: sales_silver\n  tables:\n"
+         "  - {name: orders, identifier: archived}\n", "must not remap"),
         (_DOMAIN, "name: sales\ndefaults: {sink: {accepted: {iceberg: {namespace: hr_silver}}}}\n", "claims a schema"),
         (_ORDERS, "name: orders\nsource: {ref: crm, resource: orders}\nsink: {accepted: {iceberg: {namespace: x}}}\n",
          "claims a schema"),
