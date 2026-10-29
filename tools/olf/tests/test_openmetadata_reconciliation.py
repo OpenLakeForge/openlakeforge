@@ -74,7 +74,7 @@ dashboards: []
     return OpenMetadataReconciler(cfg, OpenMetadataClient(cfg.base_url))
 
 
-def test_ensure_database_schema_creates_the_schema_a_table_will_reference(
+def test_ensure_database_schema_creates_the_schema_with_its_domain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Phase 1 stopped pre-creating databaseSchemas when Polaris namespace
@@ -88,13 +88,31 @@ def test_ensure_database_schema_creates_the_schema_a_table_will_reference(
 
     monkeypatch.setattr(reconciler.client, "request", request)
 
-    reconciler.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver")
+    reconciler.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver", "sales")
 
     assert calls == [
         (
             "/api/v1/databaseSchemas",
-            {"name": "sales_order_revenue_silver", "database": "polaris.lakehouse_dev"},
+            {"name": "sales_order_revenue_silver", "database": "polaris.lakehouse_dev", "domains": ["sales"]},
         )
+    ]
+
+
+def test_list_schema_tables_follows_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    reconciler = _single_product_reconciler(tmp_path)
+    pages = {
+        "": {"data": [{"id": "a"}], "paging": {"after": "cursor"}},
+        "cursor": {"data": [{"id": "b"}], "paging": {}},
+    }
+
+    def request(method: str, path: str, **_kwargs):
+        return pages[path.partition("&after=")[2]]
+
+    monkeypatch.setattr(reconciler.client, "request", request)
+
+    assert reconciler.list_schema_tables("polaris.lakehouse_dev.order_revenue_gold") == [
+        {"id": "a", "type": "table"},
+        {"id": "b", "type": "table"},
     ]
 
 
@@ -136,8 +154,7 @@ def test_write_primitives_refuse_another_stages_entities(
 
     for call in (
         lambda: reconciler.ensure_database_schema("polaris.lakehouse_prod.sales_silver"),
-        lambda: reconciler.ensure_table_stub("polaris.lakehouse_prod.sales_silver", "raw_orders", ""),
-        lambda: reconciler.resolve_table_asset("polaris.lakehouse_prod.sales_silver.raw_orders"),
+        lambda: reconciler.list_schema_tables("polaris.lakehouse_prod.sales_silver"),
     ):
         with pytest.raises(OpenMetadataError, match="belongs to another stage"):
             call()

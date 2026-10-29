@@ -35,90 +35,6 @@ def test_storage_bucket_specs_dedup() -> None:
     assert names == ["lakehouse-bronze", "lakehouse-silver", "lakehouse-gold"]
 
 
-def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
-    cfg = om.OpenMetadataConfig.from_environment(
-        {
-            **APPLIED_DEV_CONTRACT,
-            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
-                '{"sales": "aws_glue.lakehouse_dev.sales_silver"}'
-            ),
-            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
-                '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}'
-            ),
-        },
-        base_url="http://x",
-        admin_email="a",
-        admin_password="p",
-        metadata_root="domains",
-        metadata_source_dir="",
-        allow_missing_assets=False,
-        catalog_service="aws_glue",
-        catalog_database="lakehouse_dev",
-    )
-    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
-    product = {
-        "name": "sales_order_revenue",
-        "domain": "sales",
-        "silver_tables": {
-            "schema": "polaris.lakehouse_dev.sales_order_revenue_silver",
-            "tables": [{"name": "order_revenue_silver"}],
-        },
-        "gold_tables": {
-            "schema": "polaris.lakehouse_dev.sales_order_revenue_gold",
-            "tables": [{"name": "mart_order_revenue"}],
-        },
-        "assets": [
-            "polaris.lakehouse_dev.sales_order_revenue_silver.order_revenue_silver",
-            {
-                "type": "table",
-                "fullyQualifiedName": "polaris.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue",
-            },
-        ],
-    }
-
-    assets = list(deployer.product_asset_entries(product))
-
-    assert assets == [
-        {
-            "type": "table",
-            "fqn": "aws_glue.lakehouse_dev.sales_silver.order_revenue_silver",
-        },
-        {
-            "type": "table",
-            "fqn": "aws_glue.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue",
-        },
-    ]
-
-
-def test_logical_asset_name_resolves_through_provider_contract() -> None:
-    cfg = om.OpenMetadataConfig.from_environment(
-        {
-            **APPLIED_DEV_CONTRACT,
-            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
-            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON":
-            '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}',
-        },
-        base_url="http://x",
-        admin_email="a",
-        admin_password="p",
-        metadata_root="domains",
-        metadata_source_dir="",
-        allow_missing_assets=False,
-        catalog_service="aws_glue",
-        catalog_database="lakehouse_dev",
-    )
-    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
-    product = {
-        "name": "sales_order_revenue",
-        "gold_tables": {"tables": [{"name": "mart_order_revenue"}]},
-        "assets": [{"type": "table", "name": "mart_order_revenue"}],
-    }
-
-    assert list(deployer.product_asset_entries(product)) == [
-        {"type": "table", "fqn": "aws_glue.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue"}
-    ]
-
-
 def test_deployment_input_validation_rejects_new_product_without_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
@@ -145,7 +61,6 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
                     {
                         "id": "new_product",
                         "name": "sales_new_product",
-                        "gold_tables": {"tables": [{"name": "mart_new_product"}]},
                     }
                 ],
             },
@@ -153,46 +68,6 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
     ]
 
     with pytest.raises(om.OpenMetadataError, match="not covered by the provider contract"):
-        deployer.validate_deployment_inputs(domain_specs)
-
-
-def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
-    cfg = om.OpenMetadataConfig.from_environment(
-        {
-            **APPLIED_DEV_CONTRACT,
-            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
-            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
-                '{"sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold"}'
-            )
-        },
-        base_url="http://x",
-        admin_email="a",
-        admin_password="p",
-        metadata_root="domains",
-        metadata_source_dir="",
-        allow_missing_assets=False,
-        catalog_service="polaris",
-        catalog_database="lakehouse_dev",
-    )
-    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
-    domain_specs = [
-        (
-            Path("domains/sales/domain.yaml"),
-            {
-                "name": "sales",
-                "data_products": [
-                    {
-                        "id": "sales_order_revenue",
-                        "name": "sales_order_revenue",
-                        "gold_tables": {"tables": [{"name": "mart_order_revenue"}]},
-                        "assets": [{"type": "table", "name": "mart_typo"}],
-                    }
-                ],
-            },
-        )
-    ]
-
-    with pytest.raises(om.OpenMetadataError, match="not declared in the product table contract"):
         deployer.validate_deployment_inputs(domain_specs)
 
 
@@ -363,20 +238,11 @@ dashboards: []
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
 
     def request(method: str, path: str, **_kwargs):
-        if method == "GET" and path.startswith("/api/v1/tables/name/"):
-            return {
-                "id": "table-id",
-                "fullyQualifiedName": "polaris.lakehouse_dev.sales_order_revenue_silver.raw_orders",
-            }
+        if method == "GET" and path.startswith("/api/v1/tables?"):
+            return {"data": [{"id": "table-id"}]}
         return {}
 
     monkeypatch.setattr(deployer.client, "request", request)
-    monkeypatch.setattr(
-        deployer,
-        "resolve_domain_ref",
-        lambda domain_name: {"id": "domain-id", "name": domain_name, "fullyQualifiedName": domain_name},
-    )
-
     def record_container(name, parent_fqn, full_path, description) -> None:
         seeded_containers.append((name, parent_fqn, full_path, description))
 
@@ -484,49 +350,52 @@ def test_deploy_does_not_touch_the_unscoped_legacy_database(
     assert requests == []
 
 
-def test_deploy_creates_each_schema_before_seeding_its_tables(
+def test_deploy_sets_the_domain_on_schemas_and_attaches_only_gold_tables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deployer = _single_product_deployer(tmp_path)
-    ordered: list[str] = []
+    writes: list[tuple[str, str, object]] = []
+    gold = "polaris.lakehouse_dev.order_revenue_gold"
 
     monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        deployer,
-        "resolve_domain_ref",
-        lambda domain_name: {"id": "d", "name": domain_name, "fullyQualifiedName": domain_name},
-    )
 
-    def request(method: str, path: str, **_kwargs):
-        if method == "GET" and path.startswith("/api/v1/tables/name/"):
-            return {"id": "t", "fullyQualifiedName": "x"}
+    def request(method: str, path: str, **kwargs):
+        if method == "GET":
+            assert path.startswith("/api/v1/tables?") and gold in path.replace("%2E", ".")
+            return {"data": [{"id": "gold-table"}]}
+        writes.append((method, path, kwargs.get("json_body")))
         return {}
 
     monkeypatch.setattr(deployer.client, "request", request)
-    monkeypatch.setattr(
-        deployer, "ensure_database_schema", lambda fqn: ordered.append(f"schema:{fqn}")
-    )
-    monkeypatch.setattr(
-        deployer,
-        "ensure_table_stub",
-        lambda schema_fqn, name, description: ordered.append(f"table:{schema_fqn}.{name}"),
-    )
 
     deployer.deploy()
 
-    silver = "polaris.lakehouse_dev.sales_silver"
-    gold = "polaris.lakehouse_dev.order_revenue_gold"
-    assert ordered == [
-        f"schema:{silver}",
-        f"table:{silver}.raw_orders",
-        f"schema:{silver}",
-        f"table:{silver}.raw_order_lines",
-        f"schema:{gold}",
-        f"table:{gold}.mart_order_revenue",
+    assert [(path, body.get("name"), body.get("domains")) for _, path, body in writes if "Schemas" in path] == [
+        ("/api/v1/databaseSchemas", "sales_silver", ["sales"]),
+        ("/api/v1/databaseSchemas", "order_revenue_gold", ["sales"]),
     ]
+    assert not [path for _, path, _ in writes if path.startswith("/api/v1/tables")]
+    assert writes[-1] == (
+        "PUT",
+        "/api/v1/dataProducts/order_revenue/assets/add",
+        {"assets": [{"id": "gold-table", "type": "table"}], "dryRun": False},
+    )
+
+
+def test_deploy_reports_an_empty_gold_schema_as_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer = _single_product_deployer(tmp_path)
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deployer.client, "request", lambda *args, **kwargs: {})
+
+    with pytest.raises(om.OpenMetadataError, match="order_revenue_gold"):
+        deployer.deploy()
 
 
 def test_deploy_refuses_another_stages_schemas_before_any_write(

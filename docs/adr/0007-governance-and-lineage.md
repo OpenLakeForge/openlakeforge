@@ -37,7 +37,10 @@ Trino every stage is one catalog, `lakehouse_<stage>`, which OpenMetadata lists
 as one database. The crawl is filtered to the governed stages' catalogs, so
 every governed stage is crawled into its own root, as the read-only
 `openmetadata` Trino user. `olf openmetadata deploy-metadata` adds each stage's
-domains and descriptions under that root.
+domains and descriptions under that root. It sets a domain on the
+`<domain>_silver` and `<product>_gold` schemas, and the tables the crawl finds
+inherit it. A data product's assets are the tables under its Gold schema,
+attached once the crawl has found them; its Silver inputs appear as lineage.
 
 Every governed stage emits its own lineage, and OpenMetadata auto-creates the
 entities it references (`autoCreateEntities: true`). OpenMetadata 1.13+
@@ -46,10 +49,12 @@ stage's edges land on its own `lakehouse_<stage>` tables even though schema and
 table names are identical across stages; 1.12 matched on schema and table
 alone, and could attach one stage's lineage to another's. Each stage emits
 under its own `dagster_<stage>` namespace. Exact resolution needs the stage's
-tables registered before its lineage arrives: `olf openmetadata
-deploy-metadata` seeds them at activation, and the crawl never deletes tables,
-so a crawl before the stage's first run cannot retire them (a missing table
-would fall back to the schema-and-table match). Pipeline entities are not
+schemas registered before its lineage arrives: `olf openmetadata
+deploy-metadata` seeds each `<domain>_silver` and `<product>_gold` schema at
+activation, and the crawl never deletes schemas or tables, so a crawl before
+the stage's first run cannot retire them. The tables themselves are not
+seeded: a table first seen in lineage is auto-created under its own stage's
+schema, and the crawl adopts it by name. Pipeline entities are not
 created: OpenMetadata 1.13.6 fails to auto-create OpenLineage pipelines (an
 upstream bug), so the edges are recorded without a pipeline reference, and
 nothing may rely on pipeline entities. The nightly asserts that each stage's
@@ -134,6 +139,9 @@ stage instead of only the canonical one.
 
 2026-10-01 (#131, #257): table stubs survive the crawl, and lineage pipeline
 entities are recorded as not created on OpenMetadata 1.13.6.
+
+2026-10-29 (#545): domains are set on schemas, not tables, and table stubs are
+no longer seeded; products attach their Gold tables only.
 
 2026-10-28 (#533): Floe emits lineage from one Kubernetes Job per domain, with
 the endpoint in the profile the code location renders and the JWT as a Secret

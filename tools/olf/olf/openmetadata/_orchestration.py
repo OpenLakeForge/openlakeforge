@@ -11,7 +11,6 @@ existing callers and tests keep patching the deployer instance directly.
 from __future__ import annotations
 
 import urllib.parse
-from collections.abc import Iterator
 from pathlib import Path
 
 from openlakeforge_domain import (
@@ -43,140 +42,39 @@ class OpenMetadataDeployer:
     def wait_for_openmetadata(self) -> None:
         self._reconciler.wait_for_openmetadata()
 
-    def resolve_table_asset(self, asset):
-        return self._reconciler.resolve_table_asset(asset)
-
-    def resolve_domain_ref(self, domain_name):
-        return self._reconciler.resolve_domain_ref(domain_name)
-
-    def ensure_table_domains(self, table_refs, domain_refs) -> None:
-        self._reconciler.ensure_table_domains(table_refs, domain_refs)
-
     def ensure_storage_service(self) -> None:
         self._reconciler.ensure_storage_service()
 
     def ensure_container(self, name, parent_fqn, full_path, description) -> None:
         self._reconciler.ensure_container(name, parent_fqn, full_path, description)
 
-    def ensure_database_schema(self, schema_fqn: str) -> None:
-        self._reconciler.ensure_database_schema(schema_fqn)
+    def ensure_database_schema(self, schema_fqn: str, domain: str | None = None) -> None:
+        self._reconciler.ensure_database_schema(schema_fqn, domain)
 
-    def ensure_table_stub(self, schema_fqn, name, description) -> None:
-        self._reconciler.ensure_table_stub(schema_fqn, name, description)
+    def list_schema_tables(self, schema_fqn: str) -> list[dict]:
+        return self._reconciler.list_schema_tables(schema_fqn)
 
-    # --- product/table spec helpers ---------------------------------------
-
-    def schema_fqn_for_product(self, product: dict, table_group_key: str) -> str | None:
-        product_key = product_contract_key(product)
-        if table_group_key == "silver_tables":
-            return self.config.catalog_silver_schema_fqns.get(product["domain"])
-        if table_group_key == "gold_tables":
-            return self.config.catalog_gold_schema_fqns.get(product_key)
-        return None
-
-    def product_table_specs(self, product: dict):
-        for key in ["silver_tables", "gold_tables"]:
-            spec = product.get(key)
-            if not spec:
-                continue
-            schema_fqn = self.schema_fqn_for_product(product, key)
-            if not schema_fqn:
-                raise OpenMetadataError(
-                    f"Data product '{product_contract_key(product)}' table group '{key}' is not covered "
-                    "by the provider contract schema FQNs."
-                )
-            for table in spec.get("tables", []):
-                yield schema_fqn, table
-
-    def domain_silver_table_specs(self, domain: dict):
-        schema_fqn = self.config.catalog_silver_schema_fqns.get(domain["name"])
-        if not schema_fqn:
-            raise OpenMetadataError(
-                f"Domain {domain['name']!r} Silver tables are not covered by the provider contract schema FQNs."
-            )
-        for table in domain.get("silver_tables", {}).get("tables", []):
-            yield schema_fqn, table
+    # --- schema coverage ---------------------------------------------------
 
     def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
-        """Resolve every declared table and logical asset before metadata writes."""
+        """Check every schema FQN and its coverage before metadata writes."""
         for schema_fqn in (
             *self.config.catalog_silver_schema_fqns.values(),
             *self.config.catalog_gold_schema_fqns.values(),
         ):
             self._reconciler.require_stage_scoped(schema_fqn, "database schema")
-        for _, domain in domain_specs:
-            for product in product_entries(domain):
-                list(self.product_asset_entries(product))
         self.validate_bronze_entries(domain_specs)
-
-    def provider_asset_fqn(self, product: dict, fqn):
-        if not fqn:
-            return fqn
-        table_name = fqn.rsplit(".", 1)[-1]
-        for schema_fqn, table in self.product_table_specs(product):
-            if table.get("name") == table_name:
-                return f"{schema_fqn}.{table_name}"
-        return fqn
-
-    def logical_asset_fqn(self, product: dict, asset: dict) -> str:
-        """Resolve a provider-neutral table name through the contract schemas."""
-        name = asset.get("name")
-        if not name:
-            raise OpenMetadataError(f"OpenMetadata table asset is missing 'name' or 'fqn': {asset!r}")
-        matches = [
-            f"{schema_fqn}.{name}"
-            for schema_fqn, table in self.product_table_specs(product)
-            if table.get("name") == name
-        ]
-        if not matches:
-            raise OpenMetadataError(
-                f"OpenMetadata logical table asset '{name}' is not declared in the product table contract."
-            )
-        if len(matches) > 1:
-            raise OpenMetadataError(f"OpenMetadata logical table asset '{name}' is ambiguous: {matches!r}")
-        return matches[0]
-
-    def asset_with_provider_fqn(self, product: dict, asset):
-        if isinstance(asset, str):
-            return self.provider_asset_fqn(product, asset)
-        if isinstance(asset, dict):
-            rewritten = dict(asset)
-            fqn = rewritten.get("fqn") or rewritten.get("fullyQualifiedName")
-            if not fqn and rewritten.get("name"):
-                fqn = self.logical_asset_fqn(product, rewritten)
-            if fqn:
-                rewritten["fqn"] = self.provider_asset_fqn(product, fqn)
-                rewritten.pop("fullyQualifiedName", None)
-            return rewritten
-        return asset
-
-    def product_asset_entries(self, product: dict) -> Iterator[dict]:
-        seen = set()
-        for schema_fqn, table in self.product_table_specs(product):
-            fqn = f"{schema_fqn}.{table['name']}"
-            if fqn in seen:
-                continue
-            seen.add(fqn)
-            yield {"type": "table", "fqn": fqn}
-
-        for asset in product.get("assets", []):
-            asset_fqn: str | None
-            if isinstance(asset, str):
-                asset_fqn = asset
-            elif isinstance(asset, dict):
-                asset_fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
-            else:
-                asset_fqn = None
-            resolved = self.asset_with_provider_fqn(product, asset)
-            if isinstance(resolved, dict):
-                asset_fqn = resolved.get("fqn")
-            else:
-                asset_fqn = self.provider_asset_fqn(product, asset_fqn)
-            if asset_fqn and asset_fqn in seen:
-                continue
-            if asset_fqn:
-                seen.add(asset_fqn)
-            yield resolved
+        for _, domain in domain_specs:
+            if domain["name"] not in self.config.catalog_silver_schema_fqns:
+                raise OpenMetadataError(
+                    f"Domain {domain['name']!r} Silver schema is not covered by the provider contract schema FQNs."
+                )
+            for product in product_entries(domain):
+                if product_contract_key(product) not in self.config.catalog_gold_schema_fqns:
+                    raise OpenMetadataError(
+                        f"Data product '{product_contract_key(product)}' Gold schema is not covered "
+                        "by the provider contract schema FQNs."
+                    )
 
     def storage_bucket_specs(self):
         specs = [
@@ -304,14 +202,6 @@ class OpenMetadataDeployer:
                         "status": product.get("status", ""),
                         "domain": domain["name"],
                         "bronze": bronze_entries,
-                        "silver_tables": {
-                            "tables": [
-                                {key: value for key, value in table.items() if key in {"name", "description"}}
-                                for table in selected_silver
-                            ]
-                        },
-                        "gold_tables": product["gold_tables"],
-                        "assets": [],
                     }
                 )
             domain_specs.append(
@@ -322,12 +212,6 @@ class OpenMetadataDeployer:
                         "displayName": domain["displayName"],
                         "description": domain.get("description", ""),
                         "status": domain.get("status", ""),
-                        "silver_tables": {
-                            "tables": [
-                                {key: value for key, value in table.items() if key in {"name", "description"}}
-                                for table in domain["silver_tables"]["tables"]
-                            ]
-                        },
                         "data_products": products,
                     },
                 )
@@ -360,16 +244,6 @@ class OpenMetadataDeployer:
                             "is missing required 'path'."
                         )
 
-    @staticmethod
-    def _data_product_asset_ref(table_ref):
-        return {
-            "id": table_ref["id"],
-            "type": table_ref["type"],
-            "name": table_ref.get("name"),
-            "fullyQualifiedName": table_ref.get("fullyQualifiedName"),
-            "displayName": table_ref.get("displayName"),
-        }
-
     def deploy(self) -> None:
         self.wait_for_openmetadata()
         self.login()
@@ -389,53 +263,47 @@ class OpenMetadataDeployer:
                 container["description"],
             )
 
-        # Phase C: Pre-seed Iceberg table stubs before the Polaris crawler runs.
-        for _, domain in domain_specs:
-            for schema_fqn, table in self.domain_silver_table_specs(domain):
-                self.ensure_database_schema(schema_fqn)
-                self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
-            for product in product_entries(domain):
-                for schema_fqn, table in self.product_table_specs(product):
-                    if schema_fqn == self.config.catalog_silver_schema_fqns.get(domain["name"]):
-                        continue
-                    self.ensure_database_schema(schema_fqn)
-                    self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
-        # Phase D: Upsert domains and data products from governance YAML.
+        # Phase C: Upsert domains and data products from governance YAML. A
+        # domain is set on the databaseSchema entity rather than on each table:
+        # OpenMetadata resolves a table's domain from its schema when the table
+        # has none of its own (TableRepository.setInheritedFields, 1.13.6), so
+        # tables the Trino ingestion finds later need no per-table write.
         missing_assets = []
         for _, domain in domain_specs:
             domain_body = domain_payload(domain)
             self.client.request("PUT", "/api/v1/domains", json_body=domain_body, ok_statuses=(200, 201))
             print(f"Upserted OpenMetadata domain: {domain_body['name']}")
+            self.ensure_database_schema(self.config.catalog_silver_schema_fqns[domain["name"]], domain["name"])
 
             for product in product_entries(domain):
                 product_body = product_payload(product)
                 self.client.request("PUT", "/api/v1/dataProducts", json_body=product_body, ok_statuses=(200, 201))
                 print(f"Upserted OpenMetadata data product: {product_body['name']}")
-                domain_refs = [self.resolve_domain_ref(domain_name) for domain_name in product_body["domains"]]
+                schema_fqn = self.config.catalog_gold_schema_fqns[product_contract_key(product)]
+                self.ensure_database_schema(schema_fqn, domain["name"])
 
-                refs = []
-                for asset in self.product_asset_entries(product):
-                    ref, missing_fqn = self.resolve_table_asset(asset)
-                    if missing_fqn:
-                        missing_assets.append(missing_fqn)
-                    else:
-                        refs.append(ref)
-
-                if refs:
-                    self.ensure_table_domains(refs, domain_refs)
-                    product_name = urllib.parse.quote(product_body["name"], safe="")
-                    self.client.request(
-                        "PUT",
-                        f"/api/v1/dataProducts/{product_name}/assets/add",
-                        json_body={"assets": [self._data_product_asset_ref(ref) for ref in refs], "dryRun": False},
-                        ok_statuses=(200, 201),
-                    )
-                    print(f"Attached {len(refs)} OpenMetadata asset(s) to data product: {product_body['name']}")
+                # A schema is a valid data-product asset, but a table does not
+                # inherit `dataProducts` from its schema (no inheritDataProducts
+                # call in TableRepository, 1.13.6), so attach the tables found
+                # under the Gold schema. Silver inputs reach the product through
+                # lineage, not membership.
+                refs = self.list_schema_tables(schema_fqn)
+                if not refs:
+                    missing_assets.append(schema_fqn)
+                    continue
+                product_name = urllib.parse.quote(product_body["name"], safe="")
+                self.client.request(
+                    "PUT",
+                    f"/api/v1/dataProducts/{product_name}/assets/add",
+                    json_body={"assets": refs, "dryRun": False},
+                    ok_statuses=(200, 201),
+                )
+                print(f"Attached {len(refs)} OpenMetadata asset(s) to data product: {product_body['name']}")
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))
             guidance = (
-                "OpenMetadata table assets are not available yet:\n"
+                "OpenMetadata Gold schemas have no tables yet:\n"
                 f"{message}\n"
                 "Run the product ETL jobs in Dagster, wait for the catalog metadata ingestion to crawl the catalog, "
                 # The local overrides have to be repeated: `deployment_context`
