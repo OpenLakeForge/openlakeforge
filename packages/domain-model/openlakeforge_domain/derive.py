@@ -39,8 +39,9 @@ from .inventory import (
 # ponytail: a regex over the model text, so a call inside a Jinja comment still
 # counts. Parse dbt's manifest instead when a project hits that.
 _DBT_SOURCE_CALL = re.compile(r"""\bsource\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)""")
-# An alias renames the relation dbt creates, so the model name stops being the table name.
-_DBT_ALIAS = re.compile(r"\balias\s*=")
+# An alias renames the relation dbt creates and an ephemeral model creates none,
+# so the model name would stop being a table name.
+_DBT_UNSUPPORTED = re.compile(r"\balias\s*=|['\"]?ephemeral\b")
 
 
 def _yaml(path: Path) -> Mapping[str, Any]:
@@ -78,6 +79,8 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
         raise LakehouseDescriptorError(f"{project_file}: product {product_id!r} has no dbt project")
     if _yaml(project_file).get("name") != product_id:
         raise LakehouseDescriptorError(f"{project_file}: name must be {product_id!r} to match governance")
+    if _DBT_UNSUPPORTED.search(project_file.read_text(encoding="utf-8")):
+        raise LakehouseDescriptorError(f"{project_file}: dbt aliases and ephemeral models are not supported")
     models = sorted((dbt_dir / "models").rglob("*.sql"))
     names = [model.stem for model in models]
     if not names:
@@ -87,8 +90,8 @@ def _gold(root: Path, domain: str, product_id: str, display_name: str) -> Produc
     inputs: list[str] = []
     for model in models:
         text = model.read_text(encoding="utf-8")
-        if _DBT_ALIAS.search(text):
-            raise LakehouseDescriptorError(f"{model}: dbt aliases are not supported; name the model after its table")
+        if _DBT_UNSUPPORTED.search(text):
+            raise LakehouseDescriptorError(f"{model}: dbt aliases and ephemeral models are not supported")
         for source, table in _DBT_SOURCE_CALL.findall(text):
             if source != "silver":
                 raise LakehouseDescriptorError(
