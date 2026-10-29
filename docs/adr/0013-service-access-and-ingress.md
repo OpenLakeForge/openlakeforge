@@ -140,7 +140,7 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 - `olf` rejects a contract whose `base_domain` or `issuer` differs from the
   resolved profile, so a contract and profile cannot silently diverge.
 - Changing `base_domain` changes every user-facing URL; it is deployment
-  configuration, not product intent, and stays out of `lakehouse.yaml`.
+  configuration, not product intent, and stays out of `governance.yml`.
 
 - The ingress and portal add five pods to the local footprint, all in `olf-system`:
 

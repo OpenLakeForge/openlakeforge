@@ -1,4 +1,4 @@
-# ADR 0005: The v1alpha3 descriptor model
+# ADR 0005: The descriptor model
 
 ## Status
 
@@ -14,37 +14,47 @@ First, the platform originally parsed descriptors twice — once in the `olf` CL
 and once in the project-code runtime. The two implementations had to be kept in
 parity by hand while naming, validation, and identity rules were still moving.
 
-Second, the descriptor shape itself changed when medallion ownership was
-corrected (ADR 0004). The old `Domain` descriptor keyed Silver on a product's
-`asset_prefix` and nested Bronze under a domain — assumptions the current
-ownership model contradicts, not details that can be migrated field by field.
+Second, the descriptor kept facts that other tools already own. It listed every
+Silver and Gold table, which Floe's entity files and dbt's models also define,
+so each table had two sources of truth and every scaffold or rename had to
+update both. Business metadata — domains and products — is the one thing
+nothing else knows.
 
 ## Decision
 
-### One descriptor pair, at `openlakeforge.io/v1alpha3`
+### Two descriptors
 
 | Kind | Path | Declares |
 | --- | --- | --- |
-| `Lakehouse` | `lakehouse_code/lakehouse.yaml` (one per project) | Sources, domains, the products each domain owns, and dashboards |
-| `Source` | `lakehouse_code/bronze/<source>/source.yaml` (one per source) | A Bronze source and the resources it exposes |
+| `Governance` (`openlakeforge.io/v1beta1`) | `lakehouse_code/governance.yml` (one per project) | Domains, and the data products that name their domain |
+| `Source` (`openlakeforge.io/v1alpha3`) | `lakehouse_code/bronze/<source>/source.yaml` (one per source) | A Bronze source and the resources it exposes |
 
-`Lakehouse.domains[].silver_tables.tables[]` maps each domain table to one
-`{source, resource}` pair. Products select those tables through `silver_inputs`;
-dashboards select products through `products`. A product's `id` is its only
-identity and is unique across the lakehouse — there is no `name`/`asset_prefix`
-split.
+A product's `id` is its only identity and is unique across the lakehouse. A
+table belongs to a domain or product by the schema it lives in, not by a list:
+`<domain>_silver` belongs to the domain, `<product>_gold` to the product and,
+through it, the product's domain. Silver tables are the entities of the
+domain's Floe files; Gold tables are the product's dbt models; neither is
+declared in a descriptor. A dbt model that writes outside `<product>_gold` is
+rejected, because its table would belong to no product.
 
-Both are validated against JSON Schema (`docs/schema/lakehouse.schema.json`,
-`docs/schema/source.schema.json`) and against the typed model. The schemas are
-closed against unknown fields, which is what enforces provider-neutrality
-(ADR 0003): a `bucket` or `catalog` key is rejected rather than ignored.
+Sources are the `bronze/*/source.yaml` files on disk, and dashboards are the
+`dashboards/superset/*/` directories that hold a `metadata.yaml`; a dashboard
+serves the products whose `<product>_gold` schema its datasets read. None of
+these is declared a second time.
+
+Both descriptors are validated against JSON Schema
+(`docs/schema/governance.schema.json`, `docs/schema/source.schema.json`) and
+against the typed model. The schemas are closed against unknown fields, which
+is what enforces provider-neutrality (ADR 0003): a `bucket` or `catalog` key is
+rejected rather than ignored.
 
 ### `openlakeforge-domain-model` is the only implementation
 
 The `packages/domain-model/` distribution, imported as `openlakeforge_domain`,
 owns descriptor constants, loading, validation, the provider-neutral value
-objects (`Source`, `Domain`, `Product`, `Table`, `Dashboard`, `LakehouseInventory`),
-logical-to-physical name derivation, and artifact-path derivation. Both `olf` and
+objects (`Source`, `Domain`, `Product`, `Table`, `FloeEntity`, `Dashboard`,
+`LakehouseInventory`), logical-to-physical name derivation, and artifact-path
+derivation. Both `olf` and
 the project-code image install it.
 
 The package has no Dagster, Terraform, or provider dependency. Dagster-specific
@@ -57,7 +67,7 @@ The legacy `Domain` descriptor, its loaders and validators, and its schemas are
 deleted. Nothing in the platform parses the old shape.
 
 Upgrading a project from `v0.1.0-alpha.1` means rewriting its descriptors by
-hand into the `Lakehouse` + `Source` pair. This is a real cost, accepted for two
+hand into the `Governance` + `Source` pair. This is a real cost, accepted for two
 reasons: the ownership model changed underneath the descriptor, so a mechanical
 field-by-field migration would produce a syntactically valid descriptor with the
 wrong Silver namespaces; and carrying a second descriptor model that no runtime
@@ -71,11 +81,12 @@ option.
 
 ### Transitional projects
 
-`olf init --empty` writes a `lakehouse.yaml` with empty `sources` and `domains`.
-It deliberately fails strict validation: a project with no product cannot deploy
-or run e2e. Only the scaffolding commands (`olf source new`, `olf domain new`,
-`olf product new`) accept it, and the first `olf product new` is what turns it
-into a schema-valid project.
+`olf init --empty` writes no `governance.yml`. It deliberately fails strict
+validation: a project with no product cannot deploy or run e2e. Only the
+scaffolding commands (`olf source new`, `olf domain new`, `olf product new`)
+accept it. The first `olf domain new` or `olf product new` creates
+`governance.yml`, and the first `olf product new` is what turns the project
+into a schema-valid one.
 
 ## Consequences
 
@@ -93,3 +104,13 @@ descriptor shape), 0024 (the canonical domain-model package), 0026's descriptor
 half, and 0032's transitional-project rule. ADR 0026 previously required keeping
 the v1alpha1/v1alpha2 parsers for migration diagnostics; that requirement is
 withdrawn here.
+
+2026-10-29 (#545): `lakehouse.yaml` (`Lakehouse`, `v1alpha3`) is replaced by
+`governance.yml` (`Governance`, `v1beta1`), which names domains and products
+only. The per-domain `silver_tables`, per-product `silver_inputs` and
+`gold_tables`, `sources` and `dashboards` lists are removed: tables follow the
+schema rule above, sources and dashboards are found from their directories, and
+no host command needs a Gold table name. `olf e2e` lists the
+tables in a stage's `<product>_gold` and `<domain>_silver` schemas through
+Trino. A project still on `lakehouse.yaml` does not load; rewrite it as
+`governance.yml` (alpha, no production deployments).

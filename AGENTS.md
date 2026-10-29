@@ -64,7 +64,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/gold/<product>/` | Product-owned: dbt project |
 | `lakehouse_code/dashboards/superset/<dashboard>/` | Consumption-owned: Superset reports |
 | `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
-| `lakehouse_code/lakehouse.yaml` | Canonical domain/product business metadata descriptor |
+| `lakehouse_code/governance.yml` | Canonical domain/product business metadata descriptor; tables belong to a domain or product by schema, not by a list |
 | `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
 | `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
 | `libs/` | Shared runtime Python imported by the project-code image |
@@ -76,7 +76,7 @@ labels expressing intended sequence within a milestone.
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
 | `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract both `pyproject.toml` files must match |
-| `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `lakehouse.yaml`, `source.yaml` and `governance.yml` validate against |
+| `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `source.yaml` and `governance.yml` validate against |
 | `docs/schema/deployment-profile.schema.json` | Schema for Deployment Profiles |
 
 ## Architectural rules
@@ -86,11 +86,11 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
 1. **Contracts before providers.** Components communicate through the provider
    contracts in `contracts.tf`, never directly with a provider. Adding a
    capability means extending the contract, then writing an adapter.
-2. **Descriptors stay provider-neutral.** `lakehouse_code/lakehouse.yaml` and
+2. **Descriptors stay provider-neutral.** `lakehouse_code/governance.yml` and
    `lakehouse_code/bronze/<source>/source.yaml` must not name Polaris, Glue, S3,
    or SeaweedFS. Physical catalog and object-store names are derived from these
    logical identities by provider/deployment contracts, never embedded in the
-   descriptors themselves — see `docs/schema/lakehouse.schema.json` and
+   descriptors themselves — see `docs/schema/governance.schema.json` and
    `docs/schema/source.schema.json`.
 3. **Three deploy phases, two lifecycles** (ADR 0002). `olf deploy` runs
    `foundation` → `platform` → `artifacts` in order, and each is selectable

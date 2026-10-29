@@ -38,7 +38,7 @@ lakehouse_code/
 ├── gold/<product>/           product-owned: dbt project
 ├── dashboards/superset/<dashboard>/   consumption-owned: exported report bundles
 ├── pipelines/dagster/        user-maintained orchestration
-└── lakehouse.yaml            the descriptor (ADR 0005)
+└── governance.yml            the descriptor (ADR 0005)
 ```
 
 The domain-oriented layout is **removed**, not deprecated. `domains/`,
@@ -54,7 +54,7 @@ Product  ->  <product>_gold
 
 A Bronze source is ingested once and referenced by any domain. A domain
 validates its sources into one Silver namespace. A product consumes Silver
-tables through `silver_inputs` and owns only its Gold namespace. Product `id` is
+tables from its domain and owns only its Gold namespace. Product `id` is
 unique across the whole lakehouse, so `<product>_gold` needs no domain prefix.
 
 The namespace contract is **flat** — a single-level name, not a hierarchy. This
@@ -103,7 +103,7 @@ observability adapter, not a replacement for this baseline.
 ## Consequences
 
 Adding a product that reuses an existing source touches
-`lakehouse_code/gold/<product>/`, `lakehouse.yaml`, and one Dagster module at
+`lakehouse_code/gold/<product>/`, `governance.yml`, and one Dagster module at
 `lakehouse_code/pipelines/dagster/<product>.py`; no Bronze or Silver work is
 duplicated.
 
@@ -130,3 +130,8 @@ and the AWS environment is still on the old one.
 2026-10-28 (#533): Floe 0.8 builds its manifests in memory in the code
 location, so `floe/manifests/` is no longer written; the Silver contracts
 became one multi-file Floe project.
+
+2026-10-29 (#545): the descriptor is `governance.yml`, which names domains and
+products only. A product no longer lists its Silver inputs or Gold tables; the
+schema (`<domain>_silver`, `<product>_gold`) decides which domain or product a
+table belongs to.

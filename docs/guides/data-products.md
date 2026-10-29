@@ -20,10 +20,10 @@ Ownership follows the medallion layer:
 | Gold | A data product | `lakehouse_code/gold/<product>/` | dbt-trino |
 | Dashboards | A dashboard | `lakehouse_code/dashboards/superset/<dashboard>/` | Superset |
 
-`lakehouse_code/lakehouse.yaml` declares the sources, domains, products and
-dashboards; each source also has a `source.yaml`. OpenLakeForge derives every
-platform name from these, so you never create catalog namespaces or edit
-Terraform to register a product:
+`lakehouse_code/governance.yml` names the domains and products; each source has
+a `source.yaml`, and each dashboard is a bundle directory. OpenLakeForge
+derives every platform name from these, so you never create catalog namespaces
+or edit Terraform to register a product:
 
 | Derived name | Example | Shared by |
 | --- | --- | --- |
@@ -44,9 +44,8 @@ olf source new marketing_platform --resource campaigns
 
 Repeat `--resource` for each table-like input. The command writes
 `bronze/marketing_platform/` with a `source.yaml`, a dlt loader under `dlt/`
-and one placeholder CSV per resource under `examples/`, and adds the source to
-`lakehouse.yaml`. It validates its result first and writes nothing if
-validation fails.
+and one placeholder CSV per resource under `examples/`. It validates its result
+first and writes nothing if validation fails.
 
 Replace each placeholder CSV with your real columns **before** you create a
 domain or product that reads it: the Silver contract's columns are inferred
@@ -93,7 +92,7 @@ olf product new marketing/campaign_performance \
 
 It creates a dbt project under `gold/campaign_performance/dbt/` and a Dagster
 module `pipelines/dagster/campaign_performance.py`, and registers the product
-in `lakehouse.yaml`. Dagster loads every module in that directory by itself.
+in `governance.yml`. Dagster loads every module in that directory by itself.
 
 The generated model `models/gold/mart_campaign_performance.sql` selects
 everything from the first Silver input. Replace it with your SQL, reading
@@ -125,7 +124,6 @@ hand:
 
 | File | Add |
 | --- | --- |
-| `lakehouse.yaml` | A `silver_tables` entry `{name: ad_groups, source: marketing_platform, resource: ad_groups}` under the domain, and `ad_groups` in the product's `silver_inputs` |
 | `silver/marketing/contracts/floe/ad_groups.yml` | An entity file, copied from an existing one, with `source: { ref: marketing_platform, resource: ad_groups }` |
 | `gold/<product>/dbt/models/sources.yml` | `- name: ad_groups` under the `silver` source |
 | `pipelines/dagster/<product>.py` | `"ad_groups"` in the Silver inputs tuple and `("marketing_platform", "ad_groups")` in `bronze_inputs` |
@@ -134,8 +132,8 @@ hand:
 ## Add a Gold model to an existing product
 
 1. Add `models/gold/<mart>.sql` and describe it in `models/gold/schema.yml`.
-2. Declare it under the product's `gold_tables.tables` in `lakehouse.yaml`.
-3. Add its name to the Gold assets tuple in
+   No descriptor lists it: a table in `<product>_gold` belongs to the product.
+2. Add its name to the Gold assets tuple in
    `pipelines/dagster/<product>.py`:
 
    ```python
@@ -147,7 +145,7 @@ hand:
 
 ## Remove a product
 
-Delete its entry from `lakehouse.yaml`, its `gold/<product>/` directory and its
+Delete its entry from `governance.yml`, its `gold/<product>/` directory and its
 Dagster module. Dagster loads every module under `pipelines/dagster/`,
 declared or not, so a leftover module keeps the job alive.
 
@@ -159,7 +157,7 @@ so on a deployed stage treat it as a data migration, not an edit.
 
 | Command | Checks |
 | --- | --- |
-| `olf check contracts` | Each descriptor against its schema: identifiers, duplicates, undeclared resources; each Floe domain writes its own `<domain>_silver` namespace |
+| `olf check contracts` | Each descriptor against its schema: identifiers, duplicates, a domain or product without its directory; each Floe domain writes its own `<domain>_silver` namespace |
 | `olf check project-code` | The whole inventory loads in Dagster, including references between descriptors |
 | `olf check dbt` | Every product's dbt project compiles |
 
@@ -182,4 +180,4 @@ olf query "SELECT * FROM campaign_performance_gold.mart_campaign_performance"
 ```
 
 `olf e2e run --env local --suite full` also covers the new product, because it
-discovers products from `lakehouse.yaml`.
+discovers products from `governance.yml`.

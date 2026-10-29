@@ -24,8 +24,8 @@ Domain 'marketing' has no products yet; run `olf product new marketing/<product>
 
 A domain groups the Silver tables a business area owns. `--input
 <source>/<resource>` names a Bronze resource to validate into one of them. The
-command adds the domain to `lakehouse_code/lakehouse.yaml`, with the Silver
-table `campaigns` mapped to `marketing_platform/campaigns`, and creates:
+command adds the domain to `lakehouse_code/governance.yml` and creates a Floe
+entity for the Silver table `campaigns`, read from `marketing_platform/campaigns`:
 
 ```text
 lakehouse_code/silver/marketing/

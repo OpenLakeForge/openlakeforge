@@ -22,7 +22,7 @@ scaffold them. See [Ingest a source](../tutorial/02-ingest-a-source.md).
 
 ## Descriptors
 
-`lakehouse_code/lakehouse.yaml` declares domains and products, and each
+`lakehouse_code/governance.yml` declares domains and products, and each
 `source.yaml` declares a source's resources. Descriptors name logical things
 only, never Polaris, Glue, S3 or SeaweedFS: OpenLakeForge derives catalog
 namespaces and storage paths from them. See the

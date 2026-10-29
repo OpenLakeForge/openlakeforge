@@ -106,7 +106,7 @@ what you own:
 my-lakehouse/
 ├── openlakeforge.yaml      # Deployment Profile: provider, stages, preset
 └── lakehouse_code/
-    ├── lakehouse.yaml      # domains and data products
+    ├── governance.yml      # domains and data products
     ├── bronze/             # sources and their dlt loaders
     ├── silver/             # Floe project: one file per entity, grouped by domain
     ├── gold/               # dbt projects per product
