@@ -82,7 +82,7 @@ def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
     from olf import k8s
     from olf import openmetadata as om
-    from olf.openmetadata._auth import automation_token
+    from olf.openmetadata._auth import admin_password, automation_token
     from olf.openmetadata._role_sync import apply_role_sync
     from olf.openmetadata._sso import apply_sso
 
@@ -106,11 +106,14 @@ def deploy_openmetadata_metadata() -> None:
         raise typer.Exit(code=fail(str(exc))) from exc
     with governance.url() as base_url:
         try:
+            token = automation_token(namespace)
+            override = config.env("OPENMETADATA_ADMIN_PASSWORD")
+            password = override if token else admin_password(namespace, override)
             cfg = om.OpenMetadataConfig.from_environment(
                 os.environ,
                 base_url=base_url,
                 admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
-                admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
+                admin_password=password,
                 metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
                 metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
                 allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
@@ -126,7 +129,7 @@ def deploy_openmetadata_metadata() -> None:
             # it replaces was deployed paused and never scheduled.
             log_step("Crawling Trino into OpenMetadata...")
             run_trino_ingestion(os.environ, namespace=namespace, service=cfg.catalog_service)
-            client = om.OpenMetadataClient(cfg.base_url, token=automation_token(namespace))
+            client = om.OpenMetadataClient(cfg.base_url, token=token)
             om.OpenMetadataDeployer(cfg, client).deploy()
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc

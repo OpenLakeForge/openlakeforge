@@ -56,7 +56,10 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("*-cookie", ("*-cookie",)),
     ("*-oidc-secret", ("oidc-client-*", "*-client-*")),
     ("polaris-bootstrap", ("polaris-*",)),
-    ("openmetadata-bootstrap", ("openmetadata-automation-bot", "openmetadata-ingestion-bot", "superset-credentials")),
+    (
+        "openmetadata-bootstrap",
+        ("openmetadata-admin", "openmetadata-automation-bot", "openmetadata-ingestion-bot", "superset-credentials"),
+    ),
     ("publish-local-ca", ("local-ca",)),
 )
 # ADR 0017 E2 to E5: (role kind, role glob, subject glob, the only resources a risky rule may name).

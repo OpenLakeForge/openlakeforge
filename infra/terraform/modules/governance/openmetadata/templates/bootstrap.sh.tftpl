@@ -2,7 +2,20 @@
 
   om_url="${om_url}"
   admin_email="${admin_email}"
-  admin_password="${admin_password}"
+  admin_secret="${admin_secret_name}"
+
+  # The admin password is created here, only if missing, so Terraform never
+  # holds it (#400). It is stored before OpenMetadata is told about it: a Job
+  # that dies in between retries with the Secret, never without the password.
+  # OpenMetadata requires 8-56 characters with an upper-case letter, a
+  # lower-case letter, a digit and a special character, so the suffix
+  # guarantees each class whatever the random part holds.
+  admin_password="$(kubectl get secret "$admin_secret" -n "$NAMESPACE" --ignore-not-found \
+    -o 'go-template={{with index .data "admin-password"}}{{.}}{{end}}' | base64 -d)"
+  if [ -z "$admin_password" ]; then
+    admin_password="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)Aa1!"
+    kubectl create secret generic "$admin_secret" -n "$NAMESPACE" --from-literal=admin-password="$admin_password"
+  fi
 
   # Wait for OpenMetadata to become healthy
   attempt=1
@@ -37,17 +50,35 @@
   fi
 
   if [ -z "$ADMIN_JWT" ]; then
-    # Login as admin. OpenMetadata Basic Auth expects the password base64-encoded.
-    encoded_password="$(printf '%s' "$admin_password" | base64 | tr -d '\n')"
-    login_resp="$(curl -sS -X POST "$om_url/api/v1/users/login" \
-      -H "Content-Type: application/json" \
-      -d "{\"email\":\"$admin_email\",\"password\":\"$encoded_password\"}")"
+    # OpenMetadata Basic Auth expects the password base64-encoded.
+    om_login() {
+      curl -sS -X POST "$om_url/api/v1/users/login" -H "Content-Type: application/json" \
+        -d "$(jq -n --arg e "$admin_email" --arg p "$(printf '%s' "$1" | base64 | tr -d '\n')" '{email: $e, password: $p}')"
+    }
+    login_resp="$(om_login "$admin_password")"
     ADMIN_JWT="$(echo "$login_resp" | jq -r '.accessToken // empty')"
 
     if [ -z "$ADMIN_JWT" ]; then
-      echo "Failed to obtain admin JWT" >&2
-      echo "$login_resp" >&2
-      exit 1
+      # First run: the built-in account still has its default password.
+      default_resp="$(om_login admin)"
+      ADMIN_JWT="$(echo "$default_resp" | jq -r '.accessToken // empty')"
+      if [ -z "$ADMIN_JWT" ]; then
+        echo "Failed to obtain admin JWT" >&2
+        echo "$login_resp" >&2
+        exit 1
+      fi
+      change_code="$(curl -sS -o /dev/null -w '%%{http_code}' -X PUT "$om_url/api/v1/users/changePassword" \
+        -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
+        -d "$(jq -n --arg p "$admin_password" '{username: "admin", oldPassword: "admin", newPassword: $p, confirmPassword: $p, requestType: "SELF"}')")"
+      if [ "$change_code" != "200" ]; then
+        echo "OpenMetadata refused the admin password change (HTTP $change_code)" >&2
+        exit 1
+      fi
+      ADMIN_JWT="$(om_login "$admin_password" | jq -r '.accessToken // empty')"
+      if [ -z "$ADMIN_JWT" ]; then
+        echo "Failed to log in with the new admin password" >&2
+        exit 1
+      fi
     fi
   fi
 

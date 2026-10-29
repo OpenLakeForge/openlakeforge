@@ -18,7 +18,7 @@ from olf.clients.superset import SupersetClient
 from olf.contracts import CONTRACT_STAGE_ENV
 from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.e2e._trino import product_gold_tables, stage_catalog_name
-from olf.openmetadata._auth import automation_token
+from olf.openmetadata._auth import admin_password, automation_token
 
 
 def check_superset_dashboards(cfg: E2EConfig) -> None:
@@ -117,7 +117,8 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             raise E2EError("OpenMetadata endpoint did not become reachable.")
         token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context)
         client = OpenMetadataClient(base_url, token=token)
-        assert_openmetadata_assets(client, cfg.inventory)
+        password = "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context)
+        assert_openmetadata_assets(client, cfg.inventory, password)
         stages = load_provider_contracts_or_raise(cfg).get("stages")
         if not stages:
             # A v2 (pre-stage) contract: stage-qualified roots never existed.
@@ -200,8 +201,8 @@ def assert_openmetadata_stage_roots(
             raise E2EError(f"a service that should not be registered still is ({path}): {exc}") from exc
 
 
-def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseInventory) -> None:
-    _openmetadata_e2e_login(client)
+def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseInventory, password: str = "") -> None:
+    _openmetadata_e2e_login(client, password)
     for domain in inventory.domain_names:
         client.request("GET", f"/api/v1/domains/name/{domain}")
     for product, candidates in inventory.openmetadata_data_products.items():
@@ -209,13 +210,13 @@ def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseI
             raise E2EError(f"missing OpenMetadata data product {product}")
 
 
-def _openmetadata_e2e_login(client: OpenMetadataClient) -> None:
+def _openmetadata_e2e_login(client: OpenMetadataClient, password: str) -> None:
     if client.token:  # the automation bot's: with SSO on, basic login answers 403
         return
     last_error: Exception | None = None
     for _ in range(60):
         try:
-            client.login("admin@open-metadata.org", "admin")
+            client.login("admin@open-metadata.org", password)
             return
         except OpenMetadataError as exc:
             last_error = exc

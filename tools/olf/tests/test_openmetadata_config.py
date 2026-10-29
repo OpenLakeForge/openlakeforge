@@ -271,6 +271,7 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     distribution = tmp_path / "distribution"
     captured: dict[str, str] = {}
     monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(project))
+    monkeypatch.setenv("OPENMETADATA_ADMIN_PASSWORD", "p")
     monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution))
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)
     monkeypatch.setattr(k8s, "configmap_data", lambda *_args: None)
@@ -306,6 +307,7 @@ def test_openmetadata_command_reports_configuration_errors(
     from olf import k8s, openmetadata
     from olf.commands import openmetadata as command
 
+    monkeypatch.setenv("OPENMETADATA_ADMIN_PASSWORD", "p")
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)
     monkeypatch.setattr(k8s, "configmap_data", lambda *_args: None)
 

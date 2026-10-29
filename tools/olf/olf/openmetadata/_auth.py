@@ -7,6 +7,12 @@ from olf import k8s
 # Written by the governance bootstrap Job (modules/governance/openmetadata).
 AUTOMATION_SECRET = "openmetadata-automation-bot"
 AUTOMATION_JWT_KEY = "OPENMETADATA_AUTOMATION_JWT"
+ADMIN_SECRET = "openmetadata-admin"
+
+
+def admin_password(namespace: str, override: str = "", *, kube_context: str | None = None) -> str:
+    """The built-in admin's password: an explicit override, else the Secret the bootstrap Job created."""
+    return override or k8s.secret_value(ADMIN_SECRET, "admin-password", namespace, kube_context=kube_context)
 
 
 def automation_token(namespace: str, *, kube_context: str | None = None) -> str | None:
