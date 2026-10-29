@@ -136,9 +136,8 @@ uv run --project tools/olf --locked olf deploy --provider azure --phase platform
 uv run --project tools/olf --locked olf deploy --provider azure --phase artifacts
 ```
 
-`olf deploy --provider azure --phase platform` builds and pushes the custom
-Superset image to ACR before Terraform apply because the Superset Helm release
-waits for pods during install.
+`olf deploy --provider azure --phase platform` deploys the Superset image pinned
+in `release/component-catalog.yaml` from GHCR; nothing is built or pushed for it.
 `olf deploy --provider azure --phase artifacts` reconciles catalog namespaces, builds and
 pushes the project-code image, imports Superset reports, deploys OpenMetadata metadata,
 and restarts Dagster.
@@ -170,8 +169,9 @@ uv run --project tools/olf --locked olf deploy --provider aws --phase platform
 uv run --project tools/olf --locked olf deploy --provider aws --phase artifacts
 ```
 
-`olf deploy --provider aws --phase platform` builds and pushes the custom
-Superset image to ECR before Terraform apply. The AWS platform root creates S3
+`olf deploy --provider aws --phase platform` deploys the Superset image pinned
+in `release/component-catalog.yaml` from GHCR; nothing is built or pushed for
+it. The AWS platform root creates S3
 medallion and ops buckets, RDS PostgreSQL, product-layer Glue
 databases/namespaces, Pod Identity workload access, and the shared Helm
 services on EKS.

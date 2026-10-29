@@ -280,8 +280,6 @@ locals {
     acr_login_server          = try(local.foundation_contract.acr_login_server, null)
     project_code_image        = "${var.project_code_image_repository}:${var.project_code_image_tag}"
     project_code_image_policy = var.project_code_image_pull_policy
-    superset_image            = "${var.superset_image_repository}:${var.superset_image_tag}"
-    superset_image_policy     = var.superset_image_pull_policy
     distribution_mode         = "registry-push"
     target_cluster            = local.kubernetes_platform_contract.cluster_name
     local_only                = false
@@ -577,7 +575,6 @@ check "azure_poc_uses_acr_artifacts" {
       local.artifact_registry_contract.implementation == "artifacts.azure_acr",
       local.artifact_registry_contract.distribution_mode == "registry-push",
       var.project_code_image_pull_policy == "Always",
-      var.superset_image_pull_policy == "Always",
     ])
     error_message = "The Azure POC must distribute runtime images through ACR with imagePullPolicy=Always."
   }

@@ -3,8 +3,7 @@
 Port of `scripts/{aws,azure}/stack/platform-up.sh`. Reuses `deployment.
 charts.prepare_cached_chart`/`prepare_cached_dagster_chart_no_schema` and
 `deployment.kube_ops` exactly as the local provider does; only the
-Superset-image build and the Terraform variables differ by provider, both
-routed through `CloudBackend`.
+Terraform variables differ by provider, routed through `CloudBackend`.
 """
 
 from __future__ import annotations
@@ -57,13 +56,6 @@ def platform_up(
     env: Mapping[str, str],
 ) -> None:
     platform_dir = config.paths.platform_terraform_dir
-
-    if config.context.platform_features.analytics_enabled:
-        from olf.deployment.cloud import images
-
-        images.build_and_push_superset_image(config, tools, backend, facts, env=env)
-    else:
-        log.step("Skipping Superset image build: analytics layer is disabled.")
 
     config.context.prepare_directories()
     prepare_charts(config, tools, env=env)

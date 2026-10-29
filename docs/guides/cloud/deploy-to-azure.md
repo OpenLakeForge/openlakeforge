@@ -112,7 +112,7 @@ It runs three phases, which you can also run one at a time with `--phase`:
 | Phase | Creates |
 | --- | --- |
 | `foundation` | The resource group (when `create_resource_group = true`), AKS, ACR and the AKS-to-ACR pull role |
-| `platform` | Pushes the Superset image, then deploys SeaweedFS, Polaris, PostgreSQL, Trino and Dagster; Superset and OpenMetadata with the Full preset |
+| `platform` | Deploys SeaweedFS, Polaris, PostgreSQL, Trino and Dagster; Superset and OpenMetadata with the Full preset |
 | `artifacts` | Builds and pushes the project-code image to ACR and deploys your data products |
 
 If this shell still exports `PROJECT_CODE_IMAGE_REPOSITORY` from a local

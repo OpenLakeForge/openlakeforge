@@ -6,7 +6,7 @@ SeaweedFS, Polaris, PostgreSQL, Trino, Dagster, OpenMetadata, and Superset.
 Only the local-kind mechanics are replaced:
 
 - AKS provides Kubernetes.
-- ACR distributes the Superset and project-code images.
+- ACR distributes the project-code image; Superset is pulled by its pinned digest from GHCR.
 - Access remains `kubectl port-forward`; there is no public ingress, DNS, TLS,
   identity issuer, or Vault.
 
@@ -74,18 +74,16 @@ olf deploy --provider azure
 `olf deploy --provider azure` runs three phases:
 
 1. `--phase foundation` creates or refreshes the AKS and ACR foundation.
-2. `--phase platform` builds and pushes the Superset image to ACR, then runs
-   Terraform in `infra/terraform/environments/azure-poc`. Superset is pushed
-   before Terraform because the Helm release waits for Superset pods.
+2. `--phase platform` runs Terraform in `infra/terraform/environments/azure-poc`.
+   Superset deploys the image digest pinned in `release/component-catalog.yaml`.
 3. `--phase artifacts` reconciles catalog namespaces, builds and pushes the
    project-code image to ACR, imports Superset report bundles, deploys
    OpenMetadata metadata, and restarts Dagster deployments on the new image.
 
-Runtime images are pushed as:
+The project-code image is pushed as:
 
 ```text
 <acr_login_server>/openlakeforge/project-code:<tag>
-<acr_login_server>/openlakeforge/superset:<tag>
 ```
 
 The default tag is `azure-<git_sha>`, falling back to a UTC timestamp when the
