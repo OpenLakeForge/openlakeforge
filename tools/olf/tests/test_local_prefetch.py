@@ -217,7 +217,7 @@ def test_full_identity_selection_matches_the_catalog_pins() -> None:
     for name in (
         "seaweedfs", "traefik", "cert_manager_controller", "cert_manager_webhook", "cert_manager_cainjector",
         "postgres", "trino", "polaris", "polaris_admin_tool", "opensearch", "openmetadata_ingestion",
-        "superset_base", "superset_init", "superset_redis", "oauth2_proxy", "dex",
+        "superset", "superset_init", "superset_redis", "oauth2_proxy", "dex",
     ):  # fmt: skip
         assert prefetch.archive_reference(_CATALOG[name]) in tags, name
     # no preloaded tag drifts from the catalog; only the OpenMetadata server is pinned outside it

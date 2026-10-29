@@ -217,9 +217,6 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "project_code_image_tag": images.project_code_tag,
         "project_code_image_pull_policy": images.project_code_pull_policy,
         "project_code_image_revision": images.project_code_revision,
-        "superset_image_repository": images.superset_repository,
-        "superset_image_tag": images.superset_tag,
-        "superset_image_pull_policy": images.superset_pull_policy,
     } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
     }
@@ -554,13 +551,11 @@ def platform_up(
             "Run the foundation phase before applying the local platform."
         ) from exc
 
+    superset_tag = None
     if config.platform_features.analytics_enabled:
         from olf.deployment.local import images
 
         superset_tag = images.prepare_superset_image(config, tools, env=env)
-    else:
-        superset_tag = None
-        log.step("Skipping Superset image build: no enabled stage has analytics.")
 
     prepare_charts(config, tools, env=env)
 
@@ -573,7 +568,11 @@ def platform_up(
 
     variables = platform_apply_variables(config)
     if superset_tag:
-        variables["superset_image_tag"] = superset_tag
+        variables |= {
+            "superset_image_repository": config.images.superset_repository,
+            "superset_image_tag": superset_tag,
+            "superset_image_pull_policy": "Never",
+        }
     var_files = platform_var_files(config)
 
     namespace_resources = {_SHARED_NAMESPACE_RESOURCE_ADDR: config.context.shared_namespace} | {

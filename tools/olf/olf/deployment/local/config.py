@@ -49,7 +49,7 @@ class ImageSettings:
     project_code_python_base_image: str
     superset_repository: str
     superset_tag: str
-    superset_pull_policy: str
+    superset_build: bool
     superset_base_image: str
     pull_retry: RetryPolicy
     build_retry: RetryPolicy
@@ -79,7 +79,7 @@ class ImageSettings:
             ),
             superset_repository=_env(environ, "SUPERSET_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/superset"),
             superset_tag=_env(environ, "SUPERSET_IMAGE_TAG", "local"),
-            superset_pull_policy=_env(environ, "SUPERSET_IMAGE_PULL_POLICY", "Never"),
+            superset_build=_truthy(_env(environ, "BUILD_SUPERSET_IMAGE", "false")),
             superset_base_image=_env(
                 environ,
                 "SUPERSET_BASE_IMAGE",

@@ -180,8 +180,8 @@ def test_prepare_superset_image_skips_when_analytics_disabled(tmp_path: Path) ->
     assert runner.calls == []
 
 
-def test_prepare_superset_image_skips_when_tag_is_not_local(tmp_path: Path) -> None:
-    config = _config(tmp_path, environ={"SUPERSET_IMAGE_TAG": "v1.0.0"})
+def test_prepare_superset_image_does_nothing_unless_a_maintainer_opts_in(tmp_path: Path) -> None:
+    config = _config(tmp_path)
     runner = _ScriptedRunner()
     tools = _toolkit(runner)
 
@@ -190,8 +190,8 @@ def test_prepare_superset_image_skips_when_tag_is_not_local(tmp_path: Path) -> N
     assert runner.calls == []
 
 
-def test_prepare_superset_image_builds_and_loads_when_enabled_and_local(tmp_path: Path) -> None:
-    config = _config(tmp_path)
+def test_prepare_superset_image_builds_and_loads_when_a_maintainer_opts_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, environ={"BUILD_SUPERSET_IMAGE": "true"})
     runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
     tools = _toolkit(runner)
 

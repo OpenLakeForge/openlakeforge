@@ -109,14 +109,13 @@ def load_digest_image_into_kind(
 
 
 def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str | None:
-    """Build and load the Superset image; return the content tag the Superset module must deploy, or None.
+    """Maintainer opt-in (`BUILD_SUPERSET_IMAGE`): build `images/superset` and load it into kind.
 
-    `:local` never changes, so a rebuilt image would leave the pod spec identical and Helm would not roll the
-    pods. Re-tagging by image ID makes a changed image a changed spec.
+    Returns the content tag to deploy instead of the release-pinned image, or None. `:local` never changes, so a
+    rebuilt image would leave the pod spec identical and Helm would not roll the pods; re-tagging by image ID
+    makes a changed image a changed spec.
     """
-    if not config.features.analytics_enabled:
-        return None
-    if config.images.superset_tag != "local":
+    if not (config.features.analytics_enabled and config.images.superset_build):
         return None
     log.step("Building local Superset platform image...")
     image = build_superset_image(config, tools, env=env)

@@ -78,7 +78,7 @@ def selected_images(
     if features.governance_enabled:
         names += ["opensearch", "openmetadata_ingestion"]
     if features.analytics_enabled:
-        names += ["superset_base", "superset_init", "superset_redis"]
+        names += ["superset", "superset_init", "superset_redis"]
     if perimeter:
         names.append("oauth2_proxy")
     if dex:

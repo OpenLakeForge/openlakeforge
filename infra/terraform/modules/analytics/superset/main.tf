@@ -43,11 +43,12 @@ resource "helm_release" "superset" {
   values = concat([
     file(var.base_values_file),
     yamlencode({
-      image = {
+      # Unset values fall through to the release pin in the base values file.
+      image = { for key, value in {
         repository = var.image_repository
         tag        = var.image_tag
         pullPolicy = var.image_pull_policy
-      }
+      } : key => value if value != null }
 
       postgresql = {
         enabled = false
