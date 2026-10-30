@@ -39,6 +39,7 @@ class FakeIssuer:
         self.challenges: dict[str, tuple[str, str]] = {}
         self.authorize_queries: list[dict[str, str]] = []
         self.refreshes = 0
+        self.scopes_supported: list[str] | None = None
         self.id_token_lifetime = 300
         self.reject_refresh = False
         self.url = ""
@@ -60,6 +61,7 @@ class FakeIssuer:
                         {
                             "authorization_endpoint": f"{issuer.url}/auth?tenant=team",
                             "token_endpoint": f"{issuer.url}/token",
+                            **({"scopes_supported": issuer.scopes_supported} if issuer.scopes_supported else {}),
                         },
                     )
                 elif url.path == "/auth":
@@ -192,6 +194,17 @@ def test_login_completes_with_a_blocking_browser_and_an_idle_connection(
     login_flow.login(_instance(issuer), open_browser=True, announce=lambda _: None)
 
     assert sessions.active_session(_instance(issuer)).refresh_token == "refresh-1"
+
+
+def test_login_asks_an_external_issuer_only_for_scopes_it_advertises(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    issuer.scopes_supported = ["openid", "profile", "email", "offline_access"]
+    _browser(monkeypatch)
+
+    login_flow.login(_instance(issuer), open_browser=True, announce=lambda _: None)
+
+    assert set(issuer.authorize_queries[0]["scope"].split()) == {"openid", "profile", "email", "offline_access"}
 
 
 def test_no_browser_prints_the_url_and_never_opens_one(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:

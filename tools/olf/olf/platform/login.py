@@ -53,12 +53,15 @@ def login(instance: Instance, *, open_browser: bool, announce: Callable[[str], N
     # Dex accepts a request without a challenge, so S256 is always sent.
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
     endpoint = str(endpoints["authorization_endpoint"])
+    # `groups` is Dex's; an external issuer that does not advertise a scope rejects the request.
+    advertised = endpoints.get("scopes_supported")
+    scope = [name for name in SCOPES.split() if not advertised or name == "openid" or name in advertised]
     url = f"{endpoint}{'&' if '?' in endpoint else '?'}" + urllib.parse.urlencode(
         {
             "response_type": "code",
             "client_id": instance.client_id,
             "redirect_uri": redirect_uri,
-            "scope": SCOPES,
+            "scope": " ".join(scope),
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
