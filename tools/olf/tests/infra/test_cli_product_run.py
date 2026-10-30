@@ -40,14 +40,16 @@ def launches(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 
 def test_a_product_runs_incrementally_by_default(project: Path, launches: list[dict]) -> None:
-    result = runner.invoke(app, ["product", "run", "order_revenue", "-f", str(project)])
+    result = runner.invoke(app, ["infra", "product", "run", "order_revenue", "-f", str(project)])
 
     assert result.exit_code == 0, result.output
     assert launches == [{"products": ["order_revenue"], "tags": None}]
 
 
 def test_a_full_refresh_is_tagged_on_that_run_only(project: Path, launches: list[dict]) -> None:
-    result = runner.invoke(app, ["product", "run", "order_revenue", "-f", str(project), "--full-refresh", "bronze"])
+    result = runner.invoke(
+        app, ["infra", "product", "run", "order_revenue", "-f", str(project), "--full-refresh", "bronze"]
+    )
 
     assert result.exit_code == 0, result.output
     assert launches == [
@@ -59,14 +61,18 @@ def test_a_full_refresh_is_tagged_on_that_run_only(project: Path, launches: list
 
 
 def test_a_gold_refresh_leaves_floe_incremental(project: Path, launches: list[dict]) -> None:
-    result = runner.invoke(app, ["product", "run", "order_revenue", "-f", str(project), "--full-refresh", "gold"])
+    result = runner.invoke(
+        app, ["infra", "product", "run", "order_revenue", "-f", str(project), "--full-refresh", "gold"]
+    )
 
     assert result.exit_code == 0, result.output
     assert launches == [{"products": ["order_revenue"], "tags": {"openlakeforge/full_refresh": "gold"}}]
 
 
 def test_an_unknown_full_refresh_scope_launches_nothing(project: Path, launches: list[dict]) -> None:
-    result = runner.invoke(app, ["product", "run", "order_revenue", "-f", str(project), "--full-refresh", "silver"])
+    result = runner.invoke(
+        app, ["infra", "product", "run", "order_revenue", "-f", str(project), "--full-refresh", "silver"]
+    )
 
     assert result.exit_code != 0
     assert "bronze or gold" in result.output
@@ -74,7 +80,7 @@ def test_an_unknown_full_refresh_scope_launches_nothing(project: Path, launches:
 
 
 def test_an_unknown_product_names_the_products_there_are(project: Path, launches: list[dict]) -> None:
-    result = runner.invoke(app, ["product", "run", "revenue", "-f", str(project)])
+    result = runner.invoke(app, ["infra", "product", "run", "revenue", "-f", str(project)])
 
     assert result.exit_code != 0
     assert "order_revenue" in result.output

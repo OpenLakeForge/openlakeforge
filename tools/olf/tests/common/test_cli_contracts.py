@@ -20,7 +20,7 @@ def test_contracts_env_surfaces_a_toolchain_failure_cleanly(monkeypatch: pytest.
 
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _raise)
 
-    result = runner.invoke(app, ["contracts", "env"])
+    result = runner.invoke(app, ["infra", "contracts", "env"])
 
     assert result.exit_code != 0
     assert not isinstance(result.exception, ToolchainError)

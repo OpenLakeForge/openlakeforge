@@ -36,7 +36,7 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
         "olf.infra.commands.artifacts.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped")
     )
 
-    result = runner.invoke(app, ["artifacts", "deploy-optional-layers"])
+    result = runner.invoke(app, ["infra", "artifacts", "deploy-optional-layers"])
 
     assert result.exit_code == 0
     assert "Skipping Superset report assets" in result.output
@@ -70,7 +70,7 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
     )
     monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: calls.append("reports"))
 
-    result = runner.invoke(app, ["report", "import", "--provider", "aws"])
+    result = runner.invoke(app, ["infra", "report", "import", "--provider", "aws"])
 
     assert result.exit_code == 0
     assert options["provider"] == "aws"
@@ -85,7 +85,7 @@ def test_superset_deploy_reports_threads_a_custom_project_root(monkeypatch: pyte
     )
     monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: None)
 
-    result = runner.invoke(app, ["report", "import", "--project-root", "/srv/my-project"])
+    result = runner.invoke(app, ["infra", "report", "import", "--project-root", "/srv/my-project"])
 
     assert result.exit_code == 0
     assert options["project_root"] == "/srv/my-project"
@@ -105,8 +105,8 @@ def test_superset_report_commands_hydrate_the_named_stage(monkeypatch: pytest.Mo
     monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: None)
     monkeypatch.setattr("olf.infra.commands.superset.export_superset_reports", lambda **_: None)
 
-    deployed = runner.invoke(app, ["report", "import", "--stage", "prod"])
-    exported = runner.invoke(app, ["report", "export", "--stage", "uat"])
+    deployed = runner.invoke(app, ["infra", "report", "import", "--stage", "prod"])
+    exported = runner.invoke(app, ["infra", "report", "export", "--stage", "uat"])
 
     assert (deployed.exit_code, exported.exit_code) == (0, 0)
     assert [entry["stage"] for entry in options] == ["prod", "uat"]
@@ -124,8 +124,8 @@ def test_superset_export_reports_requires_an_explicit_stage(monkeypatch: pytest.
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     monkeypatch.setattr("olf.infra.commands.superset.export_superset_reports", lambda **_: None)
 
-    missing = runner.invoke(app, ["report", "export"])
-    supplied = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    missing = runner.invoke(app, ["infra", "report", "export"])
+    supplied = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     # 2 is click's usage error: the argument parser refused the call.
     assert missing.exit_code == 2
@@ -140,7 +140,7 @@ def test_superset_deploy_reports_fails_closed_for_a_stage_without_analytics(
     _hydrate_stage_contract(monkeypatch, "prod")
     monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
 
-    result = runner.invoke(app, ["report", "import", "--stage", "prod"])
+    result = runner.invoke(app, ["infra", "report", "import", "--stage", "prod"])
 
     assert result.exit_code == 1
     assert "analytics disabled" in result.output
@@ -158,7 +158,7 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
         lambda: calls.append("metadata"),
     )
 
-    result = runner.invoke(app, ["openmetadata", "deploy-metadata", "--provider", "azure"])
+    result = runner.invoke(app, ["infra", "openmetadata", "deploy-metadata", "--provider", "azure"])
 
     assert result.exit_code == 0
     assert options["provider"] == "azure"
@@ -255,7 +255,7 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
     monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
 
-    result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
+    result = runner.invoke(app, ["infra", "dbt", "parse", "--project-root", str(project_root)])
 
     assert result.exit_code == 0
     assert commands[-1][1] == "parse"
@@ -303,7 +303,7 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
     monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
 
-    result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
+    result = runner.invoke(app, ["infra", "dbt", "parse", "--project-root", str(project_root)])
 
     assert result.exit_code == 0
     assert parsed_profiles and parsed_profiles[0].startswith("demo:")
@@ -354,7 +354,7 @@ def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypa
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == default_dashboard.report_source_dir
@@ -416,7 +416,7 @@ products:
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["dashboard"] == "0b5f2f0e-6a43-4d8e-9a59-7c2d0f4a1e11"
@@ -474,7 +474,7 @@ def test_superset_export_reports_refuses_with_no_declared_dashboard_and_no_targe
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
     assert "no dashboard bundle has a metadata.yaml yet" in result.output
@@ -490,7 +490,7 @@ def test_superset_export_reports_refuses_a_target_that_is_not_an_existing_direct
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
     assert "does not exist" in result.output
@@ -513,9 +513,9 @@ def test_superset_export_reports_exports_an_undeclared_target_named_explicitly(
     # A draft has no exported dashboard to take an identity from, so the
     # operator names it; nothing is guessed from a title.
     monkeypatch.delenv("SUPERSET_DASHBOARD", raising=False)
-    unnamed = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    unnamed = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
     monkeypatch.setenv("SUPERSET_DASHBOARD", "sales-orders")
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert unnamed.exit_code == 2
     assert result.exit_code == 0
@@ -532,7 +532,7 @@ def test_superset_export_reports_refuses_the_retired_title_selector(monkeypatch:
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
 
@@ -546,8 +546,8 @@ def test_superset_report_aliases_still_work_and_warn(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: None)
     monkeypatch.setattr("olf.infra.commands.superset.export_superset_reports", lambda **_: None)
 
-    deployed = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
-    exported = runner.invoke(app, ["superset", "export-reports", "--stage", "uat"])
+    deployed = runner.invoke(app, ["infra", "superset", "deploy-reports", "--stage", "prod"])
+    exported = runner.invoke(app, ["infra", "superset", "export-reports", "--stage", "uat"])
 
     assert (deployed.exit_code, exported.exit_code) == (0, 0)
     assert [entry["stage"] for entry in options] == ["prod", "uat"]
@@ -570,7 +570,7 @@ def test_superset_export_reports_refuses_an_absolute_target_outside_the_project(
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     # Message not asserted: rich wraps typer's usage error at 80 columns when
     # stdout isn't a terminal, which splits this phrase across lines on CI
@@ -591,7 +591,7 @@ def test_superset_export_reports_refuses_a_target_that_escapes_the_report_tree(
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
 
@@ -611,7 +611,7 @@ def test_superset_export_reports_refuses_an_out_of_tree_override_with_declared_d
     _hydrate_stage_contract(monkeypatch)
     assert config.repo_root()  # sanity: the reference project (3 declared dashboards) resolves
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
 
@@ -633,7 +633,7 @@ def test_superset_export_reports_accepts_a_legitimate_override_with_declared_das
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == other_dashboard.report_source_dir
@@ -658,7 +658,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     )
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
-    result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
+    result = runner.invoke(app, ["infra", "catalog", "sync-namespaces", "--dry-run"])
 
     assert result.exit_code == 0
     assert calls == [{"backend": "glue", "dry_run": True, "prune": False, "namespace_prefix": "lakehouse_dev_"}]
@@ -681,7 +681,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
     )
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
-    result = runner.invoke(app, ["catalog", "sync-namespaces", "--prune"])
+    result = runner.invoke(app, ["infra", "catalog", "sync-namespaces", "--prune"])
 
     assert result.exit_code == 0
     assert calls == [{"backend": "polaris", "dry_run": False, "prune": True}]
@@ -701,7 +701,7 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
     )
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
-    result = runner.invoke(app, ["catalog", "sync-namespaces"])
+    result = runner.invoke(app, ["infra", "catalog", "sync-namespaces"])
 
     assert result.exit_code == 0
     assert calls == [{"dry_run": False, "prune": False}]
@@ -716,7 +716,7 @@ def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest
     monkeypatch.setattr(catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
-    result = runner.invoke(app, ["catalog", "sync-namespaces"])
+    result = runner.invoke(app, ["infra", "catalog", "sync-namespaces"])
 
     assert result.exit_code == 1
     assert calls == []
@@ -739,7 +739,7 @@ def test_catalog_sync_namespaces_hydrates_selected_provider_contracts(monkeypatc
     monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: None)
 
     result = runner.invoke(
-        app, ["catalog", "sync-namespaces", "--provider", "aws", "--project-root", "/srv/my-project"]
+        app, ["infra", "catalog", "sync-namespaces", "--provider", "aws", "--project-root", "/srv/my-project"]
     )
 
     assert result.exit_code == 0
@@ -775,7 +775,7 @@ def platform_cli(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
 
 
 def test_platform_plan_reports_a_clean_tree_without_a_detailed_exit_code(platform_cli) -> None:  # noqa: ANN001
-    result = runner.invoke(app, ["platform", "plan", "--file", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "plan", "--file", "openlakeforge.yaml"])
 
     assert result.exit_code == 0
     assert "no changes" in result.output
@@ -787,9 +787,9 @@ def test_platform_plan_returns_two_only_when_asked_for_a_detailed_exit_code(plat
     must stay exit 0 unless the caller opted into the third outcome."""
     platform_cli.changes = True
 
-    assert runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml"]).exit_code == 0
+    assert runner.invoke(app, ["infra", "platform", "plan", "-f", "openlakeforge.yaml"]).exit_code == 0
 
-    detailed = runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml", "--detailed-exitcode"])
+    detailed = runner.invoke(app, ["infra", "platform", "plan", "-f", "openlakeforge.yaml", "--detailed-exitcode"])
 
     assert detailed.exit_code == 2
     assert "pending" in detailed.output
@@ -797,14 +797,14 @@ def test_platform_plan_returns_two_only_when_asked_for_a_detailed_exit_code(plat
 
 def test_platform_apply_all_runs_the_static_phases_in_order(platform_cli) -> None:  # noqa: ANN001
     """Artifacts are deliberately absent: `olf platform` owns only what Terraform owns."""
-    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "apply", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code == 0
     assert platform_cli.deployed == ["foundation", "prefetch", "platform"]
 
 
 def test_platform_apply_a_single_phase_runs_only_that_phase(platform_cli) -> None:  # noqa: ANN001
-    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml", "--phase", "foundation"])
+    result = runner.invoke(app, ["infra", "platform", "apply", "-f", "openlakeforge.yaml", "--phase", "foundation"])
 
     assert result.exit_code == 0
     assert platform_cli.deployed == ["foundation"]
@@ -812,7 +812,7 @@ def test_platform_apply_a_single_phase_runs_only_that_phase(platform_cli) -> Non
 
 def test_platform_rejects_a_phase_it_does_not_own(platform_cli) -> None:  # noqa: ANN001
     """`artifacts` is a real DeploymentPhase, which is exactly why it is rejected here."""
-    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml", "--phase", "artifacts"])
+    result = runner.invoke(app, ["infra", "platform", "apply", "-f", "openlakeforge.yaml", "--phase", "artifacts"])
 
     assert result.exit_code != 0
     assert platform_cli.deployed == []
@@ -827,7 +827,7 @@ def test_platform_plan_reports_a_deployment_error_as_a_failure(platform_cli, mon
 
     monkeypatch.setattr(platform_cli, "plan", _raise)
 
-    result = runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "plan", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code != 0
     assert "no changes" not in result.output
@@ -841,7 +841,7 @@ def test_platform_apply_reports_a_deployment_error_as_a_failure(platform_cli, mo
 
     monkeypatch.setattr(platform_cli, "deploy", _raise)
 
-    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "apply", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code != 0
 
@@ -863,14 +863,14 @@ def test_platform_surfaces_a_provider_it_cannot_build_as_a_failure(monkeypatch: 
 
     monkeypatch.setattr(engine_module, "build_provider", _unbuildable)
 
-    result = runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "plan", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code != 0
     assert "no changes" not in result.output
 
 
 def test_report_validate_accepts_the_reference_project_bundles(external_project: Path) -> None:
-    result = runner.invoke(app, ["report", "validate", "--project-root", str(external_project)])
+    result = runner.invoke(app, ["infra", "report", "validate", "--project-root", str(external_project)])
 
     assert result.exit_code == 0
     assert "promotable" in result.output
@@ -880,14 +880,14 @@ def test_report_validate_exits_nonzero_for_a_stage_bound_bundle(external_project
     database = next((external_project / "lakehouse_code/dashboards/superset").glob("*/databases/*.yaml"))
     database.write_text(database.read_text().replace("/iceberg", "/lakehouse_prod"))
 
-    result = runner.invoke(app, ["report", "validate", "--project-root", str(external_project)])
+    result = runner.invoke(app, ["infra", "report", "validate", "--project-root", str(external_project)])
 
     assert result.exit_code == 1
     assert "stage-bound physical name" in result.output
 
 
 def test_report_validate_rejects_an_undeclared_dashboard(external_project: Path) -> None:
-    result = runner.invoke(app, ["report", "validate", "nope", "--project-root", str(external_project)])
+    result = runner.invoke(app, ["infra", "report", "validate", "nope", "--project-root", str(external_project)])
 
     assert result.exit_code != 0
 
@@ -908,7 +908,7 @@ def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["report", "export", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "report", "export", "--stage", "dev"])
 
     assert result.exit_code == 2
     assert "directly under" in result.output
@@ -928,13 +928,13 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
         lambda terraform_dir, environ, honor_contract_file, **_k: None if honor_contract_file else applied,
     )
 
-    result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "contract", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code == 0
     assert json.loads(result.output) == applied
 
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
-    assert runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0
+    assert runner.invoke(app, ["infra", "platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0
 
 
 def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
@@ -958,7 +958,7 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
             raise ToolchainError(tool, reason="digest mismatch")
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Broken())
-    result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "contract", "-f", "openlakeforge.yaml"])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)
     assert "digest mismatch" in result.output
@@ -972,7 +972,7 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Terraform())
     monkeypatch.setattr("olf.common.contract_state.subprocess.run", _corrupt_state)
-    result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "contract", "-f", "openlakeforge.yaml"])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)
     assert "Unsupported state file format" in result.output

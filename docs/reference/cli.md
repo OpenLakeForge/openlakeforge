@@ -18,8 +18,10 @@ Commands that need cluster or cloud permissions are under `olf infra`. Commands
 that need none, such as `olf init`, `olf check` and `olf project validate`, stay
 at the top level. `olf --help` lists the top-level groups and `olf infra --help`
 the infrastructure ones. The earlier top-level paths of the infra commands
-(`olf infra deploy`, `olf project deploy`) still work as hidden aliases and print no
-warning; this page uses the new paths. See
+(`olf deploy`, `olf project deploy`) still work as hidden aliases. Each prints one
+line on stderr naming its new path and then runs unchanged, so scripts that parse
+stdout keep working. `olf query` is the exception: it stays a top-level command
+and prints no warning. See
 [ADR 0020](../adr/0020-infrastructure-common-and-platform-cli-surfaces.md).
 
 ## Options shared by lifecycle commands

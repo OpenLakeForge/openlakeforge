@@ -73,14 +73,14 @@ def _write_profile(
 
 
 def test_e2e_run_rejects_unknown_env() -> None:
-    result = runner.invoke(app, ["e2e", "run", "--env", "bogus"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "bogus"])
 
     assert result.exit_code == 1
     assert "unknown --env" in result.output
 
 
 def test_e2e_run_rejects_unknown_suite() -> None:
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "--suite", "bogus"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "--suite", "bogus"])
 
     assert result.exit_code == 1
     assert "unknown --suite" in result.output
@@ -101,7 +101,7 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local"])
 
     assert result.exit_code == 0, result.output
     assert calls == [
@@ -136,7 +136,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     monkeypatch.delenv("KUBE_CONTEXT", raising=False)
     monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "aws"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "aws"])
 
     assert result.exit_code == 0, result.output
     assert calls == [{"kube_context": "limited-eks-openlakeforge-poc"}]
@@ -163,7 +163,7 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
     monkeypatch.delenv("KUBECONFIG", raising=False)
     monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "aws"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "aws"])
 
     assert result.exit_code == 0, result.output
     assert seen["kubeconfig"] == str(override)
@@ -224,7 +224,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
 
     monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "--project-root", str(project_root)])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "--project-root", str(project_root)])
 
     assert result.exit_code == 0, result.output
     assert captured_context_call["project_root"] == str(project_root)
@@ -247,7 +247,7 @@ def test_e2e_run_maps_e2e_error_to_exit_1(monkeypatch: pytest.MonkeyPatch, tmp_p
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr("olf.infra.e2e.run", _raise)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local"])
 
     assert result.exit_code == 1
     assert "cluster not reachable" in result.output
@@ -268,7 +268,7 @@ def test_e2e_run_surfaces_a_toolchain_failure_from_contract_resolution_cleanly(
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _raise)
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local"])
 
     assert result.exit_code != 0
     assert not isinstance(result.exception, ToolchainError)
@@ -279,7 +279,7 @@ def test_e2e_run_rejects_a_profile_file_for_another_provider(tmp_path: Path) -> 
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile, name="cloud-project", provider="aws", preset="slim", region="eu-west-3")
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile)])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "-f", str(profile)])
 
     assert result.exit_code == 1
     assert "targets provider 'aws'" in result.output
@@ -302,7 +302,7 @@ def test_e2e_run_file_selects_the_topology_that_reaches_contract_parsing(
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: None)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(deployed / "openlakeforge.yaml")])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "-f", str(deployed / "openlakeforge.yaml")])
 
     assert result.exit_code == 0, result.output
     topology = contract_env_calls[0]["topology"]
@@ -318,7 +318,7 @@ def test_e2e_run_without_a_profile_file_keeps_resolving_the_project_root(
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: None)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local"])
 
     assert result.exit_code == 0, result.output
     assert contract_env_calls[0]["topology"].profile_name == "project-default"
@@ -335,7 +335,7 @@ def test_e2e_run_profile_shorthand_resolves_the_topology_olf_deploy_profile_appl
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: None)
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "--profile", "full"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "--profile", "full"])
 
     assert result.exit_code == 0, result.output
     topology = contract_env_calls[0]["topology"]
@@ -354,7 +354,7 @@ def test_e2e_run_stage_selects_a_stage_of_the_profile_file(
     namespaces: list[str] = []
     monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: namespaces.append(k["namespace"]))
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
 
     assert result.exit_code == 0, result.output
     assert contract_env_calls[0]["stage"] == StageName.PROD
@@ -365,7 +365,7 @@ def test_e2e_run_rejects_a_stage_the_profile_file_does_not_enable(tmp_path: Path
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile, name="dev-only", preset="slim")
 
-    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
+    result = runner.invoke(app, ["infra", "e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
 
     assert result.exit_code == 1
     assert "stage 'prod' is not enabled" in result.output
@@ -381,7 +381,7 @@ def test_e2e_stage_buckets_prints_sorted_json_the_nightly_diffs(monkeypatch: pyt
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: {"version": 3})
     monkeypatch.setattr("olf.infra.e2e._isolation.stage_bucket_objects", _listing)
 
-    result = runner.invoke(app, ["e2e", "stage-buckets", "--stage", "prod"])
+    result = runner.invoke(app, ["infra", "e2e", "stage-buckets", "--stage", "prod"])
 
     assert result.exit_code == 0, result.output
     assert result.output == '{\n "a/y": "\\"1\\"",\n "b/z": "\\"2\\""\n}\n'
@@ -391,7 +391,7 @@ def test_e2e_stage_buckets_prints_sorted_json_the_nightly_diffs(monkeypatch: pyt
 def test_e2e_stage_buckets_fails_before_the_stack_is_deployed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
 
-    result = runner.invoke(app, ["e2e", "stage-buckets", "--stage", "prod"])
+    result = runner.invoke(app, ["infra", "e2e", "stage-buckets", "--stage", "prod"])
 
     assert result.exit_code == 1
     assert "deploy the stack first" in result.output
@@ -406,7 +406,7 @@ def test_e2e_stage_buckets_reports_a_listing_failure_as_an_error(monkeypatch: py
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: {"version": 3})
     monkeypatch.setattr("olf.infra.e2e._isolation.stage_bucket_objects", _broken)
 
-    result = runner.invoke(app, ["e2e", "stage-buckets", "--stage", "prod"])
+    result = runner.invoke(app, ["infra", "e2e", "stage-buckets", "--stage", "prod"])
 
     assert result.exit_code == 1
     assert "seaweedfs-s3-creds not found" in result.output
