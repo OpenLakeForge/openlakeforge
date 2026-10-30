@@ -132,11 +132,13 @@ whoever launches the run (the Dagster launchpad, or `olf product run
 holds it. A tag reaches every asset of the job without each one declaring a
 config schema, including the Floe assets dagster-floe builds. Both scopes run
 `dbt build --full-refresh`. `bronze` also drops the files and dlt cursors of
-the job's incremental Bronze resources and extracts them again. Silver merges
-that extract: dagster-floe 0.4.2 cannot pass Floe's `--full-refresh` for one
-run, so a row deleted at the source stays in Silver. There is no Silver-only
-scope: incremental Bronze keeps every batch, so Silver can only be rebuilt
-from a Bronze reloaded in full.
+the job's incremental Bronze resources and extracts them again, and it
+carries dagster-floe's own tag, `floe/full_refresh=true`, so Floe rebuilds
+Silver from that extract. The runtime rejects a `bronze` run without the Floe
+tag before any load: Silver would otherwise merge the new extract onto rows
+the source no longer has. There is no Silver-only scope: incremental Bronze
+keeps every batch, so Silver can only be rebuilt from a Bronze reloaded in
+full.
 
 ### Kubernetes run launcher
 
@@ -191,3 +193,7 @@ instead of the local DEV catalog.
 
 2026-10-30 (#342, #344): a run tag asks one run for a full refresh, and `olf
 product run` launches a product with it.
+
+2026-10-30 (#342): a `bronze` refresh also carries dagster-floe 0.4.3's
+`floe/full_refresh` tag, so Floe rebuilds Silver in the same run instead of
+merging the reloaded Bronze onto the old table.

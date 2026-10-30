@@ -37,9 +37,10 @@ from .inventory import (
     load_source,
     load_transitional_lakehouse_inventory,
 )
-from .runs import FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope
+from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
+    "FLOE_FULL_REFRESH_TAG",
     "FULL_REFRESH_SCOPES",
     "FULL_REFRESH_TAG",
     "GOVERNANCE_API_VERSION",
@@ -62,6 +63,7 @@ __all__ = [
     "Source",
     "Table",
     "full_refresh_scope",
+    "full_refresh_tags",
     "inventory_for",
     "load_governance_descriptor",
     "load_governance_lakehouse_document",

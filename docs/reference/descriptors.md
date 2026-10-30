@@ -94,16 +94,14 @@ Each layer declares its load mode where its owner keeps it:
 | Layer | Declared in | Incremental | Full |
 | --- | --- | --- | --- |
 | Bronze | `resources[].load` in `source.yaml` | dlt appends the rows past `cursor` as new files | dlt replaces the files |
-| Silver | the entity's Floe contract | `incremental_mode: file` with `merge_scd1` or `merge_scd2` | `overwrite` |
+| Silver | the entity's Floe contract | `incremental_mode: file` with `merge_scd1`, `merge_scd2` or `append` | `overwrite` |
 | Gold | the dbt model's `materialized` config | `incremental` with a `unique_key` and the `merge` strategy | `table` |
 
 `olf check contracts` rejects a Silver entity whose mode does not fit its
 Bronze resource. An entity reading an incremental resource needs
-`incremental_mode: file` and a merge mode. Not `append`: a `bronze` full
-refresh lands every row again, and a run cannot yet rebuild Silver (see the
-known limits below), so the refresh would duplicate the whole history. An
-entity reading a full resource cannot use `append` either, which would add
-every row again on each run.
+`incremental_mode: file` and `merge_scd1`, `merge_scd2` or `append`. An
+entity reading a full resource cannot use `append`, which would add every row
+again on each run.
 
 A loader with an incremental resource runs its dlt source through
 `libs.bronze_dlt.load_dlt_source`. The connector declares the cursor with
@@ -120,27 +118,31 @@ row's newest version.
 ### Full refresh
 
 A run is incremental unless it carries the run tag
-`openlakeforge/full_refresh`. Set the tag in the Dagster launchpad, or run
-`olf infra product run <product> --full-refresh <scope>`:
+`openlakeforge/full_refresh`. Run
+`olf infra product run <product> --full-refresh <scope>`, or set the tags
+yourself in the Dagster launchpad:
 
 | Scope | Bronze | Silver | Gold |
 | --- | --- | --- | --- |
-| `bronze` | Files and cursors of the job's incremental resources dropped, then everything extracted | Merges the whole new extract | `dbt build --full-refresh` |
+| `bronze` | Files and cursors of the job's incremental resources dropped, then everything extracted | Rebuilt from the new extract (`floe run --full-refresh`) | `dbt build --full-refresh` |
 | `gold` | Incremental | Incremental | `dbt build --full-refresh` |
+
+A `bronze` refresh needs a second tag, `floe/full_refresh=true`, which makes
+dagster-floe run the job's Floe entities with `--full-refresh`.
+`olf infra product run` sets both. A run that carries only the first fails
+before it touches Bronze, so a row deleted at the source cannot survive a
+refresh in Silver.
 
 There is no Silver-only scope: incremental Bronze keeps every batch, so
 Silver can only be rebuilt from a Bronze reloaded in full.
 
 Known limits:
 
-- Floe 0.8.6 rebuilds a `merge_scd1` table with `floe run --full-refresh`,
-  but dagster-floe 0.4.2 has no per-run way to ask for it
-  (OpenLakeForge/floe#1097). After a `bronze` refresh, Silver therefore
-  merges the full extract onto the table it already has, so a row deleted at
-  the source stays in Silver.
+- Floe cannot rebuild a `merge_scd2` table's version history from its
+  inputs, so a `bronze` refresh fails at a `merge_scd2` entity.
 - A run killed after dlt wrote some files of a batch but before it saved
   the cursor leaves those files in Bronze. The rerun extracts the same rows
-  again into a newer batch. Silver keeps the newer rows and reports the
+  again into a newer batch. A merge keeps the newer rows and reports the
   killed batch's rows as rejected duplicates; Bronze keeps both.
 
 Incremental state is per stage. dlt keeps cursors under the pipeline

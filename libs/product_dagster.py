@@ -98,6 +98,9 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
         can_subset=True,
     )
     def bronze_resources(context):
+        # Read for every source, before any load, so malformed refresh tags
+        # fail the run while Bronze is still untouched.
+        full_refresh = full_refresh_scope(context.run.tags) == "bronze"
         previous_run_id = os.environ.get("DAGSTER_RUN_ID")
         os.environ["DAGSTER_RUN_ID"] = context.run_id
         try:
@@ -107,7 +110,6 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
                 if context.selected_output_names is None or resource in context.selected_output_names
             )
             if incremental:
-                full_refresh = full_refresh_scope(context.run.tags) == "bronze"
                 results = spec.bronze_loader(selected, full_refresh=full_refresh)
             else:
                 results = spec.bronze_loader(selected)

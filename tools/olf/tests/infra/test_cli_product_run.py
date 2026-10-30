@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from openlakeforge_domain import FULL_REFRESH_TAG, full_refresh_scope
+from openlakeforge_domain import FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 from typer.testing import CliRunner
 
 from olf.cli import app
@@ -50,7 +50,19 @@ def test_a_full_refresh_is_tagged_on_that_run_only(project: Path, launches: list
     result = runner.invoke(app, ["product", "run", "order_revenue", "-f", str(project), "--full-refresh", "bronze"])
 
     assert result.exit_code == 0, result.output
-    assert launches == [{"products": ["order_revenue"], "tags": {"openlakeforge/full_refresh": "bronze"}}]
+    assert launches == [
+        {
+            "products": ["order_revenue"],
+            "tags": {"openlakeforge/full_refresh": "bronze", "floe/full_refresh": "true"},
+        }
+    ]
+
+
+def test_a_gold_refresh_leaves_floe_incremental(project: Path, launches: list[dict]) -> None:
+    result = runner.invoke(app, ["product", "run", "order_revenue", "-f", str(project), "--full-refresh", "gold"])
+
+    assert result.exit_code == 0, result.output
+    assert launches == [{"products": ["order_revenue"], "tags": {"openlakeforge/full_refresh": "gold"}}]
 
 
 def test_an_unknown_full_refresh_scope_launches_nothing(project: Path, launches: list[dict]) -> None:
@@ -77,3 +89,9 @@ def test_a_run_is_incremental_unless_its_tags_ask_for_a_full_refresh(tags, scope
 def test_an_unknown_full_refresh_tag_is_rejected_by_the_runtime() -> None:
     with pytest.raises(ValueError, match="must be one of"):
         full_refresh_scope({FULL_REFRESH_TAG: "silver"})
+
+
+def test_a_bronze_refresh_without_the_floe_tag_is_rejected_by_the_runtime() -> None:
+    with pytest.raises(ValueError, match="floe/full_refresh=true"):
+        full_refresh_scope({FULL_REFRESH_TAG: "bronze"})
+    assert full_refresh_scope(full_refresh_tags("bronze")) == "bronze"
