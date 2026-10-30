@@ -10,7 +10,7 @@ output "contract" {
     # No catalog_namespaces/catalog_namespace_names/catalog_schema_names here:
     # namespaces are reconciled in Phase 2 (ADR 0002), so Phase 1 has nothing
     # authoritative to report. Omitting the keys — rather than emitting empty
-    # lists — is what lets olf/contracts.py fall back to the descriptor-derived
+    # lists — is what lets olf/infra/contracts.py fall back to the descriptor-derived
     # values instead of exporting an empty JSON array over them.
     rest_uri                      = local.rest_uri
     token_uri                     = local.token_uri

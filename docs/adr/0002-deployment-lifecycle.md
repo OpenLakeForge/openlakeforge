@@ -36,7 +36,7 @@ The deprecated `olf deploy --provider P` retains the old single-DEV path.
 | `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm |
 | `artifacts` | Deprecated single-DEV compatibility path derived from `lakehouse_code/` | `olf` |
 
-`DeploymentPhase` (`tools/olf/olf/deployment/engine.py`) also carries a
+`DeploymentPhase` (`tools/olf/olf/infra/deployment/engine.py`) also carries a
 `prefetch` value that runs between `foundation` and `platform`. It is a local
 kind image warm-up — it pulls the large runtime images and loads them into the
 kind nodes so the Helm releases do not each wait on a cold pull. On cloud

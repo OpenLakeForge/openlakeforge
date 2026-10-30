@@ -61,7 +61,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    catalog service, and the registry may only be `internal`; Dagster code
    servers have no ref and cannot be routed at all.
 5. **Port-forward is an explicit development fallback**, not an access path.
-   `olf`'s own clients (`olf.access.service_url`) use a stage's route when
+   `olf`'s own clients (`olf.infra.access.service_url`) use a stage's route when
    its contract has one, and port-forward when it has none (the AWS and
    Azure contracts today), when `OLF_PORT_FORWARD` is set, or when the route
    is in `shared.access.perimeter.protected_routes` of an enabled perimeter
