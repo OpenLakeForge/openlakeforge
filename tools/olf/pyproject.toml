@@ -16,6 +16,7 @@ dependencies = [
   "cryptography>=43",
   "jsonschema>=4.23,<5",
   "openlakeforge-domain-model==0.5.0a1",
+  "openlakeforge-lakehouse-services==0.5.0a1",
   "python-hcl2>=6,<7",
   "PyYAML>=6,<7",
   "requests>=2.32,<3",
@@ -24,6 +25,7 @@ dependencies = [
 
 [tool.uv.sources]
 openlakeforge-domain-model = { path = "../../packages/domain-model" }
+openlakeforge-lakehouse-services = { path = "../../packages/lakehouse-services" }
 
 [project.scripts]
 olf = "olf.cli:main"
@@ -95,7 +97,8 @@ testpaths = ["tests"]
 pythonpath = ["../.."]
 
 [tool.coverage.run]
-source = ["olf"]
+# The service clients moved out of `olf` (ADR 0021) are still tested here.
+source = ["olf", "openlakeforge_services"]
 branch = true
 
 [tool.coverage.report]

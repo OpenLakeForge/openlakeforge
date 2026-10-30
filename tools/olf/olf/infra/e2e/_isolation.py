@@ -16,8 +16,9 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from openlakeforge_services.base import ServiceClientError
+
 from olf.common import config, log
-from olf.common.clients.base import ServiceClientError
 from olf.infra import k8s
 from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
@@ -273,7 +274,7 @@ def check_stage_data_is_its_own(
 
 
 def _dagster_run_ids(service_name: str, namespace: str, log_path: str) -> set[str]:
-    from olf.common.clients.dagster import DagsterClient
+    from openlakeforge_services.dagster import DagsterClient
 
     with k8s.port_forward(service_name, 80, namespace, log_path=log_path) as local_port:
         try:

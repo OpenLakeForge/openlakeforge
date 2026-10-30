@@ -172,8 +172,9 @@ def openmetadata_list_domains(
 
 def list_openmetadata_domains() -> list[tuple[str, str]]:
     """Read every domain's name and display name from the deployed OpenMetadata."""
+    from openlakeforge_services.base import ServiceClientError
+
     from olf.common import layers
-    from olf.common.clients.base import ServiceClientError
     from olf.common.clients.openmetadata import OpenMetadataClient
     from olf.infra import k8s
     from olf.infra.openmetadata._auth import AUTOMATION_BOT, automation_token

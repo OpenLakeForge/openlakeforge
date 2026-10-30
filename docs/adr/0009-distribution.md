@@ -17,13 +17,15 @@ the user should never edit) and the project (which is entirely theirs).
 
 ## Decision
 
-### Two published distributions
+### Three published distributions
 
 `openlakeforge` owns the `olf` console command and pins
-`openlakeforge-domain-model` exactly. `release/component-catalog.yaml` is the
+`openlakeforge-domain-model` and `openlakeforge-lakehouse-services` exactly.
+The second holds the service clients `olf` shares with the platform API
+(ADR 0021). `release/component-catalog.yaml` is the
 canonical release identity; its alpha form (`0.2.0-alpha.1`) maps to PEP 440
-(`0.2.0a1`), and the release-readiness gate fails if the catalog and either
-`pyproject.toml` disagree.
+(`0.2.0a1`), and the release-readiness gate fails if the catalog and any of the
+three `pyproject.toml` files disagree.
 
 Publication uses GitHub OIDC Trusted Publishing. GitHub Releases keep signed
 checksums, SBOMs, and build provenance.
@@ -117,3 +119,6 @@ project-root Deployment Profile, parsed and resolved per ADR 0011.
 `--stages`, `--preset` and `--name` instead of copying a fixed one, and
 `--profile-only` gives an existing project its profile. The consumer path ends
 with `olf platform apply -f`.
+
+`openlakeforge-lakehouse-services` became the third published distribution, the
+library ADR 0021 shares between `olf` and the platform API.

@@ -69,6 +69,7 @@ labels expressing intended sequence within a milestone.
 | `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
+| `packages/lakehouse-services/` | Service clients shared by `olf` and the platform API (ADR 0021); callers pass endpoints and credentials in |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
 | `skills/` | Agent skills for people operating a stack with `olf`; validated by `olf check skills` |
 | `infra/terraform/environments/` | Per-environment wiring; `contracts.tf` is the contract surface |
@@ -76,7 +77,7 @@ labels expressing intended sequence within a milestone.
 | `infra/terraform/modules/` | Component modules grouped by capability |
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
-| `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract both `pyproject.toml` files must match |
+| `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract every `pyproject.toml` must match |
 | `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `source.yaml` and `governance.yml` validate against |
 | `docs/schema/deployment-profile.schema.json` | Schema for Deployment Profiles |
 
