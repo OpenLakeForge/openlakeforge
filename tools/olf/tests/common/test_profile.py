@@ -12,6 +12,7 @@ from olf.common.profile import (
     Preset,
     Provider,
     ResolvedProject,
+    Size,
     StageName,
     legacy_single_stage_topology,
     load_deployment_profile,
@@ -365,7 +366,9 @@ def test_identity_client_ids_are_validated() -> None:
     document["spec"].setdefault("access", {})
     document["spec"]["identity"] = base | {"client_ids": {"trino": "0oa1"}}
     assert validate_deployment_profile(document).identity.client_ids == {"trino": "0oa1"}
-    for bad in ({"nope": "x"}, {"trino": ""}, {}):
+    document["spec"]["identity"] = base | {"client_ids": {"olf-cli": "0oa2"}}
+    assert validate_deployment_profile(document).identity.client_ids == {"olf-cli": "0oa2"}
+    for bad in ({"nope": "x"}, {"cli": "x"}, {"trino": ""}, {}):
         document["spec"].setdefault("access", {})
         document["spec"]["identity"] = base | {"client_ids": bad}
         with pytest.raises(DeploymentProfileError):
@@ -722,3 +725,61 @@ def test_a_malformed_environment_override_fails_closed() -> None:
     profile = validate_deployment_profile(_with_project(None, _AWS))
     with pytest.raises(DeploymentProfileError, match="PROJECT_CODE_IMAGE_REPOSITORY"):
         resolve_project(profile, {"PROJECT_CODE_IMAGE_REPOSITORY": "acme/code:latest"})
+
+
+def _with_sizes(fixture: str = "valid_slim_local.yaml", **blocks: object) -> dict:
+    document = _load_fixture(fixture)
+    document["spec"].update(blocks)
+    return document
+
+
+@pytest.mark.parametrize("fixture", ["valid_slim_local.yaml", _AWS])
+def test_sizes_default_to_small_and_an_explicit_small_resolves_identically(fixture: str) -> None:
+    omitted = resolve_topology(validate_deployment_profile(_load_fixture(fixture)))
+    explicit = resolve_topology(validate_deployment_profile(_with_sizes(fixture, query={"size": "small"})))
+
+    assert (omitted.query_size, omitted.storage_size) == (Size.SMALL, Size.SMALL)
+    assert explicit == omitted
+
+
+def test_small_storage_resolves_where_object_storage_is_self_hosted() -> None:
+    topology = resolve_topology(validate_deployment_profile(_with_sizes(storage={"size": "small"}, query={})))
+
+    assert json.loads(topology.render_json())["storage"] == {"size": "small"}
+    assert json.loads(topology.render_json())["query"] == {"size": "small"}
+
+
+@pytest.mark.parametrize(
+    ("block", "size", "tracker"),
+    [
+        ("query", "medium", "#324"),
+        ("query", "large", "#324"),
+        ("storage", "medium", "#326"),
+        ("storage", "large", "#326"),
+    ],
+)
+def test_tiers_without_a_backend_are_rejected_with_the_issue_that_lands_them(block, size, tracker) -> None:
+    with pytest.raises(DeploymentProfileError, match=rf"spec\.{block}\.size '{size}' has no implementation.*{tracker}"):
+        validate_deployment_profile(_with_sizes(**{block: {"size": size}}))
+
+
+@pytest.mark.parametrize("bad", [{"size": "huge"}, {"size": 3}, {"workers": 4}, {"size": "small", "cpu": "2"}, "small"])
+def test_unknown_or_raw_size_values_are_rejected(bad) -> None:
+    with pytest.raises(DeploymentProfileError, match=r"spec\.query"):
+        validate_deployment_profile(_with_sizes(query=bad))
+
+
+def test_storage_is_rejected_on_aws_because_s3_is_managed() -> None:
+    with pytest.raises(DeploymentProfileError, match="spec.storage is not available on provider 'aws'"):
+        validate_deployment_profile(_with_sizes(_AWS, storage={"size": "small"}))
+
+
+def test_the_schema_agrees_with_the_parser_on_sizes(tmp_path) -> None:
+    assert not _schema_errors(_with_sizes(query={"size": "small"}, storage={"size": "small"}), tmp_path)
+    for rejected in (
+        _with_sizes(query={"size": "medium"}),
+        _with_sizes(storage={"size": "large"}),
+        _with_sizes(query={"size": "small", "workers": 4}),
+        _with_sizes(_AWS, storage={"size": "small"}),
+    ):
+        assert _schema_errors(rejected, tmp_path)

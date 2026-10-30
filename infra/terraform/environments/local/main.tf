@@ -278,6 +278,7 @@ module "perimeter" {
   issuer_url        = local.identity_oidc.issuer_url
   client_id         = local.identity_oidc.clients.perimeter.client_id
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
+  cli_client_id     = local.identity_oidc.clients["olf-cli"].client_id
   protected_refs    = local.perimeter_protected_refs
   scope             = local.identity_scope
 
@@ -318,6 +319,7 @@ module "dex" {
   # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
   ca_configmap_name   = "olf-local-ca"
   clients             = local.identity_client_redirects
+  public_clients      = local.identity_public_clients
   postgresql_contract = module.postgresql.contract
 
   depends_on = [

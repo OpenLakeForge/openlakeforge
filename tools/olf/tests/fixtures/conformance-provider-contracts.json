@@ -102,6 +102,9 @@
             "name": "dex-client-openmetadata"
           }
         },
+        "olf-cli": {
+          "client_id": "olf-cli"
+        },
         "perimeter": {
           "client_id": "perimeter",
           "secret_ref": {

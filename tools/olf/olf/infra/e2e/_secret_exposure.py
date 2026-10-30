@@ -146,7 +146,8 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
     def read(name: str, key: str) -> str:
         return _read_secret(cfg, namespace, name, key)
 
-    clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity.get("clients", {}).values()]
+    specs = [spec for spec in identity.get("clients", {}).values() if "secret_ref" in spec]
+    clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in specs]
     # An external issuer's client Secrets are operator-provided, so they may be absent or short; without an
     # issuer the Trino credentials are still deployed and scanned.
     found: dict[str, str] = {}

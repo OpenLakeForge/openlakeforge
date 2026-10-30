@@ -369,3 +369,44 @@ def test_e2e_run_rejects_a_stage_the_profile_file_does_not_enable(tmp_path: Path
 
     assert result.exit_code == 1
     assert "stage 'prod' is not enabled" in result.output
+
+
+def test_e2e_stage_buckets_prints_sorted_json_the_nightly_diffs(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple] = []
+
+    def _listing(contracts, stage, layers, *, namespace):  # noqa: ANN001
+        seen.append((contracts, stage, layers, namespace))
+        return {"b/z": '"2"', "a/y": '"1"'}
+
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: {"version": 3})
+    monkeypatch.setattr("olf.infra.e2e._isolation.stage_bucket_objects", _listing)
+
+    result = runner.invoke(app, ["e2e", "stage-buckets", "--stage", "prod"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == '{\n "a/y": "\\"1\\"",\n "b/z": "\\"2\\""\n}\n'
+    assert seen == [({"version": 3}, "prod", ("bronze", "silver", "gold"), "olf-system")]
+
+
+def test_e2e_stage_buckets_fails_before_the_stack_is_deployed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
+
+    result = runner.invoke(app, ["e2e", "stage-buckets", "--stage", "prod"])
+
+    assert result.exit_code == 1
+    assert "deploy the stack first" in result.output
+
+
+def test_e2e_stage_buckets_reports_a_listing_failure_as_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf.infra.e2e import E2EError
+
+    def _broken(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise E2EError("seaweedfs-s3-creds not found")
+
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: {"version": 3})
+    monkeypatch.setattr("olf.infra.e2e._isolation.stage_bucket_objects", _broken)
+
+    result = runner.invoke(app, ["e2e", "stage-buckets", "--stage", "prod"])
+
+    assert result.exit_code == 1
+    assert "seaweedfs-s3-creds not found" in result.output

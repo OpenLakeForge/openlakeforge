@@ -16,12 +16,15 @@ output "contract" {
     issuer_url   = local.issuer
     role_claim   = "groups"
     role_mapping = local.role_mapping
-    clients = {
-      for name in keys(var.clients) : name => {
-        client_id  = name
-        secret_ref = { name = local.client_secret_name[name], key = "client-secret" }
-      }
-    }
+    clients = merge(
+      {
+        for name in keys(var.clients) : name => {
+          client_id  = name
+          secret_ref = { name = local.client_secret_name[name], key = "client-secret" }
+        }
+      },
+      { for name in var.public_clients : name => { client_id = name } },
+    )
     adapter = "dex"
     # Dex has no end-session endpoint and sends no mail (ADR 0014).
     capabilities = { email_delivery = false, groups_in_token = true, logout_endpoint = false }

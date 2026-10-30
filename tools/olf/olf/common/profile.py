@@ -39,7 +39,8 @@ _IDENTIFIER_PATTERN = re.compile(_IDENTIFIER_PATTERN_SOURCE)
 
 _ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
 _METADATA_FIELDS = {"name"}
-_SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project"}
+_SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project", "query", "storage"}
+_SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "issuer"}
 _IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "github"}
@@ -98,6 +99,18 @@ class Provider(StrEnum):
     LOCAL = "local"
     AWS = "aws"
     AZURE = "azure"
+
+
+class Size(StrEnum):
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+
+
+# Sizes with a tested backend. A tier outside this set is rejected rather than accepted as a no-op (ADR 0011);
+# growing it is the change that implements the tier. The value names the issue that will do so.
+_IMPLEMENTED_SIZES = {"query": (Size.SMALL,), "storage": (Size.SMALL,)}
+_SIZE_TRACKER = {"query": "#324 (Trino workers)", "storage": "#326 (SeaweedFS volumes)"}
 
 
 @dataclass(frozen=True)
@@ -229,6 +242,8 @@ class DeploymentProfile:
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
     project: ProjectSpec | None = None
+    query_size: Size = Size.SMALL
+    storage_size: Size = Size.SMALL
 
     def stage(self, name: StageName) -> StageSpec | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -266,6 +281,8 @@ class DeploymentTopology:
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
     project: ProjectSpec | None = None
+    query_size: Size = Size.SMALL
+    storage_size: Size = Size.SMALL
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -283,6 +300,8 @@ class DeploymentTopology:
                 "stage_services": list(self.stage_services),
                 "access": None if self.access is None else vars(self.access),
                 "identity": None if self.identity is None else vars(self.identity),
+                "query": {"size": self.query_size.value},
+                "storage": {"size": self.storage_size.value},
             },
             sort_keys=True,
             default=_json_default,
@@ -361,6 +380,27 @@ def _validate_provider(document: object, *, source: str) -> ProviderSpec:
             f"{source}: spec.provider.region must not be set when spec.provider.type is 'local'"
         )
     return ProviderSpec(type=provider, region=region)
+
+
+def _validate_size(spec: Mapping[str, Any], block: str, *, source: str) -> Size:
+    """`spec.query.size` / `spec.storage.size`: optional, `small` by default, and only tiers with a tested backend."""
+    if block not in spec:
+        return Size.SMALL
+    document = spec[block]
+    where = f"{source}: spec.{block}"
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{where} must be an object")
+    _forbid_unexpected(document, _SIZE_BLOCK_FIELDS, where=where)
+    try:
+        size = Size(document.get("size", Size.SMALL))
+    except ValueError as exc:
+        raise DeploymentProfileError(f"{where}.size must be one of {[member.value for member in Size]!r}") from exc
+    if size not in _IMPLEMENTED_SIZES[block]:
+        raise DeploymentProfileError(
+            f"{where}.size {size.value!r} has no implementation yet and is not silently accepted: "
+            f"use {[member.value for member in _IMPLEMENTED_SIZES[block]]!r} until {_SIZE_TRACKER[block]} lands"
+        )
+    return size
 
 
 def _validate_access(document: object, *, source: str, provider: Provider) -> AccessSpec:
@@ -567,7 +607,7 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
     if "client_ids" in document:
         if issuer != "external":
             raise DeploymentProfileError(f"{where}.client_ids requires issuer 'external'")
-        consumers = {"perimeter", "superset", "openmetadata", "trino"}
+        consumers = {"perimeter", "superset", "openmetadata", "trino", "olf-cli"}
         if not isinstance(client_ids, Mapping) or not client_ids or set(client_ids) - consumers:
             raise DeploymentProfileError(f"{where}.client_ids must be a non-empty object keyed by {sorted(consumers)}")
         if not all(isinstance(v, str) and v for v in client_ids.values()):
@@ -678,8 +718,21 @@ def validate_deployment_profile(
             f"{source}: a profile without spec.identity (authentication off) publishes nothing beyond this machine: "
             "use no spec.access, or on provider 'local' a base_domain ending in '.localhost'"
         )
+    if provider.type == Provider.AWS and "storage" in spec:
+        raise DeploymentProfileError(
+            f"{source}: spec.storage is not available on provider 'aws': object storage is managed S3 there, "
+            "so there is no self-hosted volume to size; remove spec.storage"
+        )
     return DeploymentProfile(
-        name=name, provider=provider, preset=preset, stages=stages, access=access, identity=identity, project=project
+        name=name,
+        provider=provider,
+        preset=preset,
+        stages=stages,
+        access=access,
+        identity=identity,
+        project=project,
+        query_size=_validate_size(spec, "query", source=source),
+        storage_size=_validate_size(spec, "storage", source=source),
     )
 
 
@@ -724,6 +777,8 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         access=profile.access,
         identity=profile.identity,
         project=profile.project,
+        query_size=profile.query_size,
+        storage_size=profile.storage_size,
     )
 
 

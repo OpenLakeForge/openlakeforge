@@ -10,18 +10,26 @@ documentation for those classes (#178); the path-by-path inventory is in
 | Class | Who | Governed by | Never |
 | --- | --- | --- | --- |
 | 1. Human | A person reaching a service UI through the issuer: a GitHub account, or a user of an external OIDC issuer | Canonical roles from the GitHub team mapping, or from the external issuer's claim mapping (`role_claim`, `role_mapping`), enforced at the perimeter ([ADR 0014](../../adr/0014-identity-and-authorization.md), [ADR 0018](../../adr/0018-github-is-the-forge.md)) | Used by a deploy, a pipeline or any other automated path (the e2e perimeter test below is the one exception) |
-| 2. In-cluster workload and automation | A pod calling another component, or `olf` and CI calling the cluster | A service credential from a Kubernetes Secret, or Kubernetes RBAC | A human account; routed through the perimeter; a member of a canonical role |
+| 2. In-cluster workload and automation | A pod calling another component, or `olf infra` commands and CI calling the cluster | A service credential from a Kubernetes Secret, or Kubernetes RBAC | A human account; routed through the perimeter; a member of a canonical role |
 | 3. Cloud workload | A pod calling a cloud API (object storage, catalog, secrets) | Cloud IAM through EKS Pod Identity or Azure workload identity | A canonical role |
 
 ## The classification rule
 
-A caller that reaches a service **through the issuer** is class 1. A caller
-that authenticates with a service credential or with Kubernetes RBAC is class
-2, whether it runs in a pod or on a workstation, and even when a person
-started it. `olf` and CI are therefore class 2, with Kubernetes RBAC as their
-identity.
+The class belongs to the operation, not to the `olf` executable. A caller that
+reaches a service **through the issuer** is class 1. A caller that
+authenticates with a service credential or with Kubernetes RBAC is class 2,
+whether it runs in a pod or on a workstation, and even when a person started
+it. A command that needs neither has no identity.
 
-The consequence is that the four canonical roles apply to class 1 only. A
+For `olf` that gives three surfaces ([ADR 0020](../../adr/0020-infrastructure-common-and-platform-cli-surfaces.md)):
+
+| Surface | Commands | Class |
+| --- | --- | --- |
+| Infra | Everything under `olf infra` (`deploy`, `plan`, `query`, `project deploy`, ...), and CI running them | 2, with Kubernetes RBAC or cloud IAM as the identity |
+| Common | `olf init`, `check`, `profile`, `project validate` and the other commands that need no permissions | None |
+| Platform | Planned: `olf login`, `whoami`, `domain list` through a Dex session | 1, not built |
+
+The four canonical roles apply to class 1 only. A
 role never grants a pod anything, and a service credential never signs a person
 in.
 
@@ -35,13 +43,14 @@ in.
 | Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration: users pass the perimeter and then need each service's own login |
 | Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; with Dex, a revocation reaches the perimeter within about 5 min. With an external issuer, a removed role can last up to the issuer's 10 h SSO lifetime when its refresh responses carry no ID token with the role claim ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
+| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. No `olf` command uses it yet, so `olf` stays class 2 (#536) |
 
 ## Class 2: in-cluster workload and automation
 
 | Item | Detail |
 | --- | --- |
 | Identity | A ServiceAccount or kubeconfig user, or a service credential created in the cluster |
-| Examples | `olf deploy`, `olf e2e` and CI (RBAC, port-forward or in-cluster exec); Superset, dbt and OpenMetadata ingestion to Trino; Trino and Floe to Polaris; pods to PostgreSQL and object storage |
+| Examples | `olf infra deploy`, `olf infra e2e` and CI (RBAC, port-forward or in-cluster exec); Superset, dbt and OpenMetadata ingestion to Trino; Trino and Floe to Polaris; pods to PostgreSQL and object storage |
 | Authorization | Kubernetes RBAC for operators and CI. For pods, a per-service credential from a Secret that a bootstrap Job generates once and reuses |
 | Network | Reachability between pods is decided by default-deny NetworkPolicy ([identity-network-policy-and-rbac.md](identity-network-policy-and-rbac.md)) |
 | Trino | Callers authenticate to Trino with a password per principal over HTTPS when `trino_workload_authentication` is `password`. The local root defaults to `password` when the profile has `spec.access`, and to `off` otherwise ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) |

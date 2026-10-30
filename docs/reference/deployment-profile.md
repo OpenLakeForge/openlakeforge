@@ -82,6 +82,8 @@ spec:
 | `access` | object | no | absent: no ingress | How user-facing services are published. |
 | `identity` | object | no | absent: sign-in off | Who may sign in and which roles they hold. |
 | `project` | object | no | absent: the public example image | Your project's source repository and image registry. |
+| `query` | object | no | `size: small` | Size of the shared Trino. |
+| `storage` | object | no | `size: small` | Size of self-hosted object storage (SeaweedFS). Rejected on `aws`. |
 
 ### `spec.provider`
 
@@ -99,6 +101,27 @@ spec:
 
 The preset is the default for each stage's `capabilities` (below); a stage that
 states its capabilities keeps its own values.
+
+### `spec.query` and `spec.storage`
+
+Each takes one optional field, `size`, which defaults to `small`. There is one
+size for the whole platform, not one per stage: a single Trino serves every
+stage.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `spec.query.size` | `small` | `small` | The shared Trino. `small` is coordinator only, no workers. |
+| `spec.storage.size` | `small` | `small` | The SeaweedFS object storage. Not valid on `aws`. |
+
+`medium` and `large` are reserved names, not usable values. They fail
+validation with a message naming the issue that will implement them (#324 for
+Trino, #326 for storage volumes), so a profile never asks for capacity the
+deployment does not provide. Any other value, and any CPU, memory, worker or
+volume field, is rejected as an unknown value or field. A profile that omits
+both fields deploys exactly as it did before they existed, and
+`olf profile resolve` prints the effective sizes (`sizes: query=small
+storage=small`; `query` and `storage` in `--json`). Nothing deploys differently
+by size yet.
 
 ### `spec.stages`
 
@@ -278,10 +301,11 @@ role, and one claim value may not map to two roles.
 
 #### `spec.identity.client_ids` (`external` only)
 
-An object with at least one key from `perimeter`, `superset`, `openmetadata` and
-`trino`; each value is a non-empty string. A consumer left out uses its own name
-as the client id. `external` deploys no issuer: you provide the four client
-Secrets the contract names, as described in ADR 0014.
+An object with at least one key from `perimeter`, `superset`, `openmetadata`,
+`trino` and `olf-cli`; each value is a non-empty string. A consumer left out
+uses its own name as the client id. `external` deploys no issuer: you provide
+the four client Secrets the contract names, as described in ADR 0014. `olf-cli`
+is a public client and has no Secret.
 
 ---
 
@@ -291,6 +315,7 @@ Secrets the contract names, as described in ADR 0014.
 | --- | --- |
 | At least one stage runs | Every stage is disabled. |
 | DEV gates the others | `uat` or `prod` is enabled while `dev` is disabled or absent: every promotion sources from DEV. |
+| Storage size is not for managed storage | `spec.storage` is set with `type: aws`: S3 is managed, so there is no volume to size. |
 | Region is cloud-only | `spec.provider.region` is set with `type: local`. |
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
 | Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf forward`. |

@@ -121,7 +121,7 @@ row's newest version.
 
 A run is incremental unless it carries the run tag
 `openlakeforge/full_refresh`. Set the tag in the Dagster launchpad, or run
-`olf product run <product> --full-refresh <scope>`:
+`olf infra product run <product> --full-refresh <scope>`:
 
 | Scope | Bronze | Silver | Gold |
 | --- | --- | --- | --- |

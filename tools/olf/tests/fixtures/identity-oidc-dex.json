@@ -15,7 +15,8 @@
       "client_id": "openmetadata",
       "secret_ref": {"name": "dex-client-openmetadata", "key": "client-secret"}
     },
-    "trino": {"client_id": "trino", "secret_ref": {"name": "dex-client-trino", "key": "client-secret"}}
+    "trino": {"client_id": "trino", "secret_ref": {"name": "dex-client-trino", "key": "client-secret"}},
+    "olf-cli": {"client_id": "olf-cli"}
   },
   "adapter": "dex",
   "capabilities": {"email_delivery": false, "groups_in_token": true, "logout_endpoint": false}

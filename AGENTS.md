@@ -268,7 +268,7 @@ merge through a **merge queue**: "Merge when ready" adds a pull request to it,
 and the queue re-runs the required checks on the pull request merged with
 `main` and everything queued ahead of it, then squash-merges. A pull request
 therefore no longer needs updating from `main` by hand; `checks.yml` runs on
-`merge_group` for that reason.
+`merge_group` for that reason, `Deploy slim kind smoke` included.
 
 | Required to merge | Not required |
 | --- | --- |

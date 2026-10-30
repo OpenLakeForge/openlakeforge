@@ -1526,7 +1526,7 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     # Conformance: every issuer satisfies the same consumer-facing surface.
     identity = parsed.shared.values["identity"]
     assert {"issuer_url", "role_claim", "role_mapping", "clients"} <= set(identity)
-    assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "trino"}
+    assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "trino", "olf-cli"}
     assert identity["role_claim"] == json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text())["role_claim"]
     assert _hcl.secret_value_fields(contract) == []
     jsonschema.validate(contract, SCHEMA)
@@ -1569,6 +1569,12 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
     with pytest.raises(ProviderContractError, match="client_id must match"):
         parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": {**ids, "trino": "stale"}}))
 
+    with pytest.raises(ProviderContractError, match="olf-cli.client_id must match"):
+        parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": {**ids, "olf-cli": "stale"}}))
+    without_cli = {n: v for n, v in ids.items() if n != "olf-cli"}
+    with pytest.raises(ProviderContractError, match="olf-cli.client_id must match"):
+        parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": without_cli}))
+
     local = _fixture("local-provider-contracts-v3.json")
     with pytest.raises(ProviderContractError, match="external spec.identity"):
         parse_provider_contracts(local, _topology(local, external))
@@ -1587,6 +1593,9 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
         ),
         (lambda i: i.__setitem__("issuer_url", "https://idp.example/[realm]"), "outside the host"),
         (lambda i: i["clients"].pop("trino"), "missing required fields"),
+        (lambda i: i["clients"].pop("olf-cli"), "missing required fields"),
+        (lambda i: i["clients"]["olf-cli"].__setitem__("secret_ref", {"name": "s", "key": "k"}), "unsupported fields"),
+        (lambda i: i["clients"].__setitem__("cli", {"client_id": "cli"}), "unsupported fields"),
         (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
         (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
         (lambda i: i["clients"]["trino"]["secret_ref"].pop("key"), "missing required fields"),

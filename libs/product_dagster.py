@@ -79,8 +79,8 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
     # A source with an incremental resource has a loader that takes
     # `full_refresh` (libs.bronze_dlt.load_dlt_source); a full-only source
     # reloads everything on every run, so its loader has nothing to refresh.
-    declared = next(source for source in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if source.name == spec.source)
-    incremental = any(resource.load.incremental for resource in declared.resources)
+    declared = next((s for s in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if s.name == spec.source), None)
+    incremental = declared is not None and any(resource.load.incremental for resource in declared.resources)
 
     @multi_asset(
         name=f"{spec.source}_bronze_resources",

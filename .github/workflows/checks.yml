@@ -166,7 +166,10 @@ jobs:
 
   kind-smoke:
     name: Deploy slim kind smoke
-    if: github.event_name == 'pull_request'
+    # Both events, not the merge queue alone: a required check that never
+    # reports on the pull request keeps it from being enqueued. Not `push`:
+    # the queue already ran it on the commit that lands on main.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     # The smoke command has its own 45-minute deployment deadline. Reserve
     # another 15 minutes for runner setup and failure diagnostics/uploads.
