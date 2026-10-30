@@ -109,7 +109,7 @@ class Size(StrEnum):
 
 # Sizes with a tested backend. A tier outside this set is rejected rather than accepted as a no-op (ADR 0011);
 # growing it is the change that implements the tier. The value names the issue that will do so.
-_IMPLEMENTED_SIZES = {"query": (Size.SMALL,), "storage": (Size.SMALL,)}
+_IMPLEMENTED_SIZES = {"query": (Size.SMALL,), "storage": (Size.SMALL, Size.MEDIUM, Size.LARGE)}
 _SIZE_TRACKER = {"query": "#324 (Trino workers)", "storage": "#326 (SeaweedFS volumes)"}
 
 

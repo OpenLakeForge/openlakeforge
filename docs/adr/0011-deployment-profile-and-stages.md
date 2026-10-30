@@ -38,7 +38,7 @@ Neither record gave the four concepts distinct types. This ADR does.
 | Provider | `local`, `aws`, `azure` | `spec.provider.type` |
 | Stage | `dev`, `uat` (optional), `prod` | `spec.stages.<name>` |
 | Preset | `slim`, `full` | `spec.preset` |
-| Sizing | `small` (`medium`, `large` are named but rejected) | `spec.query.size`, `spec.storage.size` |
+| Sizing | `query`: `small` (`medium`, `large` named but rejected); `storage`: `small`, `medium`, `large` | `spec.query.size`, `spec.storage.size` |
 | Runtime | not exposed — Trino only | not a v1 field |
 
 A provider is not a stage. A stage is not a Kubernetes cluster — v0.3 runs
@@ -99,11 +99,12 @@ volume quantities, and there is no per-stage size, because one Trino serves
 every stage. Both default to `small`, which is today's footprint, so a profile
 without the fields resolves and renders exactly as before.
 
-Only tiers with a tested backend are accepted. `medium` and `large` are part of
-the vocabulary but fail validation, naming the issue that will implement them
-(#324 for Trino workers, #326 for SeaweedFS volumes), rather than being
-accepted as a promise nothing keeps. Growing the set is the change that
-implements and tests the tier; existing profiles stay valid. `storage` is also
+Only tiers with a tested backend are accepted. For `query`, `medium` and
+`large` are part of the vocabulary but fail validation, naming the issue that
+will implement them (#324, Trino workers), rather than being accepted as a
+promise nothing keeps. `storage` accepts all three (#326). Growing the set is
+the change that implements and tests the tier; existing profiles stay valid.
+`storage` is also
 rejected on `aws`, whose object storage is managed S3 with no volume to size;
 it applies on `local` and `azure`, where SeaweedFS is self-hosted.
 
@@ -112,12 +113,20 @@ The resolved sizes are carried on `DeploymentTopology` (`query_size`,
 the local and Azure roots as the `storage_size` Terraform variable, which
 selects a row of `release/storage-sizes.yaml`: the one provider-neutral table,
 read by the SeaweedFS module for the PVC sizes and the volume server's slot
-count. `small` is the sizing the module carried before the profile could
-choose, so a profile without the field renders the same Helm values. The
-table also holds `medium` and `large` rows, provisional until #329, which the
-profile does not accept until `olf` refuses to shrink a volume or to grow one
-whose StorageClass cannot expand (#326). Nothing reads `query_size` yet (#324);
-the capacity preflight is #327.
+count, and by `olf` for the expansion rule. `small` is the sizing the module
+carried before the profile could choose, so a profile without the field renders
+the same Helm values. `medium` and `large` are provisional until #329 measures
+them. Nothing reads `query_size` yet (#324); the capacity preflight is #327.
+
+A volume only grows. Before the platform apply, `olf` reads the SeaweedFS
+claims in the shared namespace and refuses, before any mutation, a size below a
+claim's current request, and a larger size when the claim's StorageClass does
+not set `allowVolumeExpansion: true`. It never deletes and recreates a volume.
+Where it does expand, it patches the claims and deletes the SeaweedFS
+StatefulSets with `--cascade=orphan`, because Kubernetes forbids editing their
+volume claim templates. kind's default `standard` class does not expand, so the
+local profile is sized at creation; the migration is documented in the
+Deployment Profile reference.
 
 ### `spec.project`: the customer's source and image registry
 
@@ -243,6 +252,6 @@ until a tested backend lands (#324, #326) and `storage` is rejected on `aws`.
 The "sizing" exclusion is narrowed to raw resource values; the contract slice
 changes no rendered Terraform or Helm input.
 
-2026-10-30: `storage_size` drives the SeaweedFS volume sizes through
-`release/storage-sizes.yaml` (#326). `small` renders the Helm values it did
-before; `medium` and `large` stay rejected until the grow-only rule lands.
+2026-10-30: `storage.size` accepts `medium` and `large` (#326) and sizes the
+SeaweedFS volumes from `release/storage-sizes.yaml`, with the grow-only rule
+enforced before the platform apply. `query.size` still accepts `small` only.

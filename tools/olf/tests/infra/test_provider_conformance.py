@@ -36,6 +36,7 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import shutil
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -346,6 +347,7 @@ def _guard_runner(
     applied_stages: str | None = None,
     legacy_namespace_exists: bool = False,
     labelled_namespaces: str = "",
+    claims: str = "",
 ) -> RecordingRunner:
     """A runner standing in for the cluster a platform apply queries on its way
     to the destructive-apply guards: a reachable kube context, cached charts,
@@ -358,6 +360,8 @@ def _guard_runner(
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
             if "stage_names" in argv:
                 return _ok(applied_stages if applied_stages is not None else "[]")
+            if "get" in argv and "pvc" in argv:
+                return _ok(claims)
             if argv[0] == "kubectl" and "get-contexts" in argv:
                 return _ok("kind-openlakeforge-local\n")
             if "get" in argv and "namespace" in argv and "lakehouse" in argv:
@@ -965,6 +969,25 @@ def test_a_platform_apply_proceeds_past_removal_under_the_explicit_opt_in(
     )
 
     _platform_apply(provider, adapter)
+
+
+# AWS stores objects in S3, so it has no SeaweedFS volume to size.
+@pytest.mark.parametrize("provider", [Provider.LOCAL, Provider.AZURE], ids=lambda provider: provider.value)
+def test_a_platform_apply_refuses_a_storage_size_below_the_volumes_it_finds(provider: Provider, tmp_path: Path) -> None:
+    """The profile says `small` (no `storage` block); the claims are a `large` deployment's. Driven through the
+    provider's platform apply so a provider that stops running the check fails here, before Terraform."""
+    (tmp_path / "release").mkdir()
+    shutil.copy(REPO_ROOT / "release/storage-sizes.yaml", tmp_path / "release/storage-sizes.yaml")
+    large = {"data-filer-seaweedfs-filer-0": "50Gi", "data1-seaweedfs-volume-0": "2Ti"}
+    items = [{"metadata": {"name": n}, "spec": {"resources": {"requests": {"storage": q}}}} for n, q in large.items()]
+    claims = json.dumps({"items": items})
+    runner = _guard_runner(claims=claims)
+    adapter = _apply_ready_adapter(provider, tmp_path, runner)
+
+    with pytest.raises(DeploymentPreconditionError, match="never shrinks"):
+        _platform_apply(provider, adapter)
+
+    assert not [call for call in runner.calls if "apply" in call.argv or "patch" in call.argv]
 
 
 @every_provider

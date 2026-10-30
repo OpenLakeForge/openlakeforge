@@ -111,36 +111,68 @@ stage.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `spec.query.size` | `small` | `small` | The shared Trino. `small` is coordinator only, no workers. |
-| `spec.storage.size` | `small` | `small` | The SeaweedFS object storage. Not valid on `aws`. |
+| `spec.storage.size` | `small`, `medium`, `large` | `small` | The SeaweedFS object storage volumes. Not valid on `aws`. |
 
-`medium` and `large` are reserved names, not usable values. They fail
-validation with a message naming the issue that will implement them (#324 for
-Trino, #326 for storage volumes), so a profile never asks for capacity the
-deployment does not provide. Any other value, and any CPU, memory, worker or
-volume field, is rejected as an unknown value or field. A profile that omits
-both fields deploys exactly as it did before they existed, and
-`olf profile resolve` prints the effective sizes (`sizes: query=small
+`query.size` accepts only `small`: `medium` and `large` fail validation with a
+message naming the issue that will implement them (#324), so a profile never
+asks for capacity the deployment does not provide. Any other value, and any
+CPU, memory, worker or volume field, is rejected as an unknown value or field.
+A profile that omits both fields deploys exactly as it did before they existed,
+and `olf profile resolve` prints the effective sizes (`sizes: query=small
 storage=small`; `query` and `storage` in `--json`).
 
 `storage.size` picks one row of `release/storage-sizes.yaml`, which sets the
 PVC size of the SeaweedFS master, filer and volume server and the number of
-volume slots on the volume server. The Terraform SeaweedFS module renders the
-chosen row over `infra/helm/values/local/seaweedfs.yaml`; `small` is the sizing
-that file carried before the profile could choose. The file already holds
-`medium` and `large` rows, provisional until the #329 report calibrates them,
-but the profile does not accept them until `olf` enforces that a volume only
-grows (#326).
+volume slots on the volume server. The Terraform SeaweedFS module and `olf`
+read that one file. The `medium` and `large` rows are provisional starting
+values taken from the rough ranges below; the #329 report will calibrate them,
+and nothing here has measured how much data a host or cluster needs for them.
 
-What each size means on the local profile:
+| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server | Master / filer metadata | Aimed at (provisional) | Available |
+| --- | --- | --- | --- | --- | --- |
+| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi, 80 slots | 1Gi / 5Gi | Tens of GB: laptop, evaluation | Yes |
+| `medium` | Not defined | 300Gi, 380 slots | 2Gi / 20Gi | A few hundred GB: one team, one or two domains | Storage only; Trino: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324) |
+| `large` | Not defined | 2Ti, 2128 slots | 5Gi / 50Gi | 1-5 TB: several domains of about 100 tables each | Storage only; Trino: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324) |
 
-| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server (`release/storage-sizes.yaml`) | Available |
-| --- | --- | --- | --- |
-| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC, 80 slots; master 1Gi, filer 5Gi | Yes |
-| `medium` | Not defined | Row defined (300Gi), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
-| `large` | Not defined | Row defined (2Ti), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+#### Changing the storage size
 
-This page gives no data-volume or host-capacity guidance because none has been
-measured.
+A volume only grows. `olf deploy` compares `storage.size` with the
+PersistentVolumeClaims it finds before it changes anything:
+
+| Change | Result |
+| --- | --- |
+| Same size, or a first deployment | Nothing to do. |
+| Larger, and the claim's StorageClass sets `allowVolumeExpansion: true` | `olf` expands the claims, then applies. The data stays. |
+| Larger, and the StorageClass does not allow expansion | Refused before anything is applied. The message names the StorageClass. |
+| Smaller | Refused before anything is applied, whatever the StorageClass allows. |
+
+`olf` never deletes and recreates a volume to apply a size. Kubernetes does not
+let a StatefulSet's volume claim template change, which is where the SeaweedFS
+chart writes the size, so when it expands claims `olf` also deletes the three
+SeaweedFS StatefulSets with `--cascade=orphan` (the controller objects only;
+pods and volumes are left alone) and the apply recreates them.
+
+On the local profile the kind cluster's default StorageClass, `standard`, is
+the `rancher.io/local-path` provisioner. kind v0.32.0 installs it from
+`pkg/build/nodeimage/const_storage.go` without `allowVolumeExpansion`, which
+defaults to false, so a deployment on kind can start at any size but cannot
+grow or shrink afterwards. Check what your cluster allows:
+
+```bash
+kubectl get storageclass -o custom-columns=NAME:.metadata.name,EXPANDABLE:.allowVolumeExpansion
+```
+
+To change the size where expansion is refused, start a deployment at the size
+you want and move the data over. On the local profile that means rebuilding the
+cluster, which deletes all Bronze, Silver and Gold data and the run history:
+
+1. Set `spec.storage.size` in `openlakeforge.yaml`.
+2. Run `olf destroy --provider local`.
+3. Run `olf deploy --provider local`.
+4. Re-run your pipelines to rebuild the tables from their sources.
+
+There is no supported backup or restore of SeaweedFS data yet (#531). If the
+tables cannot be rebuilt from their sources, do not change the size.
 
 ### `spec.stages`
 
