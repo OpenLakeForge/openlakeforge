@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from olf.tooling.aws import AwsSdk
+from olf.infra.tooling.aws import AwsSdk
 
 
 class _Credentials:
@@ -107,7 +107,7 @@ def test_eks_token_refresh_survives_a_transient_failure(tmp_path: Path, monkeypa
     """
     import time
 
-    from olf.tooling import aws as aws_module
+    from olf.infra.tooling import aws as aws_module
 
     attempts: list[str] = []
 

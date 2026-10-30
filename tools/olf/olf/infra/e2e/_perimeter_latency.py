@@ -16,11 +16,18 @@ from typing import Any
 
 import requests
 
-from olf import access, config, log, superset
-from olf.contracts import CONTRACT_STAGE_ENV
-from olf.e2e._identity_github import REQUEST_TIMEOUT, dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
-from olf.e2e._perimeter import PORTAL_REF
-from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.common import config, log
+from olf.infra import access, superset
+from olf.infra.contracts import CONTRACT_STAGE_ENV
+from olf.infra.e2e._identity_github import (
+    REQUEST_TIMEOUT,
+    dex_points_at_stub,
+    github_stub,
+    sign_in_with_stub,
+    stub_host,
+)
+from olf.infra.e2e._perimeter import PORTAL_REF
+from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 
 WARMUP = 3
 SAMPLES = 20

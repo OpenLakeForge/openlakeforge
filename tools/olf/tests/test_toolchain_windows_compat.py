@@ -1,4 +1,4 @@
-"""`olf.toolchain.manager`/`download` must import cleanly on a platform
+"""`olf.common.toolchain.manager`/`download` must import cleanly on a platform
 without `fcntl` (POSIX-only, e.g. Windows), so `Platform.detect()` gets the
 chance to raise its own actionable `UnsupportedPlatformError` instead of a
 raw `ModuleNotFoundError` interrupting the import before that check ever
@@ -13,10 +13,10 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize("module_name", ["olf.toolchain.manager", "olf.toolchain.download"])
+@pytest.mark.parametrize("module_name", ["olf.common.toolchain.manager", "olf.common.toolchain.download"])
 def test_module_imports_without_fcntl_available(monkeypatch: pytest.MonkeyPatch, module_name: str) -> None:
     monkeypatch.setitem(sys.modules, "fcntl", None)
-    for name in ("olf.toolchain.manager", "olf.toolchain.download"):
+    for name in ("olf.common.toolchain.manager", "olf.common.toolchain.download"):
         sys.modules.pop(name, None)
 
     try:

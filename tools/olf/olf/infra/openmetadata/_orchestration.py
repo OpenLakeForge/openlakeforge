@@ -3,7 +3,7 @@
 `OpenMetadataDeployer` builds the asset specs a deploy needs (from domain
 descriptors and the provider-contract schema FQNs) and sequences the phases
 `deploy()` runs in. The REST upsert/resolve primitives it calls are
-implemented by `OpenMetadataReconciler` (`olf.openmetadata._reconciliation`);
+implemented by `OpenMetadataReconciler` (`olf.infra.openmetadata._reconciliation`);
 `OpenMetadataDeployer` exposes the same method names as thin delegators so
 existing callers and tests keep patching the deployer instance directly.
 """
@@ -20,10 +20,10 @@ from openlakeforge_domain import (
     load_source_descriptor,
 )
 
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
-from olf.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
-from olf.openmetadata._payloads import domain_payload, product_contract_key, product_entries, product_payload
-from olf.openmetadata._reconciliation import OpenMetadataReconciler
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from olf.infra.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
+from olf.infra.openmetadata._payloads import domain_payload, product_contract_key, product_entries, product_payload
+from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
 
 
 class OpenMetadataDeployer:

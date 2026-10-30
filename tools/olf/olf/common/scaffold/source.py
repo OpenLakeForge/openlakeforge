@@ -6,9 +6,9 @@ from pathlib import Path
 
 from openlakeforge_domain import load_transitional_lakehouse_inventory
 
-from olf.scaffold import _templates
-from olf.scaffold._csv import placeholder_example_csv
-from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case
+from olf.common.scaffold import _templates
+from olf.common.scaffold._csv import placeholder_example_csv
+from olf.common.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case
 
 
 def plan_source_new(

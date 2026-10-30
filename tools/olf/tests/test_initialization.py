@@ -10,13 +10,13 @@ import yaml
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.distribution import RuntimeLayout
-from olf.initialization import InitializationError, ProjectInitializer, default_profile_name
-from olf.profile import Preset, StageName, validate_deployment_profile
-from olf.scaffold._commit import commit_plan
-from olf.scaffold._shared import ScaffoldError
-from olf.scaffold.product import plan_product_new
-from olf.scaffold.source import plan_source_new
+from olf.common.distribution import RuntimeLayout
+from olf.common.initialization import InitializationError, ProjectInitializer, default_profile_name
+from olf.common.profile import Preset, StageName, validate_deployment_profile
+from olf.common.scaffold._commit import commit_plan
+from olf.common.scaffold._shared import ScaffoldError
+from olf.common.scaffold.product import plan_product_new
+from olf.common.scaffold.source import plan_source_new
 
 runner = CliRunner()
 
@@ -223,7 +223,7 @@ def test_default_profile_name_is_a_valid_label(directory: str, expected: str) ->
 def test_init_leaves_no_project_when_docker_is_unreachable(tmp_path: Path) -> None:
     layout = _layout(tmp_path)
     manager = _Manager()
-    from olf.deployment.errors import CommandExecutionError
+    from olf.common.deployment.errors import CommandExecutionError
 
     docker = SimpleNamespace(
         resolve_current_engine_endpoint=lambda **_kwargs: None,
@@ -249,7 +249,7 @@ def test_cli_init_renders_the_follow_up_command(monkeypatch: pytest.MonkeyPatch,
         next_command="olf platform apply -f openlakeforge.yaml",
         profile_only=False,
     )
-    monkeypatch.setattr("olf.commands.init.initialize_project", lambda **_kwargs: result)
+    monkeypatch.setattr("olf.common.commands.init.initialize_project", lambda **_kwargs: result)
 
     invocation = runner.invoke(app, ["init"])
 
@@ -258,7 +258,7 @@ def test_cli_init_renders_the_follow_up_command(monkeypatch: pytest.MonkeyPatch,
 
 
 def test_init_rejects_a_corrupt_distribution_before_touching_the_project(tmp_path: Path) -> None:
-    from olf.distribution import DistributionError
+    from olf.common.distribution import DistributionError
 
     project = tmp_path / "project"
     project.mkdir()
@@ -277,7 +277,7 @@ def test_init_rejects_a_corrupt_distribution_before_touching_the_project(tmp_pat
 
 
 def test_host_toolchain_mode_resolves_every_managed_tool_without_provisioning(tmp_path: Path) -> None:
-    from olf.toolchain.spec import MANAGED_TOOLS
+    from olf.common.toolchain.spec import MANAGED_TOOLS
 
     layout = _layout(tmp_path)
     manager = _Manager()
@@ -312,7 +312,7 @@ def test_init_rejects_an_unknown_toolchain_mode(tmp_path: Path) -> None:
 
 
 def test_init_reports_toolchain_provisioning_failure_and_writes_nothing(tmp_path: Path) -> None:
-    from olf.deployment.errors import ToolchainError
+    from olf.common.deployment.errors import ToolchainError
 
     layout = _layout(tmp_path)
 
@@ -335,7 +335,7 @@ def test_init_reports_toolchain_provisioning_failure_and_writes_nothing(tmp_path
 
 
 def test_init_reports_a_missing_docker_cli(tmp_path: Path) -> None:
-    from olf.deployment.errors import ExecutableNotFoundError
+    from olf.common.deployment.errors import ExecutableNotFoundError
 
     layout = _layout(tmp_path)
     docker = SimpleNamespace(
@@ -397,7 +397,7 @@ def test_empty_init_writes_only_the_canonical_package_skeleton(tmp_path: Path) -
 
 
 def test_empty_init_is_not_deployable_until_it_has_a_product(tmp_path: Path) -> None:
-    from olf.deployment.inspection import project_not_runnable_reason
+    from olf.common.deployment.inspection import project_not_runnable_reason
 
     layout = _layout(tmp_path)
     result = _initializer(layout).initialize(empty=True)
@@ -411,7 +411,7 @@ def test_empty_init_is_not_deployable_until_it_has_a_product(tmp_path: Path) -> 
 def test_cli_init_empty_prints_the_scaffold_sequence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from olf.initialization import InitializationResult
+    from olf.common.initialization import InitializationResult
 
     captured: dict[str, bool] = {}
 
@@ -421,7 +421,7 @@ def test_cli_init_empty_prints_the_scaffold_sequence(
             project_root=tmp_path, lakehouse_root=tmp_path / "lakehouse_code", empty=empty
         )
 
-    monkeypatch.setattr("olf.commands.init.initialize_project", _fake)
+    monkeypatch.setattr("olf.common.commands.init.initialize_project", _fake)
 
     invocation = runner.invoke(app, ["init", "--empty"])
 
@@ -435,7 +435,7 @@ def test_cli_init_reports_a_failure_as_a_nonzero_exit(monkeypatch: pytest.Monkey
     def _fail(**_kwargs: object) -> None:
         raise InitializationError("refusing to overwrite existing project path: ./lakehouse_code")
 
-    monkeypatch.setattr("olf.commands.init.initialize_project", _fail)
+    monkeypatch.setattr("olf.common.commands.init.initialize_project", _fail)
 
     invocation = runner.invoke(app, ["init"])
 

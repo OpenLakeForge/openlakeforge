@@ -19,7 +19,7 @@ from typing import Any
 from botocore.auth import SigV4QueryAuth
 from botocore.awsrequest import AWSRequest
 
-from olf.tooling.process import CommandResult
+from olf.common.tooling.process import CommandResult
 
 # EKS honours the presigned token for ~15 minutes from its `X-Amz-Date`.
 # Refresh at a third of that so one failed attempt still has a successful
@@ -41,7 +41,7 @@ class AwsSdk:
             return self._session_override
         # OLF-managed SSO is resolved lazily to keep normal boto3 profiles and
         # workload identities completely conventional.
-        from olf.auth import aws_session
+        from olf.infra.auth import aws_session
 
         return aws_session(env or os.environ, region=region)
 

@@ -9,11 +9,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from olf.contract_validation import SUPPORTED_SCHEMA_VERSIONS, ProviderContractError
-from olf.tooling.terraform import external_state_options
+from olf.common.contract_validation import SUPPORTED_SCHEMA_VERSIONS, ProviderContractError
+from olf.common.tooling.terraform import external_state_options
 
 if TYPE_CHECKING:
-    from olf.tooling.resolver import ExecutableResolver
+    from olf.common.tooling.resolver import ExecutableResolver
 
 PROVIDER_CONTRACTS_FILE_ENV = "OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE"
 
@@ -97,8 +97,8 @@ def _terraform_provider_contracts(
     strict_state: bool = False,
     resolver: ExecutableResolver | None = None,
 ) -> dict[str, Any] | None:
-    from olf.deployment.errors import ExecutableNotFoundError
-    from olf.tooling.resolver import build_resolver
+    from olf.common.deployment.errors import ExecutableNotFoundError
+    from olf.common.tooling.resolver import build_resolver
 
     try:
         if resolver is None:
@@ -109,7 +109,7 @@ def _terraform_provider_contracts(
     # An installed distribution's state lives under OLF_HOME, not next to
     # terraform_dir - without this, `terraform output` reads the read-only
     # payload's default (absent) state and this always returns None, even
-    # after a successful `terraform apply` (see olf.tooling.terraform.
+    # after a successful `terraform apply` (see olf.common.tooling.terraform.
     # external_state_options, which Terraform._run also uses).
     base_environ = environ if environ is not None else os.environ
     overlay, state_path = external_state_options(Path(terraform_dir), base_environ, create=False)

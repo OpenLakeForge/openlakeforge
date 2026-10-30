@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.portforward import ForwardSpec, ForwardTarget, PortForwardSupervisor
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.infra.deployment.portforward import ForwardSpec, ForwardTarget, PortForwardSupervisor
 
 
 class _FakePopen:
@@ -123,7 +123,7 @@ def test_run_stops_all_children_when_the_wait_callable_raises(tmp_path: Path) ->
 def test_run_default_wait_raises_when_a_later_target_dies(tmp_path: Path) -> None:
     import pytest
 
-    from olf.deployment.errors import DeploymentPreconditionError
+    from olf.common.deployment.errors import DeploymentPreconditionError
 
     class _DiesAfterOnePoll(_FakePopen):
         """Simulates a healthy start followed by an early, unattended exit."""

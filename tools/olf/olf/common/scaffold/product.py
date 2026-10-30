@@ -12,9 +12,16 @@ from pathlib import Path
 
 from openlakeforge_domain import load_transitional_lakehouse_inventory
 
-from olf.scaffold import _templates
-from olf.scaffold import domain as domain_module
-from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
+from olf.common.scaffold import _templates
+from olf.common.scaffold import domain as domain_module
+from olf.common.scaffold._shared import (
+    ScaffoldError,
+    ScaffoldFile,
+    ScaffoldPlan,
+    require_identifier,
+    title_case,
+    yaml_dq,
+)
 
 
 def _parse_target(target: str) -> tuple[str, str]:

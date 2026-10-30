@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-from olf.auth import aws_process_credentials
+from olf.infra.auth import aws_process_credentials
 
 
 def main() -> None:

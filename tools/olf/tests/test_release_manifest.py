@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from olf.release import _manifest
+from olf.common.release import _manifest
 
 ROOT = Path(__file__).parents[3]
 

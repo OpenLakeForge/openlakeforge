@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from olf import smoke
+from olf.infra import smoke
 
 
 @pytest.fixture(autouse=True)
@@ -12,9 +12,12 @@ def _no_real_contract_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     """`applied_contract_environment` shells out to `terraform output`; every
     test here mocks the contracts module so no real subprocess runs (mirrors
     test_cli_e2e.py's `_no_real_contract_resolution`)."""
-    from olf import contracts as contracts_module
+    from olf.infra import contracts as contracts_module
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir, *, environ=None: None)
+    monkeypatch.setattr(
+        "olf.common.contract_state.load_provider_contracts",
+        lambda terraform_dir, *, environ=None: None,
+    )
     monkeypatch.setattr(
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )
@@ -94,7 +97,7 @@ def test_run_exports_the_provider_contract_environment_before_e2e(
     `olf e2e run` applies (e.g. OPENLAKEFORGE_QUERY_TRINO_CATALOG) - without
     them, Trino catalog lookups silently fall back to the stale "iceberg"
     default instead of this profile's actual stage catalog name."""
-    from olf import contracts as contracts_module
+    from olf.infra import contracts as contracts_module
 
     monkeypatch.setattr(
         contracts_module,

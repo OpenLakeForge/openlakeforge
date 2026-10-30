@@ -1,6 +1,6 @@
 """Polaris client for namespace reconciliation over the Iceberg REST API.
 
-See `olf.catalog` for why this exists and the provider-neutral planner it
+See `olf.infra.catalog` for why this exists and the provider-neutral planner it
 implements: `plan_namespace_sync` / `apply_namespace_sync` treat this client
 as a `NamespaceClient` and do not otherwise know they are talking to Polaris.
 The REST calls below are the ones the old Phase 1 bootstrap Job made with
@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from openlakeforge_domain import CatalogNamespace
 
-from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
+from olf.infra.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 
 LOCATION_PROPERTY = "location"
 TOKEN_REQUEST_ATTEMPTS = 60

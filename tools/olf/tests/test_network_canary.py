@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from olf.deployment.local.network_canary import PolicyNotEnforcedError, verdict
+from olf.infra.deployment.local.network_canary import PolicyNotEnforcedError, verdict
 
 
 class _Pair:

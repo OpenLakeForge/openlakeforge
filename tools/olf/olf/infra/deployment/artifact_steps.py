@@ -2,7 +2,7 @@
 
 Port of the shared portion of `scripts/{local,aws,azure}/stack/
 deploy-artifacts.sh`: catalog namespace reconciliation and optional
-Superset/OpenMetadata layer deployment, kept out of `olf.deployment.local`
+Superset/OpenMetadata layer deployment, kept out of `olf.common.deployment.local`
 so the AWS/Azure providers (#125) reuse it unmodified.
 """
 
@@ -13,8 +13,8 @@ from typing import Any
 
 import typer
 
-from olf import layers, log
-from olf.deployment.errors import DeploymentPreconditionError
+from olf.common import layers, log
+from olf.common.deployment.errors import DeploymentPreconditionError
 
 
 class ArtifactOperationError(DeploymentPreconditionError):
@@ -34,14 +34,14 @@ def sync_catalog_namespaces() -> None:
     # environment (see local/artifacts.py, cloud/artifacts.py) - resolving
     # a second one here would be redundant and could pick a different
     # provider/project selection than the one already active.
-    from olf.commands.catalog import sync_namespaces
+    from olf.infra.commands.catalog import sync_namespaces
 
     _run_cli("Catalog namespace reconciliation", sync_namespaces, dry_run=False, prune=None)
 
 
 def deploy_optional_layer_artifacts(environ: Mapping[str, str]) -> None:
-    from olf.commands.openmetadata import deploy_openmetadata_metadata
-    from olf.commands.superset import deploy_superset_reports
+    from olf.infra.commands.openmetadata import deploy_openmetadata_metadata
+    from olf.infra.commands.superset import deploy_superset_reports
 
     layers.deploy_enabled_artifacts(
         environ,

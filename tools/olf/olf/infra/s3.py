@@ -12,7 +12,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from olf import k8s
+from olf.infra import k8s
 
 
 @contextlib.contextmanager

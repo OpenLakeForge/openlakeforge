@@ -10,11 +10,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from olf import log
-from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig, CloudImageSettings
-from olf.deployment.project_code import project_code_build_context
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.project_code import project_code_build_context
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig, CloudImageSettings
 
 
 def resolve_effective_images(images: CloudImageSettings, facts: FoundationFacts) -> CloudImageSettings:

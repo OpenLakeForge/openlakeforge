@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordingRunner
 
-from olf.deployment.errors import CommandExecutionError
-from olf.tooling.kubectl import KubeContextUnreachableError, Kubectl
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.kubectl import KubeContextUnreachableError, Kubectl
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
 
 
 def _kubectl(result: CommandResult | None = None) -> tuple[Kubectl, RecordingRunner]:

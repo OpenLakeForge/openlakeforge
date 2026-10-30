@@ -13,16 +13,16 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from olf.deployment.charts import ChartSetting, resolve_chart_settings
-from olf.deployment.context import DeploymentContext, DeploymentFeatures
-from olf.deployment.env_settings import env as _env
-from olf.deployment.env_settings import float_env as _float_env
-from olf.deployment.env_settings import int_env as _int_env
-from olf.deployment.env_settings import retry_policy as _retry_policy
-from olf.deployment.env_settings import truthy as _truthy
-from olf.deployment.project_code import published_example_image, split_published_image
-from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY
-from olf.tooling.retry import RetryPolicy
+from olf.common.deployment.charts import ChartSetting, resolve_chart_settings
+from olf.common.deployment.context import DeploymentContext, DeploymentFeatures
+from olf.common.deployment.env_settings import env as _env
+from olf.common.deployment.env_settings import float_env as _float_env
+from olf.common.deployment.env_settings import int_env as _int_env
+from olf.common.deployment.env_settings import retry_policy as _retry_policy
+from olf.common.deployment.env_settings import truthy as _truthy
+from olf.common.deployment.project_code import published_example_image, split_published_image
+from olf.common.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY
+from olf.common.tooling.retry import RetryPolicy
 
 
 @dataclass(frozen=True)
@@ -140,7 +140,7 @@ class ChartSettings:
     """A resolved `ChartSetting` per chart the local provider knows about.
 
     Generalizes what used to be five Trino-only fields on this class - see
-    `olf.deployment.charts.resolve_chart_settings`, which both this and
+    `olf.common.deployment.charts.resolve_chart_settings`, which both this and
     `cloud.config.CloudChartSettings` now share.
 
     `required` names the subset this topology actually deploys, and is what

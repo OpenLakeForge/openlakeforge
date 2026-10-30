@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 from conftest import e2e_cfg
 
-from olf.e2e import _ingress
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _ingress
+from olf.infra.e2e._shell import E2EError
 
 _URL = "https://dagster-dev.olf.localhost"
 _REAL_NO_ROUTE_TLS = _ingress._no_route_tls

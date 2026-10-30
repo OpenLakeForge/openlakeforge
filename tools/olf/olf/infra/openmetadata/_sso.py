@@ -14,9 +14,9 @@ import json
 import time
 from collections.abc import Mapping
 
-from olf import access, k8s
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
-from olf.openmetadata._auth import automation_token
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from olf.infra import access, k8s
+from olf.infra.openmetadata._auth import automation_token
 
 # Written by modules/governance/openmetadata: config.json, secret_name, secret_key.
 CONFIGMAP = "openmetadata-sso-config"

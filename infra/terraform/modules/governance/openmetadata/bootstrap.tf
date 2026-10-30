@@ -93,7 +93,7 @@ resource "kubernetes_config_map_v1" "sso_config" {
   count = var.oidc == null ? 0 : 1
 
   metadata {
-    name      = "openmetadata-sso-config" # olf.openmetadata._sso.CONFIGMAP
+    name      = "openmetadata-sso-config" # olf.infra.openmetadata._sso.CONFIGMAP
     namespace = var.namespace
     labels    = local.labels
   }

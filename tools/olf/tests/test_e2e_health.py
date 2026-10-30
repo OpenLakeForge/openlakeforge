@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from conftest import e2e_cfg
 
-from olf.e2e import _health
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _health
+from olf.infra.e2e._shell import E2EError
 
 
 def test_unhealthy_pod_messages_accepts_ready_running_and_succeeded() -> None:

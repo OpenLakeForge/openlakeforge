@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from olf.contracts_check._report import CheckResult
+from olf.common.contracts_check._report import CheckResult
 
 
 def _iceberg_target(document: dict) -> dict:

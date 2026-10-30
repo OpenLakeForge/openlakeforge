@@ -13,8 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Protocol
 
-from olf.toolchain.errors import ToolchainDownloadError, ToolchainVerificationError
-from olf.toolchain.spec import ToolSpec
+from olf.common.toolchain.errors import ToolchainDownloadError, ToolchainVerificationError
+from olf.common.toolchain.spec import ToolSpec
 
 
 class Downloader(Protocol):

@@ -1,7 +1,7 @@
 """Typed error hierarchy for the deployment substrate.
 
 `str(error)` on every error here is diagnostic-safe: it only ever includes
-sanitized argv/environment representations (see `olf.tooling.redact`), never
+sanitized argv/environment representations (see `olf.common.tooling.redact`), never
 raw secret values.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf.tooling.redact import redact_argv, redact_env
+from olf.common.tooling.redact import redact_argv, redact_env
 
 
 class DeploymentError(Exception):

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from olf import trino
+from olf.infra import trino
 
 
 def _target(**overrides: str) -> trino.TrinoTarget:

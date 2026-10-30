@@ -10,8 +10,8 @@ from pathlib import Path
 
 import typer
 
-from olf import config
-from olf.tooling.toolkit import Toolkit
+from olf.common import config
+from olf.common.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Collect bounded deployment diagnostics.")
 _OUTPUT_ARGUMENT = typer.Argument(..., help="Directory to receive text diagnostics.")

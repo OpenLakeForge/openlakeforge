@@ -12,20 +12,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from olf.contracts_check._descriptors import (
+from olf.common.contracts_check._descriptors import (
     _check_deployment_profile_schema_conformance,
     _check_descriptor_schema_conformance,
     descriptor_schema_errors,
     profile_schema_errors,
 )
-from olf.contracts_check._governance import _check_governance_conformance
-from olf.contracts_check._hcl import _check_hcl_phase_two_invariants, _check_hcl_structured_contracts
-from olf.contracts_check._rendered import (
+from olf.common.contracts_check._governance import _check_governance_conformance
+from olf.common.contracts_check._hcl import _check_hcl_phase_two_invariants, _check_hcl_structured_contracts
+from olf.common.contracts_check._rendered import (
     _check_floe_contract_structure,
     _check_helm_values_as_data,
     _check_silver_load_modes,
 )
-from olf.contracts_check._report import CheckResult, ContractsCheckReport
+from olf.common.contracts_check._report import CheckResult, ContractsCheckReport
 
 __all__ = [
     "CheckResult",

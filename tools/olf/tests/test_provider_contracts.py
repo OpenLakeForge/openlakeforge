@@ -7,10 +7,10 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from olf.contracts import build_contract_env
-from olf.contracts_check import _hcl
-from olf.profile import StageName, resolve_topology, validate_deployment_profile
-from olf.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
+from olf.common.contracts_check import _hcl
+from olf.common.profile import StageName, resolve_topology, validate_deployment_profile
+from olf.common.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
+from olf.infra.contracts import build_contract_env
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -747,7 +747,7 @@ def test_s3_service_port_must_be_a_valid_tcp_port(port) -> None:
     ],
 )
 def test_query_endpoint_must_be_a_shape_the_runtime_adapter_can_parse(endpoint: str, match: str) -> None:
-    """olf.contracts._apply_provider_contracts only extracts host:port from an
+    """olf.infra.contracts._apply_provider_contracts only extracts host:port from an
     http:// endpoint; any other scheme or a missing/non-numeric port leaves
     OPENLAKEFORGE_QUERY_TRINO_HOST/PORT at their local defaults instead of
     routing to the declared service, silently."""
@@ -1002,8 +1002,8 @@ def test_v2_contract_lifts_to_legacy_dev_without_changing_environment_output() -
 
 
 def _binding(contract: dict, stage: str) -> str:
-    from olf.deployment.activation import provider_binding_digest
-    from olf.profile import StageName
+    from olf.common.profile import StageName
+    from olf.infra.deployment.activation import provider_binding_digest
 
     return provider_binding_digest(contract, topology=_topology(contract), stage=StageName(stage))
 

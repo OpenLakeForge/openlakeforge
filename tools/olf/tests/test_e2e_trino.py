@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 from conftest import E2E_INVENTORY, e2e_cfg
 
-from olf import trino
-from olf.e2e import _trino
-from olf.e2e._shell import E2EError
+from olf.infra import trino
+from olf.infra.e2e import _trino
+from olf.infra.e2e._shell import E2EError
 
 
 def test_check_catalog_namespaces_reports_missing_descriptor_namespace(

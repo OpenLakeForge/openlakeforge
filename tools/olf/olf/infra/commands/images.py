@@ -6,10 +6,10 @@ import os
 
 import typer
 
-from olf.deployment.errors import DeploymentError
-from olf.deployment.local.images import load_image_into_kind
-from olf.image_build import build_project_code_image, build_superset_image, local_image_config
-from olf.log import fail
+from olf.common.deployment.errors import DeploymentError
+from olf.common.image_build import build_project_code_image, build_superset_image, local_image_config
+from olf.common.log import fail
+from olf.infra.deployment.local.images import load_image_into_kind
 
 app = typer.Typer(help="Build and load local runtime images.")
 

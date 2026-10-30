@@ -8,10 +8,10 @@ from typing import Any
 import pytest
 from _tooling_support import RecordingRunner
 
-from olf import break_glass
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.infra import break_glass
 
 
 def _cluster(stdout: str = "alice\n") -> tuple[break_glass.Cluster, RecordingRunner]:

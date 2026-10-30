@@ -25,7 +25,8 @@ from urllib.parse import urlsplit
 
 import requests.utils
 
-from olf import config, k8s
+from olf.common import config
+from olf.infra import k8s
 
 ACCESS_ENV = "OPENLAKEFORGE_ACCESS_JSON"
 PORT_FORWARD_ENV = "OLF_PORT_FORWARD"

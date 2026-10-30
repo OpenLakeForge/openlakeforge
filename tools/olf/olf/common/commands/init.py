@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from olf.initialization import InitializationError, initialize_project
-from olf.log import fail
-from olf.profile import Preset, StageName
+from olf.common.initialization import InitializationError, initialize_project
+from olf.common.log import fail
+from olf.common.profile import Preset, StageName
 
 
 def initialize(

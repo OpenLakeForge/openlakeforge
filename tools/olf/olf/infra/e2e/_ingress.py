@@ -20,10 +20,11 @@ from urllib.parse import urlsplit
 
 import requests
 
-from olf import access, config, log
-from olf.contracts import CONTRACT_STAGE_ENV
-from olf.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.common import config, log
+from olf.infra import access
+from olf.infra.contracts import CONTRACT_STAGE_ENV
+from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 TRAEFIK_DEPLOYMENT = "deploy/traefik"
 # cert-manager's ingress-shim names the Certificate after the Ingress's TLS

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from olf.deployment.cloud.aws import AwsBackend
-from olf.deployment.cloud.azure import AzureBackend
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.cloud.forward import cloud_forward_spec
-from olf.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.infra.deployment.cloud.aws import AwsBackend
+from olf.infra.deployment.cloud.azure import AzureBackend
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.cloud.forward import cloud_forward_spec
 
 
 @pytest.mark.parametrize(

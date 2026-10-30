@@ -22,9 +22,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "spec:\n  provider:\n    type: local\n  preset: slim\n  stages:\n    dev:\n      enabled: true\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_a, **_k: None)
-    monkeypatch.setattr("olf.contracts.build_contract_env", lambda *_a, **_k: ({}, []))
-    monkeypatch.setattr("olf.e2e._runner.prepare_kube_context", lambda _cfg: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
+    monkeypatch.setattr("olf.infra.contracts.build_contract_env", lambda *_a, **_k: ({}, []))
+    monkeypatch.setattr("olf.infra.e2e._runner.prepare_kube_context", lambda _cfg: None)
     return profile
 
 
@@ -35,7 +35,7 @@ def launches(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     def launch_and_poll(cfg, *, products=None, tags=None):  # noqa: ANN001, ANN202
         seen.append({"products": [product.id for product in products], "tags": tags})
 
-    monkeypatch.setattr("olf.e2e._dagster.launch_and_poll_dagster_jobs", launch_and_poll)
+    monkeypatch.setattr("olf.infra.e2e._dagster.launch_and_poll_dagster_jobs", launch_and_poll)
     return seen
 
 

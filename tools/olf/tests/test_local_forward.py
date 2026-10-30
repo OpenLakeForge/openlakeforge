@@ -4,12 +4,12 @@ from pathlib import Path
 
 from _tooling_support import RecordingRunner
 
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.local import forward
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import forward
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:
@@ -18,11 +18,11 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeployme
 
 
 def _toolkit(dagster_pod_line: str) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     result = CommandResult(argv=(), returncode=0, stdout=dagster_pod_line, stderr="", duration_seconds=0.0)
     runner = RecordingRunner(result)

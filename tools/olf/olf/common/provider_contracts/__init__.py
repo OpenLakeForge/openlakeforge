@@ -11,17 +11,17 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from olf.contract_validation import (
+from olf.common.contract_validation import (
     SUPPORTED_SCHEMA_VERSIONS,
     V2_SCHEMA_VERSION,
     V3_SCHEMA_VERSION,
     ProviderContractError,
 )
-from olf.profile import DeploymentTopology
-from olf.provider_contracts._model import CodeLocation, ProviderContracts, SharedPlatformContract, StageContract
-from olf.provider_contracts._v2 import _adapt_v2
-from olf.provider_contracts._v3 import _parse_v3
-from olf.provider_contracts._validation import aws_catalog_name
+from olf.common.profile import DeploymentTopology
+from olf.common.provider_contracts._model import CodeLocation, ProviderContracts, SharedPlatformContract, StageContract
+from olf.common.provider_contracts._v2 import _adapt_v2
+from olf.common.provider_contracts._v3 import _parse_v3
+from olf.common.provider_contracts._validation import aws_catalog_name
 
 __all__ = [
     "CodeLocation",
@@ -40,7 +40,7 @@ def parse_provider_contracts(
     """Parse v2/v3 provider output, rejecting unknown versions and shapes.
 
     `distribution_root` locates `release/identity-roles.yaml` for a v3 payload;
-    it defaults to the environment's (`olf.config.distribution_root`).
+    it defaults to the environment's (`olf.common.config.distribution_root`).
     """
     schema_version = payload.get("schema_version")
     if schema_version == V2_SCHEMA_VERSION:

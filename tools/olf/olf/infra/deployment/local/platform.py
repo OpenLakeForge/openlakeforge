@@ -15,18 +15,18 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 
-from olf import log
-from olf.deployment import kube_ops
-from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
-from olf.deployment.context import stage_namespace
-from olf.deployment.context import topology_variables as _topology_variables
-from olf.deployment.engine import DeploymentConfig
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.github_app import GitHubApp, store_app
-from olf.tooling.kubectl import KubeContextUnreachableError
-from olf.tooling.retry import RetryPolicy, run_with_retry
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
+from olf.common.deployment.context import stage_namespace
+from olf.common.deployment.context import topology_variables as _topology_variables
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.kubectl import KubeContextUnreachableError
+from olf.common.tooling.retry import RetryPolicy, run_with_retry
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment import kube_ops
+from olf.infra.deployment.engine import DeploymentConfig
+from olf.infra.github_app import GitHubApp, store_app
 
 _APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
@@ -68,7 +68,7 @@ def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mappin
 def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """The resolved topology, as the platform root's typed Terraform inputs.
 
-    See `olf.deployment.context.topology_variables` - shared with the AWS
+    See `olf.common.deployment.context.topology_variables` - shared with the AWS
     and Azure roots (#114), which took on the same `stages` input.
     """
     return _topology_variables(config.context)
@@ -470,7 +470,7 @@ def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolk
     log.warn("local platform resources exist in-cluster but Terraform state is missing core objects.")
     log.warn("resetting the local platform before apply to recover from state drift...")
 
-    from olf.deployment.local import teardown
+    from olf.infra.deployment.local import teardown
 
     teardown.platform_down(config, tools, env=env)
 
@@ -555,7 +555,7 @@ def platform_up(
 
     superset_tag = None
     if config.platform_features.analytics_enabled:
-        from olf.deployment.local import images
+        from olf.infra.deployment.local import images
 
         superset_tag = images.prepare_superset_image(config, tools, env=env)
 

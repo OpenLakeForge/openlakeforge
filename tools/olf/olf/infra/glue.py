@@ -8,7 +8,7 @@ from typing import Any
 
 from openlakeforge_domain import CatalogNamespace
 
-from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
+from olf.infra.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 
 LOCATION_PROPERTY = "LocationUri"
 
@@ -32,7 +32,7 @@ class GlueClient:
 
     def __post_init__(self) -> None:
         if self._client is None:
-            from olf.auth import aws_session
+            from olf.infra.auth import aws_session
 
             self._client = aws_session(os.environ, region=self.config.region or None).client(
                 "glue", region_name=self.config.region or None

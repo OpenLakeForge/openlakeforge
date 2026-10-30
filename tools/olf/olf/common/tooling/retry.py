@@ -1,6 +1,6 @@
 """Bounded, explicit retry primitive for deployment tooling calls.
 
-This is deliberately separate from `olf.tooling.process.ProcessRunner`:
+This is deliberately separate from `olf.common.tooling.process.ProcessRunner`:
 retrying is a policy a caller opts into per-call, never automatic behavior
 baked into process execution.
 """
@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from olf.deployment.errors import CommandExecutionError
+from olf.common.deployment.errors import CommandExecutionError
 
 # Receives the failing error and the 1-indexed attempt number that just
 # failed; returns whether another attempt should be made.

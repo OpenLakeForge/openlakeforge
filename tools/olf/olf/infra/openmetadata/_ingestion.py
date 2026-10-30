@@ -13,7 +13,8 @@ from typing import Any
 
 import yaml
 
-from olf import config, k8s
+from olf.common import config
+from olf.infra import k8s
 
 JOB_NAME = "openmetadata-trino-ingestion"
 REFRESH_SCHEDULE = "0 * * * *"

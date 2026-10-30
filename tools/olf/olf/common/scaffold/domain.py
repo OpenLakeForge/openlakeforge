@@ -12,10 +12,17 @@ from pathlib import Path
 import yaml
 from openlakeforge_domain import LakehouseInventory, load_transitional_lakehouse_inventory
 
-from olf.scaffold import _templates, _yaml_edit
-from olf.scaffold._csv import infer_columns
-from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
-from olf.scaffold._templates import FloeEntitySpec
+from olf.common.scaffold import _templates, _yaml_edit
+from olf.common.scaffold._csv import infer_columns
+from olf.common.scaffold._shared import (
+    ScaffoldError,
+    ScaffoldFile,
+    ScaffoldPlan,
+    require_identifier,
+    title_case,
+    yaml_dq,
+)
+from olf.common.scaffold._templates import FloeEntitySpec
 
 
 def resolve_input(inventory: LakehouseInventory, source: str, resource: str) -> None:

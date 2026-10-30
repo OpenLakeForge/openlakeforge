@@ -16,9 +16,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from olf.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
-from olf.tooling.redact import redact_argv
-from olf.tooling.retry import RetryPolicy, RetryPredicate, run_with_retry
+from olf.common.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
+from olf.common.tooling.redact import redact_argv
+from olf.common.tooling.retry import RetryPolicy, RetryPredicate, run_with_retry
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ class ProcessRunner:
         full_env = {**os.environ, **command.env} if command.env is not None else None
 
         if self._log_commands:
-            from olf import log
+            from olf.common import log
 
             sanitized = " ".join(redact_argv(argv))
             log.step(f"run: {sanitized}")

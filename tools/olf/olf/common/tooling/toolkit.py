@@ -6,13 +6,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from olf.tooling.docker import Docker
-from olf.tooling.helm import Helm
-from olf.tooling.kind import Kind
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import ProcessRunner
-from olf.tooling.resolver import ExecutableResolver, build_resolver
-from olf.tooling.terraform import Terraform
+from olf.common.tooling.docker import Docker
+from olf.common.tooling.helm import Helm
+from olf.common.tooling.kind import Kind
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import ProcessRunner
+from olf.common.tooling.resolver import ExecutableResolver, build_resolver
+from olf.common.tooling.terraform import Terraform
 
 
 @dataclass(frozen=True)

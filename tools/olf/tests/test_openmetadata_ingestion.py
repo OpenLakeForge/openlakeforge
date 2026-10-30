@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from olf.openmetadata._ingestion import ingestion_cronjob, ingestion_job
+from olf.infra.openmetadata._ingestion import ingestion_cronjob, ingestion_job
 
 BASE = {
     "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",

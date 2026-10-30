@@ -3,7 +3,7 @@
 Port of `scripts/{aws,azure}/foundation/{up,down}.sh`. Terraform remains the
 owner of the EKS/AKS cluster and registry - this module only orchestrates
 Terraform/kubectl/aws-or-az calls through `CloudBackend`, mirroring
-`olf.deployment.local.foundation` for the local kind cluster.
+`olf.infra.deployment.local.foundation` for the local kind cluster.
 """
 
 from __future__ import annotations
@@ -11,12 +11,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf import log
-from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.tooling.kubectl import KubeContextUnreachableError
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.kubectl import KubeContextUnreachableError
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
 
 
 def _resolve_foundation_tfvars_file(

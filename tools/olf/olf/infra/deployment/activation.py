@@ -15,26 +15,23 @@ from typing import Any
 import yaml
 from openlakeforge_domain import load_lakehouse_inventory
 
-from olf import contract_state
-from olf.artifact_store import RevisionStore
-from olf.deployment import contract_env
-from olf.deployment.artifact_steps import (
-    deploy_optional_layer_artifacts,
-    sync_catalog_namespaces,
-)
-from olf.deployment.charts import prepare_chart
-from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.source_bindings import missing_source_bindings
-from olf.distribution import distribution_version_at
-from olf.profile import StageName
-from olf.project_activation import ProjectActivation, ProjectActivationError, commit_active
-from olf.project_activation import active as active_activation
-from olf.project_activation import publish as publish_activation
-from olf.project_revision import ProjectRevisionError, materialize, verify
-from olf.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
-from olf.tooling import docker as docker_tooling
+from olf.common import contract_state
+from olf.common.deployment.charts import prepare_chart
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.distribution import distribution_version_at
+from olf.common.profile import StageName
+from olf.common.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
+from olf.common.tooling import docker as docker_tooling
+from olf.infra.artifact_store import RevisionStore
+from olf.infra.deployment import contract_env
+from olf.infra.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
+from olf.infra.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
+from olf.infra.deployment.source_bindings import missing_source_bindings
+from olf.infra.project_activation import ProjectActivation, ProjectActivationError, commit_active
+from olf.infra.project_activation import active as active_activation
+from olf.infra.project_activation import publish as publish_activation
+from olf.infra.project_revision import ProjectRevisionError, materialize, verify
 
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
@@ -479,7 +476,7 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
         platform = provider.config.images.image_platform
     provider.tools.docker.pull(image, platform=platform, env=pull_env)
     if is_local_provider(provider):
-        from olf.deployment.local.images import load_digest_image_into_kind
+        from olf.infra.deployment.local.images import load_digest_image_into_kind
 
         load_digest_image_into_kind(image, provider.config, provider.tools, env=env)
 

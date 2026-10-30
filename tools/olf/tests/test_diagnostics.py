@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from olf.commands import diagnostics
-from olf.deployment.errors import ExecutableNotFoundError
+from olf.common.deployment.errors import ExecutableNotFoundError
+from olf.infra.commands import diagnostics
 
 
 def test_collect_keeps_kubernetes_diagnostics_when_docker_is_missing(

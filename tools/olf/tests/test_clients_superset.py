@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from conftest import FakeSuperset
 
-from olf.clients.base import ServiceClientError
-from olf.clients.superset import SupersetClient
+from olf.common.clients.base import ServiceClientError
+from olf.common.clients.superset import SupersetClient
 
 DASHBOARD_UUID = "6f1c1d3e-8f0a-4c1e-9a77-2a8a3c3b5f10"
 

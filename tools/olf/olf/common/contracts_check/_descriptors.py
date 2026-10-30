@@ -13,7 +13,7 @@ from openlakeforge_domain import (
     load_source_descriptor,
 )
 
-from olf.contracts_check._report import CheckResult
+from olf.common.contracts_check._report import CheckResult
 
 _SCHEMA_BY_KIND = {
     "governance": "docs/schema/governance.schema.json",
@@ -99,7 +99,7 @@ def profile_schema_errors(
     `schema_root` may point at an installed distribution's schemas, and
     `profile_path` may select a profile other than the project default.
     """
-    from olf.profile import DeploymentProfileError, load_deployment_profile
+    from olf.common.profile import DeploymentProfileError, load_deployment_profile
 
     profile_path = profile_path or repo_root / "openlakeforge.yaml"
     label = profile_path.name
@@ -136,7 +136,7 @@ def _check_deployment_profile_schema_conformance(
     repo_root: Path, *, schema_root: Path | None = None, distribution_root: Path | None = None
 ) -> CheckResult:
     """The project-root `openlakeforge.yaml` must load via the canonical
-    `olf.profile` model and conform to its versioned JSON Schema."""
+    `olf.common.profile` model and conform to its versioned JSON Schema."""
     name = "deployment_profile_schema_conformance"
     errors = profile_schema_errors(repo_root, schema_root=schema_root, distribution_root=distribution_root)
     if errors:

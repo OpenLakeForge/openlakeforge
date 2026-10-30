@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from conftest import FakeOpenMetadata
 
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 
 
 def _client(server: FakeOpenMetadata) -> OpenMetadataClient:

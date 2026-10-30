@@ -10,14 +10,15 @@ from __future__ import annotations
 import re
 import shlex
 from pathlib import Path
+from typing import cast
 
 import typer
 import typer.core
 import yaml
 
-from olf.commands._shared import fail
-from olf.commands.checks._docs import _links
-from olf.commands.checks._shared import _root
+from olf.common.commands.checks._docs import _links
+from olf.common.commands.checks._shared import _root
+from olf.common.log import fail
 
 SKILLS_DIR = "skills"
 
@@ -35,22 +36,21 @@ _Command = typer.core.TyperGroup | typer.core.TyperCommand
 _SHELL_OPERATORS = {"|", "||", "&", "&&", ";", ">", ">>", "<", "(", ")"}
 
 
-def skills(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def skills(
+    ctx: typer.Context,
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+) -> None:
     """Validate agent skill metadata, the `olf` commands they show, and their links."""
-    errors = skill_errors(_root(repo_root))
+    errors = skill_errors(_root(repo_root), cast(_Command, ctx.find_root().command))
     if errors:
         raise typer.Exit(code=fail("\n".join(errors)))
     typer.echo("Agent skills are valid.")
 
 
-def skill_errors(root: Path) -> list[str]:
-    # olf.cli imports this package to register the check.
-    from olf.cli import app
-
+def skill_errors(root: Path, cli: _Command) -> list[str]:
     base = root / SKILLS_DIR
     if not base.is_dir():
         return [f"{SKILLS_DIR}/: directory is missing"]
-    cli = typer.main.get_group(app)
     errors: list[str] = []
     for directory in sorted(path for path in base.iterdir() if path.is_dir()):
         skill = directory / "SKILL.md"

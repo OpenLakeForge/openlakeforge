@@ -5,14 +5,14 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf import image_build
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.local import images
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common import image_build
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import images
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL, environ: dict | None = None) -> LocalDeploymentConfig:
@@ -21,11 +21,11 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL, environ: dict | 
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     resolver = PathExecutableResolver(
         overrides={t: Path(t) for t in ("terraform", "docker", "kind", "kubectl", "helm")}
@@ -242,7 +242,7 @@ _PIN = "ghcr.io/o/project-code:1.0.0-alpha.1@sha256:" + "a" * 64
 def _published(tmp_path: Path) -> LocalDeploymentConfig:
     from dataclasses import replace
 
-    from olf.deployment.local.config import ImageSettings
+    from olf.common.deployment.local.config import ImageSettings
 
     return replace(_config(tmp_path), images=ImageSettings.from_environment({}, published=_PIN))
 
@@ -250,7 +250,7 @@ def _published(tmp_path: Path) -> LocalDeploymentConfig:
 def test_prepare_project_code_image_loads_the_published_image_instead_of_building(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf.deployment.local import prefetch
+    from olf.infra.deployment.local import prefetch
 
     loaded: list[str] = []
     monkeypatch.setattr(prefetch, "load_image_into_nodes", lambda cfg, tls, image, *, env: loaded.append(image))

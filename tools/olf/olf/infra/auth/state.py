@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from olf.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.errors import DeploymentPreconditionError
 
 
 class AuthenticationError(DeploymentPreconditionError):

@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from olf import contracts as contracts_module
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.local import artifacts
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import contracts as contracts_module
+from olf.infra.deployment.local import artifacts
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:
@@ -25,7 +25,7 @@ def _toolkit() -> Toolkit:
 
 def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config(tmp_path)
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",

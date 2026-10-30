@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 
-from olf import log, secrets_rotation
-from olf.e2e._secret_exposure import migrated_credentials, scan_namespaces
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.common import log
+from olf.infra import secrets_rotation
+from olf.infra.e2e._secret_exposure import migrated_credentials, scan_namespaces
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 # The Jobs that create or adopt those credentials, by name: their `openlakeforge.io/job` label is on the Pod
 # template, not on the Job, so a label selector would match none. Each name ends in a hash or a Helm revision.

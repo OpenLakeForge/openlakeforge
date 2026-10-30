@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING
 import typer
 from openlakeforge_domain import inventory_for
 
-from olf import config, log
-from olf.log import fail
+from olf.common import config, log
+from olf.common.log import fail
 
 if TYPE_CHECKING:
-    from olf.superset import StageReportTarget
+    from olf.infra.superset import StageReportTarget
 
 app = typer.Typer(help="Deprecated aliases of the `olf report` commands.")
 report_app = typer.Typer(help="Source-controlled Superset report bundles.")
@@ -57,8 +57,8 @@ def report_validate(
 ) -> None:
     """Check report bundles against the promotion contract: stable identities,
     resolvable references, and no stage-bound or workspace-bound values."""
-    from olf import superset
-    from olf.commands._project import writable_project_root
+    from olf.common.commands._project import writable_project_root
+    from olf.infra import superset
 
     try:
         root = writable_project_root(project_root)
@@ -95,7 +95,7 @@ def report_import(
     ),
 ) -> None:
     """Build and import reports using the selected provider's Terraform contracts."""
-    from olf.commands.runtime import provider_contract_environment
+    from olf.infra.commands.runtime import provider_contract_environment
 
     with provider_contract_environment(
         provider=provider,
@@ -111,7 +111,7 @@ def report_import(
 
 def deploy_superset_reports(stage: str = "") -> None:
     """Build and import source-controlled Superset report bundles."""
-    from olf import superset
+    from olf.infra import superset
 
     project = config.project_spec()
     target = _report_target(stage)
@@ -156,7 +156,7 @@ def report_export(
     ),
 ) -> None:
     """Export reports using the selected provider's Terraform contracts."""
-    from olf.commands.runtime import provider_contract_environment
+    from olf.infra.commands.runtime import provider_contract_environment
 
     with provider_contract_environment(
         provider=provider,
@@ -175,7 +175,7 @@ def export_superset_reports(stage: str = "") -> None:
     import yaml
     from openlakeforge_domain import Dashboard
 
-    from olf import superset
+    from olf.infra import superset
 
     project = config.project_spec()
     target = _report_target(stage)
@@ -258,7 +258,7 @@ app.command("export-reports", help="Deprecated alias of `olf report export`.")(
 
 
 def _report_target(stage: str) -> StageReportTarget:
-    from olf import superset
+    from olf.infra import superset
 
     try:
         return superset.resolve_stage_report_target(os.environ, stage=stage)

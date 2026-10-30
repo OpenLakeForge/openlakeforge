@@ -11,7 +11,7 @@ from typing import Any
 
 import requests
 
-from olf.tooling.process import CommandResult
+from olf.common.tooling.process import CommandResult
 
 _ACR_USERNAME = "00000000-0000-0000-0000-000000000000"
 
@@ -40,7 +40,7 @@ class AzureSdk:
     def _credential(self, env: Mapping[str, str] | None = None) -> Any:
         if self._credential_override is not None:
             return self._credential_override
-        from olf.auth import azure_credential
+        from olf.infra.auth import azure_credential
 
         return azure_credential(env or os.environ)
 
@@ -59,7 +59,7 @@ class AzureSdk:
         and no explicit selection still needs to resolve the right
         subscription among several.
         """
-        from olf.auth import selected_azure_subscription
+        from olf.infra.auth import selected_azure_subscription
 
         return selected_azure_subscription(env or os.environ)
 

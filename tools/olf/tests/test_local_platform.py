@@ -9,21 +9,21 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.deployment.local import platform
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.profile import Provider
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.profile import Provider
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import platform
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 
 
 def _topology(*, dev: bool = True, uat: bool = False, prod: bool = False, analytics: bool = True):  # noqa: ANN202
-    from olf.profile import (
+    from olf.common.profile import (
         DeploymentProfile,
         Preset,
         ProviderSpec,
@@ -62,11 +62,11 @@ def _config(
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     resolver = PathExecutableResolver(overrides={t: Path(t) for t in _TOOLS})
     return Toolkit(
@@ -139,7 +139,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
 def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_issuer(tmp_path: Path) -> None:
     from dataclasses import replace
 
-    from olf.profile import AccessSpec
+    from olf.common.profile import AccessSpec
 
     assert "identity_issuer" not in platform.platform_apply_variables(
         _config(tmp_path, topology=replace(_topology(), access=AccessSpec()))
@@ -154,7 +154,7 @@ def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_iss
 def test_an_external_issuer_carries_its_claim_mapping_into_the_root(tmp_path: Path) -> None:
     from dataclasses import replace
 
-    from olf.profile import IdentitySpec
+    from olf.common.profile import IdentitySpec
 
     external = IdentitySpec(
         issuer="external",
@@ -320,7 +320,7 @@ class _PlatformScriptedRunner(RecordingRunner):
         self._apply_attempts = 0
 
     def run(self, command, **kwargs):  # type: ignore[override]
-        from olf.deployment.errors import CommandExecutionError
+        from olf.common.deployment.errors import CommandExecutionError
 
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
@@ -369,7 +369,7 @@ class _PlatformScriptedRunner(RecordingRunner):
 def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: bool) -> None:
     from dataclasses import replace
 
-    from olf.profile import AccessSpec
+    from olf.common.profile import AccessSpec
 
     topology = replace(_topology(analytics=False), access=AccessSpec()) if with_access else None
     config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
@@ -581,7 +581,7 @@ class _SecretRunner(RecordingRunner):
 def _github_config(tmp_path: Path):  # noqa: ANN202
     from dataclasses import replace
 
-    from olf.profile import GitHubOAuthRef, GitHubSpec, IdentitySpec
+    from olf.common.profile import GitHubOAuthRef, GitHubSpec, IdentitySpec
 
     github = GitHubSpec(
         organization="openlakeforge",
@@ -679,7 +679,7 @@ def test_github_connect_is_needed_only_when_interactive_and_the_secret_is_absent
 def test_a_github_app_created_before_the_foundation_is_stored_once_the_namespace_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf.github_app import GitHubApp
+    from olf.infra.github_app import GitHubApp
 
     stored: list[GitHubApp] = []
     monkeypatch.setattr(platform, "store_app", lambda _ctx, app, _kubectl: stored.append(app))
@@ -716,7 +716,7 @@ def test_the_app_secret_is_read_back_from_kubectl_json_and_empty_without_an_app_
 
 
 def test_a_present_github_secret_is_never_overwritten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf import github_app
+    from olf.infra import github_app
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
@@ -739,15 +739,15 @@ def test_status_renders_certificates_only_when_access_is_declared(
     from dataclasses import replace
     from types import SimpleNamespace
 
-    from olf.deployment.local.provider import LocalProvider
-    from olf.profile import AccessSpec
+    from olf.common.profile import AccessSpec
+    from olf.infra.deployment.local.provider import LocalProvider
 
     topology = replace(_topology(), access=AccessSpec() if declared else None)
     context = SimpleNamespace(
         topology=topology, shared_namespace="olf-system", namespace_for=lambda stage: "olf-dev", enabled_stages=()
     )
     seen: dict[str, object] = {}
-    monkeypatch.setattr("olf.deployment.status.collect_status", lambda *_a, **kw: seen.update(kw))
+    monkeypatch.setattr("olf.infra.deployment.status.collect_status", lambda *_a, **kw: seen.update(kw))
     fake = SimpleNamespace(
         _contracts=lambda: None,
         context=context,
@@ -771,8 +771,8 @@ def test_a_state_holding_the_shared_namespace_is_resumed_not_reset(
 ) -> None:
     # A first apply that stopped at the GitHub Secret preflight leaves only the namespace in state; resetting
     # would delete the namespace and the Secret created in it before the second apply.
-    from olf.deployment import kube_ops
-    from olf.deployment.local import teardown
+    from olf.infra.deployment import kube_ops
+    from olf.infra.deployment.local import teardown
 
     torn_down: list[bool] = []
     monkeypatch.setattr(kube_ops, "namespace_exists", lambda *_a, **_k: True)

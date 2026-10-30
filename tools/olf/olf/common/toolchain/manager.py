@@ -22,10 +22,10 @@ from typing import Any
 
 import yaml
 
-from olf.toolchain.download import Downloader, HttpDownloader, fetch_verified
-from olf.toolchain.install import install as install_archive
-from olf.toolchain.platform import Platform
-from olf.toolchain.spec import (
+from olf.common.toolchain.download import Downloader, HttpDownloader, fetch_verified
+from olf.common.toolchain.install import install as install_archive
+from olf.common.toolchain.platform import Platform
+from olf.common.toolchain.spec import (
     MANAGED_TOOLS,
     ToolchainCatalogError,
     ToolSpec,

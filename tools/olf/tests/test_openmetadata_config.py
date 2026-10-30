@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 import typer
 
-from olf import openmetadata as om
-from olf.openmetadata._config import OpenMetadataConfig
+from olf.infra import openmetadata as om
+from olf.infra.openmetadata._config import OpenMetadataConfig
 
 # `build_contract_env` writes these only where a provider contract was
 # actually applied for the stage being deployed; `OpenMetadataConfig` refuses
@@ -247,8 +247,8 @@ def test_config_from_environment_preserves_explicit_empty_schema_contract() -> N
 def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from olf import k8s, openmetadata
-    from olf.commands import openmetadata as command
+    from olf.infra import k8s, openmetadata
+    from olf.infra.commands import openmetadata as command
 
     project = tmp_path / "project"
     distribution = tmp_path / "distribution"
@@ -271,7 +271,7 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
 
     monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", staticmethod(_config))
     monkeypatch.setattr(openmetadata, "OpenMetadataClient", lambda _url, **_kwargs: object())
-    monkeypatch.setattr("olf.openmetadata._auth.automation_token", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.infra.openmetadata._auth.automation_token", lambda *_args, **_kwargs: None)
     order: list[str] = []
     monkeypatch.setattr(
         openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: order.append("seed"))
@@ -287,8 +287,8 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
 def test_openmetadata_command_reports_configuration_errors(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from olf import k8s, openmetadata
-    from olf.commands import openmetadata as command
+    from olf.infra import k8s, openmetadata
+    from olf.infra.commands import openmetadata as command
 
     monkeypatch.setenv("OPENMETADATA_ADMIN_PASSWORD", "p")
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)

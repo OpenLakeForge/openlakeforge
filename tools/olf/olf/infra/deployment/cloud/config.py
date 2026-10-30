@@ -1,8 +1,8 @@
 """Typed cloud-provider (AWS/Azure) deployment configuration.
 
-Mirrors `olf.deployment.local.config`: plain frozen dataclasses with
+Mirrors `olf.common.deployment.local.config`: plain frozen dataclasses with
 `from_environment` classmethods built on the same `${VAR:-default}`
-fallback semantics (`olf.deployment.env_settings`). Only the genuinely
+fallback semantics (`olf.common.deployment.env_settings`). Only the genuinely
 provider-neutral settings live here - project-code image
 selection, Helm chart caching, the platform Terraform var-file/retry
 policy. Foundation-specific settings (AWS
@@ -23,13 +23,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from olf.deployment.charts import ChartSetting, resolve_chart_settings
-from olf.deployment.context import DeploymentContext, DeploymentFeatures
-from olf.deployment.env_settings import env as _env
-from olf.deployment.env_settings import retry_policy as _retry_policy
-from olf.deployment.env_settings import truthy as _truthy
-from olf.deployment.project_code import published_example_image, split_published_image
-from olf.tooling.retry import RetryPolicy
+from olf.common.deployment.charts import ChartSetting, resolve_chart_settings
+from olf.common.deployment.context import DeploymentContext, DeploymentFeatures
+from olf.common.deployment.env_settings import env as _env
+from olf.common.deployment.env_settings import retry_policy as _retry_policy
+from olf.common.deployment.env_settings import truthy as _truthy
+from olf.common.deployment.project_code import published_example_image, split_published_image
+from olf.common.tooling.retry import RetryPolicy
 
 _DEFAULT_PYTHON_BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
 _DEFAULT_PYTHON_BASE_IMAGE = {
@@ -194,7 +194,7 @@ class CloudChartSettings:
     """A resolved `ChartSetting` per chart a given cloud scope deploys.
 
     Generalizes what used to be ten Trino/Dagster-only fields on this class -
-    see `olf.deployment.charts.resolve_chart_settings`, which both this and
+    see `olf.common.deployment.charts.resolve_chart_settings`, which both this and
     `local.config.ChartSettings` now share.
     """
 

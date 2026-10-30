@@ -7,8 +7,8 @@ import jsonschema
 import pytest
 import yaml
 
-from olf import contracts_check
-from olf.contracts_check import _hcl
+from olf.common import contracts_check
+from olf.common.contracts_check import _hcl
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -206,7 +206,7 @@ def test_provider_contract_fixtures_carry_no_secret_values(fixture: Path) -> Non
 
 
 def test_hcl_phase_two_invariants_rejects_secret_valued_contract_field(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts",
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts",
         lambda terraform_dir, *, environ=None: {"catalog": {}, "storage": {"secret_access_key": "hunter2"}},
     )
 
@@ -288,7 +288,7 @@ def test_installed_contract_environ_returns_none_for_a_source_checkout() -> None
 def test_installed_contract_environ_sets_state_and_data_roots_for_an_installed_layout(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from olf.distribution import RuntimeLayout
+    from olf.common.distribution import RuntimeLayout
 
     resolved = tmp_path.resolve()
     layout = RuntimeLayout(
@@ -302,7 +302,7 @@ def test_installed_contract_environ_sets_state_and_data_roots_for_an_installed_l
         distribution_version="0.2.0",
         payload_sha256="0" * 64,
     )
-    monkeypatch.setattr("olf.distribution.runtime_layout", lambda *a, **k: layout)
+    monkeypatch.setattr("olf.common.distribution.runtime_layout", lambda *a, **k: layout)
 
     environ = _hcl._installed_contract_environ("local")
 
@@ -322,7 +322,7 @@ def test_hcl_phase_two_invariants_passes_when_applied_state_is_clean(tmp_path: P
     def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_database_fqn": "polaris.lakehouse_dev"}}
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", fake_load)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", fake_load)
 
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 
@@ -334,7 +334,7 @@ def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Pat
     def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_namespaces": ["silver", "gold"]}}
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", fake_load)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", fake_load)
 
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 

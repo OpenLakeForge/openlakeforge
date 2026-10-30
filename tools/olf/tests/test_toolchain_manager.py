@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from olf.toolchain.manager import ToolchainManager
-from olf.toolchain.platform import Platform
-from olf.toolchain.spec import ToolchainCatalogError, activated_filename, load_specs
+from olf.common.toolchain.manager import ToolchainManager
+from olf.common.toolchain.platform import Platform
+from olf.common.toolchain.spec import ToolchainCatalogError, activated_filename, load_specs
 
 _PLATFORM = Platform(os="linux", arch="amd64")
 _TOOLS = ("terraform", "helm", "kubectl", "kind")

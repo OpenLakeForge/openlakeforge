@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from olf import smoke as smoke_module
-from olf.log import fail
+from olf.common.log import fail
+from olf.infra import smoke as smoke_module
 
 app = typer.Typer(help="Bounded deployment smoke helpers.")
 

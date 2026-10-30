@@ -12,9 +12,10 @@ from collections.abc import Sequence
 
 import requests
 
-from olf import break_glass, log
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import break_glass
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 REASON = "e2e break-glass check"
 LOCAL_PORT = 15556

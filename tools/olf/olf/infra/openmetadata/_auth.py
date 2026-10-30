@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from olf import k8s
+from olf.infra import k8s
 
 # Written by the governance bootstrap Job (modules/governance/openmetadata).
 AUTOMATION_SECRET = "openmetadata-automation-bot"

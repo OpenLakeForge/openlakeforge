@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from _cloud_support import FakeCloudBackend
 
-from olf import contracts as contracts_module
-from olf.deployment.cloud import artifacts
-from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import contracts as contracts_module
+from olf.infra.deployment.cloud import artifacts
+from olf.infra.deployment.cloud.backend import FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -137,7 +137,7 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
     config = _config(tmp_path)
     tools = _toolkit()
     backend = FakeCloudBackend(scope="aws")
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )
@@ -161,7 +161,7 @@ def test_artifacts_deploy_honors_contract_terraform_dir_override(
 ) -> None:
     """`OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR` must win over the provider's
     default platform Terraform directory, matching the removed
-    `scripts/{aws,azure}/stack/deploy-artifacts.sh` and `olf.e2e._runner`.
+    `scripts/{aws,azure}/stack/deploy-artifacts.sh` and `olf.infra.e2e._runner`.
     """
     config = _config(tmp_path)
     tools = _toolkit()

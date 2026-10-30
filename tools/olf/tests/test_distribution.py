@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from olf.distribution import (
+from olf.common.distribution import (
     DistributionError,
     DistributionManager,
     build_embedded_payload,
@@ -140,7 +140,7 @@ def test_installed_layout_defaults_the_project_to_the_current_directory(
         def ensure(self) -> Path:
             return payload
 
-    monkeypatch.setattr("olf.distribution.DistributionManager.from_embedded", lambda **_kwargs: Manager())
+    monkeypatch.setattr("olf.common.distribution.DistributionManager.from_embedded", lambda **_kwargs: Manager())
     monkeypatch.chdir(tmp_path / "project")
 
     layout = runtime_layout({"OLF_DISTRIBUTION_MODE": "installed"})
@@ -165,7 +165,7 @@ def test_installed_layout_keeps_platform_assets_in_the_payload_when_a_project_is
         def ensure(self) -> Path:
             return payload
 
-    monkeypatch.setattr("olf.distribution.DistributionManager.from_embedded", lambda **_kwargs: Manager())
+    monkeypatch.setattr("olf.common.distribution.DistributionManager.from_embedded", lambda **_kwargs: Manager())
     monkeypatch.chdir(tmp_path)
 
     layout = runtime_layout(
@@ -180,7 +180,7 @@ def test_installed_layout_keeps_platform_assets_in_the_payload_when_a_project_is
 
 
 def test_distribution_version_at_reads_a_distribution_root(tmp_path: Path) -> None:
-    from olf.distribution import distribution_version_at
+    from olf.common.distribution import distribution_version_at
 
     repo_root = Path(__file__).resolve().parents[3]
 

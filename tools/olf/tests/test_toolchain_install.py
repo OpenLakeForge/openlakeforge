@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from olf.toolchain.install import install
-from olf.toolchain.platform import Platform
-from olf.toolchain.spec import ToolSpec, activated_filename
+from olf.common.toolchain.install import install
+from olf.common.toolchain.platform import Platform
+from olf.common.toolchain.spec import ToolSpec, activated_filename
 
 _PLATFORM = Platform(os="linux", arch="amd64")
 

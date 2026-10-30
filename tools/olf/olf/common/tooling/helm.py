@@ -10,9 +10,9 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf.tooling.process import CommandResult, ProcessRunner
-from olf.tooling.resolver import ExecutableResolver
-from olf.tooling.retry import RetryPolicy, RetryPredicate
+from olf.common.tooling.process import CommandResult, ProcessRunner
+from olf.common.tooling.resolver import ExecutableResolver
+from olf.common.tooling.retry import RetryPolicy, RetryPredicate
 
 # Helm's own default is 5m, which a first activation on a cold node routinely
 # exceeds while pulling the project-code image. Timing out under `--atomic`

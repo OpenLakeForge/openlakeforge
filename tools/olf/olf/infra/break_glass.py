@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from olf.tooling.kubectl import Kubectl
+from olf.common.tooling.kubectl import Kubectl
 
 LABEL = "openlakeforge.io/break-glass"
 DEFAULT_TTL_MINUTES = 30

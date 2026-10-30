@@ -9,10 +9,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf.deployment.errors import CommandExecutionError, ToolingError
-from olf.tooling.process import CommandResult, ProcessRunner
-from olf.tooling.resolver import ExecutableResolver
-from olf.tooling.retry import RetryPolicy, RetryPredicate
+from olf.common.deployment.errors import CommandExecutionError, ToolingError
+from olf.common.tooling.process import CommandResult, ProcessRunner
+from olf.common.tooling.resolver import ExecutableResolver
+from olf.common.tooling.retry import RetryPolicy, RetryPredicate
 
 
 class KubeContextUnreachableError(ToolingError):
@@ -262,7 +262,7 @@ class Kubectl:
 
         Exposed separately from `port_forward` so callers that need a
         long-lived, backgrounded child process (see
-        `olf.deployment.portforward.PortForwardSupervisor`) can build the
+        `olf.infra.deployment.portforward.PortForwardSupervisor`) can build the
         exact argv without going through this adapter's blocking call.
         """
         argv = [str(self._executable())]

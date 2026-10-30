@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from olf import project_code_check
+from olf.common import project_code_check
 
 
 def _source_asset(*, can_subset: bool, output_required: bool) -> SimpleNamespace:

@@ -2,8 +2,8 @@
 
 Terraform/Helm/kubectl/kind are provisioned from `release/component-catalog.yaml`
 into `OLF_HOME` (default `~/.openlakeforge`), scoped per distribution version
-and platform. See `olf.toolchain` for the manager, and
-`olf.tooling.resolver.build_resolver` for how deployment commands pick this
+and platform. See `olf.common.toolchain` for the manager, and
+`olf.common.tooling.resolver.build_resolver` for how deployment commands pick this
 up automatically.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typer
 
-from olf.log import fail
+from olf.common.log import fail
 
 app = typer.Typer(help="Inspect and manage the managed CLI toolchain (Terraform, Helm, kubectl, kind).")
 
@@ -29,8 +29,8 @@ def _manager():  # noqa: ANN202
     catalog in both modes, and still honours an explicit
     `OLF_DISTRIBUTION_ROOT`/`OPENLAKEFORGE_REPO_ROOT` override.
     """
-    from olf.distribution import runtime_layout
-    from olf.toolchain.manager import ToolchainManager
+    from olf.common.distribution import runtime_layout
+    from olf.common.toolchain.manager import ToolchainManager
 
     return ToolchainManager.from_catalog_path(runtime_layout().catalog_path)
 
@@ -38,8 +38,8 @@ def _manager():  # noqa: ANN202
 @app.command("list")
 def list_tools() -> None:
     """Show each managed tool's declared (catalog) and installed versions."""
-    from olf.distribution import DistributionError
-    from olf.toolchain.errors import ToolchainError
+    from olf.common.distribution import DistributionError
+    from olf.common.toolchain.errors import ToolchainError
 
     try:
         manager = _manager()

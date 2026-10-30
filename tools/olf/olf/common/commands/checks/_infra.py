@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands.checks._shared import _root
-from olf.log import fail
-from olf.tooling.toolkit import Toolkit
+from olf.common.commands.checks._shared import _root
+from olf.common.log import fail
+from olf.common.tooling.toolkit import Toolkit
 
 
 def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:

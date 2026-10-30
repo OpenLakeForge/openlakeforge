@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.cloud.azure import AzureBackend
-from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.azure import AzureBackend
+from olf.infra.deployment.cloud.backend import FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm", "aws", "az")
 _FACTS = FoundationFacts(
@@ -54,11 +54,11 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> CloudDeployme
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     resolver = PathExecutableResolver(overrides={t: Path(t) for t in _TOOLS})
     return Toolkit(

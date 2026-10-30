@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from olf import artifact_store, auth
+from olf.infra import artifact_store, auth
 
 
 def test_direct_artifact_client_uses_the_selected_olf_aws_session(monkeypatch: pytest.MonkeyPatch) -> None:

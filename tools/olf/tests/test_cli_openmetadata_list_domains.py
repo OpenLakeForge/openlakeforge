@@ -10,10 +10,10 @@ import pytest
 from conftest import FakeOpenMetadata
 from typer.testing import CliRunner
 
-from olf import access, k8s
 from olf.cli import app
-from olf.commands import runtime
-from olf.openmetadata import _auth
+from olf.infra import access, k8s
+from olf.infra.commands import runtime
+from olf.infra.openmetadata import _auth
 
 runner = CliRunner()
 

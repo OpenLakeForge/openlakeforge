@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.status import StatusReport, StatusSection, collect_status
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.infra.deployment.status import StatusReport, StatusSection, collect_status
 
 
 def test_collect_status_queries_pods_services_and_pvcs_in_order() -> None:
@@ -159,7 +159,7 @@ def test_certificate_section_does_not_call_a_missing_route_certificate_healthy()
 
 
 def test_notes_lead_the_rendered_report() -> None:
-    from olf.deployment.status import StatusReport
+    from olf.infra.deployment.status import StatusReport
 
     report = StatusReport(sections=(), notes=("Authentication is off.",))
 

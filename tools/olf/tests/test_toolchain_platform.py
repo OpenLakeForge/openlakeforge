@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from olf.toolchain.platform import Platform, UnsupportedPlatformError
+from olf.common.toolchain.platform import Platform, UnsupportedPlatformError
 
 
 @pytest.mark.parametrize(

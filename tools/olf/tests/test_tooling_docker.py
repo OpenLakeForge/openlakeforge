@@ -7,9 +7,9 @@ from pathlib import Path
 
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.tooling.docker import Docker
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.docker import Docker
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
 
 
 def _listening_socket(path: Path) -> socket.socket:
@@ -139,7 +139,7 @@ def test_resolve_current_engine_endpoint_chains_show_and_inspect() -> None:
 
 
 def test_resolve_current_engine_endpoint_falls_back_to_default_colima_socket_when_resolution_fails() -> None:
-    from olf.deployment.errors import CommandExecutionError
+    from olf.common.deployment.errors import CommandExecutionError
 
     class FailingRunner(RecordingRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
@@ -267,7 +267,7 @@ def test_server_arch_returns_stripped_output() -> None:
 
 
 def test_server_arch_returns_empty_string_on_failure() -> None:
-    from olf.deployment.errors import CommandExecutionError
+    from olf.common.deployment.errors import CommandExecutionError
 
     class FailingRunner(RecordingRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
@@ -338,7 +338,7 @@ def test_exec_without_privileged_or_interactive() -> None:
 
 
 def test_resolve_current_engine_endpoint_returns_none_on_failure() -> None:
-    from olf.deployment.errors import CommandExecutionError
+    from olf.common.deployment.errors import CommandExecutionError
 
     class FailingRunner(RecordingRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
@@ -352,7 +352,7 @@ def test_resolve_current_engine_endpoint_returns_none_on_failure() -> None:
 
 
 def test_resolve_current_engine_endpoint_returns_none_when_docker_is_not_installed() -> None:
-    from olf.deployment.errors import ExecutableNotFoundError
+    from olf.common.deployment.errors import ExecutableNotFoundError
 
     class MissingDockerRunner(RecordingRunner):
         def run(self, command, **kwargs):  # type: ignore[override]

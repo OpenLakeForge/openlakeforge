@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from olf.layers import deploy_enabled_artifacts, enabled
+from olf.common.layers import deploy_enabled_artifacts, enabled
 
 
 def test_deploy_enabled_artifacts_only_runs_enabled_layers() -> None:

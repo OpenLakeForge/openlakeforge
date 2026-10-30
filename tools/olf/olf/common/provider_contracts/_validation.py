@@ -9,8 +9,8 @@ from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
-from olf.contract_validation import ProviderContractError, _string
-from olf.profile import Provider, StageName
+from olf.common.contract_validation import ProviderContractError, _string
+from olf.common.profile import Provider, StageName
 
 
 def aws_catalog_name(profile_name: str, stage: StageName | str) -> str:
@@ -83,7 +83,7 @@ def _reference(value: object, *, where: str, allowed: tuple[str, ...]) -> str:
 
 
 def _http_host_port_uri(value: object, *, where: str) -> str:
-    """A URI olf.contracts._apply_provider_contracts can extract host:port from.
+    """A URI olf.infra.contracts._apply_provider_contracts can extract host:port from.
 
     That adapter only recognizes the ``http://`` scheme (see its
     ``endpoint.startswith("http://")`` gate) and requires a colon-delimited

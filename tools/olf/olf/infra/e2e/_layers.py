@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from olf.e2e._shell import E2EConfig, E2EError, Layer, load_provider_contracts_or_raise
-from olf.e2e._trino import stage_catalog_name
+from olf.infra.e2e._shell import E2EConfig, E2EError, Layer, load_provider_contracts_or_raise
+from olf.infra.e2e._trino import stage_catalog_name
 
 
 def configured_layers(cfg: E2EConfig) -> dict[Layer, bool]:

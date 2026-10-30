@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from olf import log
+from olf.common import log
 
 # The credential Job creates a missing client Secret and never overwrites one,
 # so replacing it is what makes it generate the deleted Secret again.
@@ -110,8 +110,8 @@ def has_client_secret_key(kubectl: Any, context: Any, name: str) -> bool:
 
 
 def _local_provider(context: Any) -> Any:
-    from olf.deployment.engine import build_provider
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.engine import build_provider
 
     env = context.command_env(base=os.environ)
     return build_provider(context, toolkit=Toolkit.default(environ=env), environ=env)
@@ -119,8 +119,8 @@ def _local_provider(context: Any) -> Any:
 
 def check_platform_state(context: Any) -> None:
     """Refuse on a drifted platform state, with the predicate the drift reset uses, before anything is deleted."""
-    from olf.deployment.errors import DeploymentError, DeploymentPreconditionError
-    from olf.deployment.local import platform
+    from olf.common.deployment.errors import DeploymentError, DeploymentPreconditionError
+    from olf.infra.deployment.local import platform
 
     provider = _local_provider(context)
     try:
@@ -148,8 +148,8 @@ def builds_superset_image(context: Any) -> bool:
 
 def apply_platform(context: Any, extra_args: list[str]) -> None:
     """Only the targeted Terraform apply, not the drift-recovering platform path."""
-    from olf.deployment.errors import DeploymentError
-    from olf.deployment.local import platform
+    from olf.common.deployment.errors import DeploymentError
+    from olf.infra.deployment.local import platform
 
     provider = _local_provider(context)
     try:
@@ -160,8 +160,8 @@ def apply_platform(context: Any, extra_args: list[str]) -> None:
 
 def portal_url(context: Any) -> str | None:
     """The portal's URL from the access contract, when it can be read."""
-    from olf.contract_state import load_provider_contracts
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.contract_state import load_provider_contracts
+    from olf.common.tooling.toolkit import Toolkit
 
     env = context.command_env(base=os.environ)
     try:

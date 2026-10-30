@@ -7,9 +7,9 @@ from pathlib import Path
 
 import typer
 
-from olf import config, contract_state
-from olf import contracts as contracts_module
-from olf.log import fail
+from olf.common import config, contract_state
+from olf.common.log import fail
+from olf.infra import contracts as contracts_module
 
 app = typer.Typer(help="Provider-contract runtime environment helpers.")
 
@@ -27,7 +27,7 @@ def contracts_env(
     Falls back to local defaults when the Terraform stack has not been applied
     yet. Intended for `eval` from scripts/contracts/load-runtime-env.sh.
     """
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     try:
         provider_contracts = contract_state.load_provider_contracts(terraform_dir)
@@ -49,8 +49,8 @@ def contracts_check(
     repo_root: str = typer.Option(".", "--repo-root", help="Checkout or project root to validate."),
 ) -> None:
     """Behavioral contract validation: HCL structure, descriptors, rendered outputs."""
-    from olf import contracts_check as contracts_check_module
-    from olf.distribution import runtime_layout
+    from olf.common import contracts_check as contracts_check_module
+    from olf.common.distribution import runtime_layout
 
     root = Path(repo_root).resolve()
     # An explicit --repo-root selecting a complete, separate checkout (its

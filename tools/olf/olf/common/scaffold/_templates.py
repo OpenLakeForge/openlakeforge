@@ -11,9 +11,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from olf.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
-from olf.scaffold._csv import InferredColumn
-from olf.scaffold._shared import yaml_dq
+from olf.common.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
+from olf.common.scaffold._csv import InferredColumn
+from olf.common.scaffold._shared import yaml_dq
 
 _UUID_NAMESPACE = uuid.UUID("6f2f6c0a-6b0e-4c2a-8f1a-3f7a9e0b6f21")
 

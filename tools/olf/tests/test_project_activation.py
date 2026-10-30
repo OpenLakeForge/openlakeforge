@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from olf import project_activation, project_revision
-from olf.artifact_store import FilesystemRevisionStore
-from olf.project import ProjectSpec
+from olf.common.project import ProjectSpec
+from olf.infra import project_activation, project_revision
+from olf.infra.artifact_store import FilesystemRevisionStore
 
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
 _DIGEST = "sha256:" + "b" * 64
@@ -178,7 +178,7 @@ def _packaged_dagster_chart(root: Path) -> Path:
 
 
 def test_user_chart_extracts_the_unpacked_subchart(tmp_path: Path) -> None:
-    from olf.deployment.activation import _user_chart
+    from olf.infra.deployment.activation import _user_chart
 
     chart = _user_chart(_packaged_dagster_chart(tmp_path), tmp_path / "work")
 

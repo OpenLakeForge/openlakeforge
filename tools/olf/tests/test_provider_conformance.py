@@ -5,7 +5,7 @@ this suite asserted that *every* adapter satisfies the same contract, so an
 adapter could diverge and only fail at runtime, on the provider nobody
 exercises locally (issue #188).
 
-The parameter list is `olf.profile.Provider` itself rather than a
+The parameter list is `olf.common.profile.Provider` itself rather than a
 literal list, so a provider is enrolled the moment the enum names it: adding
 one fails here — with a message naming the contract it broke — until its
 `DeploymentContext` factory, its `build_provider` branch, its captured
@@ -68,27 +68,27 @@ from _contract_conformance import (
 from _tooling_support import RecordedCall, RecordingRunner
 from conftest import CONFORMANCE_STAGES, write_two_product_fixture
 
-from olf.contracts import build_contract_env
-from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import (
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.profile import Provider, StageName, resolve_topology, validate_deployment_profile
+from olf.common.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.common.tooling.docker import Docker
+from olf.common.tooling.helm import Helm
+from olf.common.tooling.kind import Kind
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.terraform import Terraform
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.contracts import build_contract_env
+from olf.infra.deployment.cloud.backend import FoundationFacts
+from olf.infra.deployment.engine import (
     DeploymentConfig,
     DeploymentEngine,
     DeploymentPhase,
     DeploymentProvider,
     build_provider,
 )
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.profile import Provider, StageName, resolve_topology, validate_deployment_profile
-from olf.provider_contracts import ProviderContractError, parse_provider_contracts
-from olf.tooling.docker import Docker
-from olf.tooling.helm import Helm
-from olf.tooling.kind import Kind
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.terraform import Terraform
-from olf.tooling.toolkit import Toolkit
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -398,12 +398,12 @@ def _platform_apply(provider: Provider, adapter: Any) -> None:
     calling them, which is the regression that matters.
     """
     if provider is Provider.LOCAL:
-        from olf.deployment.local import platform as local_platform
+        from olf.infra.deployment.local import platform as local_platform
 
         local_platform.platform_up(adapter.config, adapter.tools, env={})
         return
     if provider in (Provider.AWS, Provider.AZURE):
-        from olf.deployment.cloud import platform as cloud_platform
+        from olf.infra.deployment.cloud import platform as cloud_platform
 
         cloud_platform.platform_up(
             adapter.config,
@@ -457,7 +457,7 @@ def test_adapter_satisfies_the_deployment_provider_protocol(provider: Provider, 
 def test_adapter_exposes_the_command_environment_shared_callers_use(
     provider: Provider, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`olf.deployment.activation` reads `provider.env` on whichever provider
+    """`olf.infra.deployment.activation` reads `provider.env` on whichever provider
     it is handed. `DeploymentProvider` declares it, so the presence check
     above already covers the attribute; what this adds is that the value
     resolves, which no Protocol can state.
@@ -476,7 +476,7 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(
         f"own command-environment overlay; without it, activation cannot run against this provider."
     )
     if provider is not Provider.LOCAL:
-        from olf.deployment.cloud import foundation
+        from olf.infra.deployment.cloud import foundation
 
         monkeypatch.setattr(foundation, "require_foundation_facts", lambda *a, **k: _FOUNDATION_FACTS)
 
@@ -755,8 +755,8 @@ def test_contract_environment_resolves_only_the_stage_it_was_built_for(provider:
 
 def _stage_pod_env(contract: dict[str, Any], topology: Any, stage: Any) -> dict[str, str]:
     """The env a stage's code location runs with: its contract exports through activation's filter."""
-    from olf.deployment.activation import _user_values
-    from olf.project_activation import ProjectActivation
+    from olf.infra.deployment.activation import _user_values
+    from olf.infra.project_activation import ProjectActivation
 
     exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=stage.name)
     activation = ProjectActivation(

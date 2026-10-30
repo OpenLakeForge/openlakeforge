@@ -23,8 +23,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from olf import config
-from olf.contract_validation import ProviderContractError, _oidc_issuer_url
+from olf.common import config
+from olf.common.contract_validation import ProviderContractError, _oidc_issuer_url
 
 PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
 PROFILE_KIND = "DeploymentProfile"

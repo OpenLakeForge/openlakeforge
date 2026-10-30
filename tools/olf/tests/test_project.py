@@ -9,8 +9,8 @@ import pytest
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.commands.checks import _project_code
-from olf.project import ProjectSpec, validate_project
+from olf.common.commands.checks import _project_code
+from olf.common.project import ProjectSpec, validate_project
 
 runner = CliRunner()
 

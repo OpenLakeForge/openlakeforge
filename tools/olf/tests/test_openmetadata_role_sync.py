@@ -8,10 +8,10 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from olf import k8s
-from olf.openmetadata import _role_sync
-from olf.openmetadata import role_sync_script as script
-from olf.profile import GitHubOAuthRef, GitHubSpec
+from olf.common.profile import GitHubOAuthRef, GitHubSpec
+from olf.infra import k8s
+from olf.infra.openmetadata import _role_sync
+from olf.infra.openmetadata import role_sync_script as script
 
 GITHUB = GitHubSpec(
     organization="acme",
@@ -187,7 +187,7 @@ def _apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, identity, app_id: st
     (tmp_path / "openlakeforge.yaml").write_text("")
     monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr(
-        "olf.profile.load_deployment_profile", lambda *_a, **_k: SimpleNamespace(identity=identity)
+        "olf.common.profile.load_deployment_profile", lambda *_a, **_k: SimpleNamespace(identity=identity)
     )
     monkeypatch.setattr(k8s, "apply_manifest", applied.append)
 

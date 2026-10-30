@@ -5,9 +5,9 @@ import pytest
 from conftest import write_dashboard_fixture, write_two_product_fixture
 from openlakeforge_domain import load_lakehouse_inventory
 
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
-from olf.e2e import _assertions, _health
-from olf.e2e._shell import E2EConfig, E2EError
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from olf.infra.e2e import _assertions, _health
+from olf.infra.e2e._shell import E2EConfig, E2EError
 
 
 def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> None:

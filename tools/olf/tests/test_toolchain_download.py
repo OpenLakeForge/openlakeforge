@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from olf.toolchain.download import cache_path, fetch_verified
-from olf.toolchain.errors import ToolchainVerificationError
-from olf.toolchain.platform import Platform
-from olf.toolchain.spec import ToolSpec
+from olf.common.toolchain.download import cache_path, fetch_verified
+from olf.common.toolchain.errors import ToolchainVerificationError
+from olf.common.toolchain.platform import Platform
+from olf.common.toolchain.spec import ToolSpec
 
 _CONTENT = b"fake-tool-binary-content"
 _DIGEST = hashlib.sha256(_CONTENT).hexdigest()

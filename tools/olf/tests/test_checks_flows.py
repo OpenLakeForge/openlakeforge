@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from olf.commands.checks._flows import ADR_PATH, FLOWS_PATH, flow_errors
+from olf.common.commands.checks._flows import ADR_PATH, FLOWS_PATH, flow_errors
 
 ROOT = Path(__file__).resolve().parents[3]
 VALID = (

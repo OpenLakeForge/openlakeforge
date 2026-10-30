@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from olf import k8s
-from olf.clients.openmetadata import OpenMetadataError
-from olf.openmetadata import _sso
+from olf.common.clients.openmetadata import OpenMetadataError
+from olf.infra import k8s
+from olf.infra.openmetadata import _sso
 
 AUTH = {
     "provider": "custom-oidc",

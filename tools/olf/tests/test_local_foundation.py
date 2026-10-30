@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.context import DeploymentContext
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.deployment.local import foundation
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.profile import AccessSpec
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.profile import AccessSpec
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import foundation
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 _REAL_LISTENING = foundation._listening
@@ -31,7 +31,7 @@ def _host_ports_free(monkeypatch: pytest.MonkeyPatch) -> set[int]:
 def _config(tmp_path: Path) -> LocalDeploymentConfig:
     from dataclasses import replace
 
-    from olf.profile import AccessSpec, Preset, Provider, legacy_single_stage_topology
+    from olf.common.profile import AccessSpec, Preset, Provider, legacy_single_stage_topology
 
     topology = replace(legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.FULL), access=AccessSpec())
     context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
@@ -40,11 +40,11 @@ def _config(tmp_path: Path) -> LocalDeploymentConfig:
 
 def _toolkit_with_runner(runner: RecordingRunner) -> Toolkit:
     resolver = PathExecutableResolver(overrides={tool: Path(tool) for tool in _TOOLS})
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     return Toolkit(
         runner=runner,
@@ -395,14 +395,14 @@ class _FlakyClusterInfoRunner(_ScriptedRunner):
         if "cluster-info" in argv and self.failures > 0:
             self.failures -= 1
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
-            from olf.deployment.errors import CommandExecutionError
+            from olf.common.deployment.errors import CommandExecutionError
 
             raise CommandExecutionError(argv, 1, stderr="Error from server (Forbidden)")
         return super().run(command, **kwargs)
 
 
 def test_foundation_up_retries_the_reachability_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("olf.retry.time.sleep", lambda _s: None)
+    monkeypatch.setattr("olf.common.retry.time.sleep", lambda _s: None)
     runner = _FlakyClusterInfoRunner(failures=2)
 
     foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
@@ -411,7 +411,7 @@ def test_foundation_up_retries_the_reachability_check(tmp_path: Path, monkeypatc
 
 
 def test_foundation_up_gives_up_after_the_retry_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("olf.retry.time.sleep", lambda _s: None)
+    monkeypatch.setattr("olf.common.retry.time.sleep", lambda _s: None)
     runner = _FlakyClusterInfoRunner(failures=999)
 
     with pytest.raises(DeploymentPreconditionError, match="not reachable after applying the foundation"):

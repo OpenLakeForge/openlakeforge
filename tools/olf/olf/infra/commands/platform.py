@@ -7,16 +7,16 @@ from pathlib import Path
 
 import typer
 
-from olf.commands._shared import deployment_context_for_profile
-from olf.log import fail
+from olf.common.log import fail
+from olf.infra.commands._shared import deployment_context_for_profile
 
 app = typer.Typer(help="Plan and apply static foundation/platform infrastructure.")
 
 
 def _engine(context, *, var_file: str):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import DeploymentEngine, build_provider
-    from olf.deployment.errors import DeploymentError
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.engine import DeploymentEngine, build_provider
 
     try:
         env = context.command_env(base=os.environ)
@@ -33,7 +33,7 @@ def _engine(context, *, var_file: str):  # noqa: ANN001, ANN202
 
 
 def _phase(value: str):  # noqa: ANN202
-    from olf.deployment.engine import DeploymentPhase
+    from olf.infra.deployment.engine import DeploymentPhase
 
     if value not in {"all", "foundation", "platform"}:
         raise typer.Exit(code=fail("--phase must be all, foundation, or platform."))
@@ -48,7 +48,7 @@ def plan(
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
 ) -> None:
     """Plan only Terraform-owned lifecycle phases for a Deployment Profile."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = deployment_context_for_profile(profile_file)
     try:
@@ -72,9 +72,9 @@ def contract(
     """
     import json
 
-    from olf import contract_state
-    from olf.deployment.errors import DeploymentError
-    from olf.provider_contracts import ProviderContractError
+    from olf.common import contract_state
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.provider_contracts import ProviderContractError
 
     context = deployment_context_for_profile(profile_file)
     try:
@@ -110,8 +110,8 @@ def apply(
     ),
 ) -> None:
     """Apply foundation, local image prefetch, and platform without project artifacts."""
-    from olf.deployment.engine import DeploymentPhase
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
+    from olf.infra.deployment.engine import DeploymentPhase
 
     context = deployment_context_for_profile(profile_file, allow_stage_removal=allow_stage_removal)
     engine = _engine(context, var_file=var_file)

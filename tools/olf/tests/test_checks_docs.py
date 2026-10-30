@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import typer
 
-from olf.commands.checks import _docs
+from olf.common.commands.checks import _docs
 
 MANIFEST = """\
 sections:

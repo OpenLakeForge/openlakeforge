@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from olf.toolchain.platform import Platform
-from olf.toolchain.spec import ToolchainCatalogError, build_spec, load_specs
+from olf.common.toolchain.platform import Platform
+from olf.common.toolchain.spec import ToolchainCatalogError, build_spec, load_specs
 
 _PLATFORM = Platform(os="linux", arch="amd64")
 _DIGEST = "sha256:" + "a" * 64

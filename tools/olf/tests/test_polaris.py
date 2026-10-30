@@ -5,8 +5,8 @@ import urllib.error
 
 import pytest
 
-from olf import polaris
-from olf.catalog import NamespaceState
+from olf.infra import polaris
+from olf.infra.catalog import NamespaceState
 
 
 class FakeResponse:

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from openlakeforge_domain.inventory import Source
 
-from olf.deployment.source_bindings import missing_source_bindings
+from olf.infra.deployment.source_bindings import missing_source_bindings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))

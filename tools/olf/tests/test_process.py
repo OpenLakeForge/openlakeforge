@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from _tooling_support import write_fake_executable, write_sleeping_executable
 
-from olf.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
-from olf.tooling.process import Command, CommandResult, ProcessRunner
-from olf.tooling.retry import RetryPolicy
+from olf.common.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
+from olf.common.tooling.process import Command, CommandResult, ProcessRunner
+from olf.common.tooling.retry import RetryPolicy
 
 
 def test_successful_command_captures_output_and_duration(tmp_path: Path) -> None:
@@ -135,8 +135,8 @@ def test_stream_output_kills_child_when_an_external_deadline_interrupts_wait(
             self.killed = True
 
     process = Process()
-    monkeypatch.setattr("olf.tooling.process.subprocess.Popen", lambda *args, **kwargs: process)
-    monkeypatch.setattr("olf.tooling.process.os.killpg", lambda *args: process.kill())
+    monkeypatch.setattr("olf.common.tooling.process.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("olf.common.tooling.process.os.killpg", lambda *args: process.kill())
 
     with pytest.raises(DeadlineExpired):
         ProcessRunner().run(["long-running-command"], stream_output=True)

@@ -1,10 +1,10 @@
 """Typed deployment context: paths, provider identity, and scoped environment.
 
-This is deliberately separate from `olf.config` (the lightweight runtime
+This is deliberately separate from `olf.common.config` (the lightweight runtime
 contract/environment helper); `DeploymentContext` is the new-code home for
 provider/profile-scoped path and environment construction. It never executes
 subprocesses and never mutates `os.environ` — building it is pure data
-assembly, and command execution stays owned by `olf.tooling`.
+assembly, and command execution stays owned by `olf.common.tooling`.
 """
 
 from __future__ import annotations
@@ -17,12 +17,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.profile import Provider
-from olf.project import ProjectSpec
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.profile import Provider
+from olf.common.project import ProjectSpec
 
 if TYPE_CHECKING:
-    from olf.profile import DeploymentTopology, StageName
+    from olf.common.profile import DeploymentTopology, StageName
 
 SHARED_NAMESPACE = "olf-system"
 DEFAULT_LOCAL_CLUSTER_NAME = "openlakeforge-local"
@@ -35,7 +35,7 @@ def stage_namespace(stage: StageName | str) -> str:
     `DeploymentTopology` -- ADR 0011 keeps the resolved topology free of
     namespaces, Helm releases, and endpoints.
     """
-    from olf.profile import StageName
+    from olf.common.profile import StageName
 
     return f"olf-{StageName(stage).value}"
 
@@ -204,7 +204,7 @@ class DeploymentContext:
 
         Only a stage-aware root gives each stage its own; the cloud POC roots
         serve every stage from the one namespace they were given."""
-        from olf.profile import StageName
+        from olf.common.profile import StageName
 
         if self.shared_namespace != SHARED_NAMESPACE:
             return self.shared_namespace
@@ -389,7 +389,7 @@ class DeploymentContext:
         foundation_terraform_dir: Path,
         platform_terraform_dir: Path,
     ) -> DeploymentContext:
-        from olf.profile import Preset, StageName, legacy_single_stage_topology
+        from olf.common.profile import Preset, StageName, legacy_single_stage_topology
 
         resolved_topology = (
             topology

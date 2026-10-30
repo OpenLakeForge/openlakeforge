@@ -9,7 +9,7 @@ import jsonschema
 import yaml
 from openlakeforge_domain import LakehouseDescriptorError, load_governance_descriptor
 
-from olf.contracts_check._report import CheckResult
+from olf.common.contracts_check._report import CheckResult
 
 
 def _dirs(path: Path) -> set[str]:

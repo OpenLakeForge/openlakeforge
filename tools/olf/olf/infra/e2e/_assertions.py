@@ -11,14 +11,15 @@ from typing import Any
 import yaml
 from openlakeforge_domain import LakehouseInventory
 
-from olf import access, config, k8s, log, superset
-from olf.clients.base import ServiceClientError
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
-from olf.clients.superset import SupersetClient
-from olf.contracts import CONTRACT_STAGE_ENV
-from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
-from olf.e2e._trino import product_gold_tables, stage_catalog_name
-from olf.openmetadata._auth import admin_password, automation_token
+from olf.common import config, log
+from olf.common.clients.base import ServiceClientError
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from olf.common.clients.superset import SupersetClient
+from olf.infra import access, k8s, superset
+from olf.infra.contracts import CONTRACT_STAGE_ENV
+from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
+from olf.infra.openmetadata._auth import admin_password, automation_token
 
 
 def check_superset_dashboards(cfg: E2EConfig) -> None:

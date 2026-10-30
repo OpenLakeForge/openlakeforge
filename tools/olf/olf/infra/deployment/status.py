@@ -11,8 +11,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.tooling.kubectl import Kubectl
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.kubectl import Kubectl
 
 DEFAULT_RESOURCES: tuple[tuple[str, str], ...] = (
     ("Pods", "pods"),
@@ -84,7 +84,7 @@ def collect_status(
             output = result.stdout.strip() or result.stderr.strip()
             sections.append(StatusSection(title=f"{title} ({namespace})", output=output))
     if namespaces:
-        from olf import break_glass
+        from olf.infra import break_glass
 
         records = break_glass.recent(kubectl, namespaces[0], context=context, kubeconfig=kubeconfig, env=env)
         sections.append(StatusSection(title="Recent break-glass use", output=break_glass.render(records)))

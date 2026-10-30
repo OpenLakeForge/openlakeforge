@@ -1,7 +1,7 @@
 """E2E configuration/runner: environment setup, suite dispatch, and the
 full-suite assertion inventory.
 
-Composition root of the `olf.e2e` package -- it is the only submodule that
+Composition root of the `olf.infra.e2e` package -- it is the only submodule that
 imports from every capability module, to sequence them into `run()`.
 """
 
@@ -16,29 +16,26 @@ from typing import Any, Literal
 
 from openlakeforge_domain import inventory_for
 
-from olf import log
-from olf.deployment.cloud.cluster_name import aws_cluster_name
-from olf.e2e._artifacts import check_ops_artifacts
-from olf.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
-from olf.e2e._break_glass import check_break_glass
-from olf.e2e._credential_preservation import check_credential_preservation
-from olf.e2e._dagster import launch_and_poll_dagster_jobs
-from olf.e2e._health import check_pods_ready
-from olf.e2e._ingress import (
-    check_certificate_renewal,
-    check_portal_lists_routes,
-    check_traefik_restart_recovery,
-)
-from olf.e2e._isolation import check_stage_isolation
-from olf.e2e._issuer_outage import check_issuer_outage
-from olf.e2e._layers import Layer, configured_layers
-from olf.e2e._network import check_network_and_rbac
-from olf.e2e._perimeter import check_perimeter
-from olf.e2e._perimeter_latency import check_perimeter_latency
-from olf.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
-from olf.e2e._rotation import check_secret_rotation
-from olf.e2e._secret_exposure import check_secret_exposure
-from olf.e2e._shell import (
+from olf.common import log
+from olf.common.project import ProjectSpec
+from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
+from olf.infra.e2e._artifacts import check_ops_artifacts
+from olf.infra.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
+from olf.infra.e2e._break_glass import check_break_glass
+from olf.infra.e2e._credential_preservation import check_credential_preservation
+from olf.infra.e2e._dagster import launch_and_poll_dagster_jobs
+from olf.infra.e2e._health import check_pods_ready
+from olf.infra.e2e._ingress import check_certificate_renewal, check_portal_lists_routes, check_traefik_restart_recovery
+from olf.infra.e2e._isolation import check_stage_isolation
+from olf.infra.e2e._issuer_outage import check_issuer_outage
+from olf.infra.e2e._layers import Layer, configured_layers
+from olf.infra.e2e._network import check_network_and_rbac
+from olf.infra.e2e._perimeter import check_perimeter
+from olf.infra.e2e._perimeter_latency import check_perimeter_latency
+from olf.infra.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.infra.e2e._rotation import check_secret_rotation
+from olf.infra.e2e._secret_exposure import check_secret_exposure
+from olf.infra.e2e._shell import (
     Checks,
     E2EConfig,
     E2EError,
@@ -49,14 +46,13 @@ from olf.e2e._shell import (
     _run_retry,
     terraform_output,
 )
-from olf.e2e._trino import (
+from olf.infra.e2e._trino import (
     check_catalog_namespaces,
     check_polaris_restart_recovery,
     check_trino_catalog,
     check_trino_product_tables_and_marts,
     check_trino_tables_and_marts,
 )
-from olf.project import ProjectSpec
 
 
 @dataclass(frozen=True)
@@ -197,8 +193,8 @@ def _contract_dir(distribution_root: Path, default: str) -> Path:
 
 
 def check_commands(cfg: E2EConfig) -> None:
-    from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
-    from olf.tooling.resolver import build_resolver
+    from olf.common.deployment.errors import ExecutableNotFoundError, ToolchainError
+    from olf.common.tooling.resolver import build_resolver
 
     missing: list[str] = []
     resolver = build_resolver()
@@ -229,7 +225,7 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
             raise E2EError("Azure e2e requires a foundation Terraform directory.")
         resource_group = terraform_output(cfg.foundation_terraform_dir, "resource_group_name")
         cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name")
-        from olf.tooling.azure import AzureSdk
+        from olf.infra.tooling.azure import AzureSdk
 
         AzureSdk().aks_get_credentials(
             cluster_name, resource_group=resource_group, kubeconfig_path=kubeconfig, overwrite=True
@@ -239,7 +235,7 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
             raise E2EError("AWS e2e requires a foundation Terraform directory.")
         region = terraform_output(cfg.foundation_terraform_dir, "aws_region")
         cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name")
-        from olf.tooling.aws import AwsSdk
+        from olf.infra.tooling.aws import AwsSdk
 
         AwsSdk().eks_update_kubeconfig(
             cluster_name, region=region, kubeconfig_path=kubeconfig, alias=cfg.kube_context

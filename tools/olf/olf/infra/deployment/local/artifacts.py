@@ -15,16 +15,17 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from olf import k8s, log
-from olf.deployment import contract_env
-from olf.deployment.artifact_steps import (
+from olf.common import log
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import k8s
+from olf.infra.deployment import contract_env
+from olf.infra.deployment.artifact_steps import (
     ArtifactOperationError,
     deploy_optional_layer_artifacts,
     sync_catalog_namespaces,
 )
-from olf.deployment.local import images
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import images
 
 __all__ = [
     "ArtifactOperationError",
@@ -44,11 +45,11 @@ def applied_contract_environment(
 ) -> Iterator[dict[str, str]]:
     """Apply the resolved provider-contract environment onto `os.environ`.
 
-    Thin local-config adapter over `olf.deployment.contract_env`, which
+    Thin local-config adapter over `olf.infra.deployment.contract_env`, which
     replaces sourcing `scripts/contracts/load-runtime-env.sh`. `Deployment
     Context.command_env` itself never mutates `os.environ` - this is the
     documented, deliberate bridge to the existing `os.environ`-reading
-    library modules (`olf.k8s`, `olf.config`, `olf.s3`, `olf.layers`).
+    library modules (`olf.infra.k8s`, `olf.common.config`, `olf.infra.s3`, `olf.common.layers`).
     """
     resolved_contract_terraform_dir = contract_terraform_dir or Path(
         (environ or os.environ).get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)

@@ -7,8 +7,8 @@ from urllib.parse import urlparse
 
 import typer
 
-from olf import config, log
-from olf.log import fail
+from olf.common import config, log
+from olf.common.log import fail
 
 app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
 
@@ -23,7 +23,7 @@ def _reconcile_and_report(
     prune: bool,
     namespace_prefix: str = "",
 ) -> None:
-    from olf import catalog as catalog_module
+    from olf.infra import catalog as catalog_module
 
     plan = catalog_module.plan_namespace_sync(existing, desired, prune=prune, namespace_prefix=namespace_prefix)
     typer.echo(catalog_module.render_plan(plan, prune=prune))
@@ -41,9 +41,9 @@ def _reconcile_and_report(
 
 
 def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
-    from olf import catalog as catalog_module
-    from olf import k8s
-    from olf import polaris as polaris_module
+    from olf.infra import catalog as catalog_module
+    from olf.infra import k8s
+    from olf.infra import polaris as polaris_module
 
     rest_uri = config.env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
     parsed = urlparse(rest_uri)
@@ -88,8 +88,8 @@ def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> N
 
 
 def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool, namespace_prefix: str) -> None:
-    from olf import catalog as catalog_module
-    from olf import glue as glue_module
+    from olf.infra import catalog as catalog_module
+    from olf.infra import glue as glue_module
 
     catalog_name = config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
     client = glue_module.GlueClient(
@@ -121,7 +121,7 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
     flow - already inside a hydrated contract environment - can call it
     directly without re-resolving one.
     """
-    from olf import catalog as catalog_module
+    from olf.infra import catalog as catalog_module
 
     provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
     if prune is None:
@@ -130,7 +130,7 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
     # AWS Glue has no per-stage catalog (this account's Glue service refuses
     # to create custom/"native" catalogs) - every stage shares the account's
     # one default catalog, so its physical database names need a per-stage
-    # prefix to stay collision-free, matching olf.contracts.build_contract_env's
+    # prefix to stay collision-free, matching olf.infra.contracts.build_contract_env's
     # own namespace_prefix. Every other provider still gets a per-stage
     # catalog, so the catalog boundary alone is enough there.
     namespace_prefix = f"{catalog_name}_" if provider == "aws-glue" else ""
@@ -168,7 +168,7 @@ def catalog_sync_namespaces(
     project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Hydrate the selected provider's contracts, then reconcile catalog namespaces."""
-    from olf.commands.runtime import provider_contract_environment
+    from olf.infra.commands.runtime import provider_contract_environment
 
     with provider_contract_environment(
         provider=provider,

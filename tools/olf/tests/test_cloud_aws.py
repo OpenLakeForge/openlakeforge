@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.cloud.aws import AwsBackend
-from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
+from olf.common.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.aws import AwsBackend
+from olf.infra.deployment.cloud.backend import FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm", "aws", "az")
 _FACTS = FoundationFacts(
@@ -49,11 +49,11 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> CloudDeployme
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     resolver = PathExecutableResolver(overrides={t: Path(t) for t in _TOOLS})
     return Toolkit(
@@ -102,7 +102,7 @@ def test_default_cluster_name_matches_the_e2e_default(tmp_path: Path) -> None:
     the same one - see the cross-reference comment on
     AwsBackend/`_DEFAULT_CLUSTER_NAME` and `commands._shared.default_kube_context`.
     """
-    from olf.commands._shared import default_kube_context
+    from olf.infra.commands._shared import default_kube_context
 
     config = _config(tmp_path)
     backend = AwsBackend()

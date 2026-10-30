@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from olf.release import _readiness
-from olf.release._manifest import load_catalog
+from olf.common.release import _readiness
+from olf.common.release._manifest import load_catalog
 
 ROOT = Path(__file__).parents[3]
 

@@ -4,9 +4,9 @@ import pytest
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.commands import toolchain
-from olf.toolchain.platform import UnsupportedPlatformError
-from olf.toolchain.spec import ToolchainCatalogError
+from olf.common.commands import toolchain
+from olf.common.toolchain.platform import UnsupportedPlatformError
+from olf.common.toolchain.spec import ToolchainCatalogError
 
 runner = CliRunner()
 
@@ -55,8 +55,8 @@ def test_clean_surfaces_manager_construction_failures_too(monkeypatch: pytest.Mo
 
 def test_platform_and_catalog_errors_are_toolchain_errors() -> None:
     """The hierarchy fix itself: both error types the CLI must catch belong
-    to the same family `olf.commands.toolchain` actually catches."""
-    from olf.toolchain.errors import ToolchainError
+    to the same family `olf.common.commands.toolchain` actually catches."""
+    from olf.common.toolchain.errors import ToolchainError
 
     assert isinstance(UnsupportedPlatformError("Windows", "x86_64"), ToolchainError)
     assert isinstance(ToolchainCatalogError("bad catalog"), ToolchainError)

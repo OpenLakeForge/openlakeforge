@@ -10,11 +10,11 @@ from dataclasses import dataclass
 
 import typer
 
-from olf import config, log
-from olf.log import fail
-from olf.openmetadata._ingestion import run_trino_ingestion
-from olf.profile import DeploymentProfileError
-from olf.project import ProjectSpec
+from olf.common import config, log
+from olf.common.log import fail
+from olf.common.profile import DeploymentProfileError
+from olf.common.project import ProjectSpec
+from olf.infra.openmetadata._ingestion import run_trino_ingestion
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 
@@ -28,7 +28,7 @@ class _GovernanceService:
 
     @contextmanager
     def url(self) -> Iterator[str]:
-        from olf import access
+        from olf.infra import access
 
         with access.service_url(
             "shared/governance_service",
@@ -65,7 +65,7 @@ def openmetadata_deploy_metadata(
     ),
 ) -> None:
     """Seed metadata using the selected provider's Terraform contracts."""
-    from olf.commands.runtime import provider_contract_environment
+    from olf.infra.commands.runtime import provider_contract_environment
 
     with provider_contract_environment(
         provider=provider,
@@ -80,11 +80,11 @@ def openmetadata_deploy_metadata(
 
 def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
-    from olf import k8s
-    from olf import openmetadata as om
-    from olf.openmetadata._auth import admin_password, automation_token
-    from olf.openmetadata._role_sync import apply_role_sync
-    from olf.openmetadata._sso import apply_sso
+    from olf.infra import k8s
+    from olf.infra import openmetadata as om
+    from olf.infra.openmetadata._auth import admin_password, automation_token
+    from olf.infra.openmetadata._role_sync import apply_role_sync
+    from olf.infra.openmetadata._sso import apply_sso
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
     governance = _governance_service()
@@ -148,7 +148,7 @@ def openmetadata_list_domains(
     json_output: bool = typer.Option(False, "--json", help="Print the domains as JSON."),
 ) -> None:
     """List the domains OpenMetadata exposes, sorted by name. Read-only."""
-    from olf.commands.runtime import provider_contract_environment
+    from olf.infra.commands.runtime import provider_contract_environment
 
     with provider_contract_environment(
         provider=provider,
@@ -172,10 +172,11 @@ def openmetadata_list_domains(
 
 def list_openmetadata_domains() -> list[tuple[str, str]]:
     """Read every domain's name and display name from the deployed OpenMetadata."""
-    from olf import k8s, layers
-    from olf.clients.base import ServiceClientError
-    from olf.clients.openmetadata import OpenMetadataClient
-    from olf.openmetadata._auth import AUTOMATION_SECRET, automation_token
+    from olf.common import layers
+    from olf.common.clients.base import ServiceClientError
+    from olf.common.clients.openmetadata import OpenMetadataClient
+    from olf.infra import k8s
+    from olf.infra.openmetadata._auth import AUTOMATION_SECRET, automation_token
 
     if not layers.enabled(os.environ, "governance"):
         raise typer.Exit(

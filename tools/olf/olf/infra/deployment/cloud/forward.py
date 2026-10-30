@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import dataclasses
 
-from olf.deployment.cloud.backend import CloudBackend
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.portforward import ForwardSpec, ForwardTarget
+from olf.infra.deployment.cloud.backend import CloudBackend
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.portforward import ForwardSpec, ForwardTarget
 
 _BANNER_LINES: dict[str, str] = {
     "seaweedfs-s3": "  SeaweedFS S3:     http://localhost:9000",

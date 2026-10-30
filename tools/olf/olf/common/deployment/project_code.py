@@ -10,9 +10,9 @@ from pathlib import Path
 
 import yaml
 
-from olf.deployment.context import DeploymentContext, DeploymentPaths
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.profile import resolve_declared_project
+from olf.common.deployment.context import DeploymentContext, DeploymentPaths
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.profile import resolve_declared_project
 
 
 @contextmanager

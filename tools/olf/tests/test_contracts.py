@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from olf.contracts import build_contract_env, render_shell_exports
+from olf.infra.contracts import build_contract_env, render_shell_exports
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -49,7 +49,7 @@ def test_defaults_without_contracts_match_local_profile() -> None:
 
 
 def test_unsupported_provider_contract_version_is_rejected() -> None:
-    from olf.contracts import ProviderContractError
+    from olf.infra.contracts import ProviderContractError
 
     contracts = load_fixture("local-provider-contracts.json")
     contracts["schema_version"] = "9.0.0"
@@ -241,8 +241,8 @@ def test_a_v2_contract_refuses_to_answer_for_another_stage() -> None:
     """v2 carries one stage's bindings with no stage index. Serving it for
     another stage would hand that stage DEV's namespace, catalog, and
     capability flags while reporting success."""
-    from olf.contracts import ProviderContractError
-    from olf.profile import Preset, Provider, StageName, legacy_single_stage_topology
+    from olf.common.profile import Preset, Provider, StageName, legacy_single_stage_topology
+    from olf.infra.contracts import ProviderContractError
 
     contracts = load_fixture("local-provider-contracts.json")
     topology = legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.SLIM)
@@ -270,8 +270,8 @@ def test_provenance_is_recorded_only_for_an_applied_contract() -> None:
 def test_a_contract_file_replaces_terraform_state_and_fails_closed_when_missing(tmp_path: Path) -> None:
     """A CI deploy job has no platform Terraform state (#119); a file it named
     but cannot read must never read as "not applied yet"."""
-    from olf.contract_state import PROVIDER_CONTRACTS_FILE_ENV, load_provider_contracts
-    from olf.provider_contracts import ProviderContractError
+    from olf.common.contract_state import PROVIDER_CONTRACTS_FILE_ENV, load_provider_contracts
+    from olf.common.provider_contracts import ProviderContractError
 
     fixture = FIXTURES / "conformance-provider-contracts.json"
     loaded = load_provider_contracts("/nonexistent", environ={PROVIDER_CONTRACTS_FILE_ENV: str(fixture)})

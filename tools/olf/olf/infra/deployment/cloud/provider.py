@@ -1,7 +1,7 @@
 """`DeploymentProvider` implementation for the AWS/Azure cloud stack.
 
-Mirrors `olf.deployment.local.provider.LocalProvider`: every method is a
-thin delegate into a sibling `olf.deployment.cloud.*` module, so the
+Mirrors `olf.infra.deployment.local.provider.LocalProvider`: every method is a
+thin delegate into a sibling `olf.infra.deployment.cloud.*` module, so the
 granular Make target delegates and the combined `olf deploy`/`olf destroy`
 verbs share the exact same code path.
 
@@ -24,16 +24,16 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.engine import DeploymentPhase
-from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
-from olf.tooling import docker as docker_tooling
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
+from olf.common.tooling import docker as docker_tooling
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.engine import DeploymentPhase
 
 if TYPE_CHECKING:
-    from olf.deployment.context import DeploymentContext
-    from olf.deployment.status import StatusReport
+    from olf.common.deployment.context import DeploymentContext
+    from olf.infra.deployment.status import StatusReport
 
 
 @dataclass
@@ -78,7 +78,7 @@ class CloudProvider:
         # Terraform receives SDK-mediated credentials only for OLF-managed
         # browser sessions. Ambient SDK/CI credentials retain their normal
         # provider-native behavior.
-        from olf.auth import credential_selection_environment, terraform_auth_environment
+        from olf.infra.auth import credential_selection_environment, terraform_auth_environment
 
         command_environment = {
             **base,
@@ -91,7 +91,7 @@ class CloudProvider:
 
     @cached_property
     def foundation_facts(self) -> FoundationFacts:
-        from olf.deployment.cloud import foundation
+        from olf.infra.deployment.cloud import foundation
 
         return foundation.require_foundation_facts(self.config, self.tools, self.backend, env=self._base_env)
 
@@ -106,14 +106,14 @@ class CloudProvider:
         return resolved_context.command_env(base=self._base_env, docker_host=self._base_env.get("DOCKER_HOST"))
 
     def foundation_up(self) -> None:
-        from olf.deployment.cloud import foundation
+        from olf.infra.deployment.cloud import foundation
 
         foundation.foundation_up(self.config, self.tools, self.backend, environ=self._environ, env=self._base_env)
         self.__dict__.pop("foundation_facts", None)
         self.__dict__.pop("env", None)
 
     def foundation_down(self, *, force: bool = False) -> None:
-        from olf.deployment.cloud import foundation
+        from olf.infra.deployment.cloud import foundation
 
         foundation.foundation_down(
             self.config,
@@ -136,8 +136,8 @@ class CloudProvider:
         cloud cluster can only pull from its registry, so an unpushed build
         could never be activated.
         """
-        from olf.deployment.cloud import images
-        from olf.deployment.errors import DeploymentPreconditionError
+        from olf.common.deployment.errors import DeploymentPreconditionError
+        from olf.infra.deployment.cloud import images
 
         if self.config.images.project_code_published:
             return self.config.images.project_code_image
@@ -151,22 +151,22 @@ class CloudProvider:
         )
 
     def platform_up(self) -> None:
-        from olf.deployment.cloud import platform
+        from olf.infra.deployment.cloud import platform
 
         platform.platform_up(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
 
     def platform_down(self) -> None:
-        from olf.deployment.cloud import teardown
+        from olf.infra.deployment.cloud import teardown
 
         teardown.platform_down(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
 
     def artifacts_deploy(self) -> None:
-        from olf.deployment.cloud import artifacts
+        from olf.infra.deployment.cloud import artifacts
 
         artifacts.artifacts_deploy(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
 
     def status(self) -> StatusReport:
-        from olf.deployment.status import collect_status
+        from olf.infra.deployment.status import collect_status
 
         facts = self.foundation_facts
         return collect_status(
@@ -178,8 +178,8 @@ class CloudProvider:
         )
 
     def forward(self) -> None:
-        from olf.deployment.cloud import forward as forward_module
-        from olf.deployment.portforward import PortForwardSupervisor
+        from olf.infra.deployment.cloud import forward as forward_module
+        from olf.infra.deployment.portforward import PortForwardSupervisor
 
         facts = self.foundation_facts
         spec = forward_module.cloud_forward_spec(self.config, self.backend, kube_context=facts.kube_context)
@@ -189,8 +189,8 @@ class CloudProvider:
         supervisor.run(spec, env=self.env)
 
     def plan(self, phase: DeploymentPhase) -> bool:
-        from olf.deployment.cloud import foundation, platform
-        from olf.deployment.errors import DeploymentPreconditionError
+        from olf.common.deployment.errors import DeploymentPreconditionError
+        from olf.infra.deployment.cloud import foundation, platform
 
         changes = False
         if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
@@ -227,8 +227,8 @@ class CloudProvider:
         return changes
 
     def doctor(self, phase: DeploymentPhase) -> DoctorReport:
-        from olf.deployment.cloud import foundation
-        from olf.deployment.errors import DeploymentError
+        from olf.common.deployment.errors import DeploymentError
+        from olf.infra.deployment.cloud import foundation
 
         required = ["terraform", "kubectl"]
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
@@ -242,7 +242,7 @@ class CloudProvider:
             tools=self.tools,
             required_tools=required,
         )
-        from olf.auth import credential_selection_environment
+        from olf.infra.auth import credential_selection_environment
 
         # `command_env` scopes DOCKER_CONFIG to an OLF-owned directory, which
         # drops the user's `currentContext`. Resolve the active engine
@@ -290,8 +290,8 @@ class CloudProvider:
                 )
             )
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
-            from olf.contract_state import load_provider_contracts
-            from olf.contracts import ProviderContractError
+            from olf.common.contract_state import load_provider_contracts
+            from olf.infra.contracts import ProviderContractError
 
             contract_dir = Path(
                 self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)

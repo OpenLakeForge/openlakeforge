@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from olf.artifact_store import RevisionStore, publish_immutable, read_required
-from olf.project import ProjectSpec, validate_project
+from olf.common.project import ProjectSpec, validate_project
+from olf.infra.artifact_store import RevisionStore, publish_immutable, read_required
 
 MANIFEST_API_VERSION = "openlakeforge.io/v1alpha1"
 MANIFEST_KIND = "ProjectRevision"
@@ -274,7 +274,7 @@ def _aggregate_components(components: Iterable[ComponentEntries]) -> str:
 def manifest_schema_errors(payload: dict[str, Any], *, schema_root: Path) -> list[str]:
     """Validate a rendered manifest against its versioned JSON Schema.
 
-    Mirrors `olf.contracts_check.descriptor_schema_errors`/
+    Mirrors `olf.common.contracts_check.descriptor_schema_errors`/
     `profile_schema_errors`: the hand-rolled model above and this schema
     validate independently, and neither substitutes for the other.
     """
@@ -407,7 +407,7 @@ def _dagster_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
 def _reports_component(project: ProjectSpec, inventory: Any) -> ComponentEntries | None:
     if not inventory.dashboards:
         return None
-    from olf.superset import validate_report_bundles
+    from olf.infra.superset import validate_report_bundles
 
     # Report bundles are the one component promotion never re-derives: PROD
     # imports what DEV exported, and #130 forbids exporting from PROD to
@@ -432,7 +432,7 @@ def is_digest_pinned(image: str) -> bool:
 
 
 def _default_resolve_image_digest(image: str) -> str:
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.tooling.toolkit import Toolkit
 
     tools = Toolkit.default()
     result = tools.docker.image_inspect(image, check=False)
@@ -543,7 +543,7 @@ def publish(store: RevisionStore, manifest: ProjectRevisionManifest, project: Pr
     publish drifted content under a prefix whose sidecar claims a different
     digest.
     """
-    from olf.artifact_store import ArtifactStoreError
+    from olf.infra.artifact_store import ArtifactStoreError
 
     prefix = revision_prefix(manifest.revision)
     try:
@@ -573,7 +573,7 @@ def publish(store: RevisionStore, manifest: ProjectRevisionManifest, project: Pr
 
 def inspect(store: RevisionStore, revision: str) -> ProjectRevisionManifest:
     """Read a published manifest without verifying every referenced object."""
-    from olf.artifact_store import ArtifactStoreError
+    from olf.infra.artifact_store import ArtifactStoreError
 
     try:
         content = read_required(store, sidecar_key(revision))
@@ -591,7 +591,7 @@ def verify(
     store: RevisionStore, revision: str, *, running_distribution_version: str | None = None
 ) -> ProjectRevisionManifest:
     """Verify manifest self-consistency, the compatibility gate, and every published object's digest."""
-    from olf.artifact_store import ArtifactStoreError
+    from olf.infra.artifact_store import ArtifactStoreError
 
     manifest = inspect(store, revision)
     if running_distribution_version is not None and manifest.distribution_version != running_distribution_version:
@@ -624,7 +624,7 @@ def materialize(store: RevisionStore, manifest: ProjectRevisionManifest, destina
     deliberately the authority here, so reject path shapes that a hand-written
     sidecar could use to escape the temporary root before writing a byte.
     """
-    from olf.artifact_store import ArtifactStoreError
+    from olf.infra.artifact_store import ArtifactStoreError
 
     destination = destination.resolve()
     if destination.exists() and any(destination.iterdir()):

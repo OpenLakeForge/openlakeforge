@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from olf.e2e import _perimeter_latency as lat
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _perimeter_latency as lat
+from olf.infra.e2e._shell import E2EError
 
 
 def test_summarize_reports_median_and_p95_in_ms() -> None:

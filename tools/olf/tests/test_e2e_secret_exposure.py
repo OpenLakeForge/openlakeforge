@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from olf import k8s
-from olf.e2e import _secret_exposure as exposure
-from olf.e2e._shell import E2EError
+from olf.infra import k8s
+from olf.infra.e2e import _secret_exposure as exposure
+from olf.infra.e2e._shell import E2EError
 
 ADMIN = "A" * 32
 CLIENT = "c1ientSecret0123456789abcdefXYZ"

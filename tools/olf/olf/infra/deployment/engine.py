@@ -15,20 +15,20 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypeGuard
 
-from olf.deployment.context import DeploymentContext
-from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
-from olf.deployment.inspection import DoctorReport, project_not_runnable_reason
-from olf.profile import Provider
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
+from olf.common.deployment.inspection import DoctorReport, project_not_runnable_reason
+from olf.common.profile import Provider
+from olf.common.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:
-    from olf.deployment.charts import ChartSetting
-    from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
-    from olf.deployment.cloud.config import CloudDeploymentConfig
-    from olf.deployment.context import DeploymentPaths
-    from olf.deployment.local.config import LocalDeploymentConfig
-    from olf.deployment.status import StatusReport
-    from olf.tooling.retry import RetryPolicy
+    from olf.common.deployment.charts import ChartSetting
+    from olf.common.deployment.context import DeploymentPaths
+    from olf.common.deployment.local.config import LocalDeploymentConfig
+    from olf.common.tooling.retry import RetryPolicy
+    from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
+    from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+    from olf.infra.deployment.status import StatusReport
 
 
 class DeploymentPhase(StrEnum):
@@ -87,7 +87,7 @@ class DeploymentProvider(Protocol):
     duplicated between the two call paths.
     """
 
-    # Stage activation (`olf.deployment.activation`) drives Helm and Docker
+    # Stage activation (`olf.infra.deployment.activation`) drives Helm and Docker
     # through the provider instead of building its own toolkit, so the toolkit
     # is part of what a provider promises its callers. Leaving it off meant
     # every shared caller reached past this Protocol into the concrete
@@ -228,17 +228,17 @@ def build_provider(
 ) -> DeploymentProvider:
     """Build the `DeploymentProvider` for `context.provider`."""
     if context.provider == Provider.LOCAL:
-        from olf.deployment.local.config import LocalDeploymentConfig
-        from olf.deployment.local.provider import LocalProvider
+        from olf.common.deployment.local.config import LocalDeploymentConfig
+        from olf.infra.deployment.local.provider import LocalProvider
 
         local_config = LocalDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
         return LocalProvider.create(local_config, toolkit=toolkit, environ=environ)
 
     if context.provider in (Provider.AWS, Provider.AZURE):
-        from olf.deployment.cloud.aws import AwsBackend
-        from olf.deployment.cloud.azure import AzureBackend
-        from olf.deployment.cloud.config import CloudDeploymentConfig
-        from olf.deployment.cloud.provider import CloudProvider
+        from olf.infra.deployment.cloud.aws import AwsBackend
+        from olf.infra.deployment.cloud.azure import AzureBackend
+        from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+        from olf.infra.deployment.cloud.provider import CloudProvider
 
         cloud_config = CloudDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
         backend = AwsBackend() if context.provider == Provider.AWS else AzureBackend()

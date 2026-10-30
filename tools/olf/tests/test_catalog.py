@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from openlakeforge_domain import CatalogNamespace
 
-from olf import catalog
+from olf.infra import catalog
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -184,7 +184,7 @@ class FakeClient:
     """Records the reconciliation calls apply_namespace_sync makes.
 
     Deliberately provider-agnostic: this is the NamespaceClient protocol both
-    olf.polaris.PolarisClient and olf.glue.GlueClient implement.
+    olf.infra.polaris.PolarisClient and olf.infra.glue.GlueClient implement.
     """
 
     def __init__(self) -> None:

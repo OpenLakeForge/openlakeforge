@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from olf.e2e import _issuer_outage as drill
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _issuer_outage as drill
+from olf.infra.e2e._shell import E2EError
 
 REASON = "e2e issuer-outage drill abc"
 

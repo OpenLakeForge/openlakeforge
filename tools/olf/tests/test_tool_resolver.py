@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.errors import ExecutableNotFoundError
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.deployment.errors import ExecutableNotFoundError
+from olf.common.tooling.resolver import PathExecutableResolver
 
 
 def test_resolves_executable_from_path() -> None:

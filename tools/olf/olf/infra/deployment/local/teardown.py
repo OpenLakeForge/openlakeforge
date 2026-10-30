@@ -2,19 +2,19 @@
 
 Port of `scripts/local/stack/teardown.sh`. Destroys the Terraform-managed
 platform (Helm releases, namespaces) while leaving the kind cluster running;
-foundation teardown is a separate step (`olf.deployment.local.foundation`).
+foundation teardown is a separate step (`olf.infra.deployment.local.foundation`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-from olf import log
-from olf.deployment import kube_ops
-from olf.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.deployment.local.platform import platform_destroy_variables, platform_var_files, restore_stock_corefile
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment import kube_ops
+from olf.infra.deployment.local.platform import platform_destroy_variables, platform_var_files, restore_stock_corefile
 
 LEGACY_HELM_RELEASES = ("trino", "polaris", "seaweedfs", "garage")
 

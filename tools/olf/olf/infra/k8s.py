@@ -21,8 +21,8 @@ import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
-from olf import log
-from olf.tooling.resolver import build_resolver
+from olf.common import log
+from olf.common.tooling.resolver import build_resolver
 
 _JWT = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
 
@@ -395,7 +395,7 @@ def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
     """Poll an HTTP endpoint until it answers at all (any status means reachable).
 
     Through `requests`, so an ingress URL is verified against the bundle
-    `olf.access.service_url` selects.
+    `olf.infra.access.service_url` selects.
     """
     import requests
 

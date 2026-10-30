@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
-from olf.openmetadata._config import OpenMetadataConfig
-from olf.openmetadata._reconciliation import OpenMetadataReconciler
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from olf.infra.openmetadata._config import OpenMetadataConfig
+from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
 
 # `build_contract_env` writes these only where a provider contract was
 # actually applied for the stage being deployed; `OpenMetadataConfig` refuses

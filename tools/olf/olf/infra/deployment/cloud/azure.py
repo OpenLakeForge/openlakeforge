@@ -10,15 +10,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
-from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import topology_variables
-from olf.deployment.env_settings import env as _env
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.portforward import ForwardTarget
-from olf.tooling.azure import ACR_USERNAME, AzureSdk
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY
+from olf.common.deployment.context import topology_variables
+from olf.common.deployment.env_settings import env as _env
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.portforward import ForwardTarget
+from olf.infra.tooling.azure import ACR_USERNAME, AzureSdk
 
 _DEFAULT_CLUSTER_NAME = "aks-openlakeforge-poc"
 
@@ -145,7 +145,7 @@ class AzureBackend:
         tools.docker.login(registry_host, username=ACR_USERNAME, password=password, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
-        from olf.deployment.cloud.images import resolve_effective_images
+        from olf.infra.deployment.cloud.images import resolve_effective_images
 
         images = resolve_effective_images(config.images, facts)
         return topology_variables(config.context) | {

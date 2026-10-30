@@ -12,11 +12,11 @@ import json
 import platform
 from collections.abc import Mapping
 
-from olf import log
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.image_build import build_project_code_image, build_superset_image
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.image_build import build_project_code_image, build_superset_image
+from olf.common.tooling.toolkit import Toolkit
 
 
 def load_image_into_kind(image: str, config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
@@ -99,7 +99,7 @@ def prepare_project_code_image(
     if config.images.project_code_published:
         # An artifacts-only run may follow a deploy of a different image, so nothing else has put this one on the nodes.
         log.step("Ensuring the published project-code image is available to kind...")
-        from olf.deployment.local.prefetch import load_image_into_nodes
+        from olf.infra.deployment.local.prefetch import load_image_into_nodes
 
         load_image_into_nodes(config, tools, config.images.project_code_image, env=env)
         return

@@ -10,19 +10,13 @@ from pathlib import Path
 
 import typer
 
-from olf.commands.checks._shared import (
-    _check_cache_root,
-    _distribution_root_for,
-    _root,
-    _run,
-    _uv_pip_install,
-)
-from olf.log import fail
+from olf.common.commands.checks._shared import _check_cache_root, _distribution_root_for, _root, _run, _uv_pip_install
+from olf.common.log import fail
 
 
 def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Load the merged Dagster definitions in the project-code dependency set."""
-    from olf.project import ProjectSpec
+    from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
     project = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
@@ -70,7 +64,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }
-    _run([sys.executable, "-m", "olf.project_code_check", str(project.root)], cwd=project.root, env=env)
+    _run([sys.executable, "-m", "olf.common.project_code_check", str(project.root)], cwd=project.root, env=env)
 
 
 def _source_tree_digest(directory: Path) -> str:

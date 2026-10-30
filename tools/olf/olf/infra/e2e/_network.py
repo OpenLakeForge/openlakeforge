@@ -24,10 +24,11 @@ from typing import Any
 
 import yaml
 
-from olf import k8s, log
-from olf.deployment.context import stage_namespace
-from olf.e2e._shell import E2EConfig, E2EError, kubectl
-from olf.profile import StageName
+from olf.common import log
+from olf.common.deployment.context import stage_namespace
+from olf.common.profile import StageName
+from olf.infra import k8s
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 FLOWS_FILE = "release/network-flows.yaml"
 UNTRUSTED_NAMESPACE = "olf-e2e-untrusted"

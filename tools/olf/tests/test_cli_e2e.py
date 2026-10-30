@@ -30,7 +30,7 @@ def contract_env_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     the only observable that says which Deployment Profile this command
     resolved.
     """
-    from olf import contracts as contracts_module
+    from olf.infra import contracts as contracts_module
 
     calls: list[dict] = []
 
@@ -38,7 +38,10 @@ def contract_env_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         calls.append({"repo_root": repo_root, "topology": topology, "stage": stage})
         return ({}, [])
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir, *, environ=None: None)
+    monkeypatch.setattr(
+        "olf.common.contract_state.load_provider_contracts",
+        lambda terraform_dir, *, environ=None: None,
+    )
     monkeypatch.setattr(contracts_module, "build_contract_env", _build_contract_env)
     return calls
 
@@ -96,7 +99,7 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
         )
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr("olf.e2e.run", _fake_run)
+    monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local"])
 
@@ -118,7 +121,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     """The `aws-e2e`/`azure-e2e` Make targets never set `KUBE_CONTEXT` - only
     `AWS_CLUSTER_NAME`/`AZURE_CLUSTER_NAME`. `applied_contract_environment` always
     exports `KUBE_CONTEXT`, so it must resolve to the provider's cluster-name
-    fallback rather than an empty string that would defeat `olf.e2e.run`'s own
+    fallback rather than an empty string that would defeat `olf.infra.e2e.run`'s own
     `os.environ.get("KUBE_CONTEXT", ...)` fallback.
     """
     calls: list[dict] = []
@@ -131,7 +134,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setenv("AWS_CLUSTER_NAME", "limited-eks-openlakeforge-poc")
     monkeypatch.delenv("KUBE_CONTEXT", raising=False)
-    monkeypatch.setattr("olf.e2e.run", _fake_run)
+    monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "aws"])
 
@@ -158,7 +161,7 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setenv("AWS_KUBECONFIG_PATH", str(override))
     monkeypatch.delenv("KUBECONFIG", raising=False)
-    monkeypatch.setattr("olf.e2e.run", _fake_run)
+    monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "aws"])
 
@@ -177,7 +180,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
     directory. This exercises `deployment_context` being called with
     `--project-root` and every downstream default following the returned
     context's paths instead of `config.repo_root()`."""
-    from olf.deployment.context import DeploymentContext
+    from olf.common.deployment.context import DeploymentContext
 
     project_root = tmp_path / "project"
     distribution_root = tmp_path / "distribution"
@@ -203,8 +206,8 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
         contract_dirs_seen.append(terraform_dir)
         return None
 
-    monkeypatch.setattr("olf.commands.e2e.deployment_context", _fake_deployment_context)
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _fake_load_contracts)
+    monkeypatch.setattr("olf.infra.commands.e2e.deployment_context", _fake_deployment_context)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _fake_load_contracts)
 
     calls: list[dict] = []
 
@@ -219,7 +222,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
             }
         )
 
-    monkeypatch.setattr("olf.e2e.run", _fake_run)
+    monkeypatch.setattr("olf.infra.e2e.run", _fake_run)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local", "--project-root", str(project_root)])
 
@@ -236,13 +239,13 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
 
 
 def test_e2e_run_maps_e2e_error_to_exit_1(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from olf import e2e
+    from olf.infra import e2e
 
     def _raise(*a, **k):  # noqa: ANN002, ANN003, ARG001
         raise e2e.E2EError("cluster not reachable")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr("olf.e2e.run", _raise)
+    monkeypatch.setattr("olf.infra.e2e.run", _raise)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local"])
 
@@ -257,12 +260,12 @@ def test_e2e_run_surfaces_a_toolchain_failure_from_contract_resolution_cleanly(
     resolving the provider-contract environment - before e2e.run() and its
     own E2EError-only preflight are ever reached - must fail the same clean
     way as an E2EError, not escape as a raw ToolchainError traceback."""
-    from olf.deployment.errors import ToolchainError
+    from olf.common.deployment.errors import ToolchainError
 
     def _raise(terraform_dir, *, environ=None):  # noqa: ANN001, ANN202
         raise ToolchainError("terraform", reason="digest mismatch")
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _raise)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _raise)
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local"])
@@ -297,7 +300,7 @@ def test_e2e_run_file_selects_the_topology_that_reaches_contract_parsing(
     _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: None)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(deployed / "openlakeforge.yaml")])
 
@@ -313,7 +316,7 @@ def test_e2e_run_without_a_profile_file_keeps_resolving_the_project_root(
     _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: None)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local"])
 
@@ -330,7 +333,7 @@ def test_e2e_run_profile_shorthand_resolves_the_topology_olf_deploy_profile_appl
     _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: None)
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local", "--profile", "full"])
 
@@ -342,14 +345,14 @@ def test_e2e_run_profile_shorthand_resolves_the_topology_olf_deploy_profile_appl
 def test_e2e_run_stage_selects_a_stage_of_the_profile_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
 ) -> None:
-    from olf.profile import StageName
+    from olf.common.profile import StageName
 
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile, name="two-stage", preset="slim", stages=("dev", "prod"))
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     namespaces: list[str] = []
-    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: namespaces.append(k["namespace"]))
+    monkeypatch.setattr("olf.infra.e2e.run", lambda *a, **k: namespaces.append(k["namespace"]))
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
 

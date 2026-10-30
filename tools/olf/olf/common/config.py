@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from olf.project import ProjectSpec
+from olf.common.project import ProjectSpec
 
 
 def namespace() -> str:

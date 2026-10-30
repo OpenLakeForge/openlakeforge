@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from olf import config
+from olf.common import config
 
 app = typer.Typer(help="Kubernetes image bookkeeping helpers.")
 
@@ -15,6 +15,6 @@ def k8s_set_project_code_image(
     timeout: str = typer.Option("600s", "--timeout", help="Timeout for each Dagster deployment rollout."),
 ) -> None:
     """Point every Dagster surface at an image and wait for one rollout."""
-    from olf import k8s
+    from olf.infra import k8s
 
     k8s.set_project_code_image(image, config.namespace(), rollout_timeout=timeout)

@@ -10,7 +10,7 @@ from typing import Any
 
 from azure.mgmt.resource.subscriptions import SubscriptionClient
 
-from olf.auth import AuthenticationError, azure_credential, load_state
+from olf.infra.auth import AuthenticationError, azure_credential, load_state
 
 _SUPPORTED_ACCOUNT_COMMANDS = (["account", "list"], ["account", "show"], ["account", "get-access-token"])
 

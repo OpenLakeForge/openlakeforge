@@ -8,8 +8,8 @@ from typing import Any
 
 import hcl2
 
-from olf import contract_state
-from olf.contracts_check._report import CheckResult
+from olf.common import contract_state
+from olf.common.contracts_check._report import CheckResult
 
 # Terraform environment roots that carry a `contracts.tf` provider-contract
 # surface (ADR-defined; local/azure-poc/aws-poc are the only ones today).
@@ -331,14 +331,14 @@ def _installed_contract_environ(env: str) -> dict[str, str] | None:
     installed distribution's `terraform output` reads the read-only
     payload's absent default state instead of what `olf deploy` wrote under
     `OLF_HOME`, and every environment is silently reported as unapplied
-    (see `olf.tooling.terraform.external_state_options`). Returns `None`
+    (see `olf.common.tooling.terraform.external_state_options`). Returns `None`
     for a source checkout, where Terraform's own directory-relative default
     state is correct and `load_provider_contracts` already handles it.
     """
     import os
 
-    from olf.deployment.context import DeploymentContext
-    from olf.distribution import runtime_layout
+    from olf.common.deployment.context import DeploymentContext
+    from olf.common.distribution import runtime_layout
 
     layout = runtime_layout()
     if layout.is_source:

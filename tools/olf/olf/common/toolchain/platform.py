@@ -9,7 +9,7 @@ from __future__ import annotations
 import platform as _platform
 from dataclasses import dataclass
 
-from olf.toolchain.errors import ToolchainError
+from olf.common.toolchain.errors import ToolchainError
 
 
 class UnsupportedPlatformError(ToolchainError):

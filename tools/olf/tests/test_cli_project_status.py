@@ -3,7 +3,7 @@
 The command had no coverage at all, which is how it came to call
 `release_runs_activation` without an argument that had become required: the
 break was a `TypeError` on the ordinary path, invisible because
-`olf.commands.project` carries `ignore_errors` in the mypy overrides.
+`olf.infra.commands.project` carries `ignore_errors` in the mypy overrides.
 
 The collaborators that need a cluster, an object store, or a profile on disk
 are stubbed. `release_runs_activation` deliberately is not -- it is the call
@@ -21,10 +21,10 @@ import pytest
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.commands import project as project_cmd
-from olf.deployment.context import DeploymentContext
-from olf.profile import StageName, resolve_topology, validate_deployment_profile
-from olf.project_activation import ProjectActivation
+from olf.common.deployment.context import DeploymentContext
+from olf.common.profile import StageName, resolve_topology, validate_deployment_profile
+from olf.infra.commands import project as project_cmd
+from olf.infra.project_activation import ProjectActivation
 
 FIXTURES = Path(__file__).parent / "fixtures"
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
@@ -130,9 +130,9 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", lambda *a, **k: context)
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *a, **k: provider)
     monkeypatch.setattr(project_cmd, "_artifact_transport", lambda *a, **k: object())
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *a, **k: state.contract)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *a, **k: state.contract)
     monkeypatch.setattr(
-        "olf.profile.load_deployment_profile",
+        "olf.common.profile.load_deployment_profile",
         lambda *a, **k: SimpleNamespace(
             project=SimpleNamespace(
                 repository=None,
@@ -142,9 +142,9 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         ),
     )
 
-    from olf import artifact_store, project_activation
-    from olf.deployment import activation as activation_module
-    from olf.deployment import contract_env
+    from olf.infra import artifact_store, project_activation
+    from olf.infra.deployment import activation as activation_module
+    from olf.infra.deployment import contract_env
 
     @contextmanager
     def _env(**kwargs):  # noqa: ANN003, ANN202
@@ -202,12 +202,12 @@ def test_status_reports_drift_when_a_contracted_location_is_missing(stage) -> No
 
 
 def test_status_fails_cleanly_on_an_unreadable_contract(stage, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
-    from olf.provider_contracts import ProviderContractError
+    from olf.common.provider_contracts import ProviderContractError
 
     def _unreadable(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
         raise ProviderContractError("OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE=/gone.json: No such file")
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _unreadable)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _unreadable)
 
     result = runner.invoke(app, ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev"])
 

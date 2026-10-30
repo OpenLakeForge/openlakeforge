@@ -294,7 +294,7 @@ activated.
 
 | Workload | Receives | From | Missing value |
 | --- | --- | --- | --- |
-| Code-location server | The contract values the runtime reads (`_RUNTIME_ENV` in `tools/olf/olf/deployment/activation.py`), `OPENLAKEFORGE_STAGE`, and the storage, Floe-catalog and lineage Secrets | The stage's provider contract, through the activation's Helm release | The value is absent. The allowlist test fails when runtime code reads a name nothing sets. |
+| Code-location server | The contract values the runtime reads (`_RUNTIME_ENV` in `tools/olf/olf/infra/deployment/activation.py`), `OPENLAKEFORGE_STAGE`, and the storage, Floe-catalog and lineage Secrets | The stage's provider contract, through the activation's Helm release | The value is absent. The allowlist test fails when runtime code reads a name nothing sets. |
 | Run pod | Everything the server has (`includeConfigInLaunchedRuns`), plus the source bindings of its job | The release, plus the job's `dagster-k8s/config` tag | Kubernetes does not start a pod whose ConfigMap or Secret key is absent |
 | Floe Job | The contract values the run pod forwards to it | dagster-floe | `libs/floe_profile.py` raises naming the variable |
 | dbt in a run pod | `OPENLAKEFORGE_QUERY_TRINO_*`, `OPENLAKEFORGE_DBT_TRINO_*`, `OPENLAKEFORGE_CATALOG_NAME` and `_SCHEMA_PREFIX` | The run pod's env, through the profile's `env_var()` | dbt fails to render the profile |

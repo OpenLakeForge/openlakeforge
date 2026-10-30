@@ -5,13 +5,13 @@ from typing import Any
 import pytest
 from conftest import E2E_INVENTORY, e2e_cfg
 
-from olf.clients import dagster as dagster_client_module
-from olf.clients.base import ServiceClientError
-from olf.clients.dagster import DagsterClient, DagsterTransientError
-from olf.contract_state import PROVIDER_CONTRACTS_FILE_ENV
-from olf.contracts import CONTRACT_STAGE_ENV
-from olf.e2e import _dagster
-from olf.e2e._shell import E2EConfig, E2EError
+from olf.common.clients import dagster as dagster_client_module
+from olf.common.clients.base import ServiceClientError
+from olf.common.clients.dagster import DagsterClient, DagsterTransientError
+from olf.common.contract_state import PROVIDER_CONTRACTS_FILE_ENV
+from olf.infra.contracts import CONTRACT_STAGE_ENV
+from olf.infra.e2e import _dagster
+from olf.infra.e2e._shell import E2EConfig, E2EError
 
 
 def test_dagster_repository_discovery_finds_all_pipeline_locations_in_merged_location() -> None:

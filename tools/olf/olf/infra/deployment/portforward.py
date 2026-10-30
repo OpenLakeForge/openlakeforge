@@ -21,8 +21,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.tooling.kubectl import Kubectl
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.kubectl import Kubectl
 
 _TERMINATE_TIMEOUT_SECONDS = 10.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.5

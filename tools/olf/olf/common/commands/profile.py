@@ -8,20 +8,20 @@ from pathlib import Path
 
 import typer
 
-from olf.profile import (
+from olf.common.profile import (
     DeploymentProfile,
     DeploymentProfileError,
     load_deployment_profile,
     resolve_project,
     resolve_topology,
 )
-from olf.project import ProjectSpec
+from olf.common.project import ProjectSpec
 
 app = typer.Typer(help="Validate and resolve the OpenLakeForge Deployment Profile.")
 
 
 def _load(project: str) -> DeploymentProfile:
-    from olf.distribution import runtime_layout
+    from olf.common.distribution import runtime_layout
 
     layout = runtime_layout()
     spec = ProjectSpec(root=Path(project), distribution_root=layout.distribution_root)

@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from olf import project_revision
-from olf.artifact_store import FilesystemRevisionStore
-from olf.project import ProjectSpec
+from olf.common.project import ProjectSpec
+from olf.infra import project_revision
+from olf.infra.artifact_store import FilesystemRevisionStore
 
 _DISTRIBUTION_ROOT = Path(__file__).resolve().parents[3]
 _DIGEST_IMAGE = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "a" * 64
@@ -256,8 +256,8 @@ def test_publish_fails_closed_when_a_source_file_changes_after_build(
 def test_resolve_image_digest_rejects_a_local_config_id_without_a_repo_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.tooling import toolkit as toolkit_module
-    from olf.tooling.process import CommandResult
+    from olf.common.tooling import toolkit as toolkit_module
+    from olf.common.tooling.process import CommandResult
 
     class _FakeDocker:
         def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
@@ -568,8 +568,8 @@ def test_validate_rejects_a_sidecar_with_an_unknown_component_name(external_proj
 def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_repository(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.tooling import toolkit as toolkit_module
-    from olf.tooling.process import CommandResult
+    from olf.common.tooling import toolkit as toolkit_module
+    from olf.common.tooling.process import CommandResult
 
     wrong_repo_digest = "docker.io/someone-else/project-code@sha256:" + "1" * 64
     right_repo_digest = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "2" * 64
@@ -596,8 +596,8 @@ def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_rep
 def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_repository(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.tooling import toolkit as toolkit_module
-    from olf.tooling.process import CommandResult
+    from olf.common.tooling import toolkit as toolkit_module
+    from olf.common.tooling.process import CommandResult
 
     class _FakeDocker:
         def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
@@ -666,7 +666,7 @@ def test_build_still_allows_a_bare_env_lookup_with_no_default(external_project: 
 
 def test_registry_host_only_matches_provider_native_registries() -> None:
     """A revision may live outside the provider's registry; logging in there would fail."""
-    from olf.deployment.activation import _registry_host
+    from olf.infra.deployment.activation import _registry_host
 
     ecr = "883553345052.dkr.ecr.eu-west-3.amazonaws.com/openlakeforge/project-code"
     assert _registry_host(ecr) == "883553345052.dkr.ecr.eu-west-3.amazonaws.com"
@@ -679,7 +679,7 @@ def test_registry_host_only_matches_provider_native_registries() -> None:
 
 def test_ambient_registry_env_restores_the_callers_docker_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """A private GHCR pull can only use credentials `docker login` wrote to the caller's config."""
-    from olf.tooling.docker import ambient_registry_env
+    from olf.common.tooling.docker import ambient_registry_env
 
     scoped = {"DOCKER_CONFIG": "/work/.tmp/docker/local", "AWS_REGION": "eu-west-3"}
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from olf.profile import (
+from olf.common.profile import (
     AccessSpec,
     DeploymentProfileError,
     Preset,
@@ -433,7 +433,7 @@ def test_external_identity_roles_come_from_the_given_distribution_root(
 
 
 def test_a_missing_role_file_is_a_profile_error(tmp_path: Path) -> None:
-    from olf.profile import DeploymentProfileError, _validate_identity
+    from olf.common.profile import DeploymentProfileError, _validate_identity
 
     with pytest.raises(DeploymentProfileError, match="role_mapping: cannot read"):
         _validate_identity(
@@ -638,7 +638,7 @@ def _with_project(project: object, fixture: str = "valid_slim_local.yaml") -> di
 
 
 def _schema_errors(document: dict, tmp_path: Path) -> list[str]:
-    from olf.contracts_check._descriptors import profile_schema_errors
+    from olf.common.contracts_check._descriptors import profile_schema_errors
 
     (tmp_path / "openlakeforge.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
     return [e for e in profile_schema_errors(tmp_path, schema_root=SCHEMAS) if "schema violation" in e]

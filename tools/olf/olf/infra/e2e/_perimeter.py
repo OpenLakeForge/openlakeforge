@@ -4,7 +4,7 @@ These drive the public hostnames on purpose: they test the perimeter itself,
 signing in through Dex's GitHub connector against a stub as per-role users
 (docs/architecture/identity/identity-callers.md).
 Every other e2e path reaches services by port-forward and never sees the
-perimeter (`olf.access.service_url`).
+perimeter (`olf.infra.access.service_url`).
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ from urllib.parse import urlsplit
 
 import requests
 
-from olf import access, config, log
-from olf.e2e._identity_github import (
+from olf.common import config, log
+from olf.infra import access
+from olf.infra.e2e._identity_github import (
     REQUEST_TIMEOUT,
     dex_points_at_stub,
     github_stub,
@@ -26,7 +27,7 @@ from olf.e2e._identity_github import (
     sign_in_with_stub,
     stub_host,
 )
-from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 
 PORTAL_REF = "shared/portal"
 DENIAL_HEADING = "Access is role-restricted"

@@ -8,8 +8,8 @@ from pathlib import Path
 
 from openlakeforge_domain import load_lakehouse_inventory_from_descriptors
 
-from olf.clients.openmetadata import OpenMetadataError
-from olf.contracts import CONTRACT_STAGE_ENV
+from olf.common.clients.openmetadata import OpenMetadataError
+from olf.infra.contracts import CONTRACT_STAGE_ENV
 
 
 @dataclass

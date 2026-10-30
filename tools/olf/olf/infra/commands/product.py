@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._project import writable_project_layout
-from olf.commands._shared import applied_runtime_environment, deployment_context_for_profile
-from olf.log import fail
-from olf.scaffold._commit import commit_plan
-from olf.scaffold._shared import ScaffoldError, parse_source_resource
-from olf.scaffold.product import plan_product_new
+from olf.common.commands._project import writable_project_layout
+from olf.common.log import fail
+from olf.common.scaffold._commit import commit_plan
+from olf.common.scaffold._shared import ScaffoldError, parse_source_resource
+from olf.common.scaffold.product import plan_product_new
+from olf.infra.commands._shared import applied_runtime_environment, deployment_context_for_profile
 
 app = typer.Typer(help="Product-owned Gold scaffolding and pipeline runs.")
 
@@ -76,11 +76,11 @@ def product_run(
     """
     from openlakeforge_domain import FULL_REFRESH_SCOPES, FULL_REFRESH_TAG
 
-    from olf.deployment.errors import DeploymentError
-    from olf.e2e._dagster import launch_and_poll_dagster_jobs
-    from olf.e2e._runner import prepare_config, prepare_kube_context
-    from olf.e2e._shell import E2EError
-    from olf.provider_contracts import ProviderContractError
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.provider_contracts import ProviderContractError
+    from olf.infra.e2e._dagster import launch_and_poll_dagster_jobs
+    from olf.infra.e2e._runner import prepare_config, prepare_kube_context
+    from olf.infra.e2e._shell import E2EError
 
     if full_refresh and full_refresh not in FULL_REFRESH_SCOPES:
         expected = " or ".join(FULL_REFRESH_SCOPES)

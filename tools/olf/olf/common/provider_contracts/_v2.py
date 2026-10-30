@@ -10,10 +10,10 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
-from olf.contract_validation import V3_SCHEMA_VERSION
-from olf.profile import StageName
-from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
-from olf.provider_contracts._validation import _frozen, _mapping
+from olf.common.contract_validation import V3_SCHEMA_VERSION
+from olf.common.profile import StageName
+from olf.common.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
+from olf.common.provider_contracts._validation import _frozen, _mapping
 
 
 def _adapt_v2(payload: Mapping[str, Any]) -> ProviderContracts:

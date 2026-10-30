@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from olf.clients.openmetadata import OpenMetadataError
+from olf.common.clients.openmetadata import OpenMetadataError
 
 
 def display_name_from_name(name: str) -> str:

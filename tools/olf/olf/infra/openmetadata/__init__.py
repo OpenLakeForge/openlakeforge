@@ -9,8 +9,8 @@ only the module boundary moved.
 
 from __future__ import annotations
 
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
-from olf.openmetadata._config import OpenMetadataConfig
-from olf.openmetadata._orchestration import OpenMetadataDeployer
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from olf.infra.openmetadata._config import OpenMetadataConfig
+from olf.infra.openmetadata._orchestration import OpenMetadataDeployer
 
 __all__ = ["OpenMetadataClient", "OpenMetadataError", "OpenMetadataConfig", "OpenMetadataDeployer"]

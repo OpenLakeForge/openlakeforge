@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._shared import (
-    applied_runtime_environment,
-    deployment_context,
-    deployment_context_for_profile,
-)
-from olf.log import fail
+from olf.common.log import fail
+from olf.infra.commands._shared import applied_runtime_environment, deployment_context, deployment_context_for_profile
 
 app = typer.Typer(help="End-to-end environment validation.")
 
@@ -58,8 +54,8 @@ def e2e_run(
     `-f` names the Deployment Profile the deployment was applied from, the
     same way `olf platform apply -f` and `olf project deploy -f` do.
     """
-    from olf import e2e
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
+    from olf.infra import e2e
 
     valid_envs = {"local", "azure", "aws"}
     valid_suites = {"", "full", "smoke"}

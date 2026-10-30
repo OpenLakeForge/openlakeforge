@@ -10,14 +10,14 @@ from pathlib import Path
 import typer
 import yaml
 
-from olf.commands.checks._shared import _root, _run
-from olf.log import fail
-from olf.tooling.toolkit import Toolkit
+from olf.common.commands.checks._shared import _root, _run
+from olf.common.log import fail
+from olf.common.tooling.toolkit import Toolkit
 
 
 def components(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Validate component catalog pins and release-readiness inputs."""
-    from olf import release
+    from olf.common import release
 
     root = _root(repo_root)
     report = release.run_release_check(root)

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from conftest import write_floe_entity
 
-from olf import openmetadata as om
+from olf.infra import openmetadata as om
 
 # `build_contract_env` writes these only where a provider contract was
 # actually applied for the stage being deployed; `OpenMetadataConfig` refuses

@@ -7,8 +7,8 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from olf import log
-from olf.e2e._shell import E2EConfig, E2EError, kubectl
+from olf.common import log
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 READINESS_ATTEMPTS = 60
 READINESS_DELAY_SECONDS = 5

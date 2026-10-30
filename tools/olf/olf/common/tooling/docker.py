@@ -16,10 +16,10 @@ import socket
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf.deployment.errors import CommandExecutionError, ExecutableNotFoundError
-from olf.tooling.process import CommandResult, ProcessRunner
-from olf.tooling.resolver import ExecutableResolver
-from olf.tooling.retry import RetryPolicy, RetryPredicate
+from olf.common.deployment.errors import CommandExecutionError, ExecutableNotFoundError
+from olf.common.tooling.process import CommandResult, ProcessRunner
+from olf.common.tooling.resolver import ExecutableResolver
+from olf.common.tooling.retry import RetryPolicy, RetryPredicate
 
 _SOCKET_CONNECT_TIMEOUT_SECONDS = 0.5
 

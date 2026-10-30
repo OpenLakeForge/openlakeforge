@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from olf.auth.state import AuthenticationError, _write_private_text, auth_home, load_state, save_state
+from olf.infra.auth.state import AuthenticationError, _write_private_text, auth_home, load_state, save_state
 
 _ARM_SCOPE = "https://management.azure.com/.default"
 _AZURE_AUTOMATION_VARIABLES = {
@@ -266,7 +266,7 @@ def terraform_auth_environment(environ: Mapping[str, str]) -> dict[str, str]:
         bridge_dir = auth_home(environ) / "azure-terraform-bridge"
         bridge_dir.mkdir(parents=True, exist_ok=True)
         bridge = bridge_dir / "az"
-        _write_private_text(bridge, f"#!{sys.executable}\nfrom olf.azure_bridge import main\nmain()\n")
+        _write_private_text(bridge, f"#!{sys.executable}\nfrom olf.infra.azure_bridge import main\nmain()\n")
         os.chmod(bridge, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         return {
             "PATH": f"{bridge_dir}{os.pathsep}{environ.get('PATH', os.environ.get('PATH', ''))}",

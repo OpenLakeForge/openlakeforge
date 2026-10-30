@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 import typer
 
-from olf import dashboard_checks
-from olf.commands.checks import _project_code, _shared, _structure
+from olf.common import dashboard_checks
+from olf.common.commands.checks import _project_code, _shared, _structure
 
 
 def test_dashboard_validation_accepts_the_repository_assets() -> None:

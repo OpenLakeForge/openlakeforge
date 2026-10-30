@@ -58,7 +58,7 @@ Run every command from the repository root.
 ```
 
 2. While iterating, run only the test module for the code you changed. This
-   example covers `tools/olf/olf/deployment/cloud/config.py`:
+   example covers `tools/olf/olf/infra/deployment/cloud/config.py`:
 
 ```sh
    uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py
@@ -74,7 +74,7 @@ Run every command from the repository root.
 3. Lint the file you touched:
 
 ```sh
-   uv run --project tools/olf ruff check tools/olf/olf/deployment/cloud/config.py
+   uv run --project tools/olf ruff check tools/olf/olf/infra/deployment/cloud/config.py
 ```
 
 4. Before opening a pull request, run all the gates from

@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from olf.toolchain.spec import ToolSpec, activated_filename
+from olf.common.toolchain.spec import ToolSpec, activated_filename
 
 
 def install(archive_path: Path, spec: ToolSpec, *, bin_dir: Path) -> Path:

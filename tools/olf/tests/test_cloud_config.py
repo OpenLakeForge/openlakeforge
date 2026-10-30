@@ -3,14 +3,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from olf.deployment.cloud.config import (
+from olf.common.deployment.context import DeploymentContext, DeploymentFeatures
+from olf.infra.deployment.cloud.config import (
     CloudChartSettings,
     CloudDeploymentConfig,
     CloudImageSettings,
     CloudTerraformSettings,
     default_image_tag,
 )
-from olf.deployment.context import DeploymentContext, DeploymentFeatures
 
 
 def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
@@ -87,7 +87,7 @@ def _write_catalog(tmp_path: Path, *, trino_sha256: str, dagster_sha256: str) ->
     a real `component-catalog.yaml` always declares all of them, so a
     partial fixture would make `CatalogChart.load` raise for any chart
     beyond the two this fixture used to focus on."""
-    from olf.chart_pins import CHART_DEFAULTS
+    from olf.common.chart_pins import CHART_DEFAULTS
 
     overrides = {"trino": trino_sha256, "dagster": dagster_sha256}
     lines = ["components:", "  helm:", "    charts:"]
@@ -180,7 +180,7 @@ def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -
 
 def test_chart_settings_pins_digests_from_catalog_when_installed(tmp_path: Path) -> None:
     """Mirrors the local provider's Trino digest pinning
-    (`olf.deployment.local.config.ChartSettings`): an installed
+    (`olf.common.deployment.local.config.ChartSettings`): an installed
     distribution must verify both cloud charts against the component
     catalog, not accept whatever Helm downloads."""
     trino_sha256 = "a" * 64
@@ -428,8 +428,8 @@ def _published_config(tmp_path: Path, environ: dict[str, str] | None = None, *, 
 
     from test_local_config import _write_full_catalog
 
-    from olf.profile import Preset, legacy_single_stage_topology
-    from olf.profile import Provider as ProfileProvider
+    from olf.common.profile import Preset, legacy_single_stage_topology
+    from olf.common.profile import Provider as ProfileProvider
 
     catalog = _write_full_catalog(tmp_path)
     catalog.write_text(catalog.read_text() + f"  images:\n    project_code: {_PIN}\n")
@@ -447,7 +447,7 @@ def test_no_customer_project_deploys_the_published_example_by_digest(tmp_path: P
 
 
 def test_a_customer_project_never_deploys_the_example(tmp_path: Path) -> None:
-    from olf.profile import ProjectSpec
+    from olf.common.profile import ProjectSpec
 
     for images in (
         _published_config(tmp_path, project=ProjectSpec(repository="https://example.com/acme/code.git")).images,

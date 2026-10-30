@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.local.config import ImageSettings, LocalDeploymentConfig
-from olf.profile import Preset, ProjectImageSpec, ProjectSpec, legacy_single_stage_topology
-from olf.profile import Provider as ProfileProvider
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.local.config import ImageSettings, LocalDeploymentConfig
+from olf.common.profile import Preset, ProjectImageSpec, ProjectSpec, legacy_single_stage_topology
+from olf.common.profile import Provider as ProfileProvider
 
 
 def _write_full_catalog(repo_root: Path, *, overrides: dict[str, str] | None = None) -> Path:
@@ -19,7 +19,7 @@ def _write_full_catalog(repo_root: Path, *, overrides: dict[str, str] | None = N
     real `component-catalog.yaml` always declares all of them, so a partial
     fixture would make `CatalogChart.load` raise for any chart beyond the
     one(s) a given test focuses on."""
-    from olf.chart_pins import CHART_DEFAULTS
+    from olf.common.chart_pins import CHART_DEFAULTS
 
     overrides = overrides or {}
     lines = ["components:", "  helm:", "    charts:"]

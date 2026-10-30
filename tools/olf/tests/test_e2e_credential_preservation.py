@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from conftest import e2e_cfg
 
-from olf import secrets_rotation
-from olf.e2e import _credential_preservation as preservation
-from olf.e2e._shell import E2EError
+from olf.infra import secrets_rotation
+from olf.infra.e2e import _credential_preservation as preservation
+from olf.infra.e2e._shell import E2EError
 
 SAME = {"olf-system/openmetadata-admin/admin-password": "o" * 28, "olf-dev/superset-credentials/secret-key": "s" * 64}
 

@@ -2,7 +2,7 @@
 
 This file runs inside the pinned `ingestion-base` image, which has no `olf`: it is mounted from a
 ConfigMap, so it imports the standard library only. `_app_jwt` is a copy of the signing in
-`olf/github_app.py`; the image's `cryptography` signs it, or the `openssl` CLI when that is absent.
+`olf/infra/github_app.py`; the image's `cryptography` signs it, or the `openssl` CLI when that is absent.
 No token or key is ever printed: errors name the HTTP status and URL path only.
 """
 

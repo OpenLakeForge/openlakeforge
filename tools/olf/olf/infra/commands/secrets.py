@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from olf import log
-from olf.commands._shared import deployment_context, deployment_context_for_profile
-from olf.log import fail
+from olf.common import log
+from olf.common.log import fail
+from olf.infra.commands._shared import deployment_context, deployment_context_for_profile
 
 app = typer.Typer(help="Rotate workload secrets.")
 
@@ -28,9 +28,9 @@ def rotate(
 
     `github-app` registers a new GitHub App through `olf github connect`.
     """
-    from olf import github_app, secrets_rotation
-    from olf.deployment.errors import DeploymentError
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra import github_app, secrets_rotation
 
     if target not in secrets_rotation.TARGETS:
         raise typer.Exit(code=fail(secrets_rotation.unknown_target_message(target)))

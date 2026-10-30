@@ -20,19 +20,20 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from olf import k8s, log
-from olf.deployment import contract_env
-from olf.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
-from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.cloud.images import build_and_push_project_code_image, resolve_effective_images
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import k8s
+from olf.infra.deployment import contract_env
+from olf.infra.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
+from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.cloud.images import build_and_push_project_code_image, resolve_effective_images
 
 
 @contextmanager
 def _applied_authentication_environment(provider: str, environ: Mapping[str, str]):
     """Expose selected auth state to in-process SDK clients for one deploy."""
-    from olf.auth import credential_selection_environment
+    from olf.infra.auth import credential_selection_environment
 
     selected = credential_selection_environment(provider, environ)
     previous = {name: os.environ.get(name) for name in selected}
@@ -50,7 +51,7 @@ def _applied_authentication_environment(provider: str, environ: Mapping[str, str
 def _resolve_contract_terraform_dir(config: CloudDeploymentConfig, environ: Mapping[str, str] | None = None) -> Path:
     """Honor `OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR`, matching the removed
     `scripts/{aws,azure}/stack/deploy-artifacts.sh` (`CONTRACT_TERRAFORM_DIR=
-    "${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-...}"`) and `olf.e2e._runner
+    "${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-...}"`) and `olf.infra.e2e._runner
     ._contract_dir`, both of which resolve this override directly from the
     process environment rather than a provider's curated command env.
     """

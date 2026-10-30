@@ -25,7 +25,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from olf.project import ProjectSpec
+    from olf.common.project import ProjectSpec
 
 _PAYLOAD_ROOTS = (
     "infra/terraform",
@@ -185,7 +185,7 @@ class RuntimeLayout:
     @property
     def project(self) -> ProjectSpec:
         """Resolve this layout's selected data project on demand."""
-        from olf.project import ProjectSpec
+        from olf.common.project import ProjectSpec
 
         return ProjectSpec.from_layout(self)
 
@@ -198,7 +198,7 @@ class DistributionManager:
     @classmethod
     def from_embedded(cls, *, home: Path | None = None) -> DistributionManager:
         try:
-            data = resources.files("olf").joinpath("_embedded/platform.json").read_text(encoding="utf-8")
+            data = resources.files("olf.common").joinpath("_embedded/platform.json").read_text(encoding="utf-8")
         except (FileNotFoundError, ModuleNotFoundError) as exc:
             raise DistributionError("this olf installation has no embedded platform payload") from exc
         parsed = json.loads(data)
@@ -242,7 +242,7 @@ class DistributionManager:
 
     def _archive_bytes(self) -> bytes:
         try:
-            data = resources.files("olf").joinpath("_embedded/platform.tar.gz").read_bytes()
+            data = resources.files("olf.common").joinpath("_embedded/platform.tar.gz").read_bytes()
         except (FileNotFoundError, ModuleNotFoundError) as exc:
             raise DistributionError("embedded platform archive is missing") from exc
         actual = hashlib.sha256(data).hexdigest()
@@ -379,7 +379,7 @@ def runtime_layout(environ: dict[str, str] | None = None) -> RuntimeLayout:
     def checkout_root() -> Path | None:
         candidates = [Path.cwd()]
         try:
-            candidates.append(Path(__file__).resolve().parents[3])
+            candidates.append(Path(__file__).resolve().parents[4])
         except IndexError:
             pass
         for candidate in candidates:
@@ -394,7 +394,7 @@ def runtime_layout(environ: dict[str, str] | None = None) -> RuntimeLayout:
     ).resolve()
     embedded_available = False
     try:
-        embedded_available = resources.files("olf").joinpath("_embedded/platform.json").is_file()
+        embedded_available = resources.files("olf.common").joinpath("_embedded/platform.json").is_file()
     except ModuleNotFoundError:
         pass
     source_override = "OLF_DISTRIBUTION_ROOT" in env or "OPENLAKEFORGE_REPO_ROOT" in env

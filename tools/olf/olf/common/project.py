@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from openlakeforge_domain import LakehouseDescriptorError, LakehouseInventory, load_lakehouse_inventory
 
 if TYPE_CHECKING:
-    from olf.distribution import RuntimeLayout
+    from olf.common.distribution import RuntimeLayout
 
 
 @dataclass(frozen=True)
@@ -105,7 +105,7 @@ def validate_project(project: ProjectSpec) -> ProjectValidationReport:
     """Validate the provider-neutral project files. Parses the Deployment
     Profile's structure but does not resolve it into a topology -- that is
     `olf profile resolve`."""
-    from olf.contracts_check import descriptor_schema_errors
+    from olf.common.contracts_check import descriptor_schema_errors
 
     checks = [_canonical_layout_check(project), _profile_check(project)]
     descriptor_errors = descriptor_schema_errors(project.root, schema_root=project.schema_root)
@@ -150,7 +150,7 @@ def _canonical_layout_check(project: ProjectSpec) -> ProjectCheck:
 
 
 def _profile_check(project: ProjectSpec) -> ProjectCheck:
-    from olf.profile import DeploymentProfileError, load_deployment_profile
+    from olf.common.profile import DeploymentProfileError, load_deployment_profile
 
     try:
         load_deployment_profile(project.profile_path, distribution_root=project.distribution_root)

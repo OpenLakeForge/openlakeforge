@@ -13,10 +13,10 @@ from pathlib import Path
 
 import typer
 
-from olf import config
-from olf.deployment.errors import DeploymentError, DeploymentPreconditionError, ExecutableNotFoundError
-from olf.log import fail
-from olf.tooling.toolkit import Toolkit
+from olf.common import config
+from olf.common.deployment.errors import DeploymentError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.common.log import fail
+from olf.common.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 workflow_app = typer.Typer(help="GitHub release-workflow safety checks.")
@@ -40,7 +40,7 @@ def release_manifest(
     output: str = typer.Option("", "--output", help="Write to this path instead of stdout."),
 ) -> None:
     """Emit the resolved component manifest: catalog + resolved image digests + git SHA."""
-    from olf import release as release_module
+    from olf.common import release as release_module
 
     resolved_git_sha = git_sha or _git_sha()
     image_digests: dict[str, str] = {}
@@ -70,7 +70,7 @@ def release_checksums(
     output: str = typer.Option("", "--output", help="Write checksums.txt here (default: <dir>/checksums.txt)."),
 ) -> None:
     """Write a deterministic sha256 checksums.txt over every file in --dir."""
-    from olf import release as release_module
+    from olf.common import release as release_module
 
     try:
         out_path = release_module.write_checksums(directory, output or None)
@@ -87,7 +87,7 @@ def release_compatibility_matrix(
     output: str = typer.Option("", "--output", help="Write to this path instead of stdout."),
 ) -> None:
     """Render the OpenLakeForge compatibility matrix from the component catalog."""
-    from olf import release as release_module
+    from olf.common import release as release_module
 
     try:
         catalog_data = release_module.load_catalog(catalog)
@@ -112,7 +112,7 @@ def release_check(
     ),
 ) -> None:
     """Release-readiness gate: catalog/tag consistency, digest and SHA pinning, lockfiles."""
-    from olf import release as release_module
+    from olf.common import release as release_module
 
     try:
         report = release_module.run_release_check(config.repo_root(), catalog_path=catalog, tag=tag or None)
@@ -129,8 +129,8 @@ def build_bundle(
     output_dir: str = typer.Option(".tmp/release-bundle", "--output-dir", help="Local bundle destination."),
 ) -> None:
     """Build a local, inspectable release bundle with Python-owned checksums."""
-    from olf import release as release_module
-    from olf.image_build import build_project_code_image, build_superset_image, local_image_config
+    from olf.common import release as release_module
+    from olf.common.image_build import build_project_code_image, build_superset_image, local_image_config
 
     root = config.repo_root()
     output = (root / output_dir).resolve()
@@ -210,7 +210,7 @@ def verify_install(
     pull_images: bool = typer.Option(False, "--pull-images", help="Also pull authenticated published images."),
 ) -> None:
     """Authenticate a release, verify its assets/images, and validate a clean checkout."""
-    from olf import release as release_module
+    from olf.common import release as release_module
 
     root = config.repo_root()
     directory = (root / asset_dir).resolve()

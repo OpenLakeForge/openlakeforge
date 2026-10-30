@@ -30,10 +30,10 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
     monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
     monkeypatch.setenv("OPENLAKEFORGE_GOVERNANCE_ENABLED", "false")
     monkeypatch.setattr(
-        "olf.commands.artifacts.deploy_superset_reports", lambda: pytest.fail("reports should be skipped")
+        "olf.infra.commands.artifacts.deploy_superset_reports", lambda: pytest.fail("reports should be skipped")
     )
     monkeypatch.setattr(
-        "olf.commands.artifacts.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped")
+        "olf.infra.commands.artifacts.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped")
     )
 
     result = runner.invoke(app, ["artifacts", "deploy-optional-layers"])
@@ -65,10 +65,10 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
     options: dict[str, str] = {}
     calls: list[str] = []
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: calls.append("reports"))
+    monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: calls.append("reports"))
 
     result = runner.invoke(app, ["report", "import", "--provider", "aws"])
 
@@ -80,10 +80,10 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
 def test_superset_deploy_reports_threads_a_custom_project_root(monkeypatch: pytest.MonkeyPatch) -> None:
     options: dict[str, str] = {}
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: None)
 
     result = runner.invoke(app, ["report", "import", "--project-root", "/srv/my-project"])
 
@@ -99,11 +99,11 @@ def test_superset_report_commands_hydrate_the_named_stage(monkeypatch: pytest.Mo
     """
     options: list[dict] = []
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.append(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
-    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.infra.commands.superset.export_superset_reports", lambda **_: None)
 
     deployed = runner.invoke(app, ["report", "import", "--stage", "prod"])
     exported = runner.invoke(app, ["report", "export", "--stage", "uat"])
@@ -121,8 +121,8 @@ def test_superset_export_reports_requires_an_explicit_stage(monkeypatch: pytest.
     usage error through rich, which falls back to an 80-column width when
     stdout is not a terminal and truncated the option name on a CI runner.
     """
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
-    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.commands.superset.export_superset_reports", lambda **_: None)
 
     missing = runner.invoke(app, ["report", "export"])
     supplied = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -135,8 +135,8 @@ def test_superset_export_reports_requires_an_explicit_stage(monkeypatch: pytest.
 def test_superset_deploy_reports_fails_closed_for_a_stage_without_analytics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
-    monkeypatch.setattr("olf.superset.deploy_reports", lambda *a, **k: pytest.fail("must not reach Superset"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.deploy_reports", lambda *a, **k: pytest.fail("must not reach Superset"))
     _hydrate_stage_contract(monkeypatch, "prod")
     monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
 
@@ -150,10 +150,13 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
     options: dict[str, str] = {}
     calls: list[str] = []
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.openmetadata.deploy_openmetadata_metadata", lambda: calls.append("metadata"))
+    monkeypatch.setattr(
+        "olf.infra.commands.openmetadata.deploy_openmetadata_metadata",
+        lambda: calls.append("metadata"),
+    )
 
     result = runner.invoke(app, ["openmetadata", "deploy-metadata", "--provider", "azure"])
 
@@ -180,10 +183,10 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
 
     tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
 
     result = runner.invoke(
         app,
@@ -249,8 +252,8 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
         monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(Path(__file__).resolve().parents[3]))
         yield
 
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
-    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
+    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
 
     result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
 
@@ -297,8 +300,8 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
         monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution_root))
         yield
 
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
-    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
+    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
 
     result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
 
@@ -314,7 +317,7 @@ def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
 ) -> None:
     from openlakeforge_domain import inventory_for
 
-    from olf import config
+    from olf.common import config
 
     monkeypatch.delenv("OPENLAKEFORGE_OPS_BUCKET_NAME", raising=False)
     monkeypatch.delenv("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", raising=False)
@@ -339,16 +342,16 @@ def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
 def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
     from openlakeforge_domain import inventory_for
 
-    from olf import config
+    from olf.common import config
 
     inventory = inventory_for(config.repo_root())
     default_dashboard = inventory.dashboards[0]
     calls: list[dict] = []
     monkeypatch.setattr(
-        "olf.superset.export_report",
+        "olf.infra.superset.export_report",
         lambda *args, **kwargs: calls.append(kwargs),
     )
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -409,8 +412,8 @@ products:
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     calls: list[dict] = []
-    monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -467,8 +470,8 @@ def test_superset_export_reports_refuses_with_no_declared_dashboard_and_no_targe
     repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
     monkeypatch.delenv("SUPERSET_REPORT_SOURCE_DIR", raising=False)
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -483,8 +486,8 @@ def test_superset_export_reports_refuses_a_target_that_is_not_an_existing_direct
     repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "lakehouse_code/dashboards/superset/typo_ordrs")
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -503,8 +506,8 @@ def test_superset_export_reports_exports_an_undeclared_target_named_explicitly(
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "lakehouse_code/dashboards/superset/orders")
     calls: list[dict] = []
-    monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     # A draft has no exported dashboard to take an identity from, so the
@@ -525,8 +528,8 @@ def test_superset_export_reports_refuses_the_retired_title_selector(monkeypatch:
     """Silently ignoring a title the operator set could export a different
     dashboard than the one they named."""
     monkeypatch.setenv("SUPERSET_DASHBOARD_TITLE", "Sales Order Revenue")
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -537,11 +540,11 @@ def test_superset_export_reports_refuses_the_retired_title_selector(monkeypatch:
 def test_superset_report_aliases_still_work_and_warn(monkeypatch: pytest.MonkeyPatch) -> None:
     options: list[dict] = []
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.append(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
-    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.infra.commands.superset.deploy_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.infra.commands.superset.export_superset_reports", lambda **_: None)
 
     deployed = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
     exported = runner.invoke(app, ["superset", "export-reports", "--stage", "uat"])
@@ -563,8 +566,8 @@ def test_superset_export_reports_refuses_an_absolute_target_outside_the_project(
     repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", str(tmp_path.parent))
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -584,8 +587,8 @@ def test_superset_export_reports_refuses_a_target_that_escapes_the_report_tree(
     repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "..")
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -600,11 +603,11 @@ def test_superset_export_reports_refuses_an_out_of_tree_override_with_declared_d
     declared-dashboard branch too -- an override there was previously used
     unvalidated, so this guard has to cover both branches, not just the one
     #229 added."""
-    from olf import config
+    from olf.common import config
 
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", str(tmp_path))
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
     assert config.repo_root()  # sanity: the reference project (3 declared dashboards) resolves
 
@@ -620,14 +623,14 @@ def test_superset_export_reports_accepts_a_legitimate_override_with_declared_das
     declared or not -- once the containment guard is in place."""
     from openlakeforge_domain import inventory_for
 
-    from olf import config
+    from olf.common import config
 
     inventory = inventory_for(config.repo_root())
     other_dashboard = inventory.dashboards[1]
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", other_dashboard.report_source_dir)
     calls: list[dict] = []
-    monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -639,7 +642,7 @@ def test_superset_export_reports_accepts_a_legitimate_override_with_declared_das
 def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.commands import catalog
+    from olf.infra.commands import catalog
 
     calls: list[dict] = []
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "aws-glue")
@@ -653,7 +656,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch.setattr(
         catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
     )
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
 
@@ -662,7 +665,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
 
 
 def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.commands import catalog
+    from olf.infra.commands import catalog
 
     calls: list[dict] = []
     monkeypatch.delenv("OPENLAKEFORGE_CATALOG_PROVIDER", raising=False)
@@ -676,7 +679,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
     monkeypatch.setattr(
         catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
     )
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--prune"])
 
@@ -687,7 +690,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
 def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf.commands import catalog
+    from olf.infra.commands import catalog
 
     calls: list[dict] = []
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false")
@@ -696,7 +699,7 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
         "_sync_polaris_namespaces",
         lambda *, desired, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
     )
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
@@ -705,13 +708,13 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
 
 
 def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.commands import catalog
+    from olf.infra.commands import catalog
 
     calls: list[str] = []
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "snowflake")
     monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append("polaris"))
     monkeypatch.setattr(catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
@@ -726,11 +729,11 @@ def test_catalog_sync_namespaces_hydrates_selected_provider_contracts(monkeypatc
     provider/project's contract environment before reading domain
     descriptors, not just the installed default.
     """
-    from olf.commands import catalog
+    from olf.infra.commands import catalog
 
     options: dict[str, str] = {}
     monkeypatch.setattr(
-        "olf.commands.runtime.provider_contract_environment",
+        "olf.infra.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
     monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: None)
@@ -763,7 +766,7 @@ class _Engine:
 @pytest.fixture
 def platform_cli(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     """`olf platform` with its profile resolution and provider construction stubbed."""
-    from olf.commands import platform as platform_module
+    from olf.infra.commands import platform as platform_module
 
     engine = _Engine()
     monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: SimpleNamespace())
@@ -817,7 +820,7 @@ def test_platform_rejects_a_phase_it_does_not_own(platform_cli) -> None:  # noqa
 
 def test_platform_plan_reports_a_deployment_error_as_a_failure(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """A provider that cannot plan is a failed command, never a clean tree."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     def _raise(phase):  # noqa: ANN001, ANN202
         raise DeploymentError("terraform init failed")
@@ -831,7 +834,7 @@ def test_platform_plan_reports_a_deployment_error_as_a_failure(platform_cli, mon
 
 
 def test_platform_apply_reports_a_deployment_error_as_a_failure(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     def _raise(phase):  # noqa: ANN001, ANN202
         raise DeploymentError("terraform apply failed")
@@ -845,9 +848,9 @@ def test_platform_apply_reports_a_deployment_error_as_a_failure(platform_cli, mo
 
 def test_platform_surfaces_a_provider_it_cannot_build_as_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """An unusable profile has to fail before Terraform runs, not during it."""
-    from olf.commands import platform as platform_module
-    from olf.deployment import engine as engine_module
-    from olf.deployment.errors import UnsupportedProviderError
+    from olf.common.deployment.errors import UnsupportedProviderError
+    from olf.infra.commands import platform as platform_module
+    from olf.infra.deployment import engine as engine_module
 
     monkeypatch.setattr(
         platform_module,
@@ -901,8 +904,8 @@ def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(root))
     monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "lakehouse_code/dashboards/superset/orders/datasets")
-    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
-    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.infra.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
     _hydrate_stage_contract(monkeypatch)
 
     result = runner.invoke(app, ["report", "export", "--stage", "dev"])
@@ -914,14 +917,14 @@ def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
 def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     import json
 
-    from olf.commands import platform as platform_module
+    from olf.infra.commands import platform as platform_module
 
     applied = {"schema_version": "3.0.0", "stages": {}}
     context = SimpleNamespace(
         paths=SimpleNamespace(platform_terraform_dir=Path("/platform")), command_env=lambda base: dict(base)
     )
     monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: context)
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts",
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts",
         lambda terraform_dir, environ, honor_contract_file, **_k: None if honor_contract_file else applied,
     )
 
@@ -930,7 +933,7 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
     assert result.exit_code == 0
     assert json.loads(result.output) == applied
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_a, **_k: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
     assert runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0
 
 
@@ -941,9 +944,9 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
     error naming the cause, not a traceback and not "run apply first"."""
     import subprocess
 
-    from olf.commands import platform as platform_module
-    from olf.deployment.errors import ToolchainError
-    from olf.tooling.resolver import ExecutableResolver
+    from olf.common.deployment.errors import ToolchainError
+    from olf.common.tooling.resolver import ExecutableResolver
+    from olf.infra.commands import platform as platform_module
 
     context = SimpleNamespace(
         paths=SimpleNamespace(platform_terraform_dir=tmp_path), command_env=lambda base: dict(base)
@@ -954,7 +957,7 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
         def resolve(self, tool: str):  # noqa: ANN001, ANN202
             raise ToolchainError(tool, reason="digest mismatch")
 
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Broken())
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Broken())
     result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)
@@ -967,8 +970,8 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
     def _corrupt_state(argv, **_kwargs):  # noqa: ANN001, ANN202
         raise subprocess.CalledProcessError(1, argv, output="", stderr="Error: Unsupported state file format")
 
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Terraform())
-    monkeypatch.setattr("olf.contract_state.subprocess.run", _corrupt_state)
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Terraform())
+    monkeypatch.setattr("olf.common.contract_state.subprocess.run", _corrupt_state)
     result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)

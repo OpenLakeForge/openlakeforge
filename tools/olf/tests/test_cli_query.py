@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from olf import trino
 from olf.cli import app
+from olf.infra import trino
 
 runner = CliRunner()
 
@@ -45,12 +45,15 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         return "ok\n"
 
     monkeypatch.setattr(trino, "run_sql", run_sql)
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_a, **_k: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
     monkeypatch.setattr(
-        "olf.contracts.build_contract_env",
+        "olf.infra.contracts.build_contract_env",
         lambda *_a, **_k: ({"OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_prod"}, []),
     )
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda: SimpleNamespace(resolve=lambda _name: "kubectl"))
+    monkeypatch.setattr(
+        "olf.common.tooling.resolver.build_resolver",
+        lambda: SimpleNamespace(resolve=lambda _name: "kubectl"),
+    )
     return seen
 
 
@@ -88,7 +91,7 @@ def test_query_rejects_an_empty_sql_file(
     tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
     sql = tmp_path / "empty.sql"
     sql.write_text(content, encoding="utf-8")
 
@@ -106,7 +109,7 @@ def test_query_reports_an_unreadable_sql_file_without_a_traceback(
     tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch, path_kind: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", _unexpected_toolchain_lookup)
     sql = tmp_path / "missing.sql"
     if path_kind == "directory":
         sql.mkdir()
@@ -160,12 +163,12 @@ def test_query_refuses_aws_until_glue_prefixes_are_handled(tmp_path: Path, calls
 def test_query_reports_an_invalid_provider_contract_without_a_traceback(
     tmp_path: Path, calls: list[dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf.provider_contracts import ProviderContractError
+    from olf.common.provider_contracts import ProviderContractError
 
     def invalid(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
         raise ProviderContractError("unsupported provider contract schema")
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", invalid)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", invalid)
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile)
 

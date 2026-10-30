@@ -13,12 +13,12 @@ def test_contracts_env_surfaces_a_toolchain_failure_cleanly(monkeypatch: pytest.
     DeploymentError boundary of its own - a managed-toolchain provisioning
     failure (#127) resolving terraform must still surface the same clean
     CLI failure every other olf command produces, not a raw traceback."""
-    from olf.deployment.errors import ToolchainError
+    from olf.common.deployment.errors import ToolchainError
 
     def _raise(terraform_dir: str):  # noqa: ANN202
         raise ToolchainError("terraform", reason="digest mismatch")
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _raise)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _raise)
 
     result = runner.invoke(app, ["contracts", "env"])
 

@@ -13,10 +13,10 @@ from pathlib import Path
 
 import yaml
 
-from olf.deployment.errors import DeploymentError, ExecutableNotFoundError
-from olf.deployment.inspection import docker_health
-from olf.distribution import DistributionError, RuntimeLayout, runtime_layout
-from olf.profile import (
+from olf.common.deployment.errors import DeploymentError, ExecutableNotFoundError
+from olf.common.deployment.inspection import docker_health
+from olf.common.distribution import DistributionError, RuntimeLayout, runtime_layout
+from olf.common.profile import (
     PROFILE_API_VERSION,
     PROFILE_KIND,
     DeploymentProfileError,
@@ -24,9 +24,9 @@ from olf.profile import (
     StageName,
     validate_deployment_profile,
 )
-from olf.toolchain.manager import ToolchainManager
-from olf.toolchain.spec import MANAGED_TOOLS
-from olf.tooling.toolkit import Toolkit
+from olf.common.toolchain.manager import ToolchainManager
+from olf.common.toolchain.spec import MANAGED_TOOLS
+from olf.common.tooling.toolkit import Toolkit
 
 _EMPTY_FILES = (
     "__init__.py",

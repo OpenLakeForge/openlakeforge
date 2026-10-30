@@ -6,9 +6,9 @@ import os
 
 import typer
 
-from olf import layers as layers_module
-from olf.commands.openmetadata import deploy_openmetadata_metadata
-from olf.commands.superset import deploy_superset_reports
+from olf.common import layers as layers_module
+from olf.infra.commands.openmetadata import deploy_openmetadata_metadata
+from olf.infra.commands.superset import deploy_superset_reports
 
 app = typer.Typer(help="Object-storage artifact helpers.")
 

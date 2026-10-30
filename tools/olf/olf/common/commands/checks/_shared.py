@@ -8,10 +8,10 @@ from pathlib import Path
 
 import typer
 
-from olf import config
-from olf.deployment.errors import DeploymentError
-from olf.log import fail
-from olf.tooling.toolkit import Toolkit
+from olf.common import config
+from olf.common.deployment.errors import DeploymentError
+from olf.common.log import fail
+from olf.common.tooling.toolkit import Toolkit
 
 
 def _root(repo_root: str) -> Path:
@@ -53,7 +53,7 @@ def _distribution_root_for(root: Path) -> Path:
     `olf`'s. Only an installed-project-shaped root (`lakehouse_code/` only,
     no `infra/terraform` of its own) falls back to the runtime payload.
     """
-    from olf.distribution import runtime_layout
+    from olf.common.distribution import runtime_layout
 
     if (root / "infra" / "terraform").is_dir():
         return root
@@ -64,7 +64,7 @@ def _check_cache_root(project_root: Path, distribution_root: Path) -> Path:
     """Keep check caches outside a selected external data project."""
     if project_root == distribution_root:
         return project_root / ".cache"
-    from olf.distribution import runtime_layout
+    from olf.common.distribution import runtime_layout
 
     project_key = hashlib.sha256(str(project_root).encode()).hexdigest()[:12]
     return runtime_layout().cache_root / "checks" / project_key

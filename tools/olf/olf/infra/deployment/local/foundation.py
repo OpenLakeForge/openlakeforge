@@ -12,14 +12,14 @@ from __future__ import annotations
 import socket
 from collections.abc import Mapping
 
-from olf import log
-from olf.access import LOCAL_CA_ISSUER
-from olf.deployment import kube_ops
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.retry import run_with_retry
-from olf.tooling.kubectl import KubeContextUnreachableError
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.retry import run_with_retry
+from olf.common.tooling.kubectl import KubeContextUnreachableError
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.access import LOCAL_CA_ISSUER
+from olf.infra.deployment import kube_ops
 
 
 def foundation_apply_variables(config: LocalDeploymentConfig, tools: Toolkit) -> dict[str, str]:

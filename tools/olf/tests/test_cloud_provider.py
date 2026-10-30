@@ -15,17 +15,17 @@ from types import SimpleNamespace
 import pytest
 from _cloud_support import FakeCloudBackend
 
-from olf.deployment.cloud.aws import AwsBackend
-from olf.deployment.cloud.azure import AzureBackend
-from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.cloud.provider import CloudProvider
-from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import DeploymentPhase
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.status import StatusReport
-from olf.tooling.azure import AzureSdk
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.aws import AwsBackend
+from olf.infra.deployment.cloud.azure import AzureBackend
+from olf.infra.deployment.cloud.backend import FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.cloud.provider import CloudProvider
+from olf.infra.deployment.engine import DeploymentPhase
+from olf.infra.deployment.status import StatusReport
+from olf.infra.tooling.azure import AzureSdk
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -45,7 +45,7 @@ def _config(tmp_path: Path) -> CloudDeploymentConfig:
 
 
 def test_status_reports_every_owned_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.profile import (
+    from olf.common.profile import (
         DeploymentProfile,
         Preset,
         Provider,
@@ -78,7 +78,7 @@ def test_status_reports_every_owned_namespace(tmp_path: Path, monkeypatch: pytes
         captured["namespaces"] = namespaces
         return StatusReport(sections=())
 
-    monkeypatch.setattr("olf.deployment.status.collect_status", _collect_status)
+    monkeypatch.setattr("olf.infra.deployment.status.collect_status", _collect_status)
 
     provider.status()
 
@@ -101,7 +101,7 @@ def test_env_resolves_kube_context_from_foundation_facts(
     backend = FakeCloudBackend(scope="aws", facts=_FACTS)
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
     monkeypatch.setattr(
-        "olf.deployment.cloud.foundation.require_foundation_facts", lambda cfg, tools, be, *, env: _FACTS
+        "olf.infra.deployment.cloud.foundation.require_foundation_facts", lambda cfg, tools, be, *, env: _FACTS
     )
 
     resolved_env = provider.env
@@ -123,7 +123,7 @@ def test_base_environment_preserves_automation_credentials_for_sdk_selection(
     monkeypatch.setattr(provider.tools.docker, "resolve_current_engine_endpoint", lambda **_kwargs: None)
     seen: dict[str, str] = {}
     monkeypatch.setattr(
-        "olf.auth.terraform_auth_environment",
+        "olf.infra.auth.terraform_auth_environment",
         lambda _provider, env: seen.update(env) or {},
     )
 
@@ -175,7 +175,7 @@ def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscripti
     provider = CloudProvider.create(
         config, AzureBackend(azure_sdk), toolkit=_toolkit(), environ={"OLF_HOME": str(tmp_path)}
     )
-    monkeypatch.setattr("olf.auth.selected_azure_subscription", lambda _environ: "other-sub-id")
+    monkeypatch.setattr("olf.infra.auth.selected_azure_subscription", lambda _environ: "other-sub-id")
 
     report = provider.doctor(DeploymentPhase.FOUNDATION)
 
@@ -195,7 +195,7 @@ def test_env_is_cached_and_facts_are_resolved_only_once(
         calls.append(1)
         return _FACTS
 
-    monkeypatch.setattr("olf.deployment.cloud.foundation.require_foundation_facts", _fake_require)
+    monkeypatch.setattr("olf.infra.deployment.cloud.foundation.require_foundation_facts", _fake_require)
 
     _ = provider.env
     _ = provider.env
@@ -218,7 +218,7 @@ def test_foundation_up_does_not_require_pre_existing_facts(
         calls.append("foundation_up")
         return _FACTS
 
-    monkeypatch.setattr("olf.deployment.cloud.foundation.foundation_up", _fake_foundation_up)
+    monkeypatch.setattr("olf.infra.deployment.cloud.foundation.foundation_up", _fake_foundation_up)
 
     provider.foundation_up()
 
@@ -237,16 +237,16 @@ def test_platform_up_after_foundation_up_resolves_fresh_facts(
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
 
     monkeypatch.setattr(
-        "olf.deployment.cloud.foundation.foundation_up",
+        "olf.infra.deployment.cloud.foundation.foundation_up",
         lambda cfg, tools, be, *, environ, env: _FACTS,  # noqa: ARG005
     )
     monkeypatch.setattr(
-        "olf.deployment.cloud.foundation.require_foundation_facts",
+        "olf.infra.deployment.cloud.foundation.require_foundation_facts",
         lambda cfg, tools, be, *, env: _FACTS,  # noqa: ARG005
     )
     seen_facts = []
     monkeypatch.setattr(
-        "olf.deployment.cloud.platform.platform_up",
+        "olf.infra.deployment.cloud.platform.platform_up",
         lambda cfg, tools, be, facts, *, env: seen_facts.append(facts),  # noqa: ARG005
     )
 
@@ -272,10 +272,10 @@ def test_platform_plan_prepares_cached_charts(tmp_path: Path, monkeypatch: pytes
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
     calls: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.cloud.foundation.require_foundation_facts", lambda cfg, tools, be, *, env: _FACTS
+        "olf.infra.deployment.cloud.foundation.require_foundation_facts", lambda cfg, tools, be, *, env: _FACTS
     )
     monkeypatch.setattr(
-        "olf.deployment.cloud.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
+        "olf.infra.deployment.cloud.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
     )
     monkeypatch.setattr(provider.tools.terraform, "init", lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -297,10 +297,13 @@ def test_foundation_doctor_does_not_require_or_probe_later_phase_tools(
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
     required: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.cloud.provider.base_report",
+        "olf.infra.deployment.cloud.provider.base_report",
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
-    monkeypatch.setattr("olf.deployment.cloud.provider.docker_health", lambda *args, **kwargs: pytest.fail("no docker"))
+    monkeypatch.setattr(
+        "olf.infra.deployment.cloud.provider.docker_health",
+        lambda *args, **kwargs: pytest.fail("no docker"),
+    )
 
     provider.doctor(DeploymentPhase.FOUNDATION)
 
@@ -314,14 +317,14 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
     required: list[str] = []
     health_calls: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.cloud.provider.base_report",
+        "olf.infra.deployment.cloud.provider.base_report",
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
     monkeypatch.setattr(
-        "olf.deployment.cloud.provider.docker_health",
+        "olf.infra.deployment.cloud.provider.docker_health",
         lambda *args, **kwargs: health_calls.append("docker") or None,
     )
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -335,7 +338,7 @@ def test_cloud_artifacts_doctor_requires_platform_provider_contracts(
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", facts=_FACTS)
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -349,7 +352,7 @@ def test_platform_doctor_does_not_require_docker(tmp_path: Path, monkeypatch: py
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
     required: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.cloud.provider.base_report",
+        "olf.infra.deployment.cloud.provider.base_report",
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
 
@@ -384,8 +387,8 @@ def test_cloud_doctor_reports_missing_explicit_tfvars_for_each_consuming_phase(t
 
 
 def test_local_platform_doctor_reports_missing_explicit_tfvars(tmp_path: Path) -> None:
-    from olf.deployment.local.config import LocalDeploymentConfig
-    from olf.deployment.local.provider import LocalProvider
+    from olf.common.deployment.local.config import LocalDeploymentConfig
+    from olf.infra.deployment.local.provider import LocalProvider
 
     context = DeploymentContext.local(repo_root=tmp_path)
     config = LocalDeploymentConfig.from_environment({"LOCAL_TFVARS_FILE": "missing.tfvars"}, context=context)
@@ -446,7 +449,7 @@ def test_doctor_reads_contracts_through_the_toolkit_resolver(tmp_path: Path, mon
     def _no_rebuild(**_kwargs: object) -> None:
         raise AssertionError("doctor must not build a second resolver")
 
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", _no_rebuild)
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", _no_rebuild)
     provider = CloudProvider.create(_config(tmp_path), AwsBackend(), toolkit=_toolkit(), environ={})
 
     report = provider.doctor(DeploymentPhase.ALL)
@@ -459,7 +462,7 @@ def test_the_image_command_returns_the_published_example_without_building(
 ) -> None:
     from test_cloud_config import _PIN, _published_config
 
-    from olf.deployment.cloud import images
+    from olf.infra.deployment.cloud import images
 
     provider = CloudProvider.create(_published_config(tmp_path), AwsBackend(), toolkit=_toolkit(), environ={})
     monkeypatch.setattr(images, "build_and_push_project_code_image", lambda *a, **k: pytest.fail("built"))

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import typer
 
-from olf import config
-from olf.deployment.errors import DeploymentError
-from olf.log import fail
-from olf.tooling.toolkit import Toolkit
+from olf.common import config
+from olf.common.deployment.errors import DeploymentError
+from olf.common.log import fail
+from olf.common.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Render and validate dbt product projects.")
 
@@ -29,7 +29,7 @@ def parse(
     ),
 ) -> None:
     """Render profiles, resolve dependencies, and parse projects using provider contracts."""
-    from olf.commands.runtime import provider_contract_environment
+    from olf.infra.commands.runtime import provider_contract_environment
 
     try:
         with provider_contract_environment(

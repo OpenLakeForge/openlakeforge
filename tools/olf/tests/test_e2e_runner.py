@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from conftest import E2E_INVENTORY, E2E_REPO_ROOT, e2e_cfg
 
-from olf.e2e import _runner, _shell
-from olf.e2e._shell import E2EError, Environment
+from olf.infra.e2e import _runner, _shell
+from olf.infra.e2e._shell import E2EError, Environment
 
 
 @pytest.mark.parametrize("env", ["local", "azure", "aws"])
@@ -293,7 +293,7 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
     )
     sdk_calls: list[tuple[tuple, dict]] = []
     monkeypatch.setattr(
-        "olf.tooling.aws.AwsSdk.eks_update_kubeconfig",
+        "olf.infra.tooling.aws.AwsSdk.eks_update_kubeconfig",
         lambda _self, *args, **kwargs: sdk_calls.append((args, kwargs)),
     )
 
@@ -341,11 +341,11 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
     monkeypatch.setattr(_runner, "terraform_output", lambda _dir, name: terraform_outputs[name])
     sdk_calls: list[tuple[str, tuple, dict]] = []
     monkeypatch.setattr(
-        "olf.tooling.azure.AzureSdk.aks_get_credentials",
+        "olf.infra.tooling.azure.AzureSdk.aks_get_credentials",
         lambda _self, *args, **kwargs: sdk_calls.append(("azure", args, kwargs)),
     )
     monkeypatch.setattr(
-        "olf.tooling.aws.AwsSdk.eks_update_kubeconfig",
+        "olf.infra.tooling.aws.AwsSdk.eks_update_kubeconfig",
         lambda _self, *args, **kwargs: sdk_calls.append(("aws", args, kwargs)),
     )
 
@@ -401,7 +401,7 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     )
     sdk_calls: list[tuple[tuple, dict]] = []
     monkeypatch.setattr(
-        "olf.tooling.aws.AwsSdk.eks_update_kubeconfig",
+        "olf.infra.tooling.aws.AwsSdk.eks_update_kubeconfig",
         lambda _self, *args, **kwargs: sdk_calls.append((args, kwargs)),
     )
 
@@ -521,7 +521,7 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
     """A managed tool that fails to provision (bad digest, broken download,
     unwritable cache) must surface as E2EError - the only exception type
     `olf e2e run` catches - not escape as a raw ToolchainError traceback."""
-    from olf.deployment.errors import ToolchainError
+    from olf.common.deployment.errors import ToolchainError
 
     class _FailingResolver:
         def resolve(self, tool: str) -> Path:
@@ -529,7 +529,7 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
                 raise ToolchainError(tool, reason="digest mismatch")
             return Path(f"/usr/bin/{tool}")
 
-    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda: _FailingResolver())
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda: _FailingResolver())
 
     with pytest.raises(E2EError, match="digest mismatch"):
         _runner.check_commands(e2e_cfg(tmp_path))

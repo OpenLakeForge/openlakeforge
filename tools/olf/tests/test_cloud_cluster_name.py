@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from olf.deployment.cloud.cluster_name import DEFAULT_AWS_CLUSTER_NAME, aws_cluster_name
+from olf.infra.deployment.cloud.cluster_name import DEFAULT_AWS_CLUSTER_NAME, aws_cluster_name
 
 
 def _state(tmp_path: Path, document: object) -> Path:

@@ -7,7 +7,7 @@ import typer
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.profile import StageName
+from olf.common.profile import StageName
 
 runner = CliRunner()
 
@@ -28,7 +28,7 @@ class _FakeEngine:
         self.destroy_calls.append((phase, force))
 
     def status(self):  # noqa: ANN202
-        from olf.deployment.status import StatusReport, StatusSection
+        from olf.infra.deployment.status import StatusReport, StatusSection
 
         return StatusReport(sections=(StatusSection(title="Pods", output="no resources"),))
 
@@ -49,8 +49,8 @@ _EXTERNAL_IDENTITY_YAML = (
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch) -> _FakeEngine:
     engine = _FakeEngine()
-    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *a, **k: object())
-    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("olf.infra.commands.deployment._build_context", lambda *a, **k: object())
+    monkeypatch.setattr("olf.infra.commands.deployment._build_engine", lambda *a, **k: engine)
     return engine
 
 
@@ -62,8 +62,8 @@ def test_deploy_forwards_kubeconfig_path_to_build_context(monkeypatch: pytest.Mo
         return object()
 
     engine = _FakeEngine()
-    monkeypatch.setattr("olf.commands.deployment._build_context", _capture_build_context)
-    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("olf.infra.commands.deployment._build_context", _capture_build_context)
+    monkeypatch.setattr("olf.infra.commands.deployment._build_engine", lambda *a, **k: engine)
 
     result = runner.invoke(app, ["deploy", "--kubeconfig-path", "/tmp/custom/kind-smoke.yaml"])
 
@@ -78,7 +78,7 @@ def test_build_context_honors_kubeconfig_path_override_for_cloud_providers(tmp_p
     """
     import os
 
-    from olf.commands.deployment import _build_context
+    from olf.infra.commands.deployment import _build_context
 
     override = tmp_path / "custom" / "aws-smoke.yaml"
     old_repo_root = os.environ.get("OPENLAKEFORGE_REPO_ROOT")
@@ -95,7 +95,7 @@ def test_build_context_honors_kubeconfig_path_override_for_cloud_providers(tmp_p
 
 
 def test_deploy_defaults_to_all_phases(fake_engine: _FakeEngine) -> None:
-    from olf.deployment.engine import DeploymentPhase
+    from olf.infra.deployment.engine import DeploymentPhase
 
     result = runner.invoke(app, ["deploy", "--provider", "local", "--profile", "full"])
 
@@ -104,11 +104,11 @@ def test_deploy_defaults_to_all_phases(fake_engine: _FakeEngine) -> None:
 
 
 def test_platform_apply_never_routes_to_artifacts(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.deployment.engine import DeploymentPhase
+    from olf.infra.deployment.engine import DeploymentPhase
 
     engine = _FakeEngine()
-    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", lambda *a, **k: object())
-    monkeypatch.setattr("olf.commands.platform._engine", lambda *a, **k: engine)
+    monkeypatch.setattr("olf.infra.commands.platform.deployment_context_for_profile", lambda *a, **k: object())
+    monkeypatch.setattr("olf.infra.commands.platform._engine", lambda *a, **k: engine)
 
     result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
 
@@ -122,7 +122,7 @@ def test_platform_apply_opts_into_stage_removal_only_when_asked(
 ) -> None:
     """The v0.3 profile path needs its own opt-in: without it the removal guard
     refuses every apply that drops a stage, with no way to proceed."""
-    from olf.commands._shared import deployment_context_for_profile
+    from olf.infra.commands._shared import deployment_context_for_profile
 
     contexts: list = []
 
@@ -130,8 +130,8 @@ def test_platform_apply_opts_into_stage_removal_only_when_asked(
         contexts.append(deployment_context_for_profile(profile_file, **kwargs))
         return contexts[-1]
 
-    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", resolve)
-    monkeypatch.setattr("olf.commands.platform._engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr("olf.infra.commands.platform.deployment_context_for_profile", resolve)
+    monkeypatch.setattr("olf.infra.commands.platform._engine", lambda *a, **k: _FakeEngine())
     profile = Path(__file__).resolve().parents[3] / "openlakeforge.conformance.yaml"
 
     result = runner.invoke(app, ["platform", "apply", "-f", str(profile), *flag])
@@ -141,7 +141,7 @@ def test_platform_apply_opts_into_stage_removal_only_when_asked(
 
 
 def test_deploy_routes_phase_flag(fake_engine: _FakeEngine) -> None:
-    from olf.deployment.engine import DeploymentPhase
+    from olf.infra.deployment.engine import DeploymentPhase
 
     result = runner.invoke(app, ["deploy", "--phase", "platform"])
 
@@ -163,7 +163,7 @@ def test_deploy_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_deploy_maps_deployment_error_to_exit_1(fake_engine: _FakeEngine) -> None:
-    from olf.deployment.errors import DeploymentPreconditionError
+    from olf.common.deployment.errors import DeploymentPreconditionError
 
     fake_engine.raise_on_deploy = DeploymentPreconditionError("kubeconfig missing")
 
@@ -174,7 +174,7 @@ def test_deploy_maps_deployment_error_to_exit_1(fake_engine: _FakeEngine) -> Non
 
 
 def test_destroy_threads_force_flag(fake_engine: _FakeEngine) -> None:
-    from olf.deployment.engine import DeploymentPhase
+    from olf.infra.deployment.engine import DeploymentPhase
 
     result = runner.invoke(app, ["destroy", "--phase", "foundation", "--force"])
 
@@ -213,7 +213,7 @@ def test_deploy_accepts_aws_and_azure_providers(monkeypatch: pytest.MonkeyPatch,
     providers, only mocking `_build_engine` to avoid touching real Terraform/AWS/Azure CLIs.
     """
     engine = _FakeEngine()
-    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("olf.infra.commands.deployment._build_engine", lambda *a, **k: engine)
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
 
     for provider in ("aws", "azure"):
@@ -223,7 +223,7 @@ def test_deploy_accepts_aws_and_azure_providers(monkeypatch: pytest.MonkeyPatch,
 
 def test_unknown_profile_is_rejected_before_building_an_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "olf.commands.deployment._build_engine",
+        "olf.infra.commands.deployment._build_engine",
         lambda *a, **k: pytest.fail("engine should not be built for an invalid profile"),
     )
 
@@ -239,7 +239,7 @@ def test_an_invalid_toolchain_mode_surfaces_as_a_clean_cli_error(monkeypatch: py
     executable strategy, well before any provider-specific setup runs. It
     must surface the same clean way every other DeploymentError does, not
     as a raw traceback."""
-    from olf.deployment.errors import ToolchainError
+    from olf.common.deployment.errors import ToolchainError
 
     monkeypatch.setenv("OLF_TOOLCHAIN_MODE", "bogus")
 
@@ -264,8 +264,8 @@ def _write_profile(root: Path, *, provider: str = "local", stages: str = "    de
 
 
 def test_the_deployment_profile_decides_the_stages(tmp_path: Path) -> None:
-    from olf.commands._shared import resolve_topology
-    from olf.profile import Provider
+    from olf.common.profile import Provider
+    from olf.infra.commands._shared import resolve_topology
 
     _write_profile(tmp_path, stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
 
@@ -275,8 +275,8 @@ def test_the_deployment_profile_decides_the_stages(tmp_path: Path) -> None:
 
 
 def test_an_explicit_preset_selects_the_deprecated_single_dev_shorthand(tmp_path: Path) -> None:
-    from olf.commands._shared import resolve_topology
-    from olf.profile import Provider
+    from olf.common.profile import Provider
+    from olf.infra.commands._shared import resolve_topology
 
     _write_profile(tmp_path, stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
 
@@ -287,8 +287,8 @@ def test_an_explicit_preset_selects_the_deprecated_single_dev_shorthand(tmp_path
 
 
 def test_a_profile_for_another_provider_does_not_describe_this_deployment(tmp_path: Path) -> None:
-    from olf.commands._shared import resolve_topology
-    from olf.profile import Provider
+    from olf.common.profile import Provider
+    from olf.infra.commands._shared import resolve_topology
 
     _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
 
@@ -299,8 +299,8 @@ def test_a_profile_for_another_provider_does_not_describe_this_deployment(tmp_pa
 
 
 def test_an_invalid_profile_fails_closed(tmp_path: Path) -> None:
-    from olf.commands._shared import resolve_topology
-    from olf.profile import Provider
+    from olf.common.profile import Provider
+    from olf.infra.commands._shared import resolve_topology
 
     (tmp_path / "openlakeforge.yaml").write_text("apiVersion: openlakeforge.io/v1alpha1\nkind: NotAProfile\n")
 
@@ -328,7 +328,7 @@ def test_a_multi_stage_profile_is_accepted_on_the_stage_aware_cloud_roots(
     """The aws-poc and azure-poc roots became stage-aware (#114), so a
     multi-stage profile no longer needs the single-DEV shorthand."""
     _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
-    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr("olf.infra.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
 
     result = runner.invoke(
         app,
@@ -340,7 +340,7 @@ def test_a_multi_stage_profile_is_accepted_on_the_stage_aware_cloud_roots(
 
 def test_the_single_dev_shorthand_still_works_on_cloud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
-    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr("olf.infra.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
 
     result = runner.invoke(
         app,
@@ -359,8 +359,8 @@ def test_profile_context_keeps_an_external_checkout_separate_from_the_distributi
     running distribution version through `runtime_layout()` resolved the project
     root and reported the wrong version to the compatibility gate.
     """
-    from olf.commands._shared import deployment_context_for_profile
-    from olf.distribution import distribution_version_at
+    from olf.common.distribution import distribution_version_at
+    from olf.infra.commands._shared import deployment_context_for_profile
 
     monkeypatch.delenv("OPENLAKEFORGE_REPO_ROOT", raising=False)
     monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)

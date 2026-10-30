@@ -13,9 +13,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from olf import github_app
-from olf.openmetadata._auth import AUTOMATION_JWT_KEY, AUTOMATION_SECRET
-from olf.profile import GitHubSpec
+from olf.common.profile import GitHubSpec
+from olf.infra import github_app
+from olf.infra.openmetadata._auth import AUTOMATION_JWT_KEY, AUTOMATION_SECRET
 
 NAME = "openmetadata-role-sync"
 # Inside the 15 min native-service revocation bound of identity-sessions-and-recovery.md.
@@ -92,8 +92,9 @@ def apply_role_sync(namespace: str, *, om_url: str) -> str:
     """
     import yaml
 
-    from olf import config, k8s
-    from olf.profile import load_deployment_profile
+    from olf.common import config
+    from olf.common.profile import load_deployment_profile
+    from olf.infra import k8s
 
     profile_path = config.project_root() / "openlakeforge.yaml"
     if not profile_path.is_file():

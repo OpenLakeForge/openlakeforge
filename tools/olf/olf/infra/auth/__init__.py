@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from olf.auth import aws, azure
-from olf.auth.aws import aws_process_credentials, aws_session, login_aws
-from olf.auth.azure import adopt_azure_cli, azure_credential, login_azure, selected_azure_subscription
-from olf.auth.state import AuthenticationError, auth_home, clear_state, load_state, save_state
+from olf.infra.auth import aws, azure
+from olf.infra.auth.aws import aws_process_credentials, aws_session, login_aws
+from olf.infra.auth.azure import adopt_azure_cli, azure_credential, login_azure, selected_azure_subscription
+from olf.infra.auth.state import AuthenticationError, auth_home, clear_state, load_state, save_state
 
 __all__ = [
     "AuthenticationError",

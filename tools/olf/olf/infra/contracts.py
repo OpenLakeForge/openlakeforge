@@ -29,10 +29,10 @@ from typing import TYPE_CHECKING, Any
 
 from openlakeforge_domain import inventory_for
 
-from olf.access import ACCESS_ENV, contract_access
-from olf.contract_validation import V2_SCHEMA_VERSION
-from olf.profile import DeploymentTopology, StageName
-from olf.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.common.contract_validation import V2_SCHEMA_VERSION
+from olf.common.profile import DeploymentTopology, StageName
+from olf.common.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.infra.access import ACCESS_ENV, contract_access
 
 if TYPE_CHECKING:
     pass
@@ -397,7 +397,7 @@ def build_contract_env(
 
     env = _Env(base)
     _apply_default_contract_env(env, base, repo_root)
-    # The ingress routes olf's own clients reach services through (olf.access).
+    # The ingress routes olf's own clients reach services through (olf.infra.access).
     access = contract_access(contracts, stage=StageName(stage).value if stage is not None else StageName.DEV.value)
     if access:
         env.set(ACCESS_ENV, json.dumps(access, separators=(",", ":")))

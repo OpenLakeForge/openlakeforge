@@ -9,8 +9,8 @@ import pytest
 from botocore.exceptions import ClientError
 from conftest import e2e_cfg
 
-from olf.e2e import _isolation
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _isolation
+from olf.infra.e2e._shell import E2EError
 
 
 class _S3Client:
@@ -261,8 +261,8 @@ def test_bucket_listing_failure_surfaces_as_an_e2e_error(monkeypatch: pytest.Mon
 
 def test_dagster_run_listing_failure_surfaces_as_an_e2e_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """The e2e CLI reports E2EError; a raw client error would be a traceback."""
-    from olf.clients.base import ServiceClientError
-    from olf.clients.dagster import DagsterClient
+    from olf.common.clients.base import ServiceClientError
+    from olf.common.clients.dagster import DagsterClient
 
     @contextmanager
     def _port_forward(*_args, **_kwargs):  # noqa: ANN202

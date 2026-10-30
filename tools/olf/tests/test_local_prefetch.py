@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.context import DeploymentContext, DeploymentFeatures, Profile
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.local import prefetch
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.release._manifest import load_catalog
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext, DeploymentFeatures, Profile
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.release._manifest import load_catalog
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import prefetch
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CATALOG = load_catalog(_REPO_ROOT / "release" / "component-catalog.yaml")["components"]["images"]
@@ -26,11 +26,11 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeployme
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     resolver = PathExecutableResolver(
         overrides={t: Path(t) for t in ("terraform", "docker", "kind", "kubectl", "helm")}
@@ -185,7 +185,7 @@ def test_prefetch_images_skips_crictl_pull_for_undigested_images(tmp_path: Path)
 
 
 def test_canary_image_is_loaded_into_nodes_before_its_pods_are_created() -> None:
-    from olf.deployment.local import network_canary
+    from olf.infra.deployment.local import network_canary
 
     class _StopAtCreate(Exception):
         pass
@@ -286,7 +286,7 @@ def test_prefetch_imports_into_workers_and_traefik_into_every_node(tmp_path: Pat
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="the smoke deadline is a POSIX interval timer")
 def test_smoke_deadline_interrupts_a_blocked_node_import(tmp_path: Path) -> None:
-    from olf.smoke import SmokeError, _deadline
+    from olf.infra.smoke import SmokeError, _deadline
 
     class _BlockedImport(_ScriptedRunner):
         def run(self, command, **kwargs):  # type: ignore[override]

@@ -1,7 +1,7 @@
 """Thin `olf deploy`/`destroy`/`status`/`forward` commands.
 
 Each command builds a `DeploymentContext` + `DeploymentEngine` and delegates
-immediately; all lifecycle logic lives in `olf.deployment.*`. The `--phase`
+immediately; all lifecycle logic lives in `olf.common.deployment.*`. The `--phase`
 option is what lets the granular Make target delegates (`local-foundation-up`,
 `local-platform-up`, ...) share this exact code path instead of duplicating
 lifecycle logic.
@@ -15,16 +15,16 @@ from pathlib import Path
 
 import typer
 
-from olf.commands._shared import deployment_context as _build_context
-from olf.log import fail
+from olf.common.log import fail
+from olf.infra.commands._shared import deployment_context as _build_context
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
 
 
 def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import DeploymentEngine, build_provider
-    from olf.deployment.errors import DeploymentError
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.engine import DeploymentEngine, build_provider
 
     try:
         tooling_env = context.command_env(base=os.environ)
@@ -40,7 +40,7 @@ def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
 
 
 def _resolve_phase(phase: str, *, valid: tuple[str, ...]):  # noqa: ANN202
-    from olf.deployment.engine import DeploymentPhase
+    from olf.infra.deployment.engine import DeploymentPhase
 
     if phase not in valid:
         raise typer.Exit(code=fail(f"unknown --phase: {phase!r} (expected one of {', '.join(valid)})"))
@@ -76,7 +76,7 @@ def deploy(
     ),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = _build_context(
         provider,
@@ -120,7 +120,7 @@ def plan(
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
 ) -> None:
     """Plan Terraform-managed deployment phases without applying them."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = _build_context(
         provider,
@@ -157,7 +157,7 @@ def doctor(
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
 ) -> None:
     """Check host tools, source inputs, and provider authentication without mutating deployment state."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = _build_context(
         provider,
@@ -196,7 +196,7 @@ def destroy(
     ),
 ) -> None:
     """Tear down a provider's lifecycle, or a single phase of it."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = _build_context(
         provider,
@@ -227,7 +227,7 @@ def status(
     json_output: bool = typer.Option(False, "--json", help="Emit service URLs and resource status as JSON."),
 ) -> None:
     """Print service URLs and pod/service/PVC status for the deployed namespaces."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = _build_context(
         provider,
@@ -258,7 +258,7 @@ def forward(
     ),
 ) -> None:
     """Start port-forwards for the deployed services (Ctrl-C to stop all)."""
-    from olf.deployment.errors import DeploymentError
+    from olf.common.deployment.errors import DeploymentError
 
     context = _build_context(
         provider,

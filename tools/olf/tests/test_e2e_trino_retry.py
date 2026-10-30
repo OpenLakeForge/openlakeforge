@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from olf.e2e._shell import E2EError
-from olf.e2e._trino import retry_until_deadline
+from olf.infra.e2e._shell import E2EError
+from olf.infra.e2e._trino import retry_until_deadline
 
 
 class _Clock:

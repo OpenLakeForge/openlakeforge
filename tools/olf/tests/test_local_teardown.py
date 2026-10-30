@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
-from olf.deployment.local import teardown
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import teardown
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 
@@ -25,11 +25,11 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeployme
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     resolver = PathExecutableResolver(overrides={t: Path(t) for t in _TOOLS})
     return Toolkit(
@@ -137,11 +137,11 @@ def test_cleanup_legacy_helm_releases_skips_when_helm_missing(tmp_path: Path) ->
             raise ExecutableNotFoundError("helm")
 
     resolver = PathExecutableResolver(overrides={"terraform": Path("terraform"), "kubectl": Path("kubectl")})
-    from olf.tooling.docker import Docker
-    from olf.tooling.helm import Helm
-    from olf.tooling.kind import Kind
-    from olf.tooling.kubectl import Kubectl
-    from olf.tooling.terraform import Terraform
+    from olf.common.tooling.docker import Docker
+    from olf.common.tooling.helm import Helm
+    from olf.common.tooling.kind import Kind
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.terraform import Terraform
 
     runner = MissingHelmRunner()
     tools = Toolkit(

@@ -9,9 +9,10 @@ import pytest
 import yaml
 from conftest import FakeSuperset
 
-from olf import dashboard_checks, k8s, superset
-from olf.contracts import build_contract_env
-from olf.profile import resolve_topology, validate_deployment_profile
+from olf.common import dashboard_checks
+from olf.common.profile import resolve_topology, validate_deployment_profile
+from olf.infra import k8s, superset
+from olf.infra.contracts import build_contract_env
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -30,7 +31,7 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
     Mirrors `deployment.contract_env.applied_contract_environment`: the
     exports overlay the caller's own environment rather than replacing it,
     which is what lets a caller-set OPENLAKEFORGE_QUERY_SQLALCHEMY_URI
-    survive (`olf.contracts` module docstring) and therefore what makes the
+    survive (`olf.infra.contracts` module docstring) and therefore what makes the
     stale-URI case below reachable at all.
     """
     contract = json.loads((FIXTURES / fixture_name).read_text())
@@ -479,7 +480,7 @@ def test_the_v2_dev_compatibility_contract_still_resolves() -> None:
     """Pre-v3 platform state is DEV-only and names its catalog `iceberg`.
     The v2 adapter exists so report commands keep working against it until
     the next platform apply; the resolver must not demand a v3 catalog name."""
-    from olf.contracts import build_contract_env
+    from olf.infra.contracts import build_contract_env
 
     contract = json.loads((FIXTURES / "local-provider-contracts.json").read_text())
     exports, _ = build_contract_env({}, contract, repo_root=Path(__file__).resolve().parents[3])

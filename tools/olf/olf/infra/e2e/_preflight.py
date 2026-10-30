@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import os
 
-from olf import log
-from olf.auth import aws_session
-from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, load_provider_contracts_or_raise
-from olf.e2e._trino import stage_catalog_name
+from olf.common import log
+from olf.infra.auth import aws_session
+from olf.infra.e2e._shell import E2EConfig, E2EError, aws_stack_region, load_provider_contracts_or_raise
+from olf.infra.e2e._trino import stage_catalog_name
 
 
 def check_aws_provider_contracts(cfg: E2EConfig) -> None:
@@ -46,7 +46,7 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     region = aws_stack_region(cfg)
     # This account's Glue service refuses to create a custom catalog per
     # stage, so every stage shares the account's one default catalog and
-    # olf.contracts.build_contract_env prefixes each physical database name
+    # olf.infra.contracts.build_contract_env prefixes each physical database name
     # with the stage's own catalog_name to stay collision-free - the bare
     # inventory names below never exist in Glue on their own.
     stage_name = stage_catalog_name(cfg).removeprefix("lakehouse_")

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from olf.deployment.errors import CommandExecutionError
-from olf.tooling.retry import RetryPolicy, run_with_retry
+from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.retry import RetryPolicy, run_with_retry
 
 
 def _error(returncode: int = 1) -> CommandExecutionError:

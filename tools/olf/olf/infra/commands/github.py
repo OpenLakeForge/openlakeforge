@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from olf import log
-from olf.commands._shared import deployment_context
-from olf.log import fail
+from olf.common import log
+from olf.common.log import fail
+from olf.infra.commands._shared import deployment_context
 
 app = typer.Typer(help="GitHub sign-in: create the GitHub App and store its credentials.")
 
@@ -23,7 +23,7 @@ def connect(
     """Create the GitHub App for spec.identity.github in your browser and store it as the Secret
     `oauth_app_secret_ref` names. Re-running registers a new App and replaces the Secret; delete the old App yourself.
     """
-    from olf import github_app
+    from olf.infra import github_app
 
     context = deployment_context(
         "local",

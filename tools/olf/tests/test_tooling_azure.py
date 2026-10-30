@@ -3,7 +3,7 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
-from olf.tooling.azure import AzureSdk
+from olf.infra.tooling.azure import AzureSdk
 
 
 class _Credential:
@@ -100,12 +100,12 @@ def test_aks_show_maps_sdk_failures_to_not_ok_result() -> None:
 
 def test_account_show_falls_back_to_the_saved_olf_login_subscription(monkeypatch) -> None:  # noqa: ANN001
     """`doctor()` builds its preflight environment without Terraform's
-    `ARM_SUBSCRIPTION_ID` overlay (see `olf.deployment.cloud.provider.doctor`),
+    `ARM_SUBSCRIPTION_ID` overlay (see `olf.infra.deployment.cloud.provider.doctor`),
     so an identity with several subscriptions and only saved OLF state must
     still resolve to the one the user selected during `olf auth login`
     instead of raising "subscription is not selected".
     """
-    import olf.auth as auth
+    import olf.infra.auth as auth
 
     monkeypatch.setattr(auth, "selected_azure_subscription", lambda _environ: "other-sub-id")
 

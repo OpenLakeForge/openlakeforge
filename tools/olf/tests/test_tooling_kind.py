@@ -4,9 +4,9 @@ from pathlib import Path
 
 from _tooling_support import RecordingRunner
 
-from olf.tooling.kind import Kind
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.kind import Kind
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
 
 
 def _kind(result: CommandResult | None = None) -> tuple[Kind, RecordingRunner]:

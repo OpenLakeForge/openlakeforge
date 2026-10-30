@@ -18,12 +18,19 @@ from _contract_conformance import (
 )
 from conftest import CONFORMANCE_PROFILE, CONFORMANCE_STAGES, E2E_REPO_ROOT
 
-from olf.commands._shared import deployment_context_for_profile
-from olf.contracts import build_contract_env
-from olf.contracts_check import profile_schema_errors
-from olf.deployment.context import DeploymentContext, stage_namespace, topology_variables
-from olf.profile import DeploymentTopology, Preset, Provider, StageName, load_deployment_profile, resolve_topology
-from olf.provider_contracts import parse_provider_contracts
+from olf.common.contracts_check import profile_schema_errors
+from olf.common.deployment.context import DeploymentContext, stage_namespace, topology_variables
+from olf.common.profile import (
+    DeploymentTopology,
+    Preset,
+    Provider,
+    StageName,
+    load_deployment_profile,
+    resolve_topology,
+)
+from olf.common.provider_contracts import parse_provider_contracts
+from olf.infra.commands._shared import deployment_context_for_profile
+from olf.infra.contracts import build_contract_env
 
 # The provider contract the local root rendered from openlakeforge.conformance.yaml
 # itself, captured unmodified by the multi-stage nightly that applies that file
@@ -68,7 +75,7 @@ def test_selecting_a_stage_preserves_the_two_stage_topology(stage: StageName) ->
     )
 
 
-def _parsed_conformance_contract():  # noqa: ANN202 - olf.provider_contracts.ProviderContracts
+def _parsed_conformance_contract():  # noqa: ANN202 - olf.common.provider_contracts.ProviderContracts
     """The generated local runtime configuration for both of the conformance
     profile's stages, parsed against the topology `openlakeforge.conformance.yaml`
     itself resolves to (#155's negative-isolation slice).

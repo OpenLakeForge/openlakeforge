@@ -4,11 +4,11 @@ from pathlib import Path
 
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment import kube_ops
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.terraform import Terraform
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.terraform import Terraform
+from olf.infra.deployment import kube_ops
 
 _KUBECONFIG = Path("/repo/.tmp/kubeconfigs/local.yaml")
 _CONTEXT = "kind-openlakeforge-local"

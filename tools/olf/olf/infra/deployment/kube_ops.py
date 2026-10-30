@@ -1,6 +1,6 @@
 """Provider-neutral Kubernetes/Terraform reconciliation helpers.
 
-Port of `scripts/lib/kube.sh`. Kept out of `olf.deployment.local` so #125 can
+Port of `scripts/lib/kube.sh`. Kept out of `olf.common.deployment.local` so #125 can
 reuse it verbatim for AWS/Azure platform orchestration.
 """
 
@@ -9,10 +9,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf import log
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.terraform import Terraform
+from olf.common import log
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.terraform import Terraform
 
 
 def managed_namespaces(

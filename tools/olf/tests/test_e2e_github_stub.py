@@ -7,8 +7,8 @@ from http.server import HTTPServer
 import pytest
 import requests
 
-from olf.e2e import github_stub
-from olf.e2e._identity_github import StubAuthorize
+from olf.infra.e2e import github_stub
+from olf.infra.e2e._identity_github import StubAuthorize
 
 USERS = {"alice": ["Acme:analysts"], "bob": ["Acme:unmapped"]}
 AUTHORIZE = "https://stub.ns.svc/login/oauth/authorize?state=s&redirect_uri=https://auth.olf.localhost/callback"

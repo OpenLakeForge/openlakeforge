@@ -17,10 +17,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
+from olf.common.deployment.errors import ExecutableNotFoundError, ToolchainError
 
 if TYPE_CHECKING:
-    from olf.toolchain.manager import ToolchainManager
+    from olf.common.toolchain.manager import ToolchainManager
 
 
 class ExecutableResolver(Protocol):
@@ -78,7 +78,7 @@ class ManagedExecutableResolver:
         if override is not None:
             return Path(override)
 
-        from olf.toolchain.spec import MANAGED_TOOLS
+        from olf.common.toolchain.spec import MANAGED_TOOLS
 
         if tool not in MANAGED_TOOLS:
             return self.fallback.resolve(tool)
@@ -118,9 +118,9 @@ def build_resolver(
             "OLF_TOOLCHAIN_MODE", reason=f"unknown value {mode!r} (expected 'managed' or 'host')"
         )
 
-    from olf.toolchain.manager import ToolchainManager
-    from olf.toolchain.platform import UnsupportedPlatformError
-    from olf.toolchain.spec import ToolchainCatalogError
+    from olf.common.toolchain.manager import ToolchainManager
+    from olf.common.toolchain.platform import UnsupportedPlatformError
+    from olf.common.toolchain.spec import ToolchainCatalogError
 
     home = Path(env["OLF_HOME"]).expanduser().resolve() if env.get("OLF_HOME") else None
     if env.get("OLF_DISTRIBUTION_ROOT"):
@@ -135,7 +135,7 @@ def build_resolver(
         # directory sent an installed user's default (managed) toolchain
         # lookup to `./release/component-catalog.yaml`, so every managed tool
         # failed with "release catalog not found" in their own project folder.
-        from olf.distribution import DistributionError, runtime_layout
+        from olf.common.distribution import DistributionError, runtime_layout
 
         try:
             catalog_path = runtime_layout(dict(env)).catalog_path

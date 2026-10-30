@@ -13,7 +13,7 @@ from pathlib import Path
 
 from openlakeforge_domain.inventory import Source
 
-from olf.tooling.kubectl import Kubectl
+from olf.common.tooling.kubectl import Kubectl
 
 # Prints the key names of `.data` and nothing else, so a Secret's values never
 # reach this process, its output or a log.

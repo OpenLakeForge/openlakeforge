@@ -2,7 +2,7 @@
 
 `OpenMetadataReconciler` owns the idempotent PUT/PATCH/GET calls that create
 or update one OpenMetadata entity at a time. `OpenMetadataDeployer`
-(`olf.openmetadata._orchestration`) composes a reconciler and sequences these
+(`olf.infra.openmetadata._orchestration`) composes a reconciler and sequences these
 calls; this module has no opinion on ordering.
 """
 
@@ -11,8 +11,8 @@ from __future__ import annotations
 import time
 import urllib.parse
 
-from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
-from olf.openmetadata._config import OpenMetadataConfig
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from olf.infra.openmetadata._config import OpenMetadataConfig
 
 
 class OpenMetadataReconciler:

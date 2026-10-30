@@ -25,7 +25,7 @@ import re
 
 import yaml
 
-from olf.scaffold._shared import ScaffoldError
+from olf.common.scaffold._shared import ScaffoldError
 
 _TOP_LEVEL_KEY = re.compile(r"^[A-Za-z]")
 

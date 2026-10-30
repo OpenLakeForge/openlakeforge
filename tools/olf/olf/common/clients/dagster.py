@@ -10,7 +10,7 @@ from typing import Any
 
 import requests
 
-from olf import log
+from olf.common import log
 
 from .base import ServiceClientError, TransientServiceError
 

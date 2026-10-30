@@ -6,9 +6,9 @@ from pathlib import Path
 
 import typer
 
-from olf import trino
-from olf.commands._shared import applied_runtime_environment, deployment_context_for_profile
-from olf.log import fail
+from olf.common.log import fail
+from olf.infra import trino
+from olf.infra.commands._shared import applied_runtime_environment, deployment_context_for_profile
 
 # Trino CLI --output-format values for each --format choice.
 OUTPUT_FORMATS = {"table": "ALIGNED", "csv": "CSV_HEADER", "json": "JSON"}
@@ -32,9 +32,9 @@ def query(
     as well as read. Use it to look at data, not to load it. It is not
     per-user access: every caller of this command is the same Trino user.
     """
-    from olf.deployment.errors import DeploymentError
-    from olf.provider_contracts import ProviderContractError
-    from olf.tooling.resolver import build_resolver
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.provider_contracts import ProviderContractError
+    from olf.common.tooling.resolver import build_resolver
 
     if output_format not in OUTPUT_FORMATS:
         raise typer.Exit(code=fail(f"unknown --format {output_format!r}; expected table, csv, or json."))

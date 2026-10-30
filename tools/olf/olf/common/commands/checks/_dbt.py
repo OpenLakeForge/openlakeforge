@@ -11,19 +11,13 @@ from pathlib import Path
 
 import typer
 
-from olf.commands.checks._shared import (
-    _check_cache_root,
-    _distribution_root_for,
-    _root,
-    _run,
-    _uv_pip_install,
-)
-from olf.log import fail
+from olf.common.commands.checks._shared import _check_cache_root, _distribution_root_for, _root, _run, _uv_pip_install
+from olf.common.log import fail
 
 
 def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Render, resolve, parse, and compile every discovered dbt product."""
-    from olf.project import ProjectSpec
+    from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
     # `libs` is distribution-owned, not project-owned (ADR 0009): an

@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 import typer
 
-from olf.commands import release
-from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.local.config import ImageSettings
+from olf.common.commands import release
+from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.local.config import ImageSettings
 
 
 class _Runner:

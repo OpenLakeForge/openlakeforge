@@ -1,7 +1,7 @@
 """Errors raised while resolving or installing a managed tool.
 
-These are internal to `olf.toolchain`; `olf.tooling.resolver` catches them
-and re-raises `olf.deployment.errors.ToolchainError` (a `DeploymentError`),
+These are internal to `olf.common.toolchain`; `olf.common.tooling.resolver` catches them
+and re-raises `olf.common.deployment.errors.ToolchainError` (a `DeploymentError`),
 matching how every other deployment failure surfaces to `olf doctor` and the
 CLI's `--phase`/lifecycle commands.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 
 class ToolchainError(RuntimeError):
-    """Base class for `olf.toolchain` failures."""
+    """Base class for `olf.common.toolchain` failures."""
 
 
 class ToolchainDownloadError(ToolchainError):

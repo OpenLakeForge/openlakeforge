@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from olf.e2e import _perimeter
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _perimeter
+from olf.infra.e2e._shell import E2EError
 
 ISSUER = "https://auth.olf.localhost"
 ROUTES = {"shared/portal": "https://olf.localhost", "stage/dev/orchestration": "https://dagster-dev.olf.localhost"}

@@ -4,8 +4,8 @@ import boto3
 from botocore.stub import Stubber
 from openlakeforge_domain import CatalogNamespace
 
-from olf import auth, glue
-from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
+from olf.infra import auth, glue
+from olf.infra.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 
 
 def make_client() -> tuple[glue.GlueClient, Stubber]:

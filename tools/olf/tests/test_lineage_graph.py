@@ -5,7 +5,7 @@ from pathlib import Path
 from conftest import write_floe_entity
 from openlakeforge_domain import Dashboard, Domain, LakehouseInventory, Product, Source, Table
 
-from olf.lineage_graph import render_lineage_graph
+from olf.common.lineage_graph import render_lineage_graph
 
 
 def _inventory(

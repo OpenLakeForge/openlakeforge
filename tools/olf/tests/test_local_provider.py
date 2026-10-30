@@ -8,18 +8,18 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import DeploymentPhase
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.deployment.local.provider import LocalProvider
-from olf.tooling.docker import Docker
-from olf.tooling.helm import Helm
-from olf.tooling.kind import Kind
-from olf.tooling.kubectl import Kubectl
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.terraform import Terraform
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.docker import Docker
+from olf.common.tooling.helm import Helm
+from olf.common.tooling.kind import Kind
+from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.terraform import Terraform
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.engine import DeploymentPhase
+from olf.infra.deployment.local.provider import LocalProvider
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 
@@ -156,11 +156,11 @@ def test_foundation_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) ->
     required: list[str] = []
     health_calls: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.local.provider.base_report",
+        "olf.infra.deployment.local.provider.base_report",
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
     monkeypatch.setattr(
-        "olf.deployment.local.provider.docker_health",
+        "olf.infra.deployment.local.provider.docker_health",
         lambda *args, **kwargs: health_calls.append("docker") or None,
     )
 
@@ -174,11 +174,11 @@ def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> 
     provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
     required: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.local.provider.base_report",
+        "olf.infra.deployment.local.provider.base_report",
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
-    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.infra.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -187,8 +187,8 @@ def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> 
 
 def test_artifacts_doctor_requires_platform_provider_contracts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
-    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.infra.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -204,9 +204,9 @@ def test_artifacts_doctor_uses_the_configured_contract_root(tmp_path: Path, monk
     provider = LocalProvider.create(
         _config(tmp_path), toolkit=_toolkit(), environ={"OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR": str(contract_root)}
     )
-    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.infra.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "olf.contract_state.load_provider_contracts",
+        "olf.common.contract_state.load_provider_contracts",
         lambda path, **_kwargs: observed.append(path) or {"schema_version": "2.0.0"},
     )
 
@@ -226,7 +226,7 @@ def test_platform_plan_prepares_cached_chart(tmp_path: Path, monkeypatch) -> Non
     provider = LocalProvider.create(config, toolkit=_toolkit(), environ={})
     calls: list[str] = []
     monkeypatch.setattr(
-        "olf.deployment.local.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
+        "olf.infra.deployment.local.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
     )
 
     provider.plan(DeploymentPhase.PLATFORM)
@@ -241,10 +241,13 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
     rejects, so the default has to publish to whatever
     `PROJECT_CODE_IMAGE_REPOSITORY` names.
     """
-    from olf.deployment.local import images
-    from olf.deployment.local import provider as provider_module
+    from olf.infra.deployment.local import images
+    from olf.infra.deployment.local import provider as provider_module
 
-    monkeypatch.setattr("olf.image_build.build_project_code_image", lambda *a, **k: "ghcr.io/acme/project-code:dev")
+    monkeypatch.setattr(
+        "olf.common.image_build.build_project_code_image",
+        lambda *a, **k: "ghcr.io/acme/project-code:dev",
+    )
     monkeypatch.setattr(images, "load_image_into_kind", lambda *a, **k: None)
     monkeypatch.setattr(provider_module.log, "step", lambda _message: None)
     pushed: list[str] = []
@@ -268,7 +271,7 @@ def test_the_image_command_returns_the_published_example_without_building(tmp_pa
 
 
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr("olf.image_build.build_project_code_image", lambda *a, **k: pytest.fail("built"))
+    monkeypatch.setattr("olf.common.image_build.build_project_code_image", lambda *a, **k: pytest.fail("built"))
     provider = LocalProvider.create(_published_config(tmp_path), toolkit=_toolkit(), environ={})
 
     assert provider.build_project_image() == _PIN
@@ -277,7 +280,7 @@ def test_the_image_command_returns_the_published_example_without_building(tmp_pa
 def _github_provider(tmp_path: Path) -> LocalProvider:
     from dataclasses import replace
 
-    from olf.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
+    from olf.common.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
 
     github = GitHubSpec("acme", {}, GitHubOAuthRef(name="github-oauth-app"))
     topology = replace(
@@ -306,9 +309,12 @@ def test_deploy_ends_with_the_portal_and_what_github_says_about_the_install(
 ) -> None:
     provider = _github_provider(tmp_path)
     secret = {"app-id": "7", "app-slug": "olf", "private-key": "pem-material"}
-    monkeypatch.setattr("olf.deployment.local.platform.read_github_app_secret", lambda *a, **k: secret)
-    monkeypatch.setattr("olf.github_app.app_installed", lambda **k: installed)
-    monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: print("artifacts done"))
+    monkeypatch.setattr("olf.infra.deployment.local.platform.read_github_app_secret", lambda *a, **k: secret)
+    monkeypatch.setattr("olf.infra.github_app.app_installed", lambda **k: installed)
+    monkeypatch.setattr(
+        "olf.infra.deployment.local.artifacts.artifacts_deploy",
+        lambda *a, **k: print("artifacts done"),
+    )
 
     provider.artifacts_deploy()
 
@@ -322,9 +328,9 @@ def test_deploy_ends_with_the_portal_and_what_github_says_about_the_install(
 def test_deploy_summary_says_nothing_about_a_secret_without_an_app_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("olf.deployment.local.platform.read_github_app_secret", lambda *a, **k: {})
-    monkeypatch.setattr("olf.github_app.app_installed", lambda **k: pytest.fail("asked GitHub"))
-    monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.deployment.local.platform.read_github_app_secret", lambda *a, **k: {})
+    monkeypatch.setattr("olf.infra.github_app.app_installed", lambda **k: pytest.fail("asked GitHub"))
+    monkeypatch.setattr("olf.infra.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: None)
 
     _github_provider(tmp_path).artifacts_deploy()
 
@@ -334,15 +340,18 @@ def test_deploy_summary_says_nothing_about_a_secret_without_an_app_id(
 def test_the_github_flow_runs_before_the_foundation_and_platform_reuses_its_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf import github_app
+    from olf.infra import github_app
     app = github_app.GitHubApp(7, "olf", "cid", "csecret", "pem")
     calls: list[str] = []
     seen: dict[str, object] = {}
-    monkeypatch.setattr("olf.deployment.local.platform.github_connect_needed", lambda *a, **k: True)
+    monkeypatch.setattr("olf.infra.deployment.local.platform.github_connect_needed", lambda *a, **k: True)
     monkeypatch.setattr(github_app, "create_app", lambda ctx, **k: calls.append("github") or app)
-    monkeypatch.setattr("olf.deployment.local.foundation.foundation_up", lambda *a, **k: calls.append("foundation"))
-    monkeypatch.setattr("olf.deployment.local.network_canary.require_policy_enforcement", lambda *a, **k: None)
-    monkeypatch.setattr("olf.deployment.local.platform.platform_up", lambda *a, **k: seen.update(k))
+    monkeypatch.setattr(
+        "olf.infra.deployment.local.foundation.foundation_up",
+        lambda *a, **k: calls.append("foundation"),
+    )
+    monkeypatch.setattr("olf.infra.deployment.local.network_canary.require_policy_enforcement", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.deployment.local.platform.platform_up", lambda *a, **k: seen.update(k))
     provider = _github_provider(tmp_path)
 
     provider.before_deploy()
@@ -357,14 +366,14 @@ def test_deploy_summary_omits_the_install_link_when_connect_did_not_run(
 ) -> None:
     from dataclasses import replace
 
-    from olf.profile import AccessSpec
+    from olf.common.profile import AccessSpec
 
     context = DeploymentContext.local(repo_root=tmp_path, topology=replace(_topology(), access=AccessSpec()))
     provider = LocalProvider.create(
         LocalDeploymentConfig.from_environment({}, context=context), toolkit=_toolkit(), environ={}
     )
-    monkeypatch.setattr("olf.deployment.local.platform.platform_up", lambda *a, **k: None)
-    monkeypatch.setattr("olf.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.deployment.local.platform.platform_up", lambda *a, **k: None)
+    monkeypatch.setattr("olf.infra.deployment.local.artifacts.artifacts_deploy", lambda *a, **k: None)
 
     provider.platform_up()
     provider.artifacts_deploy()

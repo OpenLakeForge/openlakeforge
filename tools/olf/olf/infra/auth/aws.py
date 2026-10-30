@@ -14,7 +14,14 @@ import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
 
-from olf.auth.state import AuthenticationError, _expires_at, _write_private_text, auth_home, load_state, save_state
+from olf.infra.auth.state import (
+    AuthenticationError,
+    _expires_at,
+    _write_private_text,
+    auth_home,
+    load_state,
+    save_state,
+)
 
 _AWS_SCOPE = ["sso:account:access"]
 _AWS_AUTOMATION_VARIABLES = {
@@ -330,7 +337,7 @@ def terraform_auth_environment(environ: Mapping[str, str]) -> dict[str, str]:
     if state.get("source") == "olf-sso":
         config_path = auth_home(environ) / "aws-terraform-config"
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        command = f'"{sys.executable}" -m olf.aws_credential_process'
+        command = f'"{sys.executable}" -m olf.infra.aws_credential_process'
         _write_private_text(config_path, "[profile openlakeforge]\ncredential_process = " + command + "\n")
         return {"AWS_CONFIG_FILE": str(config_path), "AWS_PROFILE": "openlakeforge"}
     if state.get("source") == "profile":

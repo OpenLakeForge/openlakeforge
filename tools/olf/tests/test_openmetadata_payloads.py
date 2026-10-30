@@ -1,7 +1,7 @@
 import pytest
 
-from olf.clients.openmetadata import OpenMetadataError
-from olf.openmetadata import _payloads
+from olf.common.clients.openmetadata import OpenMetadataError
+from olf.infra.openmetadata import _payloads
 
 
 def test_display_name_from_name() -> None:

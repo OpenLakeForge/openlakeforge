@@ -18,11 +18,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from olf import k8s, log
-from olf.commands import diagnostics
-from olf.e2e._health import health_namespaces
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
-from olf.tooling.terraform import external_state_options
+from olf.common import log
+from olf.common.tooling.terraform import external_state_options
+from olf.infra import k8s
+from olf.infra.commands import diagnostics
+from olf.infra.e2e._health import health_namespaces
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 # Below this a value is likelier to be an ordinary word in the haystack than a
 # credential. Generated identity secrets are 32 characters.

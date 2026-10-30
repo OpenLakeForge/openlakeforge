@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from olf import config, log
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.deployment.project_code import project_code_build_context
-from olf.tooling.toolkit import Toolkit
+from olf.common import config, log
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.deployment.project_code import project_code_build_context
+from olf.common.tooling.toolkit import Toolkit
 
 
 def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
@@ -55,7 +55,7 @@ def build_project_code_image(
 def local_image_config(
     cluster_name: str, *, project_root: str = "", environ: Mapping[str, str] | None = None
 ) -> tuple[LocalDeploymentConfig, Toolkit]:
-    from olf.distribution import runtime_layout
+    from olf.common.distribution import runtime_layout
 
     layout_env = dict(os.environ if environ is None else environ)
     if project_root:

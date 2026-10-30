@@ -13,11 +13,12 @@ import secrets
 import time
 from urllib.parse import urlsplit
 
-from olf import access, config, log, secrets_rotation
-from olf.e2e._identity_github import dex_points_at_stub, github_stub, log_skip, sign_in_with_stub, stub_host
-from olf.e2e._perimeter import DENIAL_HEADING, PORTAL_REF
-from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
-from olf.tooling.toolkit import Toolkit
+from olf.common import config, log
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import access, secrets_rotation
+from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, log_skip, sign_in_with_stub, stub_host
+from olf.infra.e2e._perimeter import DENIAL_HEADING, PORTAL_REF
+from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 
 TARGET = "dex-client-perimeter"
 

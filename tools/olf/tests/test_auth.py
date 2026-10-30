@@ -15,9 +15,9 @@ from botocore import UNSIGNED
 from botocore.config import Config
 from typer.testing import CliRunner
 
-from olf import auth
-from olf.azure_bridge import main as azure_bridge_main
 from olf.cli import app
+from olf.infra import auth
+from olf.infra.azure_bridge import main as azure_bridge_main
 
 
 class _Pager:
@@ -179,7 +179,7 @@ def test_azure_status_translates_an_expired_sdk_token_into_a_clean_cli_error(
     """
     from azure.core.exceptions import ClientAuthenticationError
 
-    import olf.commands.auth as auth_command
+    import olf.infra.commands.auth as auth_command
 
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"})
@@ -291,7 +291,7 @@ def test_azure_terraform_bridge_supports_only_azurerm_command_contract(monkeypat
     credential = type(
         "Credential", (), {"get_token": lambda *_args: type("Token", (), {"token": "secret", "expires_on": 1})()}
     )()
-    import olf.azure_bridge as bridge
+    import olf.infra.azure_bridge as bridge
 
     monkeypatch.setattr(
         bridge,
@@ -459,7 +459,7 @@ def test_azure_bridge_tolerates_azurerm_option_flags_on_account_commands(
         (),
         {"subscription_id": "sub-id", "display_name": "Sandbox", "tenant_id": "tenant-id", "state": "Enabled"},
     )()
-    import olf.azure_bridge as bridge
+    import olf.infra.azure_bridge as bridge
 
     monkeypatch.setattr(
         bridge,
@@ -488,7 +488,7 @@ def test_azure_bridge_rejects_unsupported_commands_before_resolving_credentials(
     refused with that message and without a credential/network call, so the
     operator sees the contract violation rather than an unrelated auth error.
     """
-    import olf.azure_bridge as bridge
+    import olf.infra.azure_bridge as bridge
 
     def _fail(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
         raise AssertionError("credentials must not be resolved for an unsupported command")
@@ -679,7 +679,7 @@ def test_sso_client_survives_a_config_file_set_after_an_earlier_bare_boto3_call(
 ) -> None:
     """`boto3.client()` (the bare module function) shares one process-global
     default session, and `botocore.session.Session` permanently caches the
-    config file it parses on first use. `olf.deployment.cloud.artifacts`
+    config file it parses on first use. `olf.infra.deployment.cloud.artifacts`
     resolves foundation facts (an earlier `aws_session` call, which can reach
     `_sso_client`) before its `_applied_authentication_environment` overlay
     sets `AWS_CONFIG_FILE`/`AWS_PROFILE` for the artifacts phase - reproduced

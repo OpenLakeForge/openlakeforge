@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from olf.commands._shared import deployment_context_for_profile
-from olf.log import fail
-from olf.project import ProjectSpec, validate_project
+from olf.common.log import fail
+from olf.common.project import ProjectSpec, validate_project
+from olf.infra.commands._shared import deployment_context_for_profile
 
 if TYPE_CHECKING:
-    from olf.artifact_store import RevisionStore
+    from olf.infra.artifact_store import RevisionStore
 
 _LOCAL_TRANSPORT = "port-forward"
 
@@ -27,9 +27,9 @@ app.add_typer(revision_app, name="revision")
 
 
 def _profile_provider(context, *, var_file: str = ""):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import build_provider
-    from olf.deployment.errors import DeploymentError
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.engine import build_provider
 
     try:
         env = context.command_env(base=os.environ)
@@ -45,7 +45,7 @@ def validate(
     project: str = typer.Option(..., "--project", help="Explicit writable project root."),
 ) -> None:
     """Emit a machine-readable report for one project root."""
-    from olf.distribution import runtime_layout
+    from olf.common.distribution import runtime_layout
 
     layout = runtime_layout()
     report = validate_project(ProjectSpec(root=Path(project), distribution_root=layout.distribution_root))
@@ -61,7 +61,7 @@ def graph(
     """Print the Source -> Domain -> Product -> Dashboard lineage as a Mermaid flowchart."""
     from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
 
-    from olf.lineage_graph import render_lineage_graph
+    from olf.common.lineage_graph import render_lineage_graph
 
     try:
         inventory = load_lakehouse_inventory(project)
@@ -85,9 +85,9 @@ def build(
     json_output: bool = typer.Option(False, "--json", help="Print the full manifest instead of the revision id."),
 ) -> None:
     """Build and publish the immutable ProjectRevision for one writable project."""
-    from olf.artifact_store import ArtifactStoreError
-    from olf.commands._project import writable_project_layout
-    from olf.project_revision import ProjectRevisionError, build_project_revision, publish
+    from olf.common.commands._project import writable_project_layout
+    from olf.infra.artifact_store import ArtifactStoreError
+    from olf.infra.project_revision import ProjectRevisionError, build_project_revision, publish
 
     layout = writable_project_layout(project)
     spec = ProjectSpec(root=layout.project_root, distribution_root=layout.distribution_root)
@@ -117,8 +117,8 @@ def image(
     inner-loop shortcut: it prints a tag, not a digest, so the result cannot
     seed `olf project build`.
     """
-    from olf.deployment.errors import DeploymentError
-    from olf.project_revision import ProjectRevisionError, resolve_image_digest
+    from olf.common.deployment.errors import DeploymentError
+    from olf.infra.project_revision import ProjectRevisionError, resolve_image_digest
 
     context = deployment_context_for_profile(profile_file, var_file=var_file)
     provider = _profile_provider(context, var_file=var_file)
@@ -139,12 +139,12 @@ def deploy(
     var_file: str = typer.Option("", "--var-file", help="Provider-specific Terraform tfvars override."),
 ) -> None:
     """Activate an existing immutable revision without building source or Terraform."""
-    from olf.artifact_store import ArtifactStoreError
-    from olf.deployment.activation import ActivationError, deploy_revision
-    from olf.deployment.errors import DeploymentError
-    from olf.profile import load_deployment_profile, resolve_project
-    from olf.project_activation import ProjectActivationError
-    from olf.project_revision import ProjectRevisionError
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.profile import load_deployment_profile, resolve_project
+    from olf.infra.artifact_store import ArtifactStoreError
+    from olf.infra.deployment.activation import ActivationError, deploy_revision
+    from olf.infra.project_activation import ProjectActivationError
+    from olf.infra.project_revision import ProjectRevisionError
 
     context = deployment_context_for_profile(profile_file, stage=stage, var_file=var_file)
     provider = _profile_provider(context, var_file=var_file)
@@ -170,18 +170,14 @@ def status(
     json_output: bool = typer.Option(False, "--json", help="Render stable JSON."),
 ) -> None:
     """Compare each stage's immutable active pointer with its user deployment."""
-    from olf import contract_state
-    from olf.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
-    from olf.deployment.activation import (
-        read_platform_globals,
-        release_runs_activation,
-        stage_code_locations,
-    )
-    from olf.deployment.contract_env import applied_contract_environment
-    from olf.profile import StageName, load_deployment_profile, resolve_project
-    from olf.project_activation import ProjectActivationError
-    from olf.project_activation import active as active_activation
-    from olf.provider_contracts import ProviderContractError
+    from olf.common import contract_state
+    from olf.common.profile import StageName, load_deployment_profile, resolve_project
+    from olf.common.provider_contracts import ProviderContractError
+    from olf.infra.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
+    from olf.infra.deployment.activation import read_platform_globals, release_runs_activation, stage_code_locations
+    from olf.infra.deployment.contract_env import applied_contract_environment
+    from olf.infra.project_activation import ProjectActivationError
+    from olf.infra.project_activation import active as active_activation
 
     selected = (StageName(stage),) if stage else None
     initial = deployment_context_for_profile(profile_file, stage=stage or "dev")
@@ -327,9 +323,9 @@ def revision_inspect(
     json_output: bool = typer.Option(False, "--json", help="Print the full manifest instead of a summary."),
 ) -> None:
     """Read a published ProjectRevision manifest without rebuilding source."""
-    from olf.artifact_store import ArtifactStoreError
-    from olf.project_revision import ProjectRevisionError
-    from olf.project_revision import inspect as inspect_revision
+    from olf.infra.artifact_store import ArtifactStoreError
+    from olf.infra.project_revision import ProjectRevisionError
+    from olf.infra.project_revision import inspect as inspect_revision
 
     try:
         with _revision_store(via=via, output=output) as store:
@@ -357,10 +353,10 @@ def revision_verify(
     ),
 ) -> None:
     """Verify manifest self-consistency, distribution compatibility, and every published object's digest."""
-    from olf.artifact_store import ArtifactStoreError
-    from olf.distribution import runtime_layout
-    from olf.project_revision import ProjectRevisionError
-    from olf.project_revision import verify as verify_revision
+    from olf.common.distribution import runtime_layout
+    from olf.infra.artifact_store import ArtifactStoreError
+    from olf.infra.project_revision import ProjectRevisionError
+    from olf.infra.project_revision import verify as verify_revision
 
     running_version = None if skip_compatibility_check else runtime_layout().distribution_version
     try:
@@ -374,7 +370,12 @@ def revision_verify(
 
 @contextmanager
 def _revision_store(*, via: str, output: str) -> Iterator[RevisionStore]:
-    from olf.artifact_store import FilesystemRevisionStore, S3RevisionStore, artifact_bucket, artifact_storage_client
+    from olf.infra.artifact_store import (
+        FilesystemRevisionStore,
+        S3RevisionStore,
+        artifact_bucket,
+        artifact_storage_client,
+    )
 
     if output:
         yield FilesystemRevisionStore(Path(output))
@@ -411,11 +412,11 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str, stage
         with _revision_store(via=via or _LOCAL_TRANSPORT, output=output) as store:
             yield store
         return
-    from olf.artifact_store import ArtifactStoreError
-    from olf.deployment.contract_env import applied_contract_environment
-    from olf.deployment.errors import DeploymentError
-    from olf.k8s import KubectlError
-    from olf.provider_contracts import ProviderContractError
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.provider_contracts import ProviderContractError
+    from olf.infra.artifact_store import ArtifactStoreError
+    from olf.infra.deployment.contract_env import applied_contract_environment
+    from olf.infra.k8s import KubectlError
 
     context = deployment_context_for_profile(str(project_root / "openlakeforge.yaml"), stage=stage)
     provider = _profile_provider(context)

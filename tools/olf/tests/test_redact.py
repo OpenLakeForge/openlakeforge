@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from _tooling_support import write_fake_executable
 
-from olf.deployment.errors import CommandExecutionError
-from olf.tooling.process import ProcessRunner
-from olf.tooling.redact import is_sensitive_env_name, redact_argv, redact_env
+from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.process import ProcessRunner
+from olf.common.tooling.redact import is_sensitive_env_name, redact_argv, redact_env
 
 SENSITIVE_NAMES = [
     "AWS_SECRET_ACCESS_KEY",

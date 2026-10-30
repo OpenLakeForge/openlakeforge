@@ -1,7 +1,7 @@
 """Superset report bundle build, import, and export.
 
 Bundle building and unpacking are pure local operations; import and export
-go through the Superset REST API (`olf.clients.superset`).
+go through the Superset REST API (`olf.common.clients.superset`).
 """
 
 from __future__ import annotations
@@ -18,11 +18,12 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
-from olf import access, config, k8s, layers, log
-from olf.clients.superset import SupersetClient
-from olf.contracts import CONTRACT_STAGE_ENV
-from olf.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
-from olf.profile import StageName
+from olf.common import config, layers, log
+from olf.common.clients.superset import SupersetClient
+from olf.common.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
+from olf.common.profile import StageName
+from olf.infra import access, k8s
+from olf.infra.contracts import CONTRACT_STAGE_ENV
 
 
 class ReportStageError(RuntimeError):
@@ -169,7 +170,7 @@ def build_report_bundle(
 
     AWS Glue's shared default catalog (no per-stage custom catalog available)
     needs every physical schema prefixed with the stage's own catalog_name to
-    stay collision-free (olf.contracts.build_contract_env's namespace_prefix).
+    stay collision-free (olf.infra.contracts.build_contract_env's namespace_prefix).
     The checked-in dataset YAML declares the bare logical schema
     (e.g. `order_revenue_gold`), so it has to be rewritten the same way the
     database YAML's sqlalchemy_uri already is - otherwise the dashboard
@@ -327,7 +328,7 @@ _SHAREABLE_ASSET_DIRS = frozenset({"databases"})
 # promotion and point PROD at another stage's data. `ws_<user>_` is a personal
 # workspace identity, which #111 excludes from promotable dependencies
 # outright. `s3://`, `http://`, and credential literals are already rejected
-# for every revision component by olf.project_revision.
+# for every revision component by olf.infra.project_revision.
 _FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bws_[a-z0-9][a-z0-9-]*_", re.IGNORECASE), "a personal workspace identifier"),
     (

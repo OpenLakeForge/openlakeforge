@@ -2,8 +2,8 @@ from pathlib import Path
 
 import yaml
 
-from olf.release import _compatibility
-from olf.release._manifest import load_catalog
+from olf.common.release import _compatibility
+from olf.common.release._manifest import load_catalog
 
 ROOT = Path(__file__).parents[3]
 

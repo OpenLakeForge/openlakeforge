@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 import requests.utils
 
-from olf import access
-from olf.commands.access import trust_steps
-from olf.contracts import build_contract_env
+from olf.infra import access
+from olf.infra.commands.access import trust_steps
+from olf.infra.contracts import build_contract_env
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ROUTES = {"issuer": "local-ca", "routes": {"stage/dev/reporting": "https://superset-dev.olf.localhost"}}

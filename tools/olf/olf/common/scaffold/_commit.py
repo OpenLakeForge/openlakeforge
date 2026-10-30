@@ -33,8 +33,8 @@ from openlakeforge_domain import (
     load_transitional_lakehouse_inventory,
 )
 
-from olf.contracts_check import descriptor_schema_errors
-from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan
+from olf.common.contracts_check import descriptor_schema_errors
+from olf.common.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan
 
 _SOURCE_YAML_SUFFIX = "source.yaml"
 _BRONZE_PREFIX = "lakehouse_code/bronze/"

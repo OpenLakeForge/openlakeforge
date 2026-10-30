@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from olf import k8s
-from olf.clients.openmetadata import OpenMetadataClient
-from olf.openmetadata import _auth
-from olf.openmetadata._reconciliation import OpenMetadataReconciler
+from olf.common.clients.openmetadata import OpenMetadataClient
+from olf.infra import k8s
+from olf.infra.openmetadata import _auth
+from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
 
 
 def test_automation_token_is_the_secret_value(monkeypatch: pytest.MonkeyPatch) -> None:

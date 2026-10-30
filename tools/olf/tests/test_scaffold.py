@@ -16,13 +16,13 @@ import yaml
 from openlakeforge_domain import load_lakehouse_inventory
 from typer.testing import CliRunner
 
-from olf import contracts_check
 from olf.cli import app
-from olf.scaffold._commit import commit_plan
-from olf.scaffold._shared import ScaffoldError
-from olf.scaffold.domain import plan_domain_new
-from olf.scaffold.product import plan_product_new
-from olf.scaffold.source import plan_source_new
+from olf.common import contracts_check
+from olf.common.scaffold._commit import commit_plan
+from olf.common.scaffold._shared import ScaffoldError
+from olf.common.scaffold.domain import plan_domain_new
+from olf.common.scaffold.product import plan_product_new
+from olf.common.scaffold.source import plan_source_new
 
 ROOT = Path(__file__).resolve().parents[3]
 runner = CliRunner()
@@ -507,7 +507,7 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     `discover_report_dirs`/`validate_report_registry` -- so the draft is
     invisible to both the descriptor/tree parity check and the promotion
     contract until a real dashboard is exported."""
-    from olf import superset
+    from olf.infra import superset
 
     repo_root = _seed_repo(tmp_path)
     before = load_lakehouse_inventory(repo_root).dashboards

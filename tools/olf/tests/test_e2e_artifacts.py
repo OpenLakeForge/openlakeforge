@@ -5,8 +5,8 @@ from typing import Any
 import pytest
 from conftest import E2E_INVENTORY
 
-from olf.e2e import _artifacts
-from olf.e2e._shell import E2EConfig, E2EError
+from olf.infra.e2e import _artifacts
+from olf.infra.e2e._shell import E2EConfig, E2EError
 
 
 def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

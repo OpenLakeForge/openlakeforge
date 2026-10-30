@@ -29,8 +29,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import requests
 import yaml
 
-from olf import log
-from olf.e2e._shell import E2EConfig, E2EError, kubectl
+from olf.common import log
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 REQUEST_TIMEOUT = 15
 STUB_NAME = "olf-e2e-github"

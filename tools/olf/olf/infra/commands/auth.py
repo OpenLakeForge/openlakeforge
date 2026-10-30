@@ -9,7 +9,8 @@ from datetime import UTC, datetime
 
 import typer
 
-from olf.auth import (
+from olf.common.log import fail
+from olf.infra.auth import (
     AuthenticationError,
     adopt_azure_cli,
     azure_credential,
@@ -18,7 +19,6 @@ from olf.auth import (
     login_aws,
     login_azure,
 )
-from olf.log import fail
 
 app = typer.Typer(help="Authenticate cloud providers through their official SDK flows.", no_args_is_help=True)
 

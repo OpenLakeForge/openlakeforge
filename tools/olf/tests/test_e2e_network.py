@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from olf.e2e import _network
-from olf.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_ports
-from olf.e2e._shell import E2EError
+from olf.infra.e2e import _network
+from olf.infra.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_ports
+from olf.infra.e2e._shell import E2EError
 
 FLOWS = yaml.safe_load((Path(__file__).parents[3] / "release/network-flows.yaml").read_text())
 

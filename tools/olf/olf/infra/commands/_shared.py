@@ -11,9 +11,9 @@ from typing import Any
 
 import typer
 
-from olf import config, log
-from olf.deployment.cloud.cluster_name import aws_cluster_name
-from olf.log import fail
+from olf.common import config, log
+from olf.common.log import fail
+from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
 
 
 def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa: ANN001, ANN202
@@ -31,15 +31,8 @@ def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa
     describe this deployment. A profile file that exists but is invalid fails
     closed instead: it was written to be used.
     """
-    from olf.profile import (
-        DeploymentProfileError,
-        Preset,
-        legacy_single_stage_topology,
-        load_deployment_profile,
-    )
-    from olf.profile import (
-        resolve_topology as resolve,
-    )
+    from olf.common.profile import DeploymentProfileError, Preset, legacy_single_stage_topology, load_deployment_profile
+    from olf.common.profile import resolve_topology as resolve
 
     if preset:
         return legacy_single_stage_topology(provider=provider, preset=Preset(preset))
@@ -47,7 +40,7 @@ def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa
     if not profile_path.is_file():
         return legacy_single_stage_topology(provider=provider, preset=Preset.FULL)
     try:
-        from olf.distribution import runtime_layout
+        from olf.common.distribution import runtime_layout
 
         layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(project_root)})
         profile = load_deployment_profile(profile_path, distribution_root=layout.distribution_root)
@@ -77,17 +70,17 @@ def deployment_context(
     """Resolve the installed-vs-source runtime layout into a `DeploymentContext`.
 
     Shared by every command that needs provider paths - `olf deploy`/`plan`/
-    `doctor`/`destroy`/`status`/`forward` (`olf.commands.deployment`) and
-    `olf e2e run` (`olf.commands.e2e`). A second, independent resolution here
+    `doctor`/`destroy`/`status`/`forward` (`olf.infra.commands.deployment`) and
+    `olf e2e run` (`olf.infra.commands.e2e`). A second, independent resolution here
     would drift: an installed distribution's Terraform roots, kubeconfig, and
     work/state/cache paths must resolve identically for every command, or
     `olf e2e run` ends up validating a different deployment than `olf deploy`
     just created.
     """
-    from olf.deployment.context import DeploymentContext, Profile
-    from olf.deployment.errors import DeploymentPreconditionError
-    from olf.distribution import DistributionError, runtime_layout
-    from olf.profile import Provider, StageName
+    from olf.common.deployment.context import DeploymentContext, Profile
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.common.distribution import DistributionError, runtime_layout
+    from olf.common.profile import Provider, StageName
 
     try:
         resolved_provider = Provider(provider)
@@ -170,10 +163,16 @@ def deployment_context_for_profile(
     ``var_file`` is accepted by callers for a uniform command shape; Terraform
     wiring remains in the provider config built from the returned context.
     """
-    from olf.deployment.context import DeploymentContext, Profile
-    from olf.deployment.errors import DeploymentPreconditionError
-    from olf.distribution import DistributionError, runtime_layout
-    from olf.profile import DeploymentProfileError, Provider, StageName, load_deployment_profile, resolve_topology
+    from olf.common.deployment.context import DeploymentContext, Profile
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.common.distribution import DistributionError, runtime_layout
+    from olf.common.profile import (
+        DeploymentProfileError,
+        Provider,
+        StageName,
+        load_deployment_profile,
+        resolve_topology,
+    )
 
     path = Path(profile_file).resolve()
     try:
@@ -216,7 +215,7 @@ def deployment_context_for_profile(
     except DeploymentPreconditionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 def resolve_kubeconfig_path(env: str, default: Path) -> Path:
-    """Mirror `olf.e2e._runner.configure_kubeconfig`'s override precedence.
+    """Mirror `olf.infra.e2e._runner.configure_kubeconfig`'s override precedence.
 
     This command exports `KUBECONFIG` via `applied_contract_environment`
     before `e2e.run()` (and thus `_runner.configure_kubeconfig`) ever runs -
@@ -236,7 +235,7 @@ def resolve_kubeconfig_path(env: str, default: Path) -> Path:
 
 
 def default_kube_context(env: str, foundation_state_path: Path | None = None) -> str:
-    """Mirror `olf.e2e._runner`'s own per-environment `KUBE_CONTEXT` fallback.
+    """Mirror `olf.infra.e2e._runner`'s own per-environment `KUBE_CONTEXT` fallback.
 
     Must match exactly: this value is what `e2e.run()` would derive on its
     own from `os.environ.get("KUBE_CONTEXT", ...)` if that variable were
@@ -260,14 +259,14 @@ def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa:
     cluster: the in-process equivalent of sourcing the contract exports, with
     the same installed-vs-source path resolution `olf deploy` used.
     """
-    from olf.deployment import contract_env
+    from olf.infra.deployment import contract_env
 
     contract_dir = Path(config.env("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(context.paths.platform_terraform_dir)))
     kube_context = config.env("KUBE_CONTEXT") or default_kube_context(env, context.paths.foundation_state_path)
     # Fresh contract readers create their own managed-tool resolver and, for
     # an installed distribution, must resolve the same external Terraform
     # state/data roots `olf deploy` wrote to (`DeploymentContext.command_env`,
-    # `olf.tooling.terraform.external_state_options`) - without this the
+    # `olf.common.tooling.terraform.external_state_options`) - without this the
     # contract read silently targets the payload's absent default state.
     with contract_env.applied_contract_environment(
         contract_terraform_dir=contract_dir,

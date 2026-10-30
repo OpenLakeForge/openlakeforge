@@ -1,6 +1,6 @@
 """Shared E2E configuration, error type, and process/kubectl primitives.
 
-Every other `olf.e2e` submodule depends on this one; it has no dependency on
+Every other `olf.infra.e2e` submodule depends on this one; it has no dependency on
 any of them, so it stays a true leaf and keeps the package's import graph
 acyclic.
 """
@@ -17,9 +17,9 @@ from typing import Any, Literal
 
 from openlakeforge_domain import LakehouseInventory
 
-from olf import contract_state, log
-from olf.tooling.resolver import build_resolver
-from olf.tooling.terraform import external_state_options
+from olf.common import contract_state, log
+from olf.common.tooling.resolver import build_resolver
+from olf.common.tooling.terraform import external_state_options
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
@@ -159,9 +159,9 @@ def is_transient_kubectl_error(error: Exception) -> bool:
 def _terraform_output_args(terraform_dir: Path, *, mode: str, name: str) -> tuple[list[str], dict[str, str] | None]:
     """Build a `terraform output` argv/env pair for the AWS/Azure foundation
     reads in this module - the same external-state translation
-    `Terraform._run`/`olf.contract_state.load_provider_contracts` apply, or an
+    `Terraform._run`/`olf.common.contract_state.load_provider_contracts` apply, or an
     installed distribution's foundation state under `OLF_HOME` is never
-    found (see `olf.tooling.terraform.external_state_options`).
+    found (see `olf.common.tooling.terraform.external_state_options`).
     """
     overlay, state_path = external_state_options(terraform_dir, os.environ, create=False)
     args = [_terraform_executable(), f"-chdir={terraform_dir}", "output"]

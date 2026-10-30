@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from olf.distribution import DistributionError, RuntimeLayout, runtime_layout
+from olf.common.distribution import DistributionError, RuntimeLayout, runtime_layout
 
 
 def writable_project_root(explicit_root: str) -> Path:

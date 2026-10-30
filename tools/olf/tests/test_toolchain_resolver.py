@@ -4,12 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
-from olf.tooling.resolver import (
-    ManagedExecutableResolver,
-    PathExecutableResolver,
-    build_resolver,
-)
+from olf.common.deployment.errors import ExecutableNotFoundError, ToolchainError
+from olf.common.tooling.resolver import ManagedExecutableResolver, PathExecutableResolver, build_resolver
 
 
 def test_path_resolver_still_resolves_from_path() -> None:
@@ -119,7 +115,7 @@ def test_build_resolver_rejects_an_unknown_mode() -> None:
 def test_build_resolver_managed_mode_wires_a_managed_resolver_against_the_real_catalog(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("olf.config.repo_root", lambda: Path("."))
+    monkeypatch.setattr("olf.common.config.repo_root", lambda: Path("."))
     resolver = build_resolver(environ={"OLF_TOOLCHAIN_MODE": "managed", "OLF_HOME": str(tmp_path)})
 
     assert isinstance(resolver, ManagedExecutableResolver)
@@ -128,7 +124,7 @@ def test_build_resolver_managed_mode_wires_a_managed_resolver_against_the_real_c
 
 
 def test_build_resolver_overrides_win_over_managed_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("olf.config.repo_root", lambda: Path("."))
+    monkeypatch.setattr("olf.common.config.repo_root", lambda: Path("."))
     pinned = Path("/opt/pinned/terraform")
     resolver = build_resolver(
         overrides={"terraform": pinned}, environ={"OLF_TOOLCHAIN_MODE": "managed", "OLF_HOME": str(tmp_path)}

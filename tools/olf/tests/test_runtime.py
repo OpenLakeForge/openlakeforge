@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
-from olf.commands import runtime
+from olf.infra.commands import runtime
 
 
 def test_standalone_contract_context_honors_custom_contract_root(monkeypatch, tmp_path) -> None:  # noqa: ANN001
@@ -16,10 +16,10 @@ def test_standalone_contract_context_honors_custom_contract_root(monkeypatch, tm
 
 
 def test_standalone_local_contract_context_honors_custom_contract_root(monkeypatch, tmp_path) -> None:  # noqa: ANN001
-    from olf.deployment.context import DeploymentContext
-    from olf.deployment.local.config import LocalDeploymentConfig
-    from olf.deployment.local.provider import LocalProvider
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.deployment.context import DeploymentContext
+    from olf.common.deployment.local.config import LocalDeploymentConfig
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.local.provider import LocalProvider
 
     context = DeploymentContext.local(repo_root=tmp_path)
     config = LocalDeploymentConfig.from_environment({}, context=context)
@@ -27,12 +27,12 @@ def test_standalone_local_contract_context_honors_custom_contract_root(monkeypat
     override = tmp_path / "custom-contracts"
     captured: dict[str, Path] = {}
     monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(override))
-    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *args, **kwargs: context)
+    monkeypatch.setattr("olf.infra.commands.deployment._build_context", lambda *args, **kwargs: context)
     monkeypatch.setattr(
-        "olf.commands.deployment._build_engine", lambda *args, **kwargs: SimpleNamespace(provider=provider)
+        "olf.infra.commands.deployment._build_engine", lambda *args, **kwargs: SimpleNamespace(provider=provider)
     )
     monkeypatch.setattr(
-        "olf.deployment.local.artifacts.applied_contract_environment",
+        "olf.infra.deployment.local.artifacts.applied_contract_environment",
         lambda config, *, contract_terraform_dir, environ=None: captured.update(
             contract_terraform_dir=contract_terraform_dir
         )
@@ -55,24 +55,24 @@ def test_provider_contract_environment_threads_project_root_to_build_context(mon
     `project_root` through, they always resolve the bundled demo project
     regardless of what the user selected.
     """
-    from olf.deployment.context import DeploymentContext
-    from olf.deployment.local.config import LocalDeploymentConfig
-    from olf.deployment.local.provider import LocalProvider
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.deployment.context import DeploymentContext
+    from olf.common.deployment.local.config import LocalDeploymentConfig
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.local.provider import LocalProvider
 
     context = DeploymentContext.local(repo_root=tmp_path)
     config = LocalDeploymentConfig.from_environment({}, context=context)
     provider = LocalProvider.create(config, toolkit=Toolkit.default())
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "olf.commands.deployment._build_context",
+        "olf.infra.commands.deployment._build_context",
         lambda *args, **kwargs: captured.update(kwargs) or context,
     )
     monkeypatch.setattr(
-        "olf.commands.deployment._build_engine", lambda *args, **kwargs: SimpleNamespace(provider=provider)
+        "olf.infra.commands.deployment._build_engine", lambda *args, **kwargs: SimpleNamespace(provider=provider)
     )
     monkeypatch.setattr(
-        "olf.deployment.local.artifacts.applied_contract_environment",
+        "olf.infra.deployment.local.artifacts.applied_contract_environment",
         lambda config, *, contract_terraform_dir, environ=None: nullcontext(),
     )
 

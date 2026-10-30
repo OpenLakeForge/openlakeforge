@@ -10,14 +10,14 @@ import pytest
 import yaml
 from openlakeforge_domain import load_lakehouse_inventory
 
-from olf import project_activation, project_revision
-from olf.artifact_store import FilesystemRevisionStore
-from olf.deployment import activation as activation_module
-from olf.deployment.context import DeploymentContext
-from olf.distribution import distribution_version_at
-from olf.profile import Provider, StageName, resolve_topology, validate_deployment_profile
-from olf.project import ProjectSpec
-from olf.provider_contracts import CodeLocation
+from olf.common.deployment.context import DeploymentContext
+from olf.common.distribution import distribution_version_at
+from olf.common.profile import Provider, StageName, resolve_topology, validate_deployment_profile
+from olf.common.project import ProjectSpec
+from olf.common.provider_contracts import CodeLocation
+from olf.infra import project_activation, project_revision
+from olf.infra.artifact_store import FilesystemRevisionStore
+from olf.infra.deployment import activation as activation_module
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[3]
@@ -144,7 +144,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     kubectl = _Kubectl()
     catalog_calls: list[str] = []
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *a, **k: contract)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *a, **k: contract)
     image_calls: list[str] = []
     monkeypatch.setattr(
         activation_module, "_ensure_image", lambda provider, image, **k: image_calls.append(image)
@@ -239,14 +239,14 @@ def _build_report_harness(
 
     helm = _Helm()
 
-    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *a, **k: contract)
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *a, **k: contract)
     monkeypatch.setattr(activation_module, "_ensure_image", lambda provider, image, **k: None)
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
     monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: None)
 
-    import olf.commands.openmetadata as openmetadata_commands
-    import olf.superset as superset_module
+    import olf.infra.commands.openmetadata as openmetadata_commands
+    import olf.infra.superset as superset_module
 
     report_calls: list[dict] = []
 
@@ -512,8 +512,8 @@ def test_reapplying_repairs_a_release_that_drifted_to_another_activation(harness
 
 def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     """Non-prefixed aliases reach the pod: libs.s3_artifacts reads AWS_ENDPOINT_URL_S3 itself."""
-    from olf.deployment.activation import _user_values
-    from olf.project_activation import ProjectActivation
+    from olf.infra.deployment.activation import _user_values
+    from olf.infra.project_activation import ProjectActivation
 
     activation = ProjectActivation(
         deployment_profile="acceptance",
@@ -549,8 +549,8 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
 
 
 def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) -> dict:
-    from olf.deployment.activation import _user_values
-    from olf.project_activation import ProjectActivation
+    from olf.infra.deployment.activation import _user_values
+    from olf.infra.project_activation import ProjectActivation
 
     activation = ProjectActivation(
         deployment_profile="acceptance",
@@ -647,7 +647,7 @@ def _names_runtime_code_reads() -> set[str]:
 
 def test_every_name_the_runtime_reads_has_a_source() -> None:
     """A new env read in runtime code must be forwarded or say why not."""
-    from olf.deployment.activation import _RUNTIME_ENV
+    from olf.infra.deployment.activation import _RUNTIME_ENV
 
     unaccounted = _names_runtime_code_reads() - set(_RUNTIME_ENV) - set(_RUNTIME_NAMES_SET_ELSEWHERE)
 
@@ -655,7 +655,7 @@ def test_every_name_the_runtime_reads_has_a_source() -> None:
 
 
 def test_the_runtime_allowlist_names_only_what_runtime_code_reads() -> None:
-    from olf.deployment.activation import _RUNTIME_ENV
+    from olf.infra.deployment.activation import _RUNTIME_ENV
 
     assert not set(_RUNTIME_ENV) - _names_runtime_code_reads()
 
@@ -784,7 +784,7 @@ def _image_provider(provider_kind, *, project_code_repository: str = ""):  # noq
 
 def test_local_image_pull_loads_the_image_into_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     """A kind node cannot reach the host daemon's images, so the pull alone is not enough."""
-    from olf.deployment.local import images as local_images
+    from olf.infra.deployment.local import images as local_images
 
     loaded: list[str] = []
     monkeypatch.setattr(local_images, "load_digest_image_into_kind", lambda image, *a, **k: loaded.append(image))
@@ -803,7 +803,7 @@ def test_local_pull_of_a_private_registry_uses_the_callers_docker_logins(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The scoped config holds no registry logins; a private revision is reachable only with the user's (#280)."""
-    from olf.deployment.local import images as local_images
+    from olf.infra.deployment.local import images as local_images
 
     user_config = tmp_path / "user-docker"
     user_config.mkdir()
@@ -1139,7 +1139,7 @@ def test_stage_query_tls_fields_of_a_real_contract_reach_the_code_server() -> No
 
     from test_provider_conformance import REPO_ROOT, _topology_of
 
-    from olf.contracts import build_contract_env
+    from olf.infra.contracts import build_contract_env
 
     contract = json.loads((Path(__file__).parent / "fixtures/local-provider-contracts-v3.json").read_text())
     contract["stages"]["dev"]["query"].update(tls_port="8443", ca_configmap_name="olf-local-ca")

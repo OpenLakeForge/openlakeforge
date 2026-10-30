@@ -1,6 +1,6 @@
 """`DeploymentProvider` implementation for the local (kind-based) stack.
 
-Every method is a one-line delegate into a sibling `olf.deployment.local.*`
+Every method is a one-line delegate into a sibling `olf.common.deployment.local.*`
 module, so the granular Make target delegates (`--phase foundation`, etc.)
 and the combined `olf deploy`/`olf destroy` verbs share the exact same code
 path - nothing is duplicated between them.
@@ -15,18 +15,18 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from olf import log
-from olf.deployment.engine import DeploymentPhase
-from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.tooling.docker import ambient_registry_env
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
+from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.tooling.docker import ambient_registry_env
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.engine import DeploymentPhase
 
 if TYPE_CHECKING:
-    from olf.deployment.context import DeploymentContext
-    from olf.deployment.status import StatusReport
-    from olf.github_app import GitHubApp
-    from olf.profile import GitHubSpec
+    from olf.common.deployment.context import DeploymentContext
+    from olf.common.profile import GitHubSpec
+    from olf.infra.deployment.status import StatusReport
+    from olf.infra.github_app import GitHubApp
 
 
 def _auth_off_notes(governance: bool) -> tuple[str, ...]:
@@ -91,20 +91,20 @@ class LocalProvider:
         return self.context.command_env(docker_host=docker_host)
 
     def foundation_up(self) -> None:
-        from olf.deployment.local import foundation, network_canary
+        from olf.infra.deployment.local import foundation, network_canary
 
         foundation.foundation_up(self.config, self.tools, env=self.env)
         network_canary.require_policy_enforcement(self.config, self.tools, env=self.env)
 
     def foundation_down(self, *, force: bool = False) -> None:
-        from olf.deployment.local import foundation
+        from olf.infra.deployment.local import foundation
 
         foundation.foundation_down(
             self.config, self.tools, env=self.env, force=force or self.config.force_foundation_down
         )
 
     def prepare_images(self) -> None:
-        from olf.deployment.local import prefetch
+        from olf.infra.deployment.local import prefetch
 
         prefetch.prefetch_images(self.config, self.tools, env=self.env)
 
@@ -120,8 +120,8 @@ class LocalProvider:
 
         The unmodified example is already published by digest: that reference is the result, with no build.
         """
-        from olf.deployment.local import images
-        from olf.image_build import build_project_code_image
+        from olf.common.image_build import build_project_code_image
+        from olf.infra.deployment.local import images
 
         if self.config.images.project_code_published:
             return self.config.images.project_code_image
@@ -137,9 +137,9 @@ class LocalProvider:
     def before_deploy(self) -> None:
         """Run the GitHub manifest flow now, while the operator is still at the terminal. The credentials stay in
         this object until `platform_up` writes the Secret."""
-        from olf import github_app
-        from olf.deployment.errors import DeploymentPreconditionError
-        from olf.deployment.local import platform
+        from olf.common.deployment.errors import DeploymentPreconditionError
+        from olf.infra import github_app
+        from olf.infra.deployment.local import platform
 
         if self._github_app is None and platform.github_connect_needed(self.config, self.tools, env=self.env):
             try:
@@ -148,19 +148,19 @@ class LocalProvider:
                 raise DeploymentPreconditionError(str(exc)) from exc
 
     def platform_up(self) -> None:
-        from olf.deployment.local import platform
+        from olf.infra.deployment.local import platform
 
         if self.config.paths.foundation_state_path.is_file():  # else platform_up refuses; do not spend the App first
             self.before_deploy()
         platform.platform_up(self.config, self.tools, env=self.env, github_app=self._github_app)
 
     def platform_down(self) -> None:
-        from olf.deployment.local import teardown
+        from olf.infra.deployment.local import teardown
 
         teardown.platform_down(self.config, self.tools, env=self.env)
 
     def artifacts_deploy(self) -> None:
-        from olf.deployment.local import artifacts
+        from olf.infra.deployment.local import artifacts
 
         artifacts.artifacts_deploy(self.config, self.tools, env=self.env)
         self._log_sign_in_steps()
@@ -176,8 +176,8 @@ class LocalProvider:
             self._log_github_install(topology.identity.github)
 
     def _log_github_install(self, github: GitHubSpec) -> None:
-        from olf import github_app
-        from olf.deployment.local import platform
+        from olf.infra import github_app
+        from olf.infra.deployment.local import platform
 
         secret = platform.read_github_app_secret(self.config, self.tools, env=self.env)
         if "app-id" not in secret:
@@ -194,9 +194,9 @@ class LocalProvider:
             log.info(f"Install the GitHub App on {github.organization}{qualifier}: {link}")
 
     def status(self) -> StatusReport:
-        from olf.access import contract_access
-        from olf.contracts import ProviderContractError
-        from olf.deployment.status import collect_status
+        from olf.infra.access import contract_access
+        from olf.infra.contracts import ProviderContractError
+        from olf.infra.deployment.status import collect_status
 
         try:
             urls = contract_access(self._contracts()).get("routes")
@@ -224,7 +224,7 @@ class LocalProvider:
         ).resolve()
 
     def _contracts(self) -> dict | None:
-        from olf.contract_state import load_provider_contracts
+        from olf.common.contract_state import load_provider_contracts
 
         # environ=self._environ (not bare os.environ): an installed
         # distribution's platform state lives under OLF_HOME, not next to
@@ -234,8 +234,8 @@ class LocalProvider:
         return load_provider_contracts(str(self._contract_dir()), environ=self._environ, resolver=self.tools.resolver)
 
     def forward(self) -> None:
-        from olf.deployment.local import forward as forward_module
-        from olf.deployment.portforward import PortForwardSupervisor
+        from olf.infra.deployment.local import forward as forward_module
+        from olf.infra.deployment.portforward import PortForwardSupervisor
 
         spec = forward_module.local_forward_spec(self.config, self.tools, env=self.env)
         for line in spec.banner:
@@ -244,8 +244,8 @@ class LocalProvider:
         supervisor.run(spec, env=self.env)
 
     def plan(self, phase: DeploymentPhase) -> bool:
-        from olf.deployment.errors import DeploymentPreconditionError
-        from olf.deployment.local import foundation, platform
+        from olf.common.deployment.errors import DeploymentPreconditionError
+        from olf.infra.deployment.local import foundation, platform
 
         changes = False
         if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
@@ -305,7 +305,7 @@ class LocalProvider:
                 )
             )
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
-            from olf.contracts import ProviderContractError
+            from olf.infra.contracts import ProviderContractError
 
             contract_dir = self._contract_dir()
             try:

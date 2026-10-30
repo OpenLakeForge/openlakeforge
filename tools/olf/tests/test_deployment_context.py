@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.context import DeploymentContext, Profile
-from olf.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
 
 
 def test_local_defaults(tmp_path: Path) -> None:

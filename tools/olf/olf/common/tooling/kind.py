@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf.tooling.process import CommandResult, ProcessRunner
-from olf.tooling.resolver import ExecutableResolver
+from olf.common.tooling.process import CommandResult, ProcessRunner
+from olf.common.tooling.resolver import ExecutableResolver
 
 
 class Kind:

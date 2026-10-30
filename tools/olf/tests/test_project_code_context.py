@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from olf.deployment.context import DeploymentContext
-from olf.deployment.project_code import project_code_build_context
+from olf.common.deployment.context import DeploymentContext
+from olf.common.deployment.project_code import project_code_build_context
 
 
 def test_custom_project_context_uses_platform_assets_and_selected_project(tmp_path: Path) -> None:

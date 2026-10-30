@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from olf.contract_validation import V2_SCHEMA_VERSION, ProviderContractError, _string
-from olf.profile import StageName
-from olf.provider_contracts._validation import _mapping, _stage_name
+from olf.common.contract_validation import V2_SCHEMA_VERSION, ProviderContractError, _string
+from olf.common.profile import StageName
+from olf.common.provider_contracts._validation import _mapping, _stage_name
 
 # What a stage runs when its contract predates the field. A platform applied
 # before #185 has a persisted 3.0.0 orchestration object with only the two
@@ -102,7 +102,7 @@ class StageContract:
                 "local_upload_access_mode": ops_storage.get("local_upload_access_mode", "direct"),
                 # The shared admin identity, not this stage's own storage
                 # credentials: immutable project revisions
-                # (olf.project_revision.REVISION_PREFIX) are published
+                # (olf.infra.project_revision.REVISION_PREFIX) are published
                 # outside any stage's activations/<stage> prefix, so only
                 # the admin identity - scoped to the whole ops bucket - can
                 # reach it.

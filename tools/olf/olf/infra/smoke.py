@@ -11,12 +11,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from olf import config, e2e, log
-from olf.deployment import contract_env
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
-from olf.deployment.errors import DeploymentError
-from olf.tooling.toolkit import Toolkit
+from olf.common import config, log
+from olf.common.deployment.context import DeploymentContext, Profile
+from olf.common.deployment.errors import DeploymentError
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import e2e
+from olf.infra.deployment import contract_env
+from olf.infra.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
 
 
 class SmokeError(RuntimeError):

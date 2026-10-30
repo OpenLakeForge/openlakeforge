@@ -8,8 +8,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from olf.artifact_store import ArtifactStoreError, RevisionStore, publish_immutable, read_required
-from olf.profile import StageName
+from olf.common.profile import StageName
+from olf.infra.artifact_store import ArtifactStoreError, RevisionStore, publish_immutable, read_required
 
 ACTIVATION_API_VERSION = "openlakeforge.io/v1alpha1"
 ACTIVATION_KIND = "ProjectActivation"

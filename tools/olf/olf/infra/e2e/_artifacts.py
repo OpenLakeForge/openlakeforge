@@ -9,8 +9,9 @@ import boto3
 from botocore.config import Config
 from openlakeforge_domain import LakehouseInventory
 
-from olf import k8s, log
-from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, kubectl, load_provider_contracts_or_raise
+from olf.common import log
+from olf.infra import k8s
+from olf.infra.e2e._shell import E2EConfig, E2EError, aws_stack_region, kubectl, load_provider_contracts_or_raise
 
 # Dagster's own compute-log archive path, relative to this stage's own
 # activations/<stage> prefix (modules/orchestration/dagster/release.tf

@@ -8,8 +8,9 @@ from collections.abc import Callable
 
 from openlakeforge_domain import Domain, Product
 
-from olf import log, trino
-from olf.e2e._shell import E2EConfig, E2EError, kubectl
+from olf.common import log
+from olf.infra import trino
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
@@ -20,7 +21,7 @@ PROBE_SCHEMA = "zz_olf_e2e_probe"
 POLARIS_QUERY_RETRY_INTERVAL_SECONDS = 5
 
 def stage_catalog_name(cfg: E2EConfig) -> str:
-    """The Iceberg catalog this run's stage is served under (see `olf.trino.stage_catalog_name`).
+    """The Iceberg catalog this run's stage is served under (see `olf.infra.trino.stage_catalog_name`).
 
     Takes `cfg` for call-site symmetry with the rest of this module.
     """

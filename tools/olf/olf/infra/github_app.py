@@ -210,7 +210,7 @@ def app_installed(*, host: str, organization: str, app_id: int | str, pem: str) 
 
 def create_app(context: Any, *, no_browser: bool = False) -> GitHubApp:
     """Run the manifest flow for spec.identity.github and return the converted App without writing it anywhere."""
-    from olf import log
+    from olf.common import log
 
     topology = context.topology
     access = topology.access
@@ -257,7 +257,7 @@ def _kube(context: Any) -> dict[str, Any]:
 
 
 def store_app(context: Any, app: GitHubApp, kubectl: Any) -> None:
-    from olf import log
+    from olf.common import log
 
     ref, namespace = context.topology.identity.github.oauth_app_secret_ref, context.shared_namespace
     kubectl.apply_from_manifest(
@@ -280,9 +280,9 @@ def store_app(context: Any, app: GitHubApp, kubectl: Any) -> None:
 def connect_github(context: Any, *, no_browser: bool = False) -> str:
     """Create the GitHub App for spec.identity.github, store it as the Secret `oauth_app_secret_ref` names, and
     return the install link. Used by `olf github connect`; `olf deploy` runs `create_app` before the cluster exists."""
-    from olf import log
-    from olf.deployment.kube_ops import namespace_exists
-    from olf.tooling.toolkit import Toolkit
+    from olf.common import log
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.kube_ops import namespace_exists
 
     namespace = context.shared_namespace
     kube = _kube(context)

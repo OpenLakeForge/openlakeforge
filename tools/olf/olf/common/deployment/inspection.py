@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING
 import yaml
 from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
 
-from olf.deployment.errors import DeploymentError, ExecutableNotFoundError, ToolchainError
-from olf.tooling.resolver import ManagedExecutableResolver
+from olf.common.deployment.errors import DeploymentError, ExecutableNotFoundError, ToolchainError
+from olf.common.tooling.resolver import ManagedExecutableResolver
 
 if TYPE_CHECKING:
-    from olf.tooling.toolkit import Toolkit
+    from olf.common.tooling.toolkit import Toolkit
 
 
 @dataclass(frozen=True)
@@ -101,7 +101,7 @@ def base_report(
     resolver = tools.resolver
     managed_names: frozenset[str] = frozenset()
     if isinstance(resolver, ManagedExecutableResolver):
-        from olf.toolchain.spec import MANAGED_TOOLS
+        from olf.common.toolchain.spec import MANAGED_TOOLS
 
         managed_names = frozenset(MANAGED_TOOLS)
     for name in required_tools:

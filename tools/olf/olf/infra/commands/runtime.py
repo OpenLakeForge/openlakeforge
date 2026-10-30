@@ -25,10 +25,10 @@ def provider_contract_environment(
     stage: str = "",
 ) -> Iterator[None]:
     """Hydrate Terraform contracts for a command outside the full deploy flow."""
-    from olf.commands.deployment import _build_context, _build_engine
-    from olf.deployment import contract_env
-    from olf.deployment.engine import is_cloud_provider, is_local_provider
-    from olf.deployment.local.artifacts import applied_contract_environment
+    from olf.infra.commands.deployment import _build_context, _build_engine
+    from olf.infra.deployment import contract_env
+    from olf.infra.deployment.engine import is_cloud_provider, is_local_provider
+    from olf.infra.deployment.local.artifacts import applied_contract_environment
 
     context = _build_context(
         provider,

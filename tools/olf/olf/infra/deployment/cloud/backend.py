@@ -17,10 +17,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.errors import CommandExecutionError
-from olf.deployment.portforward import ForwardTarget
-from olf.tooling.toolkit import Toolkit
+from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.portforward import ForwardTarget
 
 
 def output_raw_or_empty(tools: Toolkit, terraform_dir: Path, name: str, *, env: Mapping[str, str]) -> str:

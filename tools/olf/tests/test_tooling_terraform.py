@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordingRunner
 
-from olf.deployment.errors import CommandExecutionError
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
-from olf.tooling.terraform import Terraform
+from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.process import CommandResult
+from olf.common.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.terraform import Terraform
 
 
 def _terraform(result: CommandResult | None = None) -> tuple[Terraform, RecordingRunner]:
@@ -181,7 +181,7 @@ def test_installed_distribution_skips_readonly_lockfile_when_none_is_checked_in(
 
 
 def test_apply_forwards_retry_policy_to_runner() -> None:
-    from olf.tooling.retry import RetryPolicy
+    from olf.common.tooling.retry import RetryPolicy
 
     terraform, runner = _terraform()
     policy = RetryPolicy(max_attempts=2, delay_seconds=0)

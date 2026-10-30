@@ -15,9 +15,9 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from olf import github_app
 from olf.cli import app
-from olf.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
+from olf.common.profile import AccessSpec, GitHubOAuthRef, GitHubSpec, IdentitySpec
+from olf.infra import github_app
 
 CLIENT_SECRET, PEM = "s3cr3t-client-secret", "-----BEGIN RSA PRIVATE KEY-----\nkey-material\n"
 
@@ -146,9 +146,9 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
         seen["manifest"] = kw["manifest_for"]("http://127.0.0.1:9/done")
         return str(kw["on_code"]("code123"))
 
-    monkeypatch.setattr("olf.commands.github.deployment_context", lambda *a, **k: context)
-    monkeypatch.setattr("olf.tooling.toolkit.Toolkit.default", lambda **k: SimpleNamespace(kubectl=kubectl))
-    monkeypatch.setattr("olf.deployment.kube_ops.namespace_exists", lambda *a, **k: True)
+    monkeypatch.setattr("olf.infra.commands.github.deployment_context", lambda *a, **k: context)
+    monkeypatch.setattr("olf.common.tooling.toolkit.Toolkit.default", lambda **k: SimpleNamespace(kubectl=kubectl))
+    monkeypatch.setattr("olf.infra.deployment.kube_ops.namespace_exists", lambda *a, **k: True)
     monkeypatch.setattr(github_app, "wait_for_code", wait)
     monkeypatch.setattr(
         github_app,

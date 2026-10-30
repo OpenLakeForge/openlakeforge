@@ -1,12 +1,12 @@
 """Provider-neutral contract-environment activation.
 
 Replaces sourcing `scripts/contracts/load-runtime-env.sh`: calls
-`olf.contract_state.load_provider_contracts`/`build_contract_env` directly and
+`olf.common.contract_state.load_provider_contracts`/`build_contract_env` directly and
 applies the exports/unsets to `os.environ` for the duration of a block,
 restoring the previous values on exit. This is the in-process bridge to the
-existing `os.environ`-reading library modules (`olf.k8s`, `olf.config`,
-`olf.s3`, `olf.layers`) that every provider's artifact deployment needs, so
-it lives at `olf.deployment` rather than under `olf.deployment.local` -
+existing `os.environ`-reading library modules (`olf.infra.k8s`, `olf.common.config`,
+`olf.infra.s3`, `olf.common.layers`) that every provider's artifact deployment needs, so
+it lives at `olf.common.deployment` rather than under `olf.common.deployment.local` -
 issue #125's AWS/Azure providers reuse it unmodified.
 """
 
@@ -18,10 +18,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from olf import contract_state, contracts
+from olf.common import contract_state
+from olf.infra import contracts
 
 if TYPE_CHECKING:
-    from olf.profile import DeploymentTopology, StageName
+    from olf.common.profile import DeploymentTopology, StageName
 
 
 @contextmanager

@@ -9,7 +9,7 @@ import pytest
 import yaml
 from openlakeforge_domain import LakehouseDescriptorError, load_governance_descriptor
 
-from olf.contracts_check._governance import _check_governance_conformance
+from olf.common.contracts_check._governance import _check_governance_conformance
 
 ROOT = Path(__file__).parents[3]
 SCHEMAS = ROOT / "docs/schema"

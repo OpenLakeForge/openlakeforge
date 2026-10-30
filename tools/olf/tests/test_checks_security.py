@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from olf.commands.checks import _security
+from olf.common.commands.checks import _security
 
 TODAY = date(2026, 11, 1)
 

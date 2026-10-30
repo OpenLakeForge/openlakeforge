@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from olf import log
+from olf.common import log
 
 
 def run_with_retry[T](

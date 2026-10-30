@@ -1,7 +1,7 @@
 """Provider-neutral Helm chart cache management.
 
 Port of `scripts/lib/helm.sh::prepare_cached_chart` and
-`prepare_cached_dagster_chart_no_schema`. Kept out of `olf.deployment.local`
+`prepare_cached_dagster_chart_no_schema`. Kept out of `olf.common.deployment.local`
 so the AWS/Azure providers (#125) reuse both verbatim - the Dagster chart
 ships a `values.schema.json` that rejects the OpenLakeForge values overlay,
 so the cached package is re-packed without it, exactly as the shell helper
@@ -21,12 +21,12 @@ from pathlib import Path
 
 import yaml
 
-from olf import log
-from olf.chart_pins import CHART_DEFAULTS
-from olf.deployment.context import DeploymentPaths
-from olf.deployment.env_settings import env as _env_lookup
-from olf.tooling.helm import Helm
-from olf.tooling.retry import RetryPolicy
+from olf.common import log
+from olf.common.chart_pins import CHART_DEFAULTS
+from olf.common.deployment.context import DeploymentPaths
+from olf.common.deployment.env_settings import env as _env_lookup
+from olf.common.tooling.helm import Helm
+from olf.common.tooling.retry import RetryPolicy
 
 
 @dataclass(frozen=True)

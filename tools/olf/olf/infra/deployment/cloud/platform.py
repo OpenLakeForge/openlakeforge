@@ -10,15 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from olf import log
-from olf.deployment import kube_ops
-from olf.deployment.charts import prepare_chart
-from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.errors import CommandExecutionError
-from olf.deployment.local.platform import require_no_shared_namespace_replacement, require_no_stage_removal
-from olf.tooling.retry import RetryPolicy, run_with_retry
-from olf.tooling.toolkit import Toolkit
+from olf.common import log
+from olf.common.deployment.charts import prepare_chart
+from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.retry import RetryPolicy, run_with_retry
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment import kube_ops
+from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.local.platform import require_no_shared_namespace_replacement, require_no_stage_removal
 
 _NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-", "postgresql-credentials-")

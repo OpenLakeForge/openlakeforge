@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from olf import secrets_rotation
 from olf.cli import app
+from olf.infra import secrets_rotation
 
 SECRET_VALUE = "hunter2-do-not-print"
 CLIENTS = [f"dex-client-{c}" for c in ("perimeter", "trino", "superset", "openmetadata")]
@@ -164,11 +164,11 @@ def test_an_unknown_target_lists_the_supported_ones(tmp_path: Path) -> None:
 
 
 def command_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl: FakeKubectl, **ctx: Any) -> Any:
-    from olf.commands import secrets as command
+    from olf.infra.commands import secrets as command
 
     cluster = context(tmp_path, **ctx)
     monkeypatch.setattr(command, "deployment_context", lambda *a, **k: cluster)
-    monkeypatch.setattr("olf.tooling.toolkit.Toolkit.default", lambda **_: SimpleNamespace(kubectl=kubectl))
+    monkeypatch.setattr("olf.common.tooling.toolkit.Toolkit.default", lambda **_: SimpleNamespace(kubectl=kubectl))
     real = secrets_rotation.rotate_client
     monkeypatch.setattr(
         secrets_rotation,
@@ -223,7 +223,7 @@ def test_the_command_refuses_a_profile_that_is_not_local_github(
 def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_deployments_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf.commands import secrets as command
+    from olf.infra.commands import secrets as command
 
     kubectl = FakeKubectl()
     command_with_fakes(monkeypatch, tmp_path, kubectl)
@@ -249,7 +249,7 @@ def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_depl
 
 
 def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf import github_app
+    from olf.infra import github_app
 
     kubectl = FakeKubectl()
     command_with_fakes(monkeypatch, tmp_path, kubectl)
@@ -265,7 +265,7 @@ def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: p
 
 
 def test_the_apply_is_the_targeted_one_not_the_platform_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.deployment.local import platform
+    from olf.infra.deployment.local import platform
 
     provider = SimpleNamespace(config="config", tools="tools", env={"K": "v"})
     monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _ctx: provider)
@@ -281,7 +281,7 @@ def test_the_apply_is_the_targeted_one_not_the_platform_path(tmp_path: Path, mon
 def test_the_state_check_refuses_when_the_core_objects_are_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf.deployment.local import platform
+    from olf.infra.deployment.local import platform
 
     provider = SimpleNamespace(config="config", tools="tools", env={})
     monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _ctx: provider)
@@ -295,7 +295,7 @@ def test_the_state_check_refuses_when_the_core_objects_are_missing(
 def test_a_missing_foundation_state_refuses_before_anything_is_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from olf.deployment.local import platform
+    from olf.infra.deployment.local import platform
 
     config = SimpleNamespace(paths=SimpleNamespace(foundation_state_path=tmp_path / "missing.tfstate"))
     provider = SimpleNamespace(config=config, tools=None, env={})
@@ -313,8 +313,8 @@ def test_a_missing_foundation_state_refuses_before_anything_is_deleted(
 def test_failing_setup_or_stage_removal_refuses_before_anything_is_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
 ) -> None:
-    from olf.deployment.errors import DeploymentPreconditionError
-    from olf.deployment.local import platform
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.infra.deployment.local import platform
 
     config = SimpleNamespace(paths=SimpleNamespace(platform_terraform_dir=Path("p")), kube_context="k")
     tools = SimpleNamespace(terraform=SimpleNamespace(init=lambda *a, **k: None))
@@ -347,8 +347,8 @@ def test_a_sibling_without_the_client_secret_key_refuses_before_anything_is_dele
 
 
 def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.deployment.errors import DeploymentPreconditionError
-    from olf.deployment.local import platform
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.infra.deployment.local import platform
 
     monkeypatch.setattr(platform.kube_ops, "state_has_resource", lambda *a, **k: False)
     applied: list[Any] = []
@@ -362,9 +362,9 @@ def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(mon
 
 
 def test_apply_targets_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.deployment.errors import CommandExecutionError
-    from olf.deployment.local import platform
-    from olf.tooling.retry import RetryPolicy
+    from olf.common.deployment.errors import CommandExecutionError
+    from olf.common.tooling.retry import RetryPolicy
+    from olf.infra.deployment.local import platform
 
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
     monkeypatch.setattr(platform, "platform_var_files", lambda *a, **k: [])
@@ -402,7 +402,7 @@ def test_a_missing_target_is_regenerated_without_a_delete(tmp_path: Path) -> Non
 
 
 def test_the_drill_skips_without_a_resolved_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.e2e import _rotation
+    from olf.infra.e2e import _rotation
 
     contracts = {"shared": {"access": {"perimeter": {"enabled": True}}, "identity": {"adapter": "dex"}}}
     monkeypatch.setattr(_rotation, "load_provider_contracts_or_raise", lambda _cfg: contracts)
@@ -426,7 +426,7 @@ def test_the_drill_skips_without_a_resolved_deployment(monkeypatch: pytest.Monke
 def test_a_locally_built_superset_image_is_detected_from_the_engine_and_the_opt_in(
     monkeypatch: pytest.MonkeyPatch, arch: str, forced: bool, analytics: bool, builds: bool
 ) -> None:
-    from olf.deployment.local.config import ImageSettings
+    from olf.common.deployment.local.config import ImageSettings
 
     images = ImageSettings.from_environment({"BUILD_SUPERSET_IMAGE": "true"} if forced else {})
     provider = SimpleNamespace(

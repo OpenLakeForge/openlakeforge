@@ -23,11 +23,12 @@ from urllib.parse import urlsplit
 
 import requests
 
-from olf import access, break_glass, config, log
-from olf.e2e._identity_github import dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
-from olf.e2e._perimeter import check_unauthenticated_requests
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
-from olf.tooling.toolkit import Toolkit
+from olf.common import config, log
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra import access, break_glass
+from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
+from olf.infra.e2e._perimeter import check_unauthenticated_requests
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
 PORTS = {"trino": 15558, "dagster": 15557}

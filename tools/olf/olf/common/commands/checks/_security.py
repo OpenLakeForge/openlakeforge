@@ -8,8 +8,8 @@ from pathlib import Path
 import typer
 import yaml
 
-from olf.commands.checks._shared import _root
-from olf.log import fail
+from olf.common.commands.checks._shared import _root
+from olf.common.log import fail
 
 # Trivy reads the vulnerabilities/misconfigurations/secrets sections natively and drops an
 # entry once its expired_at passes. `images` is ours: a waived image is still scanned and

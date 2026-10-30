@@ -4,8 +4,8 @@ from pathlib import Path
 
 from _tooling_support import RecordingRunner
 
-from olf.tooling.helm import Helm
-from olf.tooling.resolver import PathExecutableResolver
+from olf.common.tooling.helm import Helm
+from olf.common.tooling.resolver import PathExecutableResolver
 
 
 def _helm() -> tuple[Helm, RecordingRunner]:

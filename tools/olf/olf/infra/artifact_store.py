@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
 
-from olf import config
+from olf.common import config
 
 
 class ArtifactStoreError(RuntimeError):
@@ -31,10 +31,10 @@ def artifact_bucket() -> str:
 
 @contextmanager
 def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
-    from olf import k8s, s3
+    from olf.infra import k8s, s3
 
     if via == "direct":
-        from olf.auth import aws_session
+        from olf.infra.auth import aws_session
 
         region = config.env("OPENLAKEFORGE_STORAGE_REGION") or None
         yield aws_session(os.environ, region=region).client("s3", region_name=region)
@@ -44,7 +44,7 @@ def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
 
     # This is the shared admin storage identity (OPENLAKEFORGE_OPS_STORAGE_*),
     # not a stage's own OPENLAKEFORGE_STORAGE_* one: immutable project
-    # revisions (olf.project_revision.REVISION_PREFIX) are published
+    # revisions (olf.infra.project_revision.REVISION_PREFIX) are published
     # outside any stage's activations/<stage> prefix, so a stage's own
     # narrower identity cannot reach it, and it lives only in the shared
     # namespace, not config.namespace()'s stage-selected one.

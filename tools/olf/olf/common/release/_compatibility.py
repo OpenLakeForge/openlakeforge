@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from olf.release._manifest import CheckResult
+from olf.common.release._manifest import CheckResult
 
 COMPATIBILITY_MATRIX_HEADER = """<!--
 This file is generated from release/component-catalog.yaml. Do not hand-edit

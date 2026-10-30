@@ -10,15 +10,15 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from olf import config
-from olf.contract_validation import (
+from olf.common import config
+from olf.common.contract_validation import (
     V3_SCHEMA_VERSION,
     ProviderContractError,
     _absolute_http_uri,
     _oidc_issuer_url,
     _string,
 )
-from olf.profile import (
+from olf.common.profile import (
     _BASE_DOMAIN_PATTERN,
     DeploymentTopology,
     IdentitySpec,
@@ -27,8 +27,8 @@ from olf.profile import (
     is_secret_key,
     is_secret_name,
 )
-from olf.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
-from olf.provider_contracts._validation import (
+from olf.common.provider_contracts._model import ProviderContracts, SharedPlatformContract, StageContract
+from olf.common.provider_contracts._validation import (
     _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER,
     _CATALOG_PROVIDERS,
     _CATALOG_TYPE_BY_PROVIDER,

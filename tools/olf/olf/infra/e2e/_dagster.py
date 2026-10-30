@@ -8,12 +8,17 @@ from collections.abc import Mapping, Sequence
 
 from openlakeforge_domain import Product
 
-from olf import access, k8s, log
-from olf.clients.base import ServiceClientError
-from olf.clients.dagster import DagsterClient, DagsterHTTPError, DagsterTransientError  # noqa: F401 - re-exported
-from olf.contracts import CONTRACT_STAGE_ENV
-from olf.e2e._health import _bounded_pod_diagnostics
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.common import log
+from olf.common.clients.base import ServiceClientError
+from olf.common.clients.dagster import (  # noqa: F401 - re-exported
+    DagsterClient,
+    DagsterHTTPError,
+    DagsterTransientError,
+)
+from olf.infra import access, k8s
+from olf.infra.contracts import CONTRACT_STAGE_ENV
+from olf.infra.e2e._health import _bounded_pod_diagnostics
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 # No root overrides modules/orchestration/dagster's `release_name`: each stage
@@ -70,7 +75,7 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
         payload = json.loads(raw)
     except (E2EError, json.JSONDecodeError):
         return []
-    from olf.deployment.activation import _RELEASE as ACTIVATION_RELEASE
+    from olf.infra.deployment.activation import _RELEASE as ACTIVATION_RELEASE
 
     # User code is the platform release's subchart under `olf deploy`, and its
     # own release once `olf project deploy` activates a revision.
