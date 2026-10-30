@@ -10,10 +10,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from olf.deployment.cloud.backend import FoundationFacts
-from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.portforward import ForwardTarget
-from olf.tooling.toolkit import Toolkit
+from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.cloud.backend import FoundationFacts
+from olf.infra.deployment.cloud.config import CloudDeploymentConfig
+from olf.infra.deployment.portforward import ForwardTarget
 
 
 @dataclass

@@ -73,7 +73,7 @@ spec:
         governance: true
 ```
 
-`tools/olf/olf/profile.py` models this as frozen typed value objects
+`tools/olf/olf/common/profile.py` models this as frozen typed value objects
 (`DeploymentProfile`, `ProviderSpec`, `StageSpec`, `StageCapabilities`, plus
 `AccessSpec` and `IdentitySpec` for the optional `spec.access` and
 `spec.identity`) and
@@ -81,7 +81,7 @@ resolves it into a separately typed `DeploymentTopology`. The desired and
 resolved shapes are never the same object: `DeploymentProfile` is what the
 user wrote, `DeploymentTopology` is the one effective, fully-defaulted result.
 Validation is layered the same way as the Lakehouse/Source descriptors (ADR
-0005): a hand-rolled parser in `olf/profile.py` for actionable, fail-closed
+0005): a hand-rolled parser in `olf/common/profile.py` for actionable, fail-closed
 errors, and `docs/schema/deployment-profile.schema.json` for the versioned,
 tool-checkable shape. Neither substitutes for the other, and both are
 exercised by `olf check contracts`.
@@ -97,7 +97,7 @@ URL and a registry-less image reference are rejected. `spec.identity.github`
 stays platform human roles; it never holds registry credentials. ADR 0012 still
 keeps `openlakeforge.yaml` out of a `ProjectRevision`.
 
-`olf.profile.resolve_project` picks the image repository in a fixed order:
+`olf.common.profile.resolve_project` picks the image repository in a fixed order:
 explicit profile, then `PROJECT_CODE_IMAGE_REPOSITORY` (compatibility
 override), then the provider registry (ECR or ACR) for a declared project
 without an image, and the public example only when `spec.project` is absent.
@@ -147,7 +147,7 @@ its provider adapter (#133, #114). None belongs in this profile.
 ### The v0.2 compatibility path
 
 `olf deploy --provider local --profile slim|full` keeps its exact current
-behavior as a deprecated shorthand: `olf.profile.legacy_single_stage_topology`
+behavior as a deprecated shorthand: `olf.common.profile.legacy_single_stage_topology`
 resolves it to one enabled DEV stage using the preset's capability defaults,
 proving the shorthand is exactly the single-DEV-stage case of the general
 model.
@@ -158,7 +158,7 @@ explicit `--profile slim|full`, or a project that has no profile file at all,
 resolves the single-DEV shorthand instead. A profile file that exists but is
 invalid fails closed. Namespaces are derived from the topology but are not
 part of it: `olf-system` for shared services and `olf-<stage>` per enabled
-stage live in `olf.deployment.context`, since ADR 0011 keeps the resolved
+stage live in `olf.common.deployment.context`, since ADR 0011 keeps the resolved
 topology free of namespaces, Helm releases, and endpoints.
 
 ## Consequences
