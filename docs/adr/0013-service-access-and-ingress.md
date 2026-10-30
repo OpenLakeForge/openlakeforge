@@ -151,6 +151,12 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   | cert-manager cainjector | 10m | 64Mi / 256Mi |
   | cert-manager webhook | 10m | 32Mi / 128Mi |
   | Portal (openlakeforge-portal) | 5m | 48Mi / 128Mi |
+  | Platform API, with `spec.identity` only ([ADR 0021](0021-platform-api.md)) | 10m | 64Mi / 192Mi |
+
+  The platform API's request is set from about 41 MiB resident, measured in
+  Docker (read-only root filesystem, as `nobody`, after 200 requests), not yet
+  on kind. It answers `https://<base_domain>/api/` behind the perimeter's
+  lowest role floor.
 
 - Mapping 80/443 changed the kind cluster shape: an existing local cluster
   must be recreated (`olf infra destroy` then `olf infra deploy`), and those host ports
@@ -158,6 +164,9 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+#666 added the platform API's row to the footprint table: a path (`/api`) on
+the portal's host, deployed with `spec.identity` (ADR 0021).
 
 The `shared/identity` route serves Dex since Keycloak was removed (#384, ADR 0014);
 the entries below that name Keycloak describe the adapter that existed then.
