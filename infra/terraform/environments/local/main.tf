@@ -278,6 +278,7 @@ module "perimeter" {
   issuer_url        = local.identity_oidc.issuer_url
   client_id         = local.identity_oidc.clients.perimeter.client_id
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
+  cli_client_id     = local.identity_oidc.clients["olf-cli"].client_id
   protected_refs    = local.perimeter_protected_refs
   scope             = local.identity_scope
 

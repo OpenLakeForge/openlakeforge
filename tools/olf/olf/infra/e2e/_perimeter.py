@@ -27,6 +27,7 @@ from olf.infra.e2e._identity_github import (
     sign_in_with_stub,
     stub_host,
 )
+from olf.infra.e2e._perimeter_bearer import check_bearer_tokens
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 
 PORTAL_REF = "shared/portal"
@@ -101,6 +102,7 @@ def _check_dex_perimeter(
     with github_stub(cfg, teams):
         for role, login in logins.items():
             check_role_decisions(identity, protected, routes, role, login, sign_in)
+        check_bearer_tokens(cfg, identity, routes, logins, lambda ref, role: _grants(identity, ref, role))
 
 
 def check_unauthenticated_requests(

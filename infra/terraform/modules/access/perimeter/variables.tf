@@ -82,6 +82,11 @@ variable "client_id" {
   type        = string
 }
 
+variable "cli_client_id" {
+  description = "identity.oidc clients.olf-cli.client_id: bearer tokens issued to this public client are accepted."
+  type        = string
+}
+
 variable "client_secret_ref" {
   description = "identity.oidc clients.perimeter.secret_ref: the Secret and key in `namespace` holding the client secret."
   type = object({

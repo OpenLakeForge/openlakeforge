@@ -59,8 +59,9 @@ locals {
               # 401 (API caller) or 403 (role-restricted).
               address = "http://${var.release_name}-${floor}.${var.namespace}.svc.cluster.local:${local.port}/"
               # Only what the proxy needs; Accept and X-Requested-With choose
-              # between the login redirect and a 401.
-              authRequestHeaders  = ["Cookie", "Accept", "X-Requested-With"]
+              # between the login redirect and a 401. Authorization carries a
+              # CLI's bearer token, which Traefik would otherwise drop.
+              authRequestHeaders  = ["Cookie", "Accept", "X-Requested-With", "Authorization"]
               authResponseHeaders = ["X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups", "X-Auth-Request-Preferred-Username"]
               # A refreshed session is a new cookie; without this the browser
               # keeps the old one and the idle timeout never slides. The
@@ -319,6 +320,12 @@ resource "kubernetes_deployment_v1" "proxy" {
               # show its consent page on every sign-in despite skipApprovalScreen.
               "--approval-prompt=auto",
               "--set-xauthrequest=true",
+              # A bearer token issued to the CLI's public client is checked
+              # (issuer, audience, signature, expiry) and still meets the
+              # floor's --allowed-group. Without the extra issuer the proxy
+              # accepts only tokens whose audience is its own client.
+              "--skip-jwt-bearer-tokens=true",
+              "--extra-jwt-issuers=${var.issuer_url}=${var.cli_client_id}",
               # Unattended callers get 401 JSON, never a login page.
               "--api-route=^/(api|graphql|v1)(/|$)",
               "--custom-templates-dir=/templates",

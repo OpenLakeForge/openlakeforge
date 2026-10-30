@@ -121,7 +121,7 @@ here forecloses it and nothing here builds it.
 | `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.issuer: none` (ADR 0013, development on `*.localhost`), where Dex issues `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
 | `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
 | `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
-| `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}` |
+| `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}`, and `olf-cli`, a public client: `client_id` only, no `secret_ref` |
 
 Nothing in these fields is Dex-specific. Dex: `groups` holding
 `<organisation>:<team-slug>`. Entra ID: group object IDs. Cognito:
@@ -226,7 +226,7 @@ repository admin grants nothing: only the mapped teams count.
 | `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
 | Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's default `--scope=openid email profile` becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams |
 | Token lifetimes | Pinned to the session policy, not Dex's defaults (24 h ID tokens): `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`, and `reuseInterval` kept (Dex default 3s) because the floor-specific oauth2-proxy instances can redeem the same cookie's refresh token concurrently. Asserted by the adapter's e2e, including parallel refreshes. **Revises the 10 h absolute bound for this adapter:** it ends the OpenLakeForge session chain, but a new one starts without a prompt while the person's GitHub session is valid, because Dex cannot force GitHub to re-authenticate. Re-authentication frequency and 2FA are therefore governed by GitHub and the organisation's policy, not by the platform |
-| Clients | `perimeter`, `superset`, `openmetadata`, `trino` as static Dex clients, secrets from the existing bootstrap Job (#181) |
+| Clients | `perimeter`, `superset`, `openmetadata`, `trino` as static Dex clients, secrets from the existing bootstrap Job (#181); `olf-cli` as a public static client (`public: true`, no secret, no `redirectURIs`), for which Dex accepts loopback redirects (`127.0.0.1`, `localhost`, `[::1]`) on any port and issues refresh tokens without a secret. Dex does not enforce PKCE: the client must send it |
 | Login entry | The portal at the base domain is the front door. An unauthenticated visit is sent by the perimeter (`--skip-provider-button`) to Dex; with one connector and `alwaysShowLoginScreen` off, Dex goes straight to GitHub, and `skipApprovalScreen` removes its consent page. The person sees GitHub's authorize page once per app, then lands back on the portal. Dex's own login page is never shown, so it needs no branding |
 | Single sign-on | Dex keeps no browser session of its own by default; GitHub's session is what makes the next login silent. A native Superset or OpenMetadata login bounces through Dex to GitHub and back without a prompt while the GitHub session lasts. To be verified with the adapter |
 | Logout | **Revises the platform-wide logout policy for this adapter.** Sign-out still ends the perimeter cookie and the native Superset and OpenMetadata sessions, so user B never reaches a surviving session of user A. Dex has no end-session endpoint and the GitHub session belongs to the person, not the platform: OpenLakeForge does not end it. The signed-out page links to GitHub's sign-out, and states that on a shared browser the next sign-in reuses the GitHub account still signed in there |
@@ -256,6 +256,7 @@ Route grants are read from `release/identity-roles.yaml` and nowhere else.
 | Login callback | One host, `oauth2.<base_domain>/oauth2/*`, answered by the any-role instance and not behind the perimeter; the `perimeter` client has that single redirect URI, and the cookie on `.<base_domain>` carries the session to every route |
 | Cookie secret | Created by an in-cluster Job only if missing (`oauth2-proxy-cookie`); Terraform never reads it. Rotation: delete the Secret, replace the Job, restart the proxies (signs everyone out once) |
 | Client secret | `secretKeyRef` to `identity.oidc.clients.perimeter.secret_ref` |
+| Bearer tokens | Every instance starts with `--skip-jwt-bearer-tokens=true` and `--extra-jwt-issuers=<issuer_url>=<olf-cli client_id>`, and the forwardAuth middleware passes the `Authorization` header on. A bearer token issued to `olf-cli` is checked for issuer, audience, signature and expiry, then meets the instance's `--allowed-group` like a session, so the role floor still decides. A token issued to a client other than `olf-cli` or `perimeter` gets 401. The `perimeter` client's own tokens are accepted as well, which the flag cannot exclude |
 
 Behaviour, all decided by the proxy before a request reaches a service:
 
@@ -263,6 +264,9 @@ Behaviour, all decided by the proxy before a request reaches a service:
 | --- | --- |
 | No session, browser | 302 to the issuer's login (the one login page for every service); after login back to the original URL |
 | No session, `Accept: application/json`, `X-Requested-With`, or path under `/api`, `/graphql`, `/v1` | 401, never an HTML login page |
+| `Authorization: Bearer` token issued to `olf-cli`, role permitted | 2xx from the service |
+| That token, role not permitted | 403 |
+| Bearer token expired, with a tampered signature, or issued to another client (`superset`) | 401 on an API path |
 | Session, role not permitted, or no recognised role | 403 with the "Access is role-restricted" page and a link to the portal. The proxy clears the session cookie on this path, so the next page load passes silently through the issuer's SSO session |
 | Issuer down | A session the proxy cannot refresh expires with its 5 min access token and is not extended; a new login fails |
 | Proxy down | forwardAuth cannot reach it and Traefik answers an error, never the service |
@@ -377,6 +381,16 @@ is not.
   cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
 
 ## History
+
+Fifth OIDC consumer (#536): `olf-cli` joins `identity.oidc.clients` as a public
+client, so the command-line client can sign a person in with Authorization Code
+and PKCE on a loopback redirect, with no distributable secret. The perimeter
+accepts the bearer tokens it issues and keeps enforcing each route's role floor.
+An external issuer registers it like the other consumers (`client_ids` may
+override the id) as a public client with loopback redirects, the `profile`,
+`groups` and, for refresh, `offline_access` scopes; OpenMetadata keys users on
+`preferred_username`, so the issuer must emit it. No `olf` command uses the
+client yet.
 
 Issuer-outage drill (#177, #520): the local e2e scales Dex to zero, checks sign-in fails closed, reaches Trino and
 Dagster through recorded break-glass sessions, restores Dex, and checks the ingresses are unchanged and sign-in works.

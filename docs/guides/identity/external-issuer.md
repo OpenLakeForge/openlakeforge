@@ -29,8 +29,8 @@ Every field is in the
 
 ## Register the clients
 
-Register four OIDC clients in your issuer: `perimeter`, `superset`,
-`openmetadata` and `trino`, or the ids you set under `client_ids`. Store each
+Register four confidential OIDC clients in your issuer: `perimeter`,
+`superset`, `openmetadata` and `trino`, or the ids you set under `client_ids`. Store each
 client secret in a Kubernetes Secret named `oidc-client-<consumer>` in
 `olf-system`, with the key `client-secret`. The contract names all four, so
 create all four; only the `perimeter` client is used by a deployed service
@@ -60,6 +60,20 @@ export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
 ```
 
 Repeat for `superset`, `openmetadata` and `trino`.
+
+Also register a fifth, public client for the command line: `olf-cli`, or the id
+you set under `client_ids`. It has no secret and no Kubernetes Secret.
+
+| Setting | Value |
+| --- | --- |
+| Client type | Public (no client secret) |
+| Grant | Authorization Code with PKCE (S256) |
+| Redirect URIs | Loopback addresses on any port (`http://127.0.0.1:<port>/...`, `http://localhost:<port>/...`, `http://[::1]:<port>/...`) |
+| Scopes | `openid`, `email`, `profile` and `groups` (or whichever scope carries your `role_claim`), plus `offline_access` for refresh tokens |
+| Claims | The `role_claim` and `preferred_username`: OpenMetadata names users by it |
+
+The perimeter accepts a bearer token whose `iss` is your `issuer_url` and whose
+`aud` is this client id. No `olf` command signs in with it yet.
 
 ## Limits
 
