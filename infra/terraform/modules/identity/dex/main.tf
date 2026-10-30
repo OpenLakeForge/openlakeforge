@@ -21,6 +21,8 @@ locals {
   issuer   = "${var.scheme}://${var.hostname}"
   trust_ca = var.github.host != null && var.ca_configmap_name != null
 
+  # Polaris names the principal of every person's token after it (ADR 0019).
+  connector_id = "github"
   # `groups` carries `<organisation>:<team-slug>` (teamNameField: slug).
   role_mapping = {
     for role, slugs in var.github.teams : role => [for slug in slugs : "${var.github.organization}:${slug}"]
@@ -64,7 +66,7 @@ locals {
     enablePasswordDB = false
     connectors = [{
       type = "github"
-      id   = "github"
+      id   = local.connector_id
       name = "GitHub"
       config = {
         clientID     = "$GITHUB_CLIENT_ID"
