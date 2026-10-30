@@ -27,7 +27,7 @@ These run your pipelines from the `project-code` image built from
 | Component | Role | Version |
 | --- | --- | --- |
 | [dlt](https://dlthub.com/) | Extracts a source into Bronze | 1.29.0 |
-| [Floe](https://github.com/malon64/floe) | Validates Bronze against a domain contract and writes Silver Iceberg tables; rejected rows are quarantined | `floe-python` 0.8.4, `dagster-floe` 0.4.2 (in the project-code image) |
+| [Floe](https://github.com/malon64/floe) | Validates Bronze against a domain contract and writes Silver Iceberg tables; rejected rows are quarantined | `floe-python` 0.8.6, `dagster-floe` 0.4.2 (in the project-code image) |
 | [dbt](https://www.getdbt.com/) with dbt-trino | Builds Gold models on Trino | dbt-core 1.11.12, dbt-trino 1.10.2 |
 | [Apache Iceberg](https://iceberg.apache.org/) | Table format of Silver and Gold | |
 
