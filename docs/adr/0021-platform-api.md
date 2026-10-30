@@ -2,11 +2,12 @@
 
 ## Status
 
-Decided, **build step 1 begun**: `packages/lakehouse-services` holds every
+Decided, **build step 1 done**: `packages/lakehouse-services` holds every
 service client — the HTTP transport, Dagster, OpenMetadata and Superset — and
-the Superset report operations (`openlakeforge_services.reports`). The
-OpenMetadata operations (metadata deployment, domain listing) are still in
-`olf/infra`. No platform API exists yet.
+the operations built on them: Superset report import and export
+(`openlakeforge_services.reports`) and OpenMetadata metadata deployment
+(`openlakeforge_services.governance`). `olf/infra` keeps only what resolves
+endpoints and credentials from a deployment. No platform API exists yet.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -208,3 +209,9 @@ Build step 1, third part: Superset report import and export moved to
 `openlakeforge_services.reports`; `olf infra` keeps the stage resolution, the
 port-forward and the Secret reads, and passes its `log` module as the
 operations' progress reporter.
+
+Build step 1, last part: OpenMetadata payloads, upserts and the deploy
+sequence moved to `openlakeforge_services.governance`; `olf infra` keeps the
+contract and descriptor resolution, the port-forward, the Secrets, the
+ingestion Jobs, SSO and role sync. Domain listing needed no move: it was
+already `OpenMetadataClient.list_domains`.

@@ -1,10 +1,10 @@
-"""OpenMetadata governance metadata seeding over the REST API.
+"""OpenMetadata governance metadata seeding for `olf infra`.
 
-Split by capability into `_config` (deploy configuration and descriptor
-source resolution), `_payloads` (domain/data-product payload construction),
-`_reconciliation` (REST upsert/resolve primitives), and `_orchestration`
-(spec building and `deploy()` sequencing). Behavior is preserved exactly --
-only the module boundary moved.
+The payloads, upserts and deploy sequence are `openlakeforge_services.governance`.
+`_config` resolves the stage's target from the applied contract and the
+project's descriptor sources; `_orchestration` binds the library deployer to
+them. The Secrets, ingestion Jobs, SSO and role sync stay here as deployment
+configuration.
 """
 
 from __future__ import annotations
