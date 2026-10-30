@@ -1,7 +1,7 @@
 """Superset report bundle build, import, and export.
 
 Bundle building and unpacking are pure local operations; import and export
-go through the Superset REST API (`olf.common.clients.superset`).
+go through the Superset REST API (`openlakeforge_services.superset`).
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
+from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, layers, log
-from olf.common.clients.superset import SupersetClient
 from olf.common.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
 from olf.common.profile import StageName
 from olf.infra import access, k8s

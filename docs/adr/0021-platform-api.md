@@ -2,9 +2,10 @@
 
 ## Status
 
-Decided, **build step 1 begun**: `packages/lakehouse-services` exists and holds
-the HTTP transport and the Dagster client; the Superset and OpenMetadata
-clients and every operation are still in `olf`. No platform API exists yet.
+Decided, **build step 1 begun**: `packages/lakehouse-services` holds every
+service client — the HTTP transport, Dagster, OpenMetadata and Superset. The
+operations built on them (report import and export, metadata deployment,
+domain listing) are still in `olf/infra`. No platform API exists yet.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -26,7 +27,7 @@ The logic already exists, in Python, under the infra surface:
 | Operation | Today | How it authenticates |
 | --- | --- | --- |
 | Superset report import and export | `olf/infra/superset.py` | Port-forward (`superset_base_url`), the admin password from the `superset-credentials` Secret (`admin_password_for`), the stage's Trino password from its Secret |
-| OpenMetadata domains | `olf infra openmetadata list-domains`, `olf/common/clients/openmetadata.py` | Port-forward, the automation bot's JWT from its Secret (`olf/infra/openmetadata/_auth.py`) |
+| OpenMetadata domains | `olf infra openmetadata list-domains`, `openlakeforge_services/openmetadata.py` | Port-forward, the automation bot's JWT from its Secret (`olf/infra/openmetadata/_auth.py`) |
 | Dagster runs and jobs | `openlakeforge_services/dagster.py`, used only by `olf e2e` | None: Dagster's GraphQL API is unauthenticated ([ADR 0017](0017-local-network-policy-and-rbac.md)) |
 | Archived logs | Written by `libs/k8s_log_archive.py` to `OPENLAKEFORGE_LOG_BASE_URI` (default `s3://openlakeforge-ops/logs`) | Object-store credentials |
 
@@ -101,7 +102,7 @@ platform API reaches what those credentials can do. It therefore:
 
 ### 4. One library, two hosts
 
-The service operations move out of `olf/infra` and `olf/common/clients` into a
+The service clients and operations move out of `olf` into a
 library package, `packages/lakehouse-services/`, following the
 `packages/domain-model` precedent. Its rule is **inject, don't fetch**: an
 operation takes a client and credentials and never resolves them itself — no
@@ -198,3 +199,6 @@ platform API, not each service's public route.
 
 Build step 1, first part: the transport and the Dagster client moved to
 `packages/lakehouse-services`, a third published distribution (ADR 0009).
+
+Build step 1, second part: the OpenMetadata and Superset clients followed;
+`olf/common/clients` no longer exists.

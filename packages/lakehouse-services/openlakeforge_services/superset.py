@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import quote
 from zipfile import ZipFile
 
-from openlakeforge_services.base import JsonHttpClient, ServiceClientError, TransientServiceError
+from .base import JsonHttpClient, ServiceClientError, TransientServiceError
 
 
 @dataclass

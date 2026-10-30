@@ -6,7 +6,7 @@ import base64
 from collections.abc import Mapping
 from typing import Any
 
-from openlakeforge_services.base import JsonHttpClient, ServiceClientError, TransientServiceError
+from .base import JsonHttpClient, ServiceClientError, TransientServiceError
 
 
 class OpenMetadataError(ServiceClientError):

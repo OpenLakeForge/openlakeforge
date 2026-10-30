@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from openlakeforge_services.openmetadata import OpenMetadataClient
 
-from olf.common.clients.openmetadata import OpenMetadataClient
 from olf.infra import k8s
 from olf.infra.openmetadata import _auth
 from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
