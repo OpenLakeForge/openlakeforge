@@ -63,6 +63,7 @@ class PolarisClient:
         *,
         payload: dict | None = None,
         ok_statuses: tuple[int, ...] = (200,),
+        relogged: bool = False,
     ) -> dict:
         data = None
         headers = {"Accept": "application/json"}
@@ -85,6 +86,11 @@ class PolarisClient:
         except urllib.error.URLError as err:
             raise PolarisError(f"{method} {path} failed: {err}") from err
 
+        if status == 401 and self.token and not relogged:
+            # Polaris rejects a token whose `iat` lies ahead of its clock, with no leeway, so a VM clock
+            # stepping back (a WSL2 resync) fails a token minted a moment earlier. A new one is not.
+            self.login()
+            return self._request(method, path, payload=payload, ok_statuses=ok_statuses, relogged=True)
         if status not in ok_statuses:
             raise PolarisError(f"{method} {path} failed with HTTP {status}: {body}")
         if not body:

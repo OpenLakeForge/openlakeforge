@@ -93,3 +93,45 @@ def test_login_fails_after_retry_limit(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(polaris.PolarisError, match="failed after 2 attempts"):
         client.login()
+
+
+def test_a_rejected_token_is_replaced_once_and_the_request_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = polaris.PolarisConfig(
+        base_url="http://127.0.0.1:8181", catalog_name="lakehouse_dev", client_id="id", client_secret="secret"
+    )
+    client = polaris.PolarisClient(config, token="minted-before-the-clock-stepped-back")
+    seen: list[str | None] = []
+
+    def fake_urlopen(request, timeout=0):  # noqa: ANN001, ARG001 - urllib signature
+        if request.full_url.endswith("/oauth/tokens"):
+            return FakeResponse({"access_token": "fresh"})
+        seen.append(request.get_header("Authorization"))
+        if len(seen) == 1:
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+        return FakeResponse({"properties": {"location": "s3://silver/sales_silver/"}})
+
+    monkeypatch.setattr(polaris.urllib.request, "urlopen", fake_urlopen)
+
+    assert client.namespace_state("sales_silver").location == "s3://silver/sales_silver/"
+    assert seen == ["Bearer minted-before-the-clock-stepped-back", "Bearer fresh"]
+
+
+def test_a_token_rejected_again_after_relogin_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = polaris.PolarisConfig(
+        base_url="http://127.0.0.1:8181", catalog_name="lakehouse_dev", client_id="id", client_secret="secret"
+    )
+    client = polaris.PolarisClient(config, token="t")
+    logins = 0
+
+    def fake_urlopen(request, timeout=0):  # noqa: ANN001, ARG001 - urllib signature
+        nonlocal logins
+        if request.full_url.endswith("/oauth/tokens"):
+            logins += 1
+            return FakeResponse({"access_token": "fresh"})
+        raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(polaris.urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(polaris.PolarisError, match="HTTP 401"):
+        client.namespace_state("sales_silver")
+    assert logins == 1
