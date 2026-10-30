@@ -30,7 +30,8 @@ def query(
 
     The query runs as the stage's shared runtime workload user, which can write
     as well as read. Use it to look at data, not to load it. It is not
-    per-user access: every caller of this command is the same Trino user.
+    per-user access: every caller of this command is the same Trino user. To
+    query as yourself, with your role's access, use `olf query`.
     """
     from olf.common.deployment.errors import DeploymentError
     from olf.common.provider_contracts import ProviderContractError
