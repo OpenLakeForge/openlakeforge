@@ -244,7 +244,10 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource | tuple[_ImageDeploy
         ),
         # Dagster's check-db-ready init container.
         _ImageDeploymentSource(
-            paths=("infra/helm/values/local/dagster.yaml",), image_key_paths=(("postgresql", "image"),)
+            paths=("infra/helm/values/local/dagster.yaml",),
+            registry_key_path=("postgresql", "image", "registry"),
+            repository_key_path=("postgresql", "image", "repository"),
+            tag_key_path=("postgresql", "image", "tag"),
         ),
     ),
     "seaweedfs": _ImageDeploymentSource(
@@ -344,6 +347,11 @@ def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:
     return value
 
 
+def _docker_hub_short(reference: str) -> str:
+    """`docker.io/library/postgres:x` and `postgres:x` name the same image."""
+    return reference.removeprefix("docker.io/").removeprefix("library/")
+
+
 def _deployed_image_references(source_path: Path, source: _ImageDeploymentSource) -> list[str]:
     """Read every complete image reference from one registered source file."""
     source_text = source_path.read_text()
@@ -426,7 +434,7 @@ def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, A
                     continue
 
                 for deployed in deployed_references:
-                    if deployed != ref:
+                    if _docker_hub_short(deployed) != _docker_hub_short(ref):
                         problems.append(f"{name}: catalog pins {ref!r} but {relative_path} pins {deployed!r}")
 
     if problems:

@@ -247,7 +247,8 @@ def test_check_images_match_deployment_sources_flags_a_drifted_dagster_init_imag
     for path in (postgres_dir / "workload.tf", postgres_dir / "bootstrap.tf", rds_dir / "main.tf"):
         path.write_text(f'image = "{postgres_ref}"\n')
     (values_dir / "dagster.yaml").write_text(
-        f"postgresql:\n  image:\n    repository: docker.io/library/postgres\n    tag: \"14.6@sha256:{'b' * 64}\"\n"
+        f"postgresql:\n  image:\n    registry: docker.io\n    repository: library/postgres\n"
+        f"    tag: \"14.6@sha256:{'b' * 64}\"\n"
     )
 
     catalog = {"components": {"images": {"postgres": postgres_ref}}}
@@ -255,6 +256,33 @@ def test_check_images_match_deployment_sources_flags_a_drifted_dagster_init_imag
 
     assert not result.ok
     assert "dagster.yaml pins 'docker.io/library/postgres:14.6@sha256:" in result.detail
+
+
+def test_check_images_match_deployment_sources_reads_the_dagster_postgres_registry(tmp_path: Path) -> None:
+    postgres_dir = tmp_path / "infra/terraform/modules/storage/postgresql"
+    postgres_dir.mkdir(parents=True)
+    rds_dir = tmp_path / "infra/terraform/modules/storage/rds-postgresql"
+    rds_dir.mkdir(parents=True)
+    values_dir = tmp_path / "infra/helm/values/local"
+    values_dir.mkdir(parents=True)
+    postgres_ref = "postgres:16-alpine@sha256:" + "a" * 64
+    for path in (postgres_dir / "workload.tf", postgres_dir / "bootstrap.tf", rds_dir / "main.tf"):
+        path.write_text(f'image = "{postgres_ref}"\n')
+    catalog = {"components": {"images": {"postgres": postgres_ref}}}
+
+    def dagster_values(registry: str) -> None:
+        (values_dir / "dagster.yaml").write_text(
+            f"postgresql:\n  image:\n    registry: {registry}\n    repository: library/postgres\n"
+            f"    tag: \"16-alpine@sha256:{'a' * 64}\"\n"
+        )
+
+    dagster_values("docker.io")
+    assert "dagster.yaml" not in _readiness._check_images_match_deployment_sources(tmp_path, catalog).detail
+
+    dagster_values("mirror.example.com")
+    result = _readiness._check_images_match_deployment_sources(tmp_path, catalog)
+    assert not result.ok
+    assert "mirror.example.com/library/postgres" in result.detail
 
 
 def test_check_images_match_deployment_sources_flags_bootstrap_image_drift(tmp_path: Path) -> None:
