@@ -24,17 +24,31 @@ from the CLI would put that logic in `olf` and again in the portal.
 
 The logic already exists, in Python, under the infra surface:
 
-| Operation | Today | How it authenticates |
-| --- | --- | --- |
-| Superset report import and export | `olf/infra/superset.py` | Port-forward (`superset_base_url`), the admin password from the `superset-credentials` Secret (`admin_password_for`), the stage's Trino password from its Secret |
-| OpenMetadata domains | `olf infra openmetadata list-domains`, `openlakeforge_services/openmetadata.py` | Port-forward, the automation bot's JWT from its Secret (`olf/infra/openmetadata/_auth.py`) |
-| Dagster runs and jobs | `openlakeforge_services/dagster.py`, used only by `olf e2e` | None: Dagster's GraphQL API is unauthenticated ([ADR 0017](0017-local-network-policy-and-rbac.md)) |
-| Archived logs | Written by `libs/k8s_log_archive.py` to `OPENLAKEFORGE_LOG_BASE_URI` (default `s3://openlakeforge-ops/logs`) | Object-store credentials |
+| Operation | Today | How it authenticates | Does the service accept the person's token? |
+| --- | --- | --- | --- |
+| Superset report import and export | `olf/infra/superset.py` | Port-forward (`superset_base_url`), the admin password from the `superset-credentials` Secret (`admin_password_for`), the stage's Trino password from its Secret | No. The REST API signs callers in with `provider: "db"` on `/api/v1/security/login` ([identity-service-permissions.md](../architecture/identity/identity-service-permissions.md)); accepting an external issuer's token would need a custom security manager (#536, out of scope) |
+| OpenMetadata domains | `olf infra openmetadata list-domains`, `openlakeforge_services/openmetadata.py` | Port-forward, the automation bot's JWT from its Secret (`olf/infra/openmetadata/_auth.py`) | **Yes.** It trusts Dex's signing keys (`publicKeyUrls` lists `<issuer>/keys`), names the caller by `preferred_username` (`jwtPrincipalClaims`), and authorizes by that user's own OpenMetadata roles, which the role sync sets ([ADR 0014](0014-identity-and-authorization.md)); `infra/terraform/modules/governance/openmetadata/main.tf` |
+| Dagster runs and jobs | `openlakeforge_services/dagster.py`, used only by `olf e2e` | None: Dagster's GraphQL API is unauthenticated ([ADR 0017](0017-local-network-policy-and-rbac.md)) | No: Dagster has no authentication or authorization of its own |
+| Archived logs | Written by `libs/k8s_log_archive.py` to `OPENLAKEFORGE_LOG_BASE_URI` (default `s3://openlakeforge-ops/logs`) | Object-store credentials | No: no module under `infra/terraform/modules/storage/` configures an OIDC issuer |
 
 Two facts shape the decision. The portal is an Astro application on Node, so
-it cannot import this code. And none of these operations can simply forward a
-person's token: Superset and Dagster do not accept a Dex token, and every path
-above uses an admin or service credential.
+it cannot import this code. And the services split in two: Superset, Dagster
+and the object store cannot take a person's token, so a call there needs a
+service credential and someone else must decide access; OpenMetadata takes the
+person's token and decides access itself, per user.
+
+The #536 spike (comment "Spike results", OpenMetadata 1.13.6 read from source,
+not run against a deployment) adds two facts about that OpenMetadata path:
+
+- OpenMetadata's `JwtFilter` checks a token's signature and expiry, not its
+  `aud` or `iss`. Any token Dex signed passes it, so the perimeter's audience
+  check is the only audience check on this path. This holds for browser
+  tokens today too.
+- OpenMetadata derives the user from `preferred_username` and refuses a token
+  without it, so a caller must request the `profile` scope (ADR 0014 already
+  requires it of the `olf-cli` client). The spike notes Dex's GitHub connector
+  sets the claim and its mock connectors do not, so the e2e stub path needs
+  checking.
 
 ## Decision
 
@@ -54,30 +68,71 @@ without CORS. The portal stays in its own repository and stays Astro; React is
 added as islands where a page is interactive, and no framework migration is
 part of this decision.
 
-### 2. Two classes of call
+### 2. The identity a call carries follows the service
 
-| Class | Examples | Identity on the service call | Who decides access |
+**Where a service validates the person's token and authorizes by it, the call
+carries that token.** Service credentials are used only where the service
+cannot accept the person's token. Per service:
+
+| Service | Operations | Identity on the service call | Who decides access |
 | --- | --- | --- | --- |
-| **Data plane**: reading or writing table data | `olf query`, a query page in the portal | The person's Dex token, end to end ([ADR 0019](0019-data-plane-authorization-deferral.md)) | Polaris grants |
-| **Control plane**: metadata, runs, reports, logs | Runs and jobs, domains and products, report export and import, log reads | The platform API's own service credentials | **The platform API** |
+| Trino, through Polaris | Reading or writing table data: `olf query`, a query page in the portal | The person's Dex token, end to end ([ADR 0019](0019-data-plane-authorization-deferral.md)) | Polaris grants |
+| OpenMetadata | Domains, data products, glossary | The person's Dex token, end to end | The perimeter's floor on the route the call entered by, then **OpenMetadata**, by the user's own OpenMetadata roles |
+| Superset | Report export and import | The platform API's Superset service credential | **The platform API** |
+| Dagster | Runs and jobs | None (Dagster checks nothing); the platform API reaches it over its own flow rows | **The platform API** |
+| Object store | Archived log reads | The platform API's read-only key for the log prefix | **The platform API** |
 
-The platform API never reads table data with a stage principal on a person's
-behalf: that would bypass the Polaris grants ADR 0019 builds. `olf query`
-reaches Trino's `query_api` route directly with the person's token and does not
-pass through the platform API; the portal's query page does pass through it and
-forwards the person's token unchanged.
+A call that carries the person's token takes one of two routes. A CLI command
+calls the service's public route directly: `olf domain list` reads
+OpenMetadata through its route with the user's token (#536, PR 5), as
+`olf query` reaches Trino's `query_api` route. Or the platform API forwards
+the token unchanged, as the portal's query page does for Trino. Either way the
+platform API holds no OpenMetadata credential to act on a person's behalf, and
+never reads table data with a stage principal: either would replace the
+service's per-user decision with its own.
+
+Two conditions bind every caller on the OpenMetadata path:
+
+- **Someone in front of OpenMetadata checks the audience.** OpenMetadata
+  checks signature and expiry, not `aud` (see Context). On a direct call that
+  is the perimeter: it admits a bearer token only if it was issued to
+  `olf-cli` (`--extra-jwt-issuers=<issuer>=olf-cli`,
+  `infra/terraform/modules/access/perimeter/main.tf`) or, per the #536 spike,
+  to the perimeter's own client, and enforces the route's role floor on it.
+  The platform API reaches OpenMetadata over in-cluster Service DNS
+  (decision 4), around the perimeter, so on a forwarded call its own token
+  validation (decision 3: an audience from an explicit list) takes that
+  place. A path with neither would accept any token Dex signed, including one
+  issued to Superset or Trino.
+- **The caller requests the `profile` scope**, because OpenMetadata keys users
+  on `preferred_username`. `tools/olf/olf/platform/session.py` requests
+  `openid email profile groups offline_access`.
+
+A person who has never opened OpenMetadata's UI has no user there, and a
+bearer request from them fails. #536 decides the remedy for `olf domain list`:
+it registers the caller once through `POST /v1/users`, which self-signup
+(`enableSelfSignup = true`) allows for exactly the caller, then retries; the
+role sync assigns roles on its next run. A platform API endpoint that forwards
+a person's token to OpenMetadata does the same.
 
 Under the classification rule in
 [identity-classes.md](../architecture/identity/identity-classes.md), a person's
-call to the platform API is class 1, and the platform API's control-plane call
-onward to Superset, OpenMetadata, Dagster or the object store is class 2: a
-workload with a service credential, acting after it has checked a class 1
-identity.
+call to the platform API is class 1. A forwarded call onward stays class 1:
+the service sees the person. A call onward to Superset, Dagster or the object
+store is class 2: a workload with a service credential, acting after it has
+checked a class 1 identity.
 
-### 3. The platform API is an enforcement point
+### 3. The platform API is an enforcement point for its service-credential calls
 
-Because control-plane calls carry a service credential, whoever reaches the
-platform API reaches what those credentials can do. It therefore:
+On a call it forwards with the person's token, the platform API decides
+nothing: the service does, as it would for a direct call. It still validates
+the token as below — signature, issuer, expiry and audience — before
+forwarding it: on that hop it is the only audience check (decision 2), and it
+never relays a request it cannot attribute.
+
+A call to Superset, Dagster or the object store carries a service credential,
+so whoever reaches the platform API reaches what those credentials can do.
+For those calls it therefore:
 
 - **validates every token itself**: signature against the issuer's keys,
   issuer, expiry, and an audience from an explicit list. A header set by the
@@ -88,9 +143,9 @@ platform API reaches what those credentials can do. It therefore:
   operation, the lowest role allowed, and the stages it applies to — in the
   monotonic-floor style of ADR 0014's perimeter;
 - **holds the narrowest credential each service offers**, mounted from a
-  Secret (architectural rule 7): an OpenMetadata bot with a non-admin role, a
-  Superset service user rather than `admin` wherever Superset's API allows the
-  operation, a read-only object-store key for the log prefix;
+  Secret (architectural rule 7): a Superset service user rather than `admin`
+  wherever Superset's API allows the operation, a read-only object-store key
+  for the log prefix, and no OpenMetadata credential;
 - **reaches Dagster's GraphQL API through its own rows in
   `release/network-flows.yaml`**, and its permission matrix is the only check
   on what it asks there, since Dagster checks nothing;
@@ -112,7 +167,7 @@ supplies its own resolver:
 | Host | Reaches a service through | Credentials from |
 | --- | --- | --- |
 | `olf infra` (deploy, artifacts phase, e2e) | Port-forward or the applied contract's endpoint | Kubernetes Secrets with the caller's kubeconfig |
-| The platform API | In-cluster Service DNS | Secrets mounted into its pod |
+| The platform API | In-cluster Service DNS | Secrets mounted into its pod, or the person's token, forwarded unchanged, for a service that authorizes it (decision 2) |
 
 `olf` stays a single-operator CLI (AGENTS.md, Non-goals). The library does not
 inherit that: the platform API calls it concurrently, so it holds no
@@ -155,9 +210,14 @@ cluster rights (ADR 0020).
 
 - Platform logic is written once, in Python, and the portal, `olf` and agents
   share it through one API.
-- The platform API holds service credentials and is an authorization point.
-  Its permission matrix and token validation carry the review weight the
+- The platform API holds service credentials for Superset and the object
+  store, and is the authorization point for them and for Dagster. Its
+  permission matrix and token validation carry the review weight the
   perimeter carries today.
+- OpenMetadata keeps its per-user authorization on every platform path, and
+  the platform API holds one credential fewer. The price is that the
+  perimeter's audience check is the only one in front of OpenMetadata, and
+  every caller on that path handles a first-time user's registration.
 - One more pod in `olf-system`. Its footprint is not measured; it is recorded
   in ADR 0013's table when the module lands.
 - The extraction of `packages/lakehouse-services` is a refactor with no
@@ -169,9 +229,9 @@ cluster rights (ADR 0020).
 
 | # | Item | Why it is open |
 | --- | --- | --- |
-| 1 | How a browser session's token reaches the platform API | The perimeter sets `--set-xauthrequest=true` but does not pass the access token on; passing it needs oauth2-proxy and Traefik `authResponseHeaders` configuration, not yet written or run |
+| 1 | How a browser session's token reaches the platform API | The perimeter sets `--set-xauthrequest=true` but does not pass the access token on; passing it needs oauth2-proxy and Traefik `authResponseHeaders` configuration, not yet written or run. Portal pages that read OpenMetadata depend on it, since the API has no credential of its own to fall back to. That session's token is issued to the perimeter's client; OpenMetadata ignores `aud`, so it should pass, but no one has run it |
 | 2 | A token Trino accepts for the portal's query page | Trino requires the audience `olf-cli` (ADR 0019, step 5), and a browser session's token is the perimeter's. Dex cross-client trust or a client Trino also accepts are candidates; neither is tested. It changes ADR 0014 and ADR 0019 |
-| 3 | The narrowest credential per service | Which Superset and OpenMetadata operations a non-admin service user can perform has not been checked against Superset 6.1.0 and OpenMetadata 1.13.6 |
+| 3 | The narrowest credential per service | Which Superset operations a non-admin service user can perform has not been checked against Superset 6.1.0 |
 | 4 | Where the platform API's source and image live | Proposed `services/platform-api/` and `images/platform-api/`; decided in the first build change |
 
 ## Build order
@@ -184,9 +244,12 @@ Each step is one pull request within AGENTS.md's size rule.
 2. Platform API skeleton on the local provider: token validation, the
    permission matrix, `/healthz`, the discovery document; its Terraform
    module, flow rows and catalog pin.
-3. Read endpoints: Dagster runs and jobs, OpenMetadata domains and products,
-   archived logs.
-4. `olf login`, `whoami`, `logout` and the read commands as clients of the API.
+3. Read endpoints: Dagster runs and jobs and archived logs with service
+   credentials; OpenMetadata domains and products forwarding the person's
+   token.
+4. `olf login`, `whoami`, `logout` and the read commands as clients of the API,
+   except where a command calls the service's route directly with the
+   person's token (`olf domain list`, #536 PR 5).
 5. State-changing endpoints — report export and import, launching a run — with
    audit records.
 6. Platform `olf query` on ADR 0019's person path (ADR 0020, Command
@@ -202,3 +265,11 @@ Build step 1, first part: the transport and the Dagster client moved to
 
 Build step 1, second part: the OpenMetadata and Superset clients followed;
 `olf/common/clients` no longer exists.
+
+Decision 2 rewritten (#665): the identity on a service call follows the
+service, not a data-plane/control-plane split. OpenMetadata, which validates
+the person's token and authorizes by it, gets that token, directly from the
+CLI or forwarded by the API; service credentials remain for Superset, Dagster
+and the object store. Decision 3 now applies to those service-credential
+calls only, the OpenMetadata bot credential is dropped, and the context table
+records which services accept the person's token.
