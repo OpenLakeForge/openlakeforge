@@ -320,7 +320,7 @@ def test_deploy_ends_with_the_portal_and_what_github_says_about_the_install(
 
     lines = capsys.readouterr().out.strip().splitlines()
     assert lines[0] == "artifacts done"
-    assert "https://olf.example" in lines[-2]
+    assert lines[-2] == "==> OpenLakeForge is ready: https://olf.example"
     assert lines[-1] == expected
     assert "pem-material" not in "".join(lines)
 

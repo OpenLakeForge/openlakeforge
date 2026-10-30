@@ -13,13 +13,16 @@ deployment should look like, resolved before any Terraform, Helm, or
 Kubernetes object exists.
 
 Before this record, `olf deploy --provider local --profile slim|full`
-conflated four separate concepts behind two flags:
+conflated separate concepts behind two flags:
 
 - **provider** — where the deployment runs (`local`, `aws`, `azure`);
 - **stage** — a shared lifecycle boundary (`dev`, `uat`, `prod`);
 - **preset** — a named default/override set for optional capabilities
   (`slim`, `full`);
 - **runtime** — the query engine a stage uses (only Trino exists today).
+
+A fourth profile concept, **sizing**, was added later (#323): how large the
+shared query engine and the self-hosted object storage are.
 
 `--profile` names the preset but reads as an environment; ADR 0002 already
 warns "`--profile` is not a phase," and ADR 0009 called the project-root
@@ -28,13 +31,14 @@ Neither record gave the four concepts distinct types. This ADR does.
 
 ## Decision
 
-### The four concepts stay distinct types throughout the resolver
+### The concepts stay distinct types throughout the resolver
 
 | Concept | Values (v1) | Lives in |
 | --- | --- | --- |
 | Provider | `local`, `aws`, `azure` | `spec.provider.type` |
 | Stage | `dev`, `uat` (optional), `prod` | `spec.stages.<name>` |
 | Preset | `slim`, `full` | `spec.preset` |
+| Sizing | `small` (`medium`, `large` are named but rejected) | `spec.query.size`, `spec.storage.size` |
 | Runtime | not exposed — Trino only | not a v1 field |
 
 A provider is not a stage. A stage is not a Kubernetes cluster — v0.3 runs
@@ -86,6 +90,29 @@ errors, and `docs/schema/deployment-profile.schema.json` for the versioned,
 tool-checkable shape. Neither substitutes for the other, and both are
 exercised by `olf check contracts`.
 
+### Sizing: `spec.query.size` and `spec.storage.size`
+
+Two optional fields choose a size for the shared Trino (`query`) and for
+self-hosted object storage (`storage`, SeaweedFS). The vocabulary is
+`small | medium | large`; the profile never carries CPU, memory, worker, heap or
+volume quantities, and there is no per-stage size, because one Trino serves
+every stage. Both default to `small`, which is today's footprint, so a profile
+without the fields resolves and renders exactly as before.
+
+Only tiers with a tested backend are accepted. `medium` and `large` are part of
+the vocabulary but fail validation, naming the issue that will implement them
+(#324 for Trino workers, #326 for SeaweedFS volumes), rather than being
+accepted as a promise nothing keeps. Growing the set is the change that
+implements and tests the tier; existing profiles stay valid. `storage` is also
+rejected on `aws`, whose object storage is managed S3 with no volume to size;
+it applies on `local` and `azure`, where SeaweedFS is self-hosted.
+
+The resolved sizes are carried on `DeploymentTopology` (`query_size`,
+`storage_size`) and printed by `olf profile resolve`. Nothing reads them yet:
+no Terraform variable or Helm value depends on them, which is why accepting
+only `small` is not a no-op promise. Their consumers are #324 and #326, with
+the capacity preflight in #327.
+
 ### `spec.project`: the customer's source and image registry
 
 An optional `spec.project` declares `repository` (the source URL, provenance
@@ -129,8 +156,8 @@ The following are not v1 profile fields, because no provider adapter maps
 them to anything real yet — a field with no implemented, testable mapping
 becomes a no-op promise, which is worse than deferring it:
 
-`runtime`, personal workspace policy, platform/compute/storage sizing or
-availability, raw namespaces, replicas, resources, Helm values, Terraform
+`runtime`, personal workspace policy, raw CPU/memory/worker/volume sizing
+(only the `small | medium | large` vocabulary above exists), availability, raw namespaces, replicas, resources, Helm values, Terraform
 modules or backends, IAM policies, credentials, images, PVCs, buckets,
 catalogs, and generated endpoints (the project image repository and pull secret
 *name* of `spec.project` are the declared exception: user-owned references). `DeploymentTopology` carries only logical
@@ -170,7 +197,7 @@ topology free of namespaces, Helm releases, and endpoints.
   `--profile`/`--provider` flags directly: `olf platform apply -f` and
   `olf project deploy -f --stage` take the profile file.
 - Local, AWS, and Azure POC shapes are representable without credentials,
-  sizing, or endpoints — those stay behind provider contracts (ADR 0003).
+  raw resource values, or endpoints — those stay behind provider contracts (ADR 0003).
 
 ## History
 
@@ -202,3 +229,10 @@ provider contract must match it.
 `spec.project` (#538) added in place: the customer's source and image registry
 as references, with a fixed resolution order and no credentials. The earlier
 "images" exclusion is narrowed to what the paragraph above allows.
+
+2026-10-30: Sizing (#323) added as the fourth profile concept: optional
+`spec.query.size` and `spec.storage.size`, default `small`. Per the v0.6
+lightweight-beta decision of 2026-10-27, `medium` and `large` fail validation
+until a tested backend lands (#324, #326) and `storage` is rejected on `aws`.
+The "sizing" exclusion is narrowed to raw resource values; the contract slice
+changes no rendered Terraform or Helm input.

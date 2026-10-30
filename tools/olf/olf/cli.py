@@ -6,35 +6,53 @@ root Typer application, registers each group, and wires `main()`.
 
 from __future__ import annotations
 
+import copy
 import json
+from collections.abc import Callable
 
 import typer
+from typer.models import CommandInfo, TyperInfo
 
 import olf
-from olf.common.commands import checks, distribution, domain, init, layers, profile, release, source, toolchain
+from olf.common.commands import (
+    checks,
+    contracts,
+    diagnostics,
+    distribution,
+    domain,
+    images,
+    init,
+    layers,
+    product,
+    profile,
+    project,
+    release,
+    source,
+    toolchain,
+)
 from olf.infra.commands import (
     access,
     artifacts,
     auth,
     break_glass,
     catalog,
-    contracts,
     dbt,
     deployment,
-    diagnostics,
     e2e,
     github,
-    images,
     k8s,
     openmetadata,
     platform,
-    product,
-    project,
     query,
     secrets,
     smoke,
     superset,
 )
+from olf.infra.commands import contracts as infra_contracts
+from olf.infra.commands import diagnostics as infra_diagnostics
+from olf.infra.commands import images as infra_images
+from olf.infra.commands import product as infra_product
+from olf.infra.commands import project as infra_project
 
 app = typer.Typer(
     name="olf",
@@ -42,44 +60,81 @@ app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_show_locals=False,
 )
+infra_app = typer.Typer(
+    help="Commands that need cluster or cloud permissions.",
+    no_args_is_help=True,
+)
 
-app.add_typer(access.app, name="access")
-app.add_typer(github.app, name="github")
-app.add_typer(secrets.app, name="secrets")
-app.add_typer(contracts.app, name="contracts")
+
+def _hidden[T: (CommandInfo, TyperInfo)](info: T) -> T:
+    alias = copy.copy(info)
+    alias.hidden = True
+    return alias
+
+
+def _infra_group(group: typer.Typer, name: str, *, common: typer.Typer | None = None) -> None:
+    """Register an infra group under `olf infra` and at its pre-2b top-level path.
+
+    The old path is a hidden alias of the same Typer app. When `common` also owns
+    commands in that group (`project validate`), the old path is the common
+    group with the infra commands added hidden, since Typer cannot merge two
+    apps registered under one name.
+    """
+    infra_app.add_typer(group, name=name)
+    if common is None:
+        app.add_typer(group, name=name, hidden=True)
+        return
+    legacy = typer.Typer(help=common.info.help)
+    legacy.registered_commands = [*common.registered_commands, *map(_hidden, group.registered_commands)]
+    legacy.registered_groups = [*common.registered_groups, *map(_hidden, group.registered_groups)]
+    app.add_typer(legacy, name=name)
+
+
+def _infra_command(name: str, callback: Callable[..., None]) -> None:
+    infra_app.command(name)(callback)
+    app.command(name, hidden=True)(callback)
+
+
+app.add_typer(infra_app, name="infra")
+
 app.add_typer(checks.app, name="check")
-app.add_typer(dbt.app, name="dbt")
-app.add_typer(diagnostics.app, name="diagnostics")
 app.add_typer(distribution.app, name="distribution")
-app.add_typer(images.app, name="images")
-app.add_typer(catalog.app, name="catalog")
-app.add_typer(artifacts.app, name="artifacts")
-app.add_typer(auth.app, name="auth")
 app.add_typer(layers.app, name="layers")
-app.add_typer(superset.app, name="superset")
-app.add_typer(superset.report_app, name="report")
-app.add_typer(openmetadata.app, name="openmetadata")
-app.add_typer(k8s.app, name="k8s")
-app.add_typer(e2e.app, name="e2e")
-app.add_typer(smoke.app, name="smoke")
 app.add_typer(release.app, name="release")
 app.add_typer(source.app, name="source")
 app.add_typer(domain.app, name="domain")
-app.add_typer(product.app, name="product")
-app.add_typer(project.app, name="project")
 app.add_typer(profile.app, name="profile")
-app.add_typer(platform.app, name="platform")
 app.add_typer(toolchain.app, name="toolchain")
 
-app.command("deploy")(deployment.deploy)
-app.command("plan")(deployment.plan)
-app.command("doctor")(deployment.doctor)
-app.command("destroy")(deployment.destroy)
-app.command("status")(deployment.status)
-app.command("forward")(deployment.forward)
-app.command("break-glass")(break_glass.break_glass_command)
+_infra_group(access.app, "access")
+_infra_group(github.app, "github")
+_infra_group(secrets.app, "secrets")
+_infra_group(infra_contracts.app, "contracts", common=contracts.app)
+_infra_group(dbt.app, "dbt")
+_infra_group(infra_diagnostics.app, "diagnostics", common=diagnostics.app)
+_infra_group(infra_images.app, "images", common=images.app)
+_infra_group(catalog.app, "catalog")
+_infra_group(artifacts.app, "artifacts")
+_infra_group(auth.app, "auth")
+_infra_group(superset.app, "superset")
+_infra_group(superset.report_app, "report")
+_infra_group(openmetadata.app, "openmetadata")
+_infra_group(k8s.app, "k8s")
+_infra_group(e2e.app, "e2e")
+_infra_group(smoke.app, "smoke")
+_infra_group(infra_product.app, "product", common=product.app)
+_infra_group(infra_project.app, "project", common=project.app)
+_infra_group(platform.app, "platform")
+
+_infra_command("deploy", deployment.deploy)
+_infra_command("plan", deployment.plan)
+_infra_command("doctor", deployment.doctor)
+_infra_command("destroy", deployment.destroy)
+_infra_command("status", deployment.status)
+_infra_command("forward", deployment.forward)
+_infra_command("break-glass", break_glass.break_glass_command)
+_infra_command("query", query.query)
 app.command("init")(init.initialize)
-app.command("query")(query.query)
 
 
 @app.callback()

@@ -141,8 +141,10 @@ def test_project_code_check_uses_external_code_and_distribution_dependencies(
     _project_code.project_code(str(external_project))
 
     distribution = Path(__file__).resolve().parents[4]
-    argv, cwd, env = calls[-1]
+    argv, cwd, env = next(call for call in calls if "olf.common.project_code_check" in call[0])
     assert argv[-1] == str(external_project)
     assert cwd == external_project
     assert env["PYTHONPATH"].split(os.pathsep)[-2:] == [str(external_project), str(distribution)]
+    # The libs tests live in the distribution, so they run against it whatever project is checked.
+    assert any(str(distribution / "tools/olf/tests/libs") in argv for argv, _cwd, _env in calls)
     assert not (external_project / ".cache").exists()
