@@ -60,6 +60,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "infra/terraform/modules/query/trino/certificate/templates/certificate.yaml",
     "release/identity-roles.yaml",
     "release/network-flows.yaml",
+    "release/storage-sizes.yaml",
     "infra/terraform/modules/security/network-policy/main.tf",
     "infra/terraform/modules/security/network-policy/variables.tf",
     "infra/terraform/modules/security/network-policy/outputs.tf",
