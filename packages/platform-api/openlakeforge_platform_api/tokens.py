@@ -57,9 +57,10 @@ class TokenValidator:
     calls it from its worker threads.
     """
 
-    def __init__(self, settings: Settings, *, timeout: float = 10.0) -> None:
+    def __init__(self, settings: Settings, *, timeout: float = 10.0, jwks_lifespan: float = 300.0) -> None:
         self._settings = settings
         self._timeout = timeout
+        self._jwks_lifespan = jwks_lifespan
         self._ssl_context = ssl.create_default_context()
         # Added to the system roots, not instead of them: a local CA signs
         # Dex's route, a public CA an external issuer's.
@@ -82,8 +83,14 @@ class TokenValidator:
             # issuer it was fetched for, or its keys are not that issuer's.
             if document.get("issuer") != self._settings.issuer_url or not document.get("jwks_uri"):
                 raise IssuerUnavailable(f"{url} does not describe issuer {self._settings.issuer_url}")
+            # Only the key set is cached, and it expires: PyJWT's per-key cache
+            # (cache_keys) never does, so a key the issuer withdrew after a
+            # compromise would keep validating tokens until a restart.
             self._jwks = jwt.PyJWKClient(
-                document["jwks_uri"], cache_keys=True, timeout=self._timeout, ssl_context=self._ssl_context
+                document["jwks_uri"],
+                lifespan=self._jwks_lifespan,
+                timeout=self._timeout,
+                ssl_context=self._ssl_context,
             )
             return self._jwks
 

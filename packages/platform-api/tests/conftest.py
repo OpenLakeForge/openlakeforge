@@ -36,6 +36,8 @@ class FakeIssuer:
         self.down = False
         # The issuer the discovery document claims; None claims the real URL.
         self.advertised: str | None = None
+        # False withdraws the signing key from the published set, as a rotation after a compromise would.
+        self.publishes_key = True
         handler = self._handler()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/dex"
@@ -55,7 +57,8 @@ class FakeIssuer:
                     body: dict[str, Any] = {"issuer": issuer.advertised or issuer.url, "jwks_uri": f"{issuer.url}/keys"}
                 elif self.path == "/dex/keys":
                     public = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(issuer.key.public_key()))
-                    body = {"keys": [{**public, "kid": KID, "use": "sig", "alg": "RS256"}]}
+                    keys = [{**public, "kid": KID, "use": "sig", "alg": "RS256"}] if issuer.publishes_key else []
+                    body = {"keys": keys}
                 else:
                     self.send_error(404)
                     return
