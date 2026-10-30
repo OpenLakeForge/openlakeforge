@@ -26,18 +26,6 @@ output "contract" {
   ]
 }
 
-output "s3_access_key_id" {
-  description = "Generated local S3 access key. Exposed only for debugging."
-  value       = local.access_key_id
-  sensitive   = true
-}
-
-output "s3_secret_key" {
-  description = "Generated local S3 secret key. Exposed only for debugging."
-  value       = random_password.s3_secret_key.result
-  sensitive   = true
-}
-
 output "stage_credentials" {
   description = "Stage-scoped S3 credential bindings for provider-contract construction."
   value = {

@@ -27,15 +27,15 @@ kubectl -n olf-system get secret openmetadata-admin -o jsonpath='{.data.admin-pa
 ## 2. Find the domain and data product
 
 You wrote no OpenMetadata configuration. The artifacts phase of `olf deploy`
-reads `lakehouse_code/lakehouse.yaml` and creates:
+reads `lakehouse_code/governance.yml` and creates:
 
-| lakehouse.yaml | OpenMetadata |
+| governance.yml | OpenMetadata |
 | --- | --- |
 | A domain such as `marketing` | A domain, shown as `Marketing` |
 | A product such as `campaign_performance` | A data product named `campaign_performance`, shown as `Campaign Performance`, inside that domain |
 
 In the left menu, open **Domains** and select `Marketing`. Its data product
-`Campaign Performance` is listed, with the description from `lakehouse.yaml`.
+`Campaign Performance` is listed, with the description from `governance.yml`.
 To change either, edit that file and run `olf deploy --provider local --phase
 artifacts`.
 
@@ -64,7 +64,7 @@ olf e2e run --env local --suite full
 ```
 
 With the Full preset the suite also checks OpenMetadata: it requires every
-domain and data product from `lakehouse.yaml`, and the Gold lineage of the
+domain and data product from `governance.yml`, and the Gold lineage of the
 stage. It ends with:
 
 ```text
@@ -73,7 +73,7 @@ Local OpenLakeForge full e2e validation passed.
 
 ## What you learned
 
-- Governance metadata is derived from `lakehouse.yaml`: one OpenMetadata domain
+- Governance metadata is derived from `governance.yml`: one OpenMetadata domain
   per domain, one data product per product.
 - Lineage comes from the runs themselves, through Floe and dbt, not from
   configuration.

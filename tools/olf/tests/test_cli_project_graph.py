@@ -14,37 +14,20 @@ ROOT = Path(__file__).parents[3]
 
 runner = CliRunner()
 
-_LAKEHOUSE = """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: tiny
-displayName: Tiny
-description: Tiny lakehouse.
-status: planned
-sources:
-  - crm
+_GOVERNANCE = """\
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: revenue
-        displayName: Revenue
-        description: Revenue product.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_revenue
-dashboards:
-  - name: revenue_board
-    products: [revenue]
+products:
+  - id: revenue
+    domain: sales
+    displayName: Revenue
+    description: Revenue product.
+    status: planned
 """
 
 _SOURCE = """\
@@ -63,7 +46,11 @@ resources:
 def tiny_project(tmp_path: Path) -> Path:
     code = tmp_path / "lakehouse_code"
     (code / "bronze/crm").mkdir(parents=True)
-    (code / "lakehouse.yaml").write_text(_LAKEHOUSE)
+    (code / "governance.yml").write_text(_GOVERNANCE)
+    board = code / "dashboards/superset/revenue_board"
+    (board / "datasets/Trino").mkdir(parents=True)
+    (board / "metadata.yaml").write_text("type: assets\n")
+    (board / "datasets/Trino/mart.yaml").write_text("schema: revenue_gold\n")
     (code / "bronze/crm/source.yaml").write_text(_SOURCE)
     write_floe_entity(code, "sales", "orders", "crm")
     return tmp_path
@@ -89,7 +76,7 @@ def test_graph_fails_without_a_lakehouse_descriptor(tmp_path: Path) -> None:
     result = runner.invoke(app, ["project", "graph", "--project", str(tmp_path)])
 
     assert result.exit_code != 0
-    assert "lakehouse.yaml" in result.output
+    assert "governance.yml" in result.output
 
 
 def test_graph_of_the_demo_project_names_every_owner_and_is_repeatable() -> None:

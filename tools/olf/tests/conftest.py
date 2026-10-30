@@ -108,10 +108,11 @@ def write_floe_entity(lakehouse_code: Path, domain: str, name: str, source: str,
 
 
 def write_two_product_fixture(root: Path, *, dashboards: tuple[tuple[str, str], ...] = ()) -> None:
-    """A minimal two-product, single-domain v1alpha3 descriptor for isolation
+    """A minimal two-product, single-domain governance descriptor for isolation
     tests. ``dashboards`` is a sequence of ``(dashboard_name, product_id)``
-    pairs to declare in the top-level ``dashboards:`` list; the caller still
-    has to write the actual Superset export via ``write_dashboard_fixture``.
+    pairs; each becomes a report bundle (a ``metadata.yaml``) serving that
+    product. The caller still has to write the actual Superset export via
+    ``write_dashboard_fixture``.
     """
     lakehouse_dir = root / "lakehouse_code"
     source_dir = lakehouse_dir / "bronze" / "widgets_source"
@@ -129,46 +130,32 @@ resources:
 """,
         encoding="utf-8",
     )
-    dashboards_yaml = ""
-    if dashboards:
-        entries = "\n".join(f"  - name: {name}\n    products: [{product}]" for name, product in dashboards)
-        dashboards_yaml = f"dashboards:\n{entries}\n"
-    (lakehouse_dir / "lakehouse.yaml").write_text(
-        f"""\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Widgets fixture lakehouse.
-status: planned
-sources:
-  - widgets_source
+    for name, product in dashboards:
+        bundle = lakehouse_dir / "dashboards" / "superset" / name
+        (bundle / "datasets" / "Trino").mkdir(parents=True)
+        (bundle / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
+        (bundle / "datasets" / "Trino" / "mart.yaml").write_text(f"schema: {product}_gold\n", encoding="utf-8")
+    (lakehouse_dir / "governance.yml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: widgets
     displayName: Widgets
     description: Widgets domain fixture.
     status: planned
-    silver_tables:
-      tables:
-        - {{name: source, source: widgets_source, resource: source}}
-    products:
-      - id: widgets_alpha
-        displayName: Widgets Alpha
-        description: Alpha product.
-        status: planned
-        silver_inputs: [source]
-        gold_tables:
-          tables:
-            - name: mart_alpha_summary
-      - id: widgets_beta
-        displayName: Widgets Beta
-        description: Beta product.
-        status: planned
-        silver_inputs: [source]
-        gold_tables:
-          tables:
-            - name: mart_beta_summary
-{dashboards_yaml}""",
+products:
+  - id: widgets_alpha
+    domain: widgets
+    displayName: Widgets Alpha
+    description: Alpha product.
+    status: planned
+  - id: widgets_beta
+    domain: widgets
+    displayName: Widgets Beta
+    description: Beta product.
+    status: planned
+""",
         encoding="utf-8",
     )
 

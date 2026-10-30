@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -35,6 +36,18 @@ POLARIS_TOKEN_KEY_SECRET = ("polaris-token-broker", "symmetric.key")
 # Created in-cluster by the OpenMetadata module: "<release>-fernet-key", release "openmetadata".
 OPENMETADATA_FERNET_SECRET = ("openmetadata-fernet-key", "fernet-key")
 TRINO_CREDENTIAL_PREFIX = "trino-credential-"
+# Generated in-cluster by Jobs since #400, so they are in no Terraform state: (Secret, key) in the platform
+# namespace, then in every scanned namespace. The database Secrets are listed because their names carry the stage.
+MIGRATED_PLATFORM_SECRETS = (
+    ("postgresql-admin-creds", "postgres-password"),
+    ("postgresql-polaris-creds", "password"),
+    ("polaris-bootstrap-credentials", "ROOT_CLIENT_SECRET"),
+    ("openmetadata-admin", "admin-password"),
+    ("seaweedfs-s3-creds", "AWS_SECRET_ACCESS_KEY"),
+)
+MIGRATED_SCANNED_SECRETS = (("superset-credentials", "secret-key"), ("superset-credentials", "admin-password"))
+DATABASE_SECRET = re.compile(r"postgresql-.+-creds")
+STAGE_S3_SECRET = re.compile(r"seaweedfs-.+-s3-creds")
 LOG_TAIL_LINES = 2000
 
 Surfaces = Mapping[str, str | None]
@@ -82,7 +95,7 @@ def check_secret_exposure(cfg: E2EConfig) -> None:
         f"ConfigMaps in {ns}": _kubectl_text(cfg, ["get", "configmap", "-n", ns, "-o", "json"]) for ns in namespaces
     }
     surfaces = {**_state_surfaces(cfg), **configmaps, **bundles, **_log_surfaces(cfg, namespaces)}
-    scan(_credentials(cfg, identity), surfaces)
+    scan({**_credentials(cfg, identity), **migrated_credentials(cfg, namespaces)}, surfaces)
 
 
 def scan_namespaces(cfg: E2EConfig, contracts: Mapping[str, Any]) -> tuple[str, ...]:
@@ -92,12 +105,45 @@ def scan_namespaces(cfg: E2EConfig, contracts: Mapping[str, Any]) -> tuple[str, 
     return tuple(dict.fromkeys((*health_namespaces(cfg), *filter(None, stages))))
 
 
+def _read_secret(cfg: E2EConfig, namespace: str, name: str, key: str) -> str:
+    # secret_value puts the key in a JSONPath, where `.` separates fields.
+    return k8s.secret_value(name, key.replace(".", "\\."), namespace, kube_context=cfg.kube_context)
+
+
+def migrated_credentials(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[str, str]:
+    """The values of the credentials that moved out of Terraform state, by `namespace/Secret/key`.
+
+    One that is absent (a layer that is off) or too short to scan for is left out, as in `_credentials`."""
+    refs = [(cfg.platform_namespace, name, key) for name, key in MIGRATED_PLATFORM_SECRETS]
+    platform_names = {name for name, _ in MIGRATED_PLATFORM_SECRETS}
+    for namespace in namespaces:
+        refs += [(namespace, name, key) for name, key in MIGRATED_SCANNED_SECRETS]
+        refs += [
+            (namespace, name, "postgresql-password")
+            for name in _secret_names(cfg, namespace)
+            if DATABASE_SECRET.fullmatch(name) and name not in platform_names
+        ]
+        refs += [
+            (namespace, name, "AWS_SECRET_ACCESS_KEY")
+            for name in _secret_names(cfg, namespace)
+            if STAGE_S3_SECRET.fullmatch(name)
+        ]
+    found: dict[str, str] = {}
+    for namespace, name, key in refs:
+        try:
+            value = _read_secret(cfg, namespace, name, key)
+        except k8s.KubectlError:
+            continue
+        if len(value) >= MIN_VALUE_LENGTH:
+            found[f"{namespace}/{name}/{key}"] = value
+    return found
+
+
 def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
     namespace = cfg.platform_namespace
 
     def read(name: str, key: str) -> str:
-        # secret_value puts the key in a JSONPath, where `.` separates fields.
-        return k8s.secret_value(name, key.replace(".", "\\."), namespace, kube_context=cfg.kube_context)
+        return _read_secret(cfg, namespace, name, key)
 
     clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in identity.get("clients", {}).values()]
     # An external issuer's client Secrets are operator-provided, so they may be absent or short; without an
@@ -122,13 +168,17 @@ def _trino_secret_refs(cfg: E2EConfig) -> list[tuple[str, str]]:
     """The Trino workload credentials (ADR 0016) are named by principal, and which
     principals exist is the Job's call, so the Secrets themselves are listed. None
     exist until the credential Job has run, which is not an error."""
-    text = _kubectl_text(cfg, ["get", "secrets", "-n", cfg.platform_namespace, "-o", "name"])
-    if text is None:
-        raise E2EError(f"cannot list the Secrets in {cfg.platform_namespace} to find the Trino credentials")
-    names = sorted(line.removeprefix("secret/") for line in text.split())
+    names = _secret_names(cfg, cfg.platform_namespace)
     return [(name, "password") for name in names if name.startswith(TRINO_CREDENTIAL_PREFIX)] + [
         TRINO_INTERNAL_SECRET
     ]
+
+
+def _secret_names(cfg: E2EConfig, namespace: str) -> list[str]:
+    text = _kubectl_text(cfg, ["get", "secrets", "-n", namespace, "-o", "name"])
+    if text is None:
+        raise E2EError(f"cannot list the Secrets in {namespace} to find the credentials to scan for")
+    return sorted(line.removeprefix("secret/") for line in text.split())
 
 
 def _state_surfaces(cfg: E2EConfig) -> dict[str, str | None]:

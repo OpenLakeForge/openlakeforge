@@ -3,13 +3,13 @@
 Nothing is written to the real repository until the plan has been proven
 valid in an isolated temp tree: the canonical descriptor model plus both
 JSON Schemas, exactly as `olf contracts check` validates the committed
-descriptors. On any failure, zero files are written and `lakehouse.yaml` is
+descriptors. On any failure, zero files are written and `governance.yml` is
 left byte-identical.
 
 Concurrent `olf ... new` invocations against the same repo checkout are not
 supported: no cross-process lock guards the check/verify/write sequence, so
 two commands that both finish verification before either writes can race --
-the second write silently drops the first command's `lakehouse.yaml`
+the second write silently drops the first command's `governance.yml`
 addition while leaving its files on disk. This is a deliberate scope
 boundary, not a silent-corruption risk: like `rails generate`, `cargo new`,
 or `ng generate`, this tool assumes one command runs against a given
@@ -94,7 +94,7 @@ def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) 
 
 
 def _check_yaml_well_formed(files: tuple[ScaffoldFile, ...]) -> None:
-    """Every generated/edited YAML file must at least parse. `lakehouse.yaml`
+    """Every generated/edited YAML file must at least parse. `governance.yml`
     and `source.yaml` are already covered (more strictly) by the canonical
     model and JSON Schema; this catches malformed YAML in the rest -- Floe
     contracts, Superset bundles -- that those don't touch."""
@@ -167,7 +167,11 @@ def _verify(
             destination = Path(tmp) / scaffold_file.relative_path
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(scaffold_file.content, encoding="utf-8")
-        (verify_lakehouse / "lakehouse.yaml").write_text(plan.lakehouse_yaml, encoding="utf-8")
+        governance = lakehouse_src / "governance.yml"
+        if plan.governance_yml is not None:
+            (verify_lakehouse / "governance.yml").write_text(plan.governance_yml, encoding="utf-8")
+        elif governance.is_file():
+            shutil.copy(governance, verify_lakehouse / "governance.yml")
 
         errors = descriptor_schema_errors(
             Path(tmp), schema_root=resolved_schema_root, allow_incomplete=allow_transitional
@@ -192,13 +196,15 @@ def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
     (`plan.edits`) -- so a partial write never strands the repository in a
     state a retry can't cleanly build on top of.
     """
-    lakehouse_target = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    governance_target = repo_root / "lakehouse_code" / "governance.yml"
     created: list[Path] = []
-    # lakehouse.yaml is itself an edit to a pre-existing file -- its
+    # governance.yml is an edit to a pre-existing file (or a new one) -- its
     # original content must be saved and restorable exactly like the other
     # edits (e.g. a Floe contract), not treated as a special last step that
     # a failure partway through its own write would leave corrupted.
-    original_edit_content: dict[Path, str] = {lakehouse_target: lakehouse_target.read_text(encoding="utf-8")}
+    original_edit_content: dict[Path, str] = {}
+    if plan.governance_yml is not None and governance_target.is_file():
+        original_edit_content[governance_target] = governance_target.read_text(encoding="utf-8")
     try:
         for scaffold_file in plan.edits:
             target = repo_root / scaffold_file.relative_path
@@ -216,7 +222,10 @@ def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
         for scaffold_file in plan.edits:
             target = repo_root / scaffold_file.relative_path
             target.write_text(scaffold_file.content, encoding="utf-8")
-        lakehouse_target.write_text(plan.lakehouse_yaml, encoding="utf-8")
+        if plan.governance_yml is not None:
+            if not governance_target.is_file():
+                created.append(governance_target)
+            governance_target.write_text(plan.governance_yml, encoding="utf-8")
     except OSError:
         for target in created:
             target.unlink(missing_ok=True)

@@ -127,7 +127,7 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 
 ![Medallion and Catalog Data Path](diagrams/chart4-medallion-catalog.svg)
 
-<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0003, 0004</sub>
+<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/governance.yml · ADR 0003, 0004</sub>
 
 ## Chart 5 — Provider Contracts
 
@@ -268,7 +268,7 @@ concern still maps to exactly one engine:
 
 ```text
 lakehouse_code/
-├── lakehouse.yaml                            ← governance:      domain · data-product metadata           → OpenMetadata
+├── governance.yml                            ← governance:      domain · data-product metadata           → OpenMetadata
 ├── definitions.py                            ← pipeline entry:  the Dagster Definitions the code server loads
 ├── bronze/<source>/                          ← source-owned
 │   ├── source.yaml                                              resource inventory
@@ -291,9 +291,9 @@ without duplicating ingestion: `sales` (`order_revenue`, `customer_health`) uses
 (`inventory_reliability`) consumes `erp`. Adding a data product changes only its bronze,
 silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
 `olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
-`lakehouse.yaml` plus every `bronze/*/source.yaml` and reconciles them before Floe, dbt, or
-OpenMetadata use them. A new product, domain, or source therefore needs no environment
-Terraform edit or platform apply; see ADR 0002 and ADR 0004. `lakehouse_code/lakehouse.yaml`
+`governance.yml` and every `bronze/*/source.yaml` (a domain owns `<domain>_silver`, a product
+`<product>_gold`) and reconciles them before Floe, dbt, or OpenMetadata use them. A new product, domain, or source therefore needs no environment
+Terraform edit or platform apply; see ADR 0002 and ADR 0004. `lakehouse_code/governance.yml`
 is the canonical, human- and machine-readable descriptor of every domain and product.
 
 ---

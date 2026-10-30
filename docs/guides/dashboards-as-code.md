@@ -1,8 +1,8 @@
 # Dashboards as code
 
 How to keep Superset dashboards in git: edit a dashboard in the Superset UI,
-export it back into `lakehouse_code/dashboards/superset/`, declare it in
-`lakehouse.yaml`, validate it and import it again. Dashboards need the Full
+export it back into `lakehouse_code/dashboards/superset/`, validate it and
+import it again. Dashboards need the Full
 preset, which adds Superset.
 
 ## 1. Use the Full preset
@@ -40,14 +40,10 @@ lakehouse_code/dashboards/superset/sales_customer_health/
 └── dashboards/
 ```
 
-A bundle is promotable only when `lakehouse.yaml` declares it and the products
-it reads. One dashboard can read several products:
-
-```yaml
-dashboards:
-  - name: sales_customer_health
-    products: [customer_health]
-```
+A directory under `dashboards/superset/` is a dashboard once it holds a
+`metadata.yaml`, which the export writes. Its datasets name the Gold schema
+they read (`schema: customer_health_gold`), and that is how OpenLakeForge knows
+which products the dashboard serves. One dashboard can read several products.
 
 The deploy requires exact parity between the declared dashboards and the
 bundle directories.
@@ -68,8 +64,8 @@ olf product new marketing/campaign_summary \
 
 It writes a draft under `lakehouse_code/dashboards/superset/campaign_summary/`:
 the Trino database, one dataset per Gold mart and a README. It adds no
-`metadata.yaml` and no `dashboards:` entry, so the draft is neither declared
-nor promotable yet, and the deploy does not import it into Superset.
+`metadata.yaml`, so the draft is not a dashboard or promotable yet, and the
+deploy does not import it into Superset.
 
 Deploy the new product so the platform knows it, then build its table:
 
@@ -104,7 +100,7 @@ directory.
 
 - `SUPERSET_REPORT_SOURCE_DIR` picks the bundle. It must be a directory
   directly under `lakehouse_code/dashboards/superset/`. Without it the command
-  exports the first dashboard declared in `lakehouse.yaml`.
+  exports the first dashboard bundle it finds.
 - The dashboard is found by the uuid stored in the bundle, which survives a
   rename in Superset. For a draft with nothing exported yet, set
   `SUPERSET_DASHBOARD` to its uuid or slug.
@@ -116,13 +112,8 @@ The export writes a stage-neutral bundle: it replaces DEV's live Trino
 connection with the placeholder each deploy rewrites, so the same bundle can be
 promoted to PROD.
 
-Then declare the new dashboard in `lakehouse.yaml`, next to the demo ones:
-
-```yaml
-dashboards:
-  - name: campaign_summary
-    products: [campaign_summary]
-```
+The export writes `campaign_summary`'s `metadata.yaml`, which makes it a
+dashboard next to the demo ones.
 
 ## 5. Import a bundle
 
@@ -143,11 +134,10 @@ olf report validate
 
 It checks every bundle for stable identities, resolvable references and no
 stage-bound values. With the three demo dashboards and `campaign_summary`
-declared, it prints:
+exported, it prints:
 
 ```text
 4 report bundle(s) are promotable.
 ```
 
-Pass a dashboard name to check only that one. Without a name, the command also
-fails when a bundle directory is not declared in `lakehouse.yaml`.
+Pass a dashboard name to check only that one.

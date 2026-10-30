@@ -59,7 +59,7 @@ def test_revision_is_stable_across_a_copy_at_a_different_path(external_project: 
 def test_editing_the_lakehouse_descriptor_changes_the_revision(external_project: Path) -> None:
     before = _build(external_project)
 
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     descriptor.write_text(descriptor.read_text() + "\n# a harmless trailing comment\n")
 
     after = _build(external_project)
@@ -79,7 +79,7 @@ def test_editing_the_deployment_profile_does_not_change_the_revision(external_pr
 
 
 def test_build_refuses_an_invalid_project(external_project: Path) -> None:
-    (external_project / "lakehouse_code" / "lakehouse.yaml").unlink()
+    (external_project / "lakehouse_code" / "governance.yml").unlink()
 
     with pytest.raises(project_revision.ProjectRevisionError, match="is not valid"):
         _build(external_project)
@@ -228,7 +228,7 @@ def test_validate_rejects_a_top_level_distribution_field_that_drifted_from_its_c
 
 
 def test_build_rejects_a_component_file_containing_a_stage_bound_value(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     descriptor.write_text(descriptor.read_text() + "\n# s3://leaked-ops-bucket/floe/reports\n")
 
     with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
@@ -241,7 +241,7 @@ def test_publish_fails_closed_when_a_source_file_changes_after_build(
     manifest = _build(external_project)
     store = FilesystemRevisionStore(tmp_path / "store")
 
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     descriptor.write_text(descriptor.read_text() + "\n# drifted after build, before publish\n")
 
     with pytest.raises(project_revision.ProjectRevisionError, match="changed on disk since the revision was built"):
@@ -300,7 +300,7 @@ def test_validate_rejects_duplicate_component_names(external_project: Path) -> N
 
 
 def test_build_does_not_reject_a_referenced_secret_name_or_env_var_name(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(
         original
@@ -313,7 +313,7 @@ def test_build_does_not_reject_a_referenced_secret_name_or_env_var_name(external
 
 
 def test_build_does_not_reject_a_legitimate_external_https_reference(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + "\n# see https://example.com/docs for background\n")
 
@@ -323,7 +323,7 @@ def test_build_does_not_reject_a_legitimate_external_https_reference(external_pr
 
 
 def test_build_rejects_an_in_cluster_http_endpoint(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + "\n# http://seaweedfs-s3:8333\n")
 
@@ -332,7 +332,7 @@ def test_build_rejects_an_in_cluster_http_endpoint(external_project: Path) -> No
 
 
 def test_build_rejects_a_concrete_aws_access_key_id(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + "\n# AKIAABCDEFGHIJKLMNOP\n")
 
@@ -341,7 +341,7 @@ def test_build_rejects_a_concrete_aws_access_key_id(external_project: Path) -> N
 
 
 def test_build_rejects_a_concrete_credential_assignment(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + '\n# password: production-password\n')
 
@@ -350,7 +350,7 @@ def test_build_rejects_a_concrete_credential_assignment(external_project: Path) 
 
 
 def test_build_rejects_a_concrete_api_token_assignment(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + '\n# api_token = "sk-abc123XYZ456"\n')
 
@@ -359,7 +359,7 @@ def test_build_rejects_a_concrete_api_token_assignment(external_project: Path) -
 
 
 def test_build_still_allows_secret_and_client_secret_key_references(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(
         original
@@ -451,7 +451,7 @@ def test_editing_any_file_floe_reads_moves_the_revision(external_project: Path, 
 
 
 def test_build_allows_python_environment_lookups(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(
         original + '\n# token = os.environ["API_TOKEN"]\n# password = os.getenv("DB_PASSWORD")\n'
@@ -463,7 +463,7 @@ def test_build_allows_python_environment_lookups(external_project: Path) -> None
 
 
 def test_build_allows_shell_style_env_substitution(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + "\n# password: ${DB_PASSWORD}\n")
 
@@ -473,7 +473,7 @@ def test_build_allows_shell_style_env_substitution(external_project: Path) -> No
 
 
 def test_build_rejects_a_quoted_json_style_credential_assignment(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + '\n# "password": "production-password"\n')
 
@@ -623,7 +623,7 @@ def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_re
 
 
 def test_build_rejects_a_default_argument_smuggled_into_an_env_lookup(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + '\n# token: os.getenv("API_TOKEN", "sk-live-abc123XYZ")\n')
 
@@ -632,7 +632,7 @@ def test_build_rejects_a_default_argument_smuggled_into_an_env_lookup(external_p
 
 
 def test_build_rejects_a_default_argument_smuggled_into_a_dotted_env_lookup(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + '\n# password = os.environ.get("DB_PASSWORD", "changeme123")\n')
 
@@ -641,7 +641,7 @@ def test_build_rejects_a_default_argument_smuggled_into_a_dotted_env_lookup(exte
 
 
 def test_build_rejects_a_default_smuggled_into_shell_style_substitution(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(original + "\n# password: ${DB_PASSWORD:-hunter2changeme}\n")
 
@@ -650,7 +650,7 @@ def test_build_rejects_a_default_smuggled_into_shell_style_substitution(external
 
 
 def test_build_still_allows_a_bare_env_lookup_with_no_default(external_project: Path) -> None:
-    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(
         original

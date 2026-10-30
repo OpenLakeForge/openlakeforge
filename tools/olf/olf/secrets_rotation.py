@@ -135,6 +135,17 @@ def check_platform_state(context: Any) -> None:
         raise RotationError(str(exc)) from exc
 
 
+def builds_superset_image(context: Any) -> bool:
+    """Whether this stack runs a locally built Superset image, which only `platform_up` sets and an apply drops."""
+    import platform
+
+    provider = _local_provider(context)
+    if not provider.config.features.analytics_enabled:
+        return False
+    arch = provider.tools.docker.server_arch(env=provider.env) or platform.machine()
+    return bool(provider.config.images.builds_superset(arch))
+
+
 def apply_platform(context: Any, extra_args: list[str]) -> None:
     """Only the targeted Terraform apply, not the drift-recovering platform path."""
     from olf.deployment.errors import DeploymentError

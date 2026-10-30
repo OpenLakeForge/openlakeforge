@@ -20,7 +20,7 @@ def test_project_spec_resolves_canonical_paths_for_a_split_root(tmp_path: Path) 
 
     assert project.profile_path == tmp_path / "project/openlakeforge.yaml"
     assert project.code_root == tmp_path / "project/lakehouse_code"
-    assert project.lakehouse_path == tmp_path / "project/lakehouse_code/lakehouse.yaml"
+    assert project.governance_path == tmp_path / "project/lakehouse_code/governance.yml"
     assert project.bronze_root == tmp_path / "project/lakehouse_code/bronze"
     assert project.silver_root == tmp_path / "project/lakehouse_code/silver"
     assert project.gold_root == tmp_path / "project/lakehouse_code/gold"
@@ -104,7 +104,7 @@ def test_project_validation_reports_missing_declared_asset(external_project: Pat
 
 
 def test_project_validation_reports_invalid_descriptors(external_project: Path) -> None:
-    lakehouse = external_project / "lakehouse_code/lakehouse.yaml"
+    lakehouse = external_project / "lakehouse_code/governance.yml"
     lakehouse.write_text("apiVersion: invalid\n", encoding="utf-8")
     distribution = Path(__file__).resolve().parents[3]
 

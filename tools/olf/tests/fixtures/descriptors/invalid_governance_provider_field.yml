@@ -1,0 +1,10 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
+catalog: polaris
+domains:
+  - name: sales
+    displayName: Sales
+products:
+  - id: order_revenue
+    domain: sales
+    displayName: Order Revenue

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from openlakeforge_domain import load_transitional_lakehouse_inventory
 
-from olf.scaffold import _lakehouse_edit, _templates
+from olf.scaffold import _templates
 from olf.scaffold import domain as domain_module
 from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
 
@@ -26,27 +26,13 @@ def _parse_target(target: str) -> tuple[str, str]:
     return domain, product
 
 
-def _render_product_block(
-    *,
-    product: str,
-    display_name: str,
-    silver_inputs: tuple[str, ...],
-    gold_tables: tuple[str, ...],
-) -> str:
-    gold_lines = "\n".join(
-        f"            - name: {name}\n"
-        "              description: Generated Gold mart; describe its grain and metrics here."
-        for name in gold_tables
-    )
-    silver_inputs_text = ", ".join(silver_inputs)
+def _render_product_block(*, product: str, domain: str, display_name: str) -> str:
     return (
-        f"      - id: {product}\n"
-        f"        displayName: {yaml_dq(display_name)}\n"
-        f"        description: {yaml_dq(display_name + ' product.')}\n"
-        "        status: planned\n"
-        f"        silver_inputs: [{silver_inputs_text}]\n"
-        "        gold_tables:\n"
-        "          tables:\n" + gold_lines + "\n"
+        f"  - id: {product}\n"
+        f"    domain: {domain}\n"
+        f"    displayName: {yaml_dq(display_name)}\n"
+        f"    description: {yaml_dq(display_name + ' product.')}\n"
+        "    status: planned\n"
     )
 
 
@@ -81,7 +67,7 @@ def plan_product_new(
     new_table_names = [resource for _source, resource in inputs]
 
     domain_exists = domain in inventory.domain_names
-    lakehouse_text = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8")
+    governance_text: str | None = None
     extra_files: list[ScaffoldFile] = []
     edits: list[ScaffoldFile] = []
     bronze_inputs_by_table: dict[str, tuple[str, str]] = {}
@@ -102,7 +88,7 @@ def plan_product_new(
             repo_root, domain=domain, display_name=resolved_domain_display_name, inputs=inputs
         )
         extra_files.extend(domain_files)
-        lakehouse_text = _lakehouse_edit.add_domain(lakehouse_text, domain_block)
+        governance_text = domain_module.add_governance_entry(repo_root, governance_text, "domains", domain_block)
         for source, resource in inputs:
             bronze_inputs_by_table[resource] = (source, resource)
     else:
@@ -125,13 +111,6 @@ def plan_product_new(
             bronze_inputs_by_table[resource] = (source, resource)
 
         if inputs:
-            new_table_lines = "\n".join(
-                f"        - {{name: {resource}, source: {source}, resource: {resource}, "
-                f"description: Validated {resource.replace('_', ' ')}.}}"
-                for source, resource in inputs
-            )
-            lakehouse_text = _lakehouse_edit.add_silver_tables(lakehouse_text, domain, new_table_lines + "\n")
-
             extra_files.extend(domain_module.floe_entity_files(repo_root, domain=domain, inputs=inputs))
 
     all_silver_inputs = tuple(silver_inputs) + tuple(new_table_names)
@@ -141,13 +120,8 @@ def plan_product_new(
         raise ScaffoldError(f"product {product!r}: silver inputs must be unique, got {all_silver_inputs!r}")
 
     resolved_display_name = display_name or title_case(product)
-    product_block = _render_product_block(
-        product=product,
-        display_name=resolved_display_name,
-        silver_inputs=all_silver_inputs,
-        gold_tables=gold_tables,
-    )
-    lakehouse_text = _lakehouse_edit.add_product(lakehouse_text, domain, product_block)
+    product_block = _render_product_block(product=product, domain=domain, display_name=resolved_display_name)
+    governance_text = domain_module.add_governance_entry(repo_root, governance_text, "products", product_block)
 
     gold_dir = f"lakehouse_code/gold/{product}"
     dbt_sources = tuple((name, f"Validated {name.replace('_', ' ')}.") for name in all_silver_inputs)
@@ -191,16 +165,13 @@ def plan_product_new(
         )
 
     if with_report:
-        # No `metadata.yaml` and no `dashboards:` entry: `metadata.yaml` is
-        # what makes a directory a bundle to `discover_report_dirs`, so
-        # leaving it out keeps this directory outside both the declared and
-        # the discovered set. Declaring it here (#201) would fail its own
-        # promotion contract before a dashboard exists (`exports no Superset
-        # dashboard`), and `validate_report_registry` would fail the same
-        # scaffold with "mounted but not declared" if `metadata.yaml` were
-        # written without a matching declaration. The database and dataset
-        # drafts are still written so authoring in Superset has something to
-        # connect. See #205.
+        # No `metadata.yaml`: it is what makes a directory a bundle to
+        # `discover_report_dirs`, so leaving it out keeps this directory out of
+        # the dashboards until a dashboard is exported into it. Writing it
+        # here (#201) would fail its own promotion contract before a
+        # dashboard exists (`exports no Superset dashboard`). The database and
+        # dataset drafts are still written so authoring in Superset has
+        # something to connect. See #205.
         dashboard_dir = f"lakehouse_code/dashboards/superset/{product}"
         product_files.append(
             ScaffoldFile(
@@ -224,7 +195,7 @@ def plan_product_new(
             ScaffoldFile(
                 f"{dashboard_dir}/README.md",
                 _templates.render_superset_readme(
-                    display_name=resolved_display_name, dashboard_name=product, report_source_dir=dashboard_dir
+                    display_name=resolved_display_name, report_source_dir=dashboard_dir
                 ),
             )
         )
@@ -242,11 +213,11 @@ def plan_product_new(
     if with_report:
         summary.append(
             f"Generated a draft Superset report skeleton at lakehouse_code/dashboards/superset/{product}/ "
-            "(not yet declared or promotable -- author the dashboard in Superset, export it back, then "
-            "declare it in lakehouse.yaml's dashboards: list; see the bundle's README.md)."
+            "(not yet promotable -- author the dashboard in Superset and export it back; "
+            "see the bundle's README.md)."
         )
 
     sources = domain_module.floe_sources_edit(repo_root, inputs) if inputs else None
     if sources is not None:
         edits.append(sources)
-    return ScaffoldPlan(files=all_files, lakehouse_yaml=lakehouse_text, summary=tuple(summary), edits=tuple(edits))
+    return ScaffoldPlan(files=all_files, governance_yml=governance_text, summary=tuple(summary), edits=tuple(edits))

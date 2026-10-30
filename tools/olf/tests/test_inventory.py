@@ -12,38 +12,21 @@ from openlakeforge_domain import (
 ROOT = Path(__file__).parents[3]
 
 
-def _lakehouse(product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> str:
+def _lakehouse(product_id: str = "revenue", domain: str = "sales") -> str:
     return f"""\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - {source}
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: {source}
-          resource: orders
-    products:
-      - id: {product_id}
-        displayName: {product_id.replace('_', ' ').title()}
-        description: {product_id} product.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_{product_id}
-dashboards:
-  - name: {product_id}_dashboard
-    products: [{product_id}]
+products:
+  - id: {product_id}
+    domain: {domain}
+    displayName: {product_id.replace('_', ' ').title()}
+    description: {product_id} product.
+    status: planned
 """
 
 
@@ -63,8 +46,8 @@ resources:
 def _write_lakehouse(root: Path, product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> Path:
     lakehouse_dir = root / "lakehouse_code"
     lakehouse_dir.mkdir(parents=True, exist_ok=True)
-    lakehouse_path = lakehouse_dir / "lakehouse.yaml"
-    lakehouse_path.write_text(_lakehouse(product_id=product_id, domain=domain, source=source), encoding="utf-8")
+    lakehouse_path = lakehouse_dir / "governance.yml"
+    lakehouse_path.write_text(_lakehouse(product_id=product_id, domain=domain), encoding="utf-8")
     source_path = lakehouse_dir / "bronze" / source / "source.yaml"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_text(_source(source=source), encoding="utf-8")
@@ -122,7 +105,9 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.gold_namespace_names == frozenset(
         {"order_revenue_gold", "customer_health_gold", "inventory_reliability_gold"}
     )
-    assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_order_revenue"
+    assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_customer_health"
+
+
 
 
 def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
@@ -148,17 +133,6 @@ def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
     assert [(d.name, d.products) for d in inventory.dashboards] == [("revenue_board", ("revenue",))]
 
 
-def test_governance_yml_wins_over_lakehouse_yaml(tmp_path: Path) -> None:
-    _write_lakehouse(tmp_path, product_id="legacy")
-    code = tmp_path / "lakehouse_code"
-    (code / "governance.yml").write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
-        "domains:\n  - {name: sales, displayName: Sales}\n"
-        "products:\n  - {id: current, domain: sales, displayName: Current}\n",
-        encoding="utf-8",
-    )
-
-    assert [p.id for p in load_lakehouse_inventory(tmp_path).products] == ["current"]
 
 
 def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_allowed(tmp_path: Path) -> None:
@@ -167,6 +141,8 @@ def test_an_empty_project_without_governance_yml_loads_only_when_incomplete_is_a
     with pytest.raises(LakehouseDescriptorError, match="no governance.yml"):
         load_lakehouse_inventory(tmp_path)
     assert load_lakehouse_inventory(tmp_path, allow_incomplete=True).domains == ()
+
+
 
 
 def test_inventory_for_caches_by_resolved_repo_root() -> None:
@@ -230,47 +206,25 @@ def test_inventory_accepts_domain_with_no_products(tmp_path: Path) -> None:
     for the all-domains-empty case, which is rejected)."""
     lakehouse_dir = tmp_path / "lakehouse_code"
     lakehouse_dir.mkdir(parents=True)
-    (lakehouse_dir / "lakehouse.yaml").write_text(
+    (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - workday
-  - crm
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: hr
     displayName: Hr
     description: hr domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: employees
-          source: workday
-          resource: employees
-    products: []
   - name: sales
     displayName: Sales
     description: sales domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: orders
-          source: crm
-          resource: orders
-    products:
-      - id: revenue
-        displayName: Revenue
-        description: revenue product.
-        status: planned
-        silver_inputs: [orders]
-        gold_tables:
-          tables:
-            - name: mart_revenue
-dashboards: []
+products:
+  - id: revenue
+    domain: sales
+    displayName: Revenue
+    description: revenue product.
+    status: planned
 """,
         encoding="utf-8",
     )
@@ -295,28 +249,16 @@ def test_inventory_rejects_a_lakehouse_with_no_products_anywhere(tmp_path: Path)
     downstream tooling (default_product, check-dbt.sh, e2e) requires one."""
     lakehouse_dir = tmp_path / "lakehouse_code"
     lakehouse_dir.mkdir(parents=True)
-    (lakehouse_dir / "lakehouse.yaml").write_text(
+    (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1alpha3
-kind: Lakehouse
-name: test
-displayName: Test
-description: Test lakehouse.
-status: planned
-sources:
-  - workday
+apiVersion: openlakeforge.io/v1beta1
+kind: Governance
 domains:
   - name: hr
     displayName: Hr
     description: hr domain.
     status: planned
-    silver_tables:
-      tables:
-        - name: employees
-          source: workday
-          resource: employees
-    products: []
-dashboards: []
+products: []
 """,
         encoding="utf-8",
     )

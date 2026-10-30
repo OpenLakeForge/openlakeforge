@@ -326,7 +326,7 @@ database_uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 '''
 
 
-def render_superset_readme(*, display_name: str, dashboard_name: str, report_source_dir: str) -> str:
+def render_superset_readme(*, display_name: str, report_source_dir: str) -> str:
     return f"""# {display_name} Superset Assets
 
 Scaffolded by `olf product new --with-report`. This bundle registers the
@@ -334,34 +334,23 @@ Gold mart dataset(s) and a Trino database connection; it does not include a
 dashboard layout or charts, which the scaffold cannot generate meaningfully.
 
 This directory is a draft, not yet a promotable bundle: it has no
-`metadata.yaml` and `lakehouse.yaml` does not declare it, so `olf project
-build` and `olf report validate` both ignore it until you finish these two
-steps.
+`metadata.yaml`, so `olf project build` and `olf report validate` both ignore
+it until you finish this step.
 
-1. Build the dashboard in Superset, then export it back into this directory.
-   `olf report export` defaults to the lakehouse's *first* declared dashboard,
-   so target this one explicitly with `SUPERSET_REPORT_SOURCE_DIR` --
-   otherwise it silently re-exports into an unrelated, already-checked-in
-   bundle instead of this one:
+Build the dashboard in Superset, then export it back into this directory.
+`olf report export` defaults to the first dashboard it finds, so target this
+one explicitly with `SUPERSET_REPORT_SOURCE_DIR` --
+otherwise it silently re-exports into an unrelated, already-checked-in bundle
+instead of this one:
 
-   ```bash
-   SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
-   SUPERSET_DASHBOARD="<the dashboard's slug or uuid in Superset>" \\
-   uv run --project tools/olf olf report export --stage dev
-   ```
+```bash
+SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
+SUPERSET_DASHBOARD="<the dashboard's slug or uuid in Superset>" \\
+uv run --project tools/olf olf report export --stage dev
+```
 
-   The export writes this bundle's `metadata.yaml`. Later re-exports find
-   the dashboard by the uuid it wrote, so they need no `SUPERSET_DASHBOARD`
-   and survive renaming the dashboard in Superset.
-
-2. Declare the dashboard by adding it to `lakehouse_code/lakehouse.yaml`'s
-   `dashboards:` list:
-
-   ```yaml
-     - name: {dashboard_name}
-       products: [{dashboard_name}]
-   ```
-
-Once both are done, this bundle is validated and promoted exactly like any
-other declared Superset dashboard.
+The export writes this bundle's `metadata.yaml`. Later re-exports find the
+dashboard by the uuid it wrote, so they need no `SUPERSET_DASHBOARD` and
+survive renaming the dashboard in Superset. Once `metadata.yaml` exists, this
+bundle is validated and promoted exactly like any other Superset dashboard.
 """

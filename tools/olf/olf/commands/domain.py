@@ -23,9 +23,9 @@ def domain_new(
     repo_root: str = typer.Option("", "--repo-root", help="Writable project root."),
 ) -> None:
     """Generate a new Domain: a Silver package plus a Floe Bronze-to-Silver
-    contract with one entity per --input. Inserts DOMAIN into
-    lakehouse.yaml with `products: []` -- a domain may be created and
-    validated before any product consumes its Silver tables."""
+    contract with one entity per --input. Adds DOMAIN to governance.yml
+    with no products -- a domain may be created and validated before any
+    product consumes its Silver tables."""
     try:
         layout = writable_project_layout(repo_root)
         project = layout.project

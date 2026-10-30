@@ -93,7 +93,7 @@ here, not migrated. All are in the debt register
 | PostgreSQL admin, per-service database users (including `dex`) and the Polaris database user (#400) | In-cluster Job `postgresql-credentials-<hash>` (`modules/storage/postgresql/credentials.tf`), create-if-missing, 32 random alphanumeric characters | `postgresql-*-creds` Secrets, one copy per consuming namespace | No |
 | AWS RDS master password (#400) | RDS itself: `manage_master_user_password` creates and rotates it in Secrets Manager. State holds the secret ARN only | The bootstrap Job reads it at every run through EKS Pod Identity (a role limited to `secretsmanager:GetSecretValue` on that ARN) and hands it to `psql` in memory; no Kubernetes Secret keeps it | No |
 | AWS RDS per-database passwords (#400) | Init container of the Job `<prefix>-rds-bootstrap-<hash>` (`modules/storage/rds-postgresql/templates/credentials.sh.tftpl`), create-if-missing, 32 random alphanumeric characters | `credentials_secret_name` Secrets (key `postgresql-password`), one copy per consuming namespace | No |
-| SeaweedFS S3 admin and per-stage keys | `random_id` and `random_password` | Secrets from the SeaweedFS module | Yes |
+| SeaweedFS S3 admin and per-stage keys (#400) | In-cluster Job `seaweedfs-credentials-<hash>` (`modules/storage/seaweedfs/credentials.tf`), create-if-missing: `olf` plus 16 hex characters as the access key, 40 random alphanumeric characters as the secret. The same Job builds the gateway's `seaweedfs-s3-auth` config with `jq` from those Secrets and the identity data Terraform passes (names, Secret references, bucket grants), and annotates the S3 Deployment with a hash of it so a stage change rolls the gateway | `seaweedfs-s3-creds` (platform) and `seaweedfs-<stage>-s3-creds` (stage namespace), keys `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the gateway reads `seaweedfs-s3-auth` (`seaweedfs_s3_config`) | No |
 | Polaris root client (#400) | Polaris module Job `polaris-token-key-<hash>`, in-cluster, create-if-absent, 32 random alphanumeric characters | `polaris-bootstrap-credentials` | No |
 | Superset `SECRET_KEY` and admin password (#400) | In-cluster Job `superset-credentials-<hash>` in each stage namespace (`modules/analytics/superset/credentials.tf`), create-if-missing; reuses the key in the chart Secret `superset-env` when an earlier release made it | `superset-credentials` (`secret-key`, `admin-password`), read by the pods through `secretKeyRef` | No |
 | OpenMetadata admin password (#400) | The bootstrap Job (`modules/governance/openmetadata/templates/bootstrap.sh.tftpl`) creates the Secret if missing, 24 random alphanumeric characters plus `Aa1!` to meet OpenMetadata's password policy, then changes the built-in `admin` password through `PUT /api/v1/users/changePassword`; a run logs in with the Secret and falls back to the default only on the first run | `openmetadata-admin` (`admin-password`) in the OpenMetadata namespace; `olf` reads it unless `OPENMETADATA_ADMIN_PASSWORD` is set | No |
@@ -114,7 +114,10 @@ workload secret rotation drill, which comes last so the scan checks the
 credentials that were live for the whole run. It reads the **current** values of
 the identity Secrets from the cluster and looks for those exact strings: the
 four OIDC client secrets (names from the identity contract), the perimeter
-cookie secret (`oauth2-proxy-cookie`) and the Trino workload credentials. It
+cookie secret (`oauth2-proxy-cookie`), the Trino workload credentials and the
+credentials generated in-cluster since #400: the PostgreSQL admin, Polaris and
+per-database passwords, the Polaris root client secret, the OpenMetadata admin
+password and each stage's Superset `SECRET_KEY` and admin password. It
 also looks for each value base64-encoded (the form Kubernetes stores Secret data
 in) and JSON-escaped (the form in `-o json` and Terraform state). A failure names
 the surface and the Secret (`name/key`), never the value.
@@ -130,6 +133,18 @@ the run reports the original failure.
 | ConfigMaps | `kubectl get configmap -o json` in the platform namespace and every stage namespace in the provider contract, not only the stage the run selected. |
 | Diagnostics | The bundle `olf diagnostics collect` writes for each of those namespaces. |
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
+
+The drill `credential preservation across a redeploy` (`--checks all`,
+`tools/olf/olf/e2e/_credential_preservation.py`) reads the same migrated values,
+deletes the Jobs that create them (by name: `postgresql-credentials-*`,
+`superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`
+and `openmetadata-credential-replication-*`, which copies the ingestion-bot token the
+bootstrap Job rotates into the stages),
+runs a platform `terraform apply`, fails if a deleted Job was not recreated
+(a new uid), and fails by name if any value changed or disappeared. It is skipped on a stack that builds its Superset
+image locally (arm64 or `BUILD_SUPERSET_IMAGE`), because an apply outside
+`olf deploy` would put the pinned amd64 image back. It runs after the scan and before the rotation
+drill.
 
 A surface that cannot be read (no state file yet, a failed `kubectl`) is
 logged as skipped, not passed. A value shorter than 16 characters is not

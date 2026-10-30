@@ -17,7 +17,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Data product | A unit a domain publishes: it reads Silver tables of its domain and publishes Gold tables. Each has one Dagster job, `<id>_pipeline`. |
 | dbt-trino | The dbt adapter that builds Gold models by running SQL on Trino. |
 | Deployment Profile | `openlakeforge.yaml`: provider, preset, stages, access and identity for one deployment. |
-| Descriptor | A YAML file that names logical things only: `lakehouse.yaml` and each `source.yaml`. Physical names are derived, never written. |
+| Descriptor | A YAML file that names logical things only: `governance.yml` and each `source.yaml`. Physical names are derived, never written. |
 | Dex | The OIDC issuer OpenLakeForge deploys to sign people in through GitHub. |
 | dlt | The loader that extracts a source into Bronze. |
 | Domain | A business area that owns a set of Silver tables and the data products built on them. |
@@ -28,7 +28,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Identity | The `spec.identity` block: which OIDC issuer signs people in (`github` or `external`) and how its claims map to canonical roles. Without it, authentication is off. |
 | Issuer (access) | `spec.access.issuer`: the certificate issuer for the routes. `local-ca` signs with a local CA; `none` serves plain HTTP. |
 | Issuer (identity) | `spec.identity.issuer`: the OIDC issuer, `github` or `external`. |
-| Lakehouse | The whole project as `lakehouse_code/lakehouse.yaml` describes it: sources, domains, products and dashboards. |
+| Lakehouse | The whole project: the sources, domains, products and dashboards that `lakehouse_code/` holds, with domains and products named in `governance.yml`. |
 | Medallion layers | Bronze, Silver and Gold: three layers, each owned by one tool. |
 | Namespace (catalog) | A single-level catalog schema: `<source>_bronze`, `<domain>_silver` or `<product>_gold`. Not a Kubernetes namespace. |
 | Perimeter | The oauth2-proxy layer in front of every route except the login page. It admits a user only when their role holds a grant for the service. |

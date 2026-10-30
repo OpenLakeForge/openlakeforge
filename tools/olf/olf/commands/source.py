@@ -21,7 +21,7 @@ def source_new(
     repo_root: str = typer.Option("", "--repo-root", help="Writable project root."),
 ) -> None:
     """Generate a new Source: `source.yaml`, a dlt loader, and one placeholder
-    example CSV per --resource. Adds SOURCE to lakehouse.yaml's `sources:`."""
+    example CSV per --resource. The source is discovered from its directory."""
     try:
         layout = writable_project_layout(repo_root)
         project = layout.project

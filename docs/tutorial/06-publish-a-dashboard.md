@@ -66,7 +66,7 @@ SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/sales_customer_hea
 ```
 
 `SUPERSET_REPORT_SOURCE_DIR` picks the bundle; without it the command exports
-the first dashboard declared in `lakehouse.yaml`. The bundle's YAML files,
+the first dashboard bundle it finds. The bundle's YAML files,
 charts, datasets and the Trino database, are rewritten under that directory:
 
 ```bash
@@ -77,16 +77,10 @@ The export keeps the bundle stage-neutral: it replaces DEV's live Trino
 connection with a placeholder that each deploy rewrites, so the same bundle can
 be promoted to PROD.
 
-A bundle only exists as a promotable report once `lakehouse.yaml` declares it
-and the products it reads:
-
-```yaml
-dashboards:
-  - name: sales_customer_health
-    products: [customer_health]
-```
-
-One dashboard can consume several products. The next `olf deploy` (or `olf
+A directory is a promotable report once the export has written its
+`metadata.yaml`. Its datasets name the Gold schema they read, which is how
+OpenLakeForge knows the products the dashboard serves. One dashboard can
+consume several products. The next `olf deploy` (or `olf
 report import`) imports the bundle into Superset, and `olf project build`
 packages it into a project revision.
 
@@ -108,7 +102,7 @@ stage-bound values, and prints:
 - `spec.preset: full` plus `olf deploy` adds Superset and OpenMetadata in place;
   the deploy imports every dashboard bundle in the project.
 - Dashboards live in `lakehouse_code/dashboards/superset/<dashboard>/` and are
-  declared in `lakehouse.yaml` with the products they read.
+  found by their `metadata.yaml`; their datasets name the products they read.
 - `olf report export` pulls UI edits into git; `olf report import` and `olf
   deploy` push the bundle back.
 
