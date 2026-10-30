@@ -672,7 +672,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
     monkeypatch.setattr(
         catalog,
         "_sync_polaris_namespaces",
-        lambda *, desired, dry_run, prune: calls.append(
+        lambda *, desired, gold_namespaces, dry_run, prune: calls.append(
             {"backend": "polaris", "dry_run": dry_run, "prune": prune}
         ),
     )
@@ -697,7 +697,7 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
     monkeypatch.setattr(
         catalog,
         "_sync_polaris_namespaces",
-        lambda *, desired, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
+        lambda *, desired, gold_namespaces, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
     )
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 

@@ -2,10 +2,13 @@
 
 ## Status
 
-Decided, **build step 1 begun**: `packages/lakehouse-services` holds every
+Decided, **build step 2 begun**: `packages/lakehouse-services` holds every
 service client — the HTTP transport, Dagster, OpenMetadata and Superset. The
 operations built on them (report import and export, metadata deployment,
-domain listing) are still in `olf/infra`. No platform API exists yet.
+domain listing) are still in `olf/infra`. The platform API's skeleton is in
+`packages/platform-api`: token validation, the permission matrix,
+`/api/healthz` and `/api/v1/whoami`, with no service endpoint. It is not
+deployed yet.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -48,9 +51,16 @@ digest in `release/component-catalog.yaml`, and it reads no user code at
 startup.
 
 It lives in this repository, beside the code it reuses and the contracts it
-versions with. It is served at `https://<base_domain>/api/` behind the
-perimeter, the same origin as the portal, so a browser session reaches it
-without CORS. The portal stays in its own repository and stays Astro; React is
+versions with: the `openlakeforge-platform-api` distribution in
+`packages/platform-api/`, next to the two packages it builds on, and an image
+defined in `images/platform-api/`, as `project-code` and `superset` are. A
+top-level `services/` directory would be a third layout for first-party Python.
+Unlike the other packages it is not published to PyPI; it ships only as the
+image. It keeps its own locked environment (`packages/platform-api/uv.lock`),
+so FastAPI and uvicorn never enter `olf`'s.
+
+It is served at `https://<base_domain>/api/` behind the perimeter, the same
+origin as the portal, so a browser session reaches it without CORS. The portal stays in its own repository and stays Astro; React is
 added as islands where a page is interactive, and no framework migration is
 part of this decision.
 
@@ -172,7 +182,6 @@ cluster rights (ADR 0020).
 | 1 | How a browser session's token reaches the platform API | The perimeter sets `--set-xauthrequest=true` but does not pass the access token on; passing it needs oauth2-proxy and Traefik `authResponseHeaders` configuration, not yet written or run |
 | 2 | A token Trino accepts for the portal's query page | Trino requires the audience `olf-cli` (ADR 0019, step 5), and a browser session's token is the perimeter's. Dex cross-client trust or a client Trino also accepts are candidates; neither is tested. It changes ADR 0014 and ADR 0019 |
 | 3 | The narrowest credential per service | Which Superset and OpenMetadata operations a non-admin service user can perform has not been checked against Superset 6.1.0 and OpenMetadata 1.13.6 |
-| 4 | Where the platform API's source and image live | Proposed `services/platform-api/` and `images/platform-api/`; decided in the first build change |
 
 ## Build order
 
@@ -202,3 +211,7 @@ Build step 1, first part: the transport and the Dagster client moved to
 
 Build step 1, second part: the OpenMetadata and Superset clients followed;
 `olf/common/clients` no longer exists.
+
+Build step 2, first part (#666): the service skeleton in
+`packages/platform-api`, which settles open item 4 (where the source and image
+live, decision 1). The proposed `services/platform-api/` was not used.

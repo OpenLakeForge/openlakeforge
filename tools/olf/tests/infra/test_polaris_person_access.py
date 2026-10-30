@@ -175,3 +175,66 @@ def test_a_narrowed_row_loses_the_grant_it_no_longer_names(polaris: tuple[FakePo
     gold = ["olf-gold-read"]
     assert fake.assignments()["olf-analyst"] == {"lakehouse_dev": gold, "lakehouse_prod": gold}
     assert fake.assignments()["olf-signed-in"] == {}
+
+
+def _run_deployer_grants(url: str, tmp_path: Path, *, person_access_enabled: bool) -> subprocess.CompletedProcess[str]:
+    """The bootstrap's deployer lines, rendered the way templatefile does for the dev stage."""
+    bootstrap = (TEMPLATES / "bootstrap.sh.tftpl").read_text()
+    helpers = "".join(
+        re.search(rf"^  {name}\(\) \{{\n.*?^  \}}\n", bootstrap, re.S | re.M).group(0)  # type: ignore[union-attr]
+        for name in ("request", "already_present", "grant_catalog_access")
+    )
+    deployer = re.search(
+        r'^  grant_catalog_access "\$\{stage\.deployer_principal_name\}".*?(?=^%\{ endfor)', bootstrap, re.S | re.M
+    )
+    assert deployer
+    values = {
+        "stage.deployer_principal_name": "deployer-dev",
+        "deployer_principal_role": "deployer",
+        "stage_name": "dev",
+        "deployer_catalog_role": "deployer-role",
+        "stage.catalog_name": "lakehouse_dev",
+    }
+    block = deployer.group(0)
+    conditional = r"^%\{ if person_access_enabled ~\}\n(.*?)^%\{ endif ~\}\n"
+    block = re.sub(conditional, r"\1" if person_access_enabled else "", block, flags=re.S | re.M)
+    for name, value in values.items():
+        block = block.replace("${" + name + "}", value)
+    script = (
+        f'set -eu\npolaris_url="{url}"\nPOLARIS_TOKEN=t\n'
+        + (helpers + block).replace("%%{", "%{").replace("$${", "${")
+    ).replace("/tmp/polaris-body", str(tmp_path / "body"))
+    return subprocess.run(["sh", "-ec", script], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+
+
+def _deployer_privileges(fake: FakePolaris) -> list[str]:
+    return sorted(fake.catalog_roles["lakehouse_dev"].get("deployer-role", []))
+
+
+def test_the_deployer_can_manage_access_only_when_people_sign_in(
+    polaris: tuple[FakePolaris, str], tmp_path: Path
+) -> None:
+    fake, url = polaris
+    fake.principals["deployer-dev"] = []
+
+    result = _run_deployer_grants(url, tmp_path, person_access_enabled=False)
+
+    assert result.returncode == 0, result.stderr
+    assert _deployer_privileges(fake) == ["CATALOG_MANAGE_METADATA"]
+
+    result = _run_deployer_grants(url, tmp_path, person_access_enabled=True)
+
+    assert result.returncode == 0, result.stderr
+    assert _deployer_privileges(fake) == ["CATALOG_MANAGE_ACCESS", "CATALOG_MANAGE_METADATA"]
+
+
+def test_a_rerun_of_the_deployer_grants_writes_nothing(polaris: tuple[FakePolaris, str], tmp_path: Path) -> None:
+    fake, url = polaris
+    fake.principals["deployer-dev"] = []
+    _run_deployer_grants(url, tmp_path, person_access_enabled=True)
+    fake.writes.clear()
+
+    result = _run_deployer_grants(url, tmp_path, person_access_enabled=True)
+
+    assert result.returncode == 0, result.stderr
+    assert [write for write in fake.writes if not write.startswith("POST")] == []
