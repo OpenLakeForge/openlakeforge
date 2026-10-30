@@ -109,8 +109,9 @@ it applies on `local` and `azure`, where SeaweedFS is self-hosted.
 
 The resolved sizes are carried on `DeploymentTopology` (`query_size`,
 `storage_size`) and printed by `olf profile resolve`. `query_size` selects a
-row of `release/query-sizes.yaml`, which every provider root receives as its
-`query_sizing` variable; a size change therefore moves only the Trino Helm
+row of `release/query-sizes.yaml`, which the local root receives as its
+`query_sizing` variable (AWS and Azure keep their Trino values until their own
+adapter changes); a size change therefore moves only the Trino Helm
 values, never a ProjectRevision or the project image. `storage_size` reaches
 the local and Azure roots as the `storage_size` Terraform variable, which
 selects a row of `release/storage-sizes.yaml`: the one provider-neutral table,

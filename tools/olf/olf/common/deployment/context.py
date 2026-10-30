@@ -66,12 +66,16 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
         "shared_namespace": context.shared_namespace,
         "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
         "manage_user_deployments": "true" if context.manage_user_deployments else "false",
-        "query_sizing": json.dumps(
-            load_query_sizing(context.paths.distribution_root, topology.query_size).terraform_value(),
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
     }
+
+
+def query_variables(context: DeploymentContext) -> dict[str, str]:
+    """`spec.query.size` as its row of `release/query-sizes.yaml`.
+
+    Local only so far: AWS and Azure take it in their own adapter changes.
+    """
+    sizing = load_query_sizing(context.paths.distribution_root, context.topology.query_size).terraform_value()
+    return {"query_sizing": json.dumps(sizing, sort_keys=True, separators=(",", ":"))}
 
 
 def storage_variables(context: DeploymentContext) -> dict[str, str]:

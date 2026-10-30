@@ -251,7 +251,6 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
         "shared_namespace",
         "stages",
         "manage_user_deployments",
-        "query_sizing",
         "kube_context",
         "kubeconfig_path",
         "helm_repository_cache_path",

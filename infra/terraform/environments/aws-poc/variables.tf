@@ -10,30 +10,6 @@ variable "shared_namespace" {
   default     = "olf-system"
 }
 
-variable "query_sizing" {
-  description = "Trino capacity for spec.query.size, rendered by olf from release/query-sizes.yaml. Null deploys the base values file unchanged."
-  type = object({
-    size                    = string
-    workers                 = number
-    schedule_on_coordinator = bool
-    max_memory              = string
-    max_memory_per_node     = string
-    coordinator = object({
-      heap           = string
-      cpu_request    = string
-      memory_request = string
-      memory_limit   = string
-    })
-    worker = optional(object({
-      heap           = string
-      cpu_request    = string
-      memory_request = string
-      memory_limit   = string
-    }))
-  })
-  default = null
-}
-
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({

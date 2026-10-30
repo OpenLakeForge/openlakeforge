@@ -1,6 +1,7 @@
 # Trino sizes for spec.query.size (deployment profile, #323). One mapping for
 # every provider: `olf` renders the chosen entry into the `query_sizing`
-# Terraform variable, and modules/query/trino turns it into Helm values. The
+# Terraform variable (the local root today; AWS and Azure in their own
+# changes), and modules/query/trino turns it into Helm values. The
 # profile carries no worker, CPU or memory field of its own.
 #
 # `small` is today's single-node Trino and must stay identical to

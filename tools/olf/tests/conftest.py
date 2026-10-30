@@ -77,7 +77,7 @@ def _pin_project_roots(monkeypatch: pytest.MonkeyPatch) -> None:
 def _query_sizes_in_stub_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     """Contexts built over an empty `tmp_path` still find `release/query-sizes.yaml`.
 
-    `topology_variables` reads the size mapping from the distribution root, and
+    `query_variables` reads the size mapping from the distribution root, and
     most deployment tests build their context around a bare temporary
     directory rather than a payload. A test that supplies its own file wins.
     """

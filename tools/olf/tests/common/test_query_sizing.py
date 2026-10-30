@@ -9,7 +9,7 @@ import pytest
 import yaml
 from conftest import E2E_REPO_ROOT
 
-from olf.common.deployment.context import DeploymentContext, topology_variables
+from olf.common.deployment.context import DeploymentContext, query_variables
 from olf.common.profile import Size, resolve_project, resolve_topology, validate_deployment_profile
 from olf.common.query_sizing import QUERY_SIZES_PATH, QuerySizingError, load_query_sizing
 
@@ -103,7 +103,7 @@ def _context(tmp_path: Path, size: Size) -> DeploymentContext:
 
 
 def test_the_root_receives_the_size_as_one_typed_variable(tmp_path: Path) -> None:
-    variables = topology_variables(_context(tmp_path, Size.MEDIUM))
+    variables = query_variables(_context(tmp_path, Size.MEDIUM))
 
     sizing = json.loads(variables["query_sizing"])
     assert (sizing["size"], sizing["workers"]) == ("medium", 2)
@@ -111,8 +111,10 @@ def test_the_root_receives_the_size_as_one_typed_variable(tmp_path: Path) -> Non
 
 
 def test_a_size_change_moves_only_the_query_sizing_variable(tmp_path: Path) -> None:
-    small = topology_variables(_context(tmp_path, Size.SMALL))
-    medium = topology_variables(_context(tmp_path, Size.MEDIUM))
+    from olf.infra.deployment.local import platform
+
+    small = platform.platform_apply_variables(_local_config(tmp_path, _topology(Size.SMALL)))
+    medium = platform.platform_apply_variables(_local_config(tmp_path, _topology(Size.MEDIUM)))
 
     assert {key for key in small if small[key] != medium[key]} == {"query_sizing"}
     assert set(small) == set(medium)

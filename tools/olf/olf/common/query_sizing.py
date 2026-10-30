@@ -1,9 +1,9 @@
 """`spec.query.size` as Trino capacity, read from `release/query-sizes.yaml`.
 
 The profile names a size and nothing else; this module is the one place a size
-becomes workers and memory. `olf` hands the result to every provider root as the
-`query_sizing` Terraform variable, so the mapping is the same on kind, EKS and
-AKS.
+becomes workers and memory. `olf` hands the result to a provider root as the
+`query_sizing` Terraform variable: the local root today, AWS and Azure in their
+own adapter changes, all from this one provider-neutral mapping.
 """
 
 from __future__ import annotations
