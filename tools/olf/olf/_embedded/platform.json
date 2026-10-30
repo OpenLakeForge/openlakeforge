@@ -1,8 +1,0 @@
-{
-  "archive": "platform.tar.gz",
-  "distribution_version": "0.5.0-alpha.1",
-  "manifest_sha256": "fc78ea8010dd82fb17557698e341a7ae6ea518340f368da106f8dd87f83f9f9e",
-  "package_version": "0.5.0a1",
-  "schema_version": 1,
-  "sha256": "3e1a398d99fc89ec67239786d45622cc94efee46fdb0904170bb7b6f34b57af3"
-}
