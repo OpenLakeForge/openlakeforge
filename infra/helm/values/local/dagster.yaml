@@ -35,6 +35,19 @@ dagsterDaemon:
 
 postgresql:
   enabled: false
+  # check-db-ready's pg_isready runs the catalog's prefetched `postgres` image, not the chart's
+  # unpinned postgres:14.6.
+  image:
+    registry: docker.io/library
+    repository: postgres
+    tag: 16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+
+# The user-deployment wait (`until nslookup <service>`), pinned so prefetch can load it. 1.28 on purpose:
+# later busybox nslookup ignores the resolv.conf search list, so the short service name never resolves.
+busybox:
+  image:
+    repository: docker.io/busybox
+    tag: 1.28@sha256:141c253bc4c3fd0a201d32dc1f493bcf3fff003b6df416dea4f41046e0f37d47
 
 computeLogManager:
   type: S3ComputeLogManager

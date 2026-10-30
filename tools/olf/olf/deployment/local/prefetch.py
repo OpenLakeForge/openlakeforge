@@ -52,6 +52,8 @@ _ALWAYS = (
     "cert_manager_controller",
     "cert_manager_webhook",
     "cert_manager_cainjector",
+    "cert_manager_startupapicheck",
+    "dagster_busybox",
     "postgres",
     "trino",
 )
@@ -73,6 +75,7 @@ def selected_images(
     server_arch: str,
     catalog_images: Mapping[str, str],
     perimeter: bool = True,
+    portal: bool = False,
     dex: bool = False,
     build_superset: bool = False,
     project_code: bool = False,
@@ -85,6 +88,8 @@ def selected_images(
     if features.analytics_enabled:
         # A locally built Superset is loaded by the platform phase, not pulled.
         names += ["superset_init", "superset_redis"] + ([] if build_superset else ["superset"])
+    if portal:
+        names.append("portal")
     if perimeter:
         names.append("oauth2_proxy")
     if dex:
@@ -133,6 +138,7 @@ def prefetch_images(
         server_arch=server_arch,
         catalog_images=catalog_images,
         perimeter=identity is not None,
+        portal=config.context.topology.access is not None,
         dex=identity is not None and identity.issuer == "github",
         build_superset=config.images.builds_superset(server_arch),
         project_code=config.images.project_code_published,
