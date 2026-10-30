@@ -5,8 +5,9 @@
 Decided, **build step 1 of 8 landed**: this is the design for #367. Step 1
 puts `data_access` in the role model, validated by `olf` and enforced by
 nothing yet. Verification items 1 (SeaweedFS STS enforces the session policy),
-2 (Polaris vends table-scoped credentials through it) and 3 (Polaris trusts the
-local CA for Dex) passed. Item 3 found that Polaris activates **all** of a
+2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
+local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
+needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
 principal's roles when a token maps to none; section 4, step 11 is corrected
 for it. **Binding today:**
 v0.5-alpha has service-level authorization only, and nothing in it restricts
@@ -207,7 +208,7 @@ sequenceDiagram
 
 | Step | Piece | Detail | Mark |
 | --- | --- | --- | --- |
-| 1 | Dex client | A new public static client `olf-cli` with the device authorization grant. Scopes `openid email groups federated:id offline_access`: `email` names the Trino user, `groups` carries the roles, `federated:id` the connector id (step 11), `offline_access` a refresh token | T (device flow and public-client registration on v2.46.0) |
+| 1 | Dex client | A new public static client `olf-cli` with the device authorization grant. Scopes `openid email groups federated:id offline_access`: `email` names the Trino user, `groups` carries the roles, `federated:id` the connector id (step 11), `offline_access` a refresh token. Registered as a static client with `public: true` and the one redirect URI `/device/callback` | V, run (item 4 proof) |
 | 2 | Token cache | `<OLF_HOME>/auth/oidc-<base_domain>.json`, mode 0600, beside the existing `olf/auth/state.py` provider state. Refreshed when the access token has under 60 seconds left; Dex's session policy bounds it (ADR 0014: tokens 5 min, refresh idle 30 min, absolute 10 h) | — |
 | 3 | Transport | `olf` speaks Trino's HTTP protocol with `requests` (already a dependency): `POST https://trino.<base_domain>/v1/statement`, then each `nextUri`. Every request carries `Authorization: Bearer` with a token refreshed if due; the submission also carries `X-Trino-Extra-Credential: token=<the same token>` and `X-Trino-Catalog` set to the stage's people catalog. Issuer and Trino URLs come from the profile's `spec.access.base_domain`, so no kubeconfig is needed. The local CA is trusted the way `olf access trust` already prints | T (protocol use) |
 | 4 | Perimeter | A route `query_api`: host `trino.<base_domain>`, path prefix `/v1`, behind a perimeter instance that accepts a bearer JWT for audience `olf-cli` (oauth2-proxy `--skip-jwt-bearer-tokens`) at the `viewer` floor. The existing `query` route (the Web UI) keeps the `data-engineer` floor. The service passwords (ADR 0016) then cannot be used through the ingress without also holding a member's Dex token | T (oauth2-proxy applies `--allowed-group` to bearer sessions) |
@@ -217,7 +218,7 @@ sequenceDiagram
 | 8 | Token to Polaris | With `session=USER` Trino passes the user's extra credentials to the Iceberg client and adds an unsigned JWT of its own as `JWT_TOKEN_TYPE`. The Iceberg client uses a `token` credential as the bearer **before** trying any token exchange. So the person's Dex token reaches Polaris; a request without it falls through to exchanging Trino's unsigned JWT, which Polaris does not accept (ADR 0015), and fails closed | V (`TrinoRestCatalog.convert`; `OAuth2Manager.maybeCreateChildSession`); T (Polaris's refusal of the exchange) |
 | 9 | Session cache | The Iceberg session is cached per `<user>-<source>` with `expireAfterAccess(session-timeout)`, the default one hour. A person querying more often than that would keep presenting their first, expired token, so the people catalog sets the timeout to zero and builds the session from the current token each time. Wrapping a bearer token makes no network call | V (`AuthSessionCache`, `IcebergRestCatalogConfig`: `@MinDuration("0ms")`); T (zero disables reuse) |
 | 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `quarkus.oidc.auth-server-url` `https://auth.<base_domain>`, `discovery-enabled=false` with `jwks-path=keys` (as Trino's UI does, because Dex is served by Traefik), the local CA through a named TLS configuration (`quarkus.oidc.tls.tls-configuration-name`, `quarkus.tls.<name>.trust-store.pem.certs`), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `name-claim-path: federated_claims/connector_id`; roles from `groups` and `federated_claims/connector_id` (step 11) | V, run (item 3 proof) |
-| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles and `olf-signed-in`, a principal role with no catalog role. The token's `groups` decide which canonical roles are active (finding 3). Its connector id is also read as a role and mapped to `olf-signed-in`, so the active set is never empty: without that, a token whose groups map to nothing, including one requested without the `groups` scope, which the person chooses in their own sign-in, would activate all four roles, platform-admin included (item 3 proof, o3 and o3c). Revocation is Dex's: a person removed from a team loses the role at their next refresh, within 5 minutes, with no Polaris change | V, run (item 3 proof; connector id `github` in `modules/identity/dex/main.tf`); T (the GitHub connector's tokens, item 4) |
+| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles and `olf-signed-in`, a principal role with no catalog role. The token's `groups` decide which canonical roles are active (finding 3). Its connector id is also read as a role and mapped to `olf-signed-in`, so the active set is never empty: without that, a token whose groups map to nothing, including one requested without the `groups` scope, which the person chooses in their own sign-in, would activate all four roles, platform-admin included (item 3 proof, o3 and o3c). Revocation is Dex's: a person removed from a team is refused at their next refresh, within 5 minutes, with no Polaris change | V, run (item 3 proof; item 4 proof, g5 and g12; connector id `github` in `modules/identity/dex/main.tf`) |
 
 ### 5. Polaris objects
 
@@ -263,7 +264,7 @@ Gold-only role cannot list schemas at all (T). Accepted.
 
 | Behaviour | Detail |
 | --- | --- |
-| Default | With `spec.identity.issuer: github` and `spec.access`, `olf query` uses the person path above. It signs in on first use or when the refresh token has expired, printing Dex's verification URL and code |
+| Default | With `spec.identity.issuer: github` and `spec.access`, `olf query` uses the person path above. It signs in on first use or when the refresh token has expired, printing Dex's verification URL and code. A person GitHub admits to no mapped team is refused in the browser, but the device code itself stays `authorization_pending` until it expires (item 4 proof, g8), so `olf` stops polling after a bounded wait and says the sign-in was not completed or refused |
 | `--as-workload` | Today's path, kept: `kubectl exec` as `olf-<stage>-runtime`. It is the break-glass path when Dex is down (ADR 0014 lists Trino through its internal Service) and the one `olf e2e` uses. Who may use it is still who holds `pods/exec`, a platform-admin in practice |
 | No issuer | With no `spec.identity`, or `issuer: external`, `olf query` keeps the workload path: there is no Dex client to sign in with. An external issuer would need its own principal mapping and is not designed here |
 | Denial | Polaris's 403 reaches the person as a Trino error. `olf` names the role it read from the token, the stage and the schema, and says which role grants the access, from `data_access` |
@@ -306,7 +307,7 @@ Split along the seams `AGENTS.md` names, each with its tests:
    Verification items 1-2 passed.
 3. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
    objects of section 5 except the namespace grants, with `olf-signed-in`.
-   Item 3 passed; settle items 4-6 first.
+   Items 3 and 4 passed; settle items 5-6 first.
 4. `olf catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
    the deployer's `CATALOG_MANAGE_ACCESS`.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
@@ -332,10 +333,9 @@ The **T** items that could change the design, to run on kind first:
    a request without delegation.
 3. **Passed** (proof below). Polaris 1.4.0 trusts the local CA for the Dex
    JWKS (ADR 0015 to-verify), with discovery off.
-4. Dex v2.46.0 access tokens carry `email`, `groups` and `federated_claims`
-   for the scopes of step 1, with `aud` equal to `olf-cli`. **Shown for Dex's
-   local password connector** (item 3 proof); the GitHub connector is still to
-   test.
+4. **Passed** (proof below). Dex v2.46.0 access tokens carry `email`,
+   `groups` and `federated_claims` for the scopes of step 1, with `aud` equal to
+   `olf-cli`, from the GitHub connector.
 5. Polaris refuses the token exchange of Trino's unsigned JWT (step 8), so a
    missing extra credential fails closed rather than falling back to
    `trino-people-<stage>`.
@@ -347,6 +347,8 @@ The **T** items that could change the design, to run on kind first:
    no static S3 key (section 3, finding 4).
 9. oauth2-proxy applies `--allowed-group` to a bearer session (step 4).
 10. A device-flow sign-in can be driven against the e2e's stub GitHub.
+    **Shown locally** (item 4 proof drives the device flow through the stub
+    unchanged); wiring it into `olf e2e` remains.
 
 With vended credentials, the earlier question of whether some Trino read path
 skips `loadTable` no longer decides access: without a table's credentials no
@@ -488,9 +490,51 @@ with Dex down (o8), so pipelines stay off the issuer's availability path; and
 the shared-principal design needs `olf-signed-in` (section 4, step 11).
 Without the CA, Polaris answers 500 rather than 401: it still refuses.
 
-**Not proved:** Dex's GitHub connector (item 4) and `auth.<base_domain>`
-reached through the cluster's DNS rewrite; Polaris's JVM trust in a pod with
-the CA mounted from the `olf-local-ca` ConfigMap.
+**Not proved:** `auth.<base_domain>` reached through the cluster's DNS
+rewrite; Polaris's JVM trust in a pod with the CA mounted from the
+`olf-local-ca` ConfigMap. The GitHub connector is item 4, below.
+
+### Proof: Dex's GitHub connector tokens for `olf-cli` (item 4)
+
+Run locally on 2026-10-30, not kept in the repository. The repository's own
+stub GitHub Enterprise (`tools/olf/olf/e2e/github_stub.py`, its handler
+imported unchanged) served HTTPS with a throwaway CA. The pinned Dex v2.46.0
+(its image checked against the digest) used the GitHub connector exactly as
+`modules/identity/dex/main.tf` renders it (`orgs` with the mapped team slugs,
+`teamNameField: slug`, `loadAllGroups: false`, `useLoginAsID: false`,
+`hostName` and `rootCA`, the module's expiry settings), and stored its state in
+PostgreSQL, as the platform does. The client was step 1's `olf-cli`: public,
+device authorization grant, scopes `openid email groups federated:id
+offline_access`. The browser side answered the stub's authorize redirect with
+`code=<login>`, as the e2e's `StubAuthorize` does. GitHub users: alice in
+`acme/analysts` (mapped); carol in `acme/data-eng` (mapped) and
+`acme/book-club` (not); bob in `acme/interns` (not). All 13 cases passed:
+
+| Case | Request | Result |
+| --- | --- | --- |
+| g1-g6 | alice, device flow | tokens; access token `aud: olf-cli`, `email`, `groups: [acme:analysts]`, `federated_claims.connector_id: github`; a refresh token |
+| g7 | carol, device flow | `groups: [acme:data-eng]`: an unmapped team is left out |
+| g8 | bob, device flow | browser refused (Dex's `/callback`, 500, "not in required orgs or teams"); the device code stays `authorization_pending`, no token |
+| g9, g10 | alice without the `groups` scope | no `groups` claim; `federated_claims.connector_id` still `github` (the input item 3's `olf-signed-in` relies on) |
+| g11 | alice refreshes | `groups` re-read from GitHub: `[acme:analysts]` |
+| g12 | alice removed from `analysts` at GitHub, next refresh past the 3-second reuse interval | refused (`invalid_request`) after Dex re-read her user, membership and teams |
+| g13 | refresh with a token Dex returned inside the reuse interval, after it | answered 200 |
+
+What the run settles: the device flow works for a public `olf-cli`, every claim
+the design reads is present and named as assumed, only mapped teams reach
+`groups`, and team removal ends the session at the next refresh. A refused
+person's device code never resolves, which `olf query` has to time out on
+(section 6). Inside the 3-second reuse interval a refresh returns the previous
+answer, groups included: removal takes effect from the first refresh after it,
+which the perimeter's 4-minute cadence always is.
+
+Run first with Dex's `memory` and then `sqlite3` storage, a second chained
+refresh hung with nothing logged and no call to GitHub; on PostgreSQL the same
+sequence answered. The platform runs Dex on PostgreSQL, so this is recorded
+only as a constraint on local reproductions; its cause was not traced.
+
+**Not proved:** real github.com (the stub stands in for GitHub Enterprise);
+GitHub's own rules on team visibility and nested teams.
 
 ## Superset 6.1.0: per-user propagation (carried forward)
 
@@ -590,3 +634,10 @@ principal grant platform-admin to a token without a mapped group, including one
 requested without the `groups` scope. Finding 3 and section 4, step 11 now add
 `olf-signed-in`, read from the always-present connector id, and the fix was run
 in the same proof.
+
+Verification item 4 run locally against the pinned Dex v2.46.0 with its GitHub
+connector configured as the module renders it, against the repository's stub
+GitHub: `olf-cli` as a public device-flow client receives `aud`, `email`,
+`groups` and `federated_claims` as the design reads them, unmapped teams stay
+out of `groups`, and a removed team member is refused at the next refresh. The
+device flow never resolves for a refused person, which section 6 now handles.
