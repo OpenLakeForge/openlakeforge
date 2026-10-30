@@ -365,6 +365,12 @@ Split along the seams `AGENTS.md` names, each with its tests:
    writing PROD; with Dex scaled to zero, the person path fails closed and
    `--as-workload` still answers; a vended read credential cannot write, nor
    read another table's location.
+   **Landed:** the person path is `olf query` (section 6). The e2e runs the
+   cases in its perimeter check: each role, through the query route as
+   `olf query` calls it, against its `data_access` row on every stage, telling
+   Polaris's refusal from storage refusing a read-only vended credential. The
+   Dex-down case is part of the issuer-outage drill. Reading another table's
+   location cannot be expressed in SQL and stays verification item 1.
 8. Docs of section 8 not already landed.
 
 ## Verification before building
@@ -535,3 +541,10 @@ Build step 6: the `query_api` grant row (every role) and, with `issuer: github`
 and Trino at `password`, an ingress route for `trino.<base_domain>/v1` behind
 the `viewer` floor; the Web UI keeps the `data-engineer` floor. Its bearer path
 is the one verification item 9 ran.
+
+Build step 7, the `olf e2e` cases: each role's token reads one table per layer
+on the run's stage, lists every stage, and writes a probe table on every stage,
+created by a role that writes there. The decision logic was run against the
+pinned stack of step 5 with a writing, a reading, a Gold-only and a no-role
+person: every outcome matched, and a read role's write was refused by
+SeaweedFS rather than by Polaris.
