@@ -241,7 +241,8 @@ privilege hierarchy (V, `PolarisAuthorizerImpl` super-privileges). It is
 chosen over `TABLE_READ_PROPERTIES` because read delegation needs it (section 3,
 finding 1): a read grant yields read-only credentials, and only
 `CATALOG_MANAGE_CONTENT` yields write credentials. Grants on a catalog apply to
-everything in it (T).
+everything in it, including namespaces and tables created after the grant
+(verification item 6).
 
 Gold namespaces come from the descriptors, not from a list in shared code:
 `PhysicalProductNames.gold_namespace` in the domain model, resolved by the same
@@ -258,7 +259,11 @@ namespace and is not worth it for this.
 
 `NAMESPACE_LIST` at catalog level lets `analyst` and `viewer` see the names of
 Bronze and Silver namespaces in `SHOW SCHEMAS`, not their tables. Without it a
-Gold-only role cannot list schemas at all (T). Accepted.
+Gold-only role cannot list schemas at all. Accepted. A query on
+`information_schema.tables` across the whole catalog fails for these roles,
+because Trino lists the tables of every schema and Polaris refuses Bronze and
+Silver; filtered to a Gold schema it works (verification item 6). `olf-read`
+needs no `NAMESPACE_LIST`: its grants already let it list namespaces.
 
 ### 6. `olf query`
 
@@ -324,7 +329,7 @@ Split along the seams `AGENTS.md` names, each with its tests:
 
 ## Verification before building
 
-The **T** items that could change the design. Items 1-5 were run locally
+The **T** items that could change the design. Items 1-6 were run locally
 against the pinned images (Dex v2.46.0, Polaris 1.4.0, Trino 480, SeaweedFS
 4.23 then 4.48), single processes outside a cluster; the scripts are not kept.
 
@@ -335,11 +340,10 @@ against the pinned images (Dex v2.46.0, Polaris 1.4.0, Trino 480, SeaweedFS
 | 3 | Polaris trusts the local CA for the Dex JWKS, discovery off (ADR 0015 to-verify) | Passed, through a named Quarkus TLS configuration; without the CA Polaris refuses the token (500). Wrong audience and tampered tokens get 401; Polaris's own tokens keep working with Dex down. **Found:** a token that maps to no role activates every role of the principal | `olf-signed-in` (finding 3; section 4, steps 10 and 11; section 5) |
 | 4 | Dex access tokens carry `email`, `groups` and `federated_claims` for step 1's scopes, `aud` equal to `olf-cli` | Passed with the GitHub connector as the module renders it, against the e2e's stub GitHub, device flow as a public client. `groups` holds mapped teams only; a refresh re-reads teams and a removed member is refused. A person in no mapped team is refused, but their device code stays pending | `olf query` bounds its device-flow polling (section 6). Removal takes effect from the first refresh after Dex's 3-second reuse interval |
 | 5 | Polaris refuses the token exchange of Trino's unsigned JWT, so a query without the person's token fails closed (step 8) | Passed. Polaris answers the exchange with 400 and the query fails; `trino-people-<stage>`, given a grant to expose a fallback, is used only for the catalog's configuration call. With a Dex token the query runs with that person's role. Trino's message is generic; the reason is in the error's cause chain | `olf query` reads the cause chain (section 6) |
+| 6 | Catalog-level grants apply to every namespace and table, and a Gold-only role can run `SHOW SCHEMAS` with `NAMESPACE_LIST` (section 5) | Passed. `olf-read` and `olf-write` reach Bronze, Silver, Gold and nested namespaces and tables created after the grant; `olf-read` cannot create. `olf-gold-read` lists every schema, nested ones included, and reads only Gold: Bronze and Silver tables, table lists and properties get 403. `olf-signed-in` cannot list. `information_schema.tables` over the whole catalog fails for a Gold-only role; filtered to a Gold schema it works. `olf-read` lists namespaces without `NAMESPACE_LIST` | Section 5 as designed; the `information_schema` limit is accepted (section 5) |
 
 Still to run:
 
-6. Catalog-level grants apply to every namespace and table, and a Gold-only
-   role can run `SHOW SCHEMAS` with `NAMESPACE_LIST`.
 7. `session-timeout=0s` builds a fresh session per request with a refreshed
    token (step 9).
 8. Trino 480's people catalog reads and commits with vended credentials and
@@ -434,9 +438,12 @@ retention fix. Finding 3 was re-read at tag `4.48`: `AssumeRole` still takes a
 `Policy` through `sts.NormalizeSessionPolicy` and still allows 15 minutes to 12
 hours unless an STS `MaxSessionLength` is configured, which this stack does not.
 
-Verification items 1-5 were run locally against the pinned images; their
-results and decisions are in "Verification before building". They verified findings 2 and 3 of section 3 and steps 1, 8, 10 and 11 of
-section 4; found that Polaris vends for an hour by default (section 7) and that
-a token mapping to no role activates every role of the shared principal (fixed
-with `olf-signed-in`); and added `olf query`'s bounded device-flow polling and
-cause-chain error reading (section 6).
+Verification items 1-6 were run locally against the pinned images; their
+results and decisions are in "Verification before building". They verified
+findings 2 and 3 of section 3, steps 1, 8, 10 and 11 of section 4 and the
+grants of section 5; found that Polaris vends for an hour by default
+(section 7) and that a token mapping to no role activates every role of the
+shared principal (fixed with `olf-signed-in`); added `olf query`'s bounded
+device-flow polling and cause-chain error reading (section 6); and accepted
+that a Gold-only role cannot query `information_schema.tables` across the
+whole catalog (section 5).
