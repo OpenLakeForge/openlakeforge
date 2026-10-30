@@ -1,4 +1,4 @@
-"""`olf check project-code`: load merged Dagster definitions."""
+"""`olf check project-code`: load merged Dagster definitions and run the libs tests."""
 
 from __future__ import annotations
 
@@ -65,6 +65,12 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }
     _run([sys.executable, "-m", "olf.common.project_code_check", str(project.root)], cwd=project.root, env=env)
+    # The libs tests need Dagster, dlt and kubernetes, which only this
+    # environment has; under the plain `pytest tools/olf/tests` gate they skip.
+    libs_tests = project.distribution_root / "tools/olf/tests/libs"
+    if libs_tests.is_dir():
+        pytest = [sys.executable, "-m", "pytest", str(libs_tests), "-q", "-p", "no:cacheprovider"]
+        _run(pytest, cwd=project.root, env=env)
 
 
 def _source_tree_digest(directory: Path) -> str:
