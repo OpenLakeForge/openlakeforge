@@ -1,4 +1,4 @@
-"""`olf.common` is the surface that needs no cluster or cloud permissions."""
+"""`olf.common` needs no permissions; `olf.platform` builds only on it (ADR 0020)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 import olf
 
 COMMON = Path(olf.__file__).parent / "common"
+PLATFORM = Path(olf.__file__).parent / "platform"
 FORBIDDEN = ("olf.infra", "olf.platform", "olf.cli")
 
 
@@ -22,11 +23,19 @@ def _imported_modules(tree: ast.AST) -> list[tuple[int, str]]:
     return found
 
 
-def test_common_imports_neither_infra_nor_platform_nor_cli() -> None:
-    violations = [
-        f"{path.relative_to(COMMON.parent)}:{line} imports {module}"
-        for path in sorted(COMMON.rglob("*.py"))
+def _violations(package: Path, forbidden: tuple[str, ...]) -> list[str]:
+    return [
+        f"{path.relative_to(package.parent)}:{line} imports {module}"
+        for path in sorted(package.rglob("*.py"))
         for line, module in _imported_modules(ast.parse(path.read_text(encoding="utf-8")))
-        if any(module == name or module.startswith(f"{name}.") for name in FORBIDDEN)
+        if any(module == name or module.startswith(f"{name}.") for name in forbidden)
     ]
-    assert not violations, "\n".join(violations)
+
+
+def test_common_imports_neither_infra_nor_platform_nor_cli() -> None:
+    assert not _violations(COMMON, FORBIDDEN)
+
+
+def test_platform_imports_neither_infra_nor_cli() -> None:
+    assert PLATFORM.is_dir()
+    assert not _violations(PLATFORM, ("olf.infra", "olf.cli"))

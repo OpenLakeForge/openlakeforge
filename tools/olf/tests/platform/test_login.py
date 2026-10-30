@@ -1,0 +1,269 @@
+"""Platform CLI session: login and refresh against a fake issuer."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import stat
+import threading
+import time
+import urllib.parse
+from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+import requests
+from typer.testing import CliRunner
+
+from olf.cli import app
+from olf.platform import login as login_flow
+from olf.platform import session as sessions
+
+CLIENT = "olf-cli"
+
+
+def _jwt(claims: dict[str, object]) -> str:
+    def part(value: object) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+
+    return f"{part({'alg': 'RS256'})}.{part(claims)}.signature-not-checked"
+
+
+class FakeIssuer:
+    """Discovery, `/auth` (redirects to the loopback with a code) and `/token` (checks PKCE)."""
+
+    def __init__(self) -> None:
+        self.challenges: dict[str, tuple[str, str]] = {}
+        self.authorize_queries: list[dict[str, str]] = []
+        self.refreshes = 0
+        self.id_token_lifetime = 300
+        self.reject_refresh = False
+        self.url = ""
+        issuer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _json(self, status: int, body: dict[str, object]) -> None:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(body).encode())
+
+            def do_GET(self) -> None:
+                url = urllib.parse.urlsplit(self.path)
+                query = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                if url.path == "/.well-known/openid-configuration":
+                    self._json(
+                        200,
+                        {"authorization_endpoint": f"{issuer.url}/auth", "token_endpoint": f"{issuer.url}/token"},
+                    )
+                elif url.path == "/auth":
+                    issuer.authorize_queries.append(query)
+                    code = f"code-{len(issuer.challenges)}"
+                    issuer.challenges[code] = (query.get("code_challenge", ""), query["redirect_uri"])
+                    location = f"{query['redirect_uri']}?" + urllib.parse.urlencode(
+                        {"code": code, "state": query["state"]}
+                    )
+                    self.send_response(302)
+                    self.send_header("Location", location)
+                    self.end_headers()
+                else:
+                    self.send_error(404)
+
+            def do_POST(self) -> None:
+                form = {
+                    k: v[0]
+                    for k, v in urllib.parse.parse_qs(
+                        self.rfile.read(int(self.headers["Content-Length"])).decode()
+                    ).items()
+                }
+                if form["grant_type"] == "refresh_token":
+                    issuer.refreshes += 1
+                    if issuer.reject_refresh or form["refresh_token"] != "refresh-1":
+                        self._json(400, {"error": "invalid_grant"})
+                        return
+                    self._json(200, issuer.tokens())
+                    return
+                challenge, redirect = issuer.challenges.get(form["code"], ("", ""))
+                digest = hashlib.sha256(form["code_verifier"].encode()).digest()
+                if (
+                    base64.urlsafe_b64encode(digest).rstrip(b"=").decode() != challenge
+                    or form["redirect_uri"] != redirect
+                ):
+                    self._json(400, {"error": "invalid_grant"})
+                    return
+                self._json(200, issuer.tokens())
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tokens(self) -> dict[str, object]:
+        claims = {
+            "preferred_username": "ada",
+            "email": "ada@example.com",
+            "groups": ["olf-analysts", "olf-viewers"],
+            "exp": int(time.time()) + self.id_token_lifetime,
+        }
+        return {"id_token": _jwt(claims), "access_token": _jwt(claims), "refresh_token": "refresh-1"}
+
+
+@pytest.fixture
+def issuer() -> Iterator[FakeIssuer]:
+    fake = FakeIssuer()
+    yield fake
+    fake.server.shutdown()
+    fake.server.server_close()
+
+
+@pytest.fixture(autouse=True)
+def _home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OLF_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+
+
+def _browser(monkeypatch: pytest.MonkeyPatch, *, follow: Callable[[str], None] | None = None) -> None:
+    """A browser that follows the authorize URL, redirect included, from another thread."""
+
+    def open_url(url: str) -> bool:
+        threading.Thread(target=follow or (lambda target: requests.get(target, timeout=10)), args=(url,)).start()
+        return True
+
+    monkeypatch.setattr("webbrowser.open", open_url)
+
+
+def _instance(issuer: FakeIssuer) -> sessions.Instance:
+    return sessions.Instance("olf.example.com", issuer.url, CLIENT)
+
+
+def test_login_stores_a_pkce_session_in_a_private_file(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
+    _browser(monkeypatch)
+    instance = _instance(issuer)
+
+    login_flow.login(instance, open_browser=True, announce=lambda _: None)
+
+    query = issuer.authorize_queries[0]
+    assert query["code_challenge_method"] == "S256"
+    assert query["client_id"] == CLIENT
+    assert query["redirect_uri"].startswith("http://127.0.0.1:") and query["redirect_uri"].endswith("/callback")
+    assert set(query["scope"].split()) == {"openid", "email", "profile", "groups", "offline_access"}
+    path = sessions.session_path(instance)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert sessions.active_session(instance).refresh_token == "refresh-1"
+
+
+def test_no_browser_prints_the_url_and_never_opens_one(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("webbrowser.open", lambda url: pytest.fail("opened a browser"))
+    printed: list[str] = []
+
+    def announce(message: str) -> None:
+        printed.append(message)
+        url = message.split("\n")[-1]
+        threading.Thread(target=lambda: requests.get(url, timeout=10)).start()
+
+    login_flow.login(_instance(issuer), open_browser=False, announce=announce)
+
+    assert printed[0].startswith("Open this URL") and "code_challenge_method=S256" in printed[0]
+
+
+def test_login_rejects_a_response_with_the_wrong_state(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
+    def forged(url: str) -> None:
+        redirect = requests.get(url, allow_redirects=False, timeout=10).headers["Location"]
+        requests.get(redirect.replace("state=", "state=forged"), timeout=10)
+
+    _browser(monkeypatch, follow=forged)
+
+    with pytest.raises(sessions.PlatformError, match="did not match"):
+        login_flow.login(_instance(issuer), open_browser=True, announce=lambda _: None)
+    assert not sessions.session_path(_instance(issuer)).exists()
+
+
+def test_expired_id_token_is_refreshed_without_a_secret(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
+    _browser(monkeypatch)
+    instance = _instance(issuer)
+    issuer.id_token_lifetime = -10
+    login_flow.login(instance, open_browser=True, announce=lambda _: None)
+    issuer.id_token_lifetime = 300
+
+    refreshed = sessions.active_session(instance)
+
+    assert issuer.refreshes == 1
+    assert sessions.claims(refreshed.id_token)["exp"] > time.time()
+    assert sessions.active_session(instance) == refreshed
+    assert issuer.refreshes == 1
+
+
+def test_a_refused_refresh_asks_for_a_new_login(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
+    _browser(monkeypatch)
+    instance = _instance(issuer)
+    issuer.id_token_lifetime = -10
+    login_flow.login(instance, open_browser=True, announce=lambda _: None)
+    issuer.reject_refresh = True
+
+    with pytest.raises(sessions.PlatformError, match="expired; run `olf login`"):
+        sessions.active_session(instance)
+
+
+def test_no_session_says_not_logged_in(issuer: FakeIssuer) -> None:
+    with pytest.raises(sessions.PlatformError, match="not logged in"):
+        sessions.active_session(_instance(issuer))
+
+
+PROFILE = """\
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+metadata:
+  name: fixture
+spec:
+  provider: {type: local}
+  preset: slim
+  stages: {dev: {enabled: true}}
+  access: {base_domain: olf.example.com}
+  identity:
+    issuer: external
+    issuer_url: https://login.example.com
+    role_claim: groups
+    role_mapping: {platform-admin: [admins]}
+    client_ids: {olf-cli: cli-123}
+"""
+
+
+def _profile(tmp_path: Path, text: str = PROFILE) -> str:
+    path = tmp_path / "openlakeforge.yaml"
+    path.write_text(text)
+    return str(path)
+
+
+def test_instance_comes_from_the_profile(tmp_path: Path) -> None:
+    external = sessions.resolve_instance(_profile(tmp_path))
+    assert external == sessions.Instance("olf.example.com", "https://login.example.com", "cli-123")
+
+    github = Path(__file__).parents[1] / "fixtures/profiles/valid_github_identity.yaml"
+    dex = sessions.resolve_instance(str(github))
+    assert (dex.issuer, dex.client_id) == ("https://auth.olf.localhost", CLIENT)
+
+
+@pytest.mark.parametrize("access", ["", "  access: {issuer: none}\n"])
+def test_a_deployment_without_sign_in_points_at_olf_infra(tmp_path: Path, access: str) -> None:
+    profile = _profile(tmp_path, PROFILE.split("  access:")[0] + access)
+    result = CliRunner().invoke(app, ["login", "--profile-file", profile])
+
+    assert result.exit_code == 1
+    assert "no sign-in" in result.output and "olf infra" in result.output
+
+
+def test_a_damaged_session_never_echoes_its_contents(tmp_path: Path) -> None:
+    profile = _profile(tmp_path)
+    path = sessions.session_path(sessions.resolve_instance(profile))
+    path.parent.mkdir(parents=True)
+    path.write_text('{"id_token": "not-a-jwt-secret"}')
+
+    with pytest.raises(sessions.PlatformError, match="olf login") as raised:
+        sessions.active_session(sessions.resolve_instance(profile))
+
+    assert "not-a-jwt-secret" not in str(raised.value)
