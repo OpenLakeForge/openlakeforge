@@ -60,18 +60,18 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail=f"{checked} Floe domain and entity file(s) validated")
 
 
-# Not `append`: a `bronze` full refresh lands every row again as new files, and
-# Floe cannot rebuild an appended table for one run (OpenLakeForge/floe#1091),
-# so the refresh would duplicate the whole history. A merge absorbs it.
-_INCREMENTAL_WRITE_MODES = ("merge_scd1", "merge_scd2")
+# `append` is safe here because a `bronze` full refresh also runs Floe with
+# `--full-refresh` (`floe/full_refresh`), which rebuilds an appended table from
+# the reloaded Bronze instead of appending every row again.
+_INCREMENTAL_WRITE_MODES = ("merge_scd1", "merge_scd2", "append")
 
 
 def _check_silver_load_modes(repo_root: Path) -> CheckResult:
     """Each Silver entity's Floe load mode fits the Bronze resource it reads.
 
     An incremental resource lands only its new rows as new files, so its
-    entity must read new files only (`incremental_mode: file`) and merge them
-    onto the rows it already has. A full resource lands its whole extract on
+    entity must read new files only (`incremental_mode: file`) and merge or
+    append them onto the rows it already has. A full resource lands its whole extract on
     every run, so appending it would duplicate every row.
     """
     from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory

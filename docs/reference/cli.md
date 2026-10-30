@@ -62,7 +62,7 @@ All `new` commands validate the result before writing and accept
 | `olf infra forward` | Port-forward every service to `localhost` until Ctrl-C. |
 | `olf infra doctor` | Check the host, tools, project and cloud authentication without changing anything. |
 | `olf infra plan` | Show the Terraform plan of the foundation or platform. |
-| `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). Every run still reloads its Bronze and Silver inputs in full, because no loader is incremental yet. `--full-refresh bronze\|gold` adds `dbt build --full-refresh` for that run only. |
+| `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |
 | `olf infra access trust` | Export the local CA and print the commands to trust it. |
 | `olf infra github connect` | Create the GitHub App for sign-in and store its credentials. |

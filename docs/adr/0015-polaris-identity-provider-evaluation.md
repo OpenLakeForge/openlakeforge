@@ -116,7 +116,7 @@ Where table-level policy would be enforced, as the tree is wired today:
 | Catalog authorization | Polaris RBAC on the REST catalog: securables catalog, namespace, table, view and policy; privileges such as `TABLE_READ_DATA` granted to catalog roles, assigned to principal roles, assigned to principals. Optional external decision point (`polaris.authorization.type`, OPA documented). Evaluated for the principal on the request | AWS IAM on Glue databases and tables, optionally Lake Formation grants evaluated for the calling IAM principal. Today AWS scopes each stage's Pod Identity role to `database/<prefix>_*` and has **no Lake Formation** (`technical-debt.md`) |
 | Who the catalog sees | Trino's per-stage principal with `CATALOG_MANAGE_CONTENT`, not the end user | The stage's Pod Identity role |
 | Effect today | Stage isolation only: one catalog per stage, one principal per catalog | Stage isolation by name prefix and IAM |
-| Data files | **Not gated by Polaris here.** Trino reads object storage with its own S3 key (`s3.aws-access-key`), `vended-credentials-enabled=false`, and the catalogs are created `stsUnavailable: true`. `TABLE_READ_DATA` is defined as receiving catalog-vended storage credentials, so a per-table grant would not restrict file reads unless Trino switched to vended credentials, which needs a storage side that issues them (**to verify** for SeaweedFS) | IAM on the S3 prefixes |
+| Data files | **Not gated by Polaris here.** Trino reads object storage with its own S3 key (`s3.aws-access-key`) and `vended-credentials-enabled=false`. `TABLE_READ_DATA` is defined as receiving catalog-vended storage credentials, so a per-table grant would not restrict file reads unless Trino switched to vended credentials. SeaweedFS issues them through its STS, and new SeaweedFS stage catalogs are created with STS available (ADR 0019, build step 2); only ADR 0019's person path asks for them | IAM on the S3 prefixes |
 | Engine-level | Trino access control (`catalog_access_rules`, `tables` rules in `modules/query/trino`) keys on a user name Trino does not authenticate (register entry "Trino has no client authentication"); #26 chooses the mechanism | Same |
 
 Implications to carry into #179's ADR:
@@ -154,3 +154,6 @@ Implications to carry into #179's ADR:
 
 New record (#26): Polaris external identity-provider evaluation, explicit
 deferral, and the catalog-side findings for #179.
+
+The "Data files" row: SeaweedFS stage catalogs are now created with STS
+available, which ADR 0019's person path uses; the workload path is unchanged.

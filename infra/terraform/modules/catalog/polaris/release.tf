@@ -125,6 +125,14 @@ resource "helm_release" "polaris" {
           }
         }
       }
+      # Vended storage credentials (ADR 0019) last 15 minutes rather than
+      # Polaris's default hour, the least SeaweedFS's STS issues, so a person
+      # removed from a team stops reading loaded tables soon after. A cached
+      # credential is handed out with at least 10 minutes left.
+      features = {
+        STORAGE_CREDENTIAL_DURATION_SECONDS       = 900
+        STORAGE_CREDENTIAL_CACHE_DURATION_SECONDS = 300
+      }
       authentication = {
         tokenBroker = {
           type = "symmetric-key"

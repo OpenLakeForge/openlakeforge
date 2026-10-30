@@ -72,10 +72,16 @@ class ProductDefinitionSpec:
 class SourceDefinitionSpec:
     source: str
     resources: tuple[str, ...]
-    bronze_loader: Callable[[tuple[str, ...]], dict[str, BronzeLoadResult]]
+    bronze_loader: Callable[..., dict[str, BronzeLoadResult]]
 
 
 def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
+    # A source with an incremental resource has a loader that takes
+    # `full_refresh` (libs.bronze_dlt.load_dlt_source); a full-only source
+    # reloads everything on every run, so its loader has nothing to refresh.
+    declared = next((s for s in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if s.name == spec.source), None)
+    incremental = declared is not None and any(resource.load.incremental for resource in declared.resources)
+
     @multi_asset(
         name=f"{spec.source}_bronze_resources",
         outs={
@@ -92,6 +98,9 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
         can_subset=True,
     )
     def bronze_resources(context):
+        # Read for every source, before any load, so malformed refresh tags
+        # fail the run while Bronze is still untouched.
+        full_refresh = full_refresh_scope(context.run.tags) == "bronze"
         previous_run_id = os.environ.get("DAGSTER_RUN_ID")
         os.environ["DAGSTER_RUN_ID"] = context.run_id
         try:
@@ -100,7 +109,10 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
                 for resource in spec.resources
                 if context.selected_output_names is None or resource in context.selected_output_names
             )
-            results = spec.bronze_loader(selected)
+            if incremental:
+                results = spec.bronze_loader(selected, full_refresh=full_refresh)
+            else:
+                results = spec.bronze_loader(selected)
         finally:
             if previous_run_id is None:
                 os.environ.pop("DAGSTER_RUN_ID", None)

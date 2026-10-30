@@ -118,6 +118,9 @@ variable "storage_contract" {
     auth_mode               = optional(string)
     ssl_mode                = optional(string)
     ingress_mode            = optional(string)
+    # Set by a storage adapter whose STS can vend table-scoped credentials.
+    sts_role_arn = optional(string)
+    sts_endpoint = optional(string)
   })
 }
 
