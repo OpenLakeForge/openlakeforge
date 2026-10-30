@@ -255,9 +255,10 @@ inventory `sync-namespaces` already uses. Granting on a namespace the artifacts
 phase creates keeps rule 3 of `AGENTS.md`: the platform apply never waits for
 user code. A pruned namespace takes its grants with it: Polaris's `dropEntity`
 deletes every grant record on the dropped entity (V,
-`AtomicOperationMetaStoreManager` at tag `apache-polaris-1.4.0`), so
-`sync-namespaces --prune` revokes nothing itself. Polaris answers a repeated grant with HTTP 500, so the command reads
-the role's grants and writes only the missing ones. A stack without
+`AtomicOperationMetaStoreManager` at tag `apache-polaris-1.4.0`; V, run), so
+`sync-namespaces --prune` revokes nothing itself. Polaris on PostgreSQL answers
+a repeated grant with HTTP 500, so the command reads the role's grants and
+writes only the missing ones. A stack without
 `spec.identity.issuer: github` has no `olf-gold-read`; the command finds its
 grants answer 404 and skips them.
 
@@ -490,5 +491,7 @@ Build step 4: `olf infra catalog sync-namespaces` grants `olf-gold-read`
 `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES` and `VIEW_READ_PROPERTIES` on each
 Gold namespace of the stage, from the descriptors; the deployer principal gains
 `CATALOG_MANAGE_ACCESS` on its stage catalog when people sign in. Polaris drops
-a namespace's grants with the namespace (read in the 1.4.0 source, not run), so
-pruning needs no revoke.
+a namespace's grants with the namespace, so pruning needs no revoke. Run against
+Polaris 1.4.0 with `olf`'s client as the deployer: the grants land, a rerun plans
+nothing, a recreated namespace has no grants left, and a stack without people's
+access answers 404 for the role, so it is skipped.
