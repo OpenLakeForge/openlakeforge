@@ -40,7 +40,32 @@ def _reconcile_and_report(
     )
 
 
-def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
+def _sync_gold_grants(client: Any, gold_namespaces: tuple[str, ...], *, dry_run: bool) -> None:
+    from olf.infra import catalog as catalog_module
+
+    held = client.namespace_grants(catalog_module.GOLD_READ_ROLE)
+    if held is None:
+        # Only a stack with spec.identity.issuer: github has the role (ADR 0019); without it there is nobody to grant.
+        return
+    missing = catalog_module.plan_gold_grants(held, gold_namespaces)
+    for namespace, privilege in missing:
+        typer.echo(f"  + grant {privilege} on {namespace} to {catalog_module.GOLD_READ_ROLE}")
+    if dry_run or not missing:
+        return
+    for namespace, privilege in missing:
+        client.grant_namespace_privilege(catalog_module.GOLD_READ_ROLE, namespace, privilege)
+    typer.echo(f"Granted {len(missing)} Gold read privilege(s) to {catalog_module.GOLD_READ_ROLE}.")
+
+
+def reconcile_polaris(
+    client: Any, *, desired: tuple, gold_namespaces: tuple[str, ...], dry_run: bool, prune: bool
+) -> None:
+    """Namespaces first: a grant on a namespace that does not exist yet is refused."""
+    _reconcile_and_report("Polaris", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune)
+    _sync_gold_grants(client, gold_namespaces, dry_run=dry_run)
+
+
+def _sync_polaris_namespaces(*, desired: tuple, gold_namespaces: tuple[str, ...], dry_run: bool, prune: bool) -> None:
     from olf.infra import catalog as catalog_module
     from olf.infra import k8s
     from olf.infra import polaris as polaris_module
@@ -80,9 +105,7 @@ def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> N
         )
         try:
             client.login()
-            _reconcile_and_report(
-                "Polaris", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune
-            )
+            reconcile_polaris(client, desired=desired, gold_namespaces=gold_namespaces, dry_run=dry_run, prune=prune)
         except (catalog_module.NamespaceSyncError, polaris_module.PolarisError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
 
@@ -144,7 +167,12 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
 
     if provider == "polaris":
         log.step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
-        _sync_polaris_namespaces(desired=desired, dry_run=dry_run, prune=prune)
+        _sync_polaris_namespaces(
+            desired=desired,
+            gold_namespaces=catalog_module.desired_gold_namespaces(config.project_spec().root),
+            dry_run=dry_run,
+            prune=prune,
+        )
     elif provider == "aws-glue":
         log.step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
         _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune, namespace_prefix=namespace_prefix)

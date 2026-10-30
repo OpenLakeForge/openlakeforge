@@ -8,7 +8,8 @@ PR 2b), and the platform session commands `olf login`, `whoami` and `logout`
 (PR 4). **Decided, not built:** the remaining platform commands (`domain list`,
 `query`) and the non-interactive authentication contract below. Platform
 commands are clients of the platform API, decided in
-[ADR 0021](0021-platform-api.md) and not built either.
+[ADR 0021](0021-platform-api.md) and not built either, except where a
+service accepts the person's token and the command calls its route directly.
 
 ## Context
 
@@ -28,7 +29,7 @@ needs decides its surface**, not who runs it.
 | --- | --- | --- | --- |
 | Needs | Cluster or cloud permissions | None | A Dex session, the same path as the UI |
 | Identity | Cloud IAM or SDK identity, kubeconfig and Kubernetes RBAC; workload or CI credentials | None | Human OIDC session; delegated user identity for local agents |
-| Reaches | Cloud and Kubernetes APIs, Terraform state, Helm, registry, object store | Local files, local Docker, public release metadata | The platform API ([ADR 0021](0021-platform-api.md)), and Trino's `query_api` route for data-plane reads; never Kubernetes Secrets, exec or port-forward |
+| Reaches | Cloud and Kubernetes APIs, Terraform state, Helm, registry, object store | Local files, local Docker, public release metadata | The platform API ([ADR 0021](0021-platform-api.md)), and directly the public route of a service that authorizes the person's token: Trino's `query_api` for data-plane reads, OpenMetadata for `domain list` (ADR 0021, decision 2); never Kubernetes Secrets, exec or port-forward |
 
 Being `platform-admin` in the OpenLakeForge UI grants no Kubernetes or cloud
 rights. A platform command cannot reach a privileged operation through an infra
@@ -131,6 +132,10 @@ direction: `olf/platform` imports only `olf.common`.
 
 The hidden aliases started warning once the documentation and CI moved to
 `olf infra` (#536, PR 6).
+
+The platform row follows ADR 0021's rewritten decision 2 (#665): a platform
+command may call a service's public route directly when that service
+authorizes the person's token, as `olf domain list` does with OpenMetadata.
 
 `olf query` is a platform command (ADR 0019, build step 7); its alias to `olf
 infra query` ended.

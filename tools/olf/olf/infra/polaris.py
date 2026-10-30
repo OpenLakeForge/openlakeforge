@@ -29,6 +29,10 @@ TOKEN_REQUEST_RETRY_DELAY_SECONDS = 2
 class PolarisError(RuntimeError):
     """Raised when Polaris rejects a request or is unreachable."""
 
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
 
 @dataclass(frozen=True)
 class PolarisConfig:
@@ -92,7 +96,7 @@ class PolarisClient:
             self.login()
             return self._request(method, path, payload=payload, ok_statuses=ok_statuses, relogged=True)
         if status not in ok_statuses:
-            raise PolarisError(f"{method} {path} failed with HTTP {status}: {body}")
+            raise PolarisError(f"{method} {path} failed with HTTP {status}: {body}", status=status)
         if not body:
             return {}
         try:
@@ -163,6 +167,32 @@ class PolarisClient:
         response = self._request("GET", self._namespace_path(name))
         properties = response.get("properties") or {}
         return NamespaceState(properties.get(LOCATION_PROPERTY, ""), properties)
+
+    def _grants_path(self, role: str) -> str:
+        catalog = urllib.parse.quote(self.config.catalog_name, safe="")
+        return f"/api/management/v1/catalogs/{catalog}/catalog-roles/{urllib.parse.quote(role, safe='')}/grants"
+
+    def namespace_grants(self, role: str) -> frozenset[tuple[str, str]] | None:
+        """Top-level namespace grants (namespace, privilege) of a catalog role; None when the role does not exist."""
+        try:
+            response = self._request("GET", self._grants_path(role))
+        except PolarisError as err:
+            if err.status == 404:
+                return None
+            raise
+        return frozenset(
+            (grant["namespace"][0], grant["privilege"])
+            for grant in response.get("grants", [])
+            if grant.get("type") == "namespace" and len(grant.get("namespace", [])) == 1
+        )
+
+    def grant_namespace_privilege(self, role: str, namespace: str, privilege: str) -> None:
+        self._request(
+            "PUT",
+            self._grants_path(role),
+            payload={"grant": {"type": "namespace", "namespace": [namespace], "privilege": privilege}},
+            ok_statuses=(200, 201),
+        )
 
     def create_namespace(self, namespace: CatalogNamespace) -> None:
         self._request(

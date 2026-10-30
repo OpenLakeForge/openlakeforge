@@ -73,6 +73,7 @@ locals {
     om_catalog_role            = var.om_catalog_role
     deployer_principal_role    = var.deployer_principal_role
     deployer_catalog_role      = var.deployer_catalog_role
+    person_access_enabled      = local.person_access_enabled
   })
 
   bootstrap_job_name = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
