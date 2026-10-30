@@ -297,7 +297,7 @@ locals {
   # Each domain's Floe Job runs on the project-code image and references the
   # Secrets below by name (libs/floe_profile.py); names only, never values.
   # `olf deploy`'s image bump keeps OPENLAKEFORGE_PROJECT_CODE_IMAGE in step
-  # with the container image (olf/k8s.py).
+  # with the container image (olf/infra/k8s.py).
   floe_job_env = concat(
     [
       {

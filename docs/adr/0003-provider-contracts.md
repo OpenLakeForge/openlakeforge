@@ -75,14 +75,14 @@ Adding a provider or stage-scoped capability starts by extending v3 and its
 fixtures, then implementing provider adapters; a provider must not invent a
 competing wire shape.
 
-`olf.contract_state.load_provider_contracts` still returns either version
+`olf.common.contract_state.load_provider_contracts` still returns either version
 unchanged, so a contract from state predating this rollout keeps parsing;
 `build_contract_env` is where a v3 payload resolves, given a
 `DeploymentTopology` plus a stage. Every current deploy/e2e/artifact code path
 now resolves and passes that stage explicitly (#114); the v2 branch exists
 only for that backward-compatibility read.
 
-`tools/olf/tests/test_provider_contracts.py` validates the v3 schema and
+`tools/olf/tests/common/test_provider_contracts.py` validates the v3 schema and
 local, Azure, and AWS fixtures against the typed parser; `olf check contracts`
 covers the current Terraform v3 surface, structured HCL, and rendered
 profile/Floe output. The architecture guide records the field families and

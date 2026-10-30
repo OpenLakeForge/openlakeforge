@@ -16,7 +16,7 @@ def _ensure_embedded_payload() -> None:
     """
     project_root = Path(__file__).resolve().parent
     repository_root = project_root.parents[1]
-    embedded = project_root / "olf" / "_embedded"
+    embedded = project_root / "olf" / "common" / "_embedded"
     archive = embedded / "platform.tar.gz"
     metadata = embedded / "platform.json"
     if not (repository_root / "infra").is_dir():
@@ -24,7 +24,7 @@ def _ensure_embedded_payload() -> None:
             return
         raise RuntimeError("embedded platform payload is missing and repository assets are unavailable")
 
-    from olf.distribution import build_embedded_payload
+    from olf.common.distribution import build_embedded_payload
 
     payload = build_embedded_payload(repository_root, archive=archive, metadata_path=metadata)
     package_version = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]

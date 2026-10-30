@@ -462,7 +462,7 @@ resource "aws_iam_policy" "stage_workloads" {
         # This account's Glue service refuses to create a custom catalog per
         # stage, so every stage shares the account's one default catalog
         # (bare "catalog" ARN, no trailing name). Isolation instead comes
-        # from the physical database name: olf.contracts.resolve_physical_
+        # from the physical database name: olf.infra.contracts.resolve_physical_
         # names prefixes every database this stage owns with its own
         # catalog_name ("lakehouse_dev_sales_silver", never bare
         # "sales_silver"), so a `database/<prefix>_*` / `table/<prefix>_*`
@@ -629,7 +629,7 @@ module "dagster" {
 
   # Bare "dagster" (the module default), same as local/azure-poc - the
   # release's own namespace already disambiguates stages, and the artifact
-  # pipeline's k8s.set_project_code_image() (olf/k8s.py) only knows how to
+  # pipeline's k8s.set_project_code_image() (olf/infra/k8s.py) only knows how to
   # patch that fixed set of chart-generated names; a per-stage release name
   # here made it silently skip every AWS deployment's rollout.
   namespace                      = kubernetes_namespace_v1.stage[each.key].metadata[0].name

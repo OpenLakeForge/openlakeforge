@@ -1,0 +1,227 @@
+"""Superset dashboard and OpenMetadata domain/data-product assertions."""
+
+from __future__ import annotations
+
+import time
+import urllib.parse
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any
+
+import yaml
+from openlakeforge_domain import LakehouseInventory
+
+from olf.common import config, log
+from olf.common.clients.base import ServiceClientError
+from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from olf.common.clients.superset import SupersetClient
+from olf.infra import access, k8s, superset
+from olf.infra.contracts import CONTRACT_STAGE_ENV
+from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
+from olf.infra.openmetadata._auth import admin_password, automation_token
+
+
+def check_superset_dashboards(cfg: E2EConfig) -> None:
+    log.step("Checking Superset report imports...")
+    assert cfg.superset_local_port is not None
+    log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
+    with access.service_url(
+        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting",
+        service="superset",
+        remote_port=8088,
+        namespace=cfg.namespace,
+        local_port=cfg.superset_local_port,
+        log_path=log_path,
+        shared_namespace=cfg.platform_namespace,
+        kube_context=cfg.kube_context,
+    ) as base_url:
+        if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
+            raise E2EError("Superset endpoint did not become reachable.")
+        try:
+            password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
+            dashboards = SupersetClient(base_url, password=password).dashboards()
+        except ServiceClientError as exc:
+            raise E2EError(str(exc)) from exc
+    assert_superset_dashboards(dashboards, discovered_dashboards(cfg))
+
+
+def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
+    """Read the slug/title of every dashboard actually exported.
+
+    A product's descriptor cannot say what its dashboard is titled or slugged
+    as, or how many it exports — that identity lives only in the
+    source-controlled Superset export YAML under
+    ``<report_source_dir>/dashboards/*.yaml`` (or ``.yml``, both of which
+    ``superset.build_report_bundle`` packages), which is what actually gets
+    imported. Reading it here (rather than inventing slug/title from
+    id/displayName) is what lets a product export a differently named or
+    multiple dashboards without failing this check.
+
+    Every bundle deployment imports (a directory with a ``metadata.yaml``) must export one.
+    """
+    expected: dict[str, str] = {}
+    for dashboard in sorted(cfg.inventory.dashboards, key=lambda item: item.report_source_dir):
+        report_dir = cfg.repo_root / dashboard.report_source_dir
+        dashboard_files = superset.discover_dashboard_files(report_dir)
+        if not dashboard_files:
+            raise E2EError(f"{report_dir / 'dashboards'}: dashboard {dashboard.name!r} exports no Superset dashboards")
+        for dashboard_file in dashboard_files:
+            expected.update(_read_dashboard_slug_title(dashboard_file))
+    return expected
+
+
+def _read_dashboard_slug_title(dashboard_file: Path) -> dict[str, str]:
+    document = yaml.safe_load(dashboard_file.read_text())
+    slug = document.get("slug") if isinstance(document, Mapping) else None
+    title = document.get("dashboard_title") if isinstance(document, Mapping) else None
+    if not slug or not title:
+        raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
+    return {slug: title}
+
+
+def assert_superset_dashboards(dashboards: list[Mapping[str, Any]], expected: Mapping[str, str]) -> None:
+    by_slug = {dashboard.get("slug"): dashboard.get("dashboard_title") for dashboard in dashboards}
+    titles = {dashboard.get("dashboard_title") for dashboard in dashboards}
+    missing = [
+        f"{slug} ({title})" for slug, title in expected.items() if by_slug.get(slug) != title and title not in titles
+    ]
+    if missing:
+        raise E2EError("missing Superset dashboards: " + ", ".join(missing))
+
+
+def check_openmetadata_assets(cfg: E2EConfig) -> None:
+    log.step("Checking OpenMetadata domains and data products...")
+    assert cfg.openmetadata_local_port is not None
+    log_path = f"/tmp/openlakeforge-{cfg.env}-openmetadata-port-forward.log"
+    with access.service_url(
+        "shared/governance_service",
+        service="openmetadata",
+        remote_port=8585,
+        namespace=cfg.platform_namespace,
+        local_port=cfg.openmetadata_local_port,
+        log_path=log_path,
+        shared_namespace=cfg.platform_namespace,
+        kube_context=cfg.kube_context,
+    ) as base_url:
+        if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
+            raise E2EError("OpenMetadata endpoint did not become reachable.")
+        token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context)
+        client = OpenMetadataClient(base_url, token=token)
+        password = "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context)
+        assert_openmetadata_assets(client, cfg.inventory, password)
+        stages = load_provider_contracts_or_raise(cfg).get("stages")
+        if not stages:
+            # A v2 (pre-stage) contract: stage-qualified roots never existed.
+            log.info("Skipping OpenMetadata stage roots: the provider contract has no stage index.")
+            return
+        stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
+        database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "")
+        assert_openmetadata_stage_roots(
+            client,
+            stage=stage,
+            stage_contract=stages[stage],
+            database_fqn=database_fqn,
+        )
+        gold_tables = [table for product in cfg.inventory.products for table in product_gold_tables(cfg, product)]
+        assert_openmetadata_stage_lineage(client, stage=stage, database_fqn=database_fqn, tables=gold_tables)
+
+
+def assert_openmetadata_stage_lineage(
+    client: OpenMetadataClient, *, stage: str, database_fqn: str, tables: Iterable[str]
+) -> None:
+    """Every governed stage emits its own lineage (#131), and OpenMetadata
+    resolves each dataset by `<service>.<database>.<schema>.<table>` (1.13+).
+    So this stage's Gold tables must have upstream lineage, and none of it may
+    reach another stage's database: a dataset name that lost its database
+    matches by schema and table alone, which are identical in every stage."""
+    log.step(f"Checking OpenMetadata lineage for stage {stage}...")
+    service_prefix = database_fqn.split(".", 1)[0] + "."
+    missing = []
+    for table in tables:
+        fqn = f"{database_fqn}.{table}"
+        path = f"/api/v1/lineage/table/name/{urllib.parse.quote(fqn, safe='')}?upstreamDepth=3&downstreamDepth=0"
+        try:
+            lineage = client.request("GET", path)
+        except OpenMetadataError as exc:
+            raise E2EError(f"cannot read OpenMetadata lineage for {fqn}: {exc}") from exc
+        nodes = [str(node.get("fullyQualifiedName", "")) for node in lineage.get("nodes") or ()]
+        foreign = sorted(n for n in nodes if n.startswith(service_prefix) and not n.startswith(f"{database_fqn}."))
+        if foreign:
+            raise E2EError(f"{fqn}'s lineage reaches another stage's tables: {foreign}")
+        if not lineage.get("upstreamEdges"):
+            missing.append(fqn)
+    if missing:
+        raise E2EError(f"stage {stage}'s Gold tables have no upstream lineage in OpenMetadata: {missing}")
+
+
+def assert_openmetadata_stage_roots(
+    client: OpenMetadataClient, *, stage: str, stage_contract: Mapping[str, Any], database_fqn: str
+) -> None:
+    """The shared OpenMetadata represents this stage under its own roots (#131):
+    its `<catalog service>.lakehouse_<stage>` database, its `dagster_<stage>`
+    pipeline service, and its `superset_<stage>` dashboard service when the
+    stage runs analytics -- and the unqualified services every deployment
+    registered before stage qualification are gone."""
+    log.step(f"Checking OpenMetadata service roots for stage {stage}...")
+    if not database_fqn:
+        raise E2EError("OPENLAKEFORGE_CATALOG_DATABASE_FQN is unset; cannot locate this stage's database root.")
+    expected = {
+        f"/api/v1/databases/name/{database_fqn}": f"database {database_fqn}",
+        "/api/v1/services/pipelineServices/name/"
+        + (stage_contract.get("orchestration") or {}).get("pipeline_service_name", f"dagster_{stage}"): "pipeline",
+    }
+    # Absent: the unqualified services registered before stage qualification,
+    # and this stage's dashboard service when it does not run analytics (the
+    # bootstrap removes it when analytics is turned off).
+    absent = ["/api/v1/services/pipelineServices/name/dagster", "/api/v1/services/dashboardServices/name/superset"]
+    if stage_contract.get("reporting"):
+        name = stage_contract["reporting"].get("dashboard_service_name", f"superset_{stage}")
+        expected[f"/api/v1/services/dashboardServices/name/{name}"] = "dashboard"
+    else:
+        absent.append(f"/api/v1/services/dashboardServices/name/superset_{stage}")
+    for path, what in expected.items():
+        try:
+            client.request("GET", path)
+        except OpenMetadataError as exc:
+            raise E2EError(f"OpenMetadata is missing stage {stage}'s {what} root ({path}): {exc}") from exc
+    for path in absent:
+        try:
+            client.request("GET", path, ok_statuses=(404,))
+        except OpenMetadataError as exc:
+            raise E2EError(f"a service that should not be registered still is ({path}): {exc}") from exc
+
+
+def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseInventory, password: str = "") -> None:
+    _openmetadata_e2e_login(client, password)
+    for domain in inventory.domain_names:
+        client.request("GET", f"/api/v1/domains/name/{domain}")
+    for product, candidates in inventory.openmetadata_data_products.items():
+        if not _first_existing_data_product(client, candidates):
+            raise E2EError(f"missing OpenMetadata data product {product}")
+
+
+def _openmetadata_e2e_login(client: OpenMetadataClient, password: str) -> None:
+    if client.token:  # the automation bot's: with SSO on, basic login answers 403
+        return
+    last_error: Exception | None = None
+    for _ in range(60):
+        try:
+            client.login("admin@open-metadata.org", password)
+            return
+        except OpenMetadataError as exc:
+            last_error = exc
+            time.sleep(2)
+    raise E2EError(f"OpenMetadata login failed: {last_error}")
+
+
+def _first_existing_data_product(client: OpenMetadataClient, candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        try:
+            client.request("GET", f"/api/v1/dataProducts/name/{candidate}")
+        except OpenMetadataTransientError:
+            raise
+        except OpenMetadataError:
+            continue
+        return candidate
+    return None
