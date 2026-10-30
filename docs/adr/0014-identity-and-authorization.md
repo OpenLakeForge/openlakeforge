@@ -61,12 +61,18 @@ the component catalog; it is not deployment-configurable. Terraform reads it
 with `yamldecode(file(...))` in each root's `contracts.tf`; `olf` reads the
 same file to validate the contract.
 
-| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) |
-| --- | --- | --- | --- | --- |
-| `platform-admin` | Admin | Admin | full | yes |
-| `data-engineer` | Alpha | write | full | yes |
-| `analyst` | Gamma | read | — | — |
-| `viewer` | read-only | read | — | — |
+| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) | Trino `/v1` for `olf query` (`query_api`) |
+| --- | --- | --- | --- | --- | --- |
+| `platform-admin` | Admin | Admin | full | yes | yes |
+| `data-engineer` | Alpha | write | full | yes | yes |
+| `analyst` | Gamma | read | — | — | yes |
+| `viewer` | read-only | read | — | — | yes |
+
+`query_api` is the query service's `/v1` path, not a route of its own: the
+ingress routes `trino.<base_domain>/v1` to the `viewer` floor when people sign
+in with GitHub, while the Web UI keeps the `query` floor. What a person reads
+there is decided by Polaris, not this row ([ADR 0019](0019-data-plane-authorization-deferral.md)).
+The perimeter's `path_refs` give it a floor; `protected_routes` does not list it.
 
 Rules that bind:
 
@@ -250,7 +256,7 @@ Route grants are read from `release/identity-roles.yaml` and nowhere else.
 | Piece | How |
 | --- | --- |
 | Role floor | Grants are monotonic, so what a service admits is a prefix of `precedence`, fully described by its lowest role. The module computes each protected route's floor from its service name (`portal` has none: the lowest role) |
-| Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today: `oauth2-proxy-viewer` (any recognised role: portal, Superset, OpenMetadata) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new service is a row in the matrix; a new floor is a new instance without new code |
+| Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today: `oauth2-proxy-viewer` (any recognised role: portal, Superset, OpenMetadata, Trino `/v1` with people's access) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new service is a row in the matrix; a new floor is a new instance without new code |
 | Middleware | Traefik file-provider middlewares (a `Middleware` CRD cannot be planned before the Traefik release installs it): `olf-strip-identity` deletes every inbound `X-Forwarded-*` / `X-Auth-Request-*` identity header, then `olf-auth-<floor>` forwards to that floor's proxy and copies only the proxy's `X-Auth-Request-*` headers upstream |
 | Ingress | One `Ingress` per namespace and floor (`openlakeforge-routes[-<floor>]`) carrying the middleware annotation; the namespace's one wildcard certificate is still issued from a single primary `Ingress` (ADR 0013 decision 6) |
 | Protected set | Every route of `shared.access.routes` except `shared/identity`, derived, never listed. `olf` rejects a contract whose `shared.access.perimeter.protected_routes` differs |
@@ -572,3 +578,6 @@ that need cluster or cloud permissions live under `olf infra` and stay class 2;
 commands that need none (`init`, `check`, scaffolding) have no identity; a
 platform surface that signs a person in through Dex, and so is class 1, is
 decided and not built.
+
+`query_api` grant row: Trino's `/v1` at the `viewer` floor for `olf query`,
+routed at the ingress without a contract route (ADR 0019, build step 6).

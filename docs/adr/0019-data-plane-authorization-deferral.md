@@ -2,15 +2,15 @@
 
 ## Status
 
-Decided, **build steps 1 to 5 and 7 (`olf query`) of 8 landed** (tracked in #674): this is the
+Decided, **build steps 1 to 7 of 8 landed** (tracked in #674): this is the
 design for #367. Step 1 puts `data_access` in the role model, validated by
 `olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
 catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
 and creates the principal, roles and catalog grants of section 5, except the
 Gold namespace grants. Step 4 makes `olf infra catalog sync-namespaces` grant
 those, with the deployer's added privilege. Step 5 makes Trino accept people's
-tokens and adds the people catalogs, and step 7 adds `olf query`; nothing
-routes a person's query to Trino until step 6. Verification items 1 (SeaweedFS STS enforces the session policy),
+tokens and adds the people catalogs, step 6 routes Trino's `/v1` to the `viewer`
+floor, and step 7 adds `olf query`. Verification items 1 (SeaweedFS STS enforces the session policy),
 2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
 local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
 needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
@@ -352,6 +352,12 @@ Split along the seams `AGENTS.md` names, each with its tests:
    chain would have handed a people catalog without vended credentials; the
    key moved to `OPENLAKEFORGE_S3_*` (ADR 0016).
 6. Dex `olf-cli` client and the `query_api` route and perimeter instance.
+   **Landed:** the `olf-cli` client and the perimeter's acceptance of its
+   bearer tokens already existed (`olf platform`); the step adds the
+   `query_api` grant row and an ingress-only route `trino.<base_domain>/v1` at
+   the `viewer` floor. It is not a contract route: a contract route is one host
+   per service, so the perimeter takes it as a path ref, outside
+   `protected_routes`.
 7. `olf infra query` person path, `--as-workload`, the token cache, and `olf e2e`
    cases: per role through the stub GitHub users the e2e already runs, an
    `analyst` denied DEV Silver, a `viewer` denied DEV Gold, a
@@ -524,3 +530,8 @@ people catalog, an analyst reads Gold and is refused a write by S3, a query
 without the person's token fails closed, a token cannot act as another user or
 use a workload catalog, another client's token gets 401, and a person sees only
 their own queries.
+
+Build step 6: the `query_api` grant row (every role) and, with `issuer: github`
+and Trino at `password`, an ingress route for `trino.<base_domain>/v1` behind
+the `viewer` floor; the Web UI keeps the `data-engineer` floor. Its bearer path
+is the one verification item 9 ran.

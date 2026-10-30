@@ -72,7 +72,10 @@ _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets
 # route can publish to users can carry one; identity is the login surface and
 # is never behind the perimeter, and the portal is the post-login landing page
 # every authenticated user reaches, so it is never role-gated either.
-_GRANTABLE_SERVICES = _USER_FACING_SERVICES - {"identity", "portal"}
+# `query_api` is the query service's /v1 path, routed at the ingress under its
+# own floor without a contract route of its own (ADR 0019): one host per
+# service still holds.
+_GRANTABLE_SERVICES = (_USER_FACING_SERVICES - {"identity", "portal"}) | {"query_api"}
 IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 
 # Data access is ordered so monotonicity is a comparison; absent is none.

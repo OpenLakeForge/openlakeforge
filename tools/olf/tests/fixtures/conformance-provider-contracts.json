@@ -216,6 +216,12 @@
             "data-engineer": "yes",
             "platform-admin": "yes"
           },
+          "query_api": {
+            "analyst": "yes",
+            "data-engineer": "yes",
+            "platform-admin": "yes",
+            "viewer": "yes"
+          },
           "reporting": {
             "analyst": "Gamma",
             "data-engineer": "Alpha",
