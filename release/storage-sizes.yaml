@@ -6,8 +6,8 @@
 # PROVISIONAL. Only `small` is today's measured footprint. `medium` and `large`
 # are sized from the rough ranges in docs/reference/deployment-profile.md
 # (a few hundred GB, 1-5 TB) and stay provisional until the #329 report
-# calibrates them. The profile still accepts only `small` for `storage.size`:
-# a row is selectable once `olf` enforces that a volume only grows (#326).
+# calibrates them. A size is fixed once a deployment exists
+# (docs/reference/deployment-profile.md, "Changing the storage size").
 #
 # object_store.master, filer: metadata PVCs, sized for the object count the data
 #   volume implies, not for the data itself.

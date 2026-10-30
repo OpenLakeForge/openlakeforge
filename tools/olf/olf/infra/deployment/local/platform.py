@@ -26,6 +26,7 @@ from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
 from olf.infra.deployment.engine import DeploymentConfig
+from olf.infra.deployment.storage_resize import require_storage_size_applies
 from olf.infra.github_app import GitHubApp, store_app
 
 _APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
@@ -566,6 +567,7 @@ def platform_up(
 
     require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env=env)
+    require_storage_size_applies(config, tools, kube_context=config.kube_context, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 
     variables = platform_apply_variables(config)
