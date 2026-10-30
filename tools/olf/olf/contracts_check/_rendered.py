@@ -88,7 +88,7 @@ def _check_silver_load_modes(repo_root: Path) -> CheckResult:
                 continue
             entity = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             source = entity.get("source") or {}
-            load = loads.get((source.get("ref"), source.get("resource")))
+            load = loads.get((str(source.get("ref")), str(source.get("resource"))))
             if load is None:
                 continue
             checked += 1

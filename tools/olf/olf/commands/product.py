@@ -90,7 +90,7 @@ def product_run(
     try:
         with applied_runtime_environment(context, env=provider) as kube_context:
             cfg = prepare_config(
-                provider,  # type: ignore[arg-type]
+                provider,
                 suite=None,
                 namespace=context.namespace,
                 shared_namespace=context.shared_namespace,
