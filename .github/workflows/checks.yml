@@ -119,6 +119,16 @@ jobs:
           uv run --project tools/olf pytest tools/olf/tests
           --cov --cov-config=tools/olf/pyproject.toml
 
+      # The platform API keeps its own locked environment: FastAPI and uvicorn
+      # are its dependencies, not olf's.
+      - name: Type-check the platform API
+        working-directory: packages/platform-api
+        run: uv run --locked mypy
+
+      - name: Test the platform API
+        working-directory: packages/platform-api
+        run: uv run --locked pytest tests
+
   dbt:
     name: Validate product dbt projects
     runs-on: ubuntu-latest

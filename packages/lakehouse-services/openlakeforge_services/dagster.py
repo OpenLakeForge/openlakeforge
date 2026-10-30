@@ -1,4 +1,4 @@
-"""Dagster GraphQL client: launch, poll and inspect runs."""
+"""Dagster GraphQL client: list jobs and runs, launch, poll and inspect runs."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
@@ -27,6 +28,42 @@ class DagsterHTTPError(ServiceClientError):
     """Non-transient Dagster HTTP response (normally a client error)."""
 
     pass
+
+
+# The fields every run read selects, so `DagsterRun.from_graphql` sees one shape.
+_RUN_FIELDS = "runId jobName status creationTime startTime endTime tags { key value }"
+
+
+@dataclass(frozen=True)
+class DagsterJob:
+    location: str
+    repository: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class DagsterRun:
+    run_id: str
+    job_name: str
+    status: str
+    # Unix seconds, as Dagster reports them; a queued run has no start yet.
+    created_at: float
+    started_at: float | None
+    ended_at: float | None
+    tags: Mapping[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_graphql(cls, run: Mapping[str, Any]) -> DagsterRun:
+        return cls(
+            run_id=str(run["runId"]),
+            job_name=str(run["jobName"]),
+            status=str(run["status"]),
+            created_at=float(run["creationTime"]),
+            started_at=run.get("startTime"),
+            ended_at=run.get("endTime"),
+            tags={tag["key"]: tag["value"] for tag in run.get("tags") or []},
+        )
 
 
 class DagsterClient:
@@ -110,6 +147,77 @@ class DagsterClient:
             return str(runs[0]["runId"]) if runs else None
         except ServiceClientError:
             return None
+
+    def list_jobs(self) -> list[DagsterJob]:
+        """Every job the loaded code locations define, without Dagster's implicit asset jobs."""
+        result = self.graphql(
+            """
+            query Jobs {
+              repositoriesOrError {
+                __typename
+                ... on RepositoryConnection {
+                  nodes { name location { name } jobs { name description } }
+                }
+                ... on PythonError { message }
+              }
+            }
+            """,
+        )["repositoriesOrError"]
+        if result.get("__typename") != "RepositoryConnection":
+            raise ServiceClientError(f"Dagster could not list its repositories: {result.get('message', result)}")
+        return [
+            DagsterJob(
+                location=repository["location"]["name"],
+                repository=repository["name"],
+                name=job["name"],
+                description=job.get("description") or "",
+            )
+            for repository in result.get("nodes", [])
+            for job in repository.get("jobs", [])
+            # `__ASSET_JOB` and its partitioned variants are Dagster's own, not the project's.
+            if not job["name"].startswith("__")
+        ]
+
+    def list_runs(self, *, job_name: str = "", limit: int = 20) -> list[DagsterRun]:
+        """The most recent runs, newest first, optionally of one job."""
+        result = self.graphql(
+            f"""
+            query Runs($filter: RunsFilter, $limit: Int) {{
+              runsOrError(filter: $filter, limit: $limit) {{
+                __typename
+                ... on Runs {{ results {{ {_RUN_FIELDS} }} }}
+                ... on InvalidPipelineRunsFilterError {{ message }}
+                ... on PythonError {{ message }}
+              }}
+            }}
+            """,
+            # Dagster's run filter still names the job `pipelineName`.
+            {"filter": {"pipelineName": job_name} if job_name else {}, "limit": limit},
+        )["runsOrError"]
+        if result.get("__typename") != "Runs":
+            raise ServiceClientError(f"Dagster could not list runs: {result.get('message', result)}")
+        return [DagsterRun.from_graphql(run) for run in result.get("results", [])]
+
+    def get_run(self, run_id: str) -> DagsterRun | None:
+        """One run, or None if Dagster has no run with that id."""
+        result = self.graphql(
+            f"""
+            query Run($runId: ID!) {{
+              runOrError(runId: $runId) {{
+                __typename
+                ... on Run {{ {_RUN_FIELDS} }}
+                ... on RunNotFoundError {{ message }}
+                ... on PythonError {{ message }}
+              }}
+            }}
+            """,
+            {"runId": run_id},
+        )["runOrError"]
+        if result.get("__typename") == "RunNotFoundError":
+            return None
+        if result.get("__typename") != "Run":
+            raise ServiceClientError(f"Dagster could not read run {run_id}: {result.get('message', result)}")
+        return DagsterRun.from_graphql(result)
 
     def wait_for_repository(
         self,
