@@ -344,23 +344,21 @@ file of it can be read.
 
 ### Proof: SeaweedFS STS session policy (item 1)
 
-`uv run --project tools/olf python docs/testing/seaweedfs_sts_proof.py`
-downloads the SeaweedFS image pinned in `release/component-catalog.yaml` by
-digest, checks the index, the linux/amd64 manifest and every layer against
-their sha256, and runs its `/usr/bin/weed` as one `weed server`
-process with an S3 identity file and an advanced IAM file (`-s3.iam.config`).
-No cluster, no Docker. It fetches from Docker Hub; `--registry mirror.gcr.io`
-fetches the same digest from Google's Docker Hub mirror when Docker Hub
-rate-limits anonymous pulls, and the digest check makes the two equivalent. The
-IAM file defines one role, `polaris-vending`, with
+A throwaway script, run locally and not kept in the repository, downloaded the
+SeaweedFS image pinned in `release/component-catalog.yaml` by digest, checked
+the index, the linux/amd64 manifest and every layer against their sha256, and
+ran its `/usr/bin/weed` as one `weed server` process with an S3 identity file
+and an advanced IAM file (`-s3.iam.config`). No cluster, no Docker. Any
+registry serving the pinned digest is equivalent under that check; Docker Hub
+rate-limited the anonymous layer downloads, so the 4.48 run fetched it from
+Google's Docker Hub mirror (`mirror.gcr.io`). The IAM file defined one role, `polaris-vending`, with
 `s3:*` on the bucket, trusted only by the identity `polaris`
 (`arn:aws:iam::000000000000:user/polaris`, SeaweedFS's fixed account id). The
-script calls `AssumeRole` as `polaris` with the session policy Polaris 1.4.0
+script called `AssumeRole` as `polaris` with the session policy Polaris 1.4.0
 builds for a table (`AwsCredentialsStorageIntegration.policyString`: `GetObject`
 and `GetObjectVersion` on `<table>/*`, `ListBucket` with an `s3:prefix`
 condition, `GetBucketLocation`, and `PutObject`/`DeleteObject` for a write
-location; 405 characters for one table). Its self-check is
-`tools/olf/tests/test_seaweedfs_sts_proof.py`.
+location; 405 characters for one table).
 
 Run on 2026-10-30 against `chrislusf/seaweedfs:4.48` (version `30GB 4.48
 530be3e37`, fetched through `mirror.gcr.io`): exit 0, all 16 cases passing. The
@@ -474,7 +472,8 @@ retention fix. Finding 3 was re-read at tag `4.48`: `AssumeRole` still takes a
 `Policy` through `sts.NormalizeSessionPolicy` and still allows 15 minutes to 12
 hours unless an STS `MaxSessionLength` is configured, which this stack does not.
 
-Verification item 1 run: `docs/testing/seaweedfs_sts_proof.py` against the
-pinned SeaweedFS binary, 16 cases passing on 4.23 and again on 4.48; section 3,
-finding 3 is now verified by a run, and the proof records what build step 2
-must configure.
+Verification item 1 run against the pinned SeaweedFS binary, 16 cases passing
+on 4.23 and again on 4.48; section 3, finding 3 is now verified by a run, and
+the proof records what build step 2 must configure. The script that ran it was
+removed from the repository afterwards: proofs for this design are run
+locally and only their results are recorded here.
