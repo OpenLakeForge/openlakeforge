@@ -31,6 +31,13 @@ grants:
   query: # Trino UI
     platform-admin: "yes"
     data-engineer: "yes"
+  # Trino's /v1 for `olf infra query`, a person's own queries (ADR 0019): every
+  # role reaches it, and Polaris's grants decide which tables each one reads.
+  query_api:
+    platform-admin: "yes"
+    data-engineer: "yes"
+    analyst: "yes"
+    viewer: "yes"
 
 # data_access (ADR 0019): role -> stage -> medallion layer -> read | write, for
 #   a person's own queries; an absent role, stage or layer is no access. Polaris

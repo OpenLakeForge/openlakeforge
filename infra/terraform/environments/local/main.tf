@@ -282,6 +282,7 @@ module "perimeter" {
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
   cli_client_id     = local.identity_oidc.clients["olf-cli"].client_id
   protected_refs    = local.perimeter_protected_refs
+  path_refs         = local.query_api_enabled ? ["shared/query_api"] : []
   scope             = local.identity_scope
 
   github_organization = try(var.identity_github.organization, null)

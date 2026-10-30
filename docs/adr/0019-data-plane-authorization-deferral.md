@@ -2,7 +2,7 @@
 
 ## Status
 
-Decided, **build steps 1 to 3 of 8 landed** (tracked in #674): this is the
+Decided, **build steps 1 to 3 and 6 of 8 landed** (tracked in #674): this is the
 design for #367. Step 1 puts `data_access` in the role model, validated by
 `olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
 catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
@@ -327,6 +327,12 @@ Split along the seams `AGENTS.md` names, each with its tests:
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
    rules of section 4, step 6.
 6. Dex `olf-cli` client and the `query_api` route and perimeter instance.
+   **Landed:** the `olf-cli` client and the perimeter's acceptance of its
+   bearer tokens already existed (`olf platform`); the step adds the
+   `query_api` grant row and an ingress-only route `trino.<base_domain>/v1` at
+   the `viewer` floor. It is not a contract route: a contract route is one host
+   per service, so the perimeter takes it as a path ref, outside
+   `protected_routes`.
 7. `olf infra query` person path, `--as-workload`, the token cache, and `olf e2e`
    cases: per role through the stub GitHub users the e2e already runs, an
    `analyst` denied DEV Silver, a `viewer` denied DEV Gold, a
@@ -471,3 +477,8 @@ each role's catalog role to its `data_access` row. Polaris reaches Traefik for
 Dex's keys (ADR 0017, F4). Checked against the pinned Polaris 1.4.0 and Dex:
 it starts while Dex is unreachable, and a token whose groups map to no role
 reaches nothing.
+
+Build step 6: the `query_api` grant row (every role) and, with `issuer: github`
+and Trino at `password`, an ingress route for `trino.<base_domain>/v1` behind
+the `viewer` floor; the Web UI keeps the `data-engineer` floor. Its bearer path
+is the one verification item 9 ran.

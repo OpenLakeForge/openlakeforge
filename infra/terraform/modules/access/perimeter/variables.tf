@@ -100,6 +100,12 @@ variable "protected_refs" {
   type        = list(string)
 }
 
+variable "path_refs" {
+  description = "Refs of ingress-only path routes on a protected route's host, with no contract route of their own (ADR 0019: shared/query_api, Trino's /v1). Each gets the floor of its own grant row in identity_roles; protected_routes in the contract does not list them."
+  type        = list(string)
+  default     = []
+}
+
 variable "github_organization" {
   description = "GitHub organisation named on the sign-in failure page; null when the issuer is not GitHub."
   type        = string
