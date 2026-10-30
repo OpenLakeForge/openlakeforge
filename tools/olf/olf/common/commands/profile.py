@@ -60,6 +60,7 @@ def resolve(
         return
 
     typer.echo(f"provider={topology.provider.value} region={topology.region} preset={topology.preset.value}")
+    typer.echo(f"sizes: query={topology.query_size.value} storage={topology.storage_size.value}")
     for stage in topology.stages:
         typer.echo(
             f"  {stage.name.value}: enabled={stage.enabled} "
