@@ -30,6 +30,7 @@ workloads:
   traefik: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}
   oauth2-proxy: {openlakeforge.io/workload: oauth2-proxy} # a pod label the perimeter module sets; the floors differ in name
   portal: {app.kubernetes.io/name: portal}
+  platform-api: {app.kubernetes.io/name: platform-api}
   dex: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}
   cert-manager-controller: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}
   cert-manager-cainjector: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}
@@ -199,6 +200,11 @@ flows:
     tag: V
   - id: F3
     from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    ports: [8080] # /api on the portal's host
+    tag: V
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
     tag: V
@@ -207,6 +213,11 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     ports: [8443, 8000] # web when the issuer is none
     tag: V
+  - id: F4
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443, 8000] # the platform API reads the issuer's discovery document and keys at its public URL
+    tag: T # needs a token validated on a running cluster
   - id: F4
     from:
       - {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}

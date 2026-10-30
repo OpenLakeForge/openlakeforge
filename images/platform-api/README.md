@@ -8,8 +8,10 @@ mount its root filesystem read-only.
 
 The release workflow builds, signs and publishes it by digest with the other
 first-party images. No release has published it yet, so
-`release/component-catalog.yaml` holds no pin for it. Until one does, it is
-built and loaded into kind locally, as Superset is on a non-amd64 engine:
+`release/component-catalog.yaml` holds no pin for it. Until one does,
+`olf infra deploy --provider local` builds it and loads it into kind whenever
+the profile has `spec.identity`, as it builds Superset on a non-amd64 engine.
+The same two steps by hand:
 
 ```bash
 uv run --project tools/olf --locked olf images build platform-api

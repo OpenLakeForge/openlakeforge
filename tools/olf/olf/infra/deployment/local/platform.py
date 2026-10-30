@@ -559,6 +559,14 @@ def platform_up(
 
         superset_tag = images.prepare_superset_image(config, tools, env=env)
 
+    # The platform API validates tokens against the issuer, so it is deployed
+    # only with spec.identity (modules/access/platform-api).
+    platform_api_image = None
+    if config.context.topology.identity is not None:
+        from olf.infra.deployment.local import images
+
+        platform_api_image = images.prepare_platform_api_image(config, tools, env=env)
+
     prepare_charts(config, tools, env=env)
 
     log.step("Initializing Terraform...")
@@ -575,6 +583,8 @@ def platform_up(
             "superset_image_tag": superset_tag,
             "superset_image_pull_policy": "Never",
         }
+    if platform_api_image:
+        variables |= {"platform_api_image": platform_api_image}
     var_files = platform_var_files(config)
 
     namespace_resources = {_SHARED_NAMESPACE_RESOURCE_ADDR: config.context.shared_namespace} | {

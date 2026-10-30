@@ -177,8 +177,8 @@ port [D]).
 | --- | --- | --- | --- | --- | --- |
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `issuer: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
-| F3 | Traefik | Dex, portal, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` in `contracts.tf` | V |
-| F4 | oauth2-proxy; the Trino coordinator (8443 only: its Web UI sign-in is HTTPS routes only) | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite; Trino's token and key requests to the same URL | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands; the Trino row **T** |
+| F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
+| F4 | oauth2-proxy; the Trino coordinator (8443 only: its Web UI sign-in is HTTPS routes only); the platform API | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite; Trino's and the platform API's key requests to the same URL | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands; the Trino and platform API rows **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
@@ -195,7 +195,7 @@ port [D]).
 | F19 | Polaris bootstrap, metastore bootstrap and replication Jobs | Polaris | 8181 | `bootstrap.sh.tftpl` | V |
 | F20 | Jobs: `dex-credentials`, `trino-credentials`, `postgresql-credentials`, `perimeter-cookie-secret`, `publish-local-ca`, `catalog-bootstrap`, `catalog-credential-replication`, `governance-bootstrap`, `governance-credential-replication`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `libs/k8s_log_archive.py`]) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
 | F21 | API server (control-plane node) | cert-manager webhook | 10250 | admission webhook | node-sourced traffic **T** |
-| F23 | oauth2-proxy and, later, OIDC clients | an `issuer: external` host | 443 | profile-driven, same rendering | T |
+| F23 | oauth2-proxy, the platform API | an `issuer: external` host | 443 | profile-driven, same rendering; the platform API reads the issuer's discovery document and keys | T |
 | F24 | kubelet (node) | any pod | probes | not a policy flow: node-to-local-pod traffic is not blocked [D] | T |
 | F25 | `kubectl port-forward`, `exec`, `logs` | any pod | none | the kubelet's runtime stream enters the pod's own network namespace, loopback, never crossing the policy hooks [D] | T |
 | F28 | Dex | any address outside the pod and Service ranges | 443 | Dex calls `github.com` and `api.github.com` at every login and refresh ([ADR 0014](0014-identity-and-authorization.md), "Network"); NetworkPolicy has no FQDN selector, so the rule is the port on any address, on the Dex pods only | T |
@@ -472,7 +472,10 @@ workloads when the profile does not deploy them, and, following #406's
 switches, Traefik, the portal and the CA-publishing Job with `access_enabled`,
 cert-manager with its module count, and oauth2-proxy and its cookie Job with
 `identity_enabled`, so a quickstart or an access-without-identity profile plans
-no policy for an absent workload. Decision 3 is amended (above): F29 is a row
+no policy for an absent workload. The platform API (ADR 0021, #666) follows its
+module count: F3 from Traefik, F4 to Traefik for the issuer's keys, and F23
+with an external issuer; it has no apiserver row and mounts no service account
+token. Decision 3 is amended (above): F29 is a row
 keyed on a label the e2e sets. Still **[T]**: OpenSearch's and OpenMetadata's
 pod labels (the dependencies chart is not rendered here), OpenMetadata's own
 Service hairpin, whether OpenMetadata calls Polaris or SeaweedFS (no row
