@@ -52,6 +52,14 @@
         }
       }
     },
+    "oidcPublicClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_id"],
+      "properties": {
+        "client_id": {"$ref": "#/definitions/nonEmptyString"}
+      }
+    },
     "identityBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -91,12 +99,13 @@
         "clients": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["perimeter", "superset", "openmetadata", "trino"],
+          "required": ["perimeter", "superset", "openmetadata", "trino", "olf-cli"],
           "properties": {
             "perimeter": {"$ref": "#/definitions/oidcClient"},
             "superset": {"$ref": "#/definitions/oidcClient"},
             "openmetadata": {"$ref": "#/definitions/oidcClient"},
-            "trino": {"$ref": "#/definitions/oidcClient"}
+            "trino": {"$ref": "#/definitions/oidcClient"},
+            "olf-cli": {"$ref": "#/definitions/oidcPublicClient"}
           }
         },
         "roles": {

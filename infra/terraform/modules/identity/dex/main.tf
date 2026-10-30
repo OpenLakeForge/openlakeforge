@@ -83,14 +83,16 @@ locals {
     # Dex matches redirect URIs exactly. The consumers' wildcard entries match
     # nothing until each is wired to OIDC (#25) with its callback path;
     # Superset's already is.
-    staticClients = [
+    # A public client has no redirectURIs on purpose: Dex then accepts
+    # loopback redirects (127.0.0.1, localhost, [::1]) on any port, and nothing else.
+    staticClients = concat([
       for name, client in var.clients : {
         id           = name
         name         = name
         secretEnv    = local.client_secret_env[name]
         redirectURIs = client.redirect_uris
       }
-    ]
+    ], [for name in var.public_clients : { id = name, name = name, public = true }])
   }
   config_yaml = jsonencode(local.config)
 

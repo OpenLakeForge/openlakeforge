@@ -365,6 +365,10 @@ locals {
     }
   }
 
+  # Public clients hold no secret: the CLI proves possession with PKCE and a
+  # loopback redirect, which the issuer accepts on any port.
+  identity_public_clients = ["olf-cli"]
+
   # Consumer-facing identity.oidc fields (ADR 0014). With an external issuer
   # the operator provisions the client Secrets, named by consumer like the
   # adapter's own; client ids default to the consumer names unless the issuer
@@ -377,12 +381,15 @@ locals {
     issuer_url   = try(var.identity_external.issuer_url, null)
     role_claim   = try(var.identity_external.role_claim, null)
     role_mapping = try(var.identity_external.role_mapping, null)
-    clients = {
-      for name in keys(local.identity_client_redirects) : name => {
-        client_id  = try(var.identity_external.client_ids[name], name)
-        secret_ref = { name = "oidc-client-${name}", key = "client-secret" }
-      }
-    }
+    clients = merge(
+      {
+        for name in keys(local.identity_client_redirects) : name => {
+          client_id  = try(var.identity_external.client_ids[name], name)
+          secret_ref = { name = "oidc-client-${name}", key = "client-secret" }
+        }
+      },
+      { for name in local.identity_public_clients : name => { client_id = try(var.identity_external.client_ids[name], name) } },
+    )
   }
 
   identity_contract = {

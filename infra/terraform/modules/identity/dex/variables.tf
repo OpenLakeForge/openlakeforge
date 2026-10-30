@@ -47,6 +47,12 @@ variable "clients" {
   }))
 }
 
+variable "public_clients" {
+  description = "Public OIDC clients (no secret), keyed by id. Dex then accepts loopback redirect URIs on any port, so none is registered, and issues refresh tokens without a secret. Dex does not enforce PKCE; the client must send it."
+  type        = set(string)
+  default     = []
+}
+
 variable "postgresql_contract" {
   description = "Shared PostgreSQL contract: host, port, and the dex entry of `databases` (db_name, db_user, credentials_secret_name)."
   type = object({
