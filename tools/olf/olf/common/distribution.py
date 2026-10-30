@@ -42,6 +42,7 @@ _PAYLOAD_FILES = (
     "release/component-catalog.yaml",
     "release/identity-roles.yaml",
     "release/network-flows.yaml",
+    "release/storage-sizes.yaml",
 )
 _EXCLUDED_PARTS = frozenset({".terraform", ".tmp", "__pycache__", ".pytest_cache", ".venv", "dist", "build"})
 _CATALOG_VERSION = re.compile(r"^distribution:\s*$.*?^\s+version:\s*['\"]?([^'\"\s#]+)", re.MULTILINE | re.DOTALL)
