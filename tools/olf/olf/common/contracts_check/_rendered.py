@@ -61,8 +61,8 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
 
 
 # Not `append`: a `bronze` full refresh lands every row again as new files, and
-# Floe cannot rebuild an appended table for one run (OpenLakeForge/floe#1091),
-# so the refresh would duplicate the whole history. A merge absorbs it.
+# dagster-floe 0.4.2 cannot ask Floe to rebuild Silver for one run, so the
+# refresh would duplicate the whole history. A merge absorbs it.
 _INCREMENTAL_WRITE_MODES = ("merge_scd1", "merge_scd2")
 
 

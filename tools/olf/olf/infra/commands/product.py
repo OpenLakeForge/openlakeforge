@@ -17,8 +17,8 @@ def product_run(
     full_refresh: str = typer.Option(
         "",
         "--full-refresh",
-        help="Run dbt with --full-refresh for this run: 'bronze' or 'gold'. Bronze and Silver reload in full on every "
-        "run until a loader is incremental, so the two scopes differ only once one is.",
+        help="Full refresh for this run: 'bronze' re-extracts incremental Bronze resources and rebuilds Gold, "
+        "'gold' rebuilds Gold only.",
     ),
     profile_file: str = typer.Option(
         "openlakeforge.yaml", "--profile-file", "-f", help="Deployment Profile the deployment was applied from."
@@ -26,8 +26,8 @@ def product_run(
 ) -> None:
     """Launch a product's pipeline in a stage and wait for it to finish.
 
-    The run reloads its Bronze and Silver inputs as their loaders do today, in
-    full, and dbt builds Gold. A full refresh applies to this one run only.
+    The run loads Bronze as each resource's `source.yaml` load mode declares,
+    and dbt builds Gold. A full refresh applies to this one run only.
     """
     from openlakeforge_domain import FULL_REFRESH_SCOPES, FULL_REFRESH_TAG
 
