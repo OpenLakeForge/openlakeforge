@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from .base import JsonHttpClient, ServiceClientError, TransientServiceError
@@ -19,6 +20,14 @@ class OpenMetadataTransientError(TransientServiceError):
     """OpenMetadata transient error (5xx, connection, timeout)."""
 
     pass
+
+
+@dataclass(frozen=True)
+class DataProduct:
+    name: str
+    display_name: str
+    # Names of the domains the product belongs to; OpenMetadata 1.13 allows several.
+    domains: tuple[str, ...]
 
 
 class OpenMetadataClient(JsonHttpClient):
@@ -42,17 +51,36 @@ class OpenMetadataClient(JsonHttpClient):
 
     def list_domains(self, *, page_size: int = 100) -> list[tuple[str, str]]:
         """Every domain's name and display name, following the `paging.after` cursor to the last page."""
-        domains: list[tuple[str, str]] = []
+        return [
+            (domain["name"], domain.get("displayName") or "")
+            for domain in self._list_all("/api/v1/domains", {}, page_size)
+        ]
+
+    def list_data_products(self, *, page_size: int = 100) -> list[DataProduct]:
+        """Every data product with the domains it belongs to, across all pages."""
+        return [
+            DataProduct(
+                name=product["name"],
+                display_name=product.get("displayName") or "",
+                domains=tuple(domain["name"] for domain in product.get("domains") or []),
+            )
+            # `domains` is not returned unless asked for; 1.13.6's DataProductResource lists it in FIELDS.
+            for product in self._list_all("/api/v1/dataProducts", {"fields": "domains"}, page_size)
+        ]
+
+    def _list_all(self, path: str, params: Mapping[str, Any], page_size: int) -> list[Mapping[str, Any]]:
+        """Every entity of a collection, following the `paging.after` cursor to the last page."""
+        entities: list[Mapping[str, Any]] = []
         after = ""
         while True:
-            params: dict[str, Any] = {"limit": page_size}
+            query: dict[str, Any] = {**params, "limit": page_size}
             if after:
-                params["after"] = after
-            page = self.request("GET", "/api/v1/domains", params=params)
-            domains += [(domain["name"], domain.get("displayName") or "") for domain in page.get("data", [])]
+                query["after"] = after
+            page = self.request("GET", path, params=query)
+            entities += page.get("data", [])
             after = page.get("paging", {}).get("after") or ""
             if not after:
-                return domains
+                return entities
 
     def request(
         self,
@@ -75,6 +103,6 @@ class OpenMetadataClient(JsonHttpClient):
                 content_type=content_type,
             )
         except TransientServiceError as exc:
-            raise OpenMetadataTransientError(str(exc)) from exc
+            raise OpenMetadataTransientError(str(exc), status=exc.status) from exc
         except ServiceClientError as exc:
-            raise OpenMetadataError(str(exc)) from exc
+            raise OpenMetadataError(str(exc), status=exc.status) from exc

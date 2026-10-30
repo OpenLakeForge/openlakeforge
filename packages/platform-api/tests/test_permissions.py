@@ -50,6 +50,8 @@ def test_the_shipped_app_serves_only_its_read_routes(settings: Settings) -> None
 
     assert sorted((route.path, ",".join(sorted(route.methods or ()))) for route in routes) == [
         ("/api/healthz", "GET"),
+        ("/api/v1/data-products", "GET"),
+        ("/api/v1/domains", "GET"),
         ("/api/v1/stages/{stage}/jobs", "GET"),
         ("/api/v1/stages/{stage}/runs", "GET"),
         ("/api/v1/stages/{stage}/runs/{run_id}", "GET"),

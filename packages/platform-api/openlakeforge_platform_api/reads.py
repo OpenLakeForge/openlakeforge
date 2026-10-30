@@ -1,7 +1,10 @@
-"""Read endpoints: Dagster jobs and runs per stage.
+"""Read endpoints: Dagster jobs and runs per stage, OpenMetadata domains and data products.
 
-Dagster checks nothing (ADR 0021, decision 2), so the API reaches it with no
-credential and the permission matrix is the only check.
+The two services take different identities (ADR 0021, decision 2). Dagster
+checks nothing, so the API reaches it with no credential and the permission
+matrix is the only check. OpenMetadata authorizes by the person's own roles, so
+the API forwards the caller's token unchanged and holds no OpenMetadata
+credential.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any
 from fastapi import HTTPException, Query, Request
 from openlakeforge_services.base import ServiceClientError, TransientServiceError
 from openlakeforge_services.dagster import DagsterClient
+from openlakeforge_services.openmetadata import OpenMetadataClient
 
 log = logging.getLogger(__name__)
 
@@ -65,3 +69,44 @@ def get_run(request: Request, stage: str, run_id: str) -> dict[str, Any]:
     if run is None:
         raise HTTPException(status_code=404, detail=f"no run {run_id!r} in stage {stage!r}")
     return asdict(run)
+
+
+def _openmetadata(request: Request) -> OpenMetadataClient:
+    url = request.app.state.settings.openmetadata_url
+    if not url:
+        raise HTTPException(status_code=404, detail="OpenMetadata is not configured on this deployment")
+    # The token the API has just validated, unchanged. OpenMetadata checks its
+    # signature and expiry but not its audience, so the API's own audience
+    # check in front is the only one on this path.
+    return OpenMetadataClient(url.rstrip("/"), token=request.state.token)
+
+
+@contextmanager
+def _openmetadata_errors() -> Iterator[None]:
+    try:
+        yield
+    except ServiceClientError as exc:
+        log.warning("OpenMetadata failed: %s", exc)
+        if exc.status == 401:
+            raise HTTPException(
+                status_code=401,
+                detail="OpenMetadata refused the token",
+                headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+            ) from exc
+        if exc.status == 403:
+            raise HTTPException(status_code=403, detail="OpenMetadata denied the request to this user") from exc
+        if isinstance(exc, TransientServiceError) and exc.status is None:
+            raise HTTPException(status_code=502, detail="OpenMetadata is unreachable") from exc
+        raise HTTPException(status_code=502, detail="OpenMetadata answered with an error") from exc
+
+
+def list_domains(request: Request) -> dict[str, Any]:
+    with _openmetadata_errors():
+        domains = _openmetadata(request).list_domains()
+    return {"domains": [{"name": name, "display_name": display_name} for name, display_name in domains]}
+
+
+def list_data_products(request: Request) -> dict[str, Any]:
+    with _openmetadata_errors():
+        products = _openmetadata(request).list_data_products()
+    return {"data_products": [asdict(product) for product in products]}

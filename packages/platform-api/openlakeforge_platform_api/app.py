@@ -61,6 +61,8 @@ def _enforce(request: Request) -> None:
     if not matrix.allows(operation, principal.role, stage):
         raise HTTPException(status_code=403, detail=f"role {principal.role!r} may not perform {operation!r}")
     request.state.principal = principal
+    # Kept for the routes that forward it to a service that authorizes the person (ADR 0021, decision 2).
+    request.state.token = token
 
 
 def _principal(request: Request) -> Principal:
@@ -107,6 +109,8 @@ def create_app(
     app.add_api_route("/api/v1/stages/{stage}/jobs", reads.list_jobs, methods=["GET"], name="list_jobs")
     app.add_api_route("/api/v1/stages/{stage}/runs", reads.list_runs, methods=["GET"], name="list_runs")
     app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
+    app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
+    app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app
 
 

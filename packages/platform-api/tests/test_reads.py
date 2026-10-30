@@ -1,9 +1,10 @@
-"""The read endpoints against a loopback stand-in for Dagster's GraphQL API."""
+"""The read endpoints against loopback stand-ins for Dagster's GraphQL API and OpenMetadata's REST API."""
 
 from __future__ import annotations
 
 import json
 import threading
+import urllib.parse
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -90,9 +91,42 @@ class FakeDagster(_Server):
         return {"runOrError": {"__typename": "Run", **run}}
 
 
+class FakeOpenMetadata(_Server):
+    """Serves domains and data products to any bearer token, recording each Authorization header."""
+
+    def __init__(self) -> None:
+        self.authorizations: list[str | None] = []
+        self.fail_status: int | None = None
+        self.domains: list[dict[str, Any]] = [{"name": "sales", "displayName": "Sales"}, {"name": "finance"}]
+        self.data_products: list[dict[str, Any]] = [
+            {"name": "orders_mart", "displayName": "Orders", "domains": [{"name": "sales"}]}
+        ]
+        server = self
+
+        class Handler(_Handler):
+            def do_GET(self) -> None:  # noqa: N802 - http.server's handler name
+                server.authorizations.append(self.headers.get("Authorization"))
+                if server.fail_status:
+                    return self.reply(server.fail_status, {"code": server.fail_status, "message": "refused"})
+                path = urllib.parse.urlsplit(self.path).path
+                collection = {"/api/v1/domains": server.domains, "/api/v1/dataProducts": server.data_products}
+                if path not in collection:
+                    return self.reply(404, {"message": "not found"})
+                self.reply(200, {"data": collection[path], "paging": {"total": len(collection[path])}})
+
+        super().__init__(Handler)
+
+
 @pytest.fixture
 def dagster() -> Iterator[FakeDagster]:
     fake = FakeDagster()
+    yield fake
+    fake.close()
+
+
+@pytest.fixture
+def openmetadata() -> Iterator[FakeOpenMetadata]:
+    fake = FakeOpenMetadata()
     yield fake
     fake.close()
 
@@ -110,9 +144,11 @@ def _settings(settings: Settings, **services: Any) -> Settings:
 
 
 @pytest.fixture
-def api(settings: Settings, dagster: FakeDagster) -> TestClient:
+def api(settings: Settings, dagster: FakeDagster, openmetadata: FakeOpenMetadata) -> TestClient:
     # prod is enabled but has no Dagster: a stage the matrix allows that the deployment does not serve.
-    configured = _settings(settings, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"})
+    configured = _settings(
+        settings, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"}, openmetadata_url=openmetadata.url
+    )
     return TestClient(create_app(configured))
 
 
@@ -121,6 +157,7 @@ def _as(mint: Mint, role: str) -> dict[str, str]:
 
 
 DAGSTER_PATHS = ["/api/v1/stages/dev/jobs", "/api/v1/stages/dev/runs", f"/api/v1/stages/dev/runs/{RUN['runId']}"]
+OPENMETADATA_PATHS = ["/api/v1/domains", "/api/v1/data-products"]
 
 
 @pytest.mark.parametrize("path", DAGSTER_PATHS)
@@ -212,6 +249,95 @@ def test_a_dagster_error_is_a_bad_gateway_without_its_stack(api: TestClient, dag
 
     assert response.status_code == 502
     assert "secret_module" not in response.text
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+@pytest.mark.parametrize("role", ["platform-admin", "viewer"])
+def test_openmetadata_reads_admit_every_recognised_role(api: TestClient, mint: Mint, path: str, role: str) -> None:
+    assert api.get(path, headers=_as(mint, role)).status_code == 200
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+def test_openmetadata_reads_refuse_a_token_with_no_role(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint, path: str
+) -> None:
+    assert api.get(path, headers=bearer(mint(groups=["acme:contractors"]))).status_code == 403
+    assert openmetadata.authorizations == []
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+def test_the_callers_token_reaches_openmetadata_unchanged(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint, path: str
+) -> None:
+    token = mint(groups=list(ROLE_MAPPING["viewer"]))
+
+    api.get(path, headers=bearer(token))
+
+    assert openmetadata.authorizations == [f"Bearer {token}"]
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+def test_a_refused_token_never_reaches_openmetadata(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint, path: str
+) -> None:
+    assert api.get(path, headers=bearer(mint(aud="superset"))).status_code == 401
+    assert openmetadata.authorizations == []
+
+
+def test_domains_and_data_products_read_as_openmetadata_lists_them(api: TestClient, mint: Mint) -> None:
+    headers = _as(mint, "viewer")
+
+    assert api.get("/api/v1/domains", headers=headers).json() == {
+        "domains": [{"name": "sales", "display_name": "Sales"}, {"name": "finance", "display_name": ""}]
+    }
+    assert api.get("/api/v1/data-products", headers=headers).json() == {
+        "data_products": [{"name": "orders_mart", "display_name": "Orders", "domains": ["sales"]}]
+    }
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+@pytest.mark.parametrize("status", [401, 403])
+def test_an_openmetadata_refusal_is_passed_through(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint, path: str, status: int
+) -> None:
+    openmetadata.fail_status = status
+
+    assert api.get(path, headers=_as(mint, "viewer")).status_code == status
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+@pytest.mark.parametrize("status", [404, 500, 503])
+def test_an_openmetadata_failure_is_a_bad_gateway(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint, path: str, status: int
+) -> None:
+    openmetadata.fail_status = status
+
+    response = api.get(path, headers=_as(mint, "viewer"))
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "OpenMetadata answered with an error"}
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+def test_an_unreachable_openmetadata_is_a_bad_gateway_that_does_not_echo_the_token(
+    settings: Settings, mint: Mint, path: str
+) -> None:
+    api = TestClient(create_app(_settings(settings, openmetadata_url=UNREACHABLE)))
+    token = mint(groups=list(ROLE_MAPPING["viewer"]))
+
+    response = api.get(path, headers=bearer(token))
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "OpenMetadata is unreachable"}
+    assert token not in response.text
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+def test_openmetadata_reads_without_an_endpoint_are_not_configured(client: TestClient, mint: Mint, path: str) -> None:
+    response = client.get(path, headers=_as(mint, "viewer"))
+
+    assert response.status_code == 404
+    assert "not configured" in response.json()["detail"]
 
 
 def test_a_dagster_url_for_a_stage_that_is_not_enabled_refuses_to_load(settings: Settings) -> None:
