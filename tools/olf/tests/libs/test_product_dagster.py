@@ -116,9 +116,9 @@ def test_dbt_artifacts_upload_only_the_files_the_run_produced(
 
     product_dagster._upload_dbt_artifacts(SimpleNamespace(run_id="r1", log=_Log()), _SPEC, tmp_path)
 
-    assert uploaded == [
-        ("manifest.json", "s3://ops/runs", "dbt/sales/revenue/r1/target/manifest.json"),
+    assert sorted(uploaded) == [
         ("dbt.log", "s3://ops/runs", "dbt/sales/revenue/r1/logs/dbt.log"),
+        ("manifest.json", "s3://ops/runs", "dbt/sales/revenue/r1/target/manifest.json"),
     ]
 
 
