@@ -71,9 +71,11 @@ and was not run; the client capabilities above and the password path were.
 | --- | --- | --- | --- |
 | `olf-<stage>-runtime` | itself only | `all` on `lakehouse_<stage>` | that stage's Superset, dbt run pods, `olf e2e` |
 | `openmetadata` | itself only | `read-only` on every stage catalog | OpenMetadata service and ingestion |
+| A person's e-mail, from a Dex token for audience `olf-cli` (`JWT`, [ADR 0019](0019-data-plane-authorization-deferral.md)) | itself only | `all` on the people catalogs `<stage>`, nothing else; Polaris decides per table | `olf infra query` |
 
 `principals` rules in `rules.json` list each principal with the one user it may
-assume and end with a deny-all rule. Trino then answers: no credential on
+assume and end with a deny-all rule; a person's e-mail principal may become only
+itself (`principal_to_user`). Trino then answers: no credential on
 HTTPS 401, any query on an HTTP listener 403 (the module has none, see k2),
 wrong password 401, valid password with an `X-Trino-User` outside the principal's list "Principal X cannot become
 user Y" before any catalog rule, and only then the catalog and table rules for
@@ -197,6 +199,19 @@ step 4 is done (#471); the cloud-roots item below stays open for AWS and Azure.
 Not foreclosed, and exercised (g1-g3): with the DEV principal also allowed to
 act as `alice`, the DEV password acts as `alice` on DEV only. The client hooks
 are Superset's `impersonate_user` and dbt-trino's `impersonation_user`.
+
+Built for `olf infra query` by ADR 0019 (build step 5): with
+`spec.identity.issuer: github` at the `password` level, the coordinator
+authenticates `PASSWORD,JWT`. A Dex token for audience `olf-cli` authenticates a
+person by e-mail; its keys are fetched from `https://auth.<base_domain>/keys`
+with the CA at `jwk.http-client.trust-store-path`. The person reaches only the
+people catalogs, and a `queries` rule lets them view and kill only their own
+queries. The platform S3 key moves from `AWS_*` to `OPENLAKEFORGE_S3_*`
+variables, so a people catalog, which carries no key, cannot fall back to it
+through the S3 client's default chain. Run against Trino 480, Polaris 1.4.0,
+Dex and SeaweedFS with the rendered `rules.json`: a password principal keeps its
+catalog and is refused the people catalogs; a token cannot act as another user,
+use a workload catalog, or pass with another client's audience (401).
 
 ## Proof
 
@@ -324,3 +339,7 @@ olf-prod-runtime` (expects `cannot become user`), the PROD user name with no
 password and the DEV user name with a wrong one (expect 401), beside the
 existing direct cross-stage query (`Access Denied`) and the pipeline runs that
 authenticate with their own credentials as the positive controls.
+
+`JWT` beside `PASSWORD` for people's Dex tokens, the people catalogs and their
+rules, and the platform S3 key under `OPENLAKEFORGE_S3_*` (ADR 0019, build
+step 5).

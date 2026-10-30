@@ -742,6 +742,14 @@ def test_sizes_default_to_small_and_an_explicit_small_resolves_identically(fixtu
     assert explicit == omitted
 
 
+@pytest.mark.parametrize("size", ["small", "medium", "large"])
+def test_every_storage_size_resolves_and_the_schema_agrees(size: str, tmp_path) -> None:
+    document = _with_sizes(storage={"size": size})
+
+    assert resolve_topology(validate_deployment_profile(document)).storage_size == Size(size)
+    assert not _schema_errors(document, tmp_path)
+
+
 def test_small_storage_resolves_where_object_storage_is_self_hosted() -> None:
     topology = resolve_topology(validate_deployment_profile(_with_sizes(storage={"size": "small"}, query={})))
 
@@ -754,8 +762,6 @@ def test_small_storage_resolves_where_object_storage_is_self_hosted() -> None:
     [
         ("query", "medium", "#324"),
         ("query", "large", "#324"),
-        ("storage", "medium", "#326"),
-        ("storage", "large", "#326"),
     ],
 )
 def test_tiers_without_a_backend_are_rejected_with_the_issue_that_lands_them(block, size, tracker) -> None:
@@ -778,7 +784,7 @@ def test_the_schema_agrees_with_the_parser_on_sizes(tmp_path) -> None:
     assert not _schema_errors(_with_sizes(query={"size": "small"}, storage={"size": "small"}), tmp_path)
     for rejected in (
         _with_sizes(query={"size": "medium"}),
-        _with_sizes(storage={"size": "large"}),
+        _with_sizes(storage={"size": "huge"}),
         _with_sizes(query={"size": "small", "workers": 4}),
         _with_sizes(_AWS, storage={"size": "small"}),
     ):

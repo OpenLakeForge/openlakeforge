@@ -9,7 +9,9 @@ domain listing) are still in `olf/infra`. The platform API in
 `packages/platform-api` has token validation, the permission matrix,
 `/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
 runs per stage, and OpenMetadata domains and data products with the caller's
-token forwarded. Archived logs are not served yet. It is not deployed yet.
+token forwarded. Archived logs are not served yet. The local provider deploys it
+with `spec.identity` (`modules/access/platform-api`), from an image `olf`
+builds, since no release has published one to pin.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -75,9 +77,15 @@ image. It keeps its own locked environment (`packages/platform-api/uv.lock`),
 so FastAPI and uvicorn never enter `olf`'s.
 
 It is served at `https://<base_domain>/api/` behind the perimeter, the same
-origin as the portal, so a browser session reaches it without CORS. The portal stays in its own repository and stays Astro; React is
-added as islands where a page is interactive, and no framework migration is
-part of this decision.
+origin as the portal, so a browser session reaches it without CORS. The route
+is a path on the portal's host, not a `shared.access.routes` entry, and sits
+behind the perimeter's lowest role floor: every canonical role clears it, and
+the API's own permission matrix decides above that. Its accepted audience is
+the `olf-cli` client until open item 1 brings a browser session's token.
+
+The portal stays in its own repository and stays Astro; React is added as
+islands where a page is interactive, and no framework migration is part of
+this decision.
 
 ### 2. The identity a call carries follows the service
 
@@ -229,8 +237,8 @@ cluster rights (ADR 0020).
   the platform API holds one credential fewer. The price is that the
   perimeter's audience check is the only one in front of OpenMetadata, and
   every caller on that path handles a first-time user's registration.
-- One more pod in `olf-system`. Its footprint is not measured; it is recorded
-  in ADR 0013's table when the module lands.
+- One more pod in `olf-system`, with `spec.identity` only, recorded in
+  ADR 0013's table. Its memory was measured in Docker, not yet on kind.
 - The extraction of `packages/lakehouse-services` is a refactor with no
   behaviour change and can land before any of the API.
 - AGENTS.md's repository map gains `packages/lakehouse-services/` and the
@@ -279,6 +287,8 @@ Build step 1, second part: the OpenMetadata and Superset clients followed;
 Build step 2, first part (#666): the service skeleton in
 `packages/platform-api`, which settles open item 4 (where the source and image
 live, decision 1). The proposed `services/platform-api/` was not used.
+Second and third parts: the image and its release build, then the Terraform
+module, flow rows and local wiring behind the perimeter.
 
 Decision 2 rewritten (#665): the identity on a service call follows the
 service, not a data-plane/control-plane split. OpenMetadata, which validates
