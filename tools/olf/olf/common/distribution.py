@@ -33,6 +33,7 @@ _PAYLOAD_ROOTS = (
     "infra/kind",
     "images",
     "packages/domain-model",
+    "packages/lakehouse-services",
     "packages/platform-api",
     "libs",
     "docs/schema",
