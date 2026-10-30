@@ -2,9 +2,12 @@
 
 ## Status
 
-Decided: **deferred**. This is an evaluation (#26), not a migration. Nothing
-in the tree changes. It also records the catalog-side findings that the
-data-plane authorization assessment (#179) needs.
+Decided: **deferred for workloads**. This is an evaluation (#26), not a
+migration; every workload keeps Polaris's own credentials. It also records the
+catalog-side findings that the data-plane authorization assessment (#179)
+needs. For people's tokens the deferral has ended: with
+`spec.identity.issuer: github`, Polaris runs `mixed` and accepts Dex tokens
+issued to `olf-cli` (ADR 0019, build step 3).
 
 Scope of the evidence. The deployed Polaris is the image `apache/polaris:1.4.0`
 (`release/component-catalog.yaml`, `infra/helm/values/local/polaris.yaml`)
@@ -33,8 +36,8 @@ every caller, and whether it is worth doing in v0.5-alpha.
 | How is the principal read from the token? | `polaris.oidc.principal-mapper`: `id-claim-path` and `name-claim-path` (chart: `oidc.principalMapper.idClaimPath` / `nameClaimPath`; one of the two is required). The id is parsed as a number, so a UUID `sub` cannot be the id claim; the name claim must equal an existing Polaris principal name |
 | Token exchange or brokering? | Not for external tokens. Polaris' own `/api/catalog/v1/oauth/tokens` accepts `client_credentials` and `urn:ietf:params:oauth:grant-type:token-exchange`, but the exchange only re-issues a token that verifies against Polaris' own `TokenBroker` signing key (`JWTBroker.generateFromToken`). In `external` mode the token endpoint is disabled (the docs say HTTP 501; the chart says the token service is always disabled and the broker unused). No path exchanges an issuer token for a Polaris token: with an external issuer the client presents the issuer's token directly |
 | Chart support | Chart 1.4.1 exposes `authentication.type`, `authentication.realmOverrides` and an `oidc` block (`authServeUrl`, `client.id`, `client.secret`, `principalMapper`, `principalRolesMapper`); defaults are `internal` and an empty `oidc.authServeUrl`. Only one default OIDC tenant is supported through values |
-| What does this deployment set? | Nothing: `infra/helm/values/local/polaris.yaml` has no `authentication` or `oidc` key, so Polaris runs `internal`, and `release.tf` passes only persistence and storage settings |
-| Issuer reachability | **To verify.** The issuer URL is `https://auth.<base_domain>` behind Traefik with the local CA (ADR 0014). The Polaris pod would need to resolve that host and trust the CA in its JVM trust store, as the other back-channel consumers do (`in-cluster-resolution`). Whether the 1.4.0 image honours a mounted CA bundle was not checked |
+| What does this deployment set? | Without `spec.identity.issuer: github`, nothing: Polaris runs `internal`. With it, `modules/catalog/polaris/person_access.tf` sets `mixed` and the `oidc` block for people's Dex tokens (ADR 0019) |
+| Issuer reachability | **Verified** (ADR 0019, verification item 3). The issuer URL is `https://auth.<base_domain>` behind Traefik with the local CA (ADR 0014). Polaris resolves it through `in-cluster-resolution` and trusts the CA mounted from the `olf-local-ca` ConfigMap through a named Quarkus TLS configuration; it starts while the issuer is unreachable and fetches the keys on the first token |
 | Which claim names the principal for an issuer service-account token? | **To verify** against Dex (this row was written against Keycloak, since removed). A client-credentials token's `sub` is a UUID, which cannot be the numeric id claim. A name claim can be a protocol mapper with a fixed value, or the issuer's own name claim; which fits the existing principal names (`trino-<stage>`, `floe-<stage>`, ... in `environments/local/main.tf`) was not tested |
 
 ## How the Polaris credential is consumed today
@@ -157,3 +160,7 @@ deferral, and the catalog-side findings for #179.
 
 The "Data files" row: SeaweedFS stage catalogs are now created with STS
 available, which ADR 0019's person path uses; the workload path is unchanged.
+
+The deferral ended for people's tokens (ADR 0019, build step 3): Polaris runs
+`mixed` with `issuer: github`; the reachability row was verified. Workloads are
+unchanged.

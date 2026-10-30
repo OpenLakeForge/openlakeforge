@@ -1,0 +1,43 @@
+
+  # People's access (ADR 0019): the one principal every person's token names,
+  # a principal role per canonical role, and on each stage catalog the catalog
+  # role its data_access row needs. Runs after the bootstrap above and uses its
+  # request and already_present.
+  person_access='${person_access}'
+  person() { printf %s "$person_access" | jq -r "$@"; }
+  person_principal=$(person .principal)
+
+  request POST "/principals" "201 409" "{\"principal\": {\"name\": \"$person_principal\"}}"
+  for role in $(person '.assigned | keys[]'); do
+    request POST "/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$role\"}}"
+    if ! already_present "/principals/$person_principal/principal-roles" "name" "$role"; then
+      request PUT "/principals/$person_principal/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$role\"}}"
+    fi
+  done
+
+  for catalog in $(person '.catalogs[]'); do
+    for catalog_role in $(person '.catalog_roles | keys[]'); do
+      request POST "/catalogs/$catalog/catalog-roles" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+      for privilege in $(person --arg r "$catalog_role" '.catalog_roles[$r][]'); do
+        if ! already_present "/catalogs/$catalog/catalog-roles/$catalog_role/grants" "privilege" "$privilege"; then
+          request PUT "/catalogs/$catalog/catalog-roles/$catalog_role/grants" "201 409" "{\"grant\": {\"type\": \"catalog\", \"privilege\": \"$privilege\"}}"
+        fi
+      done
+    done
+
+    # Each person role holds on this catalog exactly the catalog role its
+    # data_access row names, or none: a narrowed row revokes the grant it no
+    # longer names, which an add-only bootstrap would leave in place.
+    for role in $(person '.assigned | keys[]'); do
+      wanted=$(person --arg r "$role" --arg c "$catalog" '.assigned[$r][$c] // empty')
+      for catalog_role in $(person '.catalog_roles | keys[]'); do
+        if already_present "/principal-roles/$role/catalog-roles/$catalog" "name" "$catalog_role"; then
+          if [ "$catalog_role" != "$wanted" ]; then
+            request DELETE "/principal-roles/$role/catalog-roles/$catalog/$catalog_role" "204"
+          fi
+        elif [ "$catalog_role" = "$wanted" ]; then
+          request PUT "/principal-roles/$role/catalog-roles/$catalog" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+        fi
+      done
+    done
+  done
