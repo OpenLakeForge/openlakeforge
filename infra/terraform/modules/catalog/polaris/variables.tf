@@ -214,3 +214,16 @@ variable "bootstrap_revision" {
   type        = string
   default     = "manual"
 }
+
+variable "person_access" {
+  description = "Accept people's Dex tokens (ADR 0019): issuer_url, the client_id tokens are issued to, principal_name (the Dex connector id every token names), role_mapping (canonical role -> claim values of the groups claim), data_access (release/identity-roles.yaml) and the ConfigMap holding the CA of an HTTPS issuer. null keeps internal authentication only."
+  type = object({
+    issuer_url        = string
+    client_id         = string
+    principal_name    = string
+    role_mapping      = map(list(string))
+    data_access       = map(map(map(string)))
+    ca_configmap_name = string
+  })
+  default = null
+}

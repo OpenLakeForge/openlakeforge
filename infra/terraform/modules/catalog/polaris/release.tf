@@ -111,7 +111,7 @@ resource "helm_release" "polaris" {
 
   depends_on = [kubernetes_job_v1.token_broker_key]
 
-  values = [
+  values = concat([
     file(var.base_values_file),
     yamlencode({
       persistence = {
@@ -186,7 +186,7 @@ resource "helm_release" "polaris" {
         },
       ]
     }),
-  ]
+  ], local.person_values)
 }
 
 resource "terraform_data" "polaris_release_revision" {

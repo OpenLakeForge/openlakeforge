@@ -3,6 +3,11 @@ output "service_name" {
   value       = kubernetes_service_v1.dex.metadata[0].name
 }
 
+output "connector_id" {
+  description = "Id of the GitHub connector: every token Dex issues through it carries it as federated_claims.connector_id."
+  value       = local.connector_id
+}
+
 output "http_port" {
   description = "Port of the Dex Service."
   value       = 5556
