@@ -122,7 +122,7 @@ def test_terraform_lock_provider_versions_parses_real_local_lockfile() -> None:
 def test_helm_chart_versions_from_terraform_modules_matches_real_repo() -> None:
     versions = _compatibility._helm_chart_versions_from_terraform_modules(ROOT)
     assert versions["trino"] == "1.42.2"
-    assert versions["seaweedfs"] == "4.23.0"
+    assert versions["seaweedfs"] == "4.48.0"
     # The paired dependencies chart, from deps_chart_version in the same module.
     assert versions["openmetadata"] == "1.13.6"
     assert versions["openmetadata-dependencies"] == "1.13.6"
