@@ -1,6 +1,6 @@
 """The EKS cluster name every AWS command agrees on.
 
-`olf deploy`, `olf destroy` and `olf e2e run` must name the same cluster: the
+`olf infra deploy`, `olf infra destroy` and `olf infra e2e run` must name the same cluster: the
 foundation passes it to Terraform, where a different name replaces the
 cluster. Until 0.5 the default carried the `limited-` prefix the AWS test
 account's IAM policy required (ADR 0010). A foundation created with that

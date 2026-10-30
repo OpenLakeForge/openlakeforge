@@ -1,4 +1,4 @@
-"""Workload-secret rotation drill (#178): `olf secrets rotate` on the perimeter's Dex client.
+"""Workload-secret rotation drill (#178): `olf infra secrets rotate` on the perimeter's Dex client.
 
 The command regenerates the Secret and restarts Dex and the perimeter. The
 drill then signs in through the portal, which succeeds only when Dex and
@@ -36,7 +36,7 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
     if not dex_points_at_stub(cfg):
         log_skip()
         return
-    log.step(f"Rotating {TARGET} with `olf secrets rotate`, then signing in...")
+    log.step(f"Rotating {TARGET} with `olf infra secrets rotate`, then signing in...")
     started = time.monotonic()
     kubectl = Toolkit.default().kubectl
     try:

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from openlakeforge_domain import load_lakehouse_inventory_from_descriptors
+from openlakeforge_services.openmetadata import OpenMetadataError
 
-from olf.common.clients.openmetadata import OpenMetadataError
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 
 

@@ -23,7 +23,7 @@ shared `libs/`.
 
 The Terraform-owned Dagster control plane owns the webserver, daemon, database,
 RBAC, and a stable external gRPC workspace. It does not own a project image
-or code location. `olf project deploy` owns the separate
+or code location. `olf infra project deploy` owns the separate
 `openlakeforge-project` user-deployment Helm release, which points the stable
 workspace at its stage's verified image and revisions. A platform apply can
 therefore reconcile infrastructure without resetting active user code.
@@ -110,7 +110,7 @@ pod per domain.
 ### The contract owns the code-location set
 
 The set has two consumers with no shared code between them: Terraform renders
-the webserver's `workspace.yaml` from it, and `olf project deploy` renders one
+the webserver's `workspace.yaml` from it, and `olf infra project deploy` renders one
 user deployment per entry. `dagster-user-deployments` names each Service after
 its deployment, so a location name is also its in-cluster host — the two sides
 must produce the same names or the webserver points at Services that do not
@@ -127,7 +127,7 @@ Terraform local it passes to the Dagster module, and read back by `olf` through
 
 A full refresh is a property of one run, not of a descriptor. The run tag
 `openlakeforge/full_refresh` (`bronze` or `gold`) is the contract between
-whoever launches the run (the Dagster launchpad, or `olf product run
+whoever launches the run (the Dagster launchpad, or `olf infra product run
 --full-refresh`) and the project-code runtime; `openlakeforge_domain.runs`
 holds it. A tag reaches every asset of the job without each one declaring a
 config schema, including the Floe assets dagster-floe builds. Both scopes run
@@ -148,13 +148,13 @@ dependencies and failures are contained.
 Locally the image is loaded into kind with `imagePullPolicy: Never`, which means
 Kubernetes never pulls a new image on pod creation. The artifacts phase
 therefore performs an explicit coordinated rollout
-(`olf k8s set-project-code-image`) after loading the image; without it, running
+(`olf infra k8s set-project-code-image`) after loading the image; without it, running
 pods keep serving the previous build.
 
 ## Consequences
 
-The v0.3 promotion loop is `olf project build` followed by `olf project deploy`
-for each stage. The deprecated `olf deploy --phase artifacts` remains only for
+The v0.3 promotion loop is `olf infra project build` followed by `olf infra project deploy`
+for each stage. The deprecated `olf infra deploy --phase artifacts` remains only for
 single-DEV compatibility.
 
 Durable product jobs are named `<product>_pipeline` and derived from the

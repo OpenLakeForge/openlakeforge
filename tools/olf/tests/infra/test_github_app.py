@@ -161,7 +161,7 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
             "slug": "olf-demo",
         },
     )
-    result = CliRunner().invoke(app, ["github", "connect", "--no-browser"])
+    result = CliRunner().invoke(app, ["infra", "github", "connect", "--no-browser"])
 
     assert result.exit_code == 0, result.output
     assert seen["manifest"]["callback_urls"] == ["http://auth.olf.localhost/callback"]

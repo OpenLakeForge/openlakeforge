@@ -1,4 +1,4 @@
-"""`olf openmetadata list-domains` against a fake OpenMetadata, with the cluster stubbed out."""
+"""`olf infra openmetadata list-domains` against a fake OpenMetadata, with the cluster stubbed out."""
 
 from __future__ import annotations
 
@@ -42,14 +42,14 @@ def stage(monkeypatch: pytest.MonkeyPatch, fake_openmetadata: FakeOpenMetadata) 
 
 
 def test_lists_domains_sorted_by_name(stage: FakeOpenMetadata) -> None:
-    result = runner.invoke(app, ["openmetadata", "list-domains"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 
     assert result.exit_code == 0, result.output
     assert result.stdout == "NAME          DISPLAY NAME\nsales         Sales\nsupply_chain  Supply Chain\n"
 
 
 def test_json_output_is_only_the_domains(stage: FakeOpenMetadata) -> None:
-    result = runner.invoke(app, ["openmetadata", "list-domains", "--json"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains", "--json"])
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == [
@@ -61,7 +61,7 @@ def test_json_output_is_only_the_domains(stage: FakeOpenMetadata) -> None:
 def test_reads_every_page_and_never_writes(stage: FakeOpenMetadata) -> None:
     stage.domains = [{"name": f"domain_{index:03}", "displayName": f"Domain {index}"} for index in range(150)]
 
-    result = runner.invoke(app, ["openmetadata", "list-domains", "--json"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains", "--json"])
 
     assert result.exit_code == 0, result.output
     assert len(json.loads(result.stdout)) == 150
@@ -72,7 +72,7 @@ def test_reads_every_page_and_never_writes(stage: FakeOpenMetadata) -> None:
 def test_never_prints_the_token(stage: FakeOpenMetadata) -> None:
     stage.fail_status = 403
 
-    result = runner.invoke(app, ["openmetadata", "list-domains"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 
     assert stage.token not in result.output
 
@@ -82,7 +82,7 @@ def test_disabled_governance_layer_says_how_to_enable_it(
 ) -> None:
     monkeypatch.setenv("OPENLAKEFORGE_GOVERNANCE_ENABLED", "false")
 
-    result = runner.invoke(app, ["openmetadata", "list-domains"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 
     assert result.exit_code == 1
     assert "governance layer is disabled" in result.output
@@ -98,7 +98,7 @@ def test_unreachable_service_is_reported(stage: FakeOpenMetadata, monkeypatch: p
 
     monkeypatch.setattr(access, "service_url", unreachable)
 
-    result = runner.invoke(app, ["openmetadata", "list-domains"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 
     assert result.exit_code == 1
     assert "OpenMetadata is not reachable in namespace olf-shared" in result.output
@@ -109,7 +109,7 @@ def test_missing_automation_token_fails_without_falling_back_to_a_password(
 ) -> None:
     monkeypatch.setattr(_auth, "automation_token", lambda namespace, **_kwargs: None)
 
-    result = runner.invoke(app, ["openmetadata", "list-domains"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 
     assert result.exit_code == 1
     assert "openmetadata-automation-bot is missing from namespace olf-shared" in result.output
@@ -119,7 +119,7 @@ def test_missing_automation_token_fails_without_falling_back_to_a_password(
 def test_failed_response_is_reported(stage: FakeOpenMetadata) -> None:
     stage.fail_status = 500
 
-    result = runner.invoke(app, ["openmetadata", "list-domains"])
+    result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 
     assert result.exit_code == 1
     assert "OpenMetadata did not list its domains" in result.output

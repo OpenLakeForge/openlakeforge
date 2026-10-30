@@ -14,9 +14,9 @@ name: Local full e2e (nightly and manual)
 #
 # The job runs the supported `olf` lifecycle and e2e commands directly, and
 # reuses the kind-smoke plumbing from checks.yml (managed-toolchain
-# provisioning, `olf diagnostics collect` on failure).
+# provisioning, `olf infra diagnostics collect` on failure).
 #
-# 'smoke' (workflow_dispatch only) keeps the old single-stage `olf deploy`
+# 'smoke' (workflow_dispatch only) keeps the old single-stage `olf infra deploy`
 # shortcut for a fast inner loop. 'full' (the nightly default) drives the
 # multi-stage promotion lifecycle end to end against a DEV+PROD full-preset
 # profile: Polaris namespaces, Dagster product pipelines, Silver and Gold
@@ -24,7 +24,7 @@ name: Local full e2e (nightly and manual)
 # ops-bucket artifacts, and cross-stage isolation -- discovered dynamically
 # from the domain inventory, run once per stage from that stage's own Bronze.
 #
-# Promoting a revision needs a real container registry: `olf project build`
+# Promoting a revision needs a real container registry: `olf infra project build`
 # rejects a mutable tag, and a kind-only image has no pullable digest to
 # identify an immutable revision by (see the `_DIGEST_TAG_PATTERN` gate in
 # `olf.infra.project_revision` and docs/guides/promote-dev-to-prod.md).
@@ -120,7 +120,7 @@ concurrency:
 
 # CLUSTER_NAME/KUBE_CONTEXT/LOCAL_KUBECONFIG_PATH/KUBECONFIG are deliberately
 # NOT set here: they are smoke-only values (a run-scoped cluster,
-# `--cluster-name`'s only caller). `olf e2e run -f` gives an ambient
+# `--cluster-name`'s only caller). `olf infra e2e run -f` gives an ambient
 # KUBECONFIG/KUBE_CONTEXT precedence over the profile it resolves
 # (`commands/e2e.py::_resolve_kubeconfig_path` -- deliberate, so an installed
 # distribution can override it), so a job-level value here would leak into
@@ -177,7 +177,7 @@ jobs:
         env:
           CLUSTER_NAME: openlakeforge-e2e-${{ github.run_id }}
           LOCAL_KUBECONFIG_PATH: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
-        run: uv run --project tools/olf --locked olf deploy --provider local --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
+        run: uv run --project tools/olf --locked olf infra deploy --provider local --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
 
       - name: Negative-test failure injection (smoke)
         if: (inputs.suite || 'full') == 'smoke' && inputs.debug_fail_after_deploy == 'true'
@@ -188,13 +188,13 @@ jobs:
 
       - name: Run the local e2e suite (smoke)
         if: (inputs.suite || 'full') == 'smoke'
-        # `olf e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
+        # `olf infra e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
         # profile it resolves, so these have to name the cluster the smoke
         # deploy step above actually created.
         env:
           KUBE_CONTEXT: kind-openlakeforge-e2e-${{ github.run_id }}
           KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
-        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --suite smoke
+        run: uv run --project tools/olf --locked olf infra e2e run --env local -f openlakeforge.yaml --suite smoke
 
       # ---- full: build once, activate DEV, validate, promote to PROD, validate ----
       #
@@ -204,7 +204,7 @@ jobs:
       # and promoted by the same composite actions a project repository's CI
       # uses (.github/actions, docs/guides/promote-dev-to-prod.md). After the platform is
       # applied, every step reads the provider contract from the file
-      # `olf platform contract` exported, as a CI runner without the
+      # `olf infra platform contract` exported, as a CI runner without the
       # platform's Terraform state would.
 
       - name: Build and install the openlakeforge wheel
@@ -212,11 +212,12 @@ jobs:
         run: |
           set -euo pipefail
           uv build --out-dir dist/python/domain-model packages/domain-model
+          uv build --out-dir dist/python/lakehouse-services packages/lakehouse-services
           uv build --out-dir dist/python/openlakeforge tools/olf
           wheel="$(ls dist/python/openlakeforge/openlakeforge-*.whl)"
           version="$(basename "${wheel}" | cut -d- -f2)"
-          uv tool install --find-links dist/python/domain-model --find-links dist/python/openlakeforge \
-            "openlakeforge==${version}" --python 3.12
+          uv tool install --find-links dist/python/domain-model --find-links dist/python/lakehouse-services \
+            --find-links dist/python/openlakeforge "openlakeforge==${version}" --python 3.12
           echo "$(uv tool dir --bin)" >> "${GITHUB_PATH}"
           # An installed olf keeps its state, and the kind kubeconfig, under
           # OLF_HOME (default ~/.openlakeforge), not in any checkout.
@@ -253,11 +254,11 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -uo pipefail
-          olf platform apply -f openlakeforge.yaml || echo "::notice::first apply stopped at the missing GitHub OAuth Secret, as expected"
+          olf infra platform apply -f openlakeforge.yaml || echo "::notice::first apply stopped at the missing GitHub OAuth Secret, as expected"
           kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-system create secret generic github-oauth-app \
             --from-literal=client-id=olf-e2e --from-literal=client-secret=olf-e2e \
             --dry-run=client -o yaml | kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-system apply -f -
-          olf platform apply -f openlakeforge.yaml
+          olf infra platform apply -f openlakeforge.yaml
 
       - name: Export the provider contract and check it against the conformance fixture
         # The unit conformance suite's fixture
@@ -271,7 +272,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${GITHUB_WORKSPACE}/.tmp/rendered-contract"
           contract="${GITHUB_WORKSPACE}/.tmp/rendered-contract/provider-contracts.json"
-          olf platform contract -f openlakeforge.yaml > "${contract}"
+          olf infra platform contract -f openlakeforge.yaml > "${contract}"
           grep -q '"stages"' "${contract}"
           if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ]; then
             python3 -c "import json, sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))" \
@@ -329,7 +330,7 @@ jobs:
           image-tag: nightly
 
       - name: Activate the revision in DEV and run the full e2e suite there
-        # `olf e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
+        # `olf infra e2e run -f` prefers an ambient KUBECONFIG/KUBE_CONTEXT over the
         # profile it resolves (commands/e2e.py::_resolve_kubeconfig_path), so
         # these name the cluster `platform apply -f` created.
         if: (inputs.suite || 'full') != 'smoke'
@@ -392,7 +393,7 @@ jobs:
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full --checks core
+        run: olf infra e2e run --env local -f openlakeforge.yaml --stage prod --suite full --checks core
 
       - name: Write run summary
         if: always()
@@ -444,7 +445,7 @@ jobs:
         if: failure() && (inputs.suite || 'full') == 'smoke'
         env:
           KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
-        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-e2e-diagnostics --kube-context kind-openlakeforge-e2e-${{ github.run_id }}
+        run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/kind-e2e-diagnostics --kube-context kind-openlakeforge-e2e-${{ github.run_id }}
 
       - name: Upload kind diagnostics (smoke)
         if: failure() && (inputs.suite || 'full') == 'smoke'
@@ -468,13 +469,13 @@ jobs:
         if: failure() && (inputs.suite || 'full') != 'smoke'
         env:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/dev --namespace olf-dev --kube-context kind-openlakeforge-local
+        run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/local-full-e2e-diagnostics/dev --namespace olf-dev --kube-context kind-openlakeforge-local
 
       - name: Collect kind diagnostics (PROD)
         if: failure() && (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
         env:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/prod --namespace olf-prod --kube-context kind-openlakeforge-local
+        run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/local-full-e2e-diagnostics/prod --namespace olf-prod --kube-context kind-openlakeforge-local
 
       - name: Collect kind diagnostics (shared services)
         # Polaris, Trino, OpenMetadata and their bootstrap jobs run in the
@@ -482,7 +483,7 @@ jobs:
         if: failure() && (inputs.suite || 'full') != 'smoke'
         env:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/local-full-e2e-diagnostics/shared --namespace olf-system --kube-context kind-openlakeforge-local
+        run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/local-full-e2e-diagnostics/shared --namespace olf-system --kube-context kind-openlakeforge-local
 
       - name: Upload kind diagnostics (full)
         if: failure() && (inputs.suite || 'full') != 'smoke'

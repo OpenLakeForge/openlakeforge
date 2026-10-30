@@ -1,10 +1,10 @@
-"""Read-only deployment inspection helpers used by ``olf doctor``.
+"""Read-only deployment inspection helpers used by ``olf infra doctor``.
 
 The deployment engine owns preflight checks rather than leaving them in Make
 or shell wrappers. Managed-toolchain awareness (#127) reports which tools
 are provisioned from `release/component-catalog.yaml` versus resolved from
-`PATH`, and provisions on first use - `olf doctor` is the documented way to
-pre-warm a clean machine's toolchain before `olf deploy`.
+`PATH`, and provisions on first use - `olf infra doctor` is the documented way to
+pre-warm a clean machine's toolchain before `olf infra deploy`.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def project_not_runnable_reason(project_root: Path) -> str | None:
     A project is runnable once its descriptors load strictly: an
     `olf init --empty` project only becomes runnable after `olf source new`
     and `olf product new`. Unreadable or malformed descriptors are reported
-    the same way rather than raised, because both callers -- `olf doctor` and
+    the same way rather than raised, because both callers -- `olf infra doctor` and
     the deploy precondition -- exist to explain the problem."""
     try:
         load_lakehouse_inventory(project_root)

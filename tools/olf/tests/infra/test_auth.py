@@ -159,8 +159,8 @@ def test_auth_status_redacts_tokens_and_logout_only_removes_olf_state(
     auth.save_state("aws", {"source": "olf-sso", "access_token": "access", "refresh_token": "refresh"})
     runner = CliRunner()
 
-    status = runner.invoke(app, ["auth", "status", "--provider", "aws"])
-    logout = runner.invoke(app, ["auth", "logout", "--provider", "aws"])
+    status = runner.invoke(app, ["infra", "auth", "status", "--provider", "aws"])
+    logout = runner.invoke(app, ["infra", "auth", "logout", "--provider", "aws"])
 
     assert status.exit_code == 0
     assert "access" not in status.output
@@ -191,11 +191,11 @@ def test_azure_status_translates_an_expired_sdk_token_into_a_clean_cli_error(
     monkeypatch.setattr(auth_command, "azure_credential", lambda *_args: _ExpiredCredential())
     runner = CliRunner()
 
-    result = runner.invoke(app, ["auth", "status", "--provider", "azure"])
+    result = runner.invoke(app, ["infra", "auth", "status", "--provider", "azure"])
 
     assert result.exit_code != 0
     assert "Traceback" not in result.output
-    assert "olf auth login --provider azure" in result.output
+    assert "olf infra auth login --provider azure" in result.output
 
 
 def test_terraform_auth_environment_keeps_automation_ahead_of_saved_state(

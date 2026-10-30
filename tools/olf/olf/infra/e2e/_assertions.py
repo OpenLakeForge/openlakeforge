@@ -10,11 +10,11 @@ from typing import Any
 
 import yaml
 from openlakeforge_domain import LakehouseInventory
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, log
-from olf.common.clients.base import ServiceClientError
-from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
-from olf.common.clients.superset import SupersetClient
 from olf.infra import access, k8s, superset
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise

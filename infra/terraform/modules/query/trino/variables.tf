@@ -27,6 +27,30 @@ variable "chart_package_path" {
   default     = null
 }
 
+variable "query_sizing" {
+  description = "Trino capacity for spec.query.size, rendered by olf from release/query-sizes.yaml. Null deploys the base values file unchanged."
+  type = object({
+    size                    = string
+    workers                 = number
+    schedule_on_coordinator = bool
+    max_memory              = string
+    max_memory_per_node     = string
+    coordinator = object({
+      heap           = string
+      cpu_request    = string
+      memory_request = string
+      memory_limit   = string
+    })
+    worker = optional(object({
+      heap           = string
+      cpu_request    = string
+      memory_request = string
+      memory_limit   = string
+    }))
+  })
+  default = null
+}
+
 variable "base_values_file" {
   description = "Path to the non-secret base Helm values file."
   type        = string

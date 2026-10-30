@@ -159,7 +159,7 @@ variable "rds_instance_class" {
 }
 
 variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. `olf deploy` (deprecated, single stage) leaves this true; `olf platform apply` sets it false so `olf project deploy` owns the openlakeforge-project release instead."
+  description = "Whether Terraform owns the Dagster user-code deployments. `olf infra deploy` (deprecated, single stage) leaves this true; `olf infra platform apply` sets it false so `olf infra project deploy` owns the openlakeforge-project release instead."
   type        = bool
   default     = true
 }

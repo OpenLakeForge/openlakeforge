@@ -156,7 +156,7 @@ def foundation_down(
         if cluster_exists:
             raise DeploymentPreconditionError(
                 f"kind cluster '{config.cluster.name}' exists, but the local foundation Terraform state "
-                "does not own it. Run 'olf deploy --provider local --phase foundation' first to adopt the "
+                "does not own it. Run 'olf infra deploy --provider local --phase foundation' first to adopt the "
                 "existing cluster into the foundation state."
             )
         log.step(f"No local foundation state or kind cluster exists for '{config.cluster.name}'.")
@@ -192,7 +192,7 @@ def foundation_down(
         if remaining:
             raise DeploymentPreconditionError(
                 f"namespace(s) {', '.join(remaining)} still exist on '{config.kube_context}'. Run "
-                "'olf destroy --provider local --phase platform' before destroying the local foundation. "
+                "'olf infra destroy --provider local --phase platform' before destroying the local foundation. "
                 "Pass --force only if you intentionally want to delete the cluster with platform resources "
                 "still present."
             )

@@ -105,9 +105,9 @@ def test_a_drifted_platform_state_refuses_before_anything_is_deleted(tmp_path: P
     kubectl = FakeKubectl()
 
     def drifted(_ctx: Any) -> None:
-        raise secrets_rotation.RotationError("platform state has drifted; run olf deploy first")
+        raise secrets_rotation.RotationError("platform state has drifted; run olf infra deploy first")
 
-    with pytest.raises(secrets_rotation.RotationError, match="drifted; run olf deploy first"):
+    with pytest.raises(secrets_rotation.RotationError, match="drifted; run olf infra deploy first"):
         rotate(tmp_path, kubectl, platform_check=drifted)
 
     assert kubectl.deletes() == []
@@ -129,7 +129,7 @@ def test_a_missing_sibling_client_refuses_so_the_shared_job_regenerates_only_the
 ) -> None:
     kubectl = FakeKubectl({name: f"uid-{name}/1" for name in CLIENTS if name != missing})
 
-    with pytest.raises(secrets_rotation.RotationError, match=f"{missing}.*run olf deploy first"):
+    with pytest.raises(secrets_rotation.RotationError, match=f"{missing}.*run olf infra deploy first"):
         rotate(tmp_path, kubectl)
 
     assert kubectl.deletes() == []
@@ -186,7 +186,7 @@ def command_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl:
 
 
 def test_the_command_rejects_an_unknown_target(tmp_path: Path) -> None:
-    bad = CliRunner().invoke(app, ["secrets", "rotate", "nope"])
+    bad = CliRunner().invoke(app, ["infra", "secrets", "rotate", "nope"])
     assert bad.exit_code != 0
     assert "dex-client-perimeter" in bad.output
 
@@ -196,7 +196,7 @@ def test_the_command_summarises_and_asks_to_confirm_by_signing_in_with_no_secret
 ) -> None:
     command_with_fakes(monkeypatch, tmp_path, FakeKubectl())
 
-    good = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter"])
+    good = CliRunner().invoke(app, ["infra", "secrets", "rotate", "dex-client-perimeter"])
 
     assert good.exit_code == 0, good.output
     out = good.output + capsys.readouterr().out
@@ -213,7 +213,7 @@ def test_the_command_refuses_a_profile_that_is_not_local_github(
     kubectl = FakeKubectl()
     command_with_fakes(monkeypatch, tmp_path, kubectl, issuer="external")
 
-    result = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter"])
+    result = CliRunner().invoke(app, ["infra", "secrets", "rotate", "dex-client-perimeter"])
 
     assert result.exit_code != 0
     assert "issuer: github" in result.output
@@ -241,7 +241,7 @@ def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_depl
         lambda c, target, *, kubectl: contexts.append(c) or secrets_rotation.Rotation(target, "olf-system", ()),
     )
 
-    result = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter", "-f", "profile.yaml"])
+    result = CliRunner().invoke(app, ["infra", "secrets", "rotate", "dex-client-perimeter", "-f", "profile.yaml"])
 
     assert result.exit_code == 0, result.output
     assert seen == ["profile.yaml"]
@@ -256,7 +256,7 @@ def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: p
     seen: list[bool] = []
     monkeypatch.setattr(github_app, "connect_github", lambda _ctx, *, no_browser: seen.append(no_browser) or "url")
 
-    result = CliRunner().invoke(app, ["secrets", "rotate", "github-app", "--no-browser"])
+    result = CliRunner().invoke(app, ["infra", "secrets", "rotate", "github-app", "--no-browser"])
 
     assert result.exit_code == 0, result.output
     assert seen == [True]
@@ -288,7 +288,7 @@ def test_the_state_check_refuses_when_the_core_objects_are_missing(
     monkeypatch.setattr(platform, "require_foundation_state", lambda _config: None)
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: False)
 
-    with pytest.raises(secrets_rotation.RotationError, match="platform state has drifted; run olf deploy first"):
+    with pytest.raises(secrets_rotation.RotationError, match="platform state has drifted; run olf infra deploy first"):
         secrets_rotation.check_platform_state(context(tmp_path))
 
 
@@ -303,7 +303,9 @@ def test_a_missing_foundation_state_refuses_before_anything_is_deleted(
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
     kubectl = FakeKubectl()
 
-    with pytest.raises(secrets_rotation.RotationError, match="foundation Terraform state is missing.*olf deploy first"):
+    with pytest.raises(
+        secrets_rotation.RotationError, match="foundation Terraform state is missing.*olf infra deploy first"
+    ):
         rotate(tmp_path, kubectl, platform_check=secrets_rotation.check_platform_state)
 
     assert kubectl.deletes() == []
@@ -340,7 +342,9 @@ def test_failing_setup_or_stage_removal_refuses_before_anything_is_deleted(
 def test_a_sibling_without_the_client_secret_key_refuses_before_anything_is_deleted(tmp_path: Path) -> None:
     kubectl = FakeKubectl(without_key=("dex-client-openmetadata",))
 
-    with pytest.raises(secrets_rotation.RotationError, match="dex-client-openmetadata.*lacks the key.*olf deploy"):
+    with pytest.raises(
+        secrets_rotation.RotationError, match="dex-client-openmetadata.*lacks the key.*olf infra deploy"
+    ):
         rotate(tmp_path, kubectl)
 
     assert kubectl.deletes() == []
@@ -355,7 +359,7 @@ def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(mon
     tools = SimpleNamespace(terraform=SimpleNamespace(apply=lambda *a, **k: applied.append(k)))
     config = SimpleNamespace(paths=SimpleNamespace(platform_terraform_dir=Path("platform")))
 
-    with pytest.raises(DeploymentPreconditionError, match="drifted; run olf deploy first"):
+    with pytest.raises(DeploymentPreconditionError, match="drifted; run olf infra deploy first"):
         platform.apply_targets(config, tools, env={}, extra_args=["-target=x"])  # type: ignore[arg-type]
 
     assert applied == []

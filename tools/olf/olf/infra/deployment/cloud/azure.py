@@ -34,7 +34,7 @@ class AzureBackend:
             self._azure.account_show(env=env)
         except Exception as exc:
             raise DeploymentPreconditionError(
-                f"Azure is not authenticated. Run 'olf auth login --provider azure': {exc}"
+                f"Azure is not authenticated. Run 'olf infra auth login --provider azure': {exc}"
             ) from exc
 
     def foundation_state_resource_addr(self) -> str:

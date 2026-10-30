@@ -18,8 +18,10 @@ Commands that need cluster or cloud permissions are under `olf infra`. Commands
 that need none, such as `olf init`, `olf check` and `olf project validate`, stay
 at the top level. `olf --help` lists the top-level groups and `olf infra --help`
 the infrastructure ones. The earlier top-level paths of the infra commands
-(`olf infra deploy`, `olf project deploy`) still work as hidden aliases and print no
-warning; this page uses the new paths. See
+(`olf deploy`, `olf project deploy`) still work as hidden aliases. Each prints one
+line on stderr naming its new path and then runs unchanged, so scripts that parse
+stdout keep working. `olf query` is the exception: it stays a top-level command
+and prints no warning. See
 [ADR 0020](../adr/0020-infrastructure-common-and-platform-cli-surfaces.md).
 
 ## Options shared by lifecycle commands
@@ -95,6 +97,42 @@ All `new` commands validate the result before writing and accept
 | `olf infra report export --stage dev` | Export Superset dashboards into their bundles. |
 | `olf infra report import` | Import the bundles into a stage's Superset. |
 
+## Sign in from the CLI
+
+`olf login`, `olf whoami` and `olf logout` keep a Dex or external-issuer session
+for the deployment in `openlakeforge.yaml`. They need no kubeconfig and read no
+Secret.
+
+| Command | Does |
+| --- | --- |
+| `olf login` | Authorization Code with PKCE in your browser. `--no-browser` prints the URL instead. |
+| `olf whoami` | Instance, issuer, username, email, groups and ID token expiry. Refreshes an expired ID token. |
+| `olf logout` | Deletes the stored session. |
+
+Each takes `--profile-file` (`-f`, default `openlakeforge.yaml`). The issuer is
+`https://auth.<base_domain>` with `identity.issuer: github`, or `issuer_url`
+with `external`. The client id is `identity.client_ids['olf-cli']`, else
+`olf-cli`. With access `issuer: none` the Dex issuer is `http://`.
+
+A profile with `spec.access` and no `spec.identity` has authentication off:
+`olf login` and `olf whoami` say that sign-in is disabled and exit 0, `olf
+logout` does nothing, and platform commands run without login. A profile
+without `spec.access` publishes no routes, so these commands fail and point to
+`olf infra`.
+
+The session is `$OLF_HOME/sessions/<base_domain>.json`, mode 0600, and holds
+the ID, access and refresh tokens. Run `olf login` again when `olf` reports the
+session expired.
+
+A local deployment serves the issuer with its own CA, which Python does not
+read from the system store. Export it, then point `olf` at it:
+
+```bash
+olf infra access trust --output ./olf-local-ca.crt
+export REQUESTS_CA_BUNDLE="$PWD/olf-local-ca.crt"   # SSL_CERT_FILE also works
+olf login
+```
+
 ## Installation and toolchain
 
 | Command | Does |
@@ -107,7 +145,8 @@ All `new` commands validate the result before writing and accept
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `OLF_HOME` | `~/.openlakeforge` | Toolchain, platform payload, state and kubeconfigs |
+| `OLF_HOME` | `~/.openlakeforge` | Toolchain, platform payload, state, kubeconfigs and sign-in sessions |
+| `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` | unset | CA file `olf login` verifies the issuer against |
 | `OLF_TOOLCHAIN_MODE` | `managed` | `host` uses Terraform, Helm, kubectl and kind from `PATH` |
 | `OLF_PORT_FORWARD` | unset | `1` makes `olf` port-forward instead of using the local ingress |
 | `PROJECT_CODE_IMAGE_REPOSITORY`, `PROJECT_CODE_IMAGE_TAG` | `ghcr.io/openlakeforge/openlakeforge/project-code`, `local` | Where `olf infra project image` pushes on the local provider |

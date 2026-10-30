@@ -47,9 +47,9 @@ For example `http://oauth2.olf.localhost/oauth2/callback`.
 
 `olf-system` does not exist on a fresh stack, and `olf` creates it early only
 for `issuer: github`. Do not create it by hand: Terraform owns it and cannot
-adopt a hand-made one. The order to use: run `olf deploy --provider local`,
+adopt a hand-made one. The order to use: run `olf infra deploy --provider local`,
 which creates the namespace and may fail or wait on the pods that need the
-Secrets; then create the Secrets below and run `olf deploy --provider local`
+Secrets; then create the Secrets below and run `olf infra deploy --provider local`
 again. This order has not been run end to end; the missing early namespace step
 for `external` is tracked in #521.
 
@@ -94,7 +94,7 @@ reads the roles of a bearer token from that claim name alone, so with another
   reads GitHub teams, does not apply either. The per-service roles in
   [Roles and permissions](../../reference/roles-and-permissions.md) are
   therefore enforced by the perimeter only: which services a person opens.
-- **Rotation is yours.** `olf secrets rotate` works for `issuer: github` only.
+- **Rotation is yours.** `olf infra secrets rotate` works for `issuer: github` only.
   Rotate the client secrets in your issuer and in the `oidc-client-<consumer>`
   Secrets, then restart the consumers.
 - **Local provider.** Sign-in is implemented for the local provider only.

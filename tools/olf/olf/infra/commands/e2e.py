@@ -27,7 +27,8 @@ def e2e_run(
     profile: str = typer.Option(
         "",
         "--profile",
-        help="Deprecated single-DEV preset shorthand: 'full' or 'slim'. Pass the value `olf deploy --profile` used.",
+        help="Deprecated single-DEV preset shorthand: 'full' or 'slim'. "
+        "Pass the value `olf infra deploy --profile` used.",
     ),
     profile_file: str = typer.Option(
         "",
@@ -44,17 +45,17 @@ def e2e_run(
 
     Self-sufficient: resolves and applies the provider-contract environment
     itself (the in-process equivalent of sourcing `scripts/contracts/
-    load-runtime-env.sh` before this ran), so `olf e2e run --env aws` needs
+    load-runtime-env.sh` before this ran), so `olf infra e2e run --env aws` needs
     no shell wrapper around it.
 
-    Resolves the same installed-vs-source runtime layout `olf deploy` does
+    Resolves the same installed-vs-source runtime layout `olf infra deploy` does
     (`deployment_context`) - an installed distribution's Terraform roots,
     kubeconfig, and descriptors live under `OLF_HOME`/the extracted payload,
     not the caller's current directory, so validating the deployment just
-    created requires the identical path resolution `olf deploy` used.
+    created requires the identical path resolution `olf infra deploy` used.
 
     `-f` names the Deployment Profile the deployment was applied from, the
-    same way `olf platform apply -f` and `olf project deploy -f` do.
+    same way `olf infra platform apply -f` and `olf infra project deploy -f` do.
     """
     from olf.common.deployment.errors import DeploymentError
     from olf.infra import e2e
@@ -71,9 +72,9 @@ def e2e_run(
     # A v3 contract records the profile name the deployment resolved, and
     # `_parse_v3` refuses a contract whose name disagrees with the topology
     # this command resolves. `-f` is what lets a deployment driven from a
-    # profile elsewhere - `olf platform apply -f`, `olf project deploy -f` -
+    # profile elsewhere - `olf infra platform apply -f`, `olf infra project deploy -f` -
     # be validated against that same file instead of the project root, and
-    # `--profile` does the same for `olf deploy --profile`, whose shorthand
+    # `--profile` does the same for `olf infra deploy --profile`, whose shorthand
     # topology is named "legacy" rather than after the project profile.
     if profile and profile_file:
         raise typer.Exit(code=fail("--profile and --file are mutually exclusive."))

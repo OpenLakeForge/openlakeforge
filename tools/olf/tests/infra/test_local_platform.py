@@ -115,6 +115,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "shared_namespace",
         "stages",
         "manage_user_deployments",
+        "query_sizing",
         "storage_size",
         "kube_context",
         "kubeconfig_path",
@@ -633,7 +634,7 @@ def test_a_missing_github_oauth_secret_fails_before_deploy_with_the_create_comma
 
     assert got == made  # the shared namespace is made first, so the Secret has somewhere to go
     assert 'create secret generic github-oauth-app --from-literal=id="$GITHUB_CLIENT_ID"' in str(error.value)
-    assert "olf github connect" in str(error.value)
+    assert "olf infra github connect" in str(error.value)
 
 
 def test_no_github_means_no_oauth_secret_check(tmp_path: Path) -> None:

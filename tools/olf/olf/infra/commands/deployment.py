@@ -1,4 +1,4 @@
-"""Thin `olf deploy`/`destroy`/`status`/`forward` commands.
+"""Thin `olf infra deploy`/`destroy`/`status`/`forward` commands.
 
 Each command builds a `DeploymentContext` + `DeploymentEngine` and delegates
 immediately; all lifecycle logic lives in `olf.common.deployment.*`. The `--phase`

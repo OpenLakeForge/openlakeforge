@@ -26,6 +26,30 @@ variable "stages" {
   }
 }
 
+variable "query_sizing" {
+  description = "Trino capacity for spec.query.size, rendered by olf from release/query-sizes.yaml. Null deploys the base values file unchanged."
+  type = object({
+    size                    = string
+    workers                 = number
+    schedule_on_coordinator = bool
+    max_memory              = string
+    max_memory_per_node     = string
+    coordinator = object({
+      heap           = string
+      cpu_request    = string
+      memory_request = string
+      memory_limit   = string
+    })
+    worker = optional(object({
+      heap           = string
+      cpu_request    = string
+      memory_request = string
+      memory_limit   = string
+    }))
+  })
+  default = null
+}
+
 variable "kubeconfig_path" {
   description = "Optional kubeconfig path. Defaults to the repository-local .tmp/kubeconfigs/local.yaml."
   type        = string
@@ -194,7 +218,7 @@ variable "access_issuer" {
 }
 
 variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. `olf deploy` (deprecated, single stage) leaves this true; `olf platform apply` sets it false so `olf project deploy` owns the openlakeforge-project release instead."
+  description = "Whether Terraform owns the Dagster user-code deployments. `olf infra deploy` (deprecated, single stage) leaves this true; `olf infra platform apply` sets it false so `olf infra project deploy` owns the openlakeforge-project release instead."
   type        = bool
   default     = true
 }

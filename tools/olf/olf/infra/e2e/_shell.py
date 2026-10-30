@@ -58,7 +58,7 @@ class E2EConfig:
     superset_local_port: int | None = None
     openmetadata_local_port: int | None = None
     seaweedfs_local_port: int | None = None
-    # The DeploymentContext `olf e2e run` resolved; the rotation drill re-applies the platform from it.
+    # The DeploymentContext `olf infra e2e run` resolved; the rotation drill re-applies the platform from it.
     deployment: Any = None
     # "core" skips the slow drills (FullAssertion.tier == "drill"); "all" runs them.
     checks: Checks = "all"

@@ -1,6 +1,6 @@
 import pytest
+from openlakeforge_services.openmetadata import OpenMetadataError
 
-from olf.common.clients.openmetadata import OpenMetadataError
 from olf.infra.openmetadata import _payloads
 
 

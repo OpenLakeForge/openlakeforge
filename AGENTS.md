@@ -26,7 +26,7 @@ closed with a pointer here rather than fixed.
 
 | Not a goal | Why |
 | --- | --- |
-| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
+| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf infra deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
 | Windows support | Deployment targets are Linux and macOS. |
 
 The audience is a small data team without a platform engineer, and that is a
@@ -69,6 +69,7 @@ labels expressing intended sequence within a milestone.
 | `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
+| `packages/lakehouse-services/` | Service clients shared by `olf` and the platform API (ADR 0021); callers pass endpoints and credentials in |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
 | `skills/` | Agent skills for people operating a stack with `olf`; validated by `olf check skills` |
 | `infra/terraform/environments/` | Per-environment wiring; `contracts.tf` is the contract surface |
@@ -76,7 +77,7 @@ labels expressing intended sequence within a milestone.
 | `infra/terraform/modules/` | Component modules grouped by capability |
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
-| `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract both `pyproject.toml` files must match |
+| `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract every `pyproject.toml` must match |
 | `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `source.yaml` and `governance.yml` validate against |
 | `docs/schema/deployment-profile.schema.json` | Schema for Deployment Profiles |
 
@@ -93,7 +94,7 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
    logical identities by provider/deployment contracts, never embedded in the
    descriptors themselves — see `docs/schema/governance.schema.json` and
    `docs/schema/source.schema.json`.
-3. **Three deploy phases, two lifecycles** (ADR 0002). `olf deploy` runs
+3. **Three deploy phases, two lifecycles** (ADR 0002). `olf infra deploy` runs
    `foundation` → `platform` → `artifacts` in order, and each is selectable
    with `--phase`. Foundation and platform are static infrastructure that
    Terraform owns; artifacts is everything derived from `lakehouse_code/`.
@@ -154,7 +155,7 @@ tests in the same change.
 
 **Every claim in the docs is verified before it ships.** Run the command, or
 grep the path, or do not write the sentence. This is not hypothetical: four
-places in this repository documented `olf e2e run --suite smoke` as *the*
+places in this repository documented `olf infra e2e run --suite smoke` as *the*
 end-to-end validation while `e2e/_runner.py` only launches
 `inventory.default_product`, so the advertised check could pass with another
 product's pipeline broken. When a doc names a module, flag, path, or default,
@@ -294,11 +295,11 @@ protection — that 404 is not evidence that `main` is unprotected.
 When a change touches the deployed stack, verify at runtime as well:
 
 ```bash
-uv run --project tools/olf olf deploy --provider local
-uv run --project tools/olf olf e2e run --env local
+uv run --project tools/olf olf infra deploy --provider local
+uv run --project tools/olf olf infra e2e run --env local
 ```
 
-`olf e2e run --env local` launches every product pipeline, verifies Silver and Gold
+`olf infra e2e run --env local` launches every product pipeline, verifies Silver and Gold
 tables through Trino, checks Superset dashboards and OpenMetadata assets, and
 confirms ops-bucket artifacts exist.
 

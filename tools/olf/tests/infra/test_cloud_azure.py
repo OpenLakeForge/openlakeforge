@@ -382,5 +382,5 @@ def test_preflight_wraps_account_show_failure() -> None:
     tools = _toolkit(_RaisingRunner())
     backend = AzureBackend(_Azure(fail_account=True))
 
-    with pytest.raises(DeploymentPreconditionError, match="olf auth login"):
+    with pytest.raises(DeploymentPreconditionError, match="olf infra auth login"):
         backend.preflight(tools, env={})

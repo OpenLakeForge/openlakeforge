@@ -108,7 +108,7 @@ Adding a product that reuses an existing source touches
 duplicated.
 
 Catalog namespaces are derived from descriptors, so they are reconciled in the
-artifacts phase by `olf catalog sync-namespaces` (ADR 0002), never templated into
+artifacts phase by `olf infra catalog sync-namespaces` (ADR 0002), never templated into
 Terraform.
 
 Migrating an installation from the `domains/` layout is a manual rewrite. There

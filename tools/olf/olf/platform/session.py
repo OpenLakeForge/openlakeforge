@@ -188,6 +188,14 @@ def active_session(instance: Instance) -> Session:
     return refreshed
 
 
+def delete(instance: Instance) -> bool:
+    try:
+        session_path(instance).unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def bearer_token(instance: Instance) -> str | None:
     """The token a platform command sends as `Authorization: Bearer`, or None on a deployment without sign-in.
 

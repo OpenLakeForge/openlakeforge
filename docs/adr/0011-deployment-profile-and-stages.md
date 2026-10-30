@@ -109,14 +109,18 @@ rejected on `aws`, whose object storage is managed S3 with no volume to size;
 it applies on `local` and `azure`, where SeaweedFS is self-hosted.
 
 The resolved sizes are carried on `DeploymentTopology` (`query_size`,
-`storage_size`) and printed by `olf profile resolve`. `storage_size` reaches
+`storage_size`) and printed by `olf profile resolve`. `query_size` selects a
+row of `release/query-sizes.yaml`, which the local root receives as its
+`query_sizing` variable (AWS and Azure keep their Trino values until their own
+adapter changes); a size change therefore moves only the Trino Helm
+values, never a ProjectRevision or the project image. `storage_size` reaches
 the local and Azure roots as the `storage_size` Terraform variable, which
 selects a row of `release/storage-sizes.yaml`: the one provider-neutral table,
 read by the SeaweedFS module for the PVC sizes and the volume server's slot
 count, and by `olf` for the expansion rule. `small` is the sizing the module
 carried before the profile could choose, so a profile without the field renders
 the same Helm values. `medium` and `large` are provisional until #329 measures
-them. Nothing reads `query_size` yet (#324); the capacity preflight is #327.
+them. The capacity preflight is #327.
 
 A volume only grows. Before the platform apply, `olf` reads the SeaweedFS
 claims in the shared namespace and refuses, before any mutation, a size below a
@@ -188,7 +192,7 @@ its provider adapter (#133, #114). None belongs in this profile.
 
 ### The v0.2 compatibility path
 
-`olf deploy --provider local --profile slim|full` keeps its exact current
+`olf infra deploy --provider local --profile slim|full` keeps its exact current
 behavior as a deprecated shorthand: `olf.common.profile.legacy_single_stage_topology`
 resolves it to one enabled DEV stage using the preset's capability defaults,
 proving the shorthand is exactly the single-DEV-stage case of the general
@@ -209,8 +213,8 @@ topology free of namespaces, Helm releases, and endpoints.
   effective topology before any mutation, for both humans and CI.
 - The stage-aware platform, data plane, project revision and activation
   (`#133`, `#114`, `#154`, `#115`) consume `DeploymentTopology`, not
-  `--profile`/`--provider` flags directly: `olf platform apply -f` and
-  `olf project deploy -f --stage` take the profile file.
+  `--profile`/`--provider` flags directly: `olf infra platform apply -f` and
+  `olf infra project deploy -f --stage` take the profile file.
 - Local, AWS, and Azure POC shapes are representable without credentials,
   raw resource values, or endpoints — those stay behind provider contracts (ADR 0003).
 
@@ -252,6 +256,16 @@ until a tested backend lands (#324, #326) and `storage` is rejected on `aws`.
 The "sizing" exclusion is narrowed to raw resource values; the contract slice
 changes no rendered Terraform or Helm input.
 
-2026-10-30: `storage.size` accepts `medium` and `large` (#326) and sizes the
-SeaweedFS volumes from `release/storage-sizes.yaml`, with the grow-only rule
-enforced before the platform apply. `query.size` still accepts `small` only.
+2026-10-30: `storage_size` drives the SeaweedFS volume sizes through
+`release/storage-sizes.yaml` (#326). `small` renders the Helm values it did
+before; `medium` and `large` stay rejected until the grow-only rule lands.
+
+2026-10-30: `query.size` renders Trino from `release/query-sizes.yaml` through
+the local root's `query_sizing` variable (#324). `small` renders the same values
+as before. The `medium` and `large` rows are defined but still fail validation:
+workers need network flows, authentication across nodes (#367) and a kind run
+before the tier counts as tested.
+
+2026-10-30: `storage.size` accepts `medium` and `large` (#326), with the
+grow-only rule enforced before the platform apply. `query.size` still accepts
+`small` only.

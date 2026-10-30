@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pytest
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
-from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.infra.openmetadata._config import OpenMetadataConfig
 from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
 

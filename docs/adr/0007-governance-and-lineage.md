@@ -36,7 +36,7 @@ crawls through Trino: OpenMetadata 1.13 removed its Iceberg connector, and in
 Trino every stage is one catalog, `lakehouse_<stage>`, which OpenMetadata lists
 as one database. The crawl is filtered to the governed stages' catalogs, so
 every governed stage is crawled into its own root, as the read-only
-`openmetadata` Trino user. `olf openmetadata deploy-metadata` adds each stage's
+`openmetadata` Trino user. `olf infra openmetadata deploy-metadata` adds each stage's
 domains and descriptions under that root. It sets a domain on the
 `<domain>_silver` and `<product>_gold` schemas, and the tables the crawl finds
 inherit it. A data product's assets are the tables under its Gold schema,
@@ -49,7 +49,7 @@ stage's edges land on its own `lakehouse_<stage>` tables even though schema and
 table names are identical across stages; 1.12 matched on schema and table
 alone, and could attach one stage's lineage to another's. Each stage emits
 under its own `dagster_<stage>` namespace. Exact resolution needs the stage's
-schemas registered before its lineage arrives: `olf openmetadata
+schemas registered before its lineage arrives: `olf infra openmetadata
 deploy-metadata` seeds each `<domain>_silver` and `<product>_gold` schema at
 activation, and the crawl never deletes schemas or tables, so a crawl before
 the stage's first run cannot retire them. The tables themselves are not

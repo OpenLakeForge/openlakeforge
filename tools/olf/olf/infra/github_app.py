@@ -279,7 +279,8 @@ def store_app(context: Any, app: GitHubApp, kubectl: Any) -> None:
 
 def connect_github(context: Any, *, no_browser: bool = False) -> str:
     """Create the GitHub App for spec.identity.github, store it as the Secret `oauth_app_secret_ref` names, and
-    return the install link. Used by `olf github connect`; `olf deploy` runs `create_app` before the cluster exists."""
+    return the install link. Used by `olf infra github connect`; `olf infra deploy` runs `create_app` before the
+    cluster exists."""
     from olf.common import log
     from olf.common.tooling.toolkit import Toolkit
     from olf.infra.deployment.kube_ops import namespace_exists
@@ -289,7 +290,7 @@ def connect_github(context: Any, *, no_browser: bool = False) -> str:
     tools = Toolkit.default(environ=kube["env"])
     if not namespace_exists(tools.kubectl, namespace, **kube):
         raise GitHubConnectError(
-            f"namespace '{namespace}' does not exist; run olf deploy once (it creates it), then re-run this"
+            f"namespace '{namespace}' does not exist; run olf infra deploy once (it creates it), then re-run this"
         )
     app = create_app(context, no_browser=no_browser)
     store_app(context, app, tools.kubectl)
