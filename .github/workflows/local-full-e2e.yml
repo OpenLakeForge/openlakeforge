@@ -27,7 +27,7 @@ name: Local full e2e (nightly and manual)
 # Promoting a revision needs a real container registry: `olf project build`
 # rejects a mutable tag, and a kind-only image has no pullable digest to
 # identify an immutable revision by (see the `_DIGEST_TAG_PATTERN` gate in
-# `olf.infra.project_revision` and docs/guides/promote-dev-to-prod.md).
+# `olf.project_revision` and docs/guides/promote-dev-to-prod.md).
 # This job pushes the nightly project-code image to this repository's own
 # GHCR namespace, under its own package name (`project-code-nightly`, never
 # `release.yml`'s `project-code`) and a fixed `nightly` tag: reusing one tag
@@ -356,7 +356,7 @@ jobs:
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: uv run --project tools/olf --locked python -c "import json; from olf.common import contract_state; from olf.infra.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contract_state.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-before-promotion.json
+        run: uv run --project tools/olf --locked python -c "import json; from olf import contract_state; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contract_state.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-before-promotion.json
 
       - name: Activate the same revision in PROD (promotion -- no rebuild)
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
@@ -376,14 +376,14 @@ jobs:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: |
           set -euo pipefail
-          uv run --project tools/olf --locked python -c "import json; from olf.common import contract_state; from olf.infra.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contract_state.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-after-promotion.json
+          uv run --project tools/olf --locked python -c "import json; from olf import contract_state; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contract_state.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-after-promotion.json
           if ! diff -u prod-buckets-before-promotion.json prod-buckets-after-promotion.json; then
             echo "::error::promotion wrote to PROD's lakehouse buckets (diff above); it must copy no data"
             exit 1
           fi
 
       - name: Run the full e2e suite against PROD
-        # `run_full` (olf.infra.e2e._runner) includes `check_stage_isolation`
+        # `run_full` (olf.e2e._runner) includes `check_stage_isolation`
         # whenever a sibling stage namespace exists, so this run and DEV's
         # above already assert the cross-stage negative-isolation criteria
         # from each stage's own vantage point.

@@ -1,2 +1,2 @@
 include build_backend.py
-recursive-include olf/common/_embedded *.json *.tar.gz
+recursive-include olf/_embedded *.json *.tar.gz

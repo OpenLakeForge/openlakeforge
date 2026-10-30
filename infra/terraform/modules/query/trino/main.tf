@@ -83,7 +83,7 @@ locals {
   # Every stage-scoped client (dbt, Dagster, Superset, and the e2e suite)
   # authenticates to Trino as its own stage's runtime identity
   # (`olf-<stage>-runtime`, see `runtime_identity_principal` in
-  # olf/infra/contracts.py) - Trino has no authentication configured, so this
+  # olf/contracts.py) - Trino has no authentication configured, so this
   # string match is the only thing that keeps a DEV client from resolving
   # PROD's catalog. `system` stays read-only for cluster metadata; every
   # other catalog is denied unless explicitly listed above.
@@ -118,7 +118,7 @@ locals {
     # above only gates which catalog a client can use at all - it does not
     # stop olf-dev-runtime from reading a schema that belongs to prod once
     # inside its own catalog. Restrict table privileges to this stage's own
-    # namespace_prefix (olf.infra.contracts.resolve_physical_names) as a second,
+    # namespace_prefix (olf.contracts.resolve_physical_names) as a second,
     # schema-level layer on top of the IAM policy that already scopes each
     # stage's Pod Identity role to its own `database/<prefix>_*` ARNs -
     # Polaris-backed stages need no such rule: each already has its own

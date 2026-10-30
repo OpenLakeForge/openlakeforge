@@ -1,4 +1,4 @@
-"""Test-only helpers for the `olf.common.deployment`/`olf.common.tooling` test modules.
+"""Test-only helpers for the `olf.deployment`/`olf.tooling` test modules.
 
 Deliberately not `conftest.py`: this only serves the new deployment-substrate
 tests and must not interact with the shared domain fixtures other test files
@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from olf.common.tooling.process import Command, CommandResult, ProcessRunner
+from olf.tooling.process import Command, CommandResult, ProcessRunner
 
 FAKE_SCRIPT_TEMPLATE = """#!/usr/bin/env python3
 import json

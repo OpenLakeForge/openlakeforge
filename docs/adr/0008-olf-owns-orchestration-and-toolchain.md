@@ -41,8 +41,7 @@ target it once carried was a one-line delegate to an `olf` command, so deleting
 it removed a duplicated compatibility surface that drifted despite its tests.
 
 The substrate is a `DeploymentEngine` sequencing a `DeploymentProvider`, with
-typed adapters per external tool under `tools/olf/olf/common/tooling/`
-(the cloud `aws` and `azure` ones under `tools/olf/olf/infra/tooling/`). Cloud providers
+typed adapters per external tool under `tools/olf/olf/tooling/`. Cloud providers
 share one `CloudProvider`; a `CloudBackend` protocol isolates the genuine AWS and
 Azure differences (foundation variables, kubeconfig population, registry login,
 default image repository, Floe profile selection) rather than forking the

@@ -131,7 +131,7 @@ A signed-in person is user `<email>`, to which the catalog rules give no
 catalog: the sign-in restricts who opens the UI, not what a person may query,
 and at `password` the final `principals` rule would also refuse that user as a
 query submitter. Data access for people is #179. Rendered config is tested in
-`tools/olf/tests/infra/test_trino_oidc_config.py`; the browser flow is not proved.
+`tools/olf/tests/test_trino_oidc_config.py`; the browser flow is not proved.
 
 ### Consumer configuration
 
@@ -203,7 +203,7 @@ are Superset's `impersonate_user` and dbt-trino's `impersonation_user`.
 `python3 docs/testing/trino_workload_auth_proof.py --clients` starts the
 pinned image in one Docker container, no cluster, `tpch` standing in for the
 Polaris-backed catalogs, and removes it on exit; its file generation has a unit
-self-check in `tools/olf/tests/infra/test_trino_workload_auth_proof.py`. Run on
+self-check in `tools/olf/tests/test_trino_workload_auth_proof.py`. Run on
 2026-10-13 on a WSL2 Docker host (Trino 480 by the catalog digest, a throwaway
 `openssl` CA): exit 0, all 21 cases passing. Requests are
 `POST /v1/statement` for `SELECT count(*) FROM lakehouse_<stage>.tiny.nation`

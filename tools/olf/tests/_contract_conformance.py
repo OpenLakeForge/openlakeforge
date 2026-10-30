@@ -7,7 +7,7 @@ contract, and both need to know which emitted variables are stage-bound
 capability rather than a stage. Sharing one classification here is what
 keeps the two suites from drifting apart on what a stage-carrying export is
 -- duplicating the lists would let one suite's copy fall out of date with
-the exports `olf/infra/contracts.py` actually emits while the other still passed.
+the exports `olf/contracts.py` actually emits while the other still passed.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from olf.common.deployment.context import stage_namespace
-from olf.common.profile import StageName
+from olf.deployment.context import stage_namespace
+from olf.profile import StageName
 
 MEDALLION_LAYERS = ("bronze", "silver", "gold")
 
@@ -31,7 +31,7 @@ def bucket(stage: Any, layer: str) -> str:
 
 # Every export whose value is one of the selected stage's contracted bindings,
 # with the binding it must equal. Derived from the emit sites in
-# `olf/infra/contracts.py`, not from memory: each of these differs between stages on
+# `olf/contracts.py`, not from memory: each of these differs between stages on
 # at least one provider, so each is a value a run reaches data or Trino
 # through. `OPENLAKEFORGE_DBT_TRINO_USER` is the authentication boundary --
 # Trino's catalog access rules tell stages apart by this principal.

@@ -24,7 +24,7 @@ PROD without a rebuild" was unreachable.
 
 ### A project revision freezes inputs, never rendered stage output
 
-`ProjectRevision` (`tools/olf/olf/infra/project_revision.py`) is the one
+`ProjectRevision` (`tools/olf/olf/project_revision.py`) is the one
 content-addressed revision, covering the complete promotable project:
 
 | Component | Source | Excluded because |
@@ -56,7 +56,7 @@ entries, so an empty project and a tampered entry set fail the same way.
 Publication is immutable: an existing key with different content is a hard
 collision error, never a silent overwrite.
 
-`tools/olf/olf/infra/artifact_store.py` owns the bucket/client resolution revisions
+`tools/olf/olf/artifact_store.py` owns the bucket/client resolution revisions
 publish through (`RevisionStore`, `S3RevisionStore` for in-cluster or direct
 cloud S3, `FilesystemRevisionStore` for `olf project build --output DIR`).
 

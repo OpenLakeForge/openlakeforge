@@ -64,7 +64,7 @@ it at load time from `OPENLAKEFORGE_STAGE`, which activation puts on the
 code-server container. `_user_values` takes it from the activation record's own
 stage, not from the operator's shell. Beside it, the deployment carries only
 the contract values the runtime reads (`_RUNTIME_ENV` in
-`tools/olf/olf/infra/deployment/activation.py`), not every `OPENLAKEFORGE_*` key.
+`tools/olf/olf/deployment/activation.py`), not every `OPENLAKEFORGE_*` key.
 
 | Stage the pod reports | Schedules in the code location |
 | --- | --- |

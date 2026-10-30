@@ -15,7 +15,7 @@ locals {
 # Every stage instead shares the account's one default catalog
 # (glue_catalog_id = account_id, see outputs.tf); isolation moves to the
 # physical database name, prefixed per stage by
-# olf.infra.contracts.resolve_physical_names's namespace_prefix.
+# olf.contracts.resolve_physical_names's namespace_prefix.
 
 # Database lifecycle moved to Phase 2 (ADR 0002): `olf catalog sync-namespaces`
 # reconciles Glue databases from the lakehouse descriptors

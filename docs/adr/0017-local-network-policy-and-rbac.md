@@ -256,11 +256,11 @@ Secret verb, or create on pods, Jobs, CronJobs or workload controllers (which
 reads Secrets by mounting them), and compares the set with E1 to E6: a new one fails the run until
 this ADR names it. The comparison is by role kind, role, subject and resources, not by name prefix; bindings to the
 `system:serviceaccounts[:<ns>]` groups apply to every ServiceAccount in the OLF namespaces. A Secret pinned by
-`resourceNames` must match the pins in `E1_PINS` (`tools/olf/olf/infra/e2e/_network.py`), the one list of the documented names.
+`resourceNames` must match the pins in `E1_PINS` (`tools/olf/olf/e2e/_network.py`), the one list of the documented names.
 
 ## Conformance test
 
-New `tools/olf/olf/infra/e2e/_network.py`, called from `_runner.py` before the
+New `tools/olf/olf/e2e/_network.py`, called from `_runner.py` before the
 pipeline checks, driven by `release/network-flows.yaml` (the flow rows, the
 denied pairs, the RBAC expectations). Probe pods use the `k8s_bootstrap` image
 (`curl`, `kubectl`, `python3`) the way `check_discovery_from_pod` does, with its
@@ -289,7 +289,7 @@ needs one line. The probe namespace and every temporary policy are removed in a
 | Flow rows, denied pairs, RBAC expectations | `release/network-flows.yaml`, schema in `docs/schema/`, validated by `olf check`; registered in `_structure.py` |
 | Policies | New module `infra/terraform/modules/security/network-policy` (`main.tf`, `variables.tf`, `outputs.tf`; `kubernetes_network_policy_v1`), instantiated once in `environments/local/main.tf` after the namespaces and given the namespace names, the `kubernetes` Service's cluster IP and the API server endpoint (a `kubernetes_endpoints_v1` data source) for F20. Local root only; AWS and Azure are out of scope |
 | RBAC changes | the modules that own the Roles (`catalog/polaris`, `governance/openmetadata`) and Helm values (`seaweedfs.yaml`) |
-| CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/infra/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
+| CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
 | Gate and canary | `foundation_up` / a deploy precondition, and `e2e/_network.py` |
 | Docs flipped from "not yet verified" | [`identity-callers.md`](../architecture/identity/identity-callers.md) Dagster and internal-reachability rows, ADR 0014 seam 3 paragraph, the #178 limitation line |
 
@@ -370,7 +370,7 @@ inventory with its exceptions, the conformance plan, the slice order and the
 maintainer's decisions. Nothing built.
 
 Slice 1a built: `olf deploy --provider local` runs the canary
-(`olf/infra/deployment/local/network_canary.py`) after the foundation and fails
+(`olf/deployment/local/network_canary.py`) after the foundation and fails
 unless a deny-all namespace blocks a client its policy-free twin reaches.
 (Superseded below by the one-pair, two-direction canary.)
 Observed once, outside `olf`'s own cluster: on a stock kind v0.31.0 cluster

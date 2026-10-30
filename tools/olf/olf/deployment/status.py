@@ -1,0 +1,137 @@
+"""Provider-neutral cluster status reporting.
+
+Port of the `local-status` Make target (`kubectl get pods/svc/pvc`); kept
+provider-neutral so #125 can reuse it verbatim for AWS/Azure.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from olf.deployment.errors import DeploymentPreconditionError
+from olf.tooling.kubectl import Kubectl
+
+DEFAULT_RESOURCES: tuple[tuple[str, str], ...] = (
+    ("Pods", "pods"),
+    ("Services", "svc"),
+    ("PVCs", "pvc"),
+)
+
+
+@dataclass(frozen=True)
+class StatusSection:
+    title: str
+    output: str
+
+
+@dataclass(frozen=True)
+class StatusReport:
+    sections: tuple[StatusSection, ...]
+    urls: Mapping[str, str] = field(default_factory=dict)
+    """User-facing URLs by contract ref, from the contract's ingress routes."""
+
+    notes: tuple[str, ...] = ()
+    """Lines printed before everything else, e.g. the sign-in hint of authentication-off mode."""
+
+    def render(self) -> str:
+        blocks = [f"=== {section.title} ===\n{section.output}" for section in self.sections]
+        if self.urls:
+            blocks.insert(0, "=== URLs ===\n" + "\n".join(f"{ref}: {url}" for ref, url in sorted(self.urls.items())))
+        if self.notes:
+            blocks.insert(0, "\n".join(self.notes))
+        return "\n\n".join(blocks)
+
+    def as_dict(self) -> dict[str, object]:
+        notes = {"notes": list(self.notes)} if self.notes else {}
+        sections = {section.title: section.output for section in self.sections}
+        return {"urls": dict(self.urls), **notes, "sections": sections}
+
+
+def collect_status(
+    kubectl: Kubectl,
+    *,
+    namespaces: Sequence[str],
+    context: str,
+    kubeconfig: Path,
+    env: Mapping[str, str] | None = None,
+    resources: Sequence[tuple[str, str]] = DEFAULT_RESOURCES,
+    urls: Mapping[str, str] | None = None,
+    certificates: bool = False,
+    notes: tuple[str, ...] = (),
+) -> StatusReport:
+    """Report one section per resource kind and namespace.
+
+    A stage-aware deployment spreads its workloads over the shared platform
+    namespace and one namespace per enabled stage, so the caller passes every
+    namespace it owns rather than one."""
+    sections = []
+    for namespace in namespaces:
+        for title, resource in resources:
+            result = kubectl.get(
+                resource,
+                namespace=namespace,
+                context=context,
+                kubeconfig=kubeconfig,
+                env=env,
+                check=False,
+            )
+            if not result.ok:
+                detail = result.stderr.strip() or f"kubectl exited {result.returncode}"
+                raise DeploymentPreconditionError(f"failed to query {title} in namespace '{namespace}': {detail}")
+            output = result.stdout.strip() or result.stderr.strip()
+            sections.append(StatusSection(title=f"{title} ({namespace})", output=output))
+    if namespaces:
+        from olf import break_glass
+
+        records = break_glass.recent(kubectl, namespaces[0], context=context, kubeconfig=kubeconfig, env=env)
+        sections.append(StatusSection(title="Recent break-glass use", output=break_glass.render(records)))
+    if certificates:
+        sections.append(_certificate_section(kubectl, namespaces, context=context, kubeconfig=kubeconfig, env=env))
+    return StatusReport(sections=tuple(sections), urls=urls or {}, notes=notes)
+
+
+def _certificate_section(
+    kubectl: Kubectl,
+    namespaces: Sequence[str],
+    *,
+    context: str,
+    kubeconfig: Path,
+    env: Mapping[str, str] | None,
+) -> StatusSection:
+    """cert-manager Certificates that are not Ready, with their Ready condition's reason (#268).
+
+    A failed renewal keeps the old certificate served until it expires, so
+    nothing else in the report would show it.
+    """
+    title = "Certificates not Ready"
+    result = kubectl.get(
+        "certificates.cert-manager.io",
+        output="json",
+        extra_args=("--all-namespaces",),
+        context=context,
+        kubeconfig=kubeconfig,
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        # A foundation-only cluster has no cert-manager CRDs yet.
+        return StatusSection(title=title, output=f"unavailable: {result.stderr.strip()}")
+    problems = []
+    owned = 0
+    for certificate in json.loads(result.stdout)["items"]:
+        metadata = certificate["metadata"]
+        if metadata["namespace"] not in namespaces:
+            continue
+        owned += 1
+        conditions = certificate.get("status", {}).get("conditions", [])
+        ready: dict[str, str] = next((condition for condition in conditions if condition["type"] == "Ready"), {})
+        if ready.get("status") != "True":
+            reason = ready.get("reason", "NoReadyCondition")
+            problems.append(f"{metadata['namespace']}/{metadata['name']}: {reason}: {ready.get('message', '')}")
+    if not owned:
+        # ingress-shim never created them, or they were deleted: not healthy.
+        return StatusSection(title=title, output="no Certificates found in the platform namespaces")
+    return StatusSection(title=title, output="\n".join(problems) or "none")

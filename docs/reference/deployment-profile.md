@@ -6,7 +6,7 @@ lists every field, its type and default, and the rules `olf` checks across
 fields.
 
 The file is validated against `docs/schema/deployment-profile.schema.json` and
-then by `tools/olf/olf/common/profile.py`, which is the authority where the two differ.
+then by `tools/olf/olf/profile.py`, which is the authority where the two differ.
 Check a profile without deploying:
 
 ```bash

@@ -1,7 +1,7 @@
-"""Shared test fixtures used across the olf.infra.e2e test files.
+"""Shared test fixtures used across the olf.e2e test files.
 
 `e2e_cfg`/`E2E_REPO_ROOT`/`E2E_INVENTORY` are used by most of the
-`test_e2e_*.py` files (mirroring `olf/infra/e2e/`'s capability submodules), so they
+`test_e2e_*.py` files (mirroring `olf/e2e/`'s capability submodules), so they
 live here once rather than duplicated per file.
 """
 
@@ -21,8 +21,8 @@ from pathlib import Path
 import pytest
 from openlakeforge_domain import inventory_for
 
-from olf.common.profile import StageName
-from olf.infra.e2e._shell import E2EConfig, Environment, Suite
+from olf.e2e._shell import E2EConfig, Environment, Suite
+from olf.profile import StageName
 
 
 @pytest.fixture(autouse=True)
@@ -30,11 +30,11 @@ def _isolate_toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest
     """Every test defaults to host-mode executable resolution with an
     isolated `OLF_HOME`.
 
-    `olf.common.tooling.resolver.build_resolver()` provisions managed tools (#127)
+    `olf.tooling.resolver.build_resolver()` provisions managed tools (#127)
     over the network into `OLF_HOME` (`~/.openlakeforge` by default) unless
     told otherwise. Without this guard, any test that exercises a real
     (unmocked) `kubectl`/`terraform` execution path - directly or via
-    `olf.infra.k8s`/`olf.infra.e2e._shell` - would silently download real Terraform/
+    `olf.k8s`/`olf.e2e._shell` - would silently download real Terraform/
     kubectl/helm/kind binaries onto the network and into the developer's
     actual home directory. Tests that specifically exercise managed-mode
     resolution (`tests/test_toolchain_*.py`) override both variables
@@ -54,7 +54,7 @@ def _pin_project_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test resolves the project and distribution roots from this
     checkout instead of from the process working directory.
 
-    `olf.common.config.repo_root()` defaults to `"."`, and `project_root()` and
+    `olf.config.repo_root()` defaults to `"."`, and `project_root()` and
     `distribution_root()` both fall back to it. A real run never reaches that
     default because `provider_contract_environment` exports the variable
     first; a test that stubs out the hydration does reach it, and then

@@ -109,7 +109,7 @@ re-runs it was not verified here.
 ## Exposure scan
 
 `olf e2e run --env local` runs `identity credential exposure`
-(`tools/olf/olf/infra/e2e/_secret_exposure.py`) after every other assertion except the
+(`tools/olf/olf/e2e/_secret_exposure.py`) after every other assertion except the
 workload secret rotation drill, which comes last so the scan checks the
 credentials that were live for the whole run. It reads the **current** values of
 the identity Secrets from the cluster and looks for those exact strings: the
@@ -135,7 +135,7 @@ the run reports the original failure.
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
 
 The drill `credential preservation across a redeploy` (`--checks all`,
-`tools/olf/olf/infra/e2e/_credential_preservation.py`) reads the same migrated values,
+`tools/olf/olf/e2e/_credential_preservation.py`) reads the same migrated values,
 deletes the Jobs that create them (by name: `postgresql-credentials-*`,
 `superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`
 and `openmetadata-credential-replication-*`, which copies the ingestion-bot token the

@@ -145,7 +145,7 @@ locals {
     openmetadata_support       = ["glue"]
     catalog_database_fqn       = "aws_glue.lakehouse_${local.selected_stage}"
     # Per-product namespaces and schema FQNs are deliberately absent: Phase 2
-    # reconciles them from the descriptors (ADR 0002), and olf/infra/contracts.py
+    # reconciles them from the descriptors (ADR 0002), and olf/contracts.py
     # derives both from the same inventory when the contract omits them.
   })
 

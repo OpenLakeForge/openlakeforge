@@ -1,6 +1,6 @@
 """The olf CLI: entrypoint for OpenLakeForge deployment tooling.
 
-Command groups live in `olf.common.commands.*`; this module only constructs the
+Command groups live in `olf.commands.*`; this module only constructs the
 root Typer application, registers each group, and wires `main()`.
 """
 
@@ -11,29 +11,37 @@ import json
 import typer
 
 import olf
-from olf.common.commands import checks, distribution, domain, init, layers, profile, release, source, toolchain
-from olf.infra.commands import (
+from olf.commands import (
     access,
     artifacts,
     auth,
     break_glass,
     catalog,
+    checks,
     contracts,
     dbt,
     deployment,
     diagnostics,
+    distribution,
+    domain,
     e2e,
     github,
     images,
+    init,
     k8s,
+    layers,
     openmetadata,
     platform,
     product,
+    profile,
     project,
     query,
+    release,
     secrets,
     smoke,
+    source,
     superset,
+    toolchain,
 )
 
 app = typer.Typer(
@@ -95,8 +103,8 @@ def version(
     if not json_output:
         typer.echo(olf.__version__)
         return
-    from olf.common.commands.distribution import version_payload
-    from olf.common.distribution import DistributionError
+    from olf.commands.distribution import version_payload
+    from olf.distribution import DistributionError
 
     try:
         payload = json.loads(version_payload())

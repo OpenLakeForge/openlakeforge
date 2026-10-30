@@ -1,0 +1,658 @@
+"""Superset report bundle build, import, and export.
+
+Bundle building and unpacking are pure local operations; import and export
+go through the Superset REST API (`olf.clients.superset`).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import re
+import shutil
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Any
+from uuid import UUID
+from zipfile import ZIP_DEFLATED, ZipFile
+
+import yaml
+
+from olf import access, config, k8s, layers, log
+from olf.clients.superset import SupersetClient
+from olf.contracts import CONTRACT_STAGE_ENV
+from olf.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
+from olf.profile import StageName
+
+
+class ReportStageError(RuntimeError):
+    """A stage cannot serve a report import or export."""
+
+
+# Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
+SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
+SUPERSET_PASSWORD_MASK = "XXXXXXXXXX"
+# Created in-cluster by the Superset module, release "superset".
+ADMIN_SECRET = "superset-credentials"
+_TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
+
+
+@dataclass(frozen=True)
+class StageReportTarget:
+    """One stage's own Superset instance and Gold connection."""
+
+    stage: str
+    namespace: str
+    sqlalchemy_uri: str
+    schema_prefix: str
+    # Superset's per-database `extra`: the HTTPS scheme and the CA to verify
+    # against, set only while Trino serves HTTPS (ADR 0016).
+    extra: dict[str, Any] | None = None
+    # Secret in `namespace` holding this stage's Trino password; empty while
+    # Trino takes no password.
+    credential_secret: str = ""
+
+
+def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
+    """Resolve one stage's Superset target from that stage's own contract bindings.
+
+    Reads `OPENLAKEFORGE_KUBE_NAMESPACE` rather than `config.namespace()`,
+    whose `NAMESPACE` fallback a caller can export, and builds the Trino URI
+    from the contract rather than accepting a caller-exported one. Nothing
+    derives a target from a selected-stage value, which would silently
+    target another stage's instance.
+
+    Analytics is a per-stage capability (ADR 0011): the v3 stage index emits
+    `stages.<name>.reporting` only for an analytics-enabled stage, which
+    reaches this environment as `OPENLAKEFORGE_ANALYTICS_ENABLED`. A stage
+    without it has no Superset to talk to at all.
+    """
+    resolved_stage = stage or environ.get(CONTRACT_STAGE_ENV, "")
+    if not layers.enabled(environ, "analytics"):
+        raise ReportStageError(
+            f"stage {resolved_stage!r} has analytics disabled: it provisions no Superset instance."
+        )
+    namespace = environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "")
+    connection = {
+        name: environ.get(name, "")
+        for name in (
+            "OPENLAKEFORGE_DBT_TRINO_USER",
+            "OPENLAKEFORGE_QUERY_TRINO_HOST",
+            "OPENLAKEFORGE_QUERY_TRINO_PORT",
+            "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
+        )
+    }
+    missing = [name for name, value in (("OPENLAKEFORGE_KUBE_NAMESPACE", namespace), *connection.items()) if not value]
+    if missing:
+        raise ReportStageError(
+            f"stage {resolved_stage!r} resolved no {', '.join(missing)}: deploy the platform for this stage first."
+        )
+    # Only a contract that was actually applied for this stage counts.
+    # `build_contract_env` synthesizes a dev-shaped environment, and keeps any
+    # caller-exported value, when the Terraform output is unavailable -- so a
+    # shell still holding another deployment's `lakehouse_<stage>` bindings
+    # would pass any check on the values themselves. The provenance marker is
+    # written only when a contract was applied and unset otherwise.
+    applied = environ.get(CONTRACT_STAGE_ENV, "")
+    if not applied or applied != resolved_stage:
+        raise ReportStageError(
+            f"stage {resolved_stage!r} has no applied provider contract in this environment"
+            + (f" (the applied contract serves {applied!r})" if applied else "")
+            + ". Deploy the platform for this stage first."
+        )
+    # Built here from the contract's own fields rather than read from
+    # OPENLAKEFORGE_QUERY_SQLALCHEMY_URI, which `build_contract_env` keeps
+    # when the caller exported one. Any component of a kept URI can belong to
+    # another stage or deployment -- the endpoint, the catalog, or the Trino
+    # user whose catalog rules decide what SQL Lab on this connection can
+    # read -- so none of it is trusted. Same shape `build_contract_env` uses.
+    tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
+    tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
+    credential_secret = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "") if tls else ""
+    # Superset's own placeholder, not a secret. The import's `passwords` field
+    # fills the real value, but Database.set_sqlalchemy_uri then overwrites it
+    # with the URI's password unless that is the placeholder (6.1.0), so a URI
+    # without one wipes the password and the import's first Trino call gets 401.
+    sqlalchemy_uri = "trino://{user}{mask}@{host}:{port}/{catalog}".format(
+        mask=f":{SUPERSET_PASSWORD_MASK}" if credential_secret else "",
+        user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
+        host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
+        port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
+        catalog=connection["OPENLAKEFORGE_QUERY_TRINO_CATALOG"],
+    )
+    return StageReportTarget(
+        stage=resolved_stage,
+        namespace=namespace,
+        sqlalchemy_uri=sqlalchemy_uri,
+        schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
+        extra=_TLS_EXTRA if tls else None,
+        credential_secret=credential_secret,
+    )
+
+
+@dataclass(frozen=True)
+class ReportBundle:
+    root: str
+    name: str
+
+
+def bundle_identity(report_source_dir: str) -> ReportBundle:
+    """Derive the bundle root/name from the report source directory path."""
+    root = re.sub(r"^lakehouse_code/dashboards/superset/", "", report_source_dir)
+    root = re.sub(r"/metadata\.ya?ml$", "", root)
+    root = root.replace("/", "_")
+    root = f"{root}_superset_bundle"
+    return ReportBundle(root=root, name=f"{root}.zip")
+
+
+REPORT_YAML_SUFFIXES = {".yaml", ".yml"}
+
+
+def discover_dashboard_files(report_dir: Path) -> list[Path]:
+    """List a report bundle's dashboard export files, matching what packaging accepts."""
+    dashboards_dir = report_dir / "dashboards"
+    return sorted(
+        path for path in dashboards_dir.glob("*") if path.is_file() and path.suffix.lower() in REPORT_YAML_SUFFIXES
+    )
+
+
+def build_report_bundle(
+    source_dir: Path,
+    bundle_path: Path,
+    bundle_root: str,
+    sqlalchemy_uri: str,
+    *,
+    schema_prefix: str = "",
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Zip the report YAML, rewriting the database sqlalchemy_uri and dataset schemas in place.
+
+    AWS Glue's shared default catalog (no per-stage custom catalog available)
+    needs every physical schema prefixed with the stage's own catalog_name to
+    stay collision-free (olf.contracts.build_contract_env's namespace_prefix).
+    The checked-in dataset YAML declares the bare logical schema
+    (e.g. `order_revenue_gold`), so it has to be rewritten the same way the
+    database YAML's sqlalchemy_uri already is - otherwise the dashboard
+    imports fine but queries a schema that does not exist.
+    """
+    with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
+        for path in sorted(source_dir.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+                continue
+            relative = path.relative_to(source_dir).as_posix()
+            archive_name = PurePosixPath(bundle_root, relative).as_posix()
+            rewrite_database = relative.startswith("databases/")
+            rewrite_dataset = bool(schema_prefix) and relative.startswith("datasets/")
+            if not rewrite_database and not rewrite_dataset:
+                bundle.write(path, archive_name)
+                continue
+
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise ValueError(f"{relative}: is not a YAML mapping")
+            if rewrite_database:
+                document["sqlalchemy_uri"] = sqlalchemy_uri
+                if extra:
+                    document["extra"] = {**(document.get("extra") or {}), **extra}
+            else:
+                schema = document.get("schema")
+                if not isinstance(schema, str) or not schema:
+                    raise ValueError(f"{relative}: has no schema to prefix")
+                document["schema"] = f"{schema_prefix}{schema}"
+            bundle.writestr(archive_name, yaml.safe_dump(document, sort_keys=False))
+
+
+def _neutral_database(document: dict[str, Any]) -> None:
+    document["sqlalchemy_uri"] = STAGE_NEUTRAL_SQLALCHEMY_URI
+    extra = document.get("extra")
+    engine_params = extra.get("engine_params") if isinstance(extra, dict) else None
+    connect_args = engine_params.get("connect_args") if isinstance(engine_params, dict) else None
+    if not isinstance(engine_params, dict) or not isinstance(connect_args, dict):
+        return
+    for key, value in _TLS_EXTRA["engine_params"]["connect_args"].items():
+        if connect_args.get(key) == value:
+            del connect_args[key]
+    if not connect_args:
+        del engine_params["connect_args"]
+
+
+def _export_member(relative: PurePosixPath, content: bytes, schema_prefix: str) -> bytes:
+    """Undo `build_report_bundle`'s stage rewrite on one exported asset."""
+    kind = relative.parts[0]
+    if kind not in {"databases", "datasets"}:
+        return content
+    document = yaml.safe_load(content.decode("utf-8"))
+    if not isinstance(document, dict):
+        return content
+    if kind == "databases":
+        _neutral_database(document)
+    else:
+        schema = document.get("schema")
+        if not (schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix)):
+            return content
+        document["schema"] = schema.removeprefix(schema_prefix)
+    return yaml.safe_dump(document, sort_keys=False).encode("utf-8")
+
+
+def unpack_export_bundle(bundle_path: Path, target_dir: Path, *, schema_prefix: str = "") -> None:
+    """Replace managed report assets in the source tree from an export zip.
+
+    Superset exports what it holds, which is the stage connection and, on AWS,
+    the stage-prefixed schemas that `build_report_bundle` imported. Both are
+    put back to their stage-neutral form, or the next `olf report validate`
+    rejects the bundle as stage-bound.
+    """
+    managed_names = {"metadata.yaml", "databases", "datasets", "charts", "dashboards"}
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for name in managed_names:
+        path = target_dir / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+
+    with ZipFile(bundle_path) as bundle:
+        for member in bundle.namelist():
+            member_path = PurePosixPath(member)
+            if (
+                len(member_path.parts) < 2
+                or member_path.name.startswith(".")
+                or member_path.suffix.lower() not in {".yaml", ".yml"}
+            ):
+                continue
+            relative = PurePosixPath(*member_path.parts[1:])
+            destination = target_dir / Path(relative.as_posix())
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(_export_member(relative, bundle.read(member), schema_prefix))
+
+
+@contextlib.contextmanager
+def superset_base_url(namespace: str) -> Iterator[str]:
+    """Yield the base URL of this namespace's Superset API for the block."""
+    log.step("Waiting for Superset web deployment...")
+    k8s.wait_for_rollout("deployment/superset", namespace)
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    with access.service_url(
+        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting",
+        service="superset",
+        remote_port=8088,
+        namespace=namespace,
+        log_path=f"{log_prefix}-superset-port-forward.log",
+        shared_namespace=config.shared_namespace(),
+    ) as url:
+        yield url
+
+
+def discover_report_dirs(repo_root: Path) -> list[str]:
+    root = repo_root / "lakehouse_code" / "dashboards" / "superset"
+    dirs = {str(path.parent.relative_to(repo_root)) for path in root.glob("*/metadata.yaml")}
+    return sorted(dirs)
+
+
+def validate_report_registry(repo_root: Path, declared_report_dirs: Sequence[str]) -> list[str]:
+    """Require exact parity between descriptor-declared and mounted bundles."""
+    declared = set(declared_report_dirs)
+    discovered = set(discover_report_dirs(repo_root))
+    if declared != discovered:
+        missing = sorted(declared - discovered)
+        undeclared = sorted(discovered - declared)
+        details: list[str] = []
+        if missing:
+            details.append("declared but not mounted: " + ", ".join(missing))
+        if undeclared:
+            details.append("mounted but not declared: " + ", ".join(undeclared))
+        raise RuntimeError("Superset dashboard registry mismatch (" + "; ".join(details) + ")")
+    return sorted(declared)
+
+
+# The promotion contract for a source-controlled bundle (#130). Superset
+# matches assets across instances by `uuid`, so a bundle whose identities are
+# missing, duplicated, or dangling imports into DEV and then silently forks or
+# fails in PROD -- the one stage nothing re-exports from. These directories are
+# what `unpack_export_bundle` manages and `build_report_bundle` packs.
+_MANAGED_ASSET_DIRS: tuple[str, ...] = ("databases", "datasets", "charts", "dashboards")
+_ASSET_REFERENCES = {"datasets": ("database_uuid", "databases"), "charts": ("dataset_uuid", "datasets")}
+# The database is the one identity several bundles are meant to hold in
+# common: every dashboard reads the same Gold through one Trino connection,
+# and the reference project's bundles all declare the same
+# `openlakeforge_trino` uuid deliberately. Nothing else is shareable --
+# `deploy_reports` imports every declared bundle into one Superset instance in
+# turn, so a chart, dataset, or dashboard uuid reused across two bundles makes
+# the second import overwrite the first asset and leaves the earlier dashboard
+# pointing at someone else's chart.
+_SHAREABLE_ASSET_DIRS = frozenset({"databases"})
+# A promotable bundle is stage-neutral: target connectivity is resolved at
+# import time by `build_report_bundle`, so a checked-in stage-bound physical
+# name (`lakehouse_<stage>` catalogs, `olf-<stage>` namespaces) would survive
+# promotion and point PROD at another stage's data. `ws_<user>_` is a personal
+# workspace identity, which #111 excludes from promotable dependencies
+# outright. `s3://`, `http://`, and credential literals are already rejected
+# for every revision component by olf.project_revision.
+_FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bws_[a-z0-9][a-z0-9-]*_", re.IGNORECASE), "a personal workspace identifier"),
+    (
+        # `\b` after the stage token would be wrong on exactly the case that
+        # matters most: `_` is a word character, so `lakehouse_dev` matches
+        # while AWS's prefixed schema `lakehouse_dev_order_revenue_gold` --
+        # what `build_report_bundle`'s `schema_prefix` produces -- would not.
+        # A negative lookahead on letters and digits admits the suffix while
+        # still refusing `lakehouse_development`.
+        re.compile(
+            r"(?<![a-z0-9])(?:lakehouse|olf)[_-](?:"
+            + "|".join(stage.value for stage in StageName)
+            + r")(?![a-z0-9])",
+            re.IGNORECASE,
+        ),
+        "a stage-bound physical name",
+    ),
+)
+
+
+def _canonical_uuid(value: object) -> str | None:
+    """A uuid in its canonical spelling, or None if it is not one.
+
+    Normalized rather than rejected: Superset resolves `A1B2-...` and
+    `a1b2-...` to the same asset, so a bundle spelling one in either case is
+    legitimate and must not be refused. Comparing the raw strings instead
+    would let two bundles claim one identity in different cases and pass as
+    distinct, which is the collision the uniqueness rule exists to catch.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+def _yaml_problem(exc: Exception) -> str:
+    """A YAML parse error as one line, for a violation a user reads in a list."""
+    return " ".join(str(exc).split())
+
+
+_UNCOMPARED_DATABASE_FIELDS = frozenset(
+    {
+        # `build_report_bundle` rewrites it to the target stage's own
+        # connection while packaging, so the checked-in value is a
+        # placeholder rather than part of the shared definition.
+        "sqlalchemy_uri",
+        # The canonical identity is already this comparison's map key, so the
+        # raw spelling adds nothing -- and comparing it would report two
+        # identical databases as conflicting whenever they merely differ in
+        # case, which `_canonical_uuid` exists to treat as the same asset.
+        "uuid",
+    }
+)
+
+
+def _shared_database_definition(document: Mapping[str, Any]) -> dict[str, Any]:
+    """The part of a database document two bundles sharing a uuid must agree on."""
+    return {key: value for key, value in document.items() if key not in _UNCOMPARED_DATABASE_FIELDS}
+
+
+def report_bundle_errors(
+    repo_root: Path, report_dir: str, *, owner_of: dict[str, tuple[str, str, dict[str, Any]]] | None = None
+) -> list[str]:
+    """Check one source-controlled report bundle against the promotion contract.
+
+    Returns every violation rather than raising on the first: an analyst
+    re-exporting a bundle wants the whole list, not one round trip per
+    problem.
+
+    `owner_of` maps each claimed uuid to the (kind, file, document) that
+    claimed it. Pass one across several calls to check identity uniqueness
+    over a whole set of bundles -- see `validate_report_bundles`.
+    """
+    bundle_dir = repo_root / report_dir
+    metadata_path = bundle_dir / "metadata.yaml"
+    if not metadata_path.is_file():
+        return [f"{report_dir}/metadata.yaml: missing"]
+    # Import goes through `/api/v1/assets/import/`, which accepts only `type:
+    # assets` -- a dashboard-type export would be refused by the API rather
+    # than here. `export_report` rewrites the type for exactly that reason, so
+    # a bundle that lost it was hand-edited.
+    try:
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return [f"{report_dir}/metadata.yaml: is not valid YAML ({_yaml_problem(exc)})"]
+    if not isinstance(metadata, dict):
+        return [f"{report_dir}/metadata.yaml: is not a YAML mapping"]
+    if metadata.get("type") != "assets":
+        return [f"{report_dir}/metadata.yaml: declares type {metadata.get('type')!r}, not 'assets'"]
+    if not isinstance(metadata.get("version"), str) or not metadata["version"]:
+        return [f"{report_dir}/metadata.yaml: has no export format version"]
+
+    errors: list[str] = []
+    owner_of = {} if owner_of is None else owner_of
+    identities: dict[str, set[str]] = {kind: set() for kind in _MANAGED_ASSET_DIRS}
+    documents: list[tuple[str, str, dict[str, Any]]] = []
+    for kind in _MANAGED_ASSET_DIRS:
+        for path in sorted((bundle_dir / kind).rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
+                continue
+            name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
+            # A hand-edit or a merge leaves invalid YAML behind often enough
+            # that dying on it would make the validator useless exactly when
+            # it is needed: the point is to name the file and keep collecting.
+            text = path.read_text(encoding="utf-8")
+            try:
+                document = yaml.safe_load(text)
+            except yaml.YAMLError as exc:
+                errors.append(f"{name}: is not valid YAML ({_yaml_problem(exc)})")
+                continue
+            if not isinstance(document, dict):
+                errors.append(f"{name}: is not a YAML mapping")
+                continue
+            documents.append((kind, name, document))
+            identity = document.get("uuid")
+            if not isinstance(identity, str) or not identity:
+                errors.append(f"{name}: has no stable uuid")
+                continue
+            # Superset's import schema expects a real UUID. An arbitrary
+            # string matches its own references and would pass every check
+            # here, then fail at import into whichever stage runs first.
+            canonical = _canonical_uuid(identity)
+            if canonical is None:
+                errors.append(f"{name}: uuid {identity!r} is not a UUID")
+                continue
+            identities[kind].add(canonical)
+            claimed = owner_of.get(canonical)
+            if claimed is None:
+                owner_of[canonical] = (kind, name, document)
+                continue
+            claimed_kind, claimed_name, claimed_document = claimed
+            if kind not in _SHAREABLE_ASSET_DIRS or claimed_kind not in _SHAREABLE_ASSET_DIRS:
+                errors.append(f"{name}: uuid {canonical} is already used by {claimed_name}")
+            elif _shared_database_definition(document) != _shared_database_definition(claimed_document):
+                errors.append(
+                    f"{name}: uuid {canonical} defines a different database than {claimed_name}; "
+                    "a shared connection must be declared identically in every bundle"
+                )
+
+    # A bundle carrying only a database and its datasets is what `olf product
+    # new --with-report` leaves behind: the scaffold cannot invent a dashboard
+    # layout, so the analyst authors one in Superset and exports it back. That
+    # state is legitimate on disk and not promotable, and `e2e._assertions`
+    # already refuses it at runtime -- accepting it here would publish an
+    # incomplete revision and surface the omission only after promotion.
+    if not any(kind == "dashboards" for kind, _, _ in documents):
+        errors.append(
+            f"{report_dir}: exports no Superset dashboard; author it in Superset "
+            "and export it back into this bundle before promoting"
+        )
+
+    for kind, name, document in documents:
+        if kind in _ASSET_REFERENCES:
+            field, target = _ASSET_REFERENCES[kind]
+            reference = document.get(field)
+            if _canonical_uuid(reference) not in identities[target]:
+                errors.append(f"{name}: {field} {reference!r} does not resolve inside the bundle")
+            continue
+        if kind != "dashboards":
+            continue
+        position = document.get("position")
+        for key, block in position.items() if isinstance(position, dict) else ():
+            if not isinstance(block, dict) or block.get("type") != "CHART":
+                continue
+            meta = block.get("meta")
+            reference = meta.get("uuid") if isinstance(meta, dict) else None
+            if _canonical_uuid(reference) not in identities["charts"]:
+                errors.append(f"{name}: position block {key} references chart {reference!r} the bundle does not define")
+
+    for path in sorted(bundle_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
+        for pattern, detail in _FORBIDDEN_BUNDLE_VALUES:
+            match = pattern.search(text)
+            if match is not None:
+                errors.append(f"{name}: contains {detail} ({match.group(0)!r})")
+    return errors
+
+
+def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list[str]:
+    """Collect promotion-contract violations across every declared bundle.
+
+    Identity uniqueness is checked over the whole set rather than one bundle
+    at a time, because the hazard is per Superset instance rather than per
+    bundle: `deploy_reports` imports them all into the same one.
+    """
+    owner_of: dict[str, tuple[str, str, dict[str, Any]]] = {}
+    return [
+        error for report_dir in report_dirs for error in report_bundle_errors(repo_root, report_dir, owner_of=owner_of)
+    ]
+
+
+def bundle_schema_perms(bundle_path: Path) -> set[str]:
+    """The `[database].[schema]` view menus of every dataset the bundle imports.
+
+    Report datasets are the Gold marts a dashboard reads, so the bundle (after
+    `build_report_bundle` applied any schema prefix) is the source of truth for
+    which schemas an import exposes.
+    """
+    databases: dict[str, str] = {}
+    datasets: list[dict[str, Any]] = []
+    with ZipFile(bundle_path) as bundle:
+        for name in bundle.namelist():
+            parts = PurePosixPath(name).parts
+            if (
+                len(parts) < 3
+                or parts[1] not in {"databases", "datasets"}
+                or not name.lower().endswith((".yaml", ".yml"))
+            ):
+                continue
+            document = yaml.safe_load(bundle.read(name))
+            if not isinstance(document, dict):
+                continue
+            if parts[1] == "databases":
+                databases[_canonical_uuid(document["uuid"]) or ""] = str(document["database_name"])
+            else:
+                datasets.append(document)
+    return {
+        f"[{databases[ref]}].[{d['schema']}]"
+        for d in datasets
+        if d.get("schema") and (ref := _canonical_uuid(d.get("database_uuid"))) in databases
+    }
+
+
+def admin_password_for(namespace: str, override: str = "", *, kube_context: str | None = None) -> str:
+    """The Superset admin password: an explicit override, else the Secret the Superset module's Job created."""
+    return override or k8s.secret_value(ADMIN_SECRET, "admin-password", namespace, kube_context=kube_context)
+
+
+def deploy_reports(
+    repo_root: Path,
+    namespace: str,
+    sqlalchemy_uri: str,
+    *,
+    report_source_dir: str | None,
+    declared_report_dirs: Sequence[str] | None = None,
+    work_dir: Path,
+    admin_username: str,
+    admin_password: str,
+    schema_prefix: str = "",
+    extra: dict[str, Any] | None = None,
+    credential_secret: str = "",
+) -> None:
+    # Computed before touching the cluster: a declared-but-unmounted bundle
+    # must still fail loudly, and validate_report_registry already does that
+    # (raises before returning) whenever declared_report_dirs is given, so
+    # reaching the empty check below means every declared dashboard really
+    # is missing -- i.e. none are declared at all (#228's scaffolded-but-
+    # undeclared draft, or any project that simply has no dashboards yet).
+    # That is a legitimate state, not a misconfiguration: importing nothing
+    # is the correct outcome, not an error to wait for a live Superset
+    # just to report.
+    report_dirs = (
+        [report_source_dir]
+        if report_source_dir
+        else validate_report_registry(repo_root, declared_report_dirs)
+        if declared_report_dirs is not None
+        else discover_report_dirs(repo_root)
+    )
+    if not report_dirs:
+        log.step("No Superset report bundles are declared; nothing to import.")
+        return
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    trino_password = k8s.secret_value(credential_secret, "password", namespace) if credential_secret else ""
+    with superset_base_url(namespace) as base_url:
+        password = admin_password_for(namespace, admin_password)
+        client = SupersetClient(base_url, username=admin_username, password=password)
+        client.login()
+        schema_perms: set[str] = set()
+        for report_dir in report_dirs:
+            source_dir = repo_root / report_dir
+            if not (source_dir / "metadata.yaml").is_file():
+                raise RuntimeError(f"missing Superset report metadata at {report_dir}/metadata.yaml")
+
+            identity = bundle_identity(report_dir)
+            bundle_path = work_dir / identity.name
+            build_report_bundle(
+                source_dir, bundle_path, identity.root, sqlalchemy_uri, schema_prefix=schema_prefix, extra=extra
+            )
+
+            log.step(f"Importing Superset report assets from {bundle_path}")
+            client.import_assets(bundle_path, database_password=trino_password)
+            log.info(f"Deployed Superset report assets from {report_dir}")
+            schema_perms |= bundle_schema_perms(bundle_path)
+        # Analysts and viewers read nothing until olf_data_access holds the
+        # imported schemas (images/superset/olf_oidc.py creates it empty).
+        if schema_perms:
+            # The role exists only when Superset runs with sign-in (identity.oidc).
+            if not client.grant_permissions("olf_data_access", "schema_access", sorted(schema_perms)):
+                log.info("Superset sign-in is off; no data-access role to grant")
+
+
+def export_report(
+    repo_root: Path,
+    namespace: str,
+    *,
+    report_source_dir: str,
+    bundle_name: str,
+    work_dir: Path,
+    admin_username: str,
+    admin_password: str,
+    dashboard: str,
+    schema_prefix: str = "",
+) -> None:
+    work_dir.mkdir(parents=True, exist_ok=True)
+    local_bundle = work_dir / bundle_name
+
+    with superset_base_url(namespace) as base_url:
+        password = admin_password_for(namespace, admin_password)
+        client = SupersetClient(base_url, username=admin_username, password=password)
+        client.login()
+        log.step(f"Exporting dashboard '{dashboard}' from Superset")
+        local_bundle.write_bytes(client.export_dashboard(dashboard))
+
+    target_dir = repo_root / report_source_dir
+    unpack_export_bundle(local_bundle, target_dir, schema_prefix=schema_prefix)
+    # A dashboard export declares `type: Dashboard`; the bundle is imported as
+    # assets (see `report_bundle_errors`).
+    metadata_path = target_dir / "metadata.yaml"
+    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    metadata["type"] = "assets"
+    metadata_path.write_text(yaml.safe_dump(metadata, sort_keys=False), encoding="utf-8")
+    log.info(f"Exported Superset report assets to {report_source_dir}")
