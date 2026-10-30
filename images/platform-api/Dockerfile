@@ -12,8 +12,10 @@ WORKDIR /opt/openlakeforge
 COPY images/platform-api/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock && rm /tmp/requirements.lock
 
-# The service clients are a path dependency in uv.lock, so the exported lock
-# leaves them out (--no-emit-package) and their source is copied beside the API.
+# The service clients and the domain model they read descriptors with are path
+# dependencies in uv.lock, so the exported lock leaves them out
+# (--no-emit-package) and their source is copied beside the API.
+COPY packages/domain-model/openlakeforge_domain ./openlakeforge_domain
 COPY packages/lakehouse-services/openlakeforge_services ./openlakeforge_services
 COPY packages/platform-api/openlakeforge_platform_api ./openlakeforge_platform_api
 

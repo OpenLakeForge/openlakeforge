@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+openlakeforge-domain-model = { path = "../domain-model" }
 openlakeforge-lakehouse-services = { path = "../lakehouse-services" }
 
 [dependency-groups]

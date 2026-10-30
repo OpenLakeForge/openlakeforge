@@ -3,7 +3,7 @@
 `images/platform-api/` is the image of the platform API
 ([ADR 0021](../../docs/adr/0021-platform-api.md)), whose source is
 `packages/platform-api/`. It runs the package, and the service clients it
-imports from `packages/lakehouse-services/`, from source on `PYTHONPATH`
+imports from `packages/lakehouse-services/` and `packages/domain-model/`, from source on `PYTHONPATH`
 under uvicorn on port 8080, as `nobody`, and writes nothing, so the pod can
 mount its root filesystem read-only.
 
@@ -24,11 +24,11 @@ that release's `component-manifest.json` (`resolved_images`) into the catalog,
 and deploy the pin instead of a local build.
 
 `requirements.lock` is exported from `packages/platform-api/uv.lock`; regenerate
-it whenever that lock changes. The first-party path dependency is left out,
-since its source is copied into the image and has no hash to pin:
+it whenever that lock changes. The first-party path dependencies are left out,
+since their source is copied into the image and has no hash to pin:
 
 ```bash
 uv export --project packages/platform-api --frozen --no-dev --no-emit-project \
-  --no-emit-package openlakeforge-lakehouse-services \
+  --no-emit-package openlakeforge-lakehouse-services --no-emit-package openlakeforge-domain-model \
   --format requirements-txt -o images/platform-api/requirements.lock
 ```
