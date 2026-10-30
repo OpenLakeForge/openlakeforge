@@ -147,8 +147,8 @@ def test_build_resolver_managed_mode_fails_closed_on_a_missing_catalog(tmp_path:
 
 
 def test_build_resolver_managed_mode_resolves_the_catalog_outside_the_current_directory(tmp_path: Path) -> None:
-    """With no scoped environment to inherit (a top-level `olf doctor`/
-    `olf e2e run`, not a child of `olf deploy`), the catalog must come from
+    """With no scoped environment to inherit (a top-level `olf infra doctor`/
+    `olf infra e2e run`, not a child of `olf infra deploy`), the catalog must come from
     the active runtime layout - not from the current working directory.
 
     Regression test: resolving relative to the cwd meant an installed user

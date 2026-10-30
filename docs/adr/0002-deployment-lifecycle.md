@@ -27,8 +27,8 @@ It is three phases, in two lifecycle categories. Those are different axes.
 
 ### Three ordered phases
 
-`olf platform apply -f openlakeforge.yaml` runs the static prefix in order.
-The deprecated `olf deploy --provider P` retains the old single-DEV path.
+`olf infra platform apply -f openlakeforge.yaml` runs the static prefix in order.
+The deprecated `olf infra deploy --provider P` retains the old single-DEV path.
 
 | Phase | Creates | Engine |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ are `for_each` instances over the enabled stages, never copied module blocks,
 and each owns its own metadata database on the shared PostgreSQL server.
 
 Because a stage's namespace holds its services, disabling a stage is
-destructive. `olf platform apply -f` (and the deprecated `olf deploy`)
+destructive. `olf infra platform apply -f` (and the deprecated `olf infra deploy`)
 compares the resolved topology against the root's applied `stage_names` output
 and refuses an apply that would drop a stage unless `--allow-stage-removal`
 says so. The multi-stage nightly proves both halves: the refusal, and removal
@@ -81,7 +81,7 @@ triggers the artifacts phase and nothing else; CI never invokes Terraform for a
 code change. Terraform runs are a deliberate platform action.
 
 In v0.3 the dynamic lifecycle is split into immutable project build and stage
-activation. `olf project build` publishes a `ProjectRevision`; `olf project
+activation. `olf infra project build` publishes a `ProjectRevision`; `olf infra project
 deploy -f openlakeforge.yaml --stage STAGE --revision REVISION` verifies it,
 renders stage-bound Floe output, and changes that stage only. It never invokes
 Terraform or reads the caller's `lakehouse_code/`. `ACTIVE.json` is committed
@@ -91,20 +91,20 @@ leaves the prior executable revision active.
 The corollary is a rule: **a platform apply must never wait on an artifact.**
 Anything requiring domain code to exist belongs in the artifacts phase. Catalog
 namespaces are the worked example — they are derived from descriptors, so
-`olf catalog sync-namespaces` runs first inside artifacts, before any table is
+`olf infra catalog sync-namespaces` runs first inside artifacts, before any table is
 written, rather than being templated into a Terraform-managed bootstrap job.
 That keeps `platform` from reading user code on either catalog provider.
 
 ### Teardown is not symmetric
 
-`olf destroy` accepts `all`, `platform`, and `foundation` only. There is no
+`olf infra destroy` accepts `all`, `platform`, and `foundation` only. There is no
 artifacts teardown: artifacts have no independent lifetime to reclaim: they live
 inside the platform services and the object store, and are replaced wholesale on
 the next artifacts run. `all` tears down platform then foundation.
 
 ## Consequences
 
-`olf deploy --provider local --phase artifacts` is the inner development loop.
+`olf infra deploy --provider local --phase artifacts` is the inner development loop.
 It is the only command needed after a change to a dbt model, a Floe contract, a
 Dagster definition, or a descriptor.
 

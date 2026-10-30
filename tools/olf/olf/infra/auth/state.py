@@ -45,11 +45,11 @@ def load_state(provider: str, environ: Mapping[str, str] | None = None) -> dict[
         loaded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise AuthenticationError(
-            f"invalid {provider} authentication state; run 'olf auth login --provider {provider}'."
+            f"invalid {provider} authentication state; run 'olf infra auth login --provider {provider}'."
         ) from exc
     if not isinstance(loaded, dict):
         raise AuthenticationError(
-            f"invalid {provider} authentication state; run 'olf auth login --provider {provider}'."
+            f"invalid {provider} authentication state; run 'olf infra auth login --provider {provider}'."
         )
     return loaded
 

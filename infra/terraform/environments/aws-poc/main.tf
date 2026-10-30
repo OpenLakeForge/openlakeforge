@@ -63,7 +63,7 @@ locals {
   artifact_base_uri     = "s3://${module.s3.ops_bucket_name}"
   log_base_uri          = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
-  # Databases/namespaces themselves are not declared here. `olf catalog
+  # Databases/namespaces themselves are not declared here. `olf infra catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
   # those databases follow.
@@ -565,7 +565,7 @@ module "openmetadata" {
   postgresql_contract = local.metadata_database_contract
   postgresql_ssl_mode = "require"
   # Empty by design: the database schemas mirror Glue databases, which now
-  # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
+  # come into existence in Phase 2. `olf infra openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names = []
   workload_namespaces  = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]

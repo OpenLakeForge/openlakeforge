@@ -9,6 +9,10 @@ locals {
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
 
+  base_values = yamldecode(file(var.base_values_file))
+  # One row per size, shared with `olf` (its expansion check reads the same file).
+  object_store = yamldecode(file(var.storage_sizes_file)).sizes[var.storage_size].object_store
+
   s3_service_name     = "${var.release_name}-s3"
   master_service_name = "${var.release_name}-master"
   filer_service_name  = "${var.release_name}-filer-client"
@@ -32,6 +36,18 @@ resource "helm_release" "seaweedfs" {
     yamlencode({
       image = {
         tag = var.image_tag
+      }
+
+      master = { data = { size = local.object_store.master } }
+      filer  = { data = { size = local.object_store.filer } }
+      # Helm replaces a list rather than merging it, so each entry is the base file's with the sized fields added.
+      volume = {
+        dataDirs = [
+          for dir in local.base_values.volume.dataDirs : merge(dir, {
+            size       = local.object_store.volume
+            maxVolumes = local.object_store.max_volumes
+          })
+        ]
       }
 
       s3 = {

@@ -143,7 +143,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
 
 
 def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A direct `olf e2e run --env aws` invocation with only the documented
+    """A direct `olf infra e2e run --env aws` invocation with only the documented
     `AWS_KUBECONFIG_PATH` override set (no bare `KUBECONFIG`) must still
     target that file - this command exports `KUBECONFIG` via
     `applied_contract_environment` before `_runner.configure_kubeconfig`
@@ -174,7 +174,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
 ) -> None:
     """An installed distribution's project root (the bundled demo, or
     `--project-root`) is not where its Terraform roots or kubeconfig live -
-    both must come from the same `DeploymentContext` `olf deploy` builds
+    both must come from the same `DeploymentContext` `olf infra deploy` builds
     (`distribution_root`, `context.paths.platform_terraform_dir`,
     `context.paths.kubeconfig_path`), not from the caller's current
     directory. This exercises `deployment_context` being called with
@@ -288,7 +288,7 @@ def test_e2e_run_rejects_a_profile_file_for_another_provider(tmp_path: Path) -> 
 def test_e2e_run_file_selects_the_topology_that_reaches_contract_parsing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
 ) -> None:
-    """`olf platform apply -f <profile>` records that profile's name in the v3
+    """`olf infra platform apply -f <profile>` records that profile's name in the v3
     contract, and `_parse_v3` refuses a contract parsed against a topology that
     disagrees - the nightly full e2e failure this option exists for. Asserting
     the resolved topology rather than the accepted flag is what makes reverting
@@ -327,8 +327,8 @@ def test_e2e_run_without_a_profile_file_keeps_resolving_the_project_root(
 def test_e2e_run_profile_shorthand_resolves_the_topology_olf_deploy_profile_applied(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
 ) -> None:
-    """`olf deploy --profile full` records the "legacy" topology in the v3
-    contract; without the shorthand here, `olf e2e run` re-resolved the
+    """`olf infra deploy --profile full` records the "legacy" topology in the v3
+    contract; without the shorthand here, `olf infra e2e run` re-resolved the
     project profile and `_parse_v3` refused the name mismatch (#581)."""
     _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
 

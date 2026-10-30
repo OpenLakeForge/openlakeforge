@@ -48,6 +48,6 @@ Routes exist on the local provider when the Deployment Profile declares
 | Sign-in (Dex) | `<scheme>://auth.<base>` | `spec.identity.issuer` is `github` |
 
 Polaris, SeaweedFS, the databases and code servers are never published; reach
-them with `olf forward`. On AWS and Azure every service is reached with
-`olf forward`. Which role may open each service is in
+them with `olf infra forward`. On AWS and Azure every service is reached with
+`olf infra forward`. Which role may open each service is in
 [Roles and permissions](roles-and-permissions.md).

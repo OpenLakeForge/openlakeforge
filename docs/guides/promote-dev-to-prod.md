@@ -27,7 +27,7 @@ spec:
 Then create the namespaces, buckets and catalogs of every enabled stage:
 
 ```bash
-olf platform apply -f openlakeforge.yaml
+olf infra platform apply -f openlakeforge.yaml
 ```
 
 Each stage has its own `olf-<stage>` namespace with its own Dagster (and
@@ -48,24 +48,24 @@ docker login ghcr.io
 Replace `your-account` with your own. On AWS and Azure the platform's own
 registry (ECR, ACR) is used and you set nothing.
 
-Build the revision once. `olf project image` builds the project-code image,
+Build the revision once. `olf infra project image` builds the project-code image,
 pushes it, loads it into kind and ends with a digest-pinned reference;
-`olf project build` freezes your descriptors, Floe contracts, dbt projects,
+`olf infra project build` freezes your descriptors, Floe contracts, dbt projects,
 Dagster code, reports and that image into a revision and prints its id. An
 unmodified example project with no `spec.project` skips the image build:
-`olf project image` prints the release-pinned reference instead (a source checkout has no pin and builds).
+`olf infra project image` prints the release-pinned reference instead (a source checkout has no pin and builds).
 
 ```bash
-IMAGE="$(olf project image -f openlakeforge.yaml | tee /dev/stderr | tail -n 1)"
-REVISION="$(olf project build --project . --image "$IMAGE" | tee /dev/stderr | tail -n 1)"
+IMAGE="$(olf infra project image -f openlakeforge.yaml | tee /dev/stderr | tail -n 1)"
+REVISION="$(olf infra project build --project . --image "$IMAGE" | tee /dev/stderr | tail -n 1)"
 echo "$REVISION"
 ```
 
 Activate it in DEV and validate it there:
 
 ```bash
-olf project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
-olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
+olf infra project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
+olf infra e2e run --env local -f openlakeforge.yaml --stage dev --suite full
 ```
 
 `--env` is the profile's provider: use `--env aws` or `--env azure` on a cloud
@@ -74,7 +74,7 @@ platform.
 Only when DEV passes, activate the same revision in PROD:
 
 ```bash
-olf project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
+olf infra project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
 ```
 
 Activation is stage-scoped: it reconciles the stage's catalog namespaces,
@@ -93,8 +93,8 @@ run the same ones.
 
 | Action | Does | Outputs |
 | --- | --- | --- |
-| `OpenLakeForge/openlakeforge/.github/actions/build-revision` | `olf project image`, then `olf project build` | `image` (by digest), `revision` |
-| `OpenLakeForge/openlakeforge/.github/actions/deploy-stage` | `olf project deploy --stage <s> --revision <r>`; fails unless `olf project status` then records exactly `<r>`; optionally `olf e2e run --suite full` | `status` |
+| `OpenLakeForge/openlakeforge/.github/actions/build-revision` | `olf infra project image`, then `olf infra project build` | `image` (by digest), `revision` |
+| `OpenLakeForge/openlakeforge/.github/actions/deploy-stage` | `olf infra project deploy --stage <s> --revision <r>`; fails unless `olf infra project status` then records exactly `<r>`; optionally `olf infra e2e run --suite full` | `status` |
 
 Inputs: `build-revision` takes `image-repository` (required), `image-tag`
 (default the commit SHA) and `profile` (default `openlakeforge.yaml`);
@@ -108,9 +108,9 @@ follows the stage and revision you pass, never the branch name.
   platform's Terraform state and kubeconfig under `OLF_HOME` (default
   `~/.openlakeforge`) and reads the cluster, region and registry from them.
   Until remote state lands (#132), run these jobs on a self-hosted runner that
-  holds that directory, for example the machine that ran `olf platform apply`.
+  holds that directory, for example the machine that ran `olf infra platform apply`.
   `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`, the JSON that
-  `olf platform contract` prints, can stand in for the platform's contract,
+  `olf infra platform contract` prints, can stand in for the platform's contract,
   but not for the foundation state or the kubeconfig.
 - **`olf`**: `python3.12 -m pip install openlakeforge==<version>`, then
   `olf toolchain install` for the pinned Terraform, Helm and kubectl.
@@ -118,7 +118,7 @@ follows the stage and revision you pass, never the branch name.
   `aws-actions/configure-aws-credentials` with `id-token: write`, or
   `azure/login`).
 - **Registry access** for the build job, to push the image to the platform's
-  registry, and a working Docker CLI and daemon: `olf project image` builds and
+  registry, and a working Docker CLI and daemon: `olf infra project image` builds and
   pushes with them.
 
 ### Example workflow
@@ -270,11 +270,11 @@ pauses.
 ## Check it worked
 
 ```bash
-olf project status -f openlakeforge.yaml --json
-olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
+olf infra project status -f openlakeforge.yaml --json
+olf infra e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 ```
 
-`olf project status` records the revision active in each stage; PROD shows the
+`olf infra project status` records the revision active in each stage; PROD shows the
 same id as DEV. The e2e run launches every product's job in the PROD Dagster and
 requires rows in every Gold mart of the `lakehouse_prod` catalog. In CI, the
 `status` output of `deploy-stage` carries that document. Use `--env aws` or

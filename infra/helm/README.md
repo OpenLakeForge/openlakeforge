@@ -40,11 +40,11 @@ infra/helm/
 ## Workflow
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider local --phase foundation
-uv run --project tools/olf --locked olf deploy --provider local --phase platform
-uv run --project tools/olf --locked olf deploy --provider local --phase artifacts
-uv run --project tools/olf --locked olf deploy --provider local
-uv run --project tools/olf --locked olf forward --provider local
-uv run --project tools/olf --locked olf destroy --provider local
-uv run --project tools/olf --locked olf destroy --provider local --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider local --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider local --phase platform
+uv run --project tools/olf --locked olf infra deploy --provider local --phase artifacts
+uv run --project tools/olf --locked olf infra deploy --provider local
+uv run --project tools/olf --locked olf infra forward --provider local
+uv run --project tools/olf --locked olf infra destroy --provider local
+uv run --project tools/olf --locked olf infra destroy --provider local --phase foundation
 ```

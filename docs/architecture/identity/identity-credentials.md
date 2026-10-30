@@ -43,7 +43,7 @@ are discarded.
 | Reuse | An existing Secret with the expected key is kept. Redeploy is not rotation. |
 | Commit point | `kubectl create secret` is the only write, one API call per Secret, and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold and no partial Secret exists. |
 | Direction | The Secret is the source of truth; Dex reads the client secrets through `secretEnv` at start. Nothing is read back out of Dex. |
-| Rotation | Explicit: `olf secrets rotate dex-client-perimeter` (or `-trino`) deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers; `superset` and `openmetadata` stay manual ([runbook](../../guides/identity/rotate-secrets.md)). |
+| Rotation | Explicit: `olf infra secrets rotate dex-client-perimeter` (or `-trino`) deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers; `superset` and `openmetadata` stay manual ([runbook](../../guides/identity/rotate-secrets.md)). |
 | Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../../adr/0017-local-network-policy-and-rbac.md)); `get` only on the four consumer client Secrets it owns. The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
 
 ### Missing-secret recovery
@@ -52,7 +52,7 @@ are discarded.
 | --- | --- |
 | A client Secret is deleted | When the bootstrap Job is next replaced it regenerates it. This is a rotation of that client: Dex and the consumers restart, and the Job logs that it created the Secret. |
 | A Secret exists but lacks the expected key | Fail with the Secret and key named; never patch a foreign Secret. |
-| Operator-provided Secret (the GitHub OAuth App, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. The GitHub OAuth App Secret is enforced today by `olf deploy` before the platform apply (an interactive run creates the GitHub App inline instead, #428); the external-client Secrets are not yet. |
+| Operator-provided Secret (the GitHub OAuth App, `issuer: external` clients) is missing | Fail before deploying a consumer, naming the Secret and key the profile references. The bootstrap never generates these. The GitHub OAuth App Secret is enforced today by `olf infra deploy` before the platform apply (an interactive run creates the GitHub App inline instead, #428); the external-client Secrets are not yet. |
 
 ### Interrupted bootstrap
 
@@ -74,7 +74,7 @@ Both create the Secret in-cluster and Terraform never reads it.
 | --- | --- | --- | --- | --- | --- | --- |
 | OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists); `olf-cli` is a public client with no credential and no row | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `dex-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Dex; oauth2-proxy, Superset, OpenMetadata and Trino | [Rotate secrets](../../guides/identity/rotate-secrets.md) | No |
 | Perimeter cookie secret (exists) | Signs and encrypts oauth2-proxy session cookies | In-cluster Job `oauth2-proxy-cookie-<hash>`, 32 random characters, create-if-missing | `oauth2-proxy-cookie`, key `cookie-secret` | oauth2-proxy | Delete the Secret, replace the Job, restart the proxies; signs out every user once | No |
-| Trino workload credentials (#26) | Authenticate Superset, dbt and OpenMetadata ingestion to Trino, one principal each: `olf-<stage>-runtime` per stage and `openmetadata` | In-cluster Job `trino-credentials-<hash>` (`modules/query/trino/credentials.tf`), create-if-missing, 32 random alphanumeric characters; local root only | `trino-credential-<principal>` in `olf-system`, keys `username`, `password`; each stage's own principal replicated as `trino-credential` into that stage namespace only ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | Superset, dbt run pods, OpenMetadata ingestion, `olf e2e` and `olf query`, each from its Secret by reference; Trino authenticates them when `trino_workload_authentication` is `password`, the local default with `spec.access` | Delete the Secret, replace the Job, re-sync consumers (ADR 0016) | No |
+| Trino workload credentials (#26) | Authenticate Superset, dbt and OpenMetadata ingestion to Trino, one principal each: `olf-<stage>-runtime` per stage and `openmetadata` | In-cluster Job `trino-credentials-<hash>` (`modules/query/trino/credentials.tf`), create-if-missing, 32 random alphanumeric characters; local root only | `trino-credential-<principal>` in `olf-system`, keys `username`, `password`; each stage's own principal replicated as `trino-credential` into that stage namespace only ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | Superset, dbt run pods, OpenMetadata ingestion, `olf e2e` and `olf infra query`, each from its Secret by reference; Trino authenticates them when `trino_workload_authentication` is `password`, the local default with `spec.access` | Delete the Secret, replace the Job, re-sync consumers (ADR 0016) | No |
 | GitHub OAuth App (exists) | Dex's GitHub connector authenticates to GitHub | Operator, issued by GitHub | `spec.identity.github.oauth_app_secret_ref`: name, `client_id_key` (default `client-id`), `client_secret_key` (default `client-secret`); a Secret in `olf-system` the operator creates ([how](../../guides/identity/connect-github.md)) | Dex, through `secretKeyRef` | Rotated in GitHub, then the Secret, then a Dex restart | No |
 | Trino password file and internal secret (exists, not yet used, #26) | `password.db` is the PBKDF2 derivation of the principal Secrets, rebuilt on every Job run and never a source of truth; the internal secret is Trino's `internal-communication.shared-secret` | Same Job; the file is derived, the internal secret is create-if-missing | `trino-password-file` (key `password.db`) and `trino-internal-secret` (key `internal-communication.shared-secret`) in `olf-system` | Trino, once authentication is on | The file follows its principal Secrets; the internal secret is rotated like a principal Secret | No |
 
@@ -108,7 +108,7 @@ re-runs it was not verified here.
 
 ## Exposure scan
 
-`olf e2e run --env local` runs `identity credential exposure`
+`olf infra e2e run --env local` runs `identity credential exposure`
 (`tools/olf/olf/infra/e2e/_secret_exposure.py`) after every other assertion except the
 workload secret rotation drill, which comes last so the scan checks the
 credentials that were live for the whole run. It reads the **current** values of
@@ -131,7 +131,7 @@ the run reports the original failure.
 | --- | --- |
 | Terraform state | The platform root's and the foundation's state files (source checkout: `terraform.tfstate` in each root; installed: under `OPENLAKEFORGE_TERRAFORM_STATE_ROOT`). |
 | ConfigMaps | `kubectl get configmap -o json` in the platform namespace and every stage namespace in the provider contract, not only the stage the run selected. |
-| Diagnostics | The bundle `olf diagnostics collect` writes for each of those namespaces. |
+| Diagnostics | The bundle `olf infra diagnostics collect` writes for each of those namespaces. |
 | Logs | `kubectl logs --all-containers --tail=2000` of every pod in those namespaces, which includes completed Job pods. |
 
 The drill `credential preservation across a redeploy` (`--checks all`,
@@ -143,7 +143,7 @@ bootstrap Job rotates into the stages),
 runs a platform `terraform apply`, fails if a deleted Job was not recreated
 (a new uid), and fails by name if any value changed or disappeared. It is skipped on a stack that builds its Superset
 image locally (arm64 or `BUILD_SUPERSET_IMAGE`), because an apply outside
-`olf deploy` would put the pinned amd64 image back. It runs after the scan and before the rotation
+`olf infra deploy` would put the pinned amd64 image back. It runs after the scan and before the rotation
 drill.
 
 A surface that cannot be read (no state file yet, a failed `kubectl`) is
@@ -170,7 +170,7 @@ Not covered:
   outside Terraform"): only the current state is read.
 - Only the current values are searched, so a rotated-out value that leaked
   earlier is not found.
-- The local e2e exercises the scan's wiring (`kubectl`, `olf diagnostics
+- The local e2e exercises the scan's wiring (`kubectl`, `olf infra diagnostics
   collect`, state paths) on a cluster, and it passes there; the rotation drill
   runs after it, so the credential the drill replaces is not scanned afterwards.
 

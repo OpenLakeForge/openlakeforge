@@ -4,9 +4,10 @@
 
 Partly binding. **Binding today:** the `olf infra` group, the common top-level
 commands, and the hidden aliases that keep every earlier path working (#536,
-PR 2b). **Decided, not built:** the platform surface (`olf login`, `whoami`,
-`logout`, `domain list`, `query`) and the non-interactive authentication contract below.
-Platform commands are clients of the platform API, decided in
+PR 2b), and the platform session commands `olf login`, `whoami` and `logout`
+(PR 4). **Decided, not built:** the remaining platform commands (`domain list`,
+`query`) and the non-interactive authentication contract below. Platform
+commands are clients of the platform API, decided in
 [ADR 0021](0021-platform-api.md) and not built either.
 
 ## Context
@@ -47,7 +48,7 @@ either command package.
 | --- | --- |
 | Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report *`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
 | Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
-| Platform (planned) | `login`, `whoami`, `logout`, `domain list`, `query` |
+| Platform | `login`, `whoami`, `logout`; `domain list` and `query` are planned |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
@@ -117,3 +118,12 @@ Rewritten for [ADR 0021](0021-platform-api.md): the platform surface reaches
 the platform API instead of each service's public route; `olf query` joins the
 planned platform commands, and its hidden alias to `olf infra query` ends when
 ADR 0019's person path is built.
+
+The platform session commands exist (#536, PR 4): `olf/platform` holds `olf login`,
+`olf whoami` and `olf logout`, registered at the top level. Until the platform
+API serves its discovery document (ADR 0021), the instance comes from the
+Deployment Profile: the issuer is `https://auth.<base_domain>` for
+`identity.issuer: github` and `issuer_url` for `external`, and the client is
+`identity.client_ids['olf-cli']` or `olf-cli`. The session is a mode-0600 file
+under `OLF_HOME`; the OS keyring is a follow-up. A test holds the import
+direction: `olf/platform` imports only `olf.common`.

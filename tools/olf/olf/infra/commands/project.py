@@ -78,14 +78,14 @@ def image(
         True, "--push/--no-push", help="Publish to the image repository. Required to build a revision from the result."
     ),
 ) -> None:
-    """Build the project-code image and print the reference `olf project build --image` expects.
+    """Build the project-code image and print the reference `olf infra project build --image` expects.
 
-    The profile's own directory is the project root, matching `olf project
+    The profile's own directory is the project root, matching `olf infra project
     deploy`. Cloud pushes to the foundation's own registry; local pushes to
     whatever `PROJECT_CODE_IMAGE_REPOSITORY` names (GHCR or Docker Hub by
     default) and also loads the image into kind. `--no-push` is a local
     inner-loop shortcut: it prints a tag, not a digest, so the result cannot
-    seed `olf project build`.
+    seed `olf infra project build`.
     """
     from olf.common.deployment.errors import DeploymentError
     from olf.infra.project_revision import ProjectRevisionError, resolve_image_digest
@@ -396,7 +396,7 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str, stage
     with ExitStack() as stack:
         try:
             # Building against an unreachable platform is the same outcome as
-            # building with no bucket resolved, and `olf project build` already
+            # building with no bucket resolved, and `olf infra project build` already
             # fails closed on that. Reaching the caller as a raw kubectl or
             # Terraform error would instead surface a traceback. Only opening
             # the store is wrapped: a failure in the body belongs to whatever

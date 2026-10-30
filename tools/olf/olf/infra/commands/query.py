@@ -1,4 +1,4 @@
-"""`olf query`: run SQL against a stage's Trino catalog."""
+"""`olf infra query`: run SQL against a stage's Trino catalog."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def query(
             if trino.glue_namespace_prefix(provider, catalog):
                 # ponytail: AWS stages share one Glue catalog behind a name prefix that
                 # SQL would have to be rewritten for; add it once the AWS root is stage-aware.
-                msg = "olf query does not support the aws provider yet: Glue schema names are prefixed per stage."
+                msg = "olf infra query does not support the aws provider yet: Glue schema names are prefixed per stage."
                 raise typer.Exit(code=fail(msg))
             target = trino.TrinoTarget(
                 provider=provider,

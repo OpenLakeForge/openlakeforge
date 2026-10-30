@@ -74,6 +74,11 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
     }
 
 
+def storage_variables(context: DeploymentContext) -> dict[str, str]:
+    """`spec.storage.size`, for the roots that self-host object storage (local, azure). AWS has none to size."""
+    return {"storage_size": context.topology.storage_size.value}
+
+
 def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
     """Honor `FOUNDATION_STATE_PATH`, matching every removed provider's
     stack scripts (`FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-
@@ -180,11 +185,11 @@ class DeploymentContext:
     stage: StageName
     shared_namespace: str = SHARED_NAMESPACE
     allow_stage_removal: bool = False
-    # Only `olf deploy` sets this (unless `--no-github-connect`): the inline GitHub connect is a deploy feature.
+    # Only `olf infra deploy` sets this (unless `--no-github-connect`): the inline GitHub connect is a deploy feature.
     github_connect: bool = False
-    # Which lifecycle owns Dagster user code. `olf deploy` (deprecated, single
+    # Which lifecycle owns Dagster user code. `olf infra deploy` (deprecated, single
     # stage) leaves Terraform owning it; the #115 commands, which resolve a
-    # Deployment Profile, hand it to `olf project deploy` instead.
+    # Deployment Profile, hand it to `olf infra project deploy` instead.
     manage_user_deployments: bool = True
 
     @property
@@ -301,7 +306,7 @@ class DeploymentContext:
         `kubeconfig_path`, when given, overrides the default
         `<repo_root>/.tmp/kubeconfigs/aws.yaml`, so a second AWS run can use its
         own kubeconfig file:
-        `olf deploy --provider aws --kubeconfig-path "$AWS_KUBECONFIG_PATH"`
+        `olf infra deploy --provider aws --kubeconfig-path "$AWS_KUBECONFIG_PATH"`
         run with its own kubeconfig file, matching `local()`'s override.
         """
         context = cls._build(
@@ -508,7 +513,7 @@ class DeploymentContext:
             env["AWS_REGION"] = self.topology.region
             env["AWS_DEFAULT_REGION"] = self.topology.region
         # Gate on `installed`, never on `distribution_root != repo_root`: the
-        # documented quick start (`uv tool install` then `olf deploy` with no
+        # documented quick start (`uv tool install` then `olf infra deploy` with no
         # --project-root) deploys the bundled demo, so both roots are the same
         # read-only payload. Comparing them left Terraform without TF_DATA_DIR
         # and `-state=`, so `terraform apply` tried to write `terraform.tfstate`

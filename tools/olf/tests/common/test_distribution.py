@@ -205,7 +205,11 @@ def test_the_payload_ships_every_repo_file_a_terraform_root_reads(tmp_path: Path
     build_embedded_payload(repo_root, archive=tmp_path / "payload.tar.gz", metadata_path=tmp_path / "payload.json")
     with tarfile.open(tmp_path / "payload.tar.gz") as bundle:
         shipped = set(bundle.getnames())
-    read = re.compile(r'file\("\$\{path\.root\}/\.\./\.\./\.\./\.\./([^"]+)"\)')
+    # Any repo-root path a root names, read with file() or handed to a module;
+    # .tmp/ is runtime state the deploy writes, not a shipped file.
+    read = re.compile(r'"\$\{path\.root\}/\.\./\.\./\.\./\.\./([^"]+)"')
     for tf in (repo_root / "infra/terraform/environments").glob("*/*.tf"):
         for path in read.findall(tf.read_text()):
+            if path.startswith(".tmp/"):
+                continue
             assert path in shipped, f"{tf.name} reads {path}, not in the payload"

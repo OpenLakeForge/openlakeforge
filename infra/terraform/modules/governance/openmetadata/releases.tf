@@ -83,7 +83,7 @@ resource "helm_release" "openmetadata" {
     # The JVM does not read the system CA store, so a copy of its cacerts with
     # the local CA added is built before the server (and its migration) start.
     # OpenMetadata reaches the issuer's discovery, token and keys URLs with it.
-    # The provider itself is switched by `olf openmetadata deploy-metadata`, not here (main.tf).
+    # The provider itself is switched by `olf infra openmetadata deploy-metadata`, not here (main.tf).
     yamlencode({
       extraVolumes = [
         { name = "olf-oidc-ca", configMap = { name = var.oidc.ca_configmap_name } },

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from olf.common import log
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
-from olf.common.deployment.context import stage_namespace
+from olf.common.deployment.context import stage_namespace, storage_variables
 from olf.common.deployment.context import topology_variables as _topology_variables
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
@@ -139,7 +139,7 @@ def read_github_app_secret(config: LocalDeploymentConfig, tools: Toolkit, *, env
 
 
 def github_connect_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
-    """Whether `olf deploy` must run the GitHub manifest flow: interactive, enabled, and no Secret yet. A cluster
+    """Whether `olf infra deploy` must run the GitHub manifest flow: interactive, enabled, and no Secret yet. A cluster
     that does not exist yet cannot hold one."""
     identity = config.context.topology.identity
     if identity is None or identity.github is None or not config.context.github_connect:
@@ -188,9 +188,9 @@ def require_github_oauth_secret(
         raise DeploymentPreconditionError(
             f"spec.identity.github needs the GitHub OAuth App Secret '{ref.name}' in namespace '{namespace}' "
             f"(docs/guides/identity/connect-github.md); kubectl could not read it: "
-            f"{result.stderr.strip() or 'non-zero status'}. Run `olf github connect` to create the GitHub App "
+            f"{result.stderr.strip() or 'non-zero status'}. Run `olf infra github connect` to create the GitHub App "
             f"and store it, or create a hand-made OAuth App's Secret (set GITHUB_CLIENT_ID and "
-            f"GITHUB_CLIENT_SECRET first): {command}. In a terminal, `olf deploy` does this itself unless "
+            f"GITHUB_CLIENT_SECRET first): {command}. In a terminal, `olf infra deploy` does this itself unless "
             f"--no-github-connect is set."
         )
     missing = {ref.client_id_key, ref.client_secret_key} - set(result.stdout.split())
@@ -198,13 +198,13 @@ def require_github_oauth_secret(
         raise DeploymentPreconditionError(
             f"Secret '{ref.name}' in namespace '{namespace}' lacks key(s) {sorted(missing)}; "
             f"spec.identity.github.oauth_app_secret_ref names them. "
-            f"Re-run `olf github connect`, or recreate it (kubectl delete secret {ref.name} first): {command}"
+            f"Re-run `olf infra github connect`, or recreate it (kubectl delete secret {ref.name} first): {command}"
         )
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
-    return topology_variables(config) | {
+    return topology_variables(config) | storage_variables(config.context) | {
         "kube_context": config.kube_context,
         "kubeconfig_path": str(config.paths.kubeconfig_path),
         # The Terraform helm provider (not the `helm` CLI olf's own tooling
@@ -440,7 +440,7 @@ def apply_targets(
     """Apply only what `extra_args` (-target, -replace) name, for rotations, after `prepare_targets`. It skips the
     image build, the drift reset (which can tear down namespaces) and everything else `platform_up` does."""
     if not platform_state_holds_core(config, tools, env=env):
-        raise DeploymentPreconditionError("platform state has drifted; run olf deploy first")
+        raise DeploymentPreconditionError("platform state has drifted; run olf infra deploy first")
     run_with_retry(
         lambda: tools.terraform.apply(
             config.paths.platform_terraform_dir,
@@ -540,7 +540,7 @@ def platform_up(
     env: Mapping[str, str],
     github_app: GitHubApp | None = None,
 ) -> None:
-    """Apply the static platform. `github_app` is the App `olf deploy` created before the foundation apply; it is
+    """Apply the static platform. `github_app` is the App `olf infra deploy` created before the foundation apply; it is
     written as the identity Secret once the shared namespace exists."""
     platform_dir = config.paths.platform_terraform_dir
 

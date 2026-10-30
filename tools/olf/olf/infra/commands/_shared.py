@@ -69,12 +69,12 @@ def deployment_context(
 ):  # noqa: ANN202
     """Resolve the installed-vs-source runtime layout into a `DeploymentContext`.
 
-    Shared by every command that needs provider paths - `olf deploy`/`plan`/
+    Shared by every command that needs provider paths - `olf infra deploy`/`plan`/
     `doctor`/`destroy`/`status`/`forward` (`olf.infra.commands.deployment`) and
-    `olf e2e run` (`olf.infra.commands.e2e`). A second, independent resolution here
+    `olf infra e2e run` (`olf.infra.commands.e2e`). A second, independent resolution here
     would drift: an installed distribution's Terraform roots, kubeconfig, and
     work/state/cache paths must resolve identically for every command, or
-    `olf e2e run` ends up validating a different deployment than `olf deploy`
+    `olf infra e2e run` ends up validating a different deployment than `olf infra deploy`
     just created.
     """
     from olf.common.deployment.context import DeploymentContext, Profile
@@ -201,7 +201,7 @@ def deployment_context_for_profile(
         "topology": topology,
         "stage": selected_stage,
         # Reaching a Deployment Profile through `-f` is what marks the #115
-        # lifecycle: the platform stops owning user code so `olf project
+        # lifecycle: the platform stops owning user code so `olf infra project
         # deploy` can own it per stage.
         "manage_user_deployments": False,
         "allow_stage_removal": allow_stage_removal,
@@ -223,8 +223,8 @@ def resolve_kubeconfig_path(env: str, default: Path) -> Path:
     the documented per-provider override (`AWS_KUBECONFIG_PATH`/
     `AZURE_KUBECONFIG_PATH`) with the plain default path before `_runner`
     gets a chance to fall back to it. `default` is the resolved
-    `DeploymentContext`'s own kubeconfig path - the same one `olf deploy`
-    wrote to, so an installed distribution's `olf e2e run` finds it without
+    `DeploymentContext`'s own kubeconfig path - the same one `olf infra deploy`
+    wrote to, so an installed distribution's `olf infra e2e run` finds it without
     the caller having to set `KUBECONFIG` by hand.
     """
     provider_override = config.env(f"{env.upper()}_KUBECONFIG_PATH")
@@ -255,9 +255,9 @@ def default_kube_context(env: str, foundation_state_path: Path | None = None) ->
 def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa: ANN001
     """Apply the stage's provider-contract environment and yield its kube context.
 
-    What `olf e2e run` and `olf query` both need before talking to the
+    What `olf infra e2e run` and `olf infra query` both need before talking to the
     cluster: the in-process equivalent of sourcing the contract exports, with
-    the same installed-vs-source path resolution `olf deploy` used.
+    the same installed-vs-source path resolution `olf infra deploy` used.
     """
     from olf.infra.deployment import contract_env
 
@@ -265,7 +265,7 @@ def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa:
     kube_context = config.env("KUBE_CONTEXT") or default_kube_context(env, context.paths.foundation_state_path)
     # Fresh contract readers create their own managed-tool resolver and, for
     # an installed distribution, must resolve the same external Terraform
-    # state/data roots `olf deploy` wrote to (`DeploymentContext.command_env`,
+    # state/data roots `olf infra deploy` wrote to (`DeploymentContext.command_env`,
     # `olf.common.tooling.terraform.external_state_options`) - without this the
     # contract read silently targets the payload's absent default state.
     with contract_env.applied_contract_environment(

@@ -52,7 +52,7 @@ class AzureSdk:
         return str(account["id"])
 
     def _saved_subscription(self, env: Mapping[str, str] | None) -> str | None:
-        """Fall back to the subscription `olf auth login` saved.
+        """Fall back to the subscription `olf infra auth login` saved.
 
         `doctor()` builds its preflight environment without Terraform's
         `ARM_SUBSCRIPTION_ID` overlay, so a caller with only saved OLF state
@@ -72,7 +72,7 @@ class AzureSdk:
         selected = next((item for item in subscriptions if item.subscription_id == desired), None)
         if selected is None:
             if len(subscriptions) != 1:
-                raise RuntimeError("Azure subscription is not selected; run 'olf auth login --provider azure'.")
+                raise RuntimeError("Azure subscription is not selected; run 'olf infra auth login --provider azure'.")
             selected = subscriptions[0]
         self._subscription_id = str(selected.subscription_id)
         self._tenant_id = str(selected.tenant_id) if selected.tenant_id else None

@@ -45,17 +45,17 @@ sign-in. `lakehouse_code/` holds three example data products:
 ## 2. Deploy
 
 ```bash
-olf deploy --provider local
+olf infra deploy --provider local
 ```
 
-`olf deploy` creates the kind cluster, deploys the platform services, builds
+`olf infra deploy` creates the kind cluster, deploys the platform services, builds
 the project-code image from `lakehouse_code/`, and registers the data products
 with Dagster.
 
 ## 3. Open the portal
 
 ```bash
-olf status --provider local
+olf infra status --provider local
 ```
 
 Its `URLs` section lists every service. Open the portal:
@@ -72,7 +72,7 @@ no sign-in: authentication stays off until you add `spec.identity`.
 > A profile without `spec.identity` publishes nothing beyond your machine:
 > locally, only on `*.localhost`. With the Full preset and sign-in off, Superset opens as Admin
 > and OpenMetadata keeps its `admin@open-metadata.org` login, with the password
-> in Secret `openmetadata-admin`, as `olf status` notes. To serve HTTPS, see
+> in Secret `openmetadata-admin`, as `olf infra status` notes. To serve HTTPS, see
 > [Serve HTTPS](../guides/local-installation.md#serve-https); to sign in with
 > GitHub, see [Connect GitHub](../guides/identity/connect-github.md).
 
@@ -93,7 +93,7 @@ materializes.
 ## 5. Check it worked
 
 ```bash
-olf e2e run --env local --suite full
+olf infra e2e run --env local --suite full
 ```
 
 The suite launches every example product's job and checks that each Silver
@@ -103,13 +103,13 @@ rows. It ends without an error when the platform works end to end.
 To see the Gold rows yourself, query them through Trino:
 
 ```bash
-olf query "SELECT * FROM order_revenue_gold.mart_order_revenue_by_day LIMIT 10"
+olf infra query "SELECT * FROM order_revenue_gold.mart_order_revenue_by_day LIMIT 10"
 ```
 
 ## Tear down
 
 ```bash
-olf destroy --provider local
+olf infra destroy --provider local
 ```
 
 ## Next

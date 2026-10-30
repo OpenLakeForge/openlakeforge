@@ -83,7 +83,7 @@ that stage's Dagster.
 ## Check it worked
 
 ```bash
-olf e2e run --env local --suite full
+olf infra e2e run --env local --suite full
 ```
 
 It launches every product's job, `campaign_performance_pipeline` included,

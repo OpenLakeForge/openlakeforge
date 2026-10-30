@@ -229,11 +229,11 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
             cache_persistence_options=_azure_cache_persistence_options(),
             disable_automatic_authentication=True,
         )
-    raise AuthenticationError("unknown Azure authentication source; run 'olf auth login --provider azure'.")
+    raise AuthenticationError("unknown Azure authentication source; run 'olf infra auth login --provider azure'.")
 
 
 def selected_azure_subscription(environ: Mapping[str, str]) -> str | None:
-    """Return the subscription saved by `olf auth login`, if any.
+    """Return the subscription saved by `olf infra auth login`, if any.
 
     `doctor()` builds its preflight environment from
     `credential_selection_environment` alone (no `terraform_auth_environment`

@@ -5,7 +5,7 @@
 #
 #     # from the repository root, so `uv run --project tools/olf` resolves:
 #     cp infra/terraform/environments/aws-poc/sandbox.tfvars.example infra/terraform/environments/aws-poc/sandbox.tfvars
-#     uv run --project tools/olf --locked olf deploy --provider aws --phase platform
+#     uv run --project tools/olf --locked olf infra deploy --provider aws --phase platform
 #
 # `sandbox.tfvars` is gitignored so your account details never land in the repo.
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.

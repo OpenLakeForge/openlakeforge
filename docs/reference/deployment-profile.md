@@ -120,28 +120,37 @@ deployment does not provide. Any other value, and any CPU, memory, worker or
 volume field, is rejected as an unknown value or field. A profile that omits
 both fields deploys exactly as it did before they existed, and
 `olf profile resolve` prints the effective sizes (`sizes: query=small
-storage=small`; `query` and `storage` in `--json`). `query.size` changes only
-the Trino Helm values, never the project image or a ProjectRevision.
+storage=small`; `query` and `storage` in `--json`).
 
-What each size means on the local profile. The Trino column comes from
-`release/query-sizes.yaml`:
-
-| Size | Trino (`release/query-sizes.yaml`) | SeaweedFS volume server (`seaweedfs.yaml`) | Available |
-| --- | --- | --- | --- |
-| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC | Yes |
-| `medium` | Coordinator plus 2 workers (provisional) | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
-| `large` | Coordinator plus 4 workers (provisional) | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
-
-The `medium` and `large` Trino rows are defined but not yet accepted. Workers
-still need network flows to the coordinator, authentication across nodes
+`query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
+workers, heap, memory and per-query limits. It changes only the Trino Helm
+values, never the project image or a ProjectRevision. The `medium` and `large`
+rows are defined but not yet accepted: workers still need network flows to the
+coordinator, authentication across nodes
 ([#367](https://github.com/OpenLakeForge/openlakeforge/issues/367)) and a kind
-run. Their values are placeholders until the
+run (#324). Their values are placeholders until the
 [#328](https://github.com/OpenLakeForge/openlakeforge/issues/328) and
 [#329](https://github.com/OpenLakeForge/openlakeforge/issues/329) baseline.
 
-The `small` volume figure is the chart default, not yet derived from
-`storage.size`; the profile does not change it. This page gives no data-volume
-or host-capacity guidance because none has been measured.
+`storage.size` picks one row of `release/storage-sizes.yaml`, which sets the
+PVC size of the SeaweedFS master, filer and volume server and the number of
+volume slots on the volume server. The Terraform SeaweedFS module renders the
+chosen row over `infra/helm/values/local/seaweedfs.yaml`; `small` is the sizing
+that file carried before the profile could choose. The file already holds
+`medium` and `large` rows, provisional until the #329 report calibrates them,
+but the profile does not accept them until `olf` enforces that a volume only
+grows (#326).
+
+What each size means on the local profile:
+
+| Size | Trino (`release/query-sizes.yaml`) | SeaweedFS volume server (`release/storage-sizes.yaml`) | Available |
+| --- | --- | --- | --- |
+| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC, 80 slots; master 1Gi, filer 5Gi | Yes |
+| `medium` | Row defined (coordinator plus 2 workers), not yet selectable | Row defined (300Gi), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `large` | Row defined (coordinator plus 4 workers), not yet selectable | Row defined (2Ti), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+
+This page gives no data-volume or host-capacity guidance because none has been
+measured.
 
 ### `spec.stages`
 
@@ -174,7 +183,7 @@ it never falls back to the example.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `repository` | `https://` or `ssh://` URL | no | Where the project's source lives. Provenance only: `olf project image` and `build` use the checked-out directory, never a fetched ref. |
+| `repository` | `https://` or `ssh://` URL | no | Where the project's source lives. Provenance only: `olf infra project image` and `build` use the checked-out directory, never a fetched ref. |
 | `image.repository` | `host[:port]/path` | no on `aws`/`azure` (the provider registry, ECR or ACR, is used), yes on `local` | The project-code image repository. Registry host first, lowercase, no tag or digest. A bare `acme/code` is rejected, not read as Docker Hub. |
 | `image.pull_secret_ref.name` | Kubernetes Secret name | no | A `kubernetes.io/dockerconfigjson` Secret you create in each stage namespace, for a private image. The profile holds the name, never the credential. |
 
@@ -196,19 +205,19 @@ Existing profiles have no `spec.project` and keep working unchanged.
 
 On the `local` provider the public example is the project-code image the release
 published, pinned by digest in the `project_code` entry of the package's
-`release/component-catalog.yaml`. `olf deploy` pulls it once on the workstation
+`release/component-catalog.yaml`. `olf infra deploy` pulls it once on the workstation
 and loads it into kind, so no Docker build and no registry credential is needed
 and the pods pull nothing. A
 source checkout carries no such entry (a release stamps in the digest of the
-image built from its own commit), so there `olf deploy` builds the example
+image built from its own commit), so there `olf infra deploy` builds the example
 locally. So does anything that is not the unmodified example: a `lakehouse_code/`
 in your project that differs from the bundled one, `PROJECT_CODE_IMAGE_TAG`, or
 a machine that is not amd64 (the release image is amd64 only).
 On `aws` and `azure` the same pin is deployed as it is, with the same conditions
 (a non-amd64 `*_IMAGE_PLATFORM` also builds): the cluster pulls the public
 package, and nothing is built or pushed to ECR or ACR. Anything else builds and
-pushes to the provider registry. For the example, `olf project image` prints that
-pinned reference without building, so `olf project build` and `olf project deploy`
+pushes to the provider registry. For the example, `olf infra project image` prints that
+pinned reference without building, so `olf infra project build` and `olf infra project deploy`
 promote one image digest through the stages.
 
 ```yaml
@@ -228,7 +237,7 @@ project:
 ```
 
 > [!NOTE]
-> `olf project deploy` consumes `pull_secret_ref`. `olf deploy` does not read
+> `olf infra project deploy` consumes `pull_secret_ref`. `olf infra deploy` does not read
 > `spec.project` yet: it still takes the image from the environment variables
 > above (deploying the example image is #539).
 
@@ -246,7 +255,7 @@ kubectl create secret docker-registry ghcr-pull -n olf-dev \
 
 Repeat for `olf-uat` and `olf-prod`. To rotate, recreate the Secret under the
 same name; running pods keep their pulled image and the next pull uses the new
-token. Before rolling anything out, `olf project deploy` checks that the Secret
+token. Before rolling anything out, `olf infra project deploy` checks that the Secret
 exists in the stage namespace, has type `kubernetes.io/dockerconfigjson` and
 lists the image's registry. A failed check leaves the running revision and
 `ACTIVE.json` untouched. It does not contact the registry, so an expired or
@@ -338,12 +347,12 @@ is a public client and has no Secret.
 | Storage size is not for managed storage | `spec.storage` is set with `type: aws`: S3 is managed, so there is no volume to size. |
 | Region is cloud-only | `spec.provider.region` is set with `type: local`. |
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
-| Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf forward`. |
+| Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf infra forward`. |
 | A local project names its image | `type: local` declares `spec.project` without `image.repository`: kind has no default registry. |
 | Plain HTTP is local-only | `spec.access.issuer` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
 | Issuer shape | `external` lacks `issuer_url`, `role_claim` or `role_mapping`; `github` lacks `github` or sets `issuer_url`, `role_claim` or `role_mapping`; `github` is set without `issuer: github`; `client_ids` is set without `issuer: external`. |
 
-On `local`, `olf deploy` also refuses a `spec.access.issuer` other than
+On `local`, `olf infra deploy` also refuses a `spec.access.issuer` other than
 `local-ca` or `none` before it creates the cluster.
 
 > [!NOTE]

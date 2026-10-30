@@ -30,7 +30,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    **The block is the switch (#399).** A profile with no `spec.access` is a
    quickstart: no Traefik, cert-manager, local CA, CoreDNS rewrite, portal or
    route Ingresses, and `shared.access` is a port-forward contract
-   (`access.port_forward`, no routes), which `olf` clients and `olf forward`
+   (`access.port_forward`, no routes), which `olf` clients and `olf infra forward`
    serve over `http://localhost:<port>`. Declaring the block, even as
    `access: {}` for the defaults, turns the ingress on. Block presence was
    chosen over an `access.exposure` field because a second field would let the
@@ -70,11 +70,11 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    `through_ingress=True`. They resolve
    `*.localhost` to `127.0.0.1` in-process and, for the `local-ca` issuer,
    verify against the CA read from the cluster — no `/etc/hosts` edit and no
-   disabled verification. Users trust that CA once with `olf access trust`.
+   disabled verification. Users trust that CA once with `olf infra access trust`.
 6. **Local adapter: Traefik terminates TLS, cert-manager issues.** On kind,
    Traefik binds host ports 80/443 on `127.0.0.1` through the control-plane
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
-   self-signed once and never rotated by a re-deploy; `olf deploy` waits for
+   self-signed once and never rotated by a re-deploy; `olf infra deploy` waits for
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
    the only value the contract accepts. One wildcard
    certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
@@ -153,8 +153,8 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   | Portal (openlakeforge-portal) | 5m | 48Mi / 128Mi |
 
 - Mapping 80/443 changed the kind cluster shape: an existing local cluster
-  must be recreated (`olf destroy` then `olf deploy`), and those host ports
-  must be free; `olf deploy` checks both ports and the issuer before it
+  must be recreated (`olf infra destroy` then `olf infra deploy`), and those host ports
+  must be free; `olf infra deploy` checks both ports and the issuer before it
   creates the cluster.
 
 ## History

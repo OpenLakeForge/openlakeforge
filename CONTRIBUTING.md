@@ -10,7 +10,7 @@ standards, and CI gates; this page links to it instead of repeating it.
 - [uv](https://docs.astral.sh/uv/), which creates the virtual environment
   for `tools/olf`. The tooling needs Python 3.12 or newer.
 - Linux or macOS. Windows is not supported.
-- Docker, to deploy the platform locally with `olf deploy`. The commands
+- Docker, to deploy the platform locally with `olf infra deploy`. The commands
   under "Check your change" do not need it.
 
 ## Pick an issue

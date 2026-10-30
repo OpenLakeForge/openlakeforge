@@ -532,7 +532,7 @@ def build_contract_env(
     # never actually empty by this point (unlike `_apply_default_contract_
     # env`'s early bootstrap defaults), so an empty-check here would never
     # fire and the bare, unprefixed names would reach
-    # `olf catalog sync-namespaces`, colliding a Glue stage's
+    # `olf infra catalog sync-namespaces`, colliding a Glue stage's
     # database with every other Glue stage's identically-named one (and
     # Glue would deny access to the physical, prefixed database that
     # actually exists). Override unconditionally for Glue; keep the

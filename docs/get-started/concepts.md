@@ -52,7 +52,7 @@ stages. See [Architecture](../architecture/overview.md#deployment-model).
 
 ## Project revisions
 
-`olf project build` freezes the project into an immutable **project
+`olf infra project build` freezes the project into an immutable **project
 revision**: descriptors, contracts, dbt, Dagster code and the project-code
 image digest. A revision is activated in DEV, validated, then activated
 unchanged in PROD; PROD never rebuilds. See
@@ -60,7 +60,7 @@ unchanged in PROD; PROD never rebuilds. See
 
 ## Deploy phases
 
-`olf deploy` runs three phases in order. **Foundation** creates the cluster and
+`olf infra deploy` runs three phases in order. **Foundation** creates the cluster and
 registry; **platform** deploys the shared services; **artifacts** deploys
 everything derived from `lakehouse_code/`. A code change only reruns
 artifacts. See [Architecture](../architecture/overview.md#deployment-model).
