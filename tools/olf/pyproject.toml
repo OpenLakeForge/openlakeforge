@@ -61,7 +61,7 @@ select = ["E", "F", "W", "I", "UP", "B"]
 # called directly in the parameter default; that is Typer's documented API,
 # not the mutable-default-argument pitfall B008 otherwise guards against.
 "olf/common/commands/domain.py" = ["B008"]
-"olf/infra/commands/product.py" = ["B008"]
+"olf/common/commands/product.py" = ["B008"]
 "olf/common/commands/source.py" = ["B008"]
 
 [tool.mypy]

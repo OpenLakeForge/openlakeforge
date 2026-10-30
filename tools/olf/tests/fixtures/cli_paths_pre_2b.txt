@@ -1,0 +1,80 @@
+access trust
+artifacts deploy-optional-layers
+auth login
+auth logout
+auth status
+break-glass
+catalog sync-namespaces
+check all
+check components
+check contracts
+check dbt
+check docs
+check flows
+check infra
+check lockfiles
+check project-code
+check security
+check skills
+check structure
+contracts check
+contracts env
+dbt parse
+deploy
+destroy
+diagnostics collect
+diagnostics tree
+distribution clean
+distribution list
+distribution path
+distribution verify
+doctor
+domain new
+e2e run
+forward
+github connect
+images build
+images load
+init
+k8s set-project-code-image
+layers enabled
+openmetadata deploy-metadata
+openmetadata list-domains
+plan
+platform apply
+platform contract
+platform plan
+product new
+product run
+profile resolve
+profile validate
+project build
+project deploy
+project graph
+project image
+project revision inspect
+project revision verify
+project status
+project validate
+query
+release build-bundle
+release check
+release checksums
+release compatibility-matrix
+release manifest
+release verify-install
+release workflow require-green-main
+report export
+report import
+report validate
+secrets rotate
+smoke run
+source new
+status
+superset deploy-reports
+superset export-reports
+toolchain clean
+toolchain install
+toolchain list
+toolchain path
+version
