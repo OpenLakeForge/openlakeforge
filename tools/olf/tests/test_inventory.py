@@ -7,6 +7,7 @@ from openlakeforge_domain import (
     LakehouseDescriptorError,
     inventory_for,
     load_lakehouse_inventory,
+    load_source,
 )
 
 ROOT = Path(__file__).parents[3]
@@ -331,6 +332,53 @@ def test_binding_names_are_valid_kubernetes_names_for_an_underscored_source() ->
 def test_a_source_runtime_block_names_keys_only(tmp_path: Path, runtime: str, message: str) -> None:
     _write_lakehouse(tmp_path)
     _write_source_runtime(tmp_path, runtime)
+
+    with pytest.raises(LakehouseDescriptorError, match=message):
+        load_lakehouse_inventory(tmp_path)
+
+
+def _source_with_load(load: str) -> str:
+    return _source() + f"    load: {load}\n"
+
+
+def test_a_resource_declares_how_it_loads(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path)
+    source_path = tmp_path / "lakehouse_code" / "bronze" / "crm" / "source.yaml"
+    source_path.write_text(
+        _source_with_load("{ mode: incremental, cursor: updated_at, primary_key: [order_id] }"), encoding="utf-8"
+    )
+
+    (source,) = load_lakehouse_inventory(tmp_path).sources
+
+    load = source.load_of("orders")
+    assert load.incremental
+    assert (load.cursor, load.primary_key) == ("updated_at", ("order_id",))
+    assert load_source(source_path) == source
+
+
+def test_a_resource_without_a_load_mode_reloads_in_full(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path)
+
+    (source,) = load_lakehouse_inventory(tmp_path).sources
+
+    assert not source.load_of("orders").incremental
+
+
+@pytest.mark.parametrize(
+    ("load", "message"),
+    [
+        ("{ mode: incremental, primary_key: [order_id] }", "needs cursor"),
+        ("{ mode: incremental, cursor: updated_at }", "needs primary_key"),
+        ("{ mode: full, cursor: updated_at }", "incremental' only"),
+        ("{ mode: delta }", "mode must be one of"),
+        ("{ mode: incremental, cursor: updated_at, primary_key: [] }", "non-empty array"),
+        ("{ mode: full, query: select 1 }", "must not contain"),
+    ],
+)
+def test_an_invalid_load_mode_is_rejected(tmp_path: Path, load: str, message: str) -> None:
+    _write_lakehouse(tmp_path)
+    source_path = tmp_path / "lakehouse_code" / "bronze" / "crm" / "source.yaml"
+    source_path.write_text(_source_with_load(load), encoding="utf-8")
 
     with pytest.raises(LakehouseDescriptorError, match=message):
         load_lakehouse_inventory(tmp_path)
