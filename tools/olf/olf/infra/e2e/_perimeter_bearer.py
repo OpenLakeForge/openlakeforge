@@ -63,6 +63,7 @@ def issue_id_token(
     client_id: str,
     redirect_uri: str,
     client_secret: str | None = None,
+    scope: str = SCOPE,
 ) -> str:
     """Sign in as `login` at the stub and redeem the code for an ID token issued to `client_id`."""
     issuer = identity["issuer_url"]
@@ -79,7 +80,7 @@ def issue_id_token(
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": SCOPE,
+            "scope": scope,
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",

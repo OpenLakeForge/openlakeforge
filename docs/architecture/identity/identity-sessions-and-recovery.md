@@ -112,8 +112,9 @@ every 4 min.
 `olf infra break-glass <service> --reason "..."` implements this (local provider).
 `olf infra e2e run` exercises one recorded use to Dex with the perimeter enabled, and
 an issuer-outage drill: Dex scaled to zero, a fresh sign-in refused, Trino and
-Dagster answering through recorded sessions, then Dex restored and a fresh
-sign-in working. On the local kind cluster in CI, the first break-glass answer
+Dagster answering through recorded sessions, a query without a person's token
+refused at Trino's query route while the workload path answers (ADR 0019), then
+Dex restored and a fresh sign-in working. On the local kind cluster in CI, the first break-glass answer
 came 1 s after Dex was down, and sign-in worked within 2 s of Dex being Ready
 again (two runs, DEV and PROD). The drill does not cover an open session.
 Dex has no admin console or admin account, so recovery restores the issuer and
