@@ -5,7 +5,7 @@
 #
 #     # from the repository root, so `uv run --project tools/olf` resolves:
 #     cp infra/terraform/foundations/azure-aks/sandbox.tfvars.example infra/terraform/foundations/azure-aks/sandbox.tfvars
-#     uv run --project tools/olf --locked olf deploy --provider azure
+#     uv run --project tools/olf --locked olf infra deploy --provider azure
 #
 # `sandbox.tfvars` is gitignored. To keep it elsewhere, set
 # AZURE_TFVARS_FILE=/path/to/your.tfvars.

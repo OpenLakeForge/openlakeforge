@@ -6,7 +6,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Term | Meaning |
 | --- | --- |
 | Access | The `spec.access` block of the Deployment Profile. Declaring it publishes the user-facing services through one ingress at `<service>.<base_domain>` names; omitting it publishes nothing. |
-| Artifacts phase | The third `olf deploy` phase. It deploys everything derived from `lakehouse_code/`, so a code change reruns only this phase. |
+| Artifacts phase | The third `olf infra deploy` phase. It deploys everything derived from `lakehouse_code/`, so a code change reruns only this phase. |
 | Base domain | `spec.access.base_domain`, `olf.localhost` by default. Every route host ends with it, and the portal is served at the base domain itself. |
 | Bronze | The landing layer: source data as files in object storage, loaded by dlt and not yet validated. Namespace `<source>_bronze`. |
 | Canonical role | One of `platform-admin`, `data-engineer`, `analyst` and `viewer`, highest first, defined in `release/identity-roles.yaml`. A role decides which services a person can open. |
@@ -22,7 +22,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | dlt | The loader that extracts a source into Bronze. |
 | Domain | A business area that owns a set of Silver tables and the data products built on them. |
 | Floe | The engine that validates Bronze against a domain's contract and writes accepted rows to Silver; rejected rows go to a quarantine location. |
-| Foundation phase | The first `olf deploy` phase: it creates the cluster and registry. |
+| Foundation phase | The first `olf infra deploy` phase: it creates the cluster and registry. |
 | Gold | The business layer: marts that dbt-trino builds from Silver. Namespace `<product>_gold`. |
 | Iceberg | The open table format for Silver and Gold tables. |
 | Identity | The `spec.identity` block: which OIDC issuer signs people in (`github` or `external`) and how its claims map to canonical roles. Without it, authentication is off. |
@@ -32,10 +32,10 @@ alphabetical order. Each entry names the file or command that defines it.
 | Medallion layers | Bronze, Silver and Gold: three layers, each owned by one tool. |
 | Namespace (catalog) | A single-level catalog schema: `<source>_bronze`, `<domain>_silver` or `<product>_gold`. Not a Kubernetes namespace. |
 | Perimeter | The oauth2-proxy layer in front of every route except the login page. It admits a user only when their role holds a grant for the service. |
-| Platform phase | The second `olf deploy` phase: it deploys the shared services in `olf-system` and each stage's services. |
+| Platform phase | The second `olf infra deploy` phase: it deploys the shared services in `olf-system` and each stage's services. |
 | Portal | The landing page at the base domain that links every published route. |
 | Preset | `slim` or `full`. `full` turns on `analytics` and `governance` by default. |
-| Project revision | An immutable build of the project (descriptors, contracts, dbt, Dagster code, image digest) made by `olf project build` and promoted between stages unchanged. |
+| Project revision | An immutable build of the project (descriptors, contracts, dbt, Dagster code, image digest) made by `olf infra project build` and promoted between stages unchanged. |
 | Provider contract | A provider-neutral description of a capability (catalog, storage, access, identity), so local, AWS and Azure expose the same shape with different implementations. |
 | Provider | The deployment target: `local` (kind), `aws` or `azure`. |
 | Resource | A table-like entity a source exposes in Bronze, declared under `resources` in `source.yaml`. |
@@ -44,7 +44,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Source | One system you ingest from, declared in `lakehouse_code/bronze/<source>/source.yaml`. |
 | Stage | A lifecycle boundary: `dev`, `uat` or `prod`. Stages share one cluster; each has its own namespace, Dagster, buckets and catalog. |
 | Topology | The effective shape `olf profile resolve` computes from a profile: stages with their capabilities resolved, plus access and identity. |
-| Trino | The SQL engine over the Iceberg catalog, used by dbt, Superset and `olf query`. |
+| Trino | The SQL engine over the Iceberg catalog, used by dbt, Superset and `olf infra query`. |
 
 ---
 

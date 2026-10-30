@@ -551,8 +551,8 @@ def test_superset_report_aliases_still_work_and_warn(monkeypatch: pytest.MonkeyP
 
     assert (deployed.exit_code, exported.exit_code) == (0, 0)
     assert [entry["stage"] for entry in options] == ["prod", "uat"]
-    assert "use `olf report import`" in deployed.output
-    assert "use `olf report export`" in exported.output
+    assert "use `olf infra report import`" in deployed.output
+    assert "use `olf infra report export`" in exported.output
 
 
 def test_superset_export_reports_refuses_an_absolute_target_outside_the_project(
@@ -724,8 +724,8 @@ def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest
 
 
 def test_catalog_sync_namespaces_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`olf catalog sync-namespaces` is a standalone Phase 2 command, same as
-    `olf superset deploy-reports` etc. - it must hydrate the selected
+    """`olf infra catalog sync-namespaces` is a standalone Phase 2 command, same as
+    `olf infra superset deploy-reports` etc. - it must hydrate the selected
     provider/project's contract environment before reading domain
     descriptors, not just the installed default.
     """

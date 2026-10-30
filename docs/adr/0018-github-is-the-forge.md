@@ -34,7 +34,7 @@ than standing up a parallel system.
 | CI of this repository | `.github/workflows/checks.yml` on every pull request and `merge_group`; `main` behind the `main_protection` ruleset and a merge queue | binding |
 | Release of this repository | `.github/workflows/release.yml`: PyPI through GitHub OIDC Trusted Publishing, GitHub Releases with checksums, SBOMs and provenance (ADR 0009) | binding |
 | Project images | GHCR. `local-full-e2e.yml` pushes the nightly `project-code-nightly` image there; `docs/guides/promote-dev-to-prod.md` documents GHCR (or Docker Hub) for promotable revisions | binding for this repository; the client's registry stays an environment setting |
-| Client CD | A GitHub Actions workflow running `olf project image`, `olf project build` and `olf project deploy` (the steps `.github/actions/build-revision` already chains) on the CD boundary of ADR 0002 | decided, not built; `olf init` scaffolds no workflow yet |
+| Client CD | A GitHub Actions workflow running `olf infra project image`, `olf infra project build` and `olf infra project deploy` (the steps `.github/actions/build-revision` already chains) on the CD boundary of ADR 0002 | decided, not built; `olf init` scaffolds no workflow yet |
 | People and roles | GitHub organisation membership and teams. Dex brokers GitHub login into the `identity.oidc` contract; each canonical role maps to one or more teams | decided, not built (ADR 0014, seam 2) |
 | User administration | GitHub: inviting, removing and changing someone's team is done in GitHub (web, `gh`, or the client's own GitHub Terraform). `olf users` is removed | decided; removal in progress |
 
@@ -79,7 +79,7 @@ PostgreSQL.
   outage blocks new logins; existing sessions run to their bound.
 - Air-gapped installations are not served by the default adapter; they use
   `issuer: external`.
-- `olf e2e run` cannot sign in to real GitHub unattended (accounts, 2FA). The
+- `olf infra e2e run` cannot sign in to real GitHub unattended (accounts, 2FA). The
   Dex adapter's e2e needs a stub upstream in kind, and a qualification against
   a real organisation is a separate, manual or scheduled check.
 

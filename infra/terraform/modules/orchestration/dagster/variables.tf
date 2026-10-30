@@ -212,7 +212,7 @@ variable "service_account_annotations" {
 }
 
 variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. True is the deprecated single-stage `olf deploy` lifecycle, where the subchart carries user code and the workspace is derived from it. False is the #115 split: `olf project deploy` owns a separate openlakeforge-project release, and this root only publishes a stable workspace endpoint pointing at it."
+  description = "Whether Terraform owns the Dagster user-code deployments. True is the deprecated single-stage `olf infra deploy` lifecycle, where the subchart carries user code and the workspace is derived from it. False is the #115 split: `olf infra project deploy` owns a separate openlakeforge-project release, and this root only publishes a stable workspace endpoint pointing at it."
   type        = bool
   default     = true
 }

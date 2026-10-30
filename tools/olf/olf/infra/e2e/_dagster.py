@@ -77,8 +77,8 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
         return []
     from olf.infra.deployment.activation import _RELEASE as ACTIVATION_RELEASE
 
-    # User code is the platform release's subchart under `olf deploy`, and its
-    # own release once `olf project deploy` activates a revision.
+    # User code is the platform release's subchart under `olf infra deploy`, and its
+    # own release once `olf infra project deploy` activates a revision.
     releases = {DAGSTER_RELEASE_NAME, ACTIVATION_RELEASE}
     return [
         str(item.get("metadata", {}).get("name"))

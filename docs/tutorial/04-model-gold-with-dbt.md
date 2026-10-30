@@ -114,7 +114,7 @@ The platform is already running, so deploy only the artifacts phase, which
 covers everything derived from `lakehouse_code/`:
 
 ```bash
-olf deploy --provider local --phase artifacts
+olf infra deploy --provider local --phase artifacts
 ```
 
 It reconciles the catalog namespaces, builds the project-code image, loads it
@@ -125,7 +125,7 @@ needed.
 ## Check it worked
 
 ```bash
-olf e2e run --env local --suite full
+olf infra e2e run --env local --suite full
 ```
 
 The suite discovers products from the project, so `campaign_performance` is
@@ -137,11 +137,11 @@ including `mart_campaign_performance`. It ends with:
 Local OpenLakeForge full e2e validation passed.
 ```
 
-Then look at the rows themselves. `olf query` runs SQL against the DEV
+Then look at the rows themselves. `olf infra query` runs SQL against the DEV
 stage's catalog, so a table is named `<schema>.<table>`:
 
 ```bash
-olf query "SELECT * FROM campaign_performance_gold.mart_campaign_performance ORDER BY channel"
+olf infra query "SELECT * FROM campaign_performance_gold.mart_campaign_performance ORDER BY channel"
 ```
 
 It prints one row per marketing channel, with its `campaign_count`,
@@ -152,10 +152,10 @@ for other output.
 
 - `olf product new` creates a product-owned dbt project and a Dagster module
   and registers the product in `governance.yml`.
-- `olf query` reads any Silver or Gold table of a stage from your machine.
+- `olf infra query` reads any Silver or Gold table of a stage from your machine.
 - Gold is plain SQL over declared Silver sources; tests run as part of the
   build.
-- `olf deploy --phase artifacts` ships code changes without touching the
+- `olf infra deploy --phase artifacts` ships code changes without touching the
   platform.
 
 ## Next

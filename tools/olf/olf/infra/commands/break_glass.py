@@ -1,4 +1,4 @@
-"""`olf break-glass`: recorded, time-boxed service access without the issuer (#177)."""
+"""`olf infra break-glass`: recorded, time-boxed service access without the issuer (#177)."""
 
 from __future__ import annotations
 

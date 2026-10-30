@@ -197,7 +197,7 @@ def test_platform_guards_use_the_foundation_kube_context(tmp_path: Path) -> None
 
 
 def test_platform_up_never_passes_var_file_to_azure_apply_even_with_explicit_override(tmp_path: Path) -> None:
-    """P1 regression: an explicit `--var-file` for a combined `olf deploy
+    """P1 regression: an explicit `--var-file` for a combined `olf infra deploy
     --provider azure --var-file <foundation.tfvars>` run must reach the
     foundation apply but never the platform apply - Azure's platform
     Terraform root declares none of the foundation-only variables a

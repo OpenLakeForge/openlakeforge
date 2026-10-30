@@ -20,7 +20,7 @@ deployment to Full in place, without losing anything you built. Run every
 http://olf.localhost
 ```
 
-The portal links to every service the profile enables. `olf status --provider
+The portal links to every service the profile enables. `olf infra status --provider
 local` lists the same addresses in its `URLs` section. Browsers resolve every
 `*.localhost` name to your machine, so no hosts-file entry is needed, and
 there is no sign-in yet.
@@ -71,7 +71,7 @@ run page lists the logs of every step.
 ## Check it worked
 
 ```bash
-olf e2e run --env local --suite full
+olf infra e2e run --env local --suite full
 ```
 
 The suite launches every demo product's job, checks that each Silver and Gold
@@ -88,7 +88,7 @@ Local OpenLakeForge full e2e validation passed.
   pipelines.
 - A data product is a Bronze, Silver and Gold chain with one
   `<product>_pipeline` job.
-- `olf e2e run` checks every deployed data product end to end; you will rerun
+- `olf infra e2e run` checks every deployed data product end to end; you will rerun
   it after each change to a product.
 
 ## Next

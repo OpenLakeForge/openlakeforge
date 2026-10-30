@@ -35,7 +35,7 @@ spec:
 
 The cloud deployment is validated with one stage, so the DEV-to-PROD promotion
 of lesson 9 stays on your local platform. The cloud deployment publishes no
-routes, so there is no sign-in: you reach its services with `olf forward`, and
+routes, so there is no sign-in: you reach its services with `olf infra forward`, and
 an `access:` block would require `identity:`.
 
 ```bash
@@ -45,7 +45,7 @@ olf profile validate --project .
 ## 2. Authenticate
 
 ```bash
-olf auth login --provider aws
+olf infra auth login --provider aws
 ```
 
 It reuses your `default` AWS profile, or asks for your IAM Identity Center
@@ -63,24 +63,24 @@ unset PROJECT_CODE_IMAGE_REPOSITORY PROJECT_CODE_IMAGE_TAG
 The same phases you used locally:
 
 ```bash
-olf deploy --provider aws --phase foundation   # VPC, EKS, ECR, IAM
-olf deploy --provider aws --phase platform     # S3, Glue, RDS, Trino, Dagster, Superset, OpenMetadata
-olf deploy --provider aws --phase artifacts    # build and push images, load your code
+olf infra deploy --provider aws --phase foundation   # VPC, EKS, ECR, IAM
+olf infra deploy --provider aws --phase platform     # S3, Glue, RDS, Trino, Dagster, Superset, OpenMetadata
+olf infra deploy --provider aws --phase artifacts    # build and push images, load your code
 ```
 
 The cloud has no public endpoint. To open the services, port-forward them to
 your machine, then stop with Ctrl-C; Dagster is at `http://localhost:3000`:
 
 ```bash
-olf forward --provider aws
+olf infra forward --provider aws
 ```
 
 ## Check it worked
 
-Stop `olf forward` first: run one `olf` command at a time.
+Stop `olf infra forward` first: run one `olf` command at a time.
 
 ```bash
-olf e2e run --env aws
+olf infra e2e run --env aws
 ```
 
 It launches every product's job on EKS and verifies the Silver and Gold
@@ -90,7 +90,7 @@ tables, the dashboards and OpenMetadata. It ends with a line of the form
 ## Tear down
 
 ```bash
-olf destroy --provider aws
+olf infra destroy --provider aws
 ```
 
 On Azure the steps are the same with `--provider azure`, plus a variables file
@@ -102,7 +102,7 @@ for the resource group and node size; see
 - The project does not change between local, AWS and Azure; the profile's
   provider does.
 - A cloud deploy is the same foundation, platform and artifacts phases.
-- Cloud services are reached with `olf forward`, and `olf e2e run --env aws`
+- Cloud services are reached with `olf infra forward`, and `olf infra e2e run --env aws`
   validates them.
 
 ## Next

@@ -89,7 +89,7 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
     client_secret = environ.get("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY") or "POLARIS_FLOE_CLIENT_SECRET"
     catalog: dict[str, object]
     if catalog_type == "glue":
-        # One Glue database per domain, named as `olf catalog sync-namespaces`
+        # One Glue database per domain, named as `olf infra catalog sync-namespaces`
         # creates it: the stage's prefix (the catalog is shared by every
         # stage) and the domain's Silver namespace, which Floe substitutes
         # for `{domain}`. Credentials are the pod's own AWS identity.

@@ -11,7 +11,7 @@ local, AWS and Azure providers.
 
 ## Services and responsibilities
 
-Everything runs on one Kubernetes cluster that `olf deploy` creates.
+Everything runs on one Kubernetes cluster that `olf infra deploy` creates.
 
 | Concern | Service | Responsibility |
 | --- | --- | --- |
@@ -63,7 +63,7 @@ archived in the ops bucket.
 
 ## Deployment model
 
-`olf deploy` runs three phases:
+`olf infra deploy` runs three phases:
 
 | Phase | Creates | Changes when |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ provider:
 | Catalog | Polaris | AWS Glue | Polaris |
 | Service state | PostgreSQL | RDS PostgreSQL | PostgreSQL |
 | Workload identity | Kubernetes service accounts | EKS Pod Identity | Kubernetes service accounts |
-| Access | Ingress on `*.olf.localhost`, optional sign-in | `olf forward` | `olf forward` |
+| Access | Ingress on `*.olf.localhost`, optional sign-in | `olf infra forward` | `olf infra forward` |
 
 On AWS, every stage shares the account's Glue catalog, with stage-prefixed
 database names scoped by IAM.
@@ -109,7 +109,7 @@ database names scoped by IAM.
 
 The AWS chart shows the target shape. Its access path (Route 53, an ALB with
 ACM, oauth2-proxy and Dex) is not built yet: today the AWS services are reached
-with `olf forward`.
+with `olf infra forward`.
 
 ## Further reading
 

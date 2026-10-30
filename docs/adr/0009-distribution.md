@@ -96,7 +96,7 @@ The supported consumer path is:
 mkdir my-lakehouse && cd my-lakehouse
 pip install openlakeforge
 olf init                       # or: olf init --stages dev,prod
-olf platform apply -f openlakeforge.yaml
+olf infra platform apply -f openlakeforge.yaml
 ```
 
 No subsequent command needs `--project-root .`.

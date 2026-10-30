@@ -20,12 +20,12 @@ inputs:
     required: true
   e2e-env:
     description: >
-      When set (local, aws or azure), run `olf e2e run --suite full` against
+      When set (local, aws or azure), run `olf infra e2e run --suite full` against
       the stage after activation. Empty skips validation.
     default: ""
   e2e-checks:
     description: >
-      `core` or `all`, passed to `olf e2e run --checks`: `core` skips the
+      `core` or `all`, passed to `olf infra e2e run --checks`: `core` skips the
       drills (Polaris and Traefik restart recovery, certificate renewal,
       network flows and RBAC, break-glass, perimeter latency, issuer outage,
       secret rotation).
@@ -33,7 +33,7 @@ inputs:
 
 outputs:
   status:
-    description: "`olf project status --json` for the stage after activation."
+    description: "`olf infra project status --json` for the stage after activation."
     value: ${{ steps.deploy.outputs.status }}
 
 runs:
@@ -51,8 +51,8 @@ runs:
         # installed olf uses that checkout as its distribution (ADR 0009).
         PROFILE="$(realpath "${PROFILE}")"
         cd "$(dirname "${PROFILE}")"
-        olf project deploy -f "${PROFILE}" --stage "${STAGE}" --revision "${REVISION}"
-        status="$(olf project status -f "${PROFILE}" --stage "${STAGE}" --json)"
+        olf infra project deploy -f "${PROFILE}" --stage "${STAGE}" --revision "${REVISION}"
+        status="$(olf infra project status -f "${PROFILE}" --stage "${STAGE}" --json)"
         recorded="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["stages"][0]["recorded"]["project_revision"])' <<< "${status}")"
         if [ "${recorded}" != "${REVISION}" ]; then
           echo "::error::${STAGE} records revision ${recorded}, expected ${REVISION}"
@@ -75,4 +75,4 @@ runs:
       run: |
         PROFILE="$(realpath "${PROFILE}")"
         cd "$(dirname "${PROFILE}")"
-        olf e2e run --env "${E2E_ENV}" -f "${PROFILE}" --stage "${STAGE}" --suite full --checks "${E2E_CHECKS}"
+        olf infra e2e run --env "${E2E_ENV}" -f "${PROFILE}" --stage "${STAGE}" --suite full --checks "${E2E_CHECKS}"

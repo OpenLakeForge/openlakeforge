@@ -1,9 +1,9 @@
 """Transport-neutral content-addressed artifact storage.
 
-Bucket and client resolution for the project revision (`olf project build`)
+Bucket and client resolution for the project revision (`olf infra project build`)
 and stage activations, through the in-cluster/cloud S3 access path.
 `RevisionStore` additionally lets the project revision publish to a local
-directory (`olf project build --output DIR`) without a cluster or cloud
+directory (`olf infra project build --output DIR`) without a cluster or cloud
 credentials.
 """
 

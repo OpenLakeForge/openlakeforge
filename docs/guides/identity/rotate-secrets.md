@@ -1,6 +1,6 @@
 # Rotate secrets
 
-How to rotate the secrets sign-in depends on with `olf secrets rotate`, and the
+How to rotate the secrets sign-in depends on with `olf infra secrets rotate`, and the
 manual procedure for the clients the command does not cover.
 
 Rotate after a suspected leak, when someone who could read the Secrets leaves,
@@ -9,10 +9,10 @@ or on a schedule. The command is for `provider: local` with
 in your issuer and in the `oidc-client-<consumer>` Secrets, then restart the
 consumers ([Bring your own OIDC issuer](external-issuer.md)).
 
-## `olf secrets rotate`
+## `olf infra secrets rotate`
 
 ```bash
-olf secrets rotate dex-client-perimeter
+olf infra secrets rotate dex-client-perimeter
 ```
 
 Add `-f <profile>` if you deployed from a profile file. The command prints what
@@ -22,7 +22,7 @@ it rotated and restarted, and never prints a secret value.
 | --- | --- | --- |
 | `dex-client-perimeter` | The perimeter's Dex client secret | `deployment/dex` and the perimeter deployments |
 | `dex-client-trino` | Trino's Dex client secret | `deployment/dex` and `deployment/trino-coordinator` |
-| `github-app` | Registers a new GitHub App through `olf github connect` and replaces its Secret | `deployment/dex` |
+| `github-app` | Registers a new GitHub App through `olf infra github connect` and replaces its Secret | `deployment/dex` |
 
 For a Dex client, the command deletes the Secret, applies only the credentials
 Job (a targeted Terraform apply with `-replace`) so the Secret is made again,
@@ -35,15 +35,15 @@ service hold the same secret.
 Before it deletes anything, it stops and names the cause when:
 
 - the provider is not `local`, or `identity.issuer` is not `github`;
-- the platform state has drifted: run `olf deploy` first;
+- the platform state has drifted: run `olf infra deploy` first;
 - the Secret lacks the `client-secret` key;
 - another `dex-client-*` Secret is missing, because the shared Job would
-  regenerate that one too, without restarting its consumers: run `olf deploy`
+  regenerate that one too, without restarting its consumers: run `olf infra deploy`
   first.
 
 ### The GitHub App
 
-`olf secrets rotate github-app` registers a new GitHub App in your browser,
+`olf infra secrets rotate github-app` registers a new GitHub App in your browser,
 replaces the Secret named by `oauth_app_secret_ref` and restarts Dex. Then:
 
 1. Install the new app on the organization (the command prints the link).
@@ -82,7 +82,7 @@ For `superset`, with the managed kubectl and kubeconfig set as above:
 
    ```bash
    TF_CLI_ARGS_apply='-replace=module.dex[0].kubernetes_job_v1.credentials -replace=module.superset["<stage>"].kubernetes_job_v1.oidc_secret[0]' \
-     olf deploy --provider local --phase platform
+     olf infra deploy --provider local --phase platform
    ```
 
 3. Restart Dex, then the Superset web deployment in each stage namespace
@@ -106,7 +106,7 @@ Rotating it signs everyone out (with `KUBECTL` set as above):
 ```bash
 "$KUBECTL" -n olf-system delete secret oauth2-proxy-cookie --ignore-not-found
 TF_CLI_ARGS_apply='-replace=module.perimeter[0].kubernetes_job_v1.cookie_secret' \
-  olf deploy --provider local --phase platform
+  olf infra deploy --provider local --phase platform
 "$KUBECTL" -n olf-system rollout restart deployment -l openlakeforge.io/role-floor
 ```
 

@@ -16,7 +16,7 @@ empty environment, every subprocess goes to a recording runner, and the
 provider contract each root emits is read from the captured fixture beside
 this file. What that leaves uncovered is one thing only — that a real
 `terraform apply` of a root emits exactly the fixture's payload. That needs
-Terraform and a provider account, and stays with `olf e2e run`. The two static
+Terraform and a provider account, and stays with `olf infra e2e run`. The two static
 checks here (the root declares a v3 stage-indexed contract surface, and the
 outputs shared tooling reads) are what catch a root drifting away from its
 fixture in the meantime -- as presence checks over an opaque expression
@@ -130,7 +130,7 @@ _PROTOCOL_METHODS = tuple(
     )
 )
 
-# ADR 0002's three phases, in the order `olf deploy` must run them, with the
+# ADR 0002's three phases, in the order `olf infra deploy` must run them, with the
 # adapter step each one dispatches to. PREFETCH is olf's own pre-platform
 # image step rather than an ADR phase; it sits here because it is part of the
 # order every adapter is driven in (it is deliberately inert on cloud).
@@ -245,7 +245,7 @@ def _context(provider: Provider, repo_root: Path, **kwargs: Any) -> DeploymentCo
 
 
 def _adapter(provider: Provider, repo_root: Path, runner: RecordingRunner | None = None, **kwargs: Any):  # noqa: ANN202
-    """The provider's adapter, built the way `olf deploy` builds it."""
+    """The provider's adapter, built the way `olf infra deploy` builds it."""
     context = _context(provider, repo_root, **kwargs)
     return build_provider(context, toolkit=_toolkit(runner or RecordingRunner()), environ={})
 
@@ -443,7 +443,7 @@ def test_adapter_satisfies_the_deployment_provider_protocol(provider: Provider, 
         implementation = getattr(adapter, method, None)
         assert callable(implementation), (
             f"{type(adapter).__name__} does not implement {method}(). Every DeploymentProvider member is a "
-            f"lifecycle step `olf deploy`/`olf destroy` or a Make target delegate calls directly."
+            f"lifecycle step `olf infra deploy`/`olf infra destroy` or a Make target delegate calls directly."
         )
         rejected = _calls_the_adapter_rejects(getattr(DeploymentProvider, method), implementation)
         assert not rejected, (
@@ -567,7 +567,7 @@ def test_platform_root_declares_a_v3_stage_indexed_contract_surface(provider: Pr
             f"This is a presence check, not a per-field one: hcl2 gives `stages` back as one opaque expression "
             f"string, so it cannot tell which field a token came from. Pinning the wrong stage into one field "
             f"while another still carries the token passes this and is caught only by a rendered contract - "
-            f"`olf e2e run`, not this suite."
+            f"`olf infra e2e run`, not this suite."
         )
 
 
@@ -819,7 +819,7 @@ def test_each_stage_renders_a_floe_profile_bound_to_its_own_contract(provider: P
 def test_each_aws_stage_writes_silver_into_its_own_glue_databases() -> None:
     """The account's one Glue catalog is shared by every stage, so each stage's
     profile must name its own prefixed database per domain -- the one
-    `olf catalog sync-namespaces` creates -- from what activation puts on the pod."""
+    `olf infra catalog sync-namespaces` creates -- from what activation puts on the pod."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from libs.floe_profile import render_profile
@@ -998,7 +998,7 @@ def _record_steps(adapter_class: type, monkeypatch: pytest.MonkeyPatch, calls: l
     """
     for step in _PHASE_STEP.values():
         assert hasattr(adapter_class, step), (
-            f"{adapter_class.__name__} does not implement {step}(). `olf deploy --phase` selects it by name on "
+            f"{adapter_class.__name__} does not implement {step}(). `olf infra deploy --phase` selects it by name on "
             f"every provider; a provider with nothing to do there implements it as a no-op rather than omitting it."
         )
 
@@ -1019,7 +1019,7 @@ def test_every_deploy_phase_selects_its_own_adapter_step(
     that this adapter implements every step by name -- not that a step does
     the right work. An adapter whose `platform_up` became a no-op, or started
     doing artifact work, still passes here; only a real apply shows that, and
-    that is `olf e2e run`."""
+    that is `olf infra e2e run`."""
     write_two_product_fixture(tmp_path, dashboards=(("widgets_overview", "widgets_alpha"),))
     adapter = _adapter(provider, tmp_path)
     calls: list[str] = []
@@ -1031,7 +1031,8 @@ def test_every_deploy_phase_selects_its_own_adapter_step(
         engine.deploy(phase)
 
         assert calls == [step], (
-            f"`olf deploy --provider {provider.value} --phase {phase.value}` ran {calls!r} rather than {[step]!r}. "
+            f"`olf infra deploy --provider {provider.value} --phase {phase.value}` ran {calls!r} "
+            f"rather than {[step]!r}. "
             f"Each phase runs its own step and nothing else."
         )
 
@@ -1055,7 +1056,7 @@ def test_deploying_everything_runs_the_adr_0002_order(
 
     ordered = [call for call in calls if call in {_PHASE_STEP[phase] for phase in _ADR_0002_PHASES}]
     assert ordered == [_PHASE_STEP[phase] for phase in _ADR_0002_PHASES], (
-        f"`olf deploy --provider {provider.value}` ran {calls!r}. ADR 0002 fixes the order as "
+        f"`olf infra deploy --provider {provider.value}` ran {calls!r}. ADR 0002 fixes the order as "
         f"foundation -> platform -> artifacts: an artifact step that runs before the platform is applied has no "
         f"platform to deploy onto, and a platform apply that waits on one has made a code commit invoke Terraform."
     )

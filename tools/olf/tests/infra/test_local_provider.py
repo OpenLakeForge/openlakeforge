@@ -237,7 +237,7 @@ def test_platform_plan_prepares_cached_chart(tmp_path: Path, monkeypatch) -> Non
 def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     """Local has no registry of its own; a revision still needs a pullable digest.
 
-    A kind-only image has just a local config Id, which `olf project build`
+    A kind-only image has just a local config Id, which `olf infra project build`
     rejects, so the default has to publish to whatever
     `PROJECT_CODE_IMAGE_REPOSITORY` names.
     """

@@ -186,7 +186,7 @@ variable "om_credentials_secret_name" {
 }
 
 variable "deployer_principal_name" {
-  description = "Polaris service principal used by `olf catalog sync-namespaces` in Phase 2."
+  description = "Polaris service principal used by `olf infra catalog sync-namespaces` in Phase 2."
   type        = string
   default     = "deployer"
 }

@@ -99,7 +99,9 @@ def trust(
     )
     if not result.ok or not result.stdout.strip():
         detail = result.stderr.strip() or "the secret has no tls.crt"
-        raise typer.Exit(code=fail(f"cannot read the local CA ({detail}); deploy the local platform first: olf deploy"))
+        raise typer.Exit(
+            code=fail(f"cannot read the local CA ({detail}); deploy the local platform first: olf infra deploy")
+        )
     cert = Path(output) if output else context.paths.work_root / _CERT_NAME
     cert.parent.mkdir(parents=True, exist_ok=True)
     cert.write_bytes(base64.b64decode(result.stdout))

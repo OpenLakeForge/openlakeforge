@@ -334,11 +334,11 @@ Gold mart dataset(s) and a Trino database connection; it does not include a
 dashboard layout or charts, which the scaffold cannot generate meaningfully.
 
 This directory is a draft, not yet a promotable bundle: it has no
-`metadata.yaml`, so `olf project build` and `olf report validate` both ignore
+`metadata.yaml`, so `olf infra project build` and `olf infra report validate` both ignore
 it until you finish this step.
 
 Build the dashboard in Superset, then export it back into this directory.
-`olf report export` defaults to the first dashboard it finds, so target this
+`olf infra report export` defaults to the first dashboard it finds, so target this
 one explicitly with `SUPERSET_REPORT_SOURCE_DIR` --
 otherwise it silently re-exports into an unrelated, already-checked-in bundle
 instead of this one:
@@ -346,7 +346,7 @@ instead of this one:
 ```bash
 SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
 SUPERSET_DASHBOARD="<the dashboard's slug or uuid in Superset>" \\
-uv run --project tools/olf olf report export --stage dev
+uv run --project tools/olf olf infra report export --stage dev
 ```
 
 The export writes this bundle's `metadata.yaml`. Later re-exports find the

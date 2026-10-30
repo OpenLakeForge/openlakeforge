@@ -21,7 +21,7 @@ def _manager():  # noqa: ANN202
 
     `olf toolchain` is a top-level command, so it runs *outside* the scoped
     environment `DeploymentContext.command_env` builds - it cannot read
-    `OLF_DISTRIBUTION_ROOT` from a parent `olf deploy`. Resolving the
+    `OLF_DISTRIBUTION_ROOT` from a parent `olf infra deploy`. Resolving the
     catalog from the current directory (the previous behaviour) meant an
     installed user running `olf toolchain install` from their own project
     folder got "release catalog not found at ./release/component-catalog.yaml"

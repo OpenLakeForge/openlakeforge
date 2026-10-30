@@ -47,7 +47,7 @@ locals {
   artifact_base_uri     = "s3://${var.ops_bucket_name}"
   log_base_uri          = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
-  # Catalog namespaces themselves are not declared here. `olf catalog
+  # Catalog namespaces themselves are not declared here. `olf infra catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
   # those namespaces follow.
@@ -281,7 +281,7 @@ module "openmetadata" {
   })
   postgresql_contract = local.metadata_database_contract
   # Empty by design: the database schemas mirror Polaris namespaces, which now
-  # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
+  # come into existence in Phase 2. `olf infra openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names = []
   # Only governed stages: the ingestion-bot JWT is a live credential, and a
