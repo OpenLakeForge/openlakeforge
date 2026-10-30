@@ -131,9 +131,11 @@ whoever launches the run (the Dagster launchpad, or `olf product run
 --full-refresh`) and the project-code runtime; `openlakeforge_domain.runs`
 holds it. A tag reaches every asset of the job without each one declaring a
 config schema, including the Floe assets dagster-floe builds. Both scopes run
-`dbt build --full-refresh`; `bronze` also reloads Bronze from scratch. There is
-no Silver-only scope: incremental Bronze keeps every batch, so Silver can only
-be rebuilt from a Bronze reloaded in full.
+`dbt build --full-refresh`. `bronze` is also the scope that will reload an
+incremental Bronze resource from scratch; until a loader is incremental, every
+run reloads Bronze and Silver in full anyway. There is no Silver-only scope:
+incremental Bronze keeps every batch, so Silver can only be rebuilt from a
+Bronze reloaded in full.
 
 ### Kubernetes run launcher
 
