@@ -75,7 +75,9 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
     monkeypatch.setattr("olf.common.profile.load_deployment_profile", lambda _path, **_k: _PROFILE)
     monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
 
-    result = runner.invoke(app, ["project", "deploy", "-f", str(profile), "--stage", "prod", "--revision", "r"])
+    result = runner.invoke(
+        app, ["infra", "project", "deploy", "-f", str(profile), "--stage", "prod", "--revision", "r"]
+    )
 
     assert result.exit_code == 0, result.output
     assert seen == [contract["stages"]["prod"]["catalog"]["catalog_name"]]
@@ -159,7 +161,7 @@ def test_deploy_reads_the_role_model_from_the_resolved_distribution_not_cwd(
     monkeypatch.setattr(project_cmd, "_build_store_for_project", store)
     monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
 
-    result = runner.invoke(app, ["project", "deploy", "-f", str(profile), "--stage", "dev", "--revision", "r"])
+    result = runner.invoke(app, ["infra", "project", "deploy", "-f", str(profile), "--stage", "dev", "--revision", "r"])
 
     assert result.exit_code == 0, result.output
     assert seen == ["t"]

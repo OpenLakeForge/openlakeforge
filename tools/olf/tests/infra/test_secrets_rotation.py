@@ -186,7 +186,7 @@ def command_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl:
 
 
 def test_the_command_rejects_an_unknown_target(tmp_path: Path) -> None:
-    bad = CliRunner().invoke(app, ["secrets", "rotate", "nope"])
+    bad = CliRunner().invoke(app, ["infra", "secrets", "rotate", "nope"])
     assert bad.exit_code != 0
     assert "dex-client-perimeter" in bad.output
 
@@ -196,7 +196,7 @@ def test_the_command_summarises_and_asks_to_confirm_by_signing_in_with_no_secret
 ) -> None:
     command_with_fakes(monkeypatch, tmp_path, FakeKubectl())
 
-    good = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter"])
+    good = CliRunner().invoke(app, ["infra", "secrets", "rotate", "dex-client-perimeter"])
 
     assert good.exit_code == 0, good.output
     out = good.output + capsys.readouterr().out
@@ -213,7 +213,7 @@ def test_the_command_refuses_a_profile_that_is_not_local_github(
     kubectl = FakeKubectl()
     command_with_fakes(monkeypatch, tmp_path, kubectl, issuer="external")
 
-    result = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter"])
+    result = CliRunner().invoke(app, ["infra", "secrets", "rotate", "dex-client-perimeter"])
 
     assert result.exit_code != 0
     assert "issuer: github" in result.output
@@ -241,7 +241,7 @@ def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_depl
         lambda c, target, *, kubectl: contexts.append(c) or secrets_rotation.Rotation(target, "olf-system", ()),
     )
 
-    result = CliRunner().invoke(app, ["secrets", "rotate", "dex-client-perimeter", "-f", "profile.yaml"])
+    result = CliRunner().invoke(app, ["infra", "secrets", "rotate", "dex-client-perimeter", "-f", "profile.yaml"])
 
     assert result.exit_code == 0, result.output
     assert seen == ["profile.yaml"]
@@ -256,7 +256,7 @@ def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: p
     seen: list[bool] = []
     monkeypatch.setattr(github_app, "connect_github", lambda _ctx, *, no_browser: seen.append(no_browser) or "url")
 
-    result = CliRunner().invoke(app, ["secrets", "rotate", "github-app", "--no-browser"])
+    result = CliRunner().invoke(app, ["infra", "secrets", "rotate", "github-app", "--no-browser"])
 
     assert result.exit_code == 0, result.output
     assert seen == [True]

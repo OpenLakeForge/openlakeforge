@@ -79,10 +79,12 @@ backend and cloud credentials in the environment it reads that state.
 Every earlier path stays as a hidden alias of its new home: it runs the same
 callback, takes the same options, and does not appear in `--help`.
 `olf deploy` and `olf infra deploy` are one command; so are `olf project
-deploy` and `olf infra project deploy`. Aliases print no warning yet.
-Deprecation warnings turn on only after the documentation and CI workflows use
-the new paths. `tools/olf/tests/common/test_cli_surfaces.py` holds the list of
-earlier paths and fails if one stops resolving to its new home.
+deploy` and `olf infra project deploy`. An alias prints one line on stderr,
+`this command moved to `olf infra <path>`; the old path will be removed in a
+later release`, and then behaves as before: same stdout and exit code. `olf
+query` prints nothing, because it becomes a platform command once per-person
+access exists. `tools/olf/tests/common/test_cli_surfaces.py` holds the list of
+earlier paths and fails if one stops resolving to its new home or stops warning.
 
 ## Non-interactive platform authentication
 
@@ -127,3 +129,6 @@ Deployment Profile: the issuer is `https://auth.<base_domain>` for
 `identity.client_ids['olf-cli']` or `olf-cli`. The session is a mode-0600 file
 under `OLF_HOME`; the OS keyring is a follow-up. A test holds the import
 direction: `olf/platform` imports only `olf.common`.
+
+The hidden aliases started warning once the documentation and CI moved to
+`olf infra` (#536, PR 6).

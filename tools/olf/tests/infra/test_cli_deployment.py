@@ -65,7 +65,7 @@ def test_deploy_forwards_kubeconfig_path_to_build_context(monkeypatch: pytest.Mo
     monkeypatch.setattr("olf.infra.commands.deployment._build_context", _capture_build_context)
     monkeypatch.setattr("olf.infra.commands.deployment._build_engine", lambda *a, **k: engine)
 
-    result = runner.invoke(app, ["deploy", "--kubeconfig-path", "/tmp/custom/kind-smoke.yaml"])
+    result = runner.invoke(app, ["infra", "deploy", "--kubeconfig-path", "/tmp/custom/kind-smoke.yaml"])
 
     assert result.exit_code == 0
     assert calls[0]["kubeconfig_path"] == "/tmp/custom/kind-smoke.yaml"
@@ -97,7 +97,7 @@ def test_build_context_honors_kubeconfig_path_override_for_cloud_providers(tmp_p
 def test_deploy_defaults_to_all_phases(fake_engine: _FakeEngine) -> None:
     from olf.infra.deployment.engine import DeploymentPhase
 
-    result = runner.invoke(app, ["deploy", "--provider", "local", "--profile", "full"])
+    result = runner.invoke(app, ["infra", "deploy", "--provider", "local", "--profile", "full"])
 
     assert result.exit_code == 0
     assert fake_engine.deploy_calls == [DeploymentPhase.ALL]
@@ -110,7 +110,7 @@ def test_platform_apply_never_routes_to_artifacts(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("olf.infra.commands.platform.deployment_context_for_profile", lambda *a, **k: object())
     monkeypatch.setattr("olf.infra.commands.platform._engine", lambda *a, **k: engine)
 
-    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
+    result = runner.invoke(app, ["infra", "platform", "apply", "-f", "openlakeforge.yaml"])
 
     assert result.exit_code == 0, result.output
     assert engine.deploy_calls == [DeploymentPhase.FOUNDATION, DeploymentPhase.PREFETCH, DeploymentPhase.PLATFORM]
@@ -134,7 +134,7 @@ def test_platform_apply_opts_into_stage_removal_only_when_asked(
     monkeypatch.setattr("olf.infra.commands.platform._engine", lambda *a, **k: _FakeEngine())
     profile = Path(__file__).resolve().parents[4] / "openlakeforge.conformance.yaml"
 
-    result = runner.invoke(app, ["platform", "apply", "-f", str(profile), *flag])
+    result = runner.invoke(app, ["infra", "platform", "apply", "-f", str(profile), *flag])
 
     assert result.exit_code == 0, result.output
     assert [context.allow_stage_removal for context in contexts] == [allowed]
@@ -143,21 +143,21 @@ def test_platform_apply_opts_into_stage_removal_only_when_asked(
 def test_deploy_routes_phase_flag(fake_engine: _FakeEngine) -> None:
     from olf.infra.deployment.engine import DeploymentPhase
 
-    result = runner.invoke(app, ["deploy", "--phase", "platform"])
+    result = runner.invoke(app, ["infra", "deploy", "--phase", "platform"])
 
     assert result.exit_code == 0
     assert fake_engine.deploy_calls == [DeploymentPhase.PLATFORM]
 
 
 def test_deploy_rejects_unknown_phase(fake_engine: _FakeEngine) -> None:
-    result = runner.invoke(app, ["deploy", "--phase", "bogus"])
+    result = runner.invoke(app, ["infra", "deploy", "--phase", "bogus"])
 
     assert result.exit_code == 1
     assert fake_engine.deploy_calls == []
 
 
 def test_deploy_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    result = runner.invoke(app, ["deploy", "--provider", "bogus"])
+    result = runner.invoke(app, ["infra", "deploy", "--provider", "bogus"])
 
     assert result.exit_code == 1
 
@@ -167,7 +167,7 @@ def test_deploy_maps_deployment_error_to_exit_1(fake_engine: _FakeEngine) -> Non
 
     fake_engine.raise_on_deploy = DeploymentPreconditionError("kubeconfig missing")
 
-    result = runner.invoke(app, ["deploy"])
+    result = runner.invoke(app, ["infra", "deploy"])
 
     assert result.exit_code == 1
     assert "kubeconfig missing" in result.output
@@ -176,36 +176,36 @@ def test_deploy_maps_deployment_error_to_exit_1(fake_engine: _FakeEngine) -> Non
 def test_destroy_threads_force_flag(fake_engine: _FakeEngine) -> None:
     from olf.infra.deployment.engine import DeploymentPhase
 
-    result = runner.invoke(app, ["destroy", "--phase", "foundation", "--force"])
+    result = runner.invoke(app, ["infra", "destroy", "--phase", "foundation", "--force"])
 
     assert result.exit_code == 0
     assert fake_engine.destroy_calls == [(DeploymentPhase.FOUNDATION, True)]
 
 
 def test_destroy_rejects_artifacts_phase(fake_engine: _FakeEngine) -> None:
-    result = runner.invoke(app, ["destroy", "--phase", "artifacts"])
+    result = runner.invoke(app, ["infra", "destroy", "--phase", "artifacts"])
 
     assert result.exit_code == 1
     assert fake_engine.destroy_calls == []
 
 
 def test_status_prints_rendered_report(fake_engine: _FakeEngine) -> None:
-    result = runner.invoke(app, ["status"])
+    result = runner.invoke(app, ["infra", "status"])
 
     assert result.exit_code == 0
     assert "=== Pods ===" in result.output
 
 
 def test_forward_delegates_to_engine(fake_engine: _FakeEngine) -> None:
-    result = runner.invoke(app, ["forward"])
+    result = runner.invoke(app, ["infra", "forward"])
 
     assert result.exit_code == 0
     assert fake_engine.forward_called is True
 
 
 def test_profile_full_and_slim_are_accepted(fake_engine: _FakeEngine) -> None:
-    assert runner.invoke(app, ["deploy", "--profile", "full"]).exit_code == 0
-    assert runner.invoke(app, ["deploy", "--profile", "slim"]).exit_code == 0
+    assert runner.invoke(app, ["infra", "deploy", "--profile", "full"]).exit_code == 0
+    assert runner.invoke(app, ["infra", "deploy", "--profile", "slim"]).exit_code == 0
 
 
 def test_deploy_accepts_aws_and_azure_providers(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001
@@ -217,7 +217,7 @@ def test_deploy_accepts_aws_and_azure_providers(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
 
     for provider in ("aws", "azure"):
-        result = runner.invoke(app, ["deploy", "--provider", provider, "--phase", "foundation"])
+        result = runner.invoke(app, ["infra", "deploy", "--provider", provider, "--phase", "foundation"])
         assert result.exit_code == 0, result.output
 
 
@@ -227,7 +227,7 @@ def test_unknown_profile_is_rejected_before_building_an_engine(monkeypatch: pyte
         lambda *a, **k: pytest.fail("engine should not be built for an invalid profile"),
     )
 
-    result = runner.invoke(app, ["deploy", "--profile", "bogus"])
+    result = runner.invoke(app, ["infra", "deploy", "--profile", "bogus"])
 
     assert result.exit_code == 1
 
@@ -243,7 +243,7 @@ def test_an_invalid_toolchain_mode_surfaces_as_a_clean_cli_error(monkeypatch: py
 
     monkeypatch.setenv("OLF_TOOLCHAIN_MODE", "bogus")
 
-    result = runner.invoke(app, ["doctor", "--provider", "local"])
+    result = runner.invoke(app, ["infra", "doctor", "--provider", "local"])
 
     assert result.exit_code != 0
     assert not isinstance(result.exception, ToolchainError)
@@ -315,7 +315,7 @@ def test_local_rejects_a_namespace_override(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["deploy", "--provider", "local", "--namespace", "custom", "--project-root", str(tmp_path)],
+        ["infra", "deploy", "--provider", "local", "--namespace", "custom", "--project-root", str(tmp_path)],
     )
 
     assert result.exit_code == 1
@@ -332,7 +332,7 @@ def test_a_multi_stage_profile_is_accepted_on_the_stage_aware_cloud_roots(
 
     result = runner.invoke(
         app,
-        ["deploy", "--provider", "aws", "--phase", "foundation", "--project-root", str(tmp_path)],
+        ["infra", "deploy", "--provider", "aws", "--phase", "foundation", "--project-root", str(tmp_path)],
     )
 
     assert result.exit_code == 0, result.output
@@ -344,7 +344,10 @@ def test_the_single_dev_shorthand_still_works_on_cloud(tmp_path: Path, monkeypat
 
     result = runner.invoke(
         app,
-        ["deploy", "--provider", "aws", "--profile", "slim", "--phase", "foundation", "--project-root", str(tmp_path)],
+        [
+            "infra", "deploy", "--provider", "aws", "--profile", "slim", "--phase", "foundation",
+            "--project-root", str(tmp_path),
+        ],
     )
 
     assert result.exit_code == 0, result.output

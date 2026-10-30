@@ -166,7 +166,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
 
 
 def test_status_reports_a_stage_whose_release_matches_its_pointer(stage) -> None:  # noqa: ANN001
-    result = runner.invoke(app, ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"])
+    result = runner.invoke(app, ["infra", "project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"])
 
     assert result.exit_code == 0, result.output
     report = json.loads(result.output)["stages"][0]
@@ -176,7 +176,7 @@ def test_status_reports_a_stage_whose_release_matches_its_pointer(stage) -> None
 
 def test_status_compares_the_release_with_the_profiles_pull_secret(stage) -> None:  # noqa: ANN001
     stage.state.pull_secret, stage.state.release_pull_secrets = "ghcr-pull", ["ghcr-pull"]
-    args = ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"]
+    args = ["infra", "project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"]
 
     assert json.loads(runner.invoke(app, args).output)["stages"][0]["state"] == "active"
 
@@ -195,7 +195,7 @@ def test_status_reports_drift_when_a_contracted_location_is_missing(stage) -> No
         {"name": "acme-dagster", "definitions_module": "lakehouse_code.acme"},
     ]
 
-    result = runner.invoke(app, ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"])
+    result = runner.invoke(app, ["infra", "project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"])
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["stages"][0]["state"] == "drifted"
@@ -209,7 +209,7 @@ def test_status_fails_cleanly_on_an_unreadable_contract(stage, monkeypatch: pyte
 
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", _unreadable)
 
-    result = runner.invoke(app, ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev"])
+    result = runner.invoke(app, ["infra", "project", "status", "-f", "openlakeforge.yaml", "--stage", "dev"])
 
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)

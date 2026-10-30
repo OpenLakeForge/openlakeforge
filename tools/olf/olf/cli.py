@@ -30,6 +30,7 @@ from olf.common.commands import (
     source,
     toolchain,
 )
+from olf.common.moved import moved_alias
 from olf.infra.commands import (
     access,
     artifacts,
@@ -67,33 +68,53 @@ infra_app = typer.Typer(
 )
 
 
-def _hidden[T: (CommandInfo, TyperInfo)](info: T) -> T:
+def _moved_command(info: CommandInfo, path: str) -> CommandInfo:
+    assert info.callback is not None
     alias = copy.copy(info)
     alias.hidden = True
+    name = info.name or typer.main.get_command_name(info.callback.__name__)
+    alias.callback = moved_alias(info.callback, f"olf infra {path} {name}")
+    return alias
+
+
+def _moved_group(info: TyperInfo, path: str) -> TyperInfo:
+    alias = copy.copy(info)
+    alias.hidden = True
+    assert info.typer_instance is not None
+    name = info.name or info.typer_instance.info.name
+    alias.typer_instance = _moved_typer(info.typer_instance, f"{path} {name}")
+    return alias
+
+
+def _moved_typer(group: typer.Typer, path: str) -> typer.Typer:
+    alias = copy.copy(group)
+    alias.registered_commands = [_moved_command(c, path) for c in group.registered_commands]
+    alias.registered_groups = [_moved_group(g, path) for g in group.registered_groups]
     return alias
 
 
 def _infra_group(group: typer.Typer, name: str, *, common: typer.Typer | None = None) -> None:
     """Register an infra group under `olf infra` and at its pre-2b top-level path.
 
-    The old path is a hidden alias of the same Typer app. When `common` also owns
-    commands in that group (`project validate`), the old path is the common
-    group with the infra commands added hidden, since Typer cannot merge two
-    apps registered under one name.
+    The old path is a hidden alias that warns on stderr and then runs the same
+    callback. When `common` also owns commands in that group (`project
+    validate`), the old path is the common group with the infra commands added
+    hidden, since Typer cannot merge two apps registered under one name.
     """
     infra_app.add_typer(group, name=name)
+    legacy = _moved_typer(group, name)
     if common is None:
-        app.add_typer(group, name=name, hidden=True)
+        app.add_typer(legacy, name=name, hidden=True)
         return
-    legacy = typer.Typer(help=common.info.help)
-    legacy.registered_commands = [*common.registered_commands, *map(_hidden, group.registered_commands)]
-    legacy.registered_groups = [*common.registered_groups, *map(_hidden, group.registered_groups)]
+    legacy.info = common.info
+    legacy.registered_commands = [*common.registered_commands, *legacy.registered_commands]
+    legacy.registered_groups = [*common.registered_groups, *legacy.registered_groups]
     app.add_typer(legacy, name=name)
 
 
-def _infra_command(name: str, callback: Callable[..., None]) -> None:
+def _infra_command(name: str, callback: Callable[..., None], *, warn: bool = True) -> None:
     infra_app.command(name)(callback)
-    app.command(name, hidden=True)(callback)
+    app.command(name, hidden=True)(moved_alias(callback, f"olf infra {name}") if warn else callback)
 
 
 app.add_typer(infra_app, name="infra")
@@ -134,7 +155,9 @@ _infra_command("destroy", deployment.destroy)
 _infra_command("status", deployment.status)
 _infra_command("forward", deployment.forward)
 _infra_command("break-glass", break_glass.break_glass_command)
-_infra_command("query", query.query)
+# `olf query` becomes a platform command once per-person Trino access exists
+# (ADR 0020), so it keeps its top-level path and does not warn.
+_infra_command("query", query.query, warn=False)
 app.command("init")(init.initialize)
 app.command("login")(platform_commands.login)
 app.command("whoami")(platform_commands.whoami)
