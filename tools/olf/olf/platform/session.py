@@ -52,12 +52,14 @@ def resolve_instance(profile_file: str) -> Instance:
     except (OSError, ValueError) as exc:
         raise PlatformError(f"cannot read the Deployment Profile {profile_file}: {exc}") from exc
     access, identity = profile.access, profile.identity
-    if access is None or access.issuer == "none" or identity is None:
+    if access is None or identity is None:
         raise PlatformError(
-            "this deployment has no sign-in (spec.access and spec.identity are not both configured, "
-            "or the access issuer is 'none'); use the `olf infra` commands, which run with cluster access"
+            "this deployment has no sign-in (spec.access and spec.identity are not both configured); "
+            "use the `olf infra` commands, which run with cluster access"
         )
-    issuer = identity.issuer_url if identity.issuer == "external" else f"https://auth.{access.base_domain}"
+    # access.issuer 'none' turns off route TLS only; identity decides whether sign-in exists.
+    scheme = "http" if access.issuer == "none" else "https"
+    issuer = identity.issuer_url if identity.issuer == "external" else f"{scheme}://auth.{access.base_domain}"
     assert issuer is not None  # validated: issuer 'external' requires issuer_url
     return Instance(access.base_domain, issuer, (identity.client_ids or {}).get(CLI_CLIENT, CLI_CLIENT))
 

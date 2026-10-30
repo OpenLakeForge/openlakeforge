@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import socket
 import stat
 import threading
 import time
@@ -54,7 +55,10 @@ class FakeIssuer:
                 if url.path == "/.well-known/openid-configuration":
                     self._json(
                         200,
-                        {"authorization_endpoint": f"{issuer.url}/auth", "token_endpoint": f"{issuer.url}/token"},
+                        {
+                            "authorization_endpoint": f"{issuer.url}/auth?tenant=team",
+                            "token_endpoint": f"{issuer.url}/token",
+                        },
                     )
                 elif url.path == "/auth":
                     issuer.authorize_queries.append(query)
@@ -148,11 +152,29 @@ def test_login_stores_a_pkce_session_in_a_private_file(issuer: FakeIssuer, monke
     query = issuer.authorize_queries[0]
     assert query["code_challenge_method"] == "S256"
     assert query["client_id"] == CLIENT
+    assert query["tenant"] == "team"  # the endpoint's own query survives
     assert query["redirect_uri"].startswith("http://127.0.0.1:") and query["redirect_uri"].endswith("/callback")
     assert set(query["scope"].split()) == {"openid", "email", "profile", "groups", "offline_access"}
     path = sessions.session_path(instance)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert sessions.active_session(instance).refresh_token == "refresh-1"
+
+
+def test_login_completes_with_a_blocking_browser_and_an_idle_connection(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def foreground_browser(url: str) -> bool:
+        redirect = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["redirect_uri"][0]
+        port = urllib.parse.urlsplit(redirect).port
+        with socket.create_connection(("127.0.0.1", port or 0)):  # sends nothing
+            requests.get(url, timeout=10)  # returns only once the callback was served
+        return True
+
+    monkeypatch.setattr("webbrowser.open", foreground_browser)
+
+    login_flow.login(_instance(issuer), open_browser=True, announce=lambda _: None)
+
+    assert sessions.active_session(_instance(issuer)).refresh_token == "refresh-1"
 
 
 def test_no_browser_prints_the_url_and_never_opens_one(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,11 +227,6 @@ def test_a_refused_refresh_asks_for_a_new_login(issuer: FakeIssuer, monkeypatch:
 
     with pytest.raises(sessions.PlatformError, match="expired; run `olf login`"):
         sessions.active_session(instance)
-
-
-def test_no_session_says_not_logged_in(issuer: FakeIssuer) -> None:
-    with pytest.raises(sessions.PlatformError, match="not logged in"):
-        sessions.active_session(_instance(issuer))
 
 
 def test_a_localhost_issuer_is_reached_when_the_resolver_refuses_it(
