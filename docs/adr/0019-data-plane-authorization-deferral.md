@@ -4,8 +4,8 @@
 
 Decided, **build step 1 of 8 landed**: this is the design for #367. Step 1
 puts `data_access` in the role model, validated by `olf` and enforced by
-nothing yet. Verification item 1 (SeaweedFS STS enforces the session policy)
-passed. **Binding today:**
+nothing yet. Verification items 1 (SeaweedFS STS enforces the session policy)
+and 2 (Polaris vends table-scoped credentials through it) passed. **Binding today:**
 v0.5-alpha has service-level authorization only, and nothing in it restricts
 which tables a signed-in user reads (Context). **Decided for the build:**
 `olf query` stops running through `kubectl exec` as the stage's shared
@@ -159,7 +159,7 @@ engine adapter:
 | # | Finding | Mark | Reference |
 | --- | --- | --- | --- |
 | 1 | Loading a table with read delegation needs `TABLE_READ_DATA`, with write delegation `TABLE_WRITE_DATA`. `CATALOG_MANAGE_CONTENT` implies both, `TABLE_READ_DATA` implies only the read. The grants of section 5 therefore already decide which credentials are vended | V | `PolarisAuthorizableOperation` (`LOAD_TABLE_WITH_READ_DELEGATION`, `..._WRITE_DELEGATION`); `PolarisAuthorizerImpl` super-privileges |
-| 2 | Polaris vends S3 credentials through STS `AssumeRole` with a session policy scoped to the table. The bootstrap creates every stage catalog with `stsUnavailable: true`, so nothing is vended today | V (`stsUnavailable` in the bootstrap); T (the `AssumeRole` call and its policy, not read in Polaris's source; the call against a non-AWS endpoint) | `modules/catalog/polaris/templates/bootstrap.sh.tftpl` |
+| 2 | Polaris vends S3 credentials through STS `AssumeRole` with a session policy scoped to the table, signing the call with its own static storage key. A catalog's S3 storage configuration names the STS endpoint (`stsEndpoint`), so a non-AWS STS works. Credentials last `STORAGE_CREDENTIAL_DURATION_SECONDS` (default one hour) and are cached for `STORAGE_CREDENTIAL_CACHE_DURATION_SECONDS` (default 30 minutes). The bootstrap creates every stage catalog with `stsUnavailable: true`, so nothing is vended today | V, run (item 2 proof below) | `AwsCredentialsStorageIntegration`, `FeatureConfiguration` at `apache-polaris-1.4.0`; `modules/catalog/polaris/templates/bootstrap.sh.tftpl` |
 | 3 | SeaweedFS 4.48 implements STS `AssumeRole` and accepts a session `Policy` of at most 2048 characters, with durations from 15 minutes to 12 hours. A request signed with the issued credentials is allowed only when the role's attached policies **and** the session policy both allow it; a request without a session token keeps the legacy authorization of its static identity | V, run (proof below) | `weed/s3api/s3api_sts.go`, `weed/iam/integration/iam_manager.go`, `weed/s3api/auth_credentials.go` (`VerifyActionPermission`, `authorizationRoute`) at tag `4.48` |
 | 4 | Trino 480 asks for vended credentials per REST catalog with `iceberg.rest-catalog.vended-credentials-enabled`, which sends `X-Iceberg-Access-Delegation: vended-credentials` | V (property and header); T (the people catalog reads and writes with no static S3 key) | `IcebergRestCatalogConfig`, `TrinoIcebergRestCatalogFactory` |
 | 5 | DuckDB attaches an Iceberg REST catalog with a bearer token (`CREATE SECRET (TYPE iceberg, TOKEN ...)`) and requests vended credentials with `ACCESS_DELEGATION_MODE 'vended_credentials'`; Polaris is the documented example | V (documentation); T (against this Polaris) | DuckDB Iceberg extension, "Iceberg REST catalogs" |
@@ -274,7 +274,7 @@ Gold-only role cannot list schemas at all (T). Accepted.
 | The extra credential is the bearer: a client that holds another person's token gets that person's grants | Possession of a bearer token is the authority, as on every OIDC path. Trino keeps extra credentials out of the session it serialises into query information (V, `SessionRepresentation`), so the token is not shown in the UI or `system.runtime.queries` |
 | Gold-only roles see Bronze and Silver namespace names | Section 5 |
 | Superset users keep the shared stage principal | The Context paragraph stays true for Superset. A later step can point a Superset database at the people catalog with Superset's per-database OAuth2 (Superset table below, claims 6 and 7) |
-| Vended credentials last at least 15 minutes (SeaweedFS's minimum), past the 5-minute Dex token: a person removed from a team keeps reading the tables already loaded until they expire (T) | Revocation still ends new table loads within 5 minutes; the credentials cover only tables the person could read when they were issued |
+| Vended credentials outlive the 5-minute Dex token: Polaris issues them for one hour by default (item 2 proof), and SeaweedFS will not issue less than 15 minutes. A person removed from a team keeps reading the tables already loaded until they expire. Build step 2 sets `STORAGE_CREDENTIAL_DURATION_SECONDS` to 900 and the credential cache below it (T) | Revocation still ends new table loads within 5 minutes; the credentials cover only tables the person could read when they were issued |
 | Nothing for AWS or Azure | AWS uses Glue, out of scope by decision. Azure runs Polaris but has no Dex adapter yet (ADR 0014); it gains the path when it does |
 
 ### 8. What changes in other records when this is built
@@ -297,7 +297,9 @@ Split along the seams `AGENTS.md` names, each with its tests:
 1. Role model: `data_access` in `release/identity-roles.yaml`, the schema,
    `olf` validation (monotonic, three shapes). Contract only; nothing reads it.
 2. Storage: an STS role in SeaweedFS for Polaris, and stage catalogs created
-   with STS available. Settle verification items 1-2 first.
+   with STS available (`stsUnavailable: false`, `roleArn`, `stsEndpoint`,
+   `endpoint`, `pathStyleAccess`), with the credential duration of section 7.
+   Verification items 1-2 passed.
 3. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
    objects of section 5 except the namespace grants. Settle items 3-6 first.
 4. `olf catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
@@ -320,8 +322,9 @@ The **T** items that could change the design, to run on kind first:
 
 1. **Passed** (proof below). SeaweedFS 4.48 limits S3 requests signed with
    `AssumeRole` credentials to the session policy (section 3, finding 3).
-2. Polaris 1.4.0 vends credentials through SeaweedFS's STS endpoint for a
-   catalog with STS available, and still serves a request without delegation.
+2. **Passed** (proof below). Polaris 1.4.0 vends credentials through
+   SeaweedFS's STS endpoint for a catalog with STS available, and still serves
+   a request without delegation.
 3. Polaris 1.4.0 trusts the local CA for the Dex JWKS (ADR 0015 to-verify),
    with discovery off.
 4. Dex v2.46.0 access tokens carry `email`, `groups` and `federated_claims`
@@ -389,9 +392,47 @@ Secret. The caller needs `sts:AssumeRole`; the proof gives `polaris` the legacy
 for step 2 to settle (T). The workloads' static keys are unaffected (s1, s2).
 
 **Not proved:** the platform's SeaweedFS Helm deployment (separate master,
-volume, filer and S3 components) with this configuration; Polaris itself
-calling the STS endpoint (item 2); credential expiry, since the shortest
-duration is 15 minutes.
+volume, filer and S3 components) with this configuration; credential expiry,
+since the shortest duration is 15 minutes. Polaris calling the STS endpoint is
+item 2, below.
+
+### Proof: Polaris vends through SeaweedFS STS (item 2)
+
+Run locally on 2026-10-30, not kept in the repository. It started SeaweedFS
+4.48 configured as in item 1, and the Polaris 1.4.0 application taken from the
+pinned `apache/polaris:1.4.0` image (every manifest and layer checked against
+its digest), run on the host's Java 21 with in-memory persistence. Polaris's
+static storage key was the SeaweedFS identity `polaris`, which the role trusts.
+The root principal created catalog `lakehouse_dev` with S3 storage at
+`s3://gold` (`roleArn` of the item 1 role, `endpoint` and `stsEndpoint` both
+the SeaweedFS S3 port, `pathStyleAccess: true`, `stsUnavailable: false`), and
+tables `sales_gold.orders` and `hr_gold.salaries`, whose metadata Polaris wrote
+itself. Three principals each held one grant on the `sales_gold` namespace,
+with `NAMESPACE_READ_PROPERTIES`. A delegated load sends
+`X-Iceberg-Access-Delegation: vended-credentials`. All 12 cases passed:
+
+| Case | Request | Result |
+| --- | --- | --- |
+| p1 | `TABLE_READ_DATA`: delegated load of `sales_gold.orders` | 200 with `s3.access-key-id`, `s3.secret-access-key`, `s3.session-token`, `s3.session-token-expires-at-ms` (60 minutes), `s3.endpoint`, `s3.path-style-access` |
+| p0 | that key compared with Polaris's own static key | different |
+| p2, p3, p4 | that credential: GET its table's data file; GET `hr_gold.salaries`'s; PUT in its table | allowed; `AccessDenied`; `AccessDenied` |
+| p5 | `TABLE_READ_DATA`: load without delegation, as the workload catalogs do | 200 with no credentials |
+| p6 | `TABLE_READ_DATA`: delegated load of `hr_gold.salaries`, which it has no grant on | 403 |
+| p7, p8 | `TABLE_READ_PROPERTIES` only: delegated load; load without delegation | 403; 200 |
+| p9 | `TABLE_WRITE_DATA`: delegated load | 200 with credentials |
+| p10, p11 | that credential: PUT in its table; PUT in `hr_gold.salaries` | allowed; `AccessDenied` |
+
+What the run settles: a catalog with STS available still answers a load
+without delegation (p5, p8), so the workload catalogs keep working when step 2
+turns STS on; the grant decides whether credentials are vended at all (p7);
+and the vended credential is a SeaweedFS STS credential scoped to the table
+(p0, p3, p11), not Polaris's own key. The default one-hour lifetime is longer
+than this design assumed; section 7 records the setting that shortens it.
+
+**Not proved:** Polaris on the platform's PostgreSQL persistence and Helm
+values; an engine (Trino or DuckDB) reading and committing with the vended
+credentials (item 8); the shorter `STORAGE_CREDENTIAL_DURATION_SECONDS`
+accepted end to end.
 
 ## Superset 6.1.0: per-user propagation (carried forward)
 
@@ -477,3 +518,8 @@ on 4.23 and again on 4.48; section 3, finding 3 is now verified by a run, and
 the proof records what build step 2 must configure. The script that ran it was
 removed from the repository afterwards: proofs for this design are run
 locally and only their results are recorded here.
+
+Verification item 2 run locally against the pinned Polaris 1.4.0 and SeaweedFS
+4.48, 12 cases passing; section 3, finding 2 is now verified by a run. It found
+that Polaris vends for one hour by default, which section 7 now records with
+the setting build step 2 lowers it with.
