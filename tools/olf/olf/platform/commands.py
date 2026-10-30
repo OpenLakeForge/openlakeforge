@@ -17,6 +17,9 @@ _PROFILE = typer.Option(
 )
 
 
+ANONYMOUS = "Sign-in is disabled on this deployment; platform commands run without login."
+
+
 def _run[T](profile_file: str, action: Callable[[sessions.Instance], T]) -> T:
     try:
         return action(sessions.resolve_instance(profile_file))
@@ -34,11 +37,16 @@ def login(
     trust` and set REQUESTS_CA_BUNDLE (or SSL_CERT_FILE) to the certificate it writes.
     """
 
-    def sign_in(instance: sessions.Instance) -> dict[str, Any]:
+    def sign_in(instance: sessions.Instance) -> dict[str, Any] | None:
+        if instance.anonymous:
+            return None
         result = login_flow.login(instance, open_browser=not no_browser, announce=typer.echo)
         return sessions.claims(result.id_token)
 
     who = _run(profile_file, sign_in)
+    if who is None:
+        typer.echo(ANONYMOUS)
+        return
     typer.echo(f"Signed in as {who.get('preferred_username') or who.get('email', 'unknown')}.")
 
 
@@ -46,6 +54,9 @@ def whoami(profile_file: str = _PROFILE) -> None:
     """Show the signed-in identity, from the ID token claims."""
 
     def show(instance: sessions.Instance) -> None:
+        if instance.anonymous:
+            typer.echo(ANONYMOUS)
+            return
         who = sessions.claims(sessions.active_session(instance).id_token)
         expires = datetime.fromtimestamp(who.get("exp", 0), UTC).isoformat(timespec="seconds")
         typer.echo(f"Instance:  {instance.base_domain}")
@@ -62,6 +73,9 @@ def logout(profile_file: str = _PROFILE) -> None:
     """Delete the stored session. The issuer's own session is not ended."""
 
     def end(instance: sessions.Instance) -> None:
+        if instance.anonymous:
+            typer.echo(ANONYMOUS)
+            return
         typer.echo(
             f"Signed out of {instance.base_domain}."
             if sessions.delete(instance)

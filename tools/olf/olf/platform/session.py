@@ -36,6 +36,10 @@ class Instance:
     issuer: str
     client_id: str
 
+    @property
+    def anonymous(self) -> bool:
+        return not self.issuer
+
 
 @dataclass(frozen=True)
 class Session:
@@ -52,11 +56,13 @@ def resolve_instance(profile_file: str) -> Instance:
     except (OSError, ValueError) as exc:
         raise PlatformError(f"cannot read the Deployment Profile {profile_file}: {exc}") from exc
     access, identity = profile.access, profile.identity
-    if access is None or identity is None:
+    if access is None:
         raise PlatformError(
-            "this deployment has no sign-in (spec.access and spec.identity are not both configured); "
+            "this deployment publishes no routes, so platform commands have nothing to reach; "
             "use the `olf infra` commands, which run with cluster access"
         )
+    if identity is None:
+        return Instance(access.base_domain, "", "")  # authentication is off: platform commands run anonymously
     # access.issuer 'none' turns off route TLS only; identity decides whether sign-in exists.
     scheme = "http" if access.issuer == "none" else "https"
     issuer = identity.issuer_url if identity.issuer == "external" else f"{scheme}://auth.{access.base_domain}"
@@ -188,3 +194,10 @@ def delete(instance: Instance) -> bool:
     except FileNotFoundError:
         return False
     return True
+
+
+def bearer_token(instance: Instance) -> str | None:
+    """The token a platform command sends as `Authorization: Bearer`, or None on a deployment without sign-in.
+
+    Never falls back to a service or bot credential."""
+    return None if instance.anonymous else active_session(instance).id_token

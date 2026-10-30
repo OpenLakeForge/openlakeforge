@@ -306,13 +306,13 @@ def test_plain_http_access_with_identity_still_signs_in(tmp_path: Path) -> None:
     assert sessions.resolve_instance(str(profile)).issuer == "http://auth.olf.localhost"
 
 
-@pytest.mark.parametrize("access", ["", "  access: {issuer: none}\n"])
-def test_a_deployment_without_sign_in_points_at_olf_infra(tmp_path: Path, access: str) -> None:
-    profile = _profile(tmp_path, PROFILE.split("  access:")[0] + access)
-    result = CliRunner().invoke(app, ["login", "--profile-file", profile])
+@pytest.mark.parametrize("command", ["whoami", "logout"])
+def test_without_identity_whoami_and_logout_say_sign_in_is_off(tmp_path: Path, command: str) -> None:
+    profile = _profile_with(tmp_path, "  access: {issuer: none}\n")
 
-    assert result.exit_code == 1
-    assert "no sign-in" in result.output and "olf infra" in result.output
+    result = CliRunner().invoke(app, [command, "--profile-file", profile])
+
+    assert result.exit_code == 0 and "Sign-in is disabled" in result.output
 
 
 def test_whoami_and_logout_never_print_a_token(tmp_path: Path) -> None:
@@ -384,3 +384,30 @@ def test_a_localhost_issuer_is_reached_when_the_resolver_refuses_it(
 
     assert "token_endpoint" in sessions.discover(instance)
     assert socket.getaddrinfo is nxdomain
+
+
+def _profile_with(tmp_path: Path, spec_tail: str) -> str:
+    path = tmp_path / "openlakeforge.yaml"
+    path.write_text(
+        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
+        "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n" + spec_tail
+    )
+    return str(path)
+
+
+def test_without_identity_login_says_sign_in_is_off_and_no_credentials_exist(tmp_path: Path) -> None:
+    profile = _profile_with(tmp_path, "  access: {}\n")
+
+    result = CliRunner().invoke(app, ["login", "--profile-file", profile])
+
+    assert result.exit_code == 0 and "Sign-in is disabled" in result.output
+    instance = sessions.resolve_instance(profile)
+    assert (instance.issuer, instance.client_id) == ("", "")
+    assert sessions.bearer_token(instance) is None
+    assert not sessions.session_path(instance).exists()
+
+
+def test_without_access_a_platform_command_has_nothing_to_reach(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["login", "--profile-file", _profile_with(tmp_path, "")])
+
+    assert result.exit_code == 1 and "olf infra" in result.output

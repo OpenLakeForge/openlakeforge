@@ -110,8 +110,13 @@ Secret.
 Each takes `--profile-file` (`-f`, default `openlakeforge.yaml`). The issuer is
 `https://auth.<base_domain>` with `identity.issuer: github`, or `issuer_url`
 with `external`. The client id is `identity.client_ids['olf-cli']`, else
-`olf-cli`. With access `issuer: none` the Dex issuer is `http://`. A profile
-without `spec.access` or without `spec.identity` has no sign-in: use `olf infra`.
+`olf-cli`. With access `issuer: none` the Dex issuer is `http://`.
+
+A profile with `spec.access` and no `spec.identity` has authentication off:
+`olf login` and `olf whoami` say that sign-in is disabled and exit 0, `olf
+logout` does nothing, and platform commands run without login. A profile
+without `spec.access` publishes no routes, so these commands fail and point to
+`olf infra`.
 
 The session is `$OLF_HOME/sessions/<base_domain>.json`, mode 0600, and holds
 the ID, access and refresh tokens. Run `olf login` again when `olf` reports the
