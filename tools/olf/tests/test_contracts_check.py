@@ -599,3 +599,81 @@ def test_dex_config_expands_env_only_where_dex_does() -> None:
     assert sorted(placeholders) == ['"$DEX_DB_PASSWORD"', '"$GITHUB_CLIENT_ID"', '"$GITHUB_CLIENT_SECRET"']
     clients = main[main.index("staticClients") :]
     assert "secretEnv" in clients and not re.search(r"^\s*secret\s*=", clients, re.MULTILINE)
+
+
+def _project_with_incremental_orders(repo_root: Path) -> Path:
+    """A copy of the real project whose `crm/orders` resource loads incrementally."""
+    shutil.copytree(ROOT / "lakehouse_code", repo_root / "lakehouse_code")
+    source = repo_root / "lakehouse_code" / "bronze" / "crm" / "source.yaml"
+    source.write_text(
+        source.read_text(encoding="utf-8").replace(
+            "  - name: orders\n",
+            "  - name: orders\n    load: { mode: incremental, cursor: updated_at, primary_key: [order_id] }\n",
+        ),
+        encoding="utf-8",
+    )
+    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts" / "floe" / "orders.yml"
+
+
+def test_silver_load_modes_reject_overwriting_an_incremental_resource(tmp_path: Path) -> None:
+    _project_with_incremental_orders(tmp_path)
+
+    result = contracts_check._check_silver_load_modes(tmp_path)
+
+    assert not result.ok
+    assert "orders.yml" in result.detail and "crm/orders" in result.detail
+
+
+@pytest.mark.parametrize("write_mode", ["merge_scd1", "merge_scd2"])
+def test_silver_load_modes_accept_new_files_merged_on_keys(tmp_path: Path, write_mode: str) -> None:
+    entity = _project_with_incremental_orders(tmp_path)
+    entity.write_text(
+        entity.read_text(encoding="utf-8") + f'incremental_mode: "file"\nsink: {{ write_mode: "{write_mode}" }}\n',
+        encoding="utf-8",
+    )
+
+    result = contracts_check._check_silver_load_modes(tmp_path)
+
+    assert result.ok, result.detail
+
+
+def test_silver_load_modes_reject_appending_a_full_resource(tmp_path: Path) -> None:
+    shutil.copytree(ROOT / "lakehouse_code", tmp_path / "lakehouse_code")
+    entity = tmp_path / "lakehouse_code" / "silver" / "supply_chain" / "contracts" / "floe" / "warehouses.yml"
+    entity.write_text(entity.read_text(encoding="utf-8") + 'sink: { write_mode: "append" }\n', encoding="utf-8")
+
+    result = contracts_check._check_silver_load_modes(tmp_path)
+
+    assert not result.ok
+    assert "warehouses.yml" in result.detail and "every row again" in result.detail
+
+
+def test_silver_load_modes_pass_against_real_repo() -> None:
+    result = contracts_check._check_silver_load_modes(ROOT)
+
+    assert result.ok, result.detail
+
+
+def test_source_schema_requires_a_cursor_for_an_incremental_resource() -> None:
+    schema = json.loads((ROOT / "docs" / "schema" / "source.schema.json").read_text(encoding="utf-8"))
+    document = yaml.safe_load((ROOT / "lakehouse_code" / "bronze" / "crm" / "source.yaml").read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema)
+
+    document["resources"][0]["load"] = {"mode": "incremental", "primary_key": ["account_id"]}
+    assert any("cursor" in error.message for error in validator.iter_errors(document))
+    document["resources"][0]["load"]["cursor"] = "updated_at"
+    assert not list(validator.iter_errors(document))
+
+
+def test_silver_load_modes_reject_appending_an_incremental_resource(tmp_path: Path) -> None:
+    """A Bronze full refresh lands every row again, which an appended table would duplicate."""
+    entity = _project_with_incremental_orders(tmp_path)
+    entity.write_text(
+        entity.read_text(encoding="utf-8") + 'incremental_mode: "file"\nsink: { write_mode: "append" }\n',
+        encoding="utf-8",
+    )
+
+    result = contracts_check._check_silver_load_modes(tmp_path)
+
+    assert not result.ok
+    assert "orders.yml" in result.detail and "'append'" in result.detail

@@ -76,7 +76,9 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
         seen.add(name)
         if "description" in resource and not isinstance(resource["description"], str):
             raise LakehouseDescriptorError(f"{source}: resources[{index}].description must be a string")
-        unexpected = set(resource) - {"name", "description"}
+        if "load" in resource:
+            _validate_resource_load(resource["load"], field=f"resources[{index}].load", source=source)
+        unexpected = set(resource) - {"name", "description", "load"}
         if unexpected:
             raise LakehouseDescriptorError(
                 f"{source}: resources[{index}] must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
@@ -102,6 +104,41 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
         raise LakehouseDescriptorError(
             f"{source}: must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
         )
+
+
+LOAD_MODES = ("full", "incremental")
+
+
+def _validate_resource_load(load: object, *, field: str, source: str) -> None:
+    # Column names, not values or queries: the connector owns how it reads the
+    # cursor, the descriptor owns which column it is and what Silver merges on.
+    if not isinstance(load, Mapping):
+        raise LakehouseDescriptorError(f"{source}: {field} must be an object")
+    unexpected = set(load) - {"mode", "cursor", "primary_key"}
+    if unexpected:
+        raise LakehouseDescriptorError(f"{source}: {field} must not contain {sorted(unexpected)!r}")
+    mode = load.get("mode")
+    if mode not in LOAD_MODES:
+        raise LakehouseDescriptorError(f"{source}: {field}.mode must be one of {list(LOAD_MODES)!r}, got {mode!r}")
+    if "cursor" in load:
+        _identifier(load["cursor"], field=f"{field}.cursor", source=source)
+    if "primary_key" in load:
+        keys = load["primary_key"]
+        if not isinstance(keys, list) or not keys:
+            raise LakehouseDescriptorError(f"{source}: {field}.primary_key must be a non-empty array of column names")
+        for index, key in enumerate(keys):
+            _identifier(key, field=f"{field}.primary_key[{index}]", source=source)
+        if len(set(keys)) != len(keys):
+            raise LakehouseDescriptorError(f"{source}: {field}.primary_key lists a column twice")
+    if mode == "incremental":
+        # Without a cursor every run is a full extract appended to the last
+        # one; without a key Silver cannot merge a changed row onto its old
+        # version.
+        missing = [key for key in ("cursor", "primary_key") if key not in load]
+        if missing:
+            raise LakehouseDescriptorError(f"{source}: {field} is incremental and needs {' and '.join(missing)}")
+    elif "cursor" in load:
+        raise LakehouseDescriptorError(f"{source}: {field}.cursor applies to mode 'incremental' only")
 
 
 def _validate_source_runtime(runtime: object, *, source: str) -> None:

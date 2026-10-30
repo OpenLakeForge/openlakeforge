@@ -41,6 +41,9 @@ resources:
 | `resources` | array, at least one | yes | The source's table-like inputs. |
 | `resources[].name` | identifier | yes | Unique within the source. |
 | `resources[].description` | string | no | Human-readable description. |
+| `resources[].load.mode` | `full` or `incremental` | no | `full` (the default) replaces the resource's Bronze files on every run. `incremental` appends only the rows past the cursor. See [Load modes](#load-modes). |
+| `resources[].load.cursor` | column name | with `incremental` | The column whose last loaded value the next run starts after. Not allowed with `full`. |
+| `resources[].load.primary_key` | array of column names | with `incremental` | The row's identity, which Silver merges a changed row onto. |
 | `runtime.config` | array of key names | no | Names of the non-secret settings the loader reads, such as an API base URL. |
 | `runtime.secrets` | array of key names | no | Names of the credentials the loader reads, such as an API token. A name appears in at most one of the two lists. |
 
@@ -83,6 +86,29 @@ A loader that is a real dlt source runs it through
   restores its cursor from its own stage, so a DEV run cannot move PROD's.
 - `olf check project-code` proves this with a mocked API source run as DEV
   and as PROD.
+
+### Load modes
+
+Each layer declares its load mode where its owner keeps it:
+
+| Layer | Declared in | Incremental | Full |
+| --- | --- | --- | --- |
+| Bronze | `resources[].load` in `source.yaml` | dlt appends the rows past `cursor` as new files | dlt replaces the files |
+| Silver | the entity's Floe contract | `incremental_mode: file` with `merge_scd1` or `merge_scd2` | `overwrite` |
+| Gold | the dbt model's `materialized` config | `incremental` with a `unique_key` and the `merge` strategy | `table` |
+
+`olf check contracts` rejects a Silver entity whose mode does not fit its
+Bronze resource. An entity reading an incremental resource needs
+`incremental_mode: file` and a merge mode. Not `append`: a full reload of the
+resource lands every row again, and Floe cannot rebuild an appended table for
+one run (OpenLakeForge/floe#1091), so the reload would duplicate the whole
+history. An entity reading a full resource cannot use `append` either, which
+would add every row again on each run.
+
+Incremental state is per stage. dlt keeps cursors under the pipeline
+`<stage>__<source>` in the stage's Bronze bucket. Floe keeps its file state
+under the source path in that same bucket, and dbt's state is the stage's
+Gold table itself.
 
 ## `governance.yml`
 
