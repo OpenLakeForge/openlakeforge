@@ -9,11 +9,9 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.engine import DeploymentPhase
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.local.provider import LocalProvider
-from olf.tooling.aws import AwsCli
-from olf.tooling.azure import AzureCli
 from olf.tooling.docker import Docker
 from olf.tooling.helm import Helm
 from olf.tooling.kind import Kind
@@ -21,6 +19,7 @@ from olf.tooling.kubectl import Kubectl
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 from olf.tooling.terraform import Terraform
+from olf.tooling.toolkit import Toolkit
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 
@@ -42,8 +41,6 @@ def _toolkit() -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 
@@ -103,8 +100,6 @@ def test_env_resolves_docker_host_from_ambient_context_when_unset(tmp_path: Path
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
     provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={})
@@ -149,8 +144,6 @@ def test_env_falls_back_to_colima_socket_when_ambient_context_resolution_is_dead
                 kubectl=Kubectl(runner, resolver),
                 docker=Docker(runner, resolver),
                 kind=Kind(runner, resolver),
-                aws=AwsCli(runner, resolver),
-                azure=AzureCli(runner, resolver),
             )
 
             provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={"HOME": home})
@@ -251,7 +244,7 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
     from olf.deployment.local import images
     from olf.deployment.local import provider as provider_module
 
-    monkeypatch.setattr(images, "build_project_code_image", lambda *a, **k: "ghcr.io/acme/project-code:dev")
+    monkeypatch.setattr("olf.image_build.build_project_code_image", lambda *a, **k: "ghcr.io/acme/project-code:dev")
     monkeypatch.setattr(images, "load_image_into_kind", lambda *a, **k: None)
     monkeypatch.setattr(provider_module.log, "step", lambda _message: None)
     pushed: list[str] = []
@@ -273,10 +266,9 @@ def test_the_image_command_returns_the_published_example_without_building(tmp_pa
 
     from test_local_config import _PIN, _published_config
 
-    from olf.deployment.local import images
 
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(images, "build_project_code_image", lambda *a, **k: pytest.fail("built"))
+    monkeypatch.setattr("olf.image_build.build_project_code_image", lambda *a, **k: pytest.fail("built"))
     provider = LocalProvider.create(_published_config(tmp_path), toolkit=_toolkit(), environ={})
 
     assert provider.build_project_image() == _PIN

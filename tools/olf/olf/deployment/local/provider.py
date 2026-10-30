@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from olf import log
-from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.engine import DeploymentPhase
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.docker import ambient_registry_env
+from olf.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -120,10 +121,11 @@ class LocalProvider:
         The unmodified example is already published by digest: that reference is the result, with no build.
         """
         from olf.deployment.local import images
+        from olf.image_build import build_project_code_image
 
         if self.config.images.project_code_published:
             return self.config.images.project_code_image
-        image = images.build_project_code_image(self.config, self.tools, env=self.env)
+        image = build_project_code_image(self.config, self.tools, env=self.env)
         if push:
             log.step(f"Pushing project-code image: {image}")
             self.tools.docker.push(

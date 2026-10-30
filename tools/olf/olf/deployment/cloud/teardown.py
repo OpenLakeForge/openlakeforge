@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from olf import log
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 
 def platform_down(

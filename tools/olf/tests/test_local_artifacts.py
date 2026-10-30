@@ -7,9 +7,9 @@ import pytest
 
 from olf import contracts as contracts_module
 from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import Toolkit
 from olf.deployment.local import artifacts
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.tooling.toolkit import Toolkit
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:

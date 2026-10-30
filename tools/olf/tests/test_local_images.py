@@ -5,13 +5,14 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
+from olf import image_build
 from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local import images
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.toolkit import Toolkit
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL, environ: dict | None = None) -> LocalDeploymentConfig:
@@ -20,8 +21,6 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL, environ: dict | 
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.aws import AwsCli
-    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -39,8 +38,6 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 
@@ -79,7 +76,7 @@ def test_build_superset_image_builds_with_base_arg(tmp_path: Path) -> None:
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
 
-    image = images.build_superset_image(config, tools, env={})
+    image = image_build.build_superset_image(config, tools, env={})
 
     assert image == "ghcr.io/openlakeforge/superset:local"
     build_call = next(c for c in runner.calls if c.argv[1] == "build")
@@ -93,7 +90,7 @@ def test_build_project_code_image_bakes_no_stage_or_revision_binding(tmp_path: P
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
 
-    image = images.build_project_code_image(config, tools, env={})
+    image = image_build.build_project_code_image(config, tools, env={})
 
     assert image == "ghcr.io/openlakeforge/openlakeforge/project-code:local"
     build_call = next(c for c in runner.calls if c.argv[1] == "build")
@@ -268,7 +265,7 @@ def test_prepare_project_code_image_loads_the_published_image_instead_of_buildin
 def test_an_explicit_build_never_uses_the_published_digest_as_its_tag(tmp_path: Path) -> None:
     runner = _ScriptedRunner()
 
-    built = images.build_project_code_image(_published(tmp_path), _toolkit(runner), env={})
+    built = image_build.build_project_code_image(_published(tmp_path), _toolkit(runner), env={})
 
     assert built == "ghcr.io/o/project-code:local"
     argv = next(c.argv for c in runner.calls if c.argv[1] == "build")

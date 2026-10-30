@@ -13,7 +13,7 @@ from olf.deployment.cloud import artifacts
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",

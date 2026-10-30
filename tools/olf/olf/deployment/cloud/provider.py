@@ -26,9 +26,10 @@ from typing import TYPE_CHECKING
 
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.engine import DeploymentPhase
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 from olf.tooling import docker as docker_tooling
+from olf.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext

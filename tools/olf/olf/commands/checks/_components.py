@@ -12,7 +12,7 @@ import yaml
 
 from olf.commands._shared import fail
 from olf.commands.checks._shared import _root, _run
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 
 def components(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:

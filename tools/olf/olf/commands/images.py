@@ -3,43 +3,15 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 
 import typer
 
-from olf import config
 from olf.commands._shared import fail
-from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError
-from olf.deployment.local.config import LocalDeploymentConfig
-from olf.deployment.local.images import build_project_code_image, build_superset_image, load_image_into_kind
+from olf.deployment.local.images import load_image_into_kind
+from olf.image_build import build_project_code_image, build_superset_image, local_image_config
 
 app = typer.Typer(help="Build and load local runtime images.")
-
-
-def _local_config(
-    cluster_name: str, *, project_root: str = "", environ: Mapping[str, str] | None = None
-) -> tuple[LocalDeploymentConfig, Toolkit]:
-    from olf.distribution import runtime_layout
-
-    layout_env = dict(os.environ if environ is None else environ)
-    if project_root:
-        layout_env["OPENLAKEFORGE_PROJECT_ROOT"] = project_root
-    layout = runtime_layout(layout_env)
-    context = DeploymentContext.for_provider(
-        "local",
-        repo_root=layout.project.root,
-        distribution_root=layout.project.distribution_root,
-        state_root=None if layout.is_source else layout.state_root,
-        work_root=None if layout.is_source else layout.work_root,
-        cache_root=None if layout.is_source else layout.cache_root,
-        namespace=config.namespace(),
-        cluster_name=cluster_name,
-        profile=Profile.FULL,
-    )
-    resolved_environ = os.environ if environ is None else environ
-    return LocalDeploymentConfig.from_environment(resolved_environ, context=context), Toolkit.default()
 
 
 @app.command("build")
@@ -51,7 +23,7 @@ def build(
     ),
 ) -> None:
     """Build one locally pinned runtime image with Docker retry policy."""
-    settings, tools = _local_config(cluster_name, project_root=project_root)
+    settings, tools = local_image_config(cluster_name, project_root=project_root)
     try:
         if image == "project-code":
             build_project_code_image(settings, tools, env=os.environ)
@@ -72,7 +44,7 @@ def load(
     ),
 ) -> None:
     """Load a built runtime image into the required Kind cluster."""
-    settings, tools = _local_config(cluster_name, project_root=project_root)
+    settings, tools = local_image_config(cluster_name, project_root=project_root)
     try:
         if image == "project-code":
             reference = settings.images.project_code_build_image

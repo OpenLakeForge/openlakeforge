@@ -28,8 +28,8 @@ def rotate(
     `github-app` registers a new GitHub App through `olf github connect`.
     """
     from olf import github_app, secrets_rotation
-    from olf.deployment.engine import Toolkit
     from olf.deployment.errors import DeploymentError
+    from olf.tooling.toolkit import Toolkit
 
     if target not in secrets_rotation.TARGETS:
         raise typer.Exit(code=fail(secrets_rotation.unknown_target_message(target)))

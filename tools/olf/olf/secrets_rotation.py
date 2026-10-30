@@ -110,7 +110,8 @@ def has_client_secret_key(kubectl: Any, context: Any, name: str) -> bool:
 
 
 def _local_provider(context: Any) -> Any:
-    from olf.deployment.engine import Toolkit, build_provider
+    from olf.deployment.engine import build_provider
+    from olf.tooling.toolkit import Toolkit
 
     env = context.command_env(base=os.environ)
     return build_provider(context, toolkit=Toolkit.default(environ=env), environ=env)
@@ -160,7 +161,7 @@ def apply_platform(context: Any, extra_args: list[str]) -> None:
 def portal_url(context: Any) -> str | None:
     """The portal's URL from the access contract, when it can be read."""
     from olf.contracts import load_provider_contracts
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
     env = context.command_env(base=os.environ)
     try:

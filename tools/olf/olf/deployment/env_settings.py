@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from olf.deployment.retry import RetryPolicy
+from olf.tooling.retry import RetryPolicy
 
 
 def env(environ: Mapping[str, str], name: str, default: str) -> str:

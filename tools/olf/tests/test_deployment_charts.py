@@ -15,10 +15,10 @@ from olf.deployment.charts import (
     prepare_cached_dagster_chart_no_schema,
 )
 from olf.deployment.context import DeploymentContext
-from olf.deployment.retry import RetryPolicy
 from olf.tooling.helm import Helm
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.retry import RetryPolicy
 
 _POLICY = RetryPolicy(max_attempts=2, delay_seconds=0)
 

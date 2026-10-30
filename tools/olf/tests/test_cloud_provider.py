@@ -9,7 +9,6 @@ command environment, or `KUBE_CONTEXT` gets baked in empty.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,10 +21,11 @@ from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.provider import CloudProvider
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.engine import DeploymentPhase
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.status import StatusReport
 from olf.tooling.azure import AzureSdk
+from olf.tooling.toolkit import Toolkit
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -162,7 +162,6 @@ def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscripti
     """
     context = DeploymentContext.azure(repo_root=tmp_path)
     config = CloudDeploymentConfig.from_environment({}, context=context)
-    backend = AzureBackend()
     subscriptions = [
         SimpleNamespace(subscription_id="sub-id", display_name="One", tenant_id="tenant", state="Enabled"),
         SimpleNamespace(subscription_id="other-sub-id", display_name="Two", tenant_id="tenant", state="Enabled"),
@@ -173,8 +172,9 @@ def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscripti
             subscriptions=SimpleNamespace(list=lambda: subscriptions)
         ),
     )
-    toolkit = replace(_toolkit(), azure=azure_sdk)
-    provider = CloudProvider.create(config, backend, toolkit=toolkit, environ={"OLF_HOME": str(tmp_path)})
+    provider = CloudProvider.create(
+        config, AzureBackend(azure_sdk), toolkit=_toolkit(), environ={"OLF_HOME": str(tmp_path)}
+    )
     monkeypatch.setattr("olf.auth.selected_azure_subscription", lambda _environ: "other-sub-id")
 
     report = provider.doctor(DeploymentPhase.FOUNDATION)

@@ -10,8 +10,8 @@ import typer
 
 from olf import config
 from olf.commands._shared import fail
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError
+from olf.tooling.toolkit import Toolkit
 
 
 def _root(repo_root: str) -> Path:

@@ -10,7 +10,7 @@ import yaml
 
 from olf.commands._shared import fail
 from olf.commands.checks._shared import _root
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 REQUIRED_PATHS: tuple[str, ...] = (
     "README.md",
