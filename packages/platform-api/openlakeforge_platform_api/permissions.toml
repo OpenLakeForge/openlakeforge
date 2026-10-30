@@ -33,3 +33,13 @@ stages = ["*"]
 role = "data-engineer"
 stages = ["*"]
 
+# OpenMetadata decides these by the person's own roles on the forwarded token;
+# the floor is the OpenMetadata route's (`viewer`: every recognised role reads
+# it), so the API refuses no one OpenMetadata would answer.
+[operations.list_domains]
+role = "viewer"
+stages = []
+
+[operations.list_data_products]
+role = "viewer"
+stages = []

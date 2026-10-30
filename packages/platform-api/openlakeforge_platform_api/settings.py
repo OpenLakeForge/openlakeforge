@@ -19,9 +19,9 @@ class Settings:
 
     `precedence` and `role_mapping` are the contract's, rendered from
     release/identity-roles.yaml and the profile; the API holds no copy of its own.
-    Dagster runs one webserver per stage, so its GraphQL URL is keyed by stage.
-    A stage with no URL here is answered as not configured rather than refusing
-    the API's start.
+    Dagster runs one webserver per stage, so its GraphQL URL is keyed by stage;
+    OpenMetadata is shared. A service with no endpoint here is answered as not
+    configured rather than refusing the API's start.
     """
 
     issuer_url: str
@@ -32,6 +32,7 @@ class Settings:
     stages: tuple[str, ...]
     ca_file: str | None = None
     dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
+    openmetadata_url: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -49,6 +50,7 @@ class Settings:
                 dagster_graphql_urls={
                     str(stage): str(url) for stage, url in (data.get("dagster_graphql_urls") or {}).items()
                 },
+                openmetadata_url=data.get("openmetadata_url") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
