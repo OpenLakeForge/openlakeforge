@@ -1,10 +1,10 @@
 from pathlib import Path
 
 import pytest
+from openlakeforge_services.governance import MetadataReconciler
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
 from olf.infra.openmetadata._config import OpenMetadataConfig
-from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
 
 # `build_contract_env` writes these only where a provider contract was
 # actually applied for the stage being deployed; `OpenMetadataConfig` refuses
@@ -16,7 +16,7 @@ APPLIED_DEV_CONTRACT = {
 
 
 
-def _single_product_reconciler(tmp_path: Path) -> OpenMetadataReconciler:
+def _single_product_reconciler(tmp_path: Path) -> MetadataReconciler:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
         """apiVersion: openlakeforge.io/v1alpha3
@@ -58,7 +58,7 @@ products:
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
     )
-    return OpenMetadataReconciler(cfg, OpenMetadataClient(cfg.base_url))
+    return MetadataReconciler(cfg, OpenMetadataClient(cfg.base_url))
 
 
 def test_ensure_database_schema_creates_the_schema_with_its_domain(

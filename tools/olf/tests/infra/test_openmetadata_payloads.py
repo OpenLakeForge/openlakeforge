@@ -1,16 +1,15 @@
 import pytest
+from openlakeforge_services import governance
 from openlakeforge_services.openmetadata import OpenMetadataError
-
-from olf.infra.openmetadata import _payloads
 
 
 def test_display_name_from_name() -> None:
-    assert _payloads.display_name_from_name("order_revenue") == "Order Revenue"
-    assert _payloads.display_name_from_name("supply-chain") == "Supply Chain"
+    assert governance.display_name_from_name("order_revenue") == "Order Revenue"
+    assert governance.display_name_from_name("supply-chain") == "Supply Chain"
 
 
 def test_domain_payload_builds_description_and_defaults() -> None:
-    payload = _payloads.domain_payload(
+    payload = governance.domain_payload(
         {
             "name": "sales",
             "description": "Sales domain",
@@ -27,14 +26,14 @@ def test_domain_payload_builds_description_and_defaults() -> None:
 
 def test_product_payload_requires_domain() -> None:
     with pytest.raises(OpenMetadataError):
-        _payloads.product_payload({"name": "order_revenue"})
-    payload = _payloads.product_payload({"name": "order_revenue", "domain": "sales"})
+        governance.product_payload({"name": "order_revenue"})
+    payload = governance.product_payload({"name": "order_revenue", "domain": "sales"})
     assert payload["domains"] == ["sales"]
 
 
 def test_product_entries_defaults_name_and_domain() -> None:
     domain = {"name": "sales", "data_products": [{"id": "orders"}]}
-    products = list(_payloads.product_entries(domain))
+    products = list(governance.product_entries(domain))
     assert products[0]["name"] == "sales_orders"
     assert products[0]["domain"] == "sales"
 
@@ -51,7 +50,7 @@ def test_product_entries_does_not_mutate_input() -> None:
         ],
     }
 
-    products = list(_payloads.product_entries(domain))
+    products = list(governance.product_entries(domain))
 
     assert products[0]["name"] == "sales_orders"
     assert products[0]["domain"] == "sales"
@@ -61,7 +60,7 @@ def test_product_entries_does_not_mutate_input() -> None:
 
 def test_product_entries_yields_normalized_copy() -> None:
     domain = {"name": "sales", "data_products": [{"id": "orders"}]}
-    products = list(_payloads.product_entries(domain))
+    products = list(governance.product_entries(domain))
 
     assert len(products) == 1
     assert products[0] is not domain["data_products"][0]

@@ -481,6 +481,11 @@ locals {
   # behind the perimeter, so a new route is protected without being listed.
   perimeter_protected_refs = [for ref in keys(local.access_routes) : ref if ref != "shared/identity"]
 
+  # Trino's /v1 for a person's own queries (ADR 0019): the query service's host
+  # with its own floor, every role, where the Web UI keeps the data-engineer one.
+  # Only when people sign in with GitHub and Trino authenticates their tokens.
+  query_api_enabled = local.identity_dex && local.trino_workload_authentication == "password"
+
   # What Traefik routes: the contract's routes, each tagged with the access
   # group that gates it, plus the perimeter's own login callback.
   ingress_routes = merge(
@@ -506,6 +511,13 @@ locals {
         path         = "/oauth2"
         group        = ""
       }
+    },
+    !local.query_api_enabled ? {} : {
+      # Longer than the host-only rule of shared/query, so Traefik ranks it first.
+      "shared/query_api" = merge(local.access_routes["shared/query"], {
+        path  = "/v1"
+        group = module.perimeter[0].route_group["shared/query_api"]
+      })
     },
     length(module.platform_api) == 0 ? {} : {
       # Not a contract route: the API is a path on the portal's host. It sits

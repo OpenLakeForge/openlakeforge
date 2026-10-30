@@ -7,31 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from openlakeforge_domain import load_lakehouse_inventory_from_descriptors
+from openlakeforge_services.governance import MetadataConfig
 from openlakeforge_services.openmetadata import OpenMetadataError
 
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 
 
 @dataclass
-class OpenMetadataConfig:
-    base_url: str
-    admin_email: str
-    admin_password: str
+class OpenMetadataConfig(MetadataConfig):
+    """The library's target, plus where this project's descriptors are."""
+
     metadata_root: Path
     metadata_source_dir: str
-    allow_missing_assets: bool
-    catalog_service: str
-    catalog_database: str
-    catalog_database_fqn: str
-    catalog_silver_schema_fqns: dict
-    catalog_gold_schema_fqns: dict
-    storage_service: str
-    storage_display_name: str
-    storage_endpoint: str
-    storage_region: str
-    storage_bronze_bucket: str
-    storage_silver_bucket: str
-    storage_gold_bucket: str
 
     @classmethod
     def from_environment(

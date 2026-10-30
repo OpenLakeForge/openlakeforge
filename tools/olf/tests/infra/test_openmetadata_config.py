@@ -93,7 +93,7 @@ def test_config_from_environment_reads_schema_fqns() -> None:
 
 def test_config_from_environment_rejects_a_non_string_schema_fqn_value() -> None:
     """A schema-FQN map value that isn't a string must fail closed at parse time,
-    not surface as an AttributeError once `_reconciliation.py` calls `.startswith`
+    not surface as an AttributeError once `MetadataReconciler` calls `.startswith`
     on it (#218)."""
     environ = {
         **APPLIED_DEV_CONTRACT,

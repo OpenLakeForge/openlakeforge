@@ -11,7 +11,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from olf.common.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
+from openlakeforge_services.reports import STAGE_NEUTRAL_SQLALCHEMY_URI
+
 from olf.common.scaffold._csv import InferredColumn
 from olf.common.scaffold._shared import yaml_dq
 
@@ -334,7 +335,7 @@ Gold mart dataset(s) and a Trino database connection; it does not include a
 dashboard layout or charts, which the scaffold cannot generate meaningfully.
 
 This directory is a draft, not yet a promotable bundle: it has no
-`metadata.yaml`, so `olf infra project build` and `olf infra report validate` both ignore
+`metadata.yaml`, so `olf infra project build` and `olf report validate` both ignore
 it until you finish this step.
 
 Build the dashboard in Superset, then export it back into this directory.

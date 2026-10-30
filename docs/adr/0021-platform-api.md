@@ -2,10 +2,12 @@
 
 ## Status
 
-Decided, **build step 3 begun**: `packages/lakehouse-services` holds every
-service client — the HTTP transport, Dagster, OpenMetadata and Superset. The
-operations built on them (report import and export, metadata deployment,
-domain listing) are still in `olf/infra`. The platform API in
+Decided, **build step 1 done, build step 3 begun**: `packages/lakehouse-services`
+holds every service client — the HTTP transport, Dagster, OpenMetadata and
+Superset — and the operations built on them: Superset report import and export
+(`openlakeforge_services.reports`) and OpenMetadata metadata deployment
+(`openlakeforge_services.governance`). `olf/infra` keeps only what resolves
+endpoints and credentials from a deployment. The platform API in
 `packages/platform-api` has token validation, the permission matrix,
 `/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
 runs per stage, and OpenMetadata domains and data products with the caller's
@@ -283,6 +285,17 @@ Build step 1, first part: the transport and the Dagster client moved to
 
 Build step 1, second part: the OpenMetadata and Superset clients followed;
 `olf/common/clients` no longer exists.
+
+Build step 1, third part: Superset report import and export moved to
+`openlakeforge_services.reports`; `olf infra` keeps the stage resolution, the
+port-forward and the Secret reads, and passes its `log` module as the
+operations' progress reporter.
+
+Build step 1, last part: OpenMetadata payloads, upserts and the deploy
+sequence moved to `openlakeforge_services.governance`; `olf infra` keeps the
+contract and descriptor resolution, the port-forward, the Secrets, the
+ingestion Jobs, SSO and role sync. Domain listing needed no move: it was
+already `OpenMetadataClient.list_domains`.
 
 Build step 2, first part (#666): the service skeleton in
 `packages/platform-api`, which settles open item 4 (where the source and image
