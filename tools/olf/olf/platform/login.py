@@ -56,6 +56,10 @@ def login(instance: Instance, *, open_browser: bool, announce: Callable[[str], N
     # `groups` is Dex's; an external issuer that does not advertise a scope rejects the request.
     advertised = endpoints.get("scopes_supported")
     scope = [name for name in SCOPES.split() if not advertised or name == "openid" or name in advertised]
+    if instance.dex:
+        # Dex does not advertise it, but `olf query` needs the connector id it adds: Polaris names a
+        # person's principal from it (ADR 0019).
+        scope.append("federated:id")
     url = f"{endpoint}{'&' if '?' in endpoint else '?'}" + urllib.parse.urlencode(
         {
             "response_type": "code",
