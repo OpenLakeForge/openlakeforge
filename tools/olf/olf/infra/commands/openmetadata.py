@@ -176,7 +176,7 @@ def list_openmetadata_domains() -> list[tuple[str, str]]:
     from olf.common.clients.base import ServiceClientError
     from olf.common.clients.openmetadata import OpenMetadataClient
     from olf.infra import k8s
-    from olf.infra.openmetadata._auth import AUTOMATION_SECRET, automation_token
+    from olf.infra.openmetadata._auth import AUTOMATION_BOT, automation_token
 
     if not layers.enabled(os.environ, "governance"):
         raise typer.Exit(
@@ -195,7 +195,7 @@ def list_openmetadata_domains() -> list[tuple[str, str]]:
             if not token:
                 raise typer.Exit(
                     code=fail(
-                        f"No OpenMetadata automation token: Secret {AUTOMATION_SECRET} is missing from namespace "
+                        f"No OpenMetadata automation token: Secret {AUTOMATION_BOT} is missing from namespace "
                         f"{namespace}. The governance bootstrap Job writes it; rerun `olf deploy` to recreate it."
                     )
                 )

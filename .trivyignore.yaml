@@ -78,8 +78,6 @@ images:
 
 # CodeQL alerts, keyed "<rule id>:<path>"; triage each as a fix or a dismissal in GitHub.
 codeql:
-  - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/infra/test_local_teardown.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
-  - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/infra/test_local_provider.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
   - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/infra/test_deployment_status.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
   - {name: "py/incomplete-url-substring-sanitization:tools/olf/tests/infra/test_auth.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
   - {name: "py/insecure-protocol:tools/olf/olf/infra/e2e/github_stub.py", owner: malon64, expired_at: 2026-12-15, statement: "open at first scan"}
