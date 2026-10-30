@@ -73,7 +73,9 @@ you set under `client_ids`. It has no secret and no Kubernetes Secret.
 | Claims | The `role_claim` and `preferred_username`: OpenMetadata names users by it |
 
 The perimeter accepts a bearer token whose `iss` is your `issuer_url` and whose
-`aud` is this client id. No `olf` command signs in with it yet.
+`aud` is this client id, but only when your `role_claim` is `groups`: oauth2-proxy
+reads the roles of a bearer token from that claim name alone, so with another
+`role_claim` every bearer token is refused with 401. No `olf` command signs in with it yet.
 
 ## Limits
 

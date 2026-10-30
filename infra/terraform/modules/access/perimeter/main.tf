@@ -15,6 +15,15 @@ locals {
   cookie_secret_name = "${var.release_name}-cookie"
   cookie_name        = "_olf_perimeter"
 
+  # oauth2-proxy reads the roles of an extra-issuer bearer token from a
+  # hardcoded `groups` claim (v7.15.5 pkg/apis/middleware/session.go), not from
+  # --oidc-groups-claim. With any other role_claim the floor could not be
+  # enforced on a bearer token, so it is refused (401) instead.
+  bearer_args = var.role_claim == "groups" ? [
+    "--skip-jwt-bearer-tokens=true",
+    "--extra-jwt-issuers=${var.issuer_url}=${var.cli_client_id}",
+  ] : []
+
   # Route grants live in release/identity-roles.yaml and nowhere else. Grants
   # are monotonic (olf rejects anything else), so what a service admits is a
   # prefix of `precedence`, fully described by its lowest role: the "floor".
@@ -324,13 +333,12 @@ resource "kubernetes_deployment_v1" "proxy" {
               # (issuer, audience, signature, expiry) and still meets the
               # floor's --allowed-group. Without the extra issuer the proxy
               # accepts only tokens whose audience is its own client.
-              "--skip-jwt-bearer-tokens=true",
-              "--extra-jwt-issuers=${var.issuer_url}=${var.cli_client_id}",
               # Unattended callers get 401 JSON, never a login page.
               "--api-route=^/(api|graphql|v1)(/|$)",
               "--custom-templates-dir=/templates",
               "--silence-ping-logging=true",
             ],
+            local.bearer_args,
             [for claim in local.allowed_claims[each.key] : "--allowed-group=${claim}"],
           )
 
