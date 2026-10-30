@@ -1,4 +1,4 @@
-"""Superset report import/export/validate commands."""
+"""Superset report import and export commands."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from olf.infra.superset import StageReportTarget
 
 app = typer.Typer(help="Deprecated aliases of the `olf report` commands.")
-report_app = typer.Typer(help="Source-controlled Superset report bundles.")
+report_app = typer.Typer(help="Import and export Superset report bundles against a deployed stage.")
 
 _REPORT_BUNDLE_ROOT = "lakehouse_code/dashboards/superset"
 
@@ -44,40 +44,6 @@ def _validate_report_target_dir(project_root: Path, override: str) -> None:
         raise typer.BadParameter(
             f"SUPERSET_REPORT_SOURCE_DIR {override!r} must be a bundle directory directly under {_REPORT_BUNDLE_ROOT}"
         )
-
-
-@report_app.command("validate")
-def report_validate(
-    dashboard: str = typer.Argument(
-        "", help="One dashboard bundle under dashboards/superset; defaults to every bundle with a metadata.yaml."
-    ),
-    project_root: str = typer.Option(
-        "", "--project-root", help="Writable project root; defaults to the current directory."
-    ),
-) -> None:
-    """Check report bundles against the promotion contract: stable identities,
-    resolvable references, and no stage-bound or workspace-bound values."""
-    from olf.common.commands._project import writable_project_root
-    from olf.infra import superset
-
-    try:
-        root = writable_project_root(project_root)
-        declared = {item.name: item.report_source_dir for item in inventory_for(root).dashboards}
-        if dashboard and dashboard not in declared:
-            raise typer.BadParameter(
-                f"{dashboard!r} is not a dashboard bundle (a dashboards/superset directory with a metadata.yaml)"
-            )
-        selected = (
-            [declared[dashboard]] if dashboard else superset.validate_report_registry(root, tuple(declared.values()))
-        )
-        errors = superset.validate_report_bundles(root, selected)
-    except RuntimeError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc
-    for error in errors:
-        typer.echo(error)
-    if errors:
-        raise typer.Exit(code=1)
-    typer.echo(f"{len(selected)} report bundle(s) are promotable.")
 
 
 @report_app.command("import")

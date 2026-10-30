@@ -27,6 +27,7 @@ from olf.common.commands import (
     profile,
     project,
     release,
+    report,
     source,
     toolchain,
 )
@@ -139,7 +140,10 @@ _infra_group(catalog.app, "catalog")
 _infra_group(artifacts.app, "artifacts")
 _infra_group(auth.app, "auth")
 _infra_group(superset.app, "superset")
-_infra_group(superset.report_app, "report")
+_infra_group(superset.report_app, "report", common=report.app)
+# `report validate` moved from infra to common (#664). Added after
+# `_infra_group` copied the group, so only `olf infra report` gains the alias.
+superset.report_app.command("validate", hidden=True)(moved_alias(report.validate, "olf report validate"))
 _infra_group(openmetadata.app, "openmetadata")
 _infra_group(k8s.app, "k8s")
 _infra_group(e2e.app, "e2e")

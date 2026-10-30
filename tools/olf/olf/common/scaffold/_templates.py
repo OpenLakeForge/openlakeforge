@@ -335,7 +335,7 @@ Gold mart dataset(s) and a Trino database connection; it does not include a
 dashboard layout or charts, which the scaffold cannot generate meaningfully.
 
 This directory is a draft, not yet a promotable bundle: it has no
-`metadata.yaml`, so `olf infra project build` and `olf infra report validate` both ignore
+`metadata.yaml`, so `olf infra project build` and `olf report validate` both ignore
 it until you finish this step.
 
 Build the dashboard in Superset, then export it back into this directory.
