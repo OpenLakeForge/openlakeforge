@@ -56,6 +56,7 @@ class ImageSettings:
     superset_tag: str
     superset_build: bool
     superset_base_image: str
+    platform_api_repository: str
     pull_retry: RetryPolicy
     build_retry: RetryPolicy
     push_retry: RetryPolicy
@@ -72,6 +73,10 @@ class ImageSettings:
     @property
     def superset_image(self) -> str:
         return f"{self.superset_repository}:{self.superset_tag}"
+
+    @property
+    def platform_api_build_image(self) -> str:
+        return f"{self.platform_api_repository}:local"
 
     def builds_superset(self, server_arch: str) -> bool:
         """The release publishes Superset for amd64 only, so any other Docker engine builds it, as does a maintainer."""
@@ -103,6 +108,10 @@ class ImageSettings:
                 environ,
                 "SUPERSET_BASE_IMAGE",
                 "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705",
+            ),
+            # The release workflow's namespace (ghcr.io/<owner>/<repo>/<image>).
+            platform_api_repository=_env(
+                environ, "PLATFORM_API_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/openlakeforge/platform-api"
             ),
             pull_retry=_retry_policy(
                 environ, specific_attempts="DOCKER_PULL_ATTEMPTS", specific_delay="DOCKER_PULL_RETRY_DELAY_SECONDS"
