@@ -2,10 +2,12 @@
 
 ## Status
 
-Decided, **build steps 1 and 2 of 8 landed**: this is the design for #367.
-Step 1 puts `data_access` in the role model, validated by `olf` and enforced
-by nothing yet. Step 2 gives SeaweedFS an STS role for Polaris and creates new
-stage catalogs with STS available; no caller asks for vended credentials yet. Verification items 1 (SeaweedFS STS enforces the session policy),
+Decided, **build steps 1 to 3 of 8 landed** (tracked in #674): this is the
+design for #367. Step 1 puts `data_access` in the role model, validated by
+`olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
+catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
+and creates the principal, roles and catalog grants of section 5, except the
+Gold namespace grants; no caller presents a person's token yet. Verification items 1 (SeaweedFS STS enforces the session policy),
 2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
 local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
 needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
@@ -317,7 +319,9 @@ Split along the seams `AGENTS.md` names, each with its tests:
    already exist keep `stsUnavailable: true` (section 7).
 3. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
    objects of section 5 except the namespace grants, with `olf-signed-in`.
-   Items 3 and 4 passed; settle items 5-6 first.
+   Items 3 and 4 passed; settle items 5-6 first. **Landed:** the bootstrap
+   also revokes a catalog role a narrowed `data_access` row no longer names.
+   `trino-people-<stage>` moves to step 5, where its catalog uses it.
 4. `olf infra catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
    the deployer's `CATALOG_MANAGE_ACCESS`.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
@@ -458,3 +462,12 @@ catalogs with STS available and vends 15-minute credentials. Polaris refuses
 to add a role ARN to an existing catalog, so existing stacks keep vending
 nothing until redeployed (section 7). The STS `MaxSessionLength` is now set,
 to one hour.
+
+Build step 3: Polaris runs `mixed` when the local root passes `person_access`
+(`issuer: github`): Quarkus OIDC on Dex's keys, the roles mapper rendered from
+`role_mapping`, and the CA from `olf-local-ca`. The bootstrap creates principal
+`github`, the five principal roles and the three catalog roles, and reconciles
+each role's catalog role to its `data_access` row. Polaris reaches Traefik for
+Dex's keys (ADR 0017, F4). Checked against the pinned Polaris 1.4.0 and Dex:
+it starts while Dex is unreachable, and a token whose groups map to no role
+reaches nothing.

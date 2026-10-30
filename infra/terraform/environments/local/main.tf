@@ -387,6 +387,16 @@ module "polaris" {
   bootstrap_revision    = local.polaris_bootstrap_hash
   workload_namespaces   = values(local.stage_namespaces)
   replicate_credentials = false
+  # People's Dex tokens (ADR 0019): the GitHub connector's id names the one
+  # principal every person's token maps to.
+  person_access = local.identity_dex ? {
+    issuer_url        = local.identity_oidc.issuer_url
+    client_id         = local.identity_oidc.clients["olf-cli"].client_id
+    principal_name    = module.dex[0].connector_id
+    role_mapping      = local.identity_oidc.role_mapping
+    data_access       = local.identity_roles.data_access
+    ca_configmap_name = module.in_cluster_resolution[0].ca_configmap_name
+  } : null
   stage_catalogs = {
     for name, binding in local.stage_storage : name => {
       namespace                        = local.stage_namespaces[name]
@@ -406,6 +416,8 @@ module "polaris" {
   depends_on = [
     module.seaweedfs,
     kubernetes_namespace_v1.stage,
+    # The pod mounts the CA ConfigMap this module publishes.
+    module.in_cluster_resolution,
   ]
 }
 
