@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.settings import Settings, SettingsError
+from openlakeforge_platform_api.tokens import TokenValidator
 
 WHOAMI = "/api/v1/whoami"
 
@@ -169,6 +170,18 @@ def test_a_discovery_document_naming_another_issuer_is_not_trusted(
     issuer.advertised = "https://auth.elsewhere.example"
 
     assert client.get(WHOAMI, headers=bearer(mint())).status_code == 503
+
+
+def test_a_signing_key_the_issuer_withdraws_stops_validating_once_the_key_set_expires(
+    issuer: FakeIssuer, settings: Settings, mint: Mint
+) -> None:
+    client = TestClient(create_app(settings, validator=TokenValidator(settings, jwks_lifespan=0.05)))
+    assert client.get(WHOAMI, headers=bearer(mint())).status_code == 200
+
+    issuer.publishes_key = False
+    time.sleep(0.1)
+
+    assert client.get(WHOAMI, headers=bearer(mint())).status_code == 401
 
 
 def test_healthz_needs_no_token_and_does_not_call_the_issuer(client: TestClient, issuer: FakeIssuer) -> None:
