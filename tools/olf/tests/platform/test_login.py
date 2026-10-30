@@ -16,7 +16,9 @@ from pathlib import Path
 
 import pytest
 import requests
+from typer.testing import CliRunner
 
+from olf.cli import app
 from olf.platform import login as login_flow
 from olf.platform import session as sessions
 
@@ -260,3 +262,30 @@ def test_a_localhost_issuer_is_reached_when_the_resolver_refuses_it(
 
     assert "token_endpoint" in sessions.discover(instance)
     assert socket.getaddrinfo is nxdomain
+
+
+def _profile_with(tmp_path: Path, spec_tail: str) -> str:
+    path = tmp_path / "openlakeforge.yaml"
+    path.write_text(
+        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
+        "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n" + spec_tail
+    )
+    return str(path)
+
+
+def test_without_identity_login_says_sign_in_is_off_and_no_credentials_exist(tmp_path: Path) -> None:
+    profile = _profile_with(tmp_path, "  access: {}\n")
+
+    result = CliRunner().invoke(app, ["login", "--profile-file", profile])
+
+    assert result.exit_code == 0 and "Sign-in is disabled" in result.output
+    instance = sessions.resolve_instance(profile)
+    assert (instance.issuer, instance.client_id) == ("", "")
+    assert sessions.bearer_token(instance) is None
+    assert not sessions.session_path(instance).exists()
+
+
+def test_without_access_a_platform_command_has_nothing_to_reach(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["login", "--profile-file", _profile_with(tmp_path, "")])
+
+    assert result.exit_code == 1 and "olf infra" in result.output
