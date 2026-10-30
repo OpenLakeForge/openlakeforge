@@ -8,8 +8,8 @@ from zipfile import ZipFile
 import pytest
 import yaml
 from conftest import FakeSuperset
+from openlakeforge_services import reports
 
-from olf.common import dashboard_checks
 from olf.common.profile import resolve_topology, validate_deployment_profile
 from olf.infra import k8s, superset
 from olf.infra.contracts import build_contract_env
@@ -106,7 +106,7 @@ def test_resolve_stage_report_target_rejects_an_unhydrated_environment() -> None
 
 
 def test_bundle_identity_from_source_dir() -> None:
-    identity = superset.bundle_identity("lakehouse_code/dashboards/superset/order_revenue")
+    identity = reports.bundle_identity("lakehouse_code/dashboards/superset/order_revenue")
     assert identity.root == "order_revenue_superset_bundle"
     assert identity.name == "order_revenue_superset_bundle.zip"
 
@@ -201,7 +201,7 @@ def test_deploy_reports_imports_each_declared_bundle_through_the_api(
 
     (imported,) = fake_superset.imported
     with ZipFile(io.BytesIO(imported)) as bundle:
-        root = superset.bundle_identity(_REPORT_DIR).root
+        root = reports.bundle_identity(_REPORT_DIR).root
         assert yaml.safe_load(bundle.read(f"{root}/metadata.yaml"))["type"] == "assets"
         database = yaml.safe_load(bundle.read(f"{root}/databases/trino.yaml"))
     assert database["sqlalchemy_uri"] == "trino://olf-dev@trino:8080/lakehouse_dev"
@@ -265,7 +265,7 @@ def test_build_report_bundle_rewrites_database_uri(tmp_path: Path, source_uri: s
     (source / "README.md").write_text("ignored")
 
     bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg")
+    reports.build_report_bundle(source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg")
 
     with ZipFile(bundle_path) as bundle:
         names = set(bundle.namelist())
@@ -300,7 +300,7 @@ def test_build_report_bundle_prefixes_dataset_schemas(tmp_path: Path, schema: st
     (source / "dashboards" / "d.yaml").write_text("dashboard_title: X\n")
 
     bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(
+    reports.build_report_bundle(
         source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg", schema_prefix="lakehouse_dev_"
     )
 
@@ -316,7 +316,7 @@ def test_build_report_bundle_rejects_a_dataset_without_a_schema(tmp_path: Path, 
     (source / "datasets" / "mart_x.yaml").write_text(f"table_name: mart_x\n{schema}\nuuid: abc\n")
 
     with pytest.raises(ValueError, match="has no schema to prefix"):
-        superset.build_report_bundle(
+        reports.build_report_bundle(
             source,
             tmp_path / "bundle.zip",
             "my_bundle",
@@ -333,7 +333,7 @@ def test_build_report_bundle_leaves_dataset_schemas_alone_without_a_prefix(tmp_p
     )
 
     bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg")
+    reports.build_report_bundle(source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg")
 
     with ZipFile(bundle_path) as bundle:
         dataset = bundle.read("my_bundle/datasets/OpenLakeForge_Trino/mart_x.yaml").decode()
@@ -351,7 +351,7 @@ def test_unpack_export_bundle_replaces_managed_assets(tmp_path: Path) -> None:
     (target / "dashboards").mkdir(parents=True)
     (target / "dashboards" / "stale.yaml").write_text("stale")
 
-    superset.unpack_export_bundle(bundle_path, target)
+    reports.unpack_export_bundle(bundle_path, target)
 
     assert (target / "metadata.yaml").read_text() == "type: assets\n"
     assert (target / "dashboards" / "d.yaml").exists()
@@ -372,7 +372,7 @@ def _bundle_documents(bundle: Path) -> dict[str, object]:
         (
             "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev",
             "lakehouse_dev_",
-            {"engine_params": {"connect_args": {"http_scheme": "https", "verify": superset.SUPERSET_QUERY_CA}}},
+            {"engine_params": {"connect_args": {"http_scheme": "https", "verify": reports.SUPERSET_QUERY_CA}}},
         ),
     ],
     ids=("local", "aws-with-tls"),
@@ -391,13 +391,13 @@ def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     checked_in = _write_report_bundle(tmp_path)
     (checked_in / "databases" / "trino.yaml").write_text(
         "database_name: Trino\n"
-        f"sqlalchemy_uri: {dashboard_checks.STAGE_NEUTRAL_SQLALCHEMY_URI}\n"
+        f"sqlalchemy_uri: {reports.STAGE_NEUTRAL_SQLALCHEMY_URI}\n"
         "extra:\n  metadata_params: {}\n  engine_params: {}\n"
         f"uuid: {_DATABASE_UUID}\n"
     )
     expected = _bundle_documents(checked_in)
     imported = tmp_path / "imported.zip"
-    superset.build_report_bundle(
+    reports.build_report_bundle(
         checked_in, imported, "dashboard_export_20261020T000000", stage_uri, schema_prefix=schema_prefix, extra=extra
     )
     with ZipFile(imported) as bundle:
@@ -432,10 +432,10 @@ def test_unpack_export_bundle_keeps_connect_args_it_did_not_add(tmp_path: Path) 
         )
         bundle.writestr("root/datasets/mart.yaml", "table_name: mart\nschema: order_revenue_gold\n")
 
-    superset.unpack_export_bundle(bundle_path, tmp_path / "out", schema_prefix="lakehouse_prod_")
+    reports.unpack_export_bundle(bundle_path, tmp_path / "out", schema_prefix="lakehouse_prod_")
 
     database = yaml.safe_load((tmp_path / "out" / "databases" / "trino.yaml").read_text())
-    assert database["sqlalchemy_uri"] == dashboard_checks.STAGE_NEUTRAL_SQLALCHEMY_URI
+    assert database["sqlalchemy_uri"] == reports.STAGE_NEUTRAL_SQLALCHEMY_URI
     assert database["extra"] == {"engine_params": {"connect_args": {"timezone": "UTC"}}}
     assert yaml.safe_load((tmp_path / "out" / "datasets" / "mart.yaml").read_text())["schema"] == "order_revenue_gold"
 
@@ -899,14 +899,14 @@ def test_a_tls_query_contract_targets_https_with_the_ca_and_an_off_one_is_unchan
     assert plain.extra is None
     assert tls.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"
     assert tls.extra == {
-        "engine_params": {"connect_args": {"http_scheme": "https", "verify": superset.SUPERSET_QUERY_CA}}
+        "engine_params": {"connect_args": {"http_scheme": "https", "verify": reports.SUPERSET_QUERY_CA}}
     }
 
     source = tmp_path / "report"
     (source / "databases").mkdir(parents=True)
     (source / "databases" / "trino.yaml").write_text("database_name: trino\nuuid: database-id\n")
     bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(source, bundle_path, "b", tls.sqlalchemy_uri, extra=tls.extra)
+    reports.build_report_bundle(source, bundle_path, "b", tls.sqlalchemy_uri, extra=tls.extra)
     with ZipFile(bundle_path) as bundle:
         database = yaml.safe_load(bundle.read("b/databases/trino.yaml"))
     assert database["extra"] == tls.extra
@@ -919,11 +919,11 @@ def test_bundle_schema_perms_lists_only_the_schemas_datasets_read(tmp_path: Path
         "schema: not_a_dataset\n"
     )
     bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(
+    reports.build_report_bundle(
         tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg", schema_prefix="lakehouse_dev_"
     )
 
-    assert superset.bundle_schema_perms(bundle_path) == {"[Trino].[lakehouse_dev_order_revenue_gold]"}
+    assert reports.bundle_schema_perms(bundle_path) == {"[Trino].[lakehouse_dev_order_revenue_gold]"}
 
 
 def test_deploy_reports_grants_imported_schemas_once_and_keeps_other_grants(
@@ -979,9 +979,9 @@ def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_
     dataset = tmp_path / _REPORT_DIR / "datasets" / "mart.yaml"
     dataset.write_text(dataset.read_text().replace(_DATABASE_UUID.upper(), _DATABASE_UUID.lower()))
     bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg")
+    reports.build_report_bundle(tmp_path / _REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg")
 
-    assert superset.bundle_schema_perms(bundle_path) == {"[Trino].[order_revenue_gold]"}
+    assert reports.bundle_schema_perms(bundle_path) == {"[Trino].[order_revenue_gold]"}
 
 
 def test_a_password_contract_names_the_stage_secret_the_import_reads_and_never_the_password() -> None:

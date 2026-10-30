@@ -174,6 +174,7 @@ def export_superset_reports(stage: str = "") -> None:
     """Export a live Superset dashboard back into a source-controlled bundle."""
     import yaml
     from openlakeforge_domain import Dashboard
+    from openlakeforge_services import reports
 
     from olf.infra import superset
 
@@ -211,7 +212,7 @@ def export_superset_reports(stage: str = "") -> None:
 
     def _default_dashboard() -> str:
         # The checked-in bundle's own uuid, which survives a rename in Superset.
-        for dashboard_file in superset.discover_dashboard_files(project.root / report_source_dir):
+        for dashboard_file in reports.discover_dashboard_files(project.root / report_source_dir):
             document = yaml.safe_load(dashboard_file.read_text())
             if isinstance(document, dict) and document.get("uuid"):
                 return str(document["uuid"])

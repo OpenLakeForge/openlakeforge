@@ -825,11 +825,15 @@ name = "openlakeforge-lakehouse-services"
 version = "0.5.0a1"
 source = { directory = "../../packages/lakehouse-services" }
 dependencies = [
+    { name = "pyyaml" },
     { name = "requests" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "requests", specifier = ">=2.32,<3" }]
+requires-dist = [
+    { name = "pyyaml", specifier = ">=6,<7" },
+    { name = "requests", specifier = ">=2.32,<3" },
+]
 
 [[package]]
 name = "packaging"

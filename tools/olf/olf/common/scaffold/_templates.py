@@ -11,7 +11,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from olf.common.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
+from openlakeforge_services.reports import STAGE_NEUTRAL_SQLALCHEMY_URI
+
 from olf.common.scaffold._csv import InferredColumn
 from olf.common.scaffold._shared import yaml_dq
 

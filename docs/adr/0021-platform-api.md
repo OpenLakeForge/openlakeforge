@@ -3,9 +3,10 @@
 ## Status
 
 Decided, **build step 1 begun**: `packages/lakehouse-services` holds every
-service client — the HTTP transport, Dagster, OpenMetadata and Superset. The
-operations built on them (report import and export, metadata deployment,
-domain listing) are still in `olf/infra`. No platform API exists yet.
+service client — the HTTP transport, Dagster, OpenMetadata and Superset — and
+the Superset report operations (`openlakeforge_services.reports`). The
+OpenMetadata operations (metadata deployment, domain listing) are still in
+`olf/infra`. No platform API exists yet.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -202,3 +203,8 @@ Build step 1, first part: the transport and the Dagster client moved to
 
 Build step 1, second part: the OpenMetadata and Superset clients followed;
 `olf/common/clients` no longer exists.
+
+Build step 1, third part: Superset report import and export moved to
+`openlakeforge_services.reports`; `olf infra` keeps the stage resolution, the
+port-forward and the Secret reads, and passes its `log` module as the
+operations' progress reporter.
