@@ -34,8 +34,30 @@ service. A grant applies on every enabled stage.
 | Trino UI | opens | opens | denied | denied |
 | Superset | `Admin` | `Alpha` | `Gamma` | read-only |
 | OpenMetadata | `Admin` | `write` | `read` | `read` |
+| Trino `/v1` (`olf query`) | opens | opens | opens | opens |
 
 A person refused a service sees an "Access is role-restricted" page.
+
+## What each role reads and writes
+
+With GitHub sign-in, `olf query` runs SQL as you
+([CLI reference](cli.md#query-as-yourself)). Your role then decides, per stage
+and medallion layer, which tables you read and write. Polaris enforces it, and
+the storage credentials your query reads with are issued for those tables
+only.
+
+| Role | DEV | UAT | PROD |
+| --- | --- | --- | --- |
+| `platform-admin` | write every layer | write every layer | write every layer |
+| `data-engineer` | write every layer | read every layer | read every layer |
+| `analyst` | read Gold | read Gold | read Gold |
+| `viewer` | none | read Gold | read Gold |
+
+Writing includes creating schemas and tables. A role that may only read is
+refused when it writes: by Polaris for a new schema or table, and by storage for
+new rows, because its credentials are read-only. The rows apply only with GitHub
+sign-in. Pipelines, dbt and Superset do not use them: they run as the stage's
+service principal, as does `olf infra query`.
 
 ## Per service
 
@@ -59,7 +81,9 @@ catalog credentials, so assign `data-engineer` on that basis.
 `viewer` do not. On plain HTTP the UI opens as a fixed user behind the
 perimeter; on HTTPS it signs in through Dex. The roles do not change what a
 query may read: Trino's catalog access is decided by the service principals,
-not by the person (see [CLI and automation](#cli-and-automation)).
+not by the person (see [CLI and automation](#cli-and-automation)). Your own
+queries go through `olf query` instead
+([What each role reads and writes](#what-each-role-reads-and-writes)).
 
 ### Superset
 
@@ -108,14 +132,16 @@ is on.
 
 ### CLI and automation
 
-`olf`, CI and the pods of the platform are not people and hold no role. They
-authenticate with Kubernetes RBAC (your kubeconfig) or with a service
-credential from a Secret (to Trino, a password per principal: with
-`spec.access` declared, Trino workload authentication defaults to `password`,
-and to `off` without it), and reach services through port-forwards or their
-in-cluster addresses, never through the sign-in perimeter. Whoever holds the
-kubeconfig can therefore reach every service; a role limits browsers, not
-cluster access. `olf infra break-glass` is the recorded way to use that when the
-issuer is down ([Break-glass access](../guides/identity/break-glass.md)).
+`olf infra` commands, CI and the pods of the platform are not people and hold no
+role; the platform commands `olf login`, `olf whoami` and `olf query` are the
+exception and act as you, with your role. The others authenticate with
+Kubernetes RBAC (your kubeconfig) or with a service credential from a Secret (to
+Trino, a password per principal: with `spec.access` declared, Trino workload
+authentication defaults to `password`, and to `off` without it), and reach
+services through port-forwards or their in-cluster addresses, never through the
+sign-in perimeter. Whoever holds the kubeconfig can therefore reach every
+service; a role limits people, not cluster access. `olf infra break-glass` is
+the recorded way to use that when the issuer is down ([Break-glass
+access](../guides/identity/break-glass.md)).
 
 OpenLakeForge roles are never cloud IAM permissions.

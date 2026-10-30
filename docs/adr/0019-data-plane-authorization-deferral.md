@@ -2,29 +2,19 @@
 
 ## Status
 
-Decided, **build steps 1 to 7 of 8 landed** (tracked in #674): this is the
-design for #367. Step 1 puts `data_access` in the role model, validated by
-`olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
-catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
-and creates the principal, roles and catalog grants of section 5, except the
-Gold namespace grants. Step 4 makes `olf infra catalog sync-namespaces` grant
-those, with the deployer's added privilege. Step 5 makes Trino accept people's
-tokens and adds the people catalogs, step 6 routes Trino's `/v1` to the `viewer`
-floor, and step 7 adds `olf query`. Verification items 1 (SeaweedFS STS enforces the session policy),
-2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
-local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
-needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
-principal's roles when a token maps to none; section 4, step 11 is corrected
-for it. **Binding today:**
-v0.5-alpha has service-level authorization only, and nothing in it restricts
-which tables a signed-in user reads (Context). **Decided for the build:**
-`olf infra query` stops running through `kubectl exec` as the stage's shared
-principal. A person signs in with Dex, Trino authenticates the token, and the
-person's canonical role reaches Polaris, whose grants decide which stage and
-layer they read or write. Scope is the local provider with
-`spec.identity.issuer: github`. AWS and Glue are out of scope by decision
-(below). Superset, dbt and OpenMetadata keep their shared stage principals
-(ADR 0016); per-user access through Superset stays deferred.
+**Built** for the local provider with `spec.identity.issuer: github` (#674,
+build steps 1 to 8): this is the design for #367. A person signs in with
+`olf login` and runs SQL as themself with `olf query` (section 6). Trino
+authenticates their Dex token and hands it to the stage's people catalog;
+Polaris activates their canonical role, decides from its grants which stage and
+layer they read or write (`data_access`, section 1), and vends storage
+credentials scoped to the tables they reach. `olf infra query` keeps the
+workload path. Verification items 1 to 9 passed before the build; item 10, the
+per-role cases, runs in `olf e2e`. Item 3 found that Polaris activates **all**
+of a principal's roles when a token maps to none; section 4, step 11 corrects
+for it. Superset, dbt and OpenMetadata keep their shared stage principals
+(ADR 0016); per-user access through Superset stays deferred. AWS is to follow
+with Polaris instead of Glue (#681); Azure gains the path with a Dex adapter.
 
 The design is **query-engine agnostic** (section 3): canonical roles exist only
 as Polaris grants, and Polaris also issues the storage credentials a person's
@@ -191,16 +181,16 @@ delegation).
 ```mermaid
 sequenceDiagram
     actor P as Person
-    participant O as olf infra query
+    participant O as olf query
     participant D as Dex
     participant X as Perimeter (query_api)
     participant T as Trino
     participant C as Polaris
     participant S as SeaweedFS
-    P->>O: olf infra query --stage prod "SELECT ..."
-    O->>D: device authorization, client olf-cli
-    D-->>P: verification URL and user code (GitHub sign-in)
-    D-->>O: access token (email, groups, federated_claims), refresh token
+    P->>O: olf login, then olf query --stage prod "SELECT ..."
+    O->>D: authorization code with PKCE, client olf-cli
+    D-->>P: GitHub sign-in in the browser
+    D-->>O: ID token (email, groups, federated_claims), refresh token
     O->>X: POST /v1/statement, Bearer token, extra credential token
     X->>T: forwarded after token and role-floor check
     T->>T: JWT authenticator: user = email; rules allow people catalogs only
@@ -220,7 +210,7 @@ sequenceDiagram
 | 4 | Perimeter | A route `query_api`: host `trino.<base_domain>`, path prefix `/v1`, behind a perimeter instance that accepts a bearer JWT for audience `olf-cli` (oauth2-proxy `--skip-jwt-bearer-tokens` with `--oidc-extra-audience=olf-cli`) at the `viewer` floor. The existing `query` route (the Web UI) keeps the `data-engineer` floor. The service passwords (ADR 0016) then cannot be used through the ingress without also holding a member's Dex token | V, run (verification item 9) |
 | 5 | Trino authentication | `http-server.authentication.type=PASSWORD,JWT`. JWT: `key-file=https://auth.<base_domain>/keys`, `required-issuer`, `required-audience=olf-cli`, `principal-field=email`. A token minted for the perimeter, Superset, OpenMetadata or the Trino UI client carries another audience and is refused | V (properties); T (Dex's `aud` is the requesting client id, read in Dex's scope documentation; JWKS fetch through the CoreDNS rewrite) |
 | 6 | Trino rules | A user containing `@` (an e-mail) may use the people catalogs only, with `allow: all` (Polaris decides). Service principals keep their catalogs. A `principals` rule lets an e-mail principal become only itself, before ADR 0016's final deny. A `queries` rule lets a person view and kill only their own queries: today `rules.json` has no `queries` section, so every user may view every query | V (no `queries` rules means all users view all queries: Trino 480 file-based access control); T (rules) |
-| 7 | People catalog | One more Trino catalog per stage on the same Polaris warehouse, named `<stage>` (`dev`, `uat`, `prod`): `iceberg.rest-catalog.session=USER`, `iceberg.rest-catalog.session-timeout=0s`, `iceberg.rest-catalog.vended-credentials-enabled=true` with no static S3 key (section 3), and an OAuth2 credential of a Polaris principal `trino-people-<stage>` that holds no grant. `olf infra query` makes it the session default, so the name shows only in fully qualified SQL (`prod.order_revenue_gold.mart_order_revenue_by_day`). It is Trino connection plumbing, not policy: it exists because `session=USER` is all-or-nothing per catalog (rejected alternatives) | V (properties) |
+| 7 | People catalog | One more Trino catalog per stage on the same Polaris warehouse, named `<stage>` (`dev`, `uat`, `prod`): `iceberg.rest-catalog.session=USER`, `iceberg.rest-catalog.session-timeout=0s`, `iceberg.rest-catalog.vended-credentials-enabled=true` with no static S3 key (section 3), and an OAuth2 credential of a Polaris principal `trino-people-<stage>` that holds no grant. `olf query` makes it the session default, so the name shows only in fully qualified SQL (`prod.order_revenue_gold.mart_order_revenue_by_day`). It is Trino connection plumbing, not policy: it exists because `session=USER` is all-or-nothing per catalog (rejected alternatives) | V (properties) |
 | 8 | Token to Polaris | With `session=USER` Trino passes the user's extra credentials to the Iceberg client and adds an unsigned JWT of its own as `JWT_TOKEN_TYPE`. The Iceberg client uses a `token` credential as the bearer **before** trying any token exchange. So the person's Dex token reaches Polaris; a request without it falls through to exchanging Trino's unsigned JWT, which Polaris does not accept (ADR 0015), and fails closed | V (`TrinoRestCatalog.convert`; `OAuth2Manager.maybeCreateChildSession`); V, run (verification item 5) |
 | 9 | Session cache | The Iceberg session is cached per `<user>-<source>` with `expireAfterAccess(session-timeout)`, the default one hour. A person querying more often than that would keep presenting their first, expired token, so the people catalog sets the timeout to zero and builds the session from the current token each time. Wrapping a bearer token makes no network call | V (`AuthSessionCache`, `IcebergRestCatalogConfig`: `@MinDuration("0ms")`); V, run (verification item 7) |
 | 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `quarkus.oidc.auth-server-url` `https://auth.<base_domain>`, `discovery-enabled=false` with `jwks-path=keys` (as Trino's UI does, because Dex is served by Traefik), the local CA through a named TLS configuration (`quarkus.oidc.tls.tls-configuration-name`, `quarkus.tls.<name>.trust-store.pem.certs`), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `name-claim-path: federated_claims/connector_id`; roles from `groups` and `federated_claims/connector_id` (step 11) | V, run (verification item 3) |
@@ -306,7 +296,7 @@ called `--as-workload`.
 | Superset users keep the shared stage principal | The Context paragraph stays true for Superset. A later step can point a Superset database at the people catalog with Superset's per-database OAuth2 (Superset table below, claims 6 and 7) |
 | Vended credentials outlive the 5-minute Dex token: Polaris issues them for one hour by default (verification item 2), and SeaweedFS will not issue less than 15 minutes. A person removed from a team keeps reading the tables already loaded until they expire. Build step 2 sets `STORAGE_CREDENTIAL_DURATION_SECONDS` to 900 and the cache to 300, so a cached credential has at least 10 minutes left; Polaris 1.4.0 then vends 15-minute credentials (V, run) | Revocation still ends new table loads within 5 minutes; the credentials cover only tables the person could read when they were issued |
 | A stage catalog created before build step 2 vends nothing. Polaris accepts a role ARN only when the catalog is created: an update that adds one is refused (`Cannot modify Role ARN`, V, run against Polaris 1.4.0) | The bootstrap leaves such a catalog as it is and says so; the person path needs the stack redeployed from scratch. No migration is built |
-| Nothing for AWS or Azure | AWS uses Glue, out of scope by decision. Azure runs Polaris but has no Dex adapter yet (ADR 0014); it gains the path when it does |
+| Nothing for AWS or Azure yet | AWS uses Glue today; it is to move to Polaris, which brings this path with it, because Glue saves little as a managed catalog (#681). Azure runs Polaris but has no Dex adapter yet (ADR 0014); it gains the path when it does |
 
 ### 8. What changes in other records when this is built
 
@@ -318,7 +308,7 @@ pull request").
 | ADR 0014 | `data_access` beside `grants`; the `query_api` service row (all four roles); `olf-cli` as a fifth Dex client |
 | ADR 0015 | The deferral ends for one caller: `mixed` with OIDC for people tokens. Every workload keeps Polaris's own credentials, so pipelines still do not depend on the issuer. Stage catalogs are created with STS available, and its "Data files" row changes for the person path |
 | ADR 0016 | `/v1` accepts Dex bearer tokens for audience `olf-cli`, which its Web UI section rejected while no caller needed it; the people catalogs and their rules |
-| `identity-callers.md`, `identity-classes.md` | `olf infra query` becomes a class-1 (human) caller from the workstation through the ingress; the workload path stays class 2 |
+| `identity-callers.md`, `identity-classes.md` | `olf query` is a class-1 (human) caller from the workstation through the ingress; the workload path stays class 2 |
 | `docs/reference/roles-and-permissions.md` | The data-access matrix |
 
 ## Build sequence
@@ -371,7 +361,8 @@ Split along the seams `AGENTS.md` names, each with its tests:
    Polaris's refusal from storage refusing a read-only vended credential. The
    Dex-down case is part of the issuer-outage drill. Reading another table's
    location cannot be expressed in SQL and stays verification item 1.
-8. Docs of section 8 not already landed.
+8. Docs of section 8 not already landed. **Landed:** with this, the record is
+   built.
 
 ## Verification before building
 
@@ -548,3 +539,10 @@ created by a role that writes there. The decision logic was run against the
 pinned stack of step 5 with a writing, a reading, a Gold-only and a no-role
 person: every outcome matched, and a read role's write was refused by
 SeaweedFS rather than by Polaris.
+
+Build step 8: the records of section 8 now describe the built path. ADR 0014
+records Polaris, not cloud IAM, as where canonical roles reach data; ADR
+0015's "Data files" row splits into the workload and the person path; the
+caller inventories make `olf query` a class 1 caller; the role reference gains
+the data-access matrix, and the tutorial shows querying as yourself. Status
+set to built. Decided with it: AWS moves to Polaris instead of Glue (#681).

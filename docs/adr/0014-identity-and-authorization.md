@@ -100,8 +100,10 @@ medallion layer ([ADR 0019](0019-data-plane-authorization-deferral.md)): the
 mapping keyed by canonical role that the boundary below reserves. It is held
 to the same rules (closed vocabulary, monotonic on every stage and layer,
 equal to the release file) plus one of its own: each stage row is a shape a
-Polaris catalog role can express. It is carried and validated only; Polaris
-enforces it in a later build step of ADR 0019.
+Polaris catalog role can express. Polaris enforces it for a person's own
+queries (`olf query`): each row becomes the catalog role the person's role holds
+on that stage's catalog, and the storage credentials a query reads with are
+vended for the tables that role reaches (ADR 0019, sections 4 and 5).
 
 ### Boundary: OpenLakeForge roles versus cloud IAM
 
@@ -112,10 +114,11 @@ enforces it in a later build step of ADR 0019.
 | Portable | identical on local, on-prem, AWS, Azure | provider-specific by nature |
 
 End-user roles are never expressed in cloud IAM; that would make the product
-non-portable. If per-user data access later binds canonical roles to cloud
-principals (an `analyst` mapped to an IAM role with Lake Formation grants,
-#179), that is a fifth mapping keyed by canonical role, added then. Nothing
-here forecloses it and nothing here builds it.
+non-portable. Per-user data access binds canonical roles to Polaris catalog
+roles instead, the fifth mapping keyed by canonical role (`data_access`, ADR
+0019), and Polaris vends the storage credentials. It is built for the local
+provider; the AWS root is to follow with Polaris rather than Glue and Lake
+Formation (#681).
 
 ### Seam 2 — issuer (GitHub through Dex built for local)
 
@@ -581,3 +584,11 @@ decided and not built.
 
 `query_api` grant row: Trino's `/v1` at the `viewer` floor for `olf query`,
 routed at the ingress without a contract route (ADR 0019, build step 6).
+
+Data access enforced (ADR 0019, build steps 2-8): `data_access` is no longer
+carried only. With `spec.identity.issuer: github` on the local provider, a
+person's own queries (`olf query`, through the `query_api` route with an
+`olf-cli` token) reach what their role's row grants, enforced by Polaris
+catalog roles and vended storage credentials. Every workload keeps its stage
+principal. The boundary above records Polaris, not cloud IAM, as the place
+canonical roles reach data.

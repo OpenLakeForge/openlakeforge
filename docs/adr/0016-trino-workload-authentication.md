@@ -71,7 +71,7 @@ and was not run; the client capabilities above and the password path were.
 | --- | --- | --- | --- |
 | `olf-<stage>-runtime` | itself only | `all` on `lakehouse_<stage>` | that stage's Superset, dbt run pods, `olf e2e` |
 | `openmetadata` | itself only | `read-only` on every stage catalog | OpenMetadata service and ingestion |
-| A person's e-mail, from a Dex token for audience `olf-cli` (`JWT`, [ADR 0019](0019-data-plane-authorization-deferral.md)) | itself only | `all` on the people catalogs `<stage>`, nothing else; Polaris decides per table | `olf infra query` |
+| A person's e-mail, from a Dex token for audience `olf-cli` (`JWT`, [ADR 0019](0019-data-plane-authorization-deferral.md)) | itself only | `all` on the people catalogs `<stage>`, nothing else; Polaris decides per table | `olf query` |
 
 `principals` rules in `rules.json` list each principal with the one user it may
 assume and end with a deny-all rule; a person's e-mail principal may become only
@@ -200,7 +200,7 @@ Not foreclosed, and exercised (g1-g3): with the DEV principal also allowed to
 act as `alice`, the DEV password acts as `alice` on DEV only. The client hooks
 are Superset's `impersonate_user` and dbt-trino's `impersonation_user`.
 
-Built for `olf infra query` by ADR 0019 (build step 5): with
+Built for a person's own queries (`olf query`) by ADR 0019 (build step 5): with
 `spec.identity.issuer: github` at the `password` level, the coordinator
 authenticates `PASSWORD,JWT`. A Dex token for audience `olf-cli` authenticates a
 person by e-mail; its keys are fetched from `https://auth.<base_domain>/keys`

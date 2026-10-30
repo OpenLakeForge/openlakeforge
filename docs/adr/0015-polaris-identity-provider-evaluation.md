@@ -119,7 +119,7 @@ Where table-level policy would be enforced, as the tree is wired today:
 | Catalog authorization | Polaris RBAC on the REST catalog: securables catalog, namespace, table, view and policy; privileges such as `TABLE_READ_DATA` granted to catalog roles, assigned to principal roles, assigned to principals. Optional external decision point (`polaris.authorization.type`, OPA documented). Evaluated for the principal on the request | AWS IAM on Glue databases and tables, optionally Lake Formation grants evaluated for the calling IAM principal. Today AWS scopes each stage's Pod Identity role to `database/<prefix>_*` and has **no Lake Formation** (`technical-debt.md`) |
 | Who the catalog sees | Trino's per-stage principal with `CATALOG_MANAGE_CONTENT`, not the end user | The stage's Pod Identity role |
 | Effect today | Stage isolation only: one catalog per stage, one principal per catalog | Stage isolation by name prefix and IAM |
-| Data files | **Not gated by Polaris here.** Trino reads object storage with its own S3 key (`s3.aws-access-key`) and `vended-credentials-enabled=false`. `TABLE_READ_DATA` is defined as receiving catalog-vended storage credentials, so a per-table grant would not restrict file reads unless Trino switched to vended credentials. SeaweedFS issues them through its STS, and new SeaweedFS stage catalogs are created with STS available (ADR 0019, build step 2); only ADR 0019's person path asks for them | IAM on the S3 prefixes |
+| Data files | **Workload path: not gated by Polaris.** Trino's stage catalogs read object storage with their own S3 key and `vended-credentials-enabled=false`. `TABLE_READ_DATA` is defined as receiving catalog-vended storage credentials, so a per-table grant does not restrict those reads. **Person path: gated** (ADR 0019). The people catalogs `<stage>` hold no S3 key and ask for vended credentials, which SeaweedFS issues through its STS, scoped by a session policy to the table, and read-only unless the person's role writes there. New stage catalogs are created with STS available (ADR 0019, build step 2) | IAM on the S3 prefixes |
 | Engine-level | Trino access control (`catalog_access_rules`, `tables` rules in `modules/query/trino`) keys on a user name Trino does not authenticate (register entry "Trino has no client authentication"); #26 chooses the mechanism | Same |
 
 Implications to carry into #179's ADR:
@@ -164,3 +164,7 @@ available, which ADR 0019's person path uses; the workload path is unchanged.
 The deferral ended for people's tokens (ADR 0019, build step 3): Polaris runs
 `mixed` with `issuer: github`; the reachability row was verified. Workloads are
 unchanged.
+
+The "Data files" row splits by path (ADR 0019, build step 8): a person's
+queries read with credentials Polaris vends per table, so `TABLE_READ_DATA`
+gates their file reads; the workload path still reads with the stage's S3 key.
