@@ -270,3 +270,31 @@ def test_an_explicit_build_never_uses_the_published_digest_as_its_tag(tmp_path: 
     assert built == "ghcr.io/o/project-code:local"
     argv = next(c.argv for c in runner.calls if c.argv[1] == "build")
     assert argv[argv.index("-t") + 1] == built
+
+
+def test_build_platform_api_image_builds_from_the_repository_root_on_the_pinned_base(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    runner = RecordingRunner(_ok())
+    tools = _toolkit(runner)
+
+    image = image_build.build_platform_api_image(config, tools, env={})
+
+    assert image == "ghcr.io/openlakeforge/openlakeforge/platform-api:local"
+    build_call = next(c for c in runner.calls if c.argv[1] == "build")
+    assert build_call.argv[2] == str(config.paths.repo_root)
+    assert str(config.paths.repo_root / "images/platform-api/Dockerfile") in build_call.argv
+    assert f"PYTHON_BASE_IMAGE={config.images.project_code_python_base_image}" in build_call.argv
+
+
+def test_prepare_platform_api_image_loads_a_content_tag_into_kind(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    runner = _ScriptedRunner()
+    tools = _toolkit(runner)
+
+    reference = images.prepare_platform_api_image(config, tools, env={})
+
+    repo = "ghcr.io/openlakeforge/openlakeforge/platform-api"
+    assert reference == f"{repo}:local-0123456789ab"
+    argvs = [c.argv for c in runner.calls]
+    assert ["docker", "tag", f"{repo}:local", reference] in argvs
+    assert ["kind", "load", "docker-image", reference, "--name", "openlakeforge-local"] in argvs

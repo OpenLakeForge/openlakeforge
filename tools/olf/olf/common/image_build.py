@@ -29,6 +29,24 @@ def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: 
     return images.superset_image
 
 
+def build_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
+    images = config.images
+    log.step(f"Pulling platform API Python base image: {images.project_code_python_base_image}")
+    tools.docker.pull(images.project_code_python_base_image, env=env, retry_policy=images.pull_retry)
+
+    log.step(f"Building platform API image: {images.platform_api_build_image}")
+    # The repository root is the context: the image copies packages/platform-api.
+    tools.docker.build(
+        config.paths.distribution_root,
+        tag=images.platform_api_build_image,
+        file=config.paths.distribution_root / "images/platform-api/Dockerfile",
+        build_args={"PYTHON_BASE_IMAGE": images.project_code_python_base_image},
+        env=env,
+        retry_policy=images.build_retry,
+    )
+    return images.platform_api_build_image
+
+
 def build_project_code_image(
     config: LocalDeploymentConfig,
     tools: Toolkit,

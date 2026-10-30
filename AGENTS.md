@@ -78,6 +78,7 @@ labels expressing intended sequence within a milestone.
 | `infra/terraform/modules/` | Component modules grouped by capability |
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
+| `images/platform-api/` | The platform API image, built from `packages/platform-api` |
 | `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract every `pyproject.toml` must match |
 | `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `source.yaml` and `governance.yml` validate against |
 | `docs/schema/deployment-profile.schema.json` | Schema for Deployment Profiles |
