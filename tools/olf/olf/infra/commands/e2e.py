@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import typer
 
 from olf.common.log import fail
@@ -122,16 +124,22 @@ def e2e_stage_buckets(
     import json
 
     from olf.common import contract_state
+    from olf.common.deployment.errors import DeploymentError
     from olf.infra.e2e import E2EError
     from olf.infra.e2e._isolation import stage_bucket_objects
 
-    contracts = contract_state.load_provider_contracts("unused")
-    if contracts is None:
-        raise typer.Exit(code=fail("no provider contracts found; deploy the stack first."))
+    # The local platform's state, unless OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE
+    # (the nightly exports it) points at a copy.
+    context = deployment_context("local", profile="", namespace="", cluster_name="", project_root="", stage="")
     try:
+        contracts = contract_state.load_provider_contracts(
+            str(context.paths.platform_terraform_dir), environ=context.command_env(base=os.environ)
+        )
+        if contracts is None:
+            raise typer.Exit(code=fail("no provider contracts found; deploy the stack first."))
         objects = stage_bucket_objects(
             contracts, stage, tuple(layer.strip() for layer in layers.split(",") if layer.strip()), namespace=namespace
         )
-    except E2EError as exc:
+    except (E2EError, DeploymentError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     print(json.dumps(objects, indent=1, sort_keys=True))
