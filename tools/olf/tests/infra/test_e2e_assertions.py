@@ -145,7 +145,7 @@ def test_discovered_dashboards_rejects_a_product_with_no_dashboard_export(tmp_pa
 
 
 def test_discovered_dashboards_accepts_yml_suffixed_exports(tmp_path: Path) -> None:
-    """superset.build_report_bundle packages both .yaml and .yml — discovery must match."""
+    """reports.build_report_bundle packages both .yaml and .yml — discovery must match."""
     write_two_product_fixture(
         tmp_path,
         dashboards=(

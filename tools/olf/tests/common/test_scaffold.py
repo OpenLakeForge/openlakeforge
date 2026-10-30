@@ -507,7 +507,7 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     `discover_report_dirs`/`validate_report_registry` -- so the draft is
     invisible to both the descriptor/tree parity check and the promotion
     contract until a real dashboard is exported."""
-    from olf.infra import superset
+    from olf.common import report_bundles
 
     repo_root = _seed_repo(tmp_path)
     before = load_lakehouse_inventory(repo_root).dashboards
@@ -539,7 +539,7 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     assert inventory.dashboards == before
 
     declared = tuple(d.report_source_dir for d in inventory.dashboards)
-    assert superset.validate_report_registry(repo_root, declared) == sorted(declared)
+    assert report_bundles.validate_report_registry(repo_root, declared) == sorted(declared)
 
 
 def test_running_the_same_command_twice_is_refused_not_reapplied(tmp_path: Path) -> None:

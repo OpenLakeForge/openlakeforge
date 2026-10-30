@@ -32,6 +32,7 @@ def _leaves(
 
 LEAVES = list(_leaves(typer.main.get_group(app)))
 BY_PATH = {path: callback for path, callback, _ in LEAVES}
+HIDDEN = {path for path, _, hidden in LEAVES if hidden}
 
 
 def test_every_leaf_has_exactly_one_visible_path() -> None:
@@ -61,7 +62,9 @@ def test_pre_2b_path_reaches_its_new_home(path: tuple[str, ...]) -> None:
     assert inspect.unwrap(BY_PATH[path]) is inspect.unwrap(BY_PATH[home])
 
 
-MOVED_PATHS = [path for path in PRE_2B_PATHS if ("infra", *path) in BY_PATH]
+MOVED_PATHS = [path for path in PRE_2B_PATHS if path in HIDDEN]
+# Paths that sat under `olf infra` and moved to the common surface (ADR 0020).
+MOVED_TO_COMMON = [("infra", "report", "validate")]
 
 
 def _warning(path: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> str | None:
@@ -91,6 +94,18 @@ def test_old_path_warns_and_names_its_new_path(path: tuple[str, ...], monkeypatc
     )
 
 
+@pytest.mark.parametrize("path", MOVED_TO_COMMON, ids=" ".join)
+def test_infra_path_of_a_common_command_is_a_warning_alias(
+    path: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = path[1:]
+    assert path in HIDDEN and home not in HIDDEN
+    assert inspect.unwrap(BY_PATH[path]) is inspect.unwrap(BY_PATH[home])
+    assert _warning(path, monkeypatch) == (
+        f"this command moved to `olf {' '.join(home)}`; the old path will be removed in a later release"
+    )
+
+
 MOVED = "this command moved to"
 MISSING = ["-f", "missing.yaml"]
 
@@ -100,6 +115,7 @@ MISSING = ["-f", "missing.yaml"]
     [
         ("platform contract", "infra platform contract", MISSING),
         ("project status", "infra project status", [*MISSING, "--stage", "dev"]),
+        ("infra report validate", "report validate", ["--project-root", "missing"]),
     ],
 )
 def test_old_path_warns_on_stderr_and_behaves_like_the_new_one(old: str, new: str, args: list[str]) -> None:

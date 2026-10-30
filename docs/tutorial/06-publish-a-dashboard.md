@@ -87,7 +87,7 @@ packages it into a project revision.
 ## Check it worked
 
 ```bash
-olf infra report validate
+olf report validate
 ```
 
 It checks every bundle for stable identities, resolvable references and no

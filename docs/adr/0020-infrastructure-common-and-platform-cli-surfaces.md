@@ -47,21 +47,16 @@ either command package.
 
 | Surface | Commands |
 | --- | --- |
-| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report *`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
-| Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
+| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
+| Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
 | Platform | `login`, `whoami`, `logout`, `query`; `domain list` is planned |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
 
-Two commands sit in infra although #536 lists them as common, because their
-code is not permission-free yet:
-
-- `project image` builds through the cloud provider and needs cloud credentials
-  on `aws` and `azure`.
-- `report validate` calls the bundle validators in `olf.infra.superset`.
-
-They move to common when those validators move.
+`project image` sits in infra although #536 lists it as common, because it
+builds through the cloud provider and needs cloud credentials on `aws` and
+`azure`.
 
 `olf infra query` is workload-scoped: it runs as the stage's shared Trino
 principal. `olf query` is the platform command for a person's own queries
@@ -83,8 +78,11 @@ callback, takes the same options, and does not appear in `--help`.
 deploy` and `olf infra project deploy`. An alias prints one line on stderr,
 `this command moved to `olf infra <path>`; the old path will be removed in a
 later release`, and then behaves as before: same stdout and exit code. `olf
-query` is no alias: it is the platform command. `tools/olf/tests/common/test_cli_surfaces.py` holds the list of
-earlier paths and fails if one stops resolving to its new home or stops warning.
+query` is no alias: it is the platform command. A command that moves from
+infra to common keeps its `olf infra` path the same way, warning with its
+common path: `olf infra report validate` runs `olf report validate`.
+`tools/olf/tests/common/test_cli_surfaces.py` holds the list of earlier paths
+and fails if one stops resolving to its new home or stops warning.
 
 ## Non-interactive platform authentication
 
@@ -109,7 +107,7 @@ reports and metadata with infra credentials and does not call the platform API
 
 - A person or agent can be given the platform surface without a kubeconfig.
 - Every old script keeps working until the deprecation window opens.
-- Two infra-side commands move later (above).
+- `project image` stays on the infra surface (above).
 - The `olf infra` documentation paths land with PR 6 of #536.
 
 ## History
@@ -132,6 +130,10 @@ direction: `olf/platform` imports only `olf.common`.
 
 The hidden aliases started warning once the documentation and CI moved to
 `olf infra` (#536, PR 6).
+
+`report validate` moved to common (#664): the bundle validators live in
+`olf.common.report_bundles`, and `olf infra report validate` became a hidden
+alias that warns with the new path.
 
 The platform row follows ADR 0021's rewritten decision 2 (#665): a platform
 command may call a service's public route directly when that service
