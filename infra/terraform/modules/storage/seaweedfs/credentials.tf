@@ -51,6 +51,55 @@ locals {
     }],
   )
 
+  # Polaris vends table-scoped credentials by assuming this role through the
+  # gateway's STS, with a session policy naming the table (ADR 0019). Every
+  # identity lives in SeaweedFS's one default account, so the trust policy names
+  # the platform identity Polaris signs its storage calls with.
+  sts_role_arn = "arn:aws:iam::000000000000:role/polaris-vending"
+  vending_buckets = length(var.stage_credentials) > 0 ? distinct(flatten([
+    for stage in values(var.stage_credentials) : [stage.bronze_bucket_name, stage.silver_bucket_name, stage.gold_bucket_name]
+  ])) : var.bucket_names
+
+  # The gateway's advanced IAM file, less the STS signing key the Job adds. A
+  # request signed with a session token is allowed only where the role's policy
+  # and the session policy both allow it; a request with a static key keeps the
+  # identity's actions above.
+  iam_config = {
+    sts = {
+      tokenDuration    = "15m"
+      maxSessionLength = "1h"
+      issuer           = "seaweedfs-sts"
+    }
+    policy = {
+      defaultEffect = "Deny"
+      storeType     = "memory"
+    }
+    policies = [{
+      name = "polaris-vending"
+      document = {
+        Version = "2012-10-17"
+        Statement = [{
+          Effect   = "Allow"
+          Action   = ["s3:*"]
+          Resource = flatten([for bucket in local.vending_buckets : ["arn:aws:s3:::${bucket}", "arn:aws:s3:::${bucket}/*"]])
+        }]
+      }
+    }]
+    roles = [{
+      roleName         = "polaris-vending"
+      roleArn          = local.sts_role_arn
+      attachedPolicies = ["polaris-vending"]
+      trustPolicy = {
+        Version = "2012-10-17"
+        Statement = [{
+          Effect    = "Allow"
+          Principal = { AWS = "arn:aws:iam::000000000000:user/${local.auth_identities[0].name}" }
+          Action    = ["sts:AssumeRole"]
+        }]
+      }
+    }]
+  }
+
   credentials_script = templatefile("${path.module}/templates/credentials.sh.tftpl", {
     admin_secret     = var.credentials_secret_name
     admin_namespaces = join(" ", local.admin_namespaces)
@@ -59,6 +108,7 @@ locals {
     s3_deployment    = local.s3_service_name
     identities       = jsonencode(local.auth_identities)
     stages           = join(" ", [for stage in values(var.stage_credentials) : "${stage.credentials_secret_name}=${stage.namespace}"])
+    iam_config       = jsonencode(local.iam_config)
   })
 }
 

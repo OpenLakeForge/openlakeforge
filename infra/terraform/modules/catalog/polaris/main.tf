@@ -48,12 +48,20 @@ locals {
       deployer_credentials_secret_name = var.deployer_credentials_secret_name
     }
   })
+  # Stage catalogs vend credentials only when the storage adapter offers an STS.
+  catalog_sts = (var.storage_contract.sts_role_arn == null ? null : {
+    role_arn     = var.storage_contract.sts_role_arn
+    sts_endpoint = var.storage_contract.sts_endpoint
+    endpoint     = var.storage_contract.endpoint
+    region       = var.storage_contract.region
+  })
   # The Job template is immutable, so a changed workload-namespace set has to
   # produce a new Job name for the credential replicas to be created.
   bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
     release_name               = var.release_name
     oauth_scope                = local.oauth_scope
     stage_catalogs             = local.stage_catalogs
+    sts                        = local.catalog_sts
     principal_role             = var.principal_role
     catalog_role               = var.catalog_role
     floe_principal_role        = var.floe_principal_role

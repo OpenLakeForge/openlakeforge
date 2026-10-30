@@ -2,9 +2,10 @@
 
 ## Status
 
-Decided, **build step 1 of 8 landed**: this is the design for #367. Step 1
-puts `data_access` in the role model, validated by `olf` and enforced by
-nothing yet. Verification items 1 (SeaweedFS STS enforces the session policy),
+Decided, **build steps 1 and 2 of 8 landed**: this is the design for #367.
+Step 1 puts `data_access` in the role model, validated by `olf` and enforced
+by nothing yet. Step 2 gives SeaweedFS an STS role for Polaris and creates new
+stage catalogs with STS available; no caller asks for vended credentials yet. Verification items 1 (SeaweedFS STS enforces the session policy),
 2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
 local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
 needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
@@ -284,7 +285,8 @@ needs no `NAMESPACE_LIST`: its grants already let it list namespaces.
 | The extra credential is the bearer: a client that holds another person's token gets that person's grants | Possession of a bearer token is the authority, as on every OIDC path. Trino keeps extra credentials out of the session it serialises into query information (V, `SessionRepresentation`), so the token is not shown in the UI or `system.runtime.queries` |
 | Gold-only roles see Bronze and Silver namespace names | Section 5 |
 | Superset users keep the shared stage principal | The Context paragraph stays true for Superset. A later step can point a Superset database at the people catalog with Superset's per-database OAuth2 (Superset table below, claims 6 and 7) |
-| Vended credentials outlive the 5-minute Dex token: Polaris issues them for one hour by default (verification item 2), and SeaweedFS will not issue less than 15 minutes. A person removed from a team keeps reading the tables already loaded until they expire. Build step 2 sets `STORAGE_CREDENTIAL_DURATION_SECONDS` to 900 and the credential cache below it (T) | Revocation still ends new table loads within 5 minutes; the credentials cover only tables the person could read when they were issued |
+| Vended credentials outlive the 5-minute Dex token: Polaris issues them for one hour by default (verification item 2), and SeaweedFS will not issue less than 15 minutes. A person removed from a team keeps reading the tables already loaded until they expire. Build step 2 sets `STORAGE_CREDENTIAL_DURATION_SECONDS` to 900 and the cache to 300, so a cached credential has at least 10 minutes left; Polaris 1.4.0 then vends 15-minute credentials (V, run) | Revocation still ends new table loads within 5 minutes; the credentials cover only tables the person could read when they were issued |
+| A stage catalog created before build step 2 vends nothing. Polaris accepts a role ARN only when the catalog is created: an update that adds one is refused (`Cannot modify Role ARN`, V, run against Polaris 1.4.0) | The bootstrap leaves such a catalog as it is and says so; the person path needs the stack redeployed from scratch. No migration is built |
 | Nothing for AWS or Azure | AWS uses Glue, out of scope by decision. Azure runs Polaris but has no Dex adapter yet (ADR 0014); it gains the path when it does |
 
 ### 8. What changes in other records when this is built
@@ -309,7 +311,10 @@ Split along the seams `AGENTS.md` names, each with its tests:
 2. Storage: an STS role in SeaweedFS for Polaris, and stage catalogs created
    with STS available (`stsUnavailable: false`, `roleArn`, `stsEndpoint`,
    `endpoint`, `pathStyleAccess`), with the credential duration of section 7.
-   Verification items 1-2 passed.
+   Verification items 1-2 passed. **Landed:** the role trusts the platform
+   identity Polaris signs with and allows the stage medallion buckets; the
+   STS signing key is minted in the cluster with the S3 keys. Catalogs that
+   already exist keep `stsUnavailable: true` (section 7).
 3. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
    objects of section 5 except the namespace grants, with `olf-signed-in`.
    Items 3 and 4 passed; settle items 5-6 first.
@@ -445,3 +450,11 @@ shared principal (fixed with `olf-signed-in`); added `olf query`'s bounded
 device-flow polling and its reading of the error cause chain, Polaris's and
 SeaweedFS's refusals (section 6); and accepted that a Gold-only role cannot
 query `information_schema.tables` across the whole catalog (section 5).
+
+Build step 2: SeaweedFS's credentials Job writes an advanced IAM file with the
+`polaris-vending` role and a signing key it keeps across runs; the storage
+contract carries the role ARN and STS endpoint; Polaris creates new stage
+catalogs with STS available and vends 15-minute credentials. Polaris refuses
+to add a role ARN to an existing catalog, so existing stacks keep vending
+nothing until redeployed (section 7). The STS `MaxSessionLength` is now set,
+to one hour.

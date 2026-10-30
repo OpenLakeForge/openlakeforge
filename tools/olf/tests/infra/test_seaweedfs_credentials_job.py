@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import sys
@@ -36,6 +37,12 @@ IDENTITIES = [
     ),
 ]
 
+# What credentials.tf renders as iam_config, reduced to the parts the Job touches.
+IAM_CONFIG = {
+    "sts": {"tokenDuration": "15m", "maxSessionLength": "1h", "issuer": "seaweedfs-sts"},
+    "roles": [{"roleName": "polaris-vending", "roleArn": "arn:aws:iam::000000000000:role/polaris-vending"}],
+}
+
 # kubectl for Deployments, which the key Secrets' fake does not model: `get` finds one when DEPLOYED is set, and
 # every `patch` is logged.
 DEPLOYMENT_KUBECTL = """\
@@ -68,6 +75,7 @@ def _run_job(
         .replace("${s3_deployment}", "seaweedfs-s3")
         .replace("${identities}", json.dumps(identities, separators=(",", ":")))
         .replace("${stages}", " ".join(f"{i['secret']}={i['namespace']}" for i in identities[1:]))
+        .replace("${iam_config}", json.dumps(IAM_CONFIG, separators=(",", ":")))
         .replace("$${", "${")
     )
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE": str(tmp_path / "secrets")} | (
@@ -82,6 +90,10 @@ def _values(secrets: Path) -> dict[Path, str]:
 
 def _config(tmp_path: Path) -> dict[str, list[dict[str, object]]]:
     return json.loads((tmp_path / "secrets/olf-system/seaweedfs-s3-auth/seaweedfs_s3_config").read_text())
+
+
+def _iam(tmp_path: Path) -> dict[str, object]:
+    return json.loads((tmp_path / "secrets/olf-system/seaweedfs-s3-auth/seaweedfs_iam_config").read_text())
 
 
 def test_a_fresh_install_creates_the_admin_pair_in_each_namespace_and_one_pair_per_stage(tmp_path: Path) -> None:
@@ -169,3 +181,28 @@ def test_a_new_stage_changes_the_config_and_so_the_annotation(tmp_path: Path) ->
     assert result.returncode == 0, result.stderr
     assert [i["name"] for i in _config(tmp_path)["identities"]][-1] == "openlakeforge-qa"
     assert (tmp_path / "secrets.patches").read_text().splitlines()[-1] != first.splitlines()[-1]
+
+
+def test_the_iam_file_carries_the_rendered_role_and_a_new_signing_key(tmp_path: Path) -> None:
+    result = _run_job(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    iam = _iam(tmp_path)
+    key = iam["sts"].pop("signingKey")
+    assert iam == IAM_CONFIG
+    assert len(base64.b64decode(key, validate=True)) == 32
+    assert key not in result.stdout
+
+
+def test_a_config_from_before_sts_gains_the_iam_file_and_keeps_its_signing_key_afterwards(tmp_path: Path) -> None:
+    _run_job(tmp_path)
+    (tmp_path / "secrets/olf-system/seaweedfs-s3-auth/seaweedfs_iam_config").unlink()
+
+    first = _run_job(tmp_path, deployed=True)
+    key = _iam(tmp_path)["sts"]["signingKey"]
+    second = _run_job(tmp_path, deployed=True)
+
+    assert (first.returncode, second.returncode) == (0, 0), first.stderr + second.stderr
+    assert _iam(tmp_path)["sts"]["signingKey"] == key
+    patches = (tmp_path / "secrets.patches").read_text().splitlines()
+    assert patches[-1] == patches[-2]

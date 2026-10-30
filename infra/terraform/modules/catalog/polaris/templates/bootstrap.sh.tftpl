@@ -64,9 +64,27 @@
       \"storageType\": \"S3\",
       \"allowedLocations\": [\"s3://${stage.bronze_bucket_name}/\", \"s3://${stage.silver_bucket_name}/\", \"s3://${stage.gold_bucket_name}/\"],
       \"pathStyleAccess\": true,
+%{ if sts != null ~}
+      \"roleArn\": \"${sts.role_arn}\",
+      \"region\": \"${sts.region}\",
+      \"endpoint\": \"${sts.endpoint}\",
+      \"stsEndpoint\": \"${sts.sts_endpoint}\",
+      \"stsUnavailable\": false
+%{ else ~}
       \"stsUnavailable\": true
+%{ endif ~}
     }
   }"
+%{ if sts != null ~}
+  # Polaris refuses to add a role ARN to an existing catalog, so a catalog
+  # created before STS was configured keeps vending nothing (ADR 0019).
+  if [ "$POLARIS_RESPONSE_CODE" = "409" ]; then
+    request GET "/catalogs/${stage.catalog_name}" "200"
+    if ! grep -Eq '"stsUnavailable" *: *false' /tmp/polaris-body; then
+      echo "Catalog ${stage.catalog_name} was created without STS and vends no credentials; a stack redeployed from scratch gets it." >&2
+    fi
+  fi
+%{ endif ~}
 %{ endfor ~}
 
   create_principal_secret() {
