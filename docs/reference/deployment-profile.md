@@ -123,6 +123,18 @@ both fields deploys exactly as it did before they existed, and
 storage=small`; `query` and `storage` in `--json`). Nothing deploys differently
 by size yet.
 
+What each size means on the local profile, as the Helm values set it today:
+
+| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server (`seaweedfs.yaml`) | Available |
+| --- | --- | --- | --- |
+| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC | Yes |
+| `medium` | Not defined | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `large` | Not defined | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+
+The `small` volume figure is the chart default, not yet derived from
+`storage.size`; the profile does not change it. This page gives no data-volume
+or host-capacity guidance because none has been measured.
+
 ### `spec.stages`
 
 An object with at least one of the keys `dev`, `uat` and `prod`. Any other key is
@@ -301,10 +313,11 @@ role, and one claim value may not map to two roles.
 
 #### `spec.identity.client_ids` (`external` only)
 
-An object with at least one key from `perimeter`, `superset`, `openmetadata` and
-`trino`; each value is a non-empty string. A consumer left out uses its own name
-as the client id. `external` deploys no issuer: you provide the four client
-Secrets the contract names, as described in ADR 0014.
+An object with at least one key from `perimeter`, `superset`, `openmetadata`,
+`trino` and `olf-cli`; each value is a non-empty string. A consumer left out
+uses its own name as the client id. `external` deploys no issuer: you provide
+the four client Secrets the contract names, as described in ADR 0014. `olf-cli`
+is a public client and has no Secret.
 
 ---
 
