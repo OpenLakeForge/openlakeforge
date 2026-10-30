@@ -407,7 +407,7 @@ def _dagster_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
 def _reports_component(project: ProjectSpec, inventory: Any) -> ComponentEntries | None:
     if not inventory.dashboards:
         return None
-    from olf.infra.superset import validate_report_bundles
+    from olf.common.report_bundles import validate_report_bundles
 
     # Report bundles are the one component promotion never re-derives: PROD
     # imports what DEV exported, and #130 forbids exporting from PROD to

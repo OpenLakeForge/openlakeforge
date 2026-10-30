@@ -129,7 +129,7 @@ promoted to PROD carries its dashboards.
 ## Check it worked
 
 ```bash
-olf infra report validate
+olf report validate
 ```
 
 It checks every bundle for stable identities, resolvable references and no
