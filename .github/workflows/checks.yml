@@ -26,6 +26,9 @@ jobs:
       - name: Check documentation manifest and links
         run: uv run --project tools/olf --locked olf check docs
 
+      - name: Check agent skills
+        run: uv run --project tools/olf --locked olf check skills
+
   infrastructure:
     name: Validate infrastructure contracts
     runs-on: ubuntu-latest

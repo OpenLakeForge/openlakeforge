@@ -15,6 +15,7 @@ from olf.commands.checks._flows import flows
 from olf.commands.checks._infra import infra
 from olf.commands.checks._project_code import project_code
 from olf.commands.checks._security import security
+from olf.commands.checks._skills import skills
 from olf.commands.checks._structure import structure
 
 app = typer.Typer(help="Repository validation and contributor checks.")
@@ -29,6 +30,7 @@ app.command("lockfiles")(lockfiles)
 app.command("project-code")(project_code)
 app.command("dbt")(dbt)
 app.command("security")(security)
+app.command("skills")(skills)
 
 
 @app.command("all")
@@ -36,6 +38,7 @@ def all_checks(repo_root: str = typer.Option("", "--repo-root", help="Checkout r
     """Run the complete contributor and release-readiness gate."""
     structure(repo_root)
     docs(repo_root)
+    skills(repo_root)
     components(repo_root)
     contracts(repo_root)
     flows(repo_root)

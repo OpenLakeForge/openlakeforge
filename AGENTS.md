@@ -70,6 +70,7 @@ labels expressing intended sequence within a milestone.
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
+| `skills/` | Agent skills for people operating a stack with `olf`; validated by `olf check skills` |
 | `infra/terraform/environments/` | Per-environment wiring; `contracts.tf` is the contract surface |
 | `infra/terraform/foundations/` | Cluster and registry creation (kind, AKS, EKS) |
 | `infra/terraform/modules/` | Component modules grouped by capability |
