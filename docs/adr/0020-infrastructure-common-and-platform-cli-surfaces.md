@@ -4,8 +4,9 @@
 
 Partly binding. **Binding today:** the `olf infra` group, the common top-level
 commands, and the hidden aliases that keep every earlier path working (#536,
-PR 2b). **Decided, not built:** the platform surface (`olf login`, `whoami`,
-`logout`, `domain list`) and the non-interactive authentication contract below.
+PR 2b), and the platform session commands `olf login`, `whoami` and `logout`
+(PR 4). **Decided, not built:** `olf domain list` and the non-interactive
+authentication contract below.
 
 ## Context
 
