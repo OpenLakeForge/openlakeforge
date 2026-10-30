@@ -4,8 +4,11 @@
 
 Decided, **build step 1 of 8 landed**: this is the design for #367. Step 1
 puts `data_access` in the role model, validated by `olf` and enforced by
-nothing yet. Verification items 1 (SeaweedFS STS enforces the session policy)
-and 2 (Polaris vends table-scoped credentials through it) passed. **Binding today:**
+nothing yet. Verification items 1 (SeaweedFS STS enforces the session policy),
+2 (Polaris vends table-scoped credentials through it) and 3 (Polaris trusts the
+local CA for Dex) passed. Item 3 found that Polaris activates **all** of a
+principal's roles when a token maps to none; section 4, step 11 is corrected
+for it. **Binding today:**
 v0.5-alpha has service-level authorization only, and nothing in it restricts
 which tables a signed-in user reads (Context). **Decided for the build:**
 `olf query` stops running through `kubectl exec` as the stage's shared
@@ -64,7 +67,7 @@ share (ADR 0015). This design reverses that for the person path:
 | --- | --- | --- | --- |
 | 1 | Trino 480 cannot read groups from a token: the `jwt` and `oauth2` authenticators' property lists have no groups field, and file-based rules match `group` only through a `file` or `ldap` group provider. A role in Trino would need a group file synced from GitHub membership | V | Trino 480 docs, JWT authentication, OAuth 2.0 authentication |
 | 2 | Polaris reads roles from a claim: `quarkus.oidc.roles.role-claim-path` selects it, and the principal-roles mapper keeps the values matching `filter` and rewrites each through an ordered list of `regex` / `replacement` mappings | V | `DefaultPrincipalRolesMapper`, `OidcTenantConfiguration.PrincipalRolesMapper` |
-| 3 | The roles active on a request are the token's mapped roles that the principal was also granted in Polaris; a role the token does not carry is not active | V | `DefaultAuthenticator.resolvePrincipalRoles` (ADR 0015) |
+| 3 | The roles active on a request are the token's mapped roles that the principal was also granted in Polaris; a role the token does not carry is not active. **Except when the token maps to no role at all:** the authenticated principal then has an empty role set, and the resolver activates every role the principal was granted. Section 4, step 11 keeps the set from ever being empty | V, run (item 3 proof) | `DefaultAuthenticator.resolvePrincipalRoles`; `Resolver.resolveCallerPrincipalAndPrincipalRoles` (`getRoles().isEmpty() ? resolveAllPrincipalRoles(...)`) at `apache-polaris-1.4.0` |
 | 4 | Polaris catalogs are already per stage (`lakehouse_<stage>`, one per stage catalog in the bootstrap), so a grant on a catalog is a grant on a stage. The stage binding needs no rewritten Trino user name, which the previous version listed as an open prerequisite | V | `modules/catalog/polaris/templates/bootstrap.sh.tftpl` |
 | 5 | Iceberg data files are read with Trino's own S3 key and vended credentials are off, so Polaris does not gate file reads directly. It gates the table metadata: `LOAD_TABLE` needs `TABLE_READ_PROPERTIES`, `UPDATE_TABLE` needs `TABLE_WRITE_PROPERTIES`, a direct create `TABLE_CREATE`. Without the metadata Trino has no file to read and no commit to make. Section 3 replaces that key with Polaris-issued credentials on the person path | V (operations); T (no read path in the Iceberg connector skips `loadTable`) | `PolarisAuthorizableOperation`; `modules/query/trino/main.tf` |
 
@@ -213,8 +216,8 @@ sequenceDiagram
 | 7 | People catalog | One more Trino catalog per stage on the same Polaris warehouse, named `<stage>` (`dev`, `uat`, `prod`): `iceberg.rest-catalog.session=USER`, `iceberg.rest-catalog.session-timeout=0s`, `iceberg.rest-catalog.vended-credentials-enabled=true` with no static S3 key (section 3), and an OAuth2 credential of a Polaris principal `trino-people-<stage>` that holds no grant. `olf query` makes it the session default, so the name shows only in fully qualified SQL (`prod.order_revenue_gold.mart_order_revenue_by_day`). It is Trino connection plumbing, not policy: it exists because `session=USER` is all-or-nothing per catalog (rejected alternatives) | V (properties) |
 | 8 | Token to Polaris | With `session=USER` Trino passes the user's extra credentials to the Iceberg client and adds an unsigned JWT of its own as `JWT_TOKEN_TYPE`. The Iceberg client uses a `token` credential as the bearer **before** trying any token exchange. So the person's Dex token reaches Polaris; a request without it falls through to exchanging Trino's unsigned JWT, which Polaris does not accept (ADR 0015), and fails closed | V (`TrinoRestCatalog.convert`; `OAuth2Manager.maybeCreateChildSession`); T (Polaris's refusal of the exchange) |
 | 9 | Session cache | The Iceberg session is cached per `<user>-<source>` with `expireAfterAccess(session-timeout)`, the default one hour. A person querying more often than that would keep presenting their first, expired token, so the people catalog sets the timeout to zero and builds the session from the current token each time. Wrapping a bearer token makes no network call | V (`AuthSessionCache`, `IcebergRestCatalogConfig`: `@MinDuration("0ms")`); T (zero disables reuse) |
-| 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `oidc.authServeUrl` `https://auth.<base_domain>`, discovery off with the JWKS path set (as Trino's UI does, because Dex is served by Traefik), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `nameClaimPath: federated_claims/connector_id`; roles from `groups` | V (mapper reads a nested claim and calls `toString`, `ClaimsLocator`); T (CA trust in the JVM, ADR 0015; `quarkus.oidc.token.audience` as the audience check) |
-| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles; the token's `groups` decide which are active (finding 3). Revocation is Dex's: a person removed from a team loses the role at their next refresh, within 5 minutes, with no Polaris change | V (connector id `github` in `modules/identity/dex/main.tf`); T (Dex emits `federated_claims` on access tokens) |
+| 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `quarkus.oidc.auth-server-url` `https://auth.<base_domain>`, `discovery-enabled=false` with `jwks-path=keys` (as Trino's UI does, because Dex is served by Traefik), the local CA through a named TLS configuration (`quarkus.oidc.tls.tls-configuration-name`, `quarkus.tls.<name>.trust-store.pem.certs`), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `name-claim-path: federated_claims/connector_id`; roles from `groups` and `federated_claims/connector_id` (step 11) | V, run (item 3 proof) |
+| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles and `olf-signed-in`, a principal role with no catalog role. The token's `groups` decide which canonical roles are active (finding 3). Its connector id is also read as a role and mapped to `olf-signed-in`, so the active set is never empty: without that, a token whose groups map to nothing, including one requested without the `groups` scope, which the person chooses in their own sign-in, would activate all four roles, platform-admin included (item 3 proof, o3 and o3c). Revocation is Dex's: a person removed from a team loses the role at their next refresh, within 5 minutes, with no Polaris change | V, run (item 3 proof; connector id `github` in `modules/identity/dex/main.tf`); T (the GitHub connector's tokens, item 4) |
 
 ### 5. Polaris objects
 
@@ -223,13 +226,14 @@ principals and roles the bootstrap already creates.
 
 | Object | Scope | Content | Created by, phase |
 | --- | --- | --- | --- |
-| Principal `github` | realm | Granted the four principal roles below | Polaris bootstrap Job, platform |
+| Principal `github` | realm | Granted the four principal roles below and `olf-signed-in` | Polaris bootstrap Job, platform |
+| Principal role `olf-signed-in` | realm | No catalog role. Active on every person's request, so the active role set is never empty (section 4, step 11) | bootstrap, platform |
 | Principal roles `olf-platform-admin`, `olf-data-engineer`, `olf-analyst`, `olf-viewer` | realm | Each assigned the catalog roles its `data_access` row needs, per stage catalog | bootstrap, platform |
 | Catalog role `olf-write` | each `lakehouse_<stage>` | `CATALOG_MANAGE_CONTENT` on the catalog | bootstrap, platform |
 | Catalog role `olf-read` | each `lakehouse_<stage>` | On the catalog: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | bootstrap, platform |
 | Catalog role `olf-gold-read` | each `lakehouse_<stage>` | `NAMESPACE_LIST` on the catalog; on **each Gold namespace**: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | catalog grant: bootstrap, platform; namespace grants: `olf catalog sync-namespaces`, artifacts |
 | Principal `trino-people-<stage>` | realm | No catalog role. The people catalog's own credential, used for the configuration call | bootstrap, platform |
-| Principal-roles mapper | Polaris chart values | `filter` matching every claim value in `role_mapping`; one mapping per value, `^<quoted value>$` to `PRINCIPAL_ROLE:olf-<role>`, rendered by the local root from `role_mapping`, so keyed by canonical role | Terraform, platform |
+| Principal-roles mapper | Polaris chart values | `quarkus.oidc.roles.role-claim-path` `groups,federated_claims/connector_id`; `filter` matching every claim value in `role_mapping` and the connector id; one mapping per claim value, `^<quoted value>$` to `PRINCIPAL_ROLE:olf-<role>`, plus `^github$` to `PRINCIPAL_ROLE:olf-signed-in`, rendered by the local root from `role_mapping`, so keyed by canonical role | Terraform, platform |
 
 `TABLE_READ_DATA` implies `TABLE_READ_PROPERTIES` and `TABLE_LIST` in Polaris's
 privilege hierarchy (V, `PolarisAuthorizerImpl` super-privileges). It is
@@ -301,7 +305,8 @@ Split along the seams `AGENTS.md` names, each with its tests:
    `endpoint`, `pathStyleAccess`), with the credential duration of section 7.
    Verification items 1-2 passed.
 3. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
-   objects of section 5 except the namespace grants. Settle items 3-6 first.
+   objects of section 5 except the namespace grants, with `olf-signed-in`.
+   Item 3 passed; settle items 4-6 first.
 4. `olf catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
    the deployer's `CATALOG_MANAGE_ACCESS`.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
@@ -325,10 +330,12 @@ The **T** items that could change the design, to run on kind first:
 2. **Passed** (proof below). Polaris 1.4.0 vends credentials through
    SeaweedFS's STS endpoint for a catalog with STS available, and still serves
    a request without delegation.
-3. Polaris 1.4.0 trusts the local CA for the Dex JWKS (ADR 0015 to-verify),
-   with discovery off.
+3. **Passed** (proof below). Polaris 1.4.0 trusts the local CA for the Dex
+   JWKS (ADR 0015 to-verify), with discovery off.
 4. Dex v2.46.0 access tokens carry `email`, `groups` and `federated_claims`
-   for the scopes of step 1, with `aud` equal to `olf-cli`.
+   for the scopes of step 1, with `aud` equal to `olf-cli`. **Shown for Dex's
+   local password connector** (item 3 proof); the GitHub connector is still to
+   test.
 5. Polaris refuses the token exchange of Trino's unsigned JWT (step 8), so a
    missing extra credential fails closed rather than falling back to
    `trino-people-<stage>`.
@@ -434,6 +441,57 @@ values; an engine (Trino or DuckDB) reading and committing with the vended
 credentials (item 8); the shorter `STORAGE_CREDENTIAL_DURATION_SECONDS`
 accepted end to end.
 
+### Proof: Polaris trusts the local CA for Dex (item 3)
+
+Run locally on 2026-10-30, not kept in the repository. Dex v2.46.0 and the
+Polaris 1.4.0 application, both from their pinned images checked against their
+digests, ran on the host. Dex served HTTPS on `localhost` with a certificate
+from a throwaway CA, with its local password connector and two static users
+whose `groups` stand in for GitHub teams: alice in `acme:analysts`, mapped to
+`olf-analyst`, and bob in `acme:interns`, mapped to nothing. Tokens came from
+Dex's password grant to client `olf-cli`. Three Polaris instances in `mixed`
+mode used the configuration of section 4, step 10: **as designed** (roles from
+`groups` only), **fixed** (step 11 as corrected here), and a **control** with no
+CA. In each, the root principal created principal `local` (the password
+connector's id) holding `olf-analyst` (`NAMESPACE_LIST` on `lakehouse_dev`),
+`olf-platform-admin` (`CATALOG_MANAGE_CONTENT`) and `olf-signed-in` (nothing).
+
+Alice's access token carried `aud: olf-cli`, `email`, `groups:
+[acme:analysts]` and `federated_claims: {connector_id: local, ...}`. 16 cases;
+the two marked **escalation** are the as-designed configuration failing as
+expected once the fault was found:
+
+| Case | Request | Result |
+| --- | --- | --- |
+| o1 | Polaris starts in `mixed` against Dex on HTTPS, discovery off, CA from the named TLS configuration | ready |
+| o2, o2b | as designed, alice: list namespaces; create one (needs `olf-platform-admin`) | 200; 403 |
+| o3 | as designed, bob (group maps to no role): create a namespace | 200, **escalation** |
+| o3c | as designed, alice's token requested without the `groups` scope: create a namespace | 200, **escalation** |
+| f2, f2b | fixed, alice: list namespaces; create one | 200; 403 |
+| f3, f3b, f3c | fixed, bob: list; create; alice without `groups`: create | 403; 403; 403 |
+| o4 | token Dex issued to another client (`aud` not `olf-cli`) | 401 |
+| o5 | alice's token with a tampered signature | 401 |
+| o6 | Polaris's own root token in `mixed` | 200 |
+| o7 | control (no CA), alice | 500 |
+| o8 | Dex stopped: Polaris's root token | 200 |
+| o9 | control's log | names a certificate-path (`PKIX`) failure |
+
+Polaris's authentication log resolved, as designed, `roles=[olf-analyst]` for
+alice and `roles=[]` for bob, after which the resolver activated every role
+`local` holds. Fixed, it resolved `[olf-signed-in, olf-analyst]` and
+`[olf-signed-in]`.
+
+What the run settles: the named TLS configuration is what lets Polaris fetch
+Dex's keys (o2 against o7, o9), with discovery off; the audience check refuses
+tokens minted for other clients (o4); Polaris's own credentials keep working
+with Dex down (o8), so pipelines stay off the issuer's availability path; and
+the shared-principal design needs `olf-signed-in` (section 4, step 11).
+Without the CA, Polaris answers 500 rather than 401: it still refuses.
+
+**Not proved:** Dex's GitHub connector (item 4) and `auth.<base_domain>`
+reached through the cluster's DNS rewrite; Polaris's JVM trust in a pod with
+the CA mounted from the `olf-local-ca` ConfigMap.
+
 ## Superset 6.1.0: per-user propagation (carried forward)
 
 Not part of this decision; kept as the record for the Superset follow-up.
@@ -462,7 +520,7 @@ follow-up.
 | Trino file-based rules keyed by canonical role (this record's previous decision) | Trino 480 reads no groups from a token (finding 1), so roles would reach it only through a group file synced from GitHub, and a stage-scoped user name would be needed to keep DEV and PROD apart. Policy in one engine would also have to be rewritten for every other engine (section 3); DuckDB has no rules to write it in. Its one advantage, working on Glue too, is out of scope |
 | The engine reads the person's tables with its own storage key | Polaris would then decide only metadata, and the guarantee would depend on each engine never exposing a path to its key. Acceptable for one locked-down server, not as the rule every engine must meet (section 3) |
 | `session=USER` on the existing `lakehouse_<stage>` catalogs | Every workload caller would lose its catalog access: with no `token` credential the Iceberg client exchanges Trino's unsigned JWT, which Polaris does not accept (step 8) |
-| One Polaris principal per person | Needs a job copying GitHub team membership into Polaris principals, with revocation as late as that job runs. The token's `groups` already carry the role, and Polaris intersects them with the grants (finding 3) |
+| One Polaris principal per person | Needs a job copying GitHub team membership into Polaris principals, with revocation as late as that job runs. The token's `groups` already carry the role, and Polaris intersects them with the grants, provided the role set is never empty (finding 3, `olf-signed-in`) |
 | One Polaris principal per role, chosen by Trino | A Trino catalog has one catalog credential and cannot pick one per user |
 | Polaris `external` authentication | Disables Polaris's own token endpoint, which the bootstrap Job and every workload use (ADR 0015) |
 | A workload principal impersonating the person (`X-Trino-User`) | The workstation would hold a service password, and Trino would trust the client's claim of who the person is |
@@ -523,3 +581,12 @@ Verification item 2 run locally against the pinned Polaris 1.4.0 and SeaweedFS
 4.48, 12 cases passing; section 3, finding 2 is now verified by a run. It found
 that Polaris vends for one hour by default, which section 7 now records with
 the setting build step 2 lowers it with.
+
+Verification item 3 run locally against the pinned Dex v2.46.0 and Polaris
+1.4.0: Polaris trusts a local CA for Dex's keys through a named TLS
+configuration with discovery off. The run found that Polaris activates every
+role of a principal whose token maps to none, which made the shared `github`
+principal grant platform-admin to a token without a mapped group, including one
+requested without the `groups` scope. Finding 3 and section 4, step 11 now add
+`olf-signed-in`, read from the always-present connector id, and the fix was run
+in the same proof.
