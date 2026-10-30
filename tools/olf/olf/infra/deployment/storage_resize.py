@@ -86,14 +86,17 @@ def plan_storage_resize(
 def grow_seaweedfs_volumes(
     config: DeploymentConfig, tools: Toolkit, *, kube_context: str, env: Mapping[str, str]
 ) -> None:
-    """Expand the claims `plan_storage_resize` names, then release the StatefulSets that own them.
+    """Expand the claims `plan_storage_resize` names, then release the StatefulSets whose templates are stale.
 
     Kubernetes forbids editing a StatefulSet's volume claim templates, which is where the chart writes the size,
     so the Helm upgrade that follows would fail. Deleting a StatefulSet with `--cascade=orphan` removes only the
-    controller object: pods and volumes keep running, and the upgrade recreates it with the new template. The
-    plan is recomputed, so a retry after a partial run finds the claims already grown.
+    controller object: pods and volumes keep running, and the upgrade recreates it with the new template. Which
+    StatefulSets to release is read from their own templates, not from the claims grown in this run, so a retry
+    after a run that stopped between the patch and the delete still releases them.
     """
     growth = plan_storage_resize(config, tools, kube_context=kube_context, env=env)
+    if config.context.provider == Provider.AWS:
+        return
     namespace = config.context.shared_namespace
     kubeconfig = config.paths.kubeconfig_path
     for step in growth:
@@ -107,7 +110,7 @@ def grow_seaweedfs_volumes(
             kubeconfig=kubeconfig,
             env=env,
         )
-    for statefulset in dict.fromkeys(step.statefulset for step in growth):
+    for statefulset in _stale_statefulsets(config, tools, kube_context=kube_context, env=env):
         tools.kubectl.delete(
             "statefulset",
             statefulset,
@@ -184,6 +187,42 @@ def _seaweedfs_claims(
             )
         )
     return claims
+
+
+def _stale_statefulsets(
+    config: DeploymentConfig, tools: Toolkit, *, kube_context: str, env: Mapping[str, str]
+) -> list[str]:
+    """The SeaweedFS StatefulSets whose claim templates request a size other than `spec.storage.size`'s."""
+    namespace = config.context.shared_namespace
+    result = tools.kubectl.get(
+        "statefulset",
+        namespace=namespace,
+        context=kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        output="json",
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        raise DeploymentPreconditionError(
+            f"could not list the StatefulSets in namespace '{namespace}': "
+            f"{(result.stderr or result.stdout).strip() or 'non-zero status'}. Whether a SeaweedFS StatefulSet "
+            "still carries the old volume size cannot be determined; restore access to the cluster and re-run."
+        )
+    roles = {f"{_RELEASE}-{role}": role for role in ("master", "filer", "volume")}
+    seaweedfs = [item for item in _items(result.stdout, what="StatefulSets") if item["metadata"]["name"] in roles]
+    if not seaweedfs:  # first install: the apply creates them at the profile's size
+        return []
+    targets = load_object_store_volumes(config.paths.distribution_root)[config.context.topology.storage_size]
+    stale: list[str] = []
+    for item in seaweedfs:
+        name = item["metadata"]["name"]
+        target = quantity_bytes(_target_for(targets, roles[name]))
+        templates = item.get("spec", {}).get("volumeClaimTemplates", [])
+        requests = [t.get("spec", {}).get("resources", {}).get("requests", {}).get("storage") for t in templates]
+        if any(request and quantity_bytes(request) != target for request in requests):
+            stale.append(name)
+    return stale
 
 
 def _storage_classes(

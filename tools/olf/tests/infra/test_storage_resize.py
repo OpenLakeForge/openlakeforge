@@ -33,15 +33,28 @@ _LARGE = {_MASTER: "5Gi", _FILER: "50Gi", _VOLUME: "2Ti"}
 
 
 class _Cluster(RecordingRunner):
-    """The slice of a cluster a resize reads: its PVCs and StorageClasses. Everything else answers empty."""
+    """The slice of a cluster a resize reads: its PVCs, StorageClasses and SeaweedFS StatefulSets. Everything else
+    answers empty. Each StatefulSet's claim template carries its claim's size unless `templates` says otherwise."""
 
     def __init__(
-        self, claims: dict[str, str], *, classes: dict[str, bool], claim_class: str | None = "standard"
+        self,
+        claims: dict[str, str],
+        *,
+        classes: dict[str, bool],
+        claim_class: str | None = "standard",
+        templates: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
         self.claims = claims
         self.classes = classes
         self.claim_class = claim_class
+        self.templates = (
+            templates
+            if templates is not None
+            else {
+                "seaweedfs-" + name.rsplit("-seaweedfs-", 1)[1].rsplit("-", 1)[0]: size for name, size in claims.items()
+            }
+        )
 
     def run(self, command, **kwargs):  # type: ignore[no-untyped-def,override]
         argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
@@ -69,6 +82,15 @@ class _Cluster(RecordingRunner):
                     **({"allowVolumeExpansion": True} if expandable else {}),
                 }
                 for name, expandable in self.classes.items()
+            ]
+            return _ok(json.dumps({"items": items}))
+        if verb == "statefulset":
+            items = [
+                {
+                    "metadata": {"name": name},
+                    "spec": {"volumeClaimTemplates": [{"spec": {"resources": {"requests": {"storage": size}}}}]},
+                }
+                for name, size in self.templates.items()
             ]
             return _ok(json.dumps({"items": items}))
         return _ok()
@@ -169,6 +191,28 @@ def test_a_retry_after_a_partial_run_grows_only_what_is_still_small(tmp_path: Pa
     growth = _plan(_config(tmp_path, Size.MEDIUM), _Cluster(claims, classes={"standard": True}))
 
     assert {step.pvc for step in growth} == {_MASTER, _FILER}
+
+
+def test_a_retry_after_the_claims_grew_still_releases_the_statefulsets_left_behind(tmp_path: Path) -> None:
+    """The last run patched every claim and stopped before deleting the StatefulSets: their templates still say
+    `small`, and the Helm upgrade cannot change them in place."""
+    medium = {_MASTER: "2Gi", _FILER: "20Gi", _VOLUME: "300Gi"}
+    stale = {"seaweedfs-master": "1Gi", "seaweedfs-filer": "5Gi", "seaweedfs-volume": "20Gi"}
+    cluster = _Cluster(medium, classes={"standard": True}, templates=stale)
+
+    grow_seaweedfs_volumes(_config(tmp_path, Size.MEDIUM), _toolkit(cluster), kube_context="kind-test", env={})
+
+    assert not [argv for argv in cluster.mutations() if "patch" in argv]
+    deletions = sorted(argv[argv.index("delete") + 2] for argv in cluster.mutations() if "delete" in argv)
+    assert deletions == ["seaweedfs-filer", "seaweedfs-master", "seaweedfs-volume"]
+
+
+def test_growing_to_the_size_already_applied_touches_nothing(tmp_path: Path) -> None:
+    cluster = _Cluster(_SMALL, classes={"standard": False})
+
+    grow_seaweedfs_volumes(_config(tmp_path, Size.SMALL), _toolkit(cluster), kube_context="kind-test", env={})
+
+    assert cluster.mutations() == []
 
 
 def test_growing_where_the_storage_class_cannot_expand_is_refused_before_any_mutation(tmp_path: Path) -> None:
