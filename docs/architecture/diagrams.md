@@ -190,7 +190,7 @@ custom REST push both remain rejected.
 
 ## Three phases, one CD boundary
 
-`olf deploy` runs three ordered phases: **foundation** (the cluster and
+`olf infra deploy` runs three ordered phases: **foundation** (the cluster and
 registry), **platform** (Terraform-managed services), then **artifacts**
 (everything derived from `lakehouse_code/`). The CD boundary is not "foundation
 is outside, the rest is the deploy" — it is the static/dynamic split between
@@ -199,16 +199,16 @@ never runs Terraform for a domain change ([ADR 0002](../adr/0002-deployment-life
 
 | Phase | Target | Deploys |
 | --- | --- | --- |
-| 1 — Foundation | `olf deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
-| 2 — Platform | `olf deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
-| 3 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: catalog namespaces, the project-code image (Dagster definitions, Floe contracts, dbt code), Superset dashboards, OpenMetadata data products |
+| 1 — Foundation | `olf infra deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
+| 2 — Platform | `olf infra deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
+| 3 — Artifacts | `olf infra deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: catalog namespaces, the project-code image (Dagster definitions, Floe contracts, dbt code), Superset dashboards, OpenMetadata data products |
 
 Phases 1 and 2 are static infrastructure that Terraform owns; phase 3 is
-dynamic and code-derived. `olf deploy --provider local` with no `--phase` chains
+dynamic and code-derived. `olf infra deploy --provider local` with no `--phase` chains
 1 → 2 → 3; phases 1 and 2 are idempotent no-ops when nothing changed. Phase 3,
-in order: load contract env → `olf catalog sync-namespaces` → build + load
-`project-code` → `olf k8s set-project-code-image` → `olf report import` (analytics
-layer on) → `olf openmetadata deploy-metadata` (governance layer on). The image step
+in order: load contract env → `olf infra catalog sync-namespaces` → build + load
+`project-code` → `olf infra k8s set-project-code-image` → `olf infra report import` (analytics
+layer on) → `olf infra openmetadata deploy-metadata` (governance layer on). The image step
 patches the run-launcher ConfigMap, every Dagster deployment, and the log-archive
 CronJob to the new image before waiting on each rollout — not a bare `kubectl rollout
 restart`. The Floe contracts ship inside the project-code image; nothing
@@ -241,7 +241,7 @@ are deleted on TTL; their evidence is not:
 
 ```text
 s3://openlakeforge-ops/
-├── project/revisions/sha256/{digest}/                          ← olf project build
+├── project/revisions/sha256/{digest}/                          ← olf infra project build
 └── activations/{stage}/
     ├── floe/reports/{domain}/run_{id}/                         ← the domain's Floe Job
     ├── logs/dagster/compute/                                   ← S3ComputeLogManager
@@ -290,7 +290,7 @@ without duplicating ingestion: `sales` (`order_revenue`, `customer_health`) uses
 `crm/accounts` asset and one `sales/accounts` asset, while `supply_chain`
 (`inventory_reliability`) consumes `erp`. Adding a data product changes only its bronze,
 silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
-`olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
+`olf infra catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
 `governance.yml` and every `bronze/*/source.yaml` (a domain owns `<domain>_silver`, a product
 `<product>_gold`) and reconciles them before Floe, dbt, or OpenMetadata use them. A new product, domain, or source therefore needs no environment
 Terraform edit or platform apply; see ADR 0002 and ADR 0004. `lakehouse_code/governance.yml`

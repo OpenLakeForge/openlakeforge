@@ -45,25 +45,25 @@ orchestration, reporting, and governance boundaries.
 ## Local workflow
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider local --phase foundation
-uv run --project tools/olf --locked olf deploy --provider local
-uv run --project tools/olf --locked olf destroy --provider local
-uv run --project tools/olf --locked olf destroy --provider local --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider local --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider local
+uv run --project tools/olf --locked olf infra destroy --provider local
+uv run --project tools/olf --locked olf infra destroy --provider local --phase foundation
 ```
 
-`olf deploy --provider local --phase foundation` runs `terraform init` and
+`olf infra deploy --provider local --phase foundation` runs `terraform init` and
 `terraform apply` in `infra/terraform/foundations/local-kind`. Terraform owns
 the local kind cluster lifecycle while the cluster definition remains in
 `infra/kind/local`.
 
-`olf deploy --provider local` runs two platform phases:
+`olf infra deploy --provider local` runs two platform phases:
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider local --phase platform
-uv run --project tools/olf --locked olf deploy --provider local --phase artifacts
+uv run --project tools/olf --locked olf infra deploy --provider local --phase platform
+uv run --project tools/olf --locked olf infra deploy --provider local --phase artifacts
 ```
 
-`olf deploy --provider local --phase platform` runs `terraform init` and a
+`olf infra deploy --provider local --phase platform` runs `terraform init` and a
 normal `terraform apply` in `infra/terraform/environments/local`. Terraform
 owns:
 
@@ -82,7 +82,7 @@ owns:
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 - SeaweedFS S3, Filer, and Master services for local object storage and inspection
 
-`olf deploy --provider local --phase artifacts` owns the local/CD artifacts:
+`olf infra deploy --provider local --phase artifacts` owns the local/CD artifacts:
 
 - catalog namespace reconciliation
 - project-code image build/load
@@ -99,14 +99,14 @@ secret manager integration is implemented yet.
 ## Azure AKS POC workflow
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider azure --phase foundation
-uv run --project tools/olf --locked olf deploy --provider azure
-uv run --project tools/olf --locked olf e2e run --env azure
-uv run --project tools/olf --locked olf destroy --provider azure
-uv run --project tools/olf --locked olf destroy --provider azure --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider azure --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider azure
+uv run --project tools/olf --locked olf infra e2e run --env azure
+uv run --project tools/olf --locked olf infra destroy --provider azure
+uv run --project tools/olf --locked olf infra destroy --provider azure --phase foundation
 ```
 
-`olf deploy --provider azure --phase foundation` runs Terraform in
+`olf infra deploy --provider azure --phase foundation` runs Terraform in
 `infra/terraform/foundations/azure-aks` to create the AKS cluster, ACR registry,
 AKS-to-ACR `AcrPull` role assignment, and AKS OIDC / Workload Identity
 readiness. The wrapper then runs `az aks get-credentials`.
@@ -119,7 +119,7 @@ cd infra/terraform/foundations/azure-aks
 cp sandbox.tfvars.example sandbox.tfvars
 # Edit resource_group_name, create_resource_group, location, and node_vm_size.
 cd ../../../..
-uv run --project tools/olf --locked olf deploy --provider azure --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider azure --phase foundation
 ```
 
 With `create_resource_group = false`, Terraform reads the resource group as
@@ -129,16 +129,16 @@ foundation directory. With `create_resource_group = true`, Terraform creates
 the group and uses `rg-openlakeforge-azure-poc` when `resource_group_name` is
 omitted.
 
-`olf deploy --provider azure` runs:
+`olf infra deploy --provider azure` runs:
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider azure --phase platform
-uv run --project tools/olf --locked olf deploy --provider azure --phase artifacts
+uv run --project tools/olf --locked olf infra deploy --provider azure --phase platform
+uv run --project tools/olf --locked olf infra deploy --provider azure --phase artifacts
 ```
 
-`olf deploy --provider azure --phase platform` deploys the Superset image pinned
+`olf infra deploy --provider azure --phase platform` deploys the Superset image pinned
 in `release/component-catalog.yaml` from GHCR; nothing is built or pushed for it.
-`olf deploy --provider azure --phase artifacts` reconciles catalog namespaces, builds and
+`olf infra deploy --provider azure --phase artifacts` reconciles catalog namespaces, builds and
 pushes the project-code image, imports Superset reports, deploys OpenMetadata metadata,
 and restarts Dagster.
 
@@ -150,33 +150,33 @@ not active POC implementations.
 ## AWS EKS POC workflow
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider aws --phase foundation
-uv run --project tools/olf --locked olf deploy --provider aws
-uv run --project tools/olf --locked olf e2e run --env aws
-uv run --project tools/olf --locked olf destroy --provider aws
-uv run --project tools/olf --locked olf destroy --provider aws --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider aws --phase foundation
+uv run --project tools/olf --locked olf infra deploy --provider aws
+uv run --project tools/olf --locked olf infra e2e run --env aws
+uv run --project tools/olf --locked olf infra destroy --provider aws
+uv run --project tools/olf --locked olf infra destroy --provider aws --phase foundation
 ```
 
-`olf deploy --provider aws --phase foundation` runs Terraform in
+`olf infra deploy --provider aws --phase foundation` runs Terraform in
 `infra/terraform/foundations/aws-eks` to create the VPC, EKS cluster, managed
 node group, EKS add-ons, ECR repositories, and EKS Pod Identity add-on/roles.
 The wrapper then runs `aws eks update-kubeconfig`.
 
-`olf deploy --provider aws` runs:
+`olf infra deploy --provider aws` runs:
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider aws --phase platform
-uv run --project tools/olf --locked olf deploy --provider aws --phase artifacts
+uv run --project tools/olf --locked olf infra deploy --provider aws --phase platform
+uv run --project tools/olf --locked olf infra deploy --provider aws --phase artifacts
 ```
 
-`olf deploy --provider aws --phase platform` deploys the Superset image pinned
+`olf infra deploy --provider aws --phase platform` deploys the Superset image pinned
 in `release/component-catalog.yaml` from GHCR; nothing is built or pushed for
 it. The AWS platform root creates S3
 medallion and ops buckets, RDS PostgreSQL, product-layer Glue
 databases/namespaces, Pod Identity workload access, and the shared Helm
 services on EKS.
 
-`olf deploy --provider aws --phase artifacts` reconciles catalog namespaces, builds and
+`olf infra deploy --provider aws --phase artifacts` reconciles catalog namespaces, builds and
 pushes the project-code image, imports Superset reports, deploys OpenMetadata metadata,
 patches Dagster images, and restarts Dagster workloads.
 

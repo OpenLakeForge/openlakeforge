@@ -48,7 +48,7 @@ A profile with no `spec.identity` block deploys no issuer and no perimeter
 Authentication off is allowed only where nothing is published beyond the
 operator's machine: on `local` with no `spec.access` or a `*.localhost` base
 domain, and on `aws` or `azure` with no `spec.access`, since those roots
-publish no routes and are reached only through `olf forward`. A cloud
+publish no routes and are reached only through `olf infra forward`. A cloud
 `spec.access` asks for routes, so it requires `spec.identity`. The role model does
 not depend on an issuer, so the contract still carries `shared.identity.roles`
 and validates it, with `implementation: identity.none` and no `issuer_url`,
@@ -219,10 +219,10 @@ repository admin grants nothing: only the mapped teams count.
 | Piece | How |
 | --- | --- |
 | Upstream app | A GitHub OAuth App owned by the organisation with the one callback `https://auth.<base_domain>/callback`. Dex's connector requests `user:email` (it reads the primary, possibly private, address) and `read:org` (teams); both appear on the authorize page and in an organisation's approval request. The operator creates it and stores its client id and secret in the Secret named by `oauth_app_secret_ref` (a Secret name and two distinct keys); neither value enters the profile or state. This is Dex's upstream client, distinct from the four downstream consumer clients of `identity.oidc`. An organisation that restricts third-party access must approve the app |
-| GitHub App instead of OAuth App | `olf github connect` (#420) creates a GitHub App from a manifest in the browser and stores `client-id`, `client-secret` and `private-key` in the `oauth_app_secret_ref` Secret. Dex's connector works with a GitHub App's client credentials: the user-to-server token ignores scopes, `/user/orgs` and `/user/teams` accept it with no extra permission, and `/orgs/{org}/members/{user}` and team visibility need the app's *Members: read* permission with the app installed on the organisation; refresh re-reads teams with the refresh token. `private-key` is stored for the role sync (#25); whether that sync reads this Secret or keeps `members_app_secret_ref` is decided there. The manual OAuth App remains supported |
+| GitHub App instead of OAuth App | `olf infra github connect` (#420) creates a GitHub App from a manifest in the browser and stores `client-id`, `client-secret` and `private-key` in the `oauth_app_secret_ref` Secret. Dex's connector works with a GitHub App's client credentials: the user-to-server token ignores scopes, `/user/orgs` and `/user/teams` accept it with no extra permission, and `/orgs/{org}/members/{user}` and team visibility need the app's *Members: read* permission with the app installed on the organisation; refresh re-reads teams with the refresh token. `private-key` is stored for the role sync (#25); whether that sync reads this Secret or keeps `members_app_secret_ref` is decided there. The manual OAuth App remains supported |
 | Admission | The connector's `orgs` lists the organisation with every mapped team. A GitHub user in none of them is refused by Dex at login, before any token exists, so an uninvited identity never reaches the perimeter |
 | GitHub Enterprise | `host` is rendered as the connector's `hostName`, so Dex uses `https://<host>/login/oauth/*` and `https://<host>/api/v3/*`. Dex requires `rootCA` with `hostName`; the smallest input is no new field: Dex trusts the platform CA from the `olf-local-ca` ConfigMap (public certificate only, local profile). A GHE server behind a different private CA needs a CA input, left until a client has one |
-| E2E without GitHub | CI cannot sign in to github.com. `olf e2e run` runs a stub GHE (`olf/infra/e2e/github_stub.py`, a throwaway pod with a local-CA certificate) when Dex's `hostName` is `olf-e2e-github.<shared namespace>.svc`, and drives the perimeter role decisions through Dex's real connector with throwaway users per team, plus one in no mapped team who must be refused at login. Otherwise those checks skip |
+| E2E without GitHub | CI cannot sign in to github.com. `olf infra e2e run` runs a stub GHE (`olf/infra/e2e/github_stub.py`, a throwaway pod with a local-CA certificate) when Dex's `hostName` is `olf-e2e-github.<shared namespace>.svc`, and drives the perimeter role decisions through Dex's real connector with throwaway users per team, plus one in no mapped team who must be refused at login. Otherwise those checks skip |
 | Groups claim | `teamNameField: slug`; the `groups` claim carries `<organisation>:<team-slug>` |
 | `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
 | Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's default `--scope=openid email profile` becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams |
@@ -290,7 +290,7 @@ access control and anyone admitted has full Dagster capability; the boundary
 and its internal paths are in
 [`identity-callers.md`](../architecture/identity/identity-callers.md#dagster-boundary).
 
-`olf e2e run --env local` exercises the seam (`e2e/_perimeter.py`): per route,
+`olf infra e2e run --env local` exercises the seam (`e2e/_perimeter.py`): per route,
 an unauthenticated request is redirected to the issuer (or gets 401 with
 `Accept: application/json`), also with forged identity headers; signed in as
 per-team stub users for each mapped role and one in no mapped team (refused
@@ -324,13 +324,13 @@ the organisation's 2FA policy. They need no `olf` command and no apply. The
 first `platform-admin` is whoever is in the team mapped to it. OpenMetadata
 cannot read roles from the token (`identity-service-permissions.md`), so its
 roles follow a role sync, built by #25 as a
-CronJob that `olf openmetadata deploy-metadata` applies. It runs only for
+CronJob that `olf infra openmetadata deploy-metadata` applies. It runs only for
 `issuer: github`: an `external` issuer or authentication off does not sync (OIDC
 alone cannot enumerate members), so those users stay at the read baseline. With SSO on, OpenMetadata's `adminPrincipals` is empty and `deploy-metadata` clears `isAdmin` on the local `admin` user, so an issuer login named `admin` is not an admin (OM-11, closed by #25).
 
 | Piece | Decision |
 | --- | --- |
-| Credential | the GitHub App `olf github connect` created, read from the `oauth_app_secret_ref` Secret (`app-id`, `private-key`), so there is no second Secret reference; a hand-made OAuth App has neither key and gets no sync. The job mints a short-lived installation token per run and reads each mapped team's members with it (*Members: read*) |
+| Credential | the GitHub App `olf infra github connect` created, read from the `oauth_app_secret_ref` Secret (`app-id`, `private-key`), so there is no second Secret reference; a hand-made OAuth App has neither key and gets no sync. The job mints a short-lived installation token per run and reads each mapped team's members with it (*Members: read*) |
 | Where it runs | `openmetadata-role-sync`, a CronJob in `olf-system` on the pinned `openmetadata_ingestion` image, the OLF-owned ingestion CronJob's image. The Python script is mounted from a ConfigMap because that image has no `olf`; it imports the standard library only and carries a copy of `github_app.app_jwt`'s signing, using the image's `cryptography` or else the `openssl` CLI, and exits naming what is missing. The App Secret and the `olf-automation` token reach it as secretKeyRefs, so the Secret read needs no RBAC. A project-code image was rejected: it is stage-scoped and exists only with user code |
 | GitHub Enterprise | the job calls `https://<host>/api/v3` and trusts only the image's public CAs; a server behind a private CA is not supported by the sync yet |
 | Child teams | GitHub's team-members API includes the members of child teams, which would hand a parent team's role to its children's people. The sync therefore stops, changing nothing, when a mapped team has child teams ("map direct teams only"). The precedence between roles is read from `release/identity-roles.yaml` and passed to the job |

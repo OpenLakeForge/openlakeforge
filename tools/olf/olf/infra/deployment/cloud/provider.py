@@ -2,7 +2,7 @@
 
 Mirrors `olf.infra.deployment.local.provider.LocalProvider`: every method is a
 thin delegate into a sibling `olf.infra.deployment.cloud.*` module, so the
-granular Make target delegates and the combined `olf deploy`/`olf destroy`
+granular Make target delegates and the combined `olf infra deploy`/`olf infra destroy`
 verbs share the exact same code path.
 
 The one wrinkle local does not have: `DeploymentContext.kube_context` is
@@ -248,7 +248,7 @@ class CloudProvider:
         # drops the user's `currentContext`. Resolve the active engine
         # endpoint the same way `_base_env` does, or docker_health reports a
         # non-default context (colima, Rancher Desktop, a remote engine) as
-        # unreachable while `olf deploy` uses it perfectly well.
+        # unreachable while `olf infra deploy` uses it perfectly well.
         docker_host = None
         if needs_docker and not self._environ.get("DOCKER_HOST"):
             docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))

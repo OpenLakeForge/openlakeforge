@@ -20,14 +20,14 @@ license: Apache-2.0
 
 # Running things
 
-Check with `olf status --json`, then read [the details](references/details.md#more).
+Check with `olf infra status --json`, then read [the details](references/details.md#more).
 
 ```bash
-olf deploy --provider local \\
+olf infra deploy --provider local \\
   --phase artifacts
 KUBECTL="$(olf toolchain path kubectl)"
-olf status --provider local --json | jq '.urls'
-olf diagnostics collect <dir> --namespace olf-dev
+olf infra status --provider local --json | jq '.urls'
+olf infra diagnostics collect <dir> --namespace olf-dev
 ```
 """
 
@@ -58,13 +58,15 @@ def test_repository_skills_are_valid() -> None:
 
 
 def test_rejects_unknown_commands_options_and_bare_groups(tmp_path: Path, details: dict[str, str]) -> None:
-    text = VALID + "\nRun `olf deplyo` or `olf check`.\n\n```bash\nolf deploy --provider local \\\n  --phse x\n```\n"
+    text = (
+        VALID + "\nRun `olf deplyo` or `olf check`.\n\n```bash\nolf infra deploy --provider local \\\n  --phse x\n```\n"
+    )
     _skill(tmp_path, text, extra=details)
     errors = _skills.skill_errors(tmp_path, CLI)
     assert len(errors) == 3
     assert "SKILL.md:19: `olf` has no command 'deplyo'" in errors[0]
     assert "SKILL.md:19: `olf check` needs a subcommand" in errors[1]
-    assert "SKILL.md:22: `olf deploy` has no option --phse" in errors[2]
+    assert "SKILL.md:22: `olf infra deploy` has no option --phse" in errors[2]
 
 
 def test_rejects_frontmatter_outside_the_specification(tmp_path: Path) -> None:

@@ -8,7 +8,7 @@ approved by the maintainer on 2026-10-09.
 revocation bound was measured once against real GitHub (#384, qualification run
 1, below); no other timing has been measured on a running stack. Logout and
 the native Superset and OpenMetadata session bounds are *designed*, not
-measured. The recovery procedure is built (`olf break-glass`). Where a number depends on upstream
+measured. The recovery procedure is built (`olf infra break-glass`). Where a number depends on upstream
 behaviour that was not checked, the row says "to verify" and names the change
 that must verify it. An integration that cannot meet a bound must document the
 limitation and test it; "takes effect on next login" is not acceptable.
@@ -109,8 +109,8 @@ every 4 min.
 
 ## Cluster-administrator recovery (break-glass)
 
-`olf break-glass <service> --reason "..."` implements this (local provider).
-`olf e2e run` exercises one recorded use to Dex with the perimeter enabled, and
+`olf infra break-glass <service> --reason "..."` implements this (local provider).
+`olf infra e2e run` exercises one recorded use to Dex with the perimeter enabled, and
 an issuer-outage drill: Dex scaled to zero, a fresh sign-in refused, Trino and
 Dagster answering through recorded sessions, then Dex restored and a fresh
 sign-in working. On the local kind cluster in CI, the first break-glass answer
@@ -133,15 +133,15 @@ does not log in to it.
 | Item | Design |
 | --- | --- |
 | Required RBAC | The operator's own kubeconfig. No break-glass Role is granted by the repository: the command needs `create` on `pods/portforward` (or `pods/exec` for the in-pod shells) and `create` and `patch` on ConfigMaps in `olf-system` for the record. On the local kind cluster the kubeconfig is cluster-admin. |
-| Enabling | `olf break-glass dex\|trino\|dagster` runs `kubectl port-forward` to the Dex Service in `olf-system`, bound to `127.0.0.1`. Dagster is reached the same way, directly on its internal Service, because it has no native authentication to bypass. The Trino forward is for diagnosis (for example `/v1/info`, or a client with its own password): with workload authentication on, the Trino web UI signs in through Dex, so break-glass gives no Trino UI. |
+| Enabling | `olf infra break-glass dex\|trino\|dagster` runs `kubectl port-forward` to the Dex Service in `olf-system`, bound to `127.0.0.1`. Dagster is reached the same way, directly on its internal Service, because it has no native authentication to bypass. The Trino forward is for diagnosis (for example `/v1/info`, or a client with its own password): with workload authentication on, the Trino web UI signs in through Dex, so break-glass gives no Trino UI. |
 | Expiry | The port-forward ends with its process; `--ttl-minutes` (default 30) stops it at the end of that time. There is no object to remove for access itself. |
-| Superset and OpenMetadata UIs | Not reachable during an issuer outage by design: they only accept issuer login. `olf break-glass superset\|openmetadata` opens a shell in the pod instead, for their CLIs. **Open question** for the maintainer: accept that, or require a local-admin fallback in each. |
+| Superset and OpenMetadata UIs | Not reachable during an issuer outage by design: they only accept issuer login. `olf infra break-glass superset\|openmetadata` opens a shell in the pod instead, for their CLIs. **Open question** for the maintainer: accept that, or require a local-admin fallback in each. |
 
 ### Observability without Grafana
 
 | Signal | Where |
 | --- | --- |
-| Recovery use | One ConfigMap per use, `break-glass-<time>-<id>`, labelled `openlakeforge.io/break-glass` in `olf-system`: service, reason, kubeconfig user, start, TTL, and on exit the end and duration. It is never deleted. One with no `ended` is an unclean exit. A ConfigMap rather than an Event because Events expire after an hour. `olf status` lists the latest. |
+| Recovery use | One ConfigMap per use, `break-glass-<time>-<id>`, labelled `openlakeforge.io/break-glass` in `olf-system`: service, reason, kubeconfig user, start, TTL, and on exit the end and duration. It is never deleted. One with no `ended` is an unclean exit. A ConfigMap rather than an Event because Events expire after an hour. `olf infra status` lists the latest. |
 | Dex sign-ins | Dex logs each login and refresh: `kubectl logs`. |
 | API-level proof | Kubernetes audit logging. kind does not enable it by default; the follow-up decides whether to add it to the kind config. Until then the ConfigMap's user is advisory, because a claimed username is not proof of identity. |
 
@@ -155,7 +155,7 @@ unauthenticated request to a protected public route is still refused.
 
 No timing in the policy table beyond the one measurement above, no Superset or
 OpenMetadata behaviour, and no recovery beyond the drill above. The oauth2-proxy rows above were read
-from the pinned source. `olf e2e run --env local` exercises the perimeter
+from the pinned source. `olf infra e2e run --env local` exercises the perimeter
 (unauthenticated redirect and 401, per-role allow and deny, forged identity
 headers, a direct API call with a session) but not revocation timing, an
 issuer outage with an open session, logout or latency. The verifying changes

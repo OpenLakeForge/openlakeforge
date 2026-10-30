@@ -25,7 +25,7 @@ locals {
   # empty database; afterwards the stored copy wins (SettingsCache). Helm values
   # therefore cannot switch an existing install to SSO, and a fresh one would
   # lock the bootstrap job out: custom-oidc answers POST /users/login with 403.
-  # `olf openmetadata deploy-metadata` applies this body through
+  # `olf infra openmetadata deploy-metadata` applies this body through
   # PUT /api/v1/system/security/config, adding the client secret, once the
   # issuer's host resolves in the cluster (after Traefik, #432).
   oidc_issuer     = var.oidc == null ? "" : trimsuffix(var.oidc.issuer_url, "/")

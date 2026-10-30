@@ -216,7 +216,7 @@
 %{ endfor ~}
 
   # Namespace lifecycle belongs to Phase 2 (ADR 0002). Phase 1 stops at
-  # handing `olf catalog sync-namespaces` a principal that can create
+  # handing `olf infra catalog sync-namespaces` a principal that can create
   # and drop namespaces, so no platform apply ever needs to know which
   # products exist.
 %{ for stage_name, stage in stage_catalogs ~}

@@ -325,6 +325,7 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
         "shared_namespace",
         "stages",
         "manage_user_deployments",
+        "storage_size",
         "kube_context",
         "kubeconfig_path",
         "helm_repository_cache_path",
@@ -381,5 +382,5 @@ def test_preflight_wraps_account_show_failure() -> None:
     tools = _toolkit(_RaisingRunner())
     backend = AzureBackend(_Azure(fail_account=True))
 
-    with pytest.raises(DeploymentPreconditionError, match="olf auth login"):
+    with pytest.raises(DeploymentPreconditionError, match="olf infra auth login"):
         backend.preflight(tools, env={})

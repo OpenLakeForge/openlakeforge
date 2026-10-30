@@ -708,7 +708,7 @@ def validate_deployment_profile(
     # No identity block means authentication off (ADR 0014): admin on every
     # service, so it is allowed only where nothing is reachable beyond the
     # operator's machine. The AWS and Azure roots publish no routes, so
-    # without spec.access they are reached only through `olf forward`; a
+    # without spec.access they are reached only through `olf infra forward`; a
     # cloud spec.access asks for routes and so needs identity first.
     published = access is not None and (
         provider.type != Provider.LOCAL or not access.base_domain.endswith(".localhost")
@@ -809,7 +809,7 @@ def resolve_declared_project(
 
 
 def legacy_single_stage_topology(*, provider: Provider, preset: Preset) -> DeploymentTopology:
-    """The v0.2 compatibility path: `olf deploy --provider <provider>
+    """The v0.2 compatibility path: `olf infra deploy --provider <provider>
     --profile <preset>` resolves to one enabled DEV stage using the preset's
     capability defaults. `DeploymentContext` resolves every run through this
     model, so the deprecated shorthand is literally the single-DEV-stage case

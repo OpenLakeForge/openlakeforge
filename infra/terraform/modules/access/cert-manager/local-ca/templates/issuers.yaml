@@ -7,7 +7,7 @@ spec:
 ---
 # The root users trust (#267). cert-manager re-issues it only when this spec
 # changes or it nears expiry, and never rotates its key, so re-running
-# `olf deploy` keeps the same CA.
+# `olf infra deploy` keeps the same CA.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -35,7 +35,7 @@ spec:
   ca:
     secretName: {{ .Values.issuerName }}
 ---
-# Proves the issuer signs leaf certificates; `olf deploy` waits for it.
+# Proves the issuer signs leaf certificates; `olf infra deploy` waits for it.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

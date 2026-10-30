@@ -157,7 +157,7 @@ def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscripti
     """`doctor()` builds its preflight environment from
     `credential_selection_environment` alone - no `ARM_SUBSCRIPTION_ID`
     overlay from Terraform's authentication environment. An identity with
-    several subscriptions and only saved `olf auth login` state must still
+    several subscriptions and only saved `olf infra auth login` state must still
     report authenticated instead of "Azure subscription is not selected".
     """
     context = DeploymentContext.azure(repo_root=tmp_path)
@@ -405,7 +405,7 @@ def test_doctor_resolves_the_active_docker_context_for_the_engine_check(tmp_path
     drops the user's `currentContext`. Without resolving the active engine
     endpoint, `docker version` falls back to the default context's socket and
     doctor reports a colima/Rancher/remote engine as unreachable even though
-    `olf deploy` (via `_base_env`) drives it perfectly well.
+    `olf infra deploy` (via `_base_env`) drives it perfectly well.
     """
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", facts=_FACTS)

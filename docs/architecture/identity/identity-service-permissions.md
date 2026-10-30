@@ -18,7 +18,7 @@ in the design below:
   `authenticationConfiguration` and `authorizerConfiguration` from the environment
   only when the database has none, and `SecurityConfigurationManager` reads the
   database first. Helm values cannot switch an existing install to SSO. The
-  `olf openmetadata deploy-metadata` therefore applies SSO through
+  `olf infra openmetadata deploy-metadata` therefore applies SSO through
   `PUT /api/v1/system/security/config` in the dynamic phase, once the issuer's
   discovery URL answers from inside the cluster (its host resolves only after
   Traefik exists, and the server never retries a failed discovery, #432), then
@@ -31,7 +31,7 @@ in the design below:
 - **Automation identity.** While basic login still works the Job creates an
   admin bot `olf-automation` and stores its JWT in the Secret
   `openmetadata-automation-bot` (key `OPENMETADATA_AUTOMATION_JWT`). Later Job runs,
-  `olf openmetadata deploy-metadata` and `olf e2e` use it. `ingestion-bot`
+  `olf infra openmetadata deploy-metadata` and `olf e2e` use it. `ingestion-bot`
   is unchanged (it is replicated into stage namespaces, so it must not be an
   admin); OpenMetadata's own JWKS stays first in `publicKeyUrls` so both bots
   validate.
@@ -42,7 +42,7 @@ in the design below:
 - **Admin mapping gap.** 1.13.6 has no claim-based admin mapping. The only
   claim-driven admin is `useRolesFromProvider` reading a claim named `roles`
   whose value is `Admin`, which Dex cannot emit. `adminPrincipals` is empty, and
-  `olf openmetadata deploy-metadata` clears `isAdmin` on the local `admin` user (kept, not deleted) after
+  `olf infra openmetadata deploy-metadata` clears `isAdmin` on the local `admin` user (kept, not deleted) after
   every restart, so a GitHub login named `admin` resolves to it and stays at the read baseline (OM-11,
   closed); every sign-in starts there until the role sync grants more.
 - **Not done.** Removing `spec.identity` from an install that already has SSO does
@@ -55,7 +55,7 @@ Built for Superset: `images/superset/olf_oidc.py` (settings derived from the
 contract), `olf_security.py` (user info from `role_claim`, `olf_viewer`,
 `olf_no_access`, the session bound), `modules/analytics/superset` (client
 Secret copy, wiring), and the exact `/oauth-authorized/olf` redirect URI.
-Also built: the `olf_data_access` schema grants. `olf report import` adds
+Also built: the `olf_data_access` schema grants. `olf infra report import` adds
 `schema_access` on `[<database>].[<schema>]` for every dataset in the imported
 bundle (`superset.bundle_schema_perms`, `SupersetClient.grant_permissions`),
 unioned with what the role holds, so a re-import changes nothing. The endpoints
@@ -120,7 +120,7 @@ if it is published and the user can access its datasets, or the user owns it
 | Piece | How |
 | --- | --- |
 | Custom security manager | `CUSTOM_SECURITY_MANAGER` subclass of `SupersetSecurityManager`. `sync_role_definitions` is overridden: call the parent, then `set_role("olf_viewer", self._is_public_pvm, pvms)` and create `olf_no_access` empty. `superset init` runs in the chart init Job on every install and upgrade (**V** chart `init.initscript`; that `init` calls `sync_role_definitions` is **T**), so the roles are declarative and re-created after drift. `_is_public_pvm` is private API: a unit test must assert the resulting permission list, so a Superset bump that changes it fails loudly |
-| Data scope | `olf_data_access` holds `schema_access` on `[<database>].[<schema>]` (**V** `get_schema_perm` format when no catalog is set). `olf report import` already holds an Admin client; after importing it ensures each imported dataset's schema is in the role through the FAB role-permission REST API (`FAB_ADD_SECURITY_API` is on by default, **V** `config.py`; the exact endpoint is **T**). The schema list comes from the imported dataset files, not from a list in code (AGENTS rule 5) |
+| Data scope | `olf_data_access` holds `schema_access` on `[<database>].[<schema>]` (**V** `get_schema_perm` format when no catalog is set). `olf infra report import` already holds an Admin client; after importing it ensures each imported dataset's schema is in the role through the FAB role-permission REST API (`FAB_ADD_SECURITY_API` is on by default, **V** `config.py`; the exact endpoint is **T**). The schema list comes from the imported dataset files, not from a list in code (AGENTS rule 5) |
 | Why not `DASHBOARD_RBAC` | It would need a per-dashboard role assignment at import; schema scope is one grant per schema. Revisit if per-dashboard audiences are wanted |
 | `Public` role | Not used. `Public` is also the anonymous role; a separate name keeps unauthenticated access impossible by construction |
 
@@ -163,7 +163,7 @@ what a connection can read.
 | Item | Today | Target |
 | --- | --- | --- |
 | `admin` login form | Chart `init.createAdmin`, with the password from Secret `superset-credentials` (#400) | Under `AUTH_OAUTH` the browser path has no password handler: `SupersetAuthView` serves GET only and `AuthOAuthView` has no password route (**V**); that the page shows no form is **T**. Keep a database user only for automation |
-| REST login used by `olf report import`, e2e, and the OpenMetadata Superset connection | `provider: "db"` on `/api/v1/security/login` | **V** `api.py` selects the `db` provider without checking `AUTH_TYPE`, so it keeps working. **T** on the running stack |
+| REST login used by `olf infra report import`, e2e, and the OpenMetadata Superset connection | `provider: "db"` on `/api/v1/security/login` | **V** `api.py` selects the `db` provider without checking `AUTH_TYPE`, so it keeps working. **T** on the running stack |
 | Identity | `admin` | A dedicated `olf-automation` Admin user for import and e2e; a separate Alpha user for the OpenMetadata connection (read-only endpoints; **T** which role suffices). Passwords from a Secret created by the bootstrap Job (#181), referenced by `secretKeyRef`. The chart's `create-admin ... \|\| true` does not change an existing password, so the init script must use `fab reset-password` or a new user (**T**) |
 | Collision | n/a | Role sync never touches database users (**V** it runs only in `auth_user_oauth`), and the namespaced OIDC username keeps the two apart |
 
@@ -243,7 +243,7 @@ baseline only; `useRolesFromProvider` stays `false`.
 
 | Step | Detail |
 | --- | --- |
-| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf openmetadata deploy-metadata` (design and image choice in ADR 0014, "User and role administration"). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
+| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf infra openmetadata deploy-metadata` (design and image choice in ADR 0014, "User and role administration"). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
 | Source | the members of the mapped GitHub teams, read with the GitHub App's installation token; the join key is the lower-cased `login` |
 | Identity | the class-2 OpenMetadata automation bot, over the in-cluster Service |
 | Gap | A role change in GitHub reaches OpenMetadata at the next run, at most 5 minutes plus the run (test OM-7); this is the normal path, not an exception |
@@ -286,7 +286,7 @@ token.
 
 ## Test plan
 
-Added to `olf e2e run --env local`, reusing the throwaway per-role users and
+Added to `olf infra e2e run --env local`, reusing the throwaway per-role users and
 sign-in of `e2e/_identity.py` and `e2e/_perimeter.py`. Each case signs in as the
 role, acts through the service's own API with that session, and asserts the
 status (2xx or 403).
@@ -303,7 +303,7 @@ status (2xx or 403).
 | SS-8 | data-engineer role removed | Request through the perimeter; then the stale native session | Perimeter 403 within 5 min; native cookie refused by 15 min |
 | SS-9 | User with no role, perimeter bypassed by port-forward | Complete the Superset login | Native 403 page, no redirect loop, no `olf_no_access` session |
 | SS-10 | Two users on one browser, logout between | Second user reads first user's data | Deny (no surviving session) |
-| SS-11 | Automation | `olf report import` and the OpenMetadata Superset ingestion run with SSO on | Succeed unattended |
+| SS-11 | Automation | `olf infra report import` and the OpenMetadata Superset ingestion run with SSO on | Succeed unattended |
 | OM-1 | viewer, analyst | Search and read an asset | Allow |
 | OM-2 | viewer, analyst | Edit description, tags, tier; set owner on an unowned asset | Deny each (proves baseline change 1 and 2) |
 | OM-3 | data-engineer | Edit description, tags, owner, lineage; create a service; create a role | Allow, allow, allow, allow, deny, deny |
@@ -313,7 +313,7 @@ status (2xx or 403).
 | OM-7 | Role changed in GitHub, before the role sync runs | Read the user's OpenMetadata roles before and after the role sync | Stale before, correct after; exposure recorded |
 | OM-8 | User disabled | Any call after the ID token expires | Refused within 5 min; refresh logged as refused |
 | OM-9 | Anyone | `POST /api/v1/users/login` with `admin@open-metadata.org` / `admin` | 403 |
-| OM-10 | Automation | `olf openmetadata deploy-metadata`, bootstrap Job, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
+| OM-10 | Automation | `olf infra openmetadata deploy-metadata`, bootstrap Job, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
 | OM-11 | Issuer user whose principal is `admin` | Sign in | Not an admin |
 | OM-12 | Anyone | Read `Organization` default roles and `OrganizationPolicy` rules | Default roles empty, no `NoOwner-Rule` (fails after an upgrade that re-seeds them) |
 

@@ -17,7 +17,7 @@ locals {
 # physical database name, prefixed per stage by
 # olf.infra.contracts.resolve_physical_names's namespace_prefix.
 
-# Database lifecycle moved to Phase 2 (ADR 0002): `olf catalog sync-namespaces`
+# Database lifecycle moved to Phase 2 (ADR 0002): `olf infra catalog sync-namespaces`
 # reconciles Glue databases from the lakehouse descriptors
 # (lakehouse_code/governance.yml + bronze source.yaml) during artifacts-deploy,
 # the same way it already reconciles Polaris namespaces. This root no longer

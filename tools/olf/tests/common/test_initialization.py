@@ -89,7 +89,7 @@ def test_default_init_copies_a_writable_demo_and_keeps_unowned_paths(tmp_path: P
 
     assert result.lakehouse_root == layout.project_root / "lakehouse_code"
     assert (layout.project_root / "openlakeforge.yaml").is_file()
-    assert result.next_command == "olf platform apply -f openlakeforge.yaml"
+    assert result.next_command == "olf infra platform apply -f openlakeforge.yaml"
     assert (result.lakehouse_root / "demo.txt").read_text(encoding="utf-8") == "demo\n"
     assert os.access(result.lakehouse_root / "demo.txt", os.W_OK)
     assert (layout.project_root / ".git").is_dir()
@@ -246,7 +246,7 @@ def test_init_leaves_no_project_when_docker_is_unreachable(tmp_path: Path) -> No
 def test_cli_init_renders_the_follow_up_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     result = SimpleNamespace(
         lakehouse_root=tmp_path / "lakehouse_code",
-        next_command="olf platform apply -f openlakeforge.yaml",
+        next_command="olf infra platform apply -f openlakeforge.yaml",
         profile_only=False,
     )
     monkeypatch.setattr("olf.common.commands.init.initialize_project", lambda **_kwargs: result)
@@ -254,7 +254,7 @@ def test_cli_init_renders_the_follow_up_command(monkeypatch: pytest.MonkeyPatch,
     invocation = runner.invoke(app, ["init"])
 
     assert invocation.exit_code == 0, invocation.output
-    assert "Next: olf platform apply -f openlakeforge.yaml" in invocation.output
+    assert "Next: olf infra platform apply -f openlakeforge.yaml" in invocation.output
 
 
 def test_init_rejects_a_corrupt_distribution_before_touching_the_project(tmp_path: Path) -> None:

@@ -10,9 +10,9 @@ from typing import Any
 
 import yaml
 from openlakeforge_domain import LakehouseInventory
+from openlakeforge_services.base import ServiceClientError
 
 from olf.common import config, log
-from olf.common.clients.base import ServiceClientError
 from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from olf.common.clients.superset import SupersetClient
 from olf.infra import access, k8s, superset

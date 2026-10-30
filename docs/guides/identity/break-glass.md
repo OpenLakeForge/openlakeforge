@@ -15,10 +15,10 @@ too. Superset's and OpenMetadata's own sessions cannot be renewed either.
 Break-glass is the way in that does not depend on the issuer: your Kubernetes
 access.
 
-## Use `olf break-glass`
+## Use `olf infra break-glass`
 
 ```bash
-olf break-glass dagster --local-port 3000 --reason "Dex is down; checking the daily run"
+olf infra break-glass dagster --local-port 3000 --reason "Dex is down; checking the daily run"
 ```
 
 Then open `http://127.0.0.1:3000`. The command runs until you exit (Ctrl-C) or
@@ -29,7 +29,7 @@ bind locally, hence `--local-port`.
 | Service | What you get |
 | --- | --- |
 | `dex` | A port-forward to the Dex Service on `127.0.0.1:5556`, for diagnosis. Dex has no admin console or account. |
-| `trino` | A port-forward to the Trino Service, bound to `127.0.0.1`. Over HTTPS when Trino serves it (the command prints the scheme): connect to `https://localhost:<port>`, not `127.0.0.1`, because the certificate names `localhost` and has no IP address; verify with the local CA, see `olf access trust`. It is for diagnosis (for example `/v1/info`, or a client with its own password), not a web UI: with workload authentication on, the Trino UI signs in through Dex. |
+| `trino` | A port-forward to the Trino Service, bound to `127.0.0.1`. Over HTTPS when Trino serves it (the command prints the scheme): connect to `https://localhost:<port>`, not `127.0.0.1`, because the certificate names `localhost` and has no IP address; verify with the local CA, see `olf infra access trust`. It is for diagnosis (for example `/v1/info`, or a client with its own password), not a web UI: with workload authentication on, the Trino UI signs in through Dex. |
 | `dagster` | A port-forward to the Dagster webserver (remote port 80), in the DEV stage only. |
 | `superset`, `openmetadata` | A shell in the service's pod, for its CLI. Their UIs accept only issuer login and are not reachable during an outage. `superset` reaches the DEV stage only. |
 
@@ -57,7 +57,7 @@ Properties:
 See recent uses:
 
 ```bash
-olf status --provider local
+olf infra status --provider local
 ```
 
 The "Recent break-glass use" section lists the latest records with their time,
@@ -93,7 +93,7 @@ user, service, duration and reason.
 
 ## What was measured
 
-`olf e2e run --env local` runs an issuer-outage drill with the perimeter on:
+`olf infra e2e run --env local` runs an issuer-outage drill with the perimeter on:
 Dex is scaled to zero, a fresh sign-in is refused, Trino and Dagster answer
 through recorded break-glass sessions, the ingresses are unchanged, then Dex is
 restored and a fresh sign-in works. The drill signs in against the e2e's own

@@ -203,11 +203,11 @@ jobs:
         run: uv run --project tools/olf --locked olf toolchain install
 
       - name: Deploy and validate slim smoke (45 minute budget)
-        run: uv run --project tools/olf --locked olf smoke run
+        run: uv run --project tools/olf --locked olf infra smoke run
 
       - name: Collect kind diagnostics
         if: failure()
-        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-smoke-diagnostics
+        run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/kind-smoke-diagnostics
 
       - name: Upload kind diagnostics
         if: failure()

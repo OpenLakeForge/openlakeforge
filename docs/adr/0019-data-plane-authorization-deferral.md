@@ -13,7 +13,7 @@ principal's roles when a token maps to none; section 4, step 11 is corrected
 for it. **Binding today:**
 v0.5-alpha has service-level authorization only, and nothing in it restricts
 which tables a signed-in user reads (Context). **Decided for the build:**
-`olf query` stops running through `kubectl exec` as the stage's shared
+`olf infra query` stops running through `kubectl exec` as the stage's shared
 principal. A person signs in with Dex, Trino authenticates the token, and the
 person's canonical role reaches Polaris, whose grants decide which stage and
 layer they read or write. Scope is the local provider with
@@ -49,13 +49,13 @@ principal reads. Do not load data of differing sensitivity into a deployment
 whose users should not all see it. That stays true for Superset after this
 design is built.
 
-`olf query` today (`olf/infra/commands/query.py`, `olf/infra/trino.py`) runs the Trino CLI
+`olf infra query` today (`olf/infra/commands/query.py`, `olf/infra/trino.py`) runs the Trino CLI
 inside the coordinator pod with `kubectl exec`, as `olf-<stage>-runtime`, the
 stage principal that also writes. Who may query is who holds `pods/exec` on the
 coordinator; the person's role plays no part, and every caller is the same
 Trino user.
 
-The goal is a per-person query path: a person runs `olf query` from a
+The goal is a per-person query path: a person runs `olf infra query` from a
 workstation with no kubeconfig, signs in through Dex, and their canonical role
 decides what they read and write, per stage and per medallion layer.
 
@@ -77,7 +77,7 @@ So the role check lives where the role claim can be read without a sync, and
 the stage boundary is the catalog boundary that already exists. The cost is
 the one ADR 0015 named: table policy written against Polaris does nothing on
 Glue. **Accepted:** AWS gets no per-person query path from this design. AWS's
-`olf query` already refuses the provider (`commands/query.py`), and Glue with
+`olf infra query` already refuses the provider (`commands/query.py`), and Glue with
 Lake Formation stays a separate adapter if it is ever wanted.
 
 ## Decision
@@ -186,13 +186,13 @@ delegation).
 ```mermaid
 sequenceDiagram
     actor P as Person
-    participant O as olf query
+    participant O as olf infra query
     participant D as Dex
     participant X as Perimeter (query_api)
     participant T as Trino
     participant C as Polaris
     participant S as SeaweedFS
-    P->>O: olf query --stage prod "SELECT ..."
+    P->>O: olf infra query --stage prod "SELECT ..."
     O->>D: device authorization, client olf-cli
     D-->>P: verification URL and user code (GitHub sign-in)
     D-->>O: access token (email, groups, federated_claims), refresh token
@@ -211,11 +211,11 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | 1 | Dex client | A new public static client `olf-cli` with the device authorization grant. Scopes `openid email groups federated:id offline_access`: `email` names the Trino user, `groups` carries the roles, `federated:id` the connector id (step 11), `offline_access` a refresh token. Registered as a static client with `public: true` and the one redirect URI `/device/callback` | V, run (verification item 4) |
 | 2 | Token cache | `<OLF_HOME>/auth/oidc-<base_domain>.json`, mode 0600, beside the existing `olf/infra/auth/state.py` provider state. Refreshed when the access token has under 60 seconds left; Dex's session policy bounds it (ADR 0014: tokens 5 min, refresh idle 30 min, absolute 10 h) | — |
-| 3 | Transport | `olf` speaks Trino's HTTP protocol with `requests` (already a dependency): `POST https://trino.<base_domain>/v1/statement`, then each `nextUri`. Every request carries `Authorization: Bearer` with a token refreshed if due; the submission also carries `X-Trino-Extra-Credential: token=<the same token>` and `X-Trino-Catalog` set to the stage's people catalog. Issuer and Trino URLs come from the profile's `spec.access.base_domain`, so no kubeconfig is needed. The local CA is trusted the way `olf access trust` already prints | T (protocol use) |
+| 3 | Transport | `olf` speaks Trino's HTTP protocol with `requests` (already a dependency): `POST https://trino.<base_domain>/v1/statement`, then each `nextUri`. Every request carries `Authorization: Bearer` with a token refreshed if due; the submission also carries `X-Trino-Extra-Credential: token=<the same token>` and `X-Trino-Catalog` set to the stage's people catalog. Issuer and Trino URLs come from the profile's `spec.access.base_domain`, so no kubeconfig is needed. The local CA is trusted the way `olf infra access trust` already prints | T (protocol use) |
 | 4 | Perimeter | A route `query_api`: host `trino.<base_domain>`, path prefix `/v1`, behind a perimeter instance that accepts a bearer JWT for audience `olf-cli` (oauth2-proxy `--skip-jwt-bearer-tokens` with `--oidc-extra-audience=olf-cli`) at the `viewer` floor. The existing `query` route (the Web UI) keeps the `data-engineer` floor. The service passwords (ADR 0016) then cannot be used through the ingress without also holding a member's Dex token | V, run (verification item 9) |
 | 5 | Trino authentication | `http-server.authentication.type=PASSWORD,JWT`. JWT: `key-file=https://auth.<base_domain>/keys`, `required-issuer`, `required-audience=olf-cli`, `principal-field=email`. A token minted for the perimeter, Superset, OpenMetadata or the Trino UI client carries another audience and is refused | V (properties); T (Dex's `aud` is the requesting client id, read in Dex's scope documentation; JWKS fetch through the CoreDNS rewrite) |
 | 6 | Trino rules | A user containing `@` (an e-mail) may use the people catalogs only, with `allow: all` (Polaris decides). Service principals keep their catalogs. A `principals` rule lets an e-mail principal become only itself, before ADR 0016's final deny. A `queries` rule lets a person view and kill only their own queries: today `rules.json` has no `queries` section, so every user may view every query | V (no `queries` rules means all users view all queries: Trino 480 file-based access control); T (rules) |
-| 7 | People catalog | One more Trino catalog per stage on the same Polaris warehouse, named `<stage>` (`dev`, `uat`, `prod`): `iceberg.rest-catalog.session=USER`, `iceberg.rest-catalog.session-timeout=0s`, `iceberg.rest-catalog.vended-credentials-enabled=true` with no static S3 key (section 3), and an OAuth2 credential of a Polaris principal `trino-people-<stage>` that holds no grant. `olf query` makes it the session default, so the name shows only in fully qualified SQL (`prod.order_revenue_gold.mart_order_revenue_by_day`). It is Trino connection plumbing, not policy: it exists because `session=USER` is all-or-nothing per catalog (rejected alternatives) | V (properties) |
+| 7 | People catalog | One more Trino catalog per stage on the same Polaris warehouse, named `<stage>` (`dev`, `uat`, `prod`): `iceberg.rest-catalog.session=USER`, `iceberg.rest-catalog.session-timeout=0s`, `iceberg.rest-catalog.vended-credentials-enabled=true` with no static S3 key (section 3), and an OAuth2 credential of a Polaris principal `trino-people-<stage>` that holds no grant. `olf infra query` makes it the session default, so the name shows only in fully qualified SQL (`prod.order_revenue_gold.mart_order_revenue_by_day`). It is Trino connection plumbing, not policy: it exists because `session=USER` is all-or-nothing per catalog (rejected alternatives) | V (properties) |
 | 8 | Token to Polaris | With `session=USER` Trino passes the user's extra credentials to the Iceberg client and adds an unsigned JWT of its own as `JWT_TOKEN_TYPE`. The Iceberg client uses a `token` credential as the bearer **before** trying any token exchange. So the person's Dex token reaches Polaris; a request without it falls through to exchanging Trino's unsigned JWT, which Polaris does not accept (ADR 0015), and fails closed | V (`TrinoRestCatalog.convert`; `OAuth2Manager.maybeCreateChildSession`); V, run (verification item 5) |
 | 9 | Session cache | The Iceberg session is cached per `<user>-<source>` with `expireAfterAccess(session-timeout)`, the default one hour. A person querying more often than that would keep presenting their first, expired token, so the people catalog sets the timeout to zero and builds the session from the current token each time. Wrapping a bearer token makes no network call | V (`AuthSessionCache`, `IcebergRestCatalogConfig`: `@MinDuration("0ms")`); V, run (verification item 7) |
 | 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `quarkus.oidc.auth-server-url` `https://auth.<base_domain>`, `discovery-enabled=false` with `jwks-path=keys` (as Trino's UI does, because Dex is served by Traefik), the local CA through a named TLS configuration (`quarkus.oidc.tls.tls-configuration-name`, `quarkus.tls.<name>.trust-store.pem.certs`), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `name-claim-path: federated_claims/connector_id`; roles from `groups` and `federated_claims/connector_id` (step 11) | V, run (verification item 3) |
@@ -233,7 +233,7 @@ principals and roles the bootstrap already creates.
 | Principal roles `olf-platform-admin`, `olf-data-engineer`, `olf-analyst`, `olf-viewer` | realm | Each assigned the catalog roles its `data_access` row needs, per stage catalog | bootstrap, platform |
 | Catalog role `olf-write` | each `lakehouse_<stage>` | `CATALOG_MANAGE_CONTENT` on the catalog | bootstrap, platform |
 | Catalog role `olf-read` | each `lakehouse_<stage>` | On the catalog: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | bootstrap, platform |
-| Catalog role `olf-gold-read` | each `lakehouse_<stage>` | `NAMESPACE_LIST` on the catalog; on **each Gold namespace**: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | catalog grant: bootstrap, platform; namespace grants: `olf catalog sync-namespaces`, artifacts |
+| Catalog role `olf-gold-read` | each `lakehouse_<stage>` | `NAMESPACE_LIST` on the catalog; on **each Gold namespace**: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | catalog grant: bootstrap, platform; namespace grants: `olf infra catalog sync-namespaces`, artifacts |
 | Principal `trino-people-<stage>` | realm | No catalog role. The people catalog's own credential, used for the configuration call | bootstrap, platform |
 | Principal-roles mapper | Polaris chart values | `quarkus.oidc.roles.role-claim-path` `groups,federated_claims/connector_id`; `filter` matching every claim value in `role_mapping` and the connector id; one mapping per claim value, `^<quoted value>$` to `PRINCIPAL_ROLE:olf-<role>`, plus `^github$` to `PRINCIPAL_ROLE:olf-signed-in`, rendered by the local root from `role_mapping`, so keyed by canonical role | Terraform, platform |
 
@@ -266,13 +266,13 @@ because Trino lists the tables of every schema and Polaris refuses Bronze and
 Silver; filtered to a Gold schema it works (verification item 6). `olf-read`
 needs no `NAMESPACE_LIST`: its grants already let it list namespaces.
 
-### 6. `olf query`
+### 6. `olf infra query`
 
 | Behaviour | Detail |
 | --- | --- |
-| Default | With `spec.identity.issuer: github` and `spec.access`, `olf query` uses the person path above. It signs in on first use or when the refresh token has expired, printing Dex's verification URL and code. A person GitHub admits to no mapped team is refused in the browser, but the device code itself stays `authorization_pending` until it expires (verification item 4), so `olf` stops polling after a bounded wait and says the sign-in was not completed or refused |
+| Default | With `spec.identity.issuer: github` and `spec.access`, `olf infra query` uses the person path above. It signs in on first use or when the refresh token has expired, printing Dex's verification URL and code. A person GitHub admits to no mapped team is refused in the browser, but the device code itself stays `authorization_pending` until it expires (verification item 4), so `olf` stops polling after a bounded wait and says the sign-in was not completed or refused |
 | `--as-workload` | Today's path, kept: `kubectl exec` as `olf-<stage>-runtime`. It is the break-glass path when Dex is down (ADR 0014 lists Trino through its internal Service) and the one `olf e2e` uses. Who may use it is still who holds `pods/exec`, a platform-admin in practice |
-| No issuer | With no `spec.identity`, or `issuer: external`, `olf query` keeps the workload path: there is no Dex client to sign in with. An external issuer would need its own principal mapping and is not designed here |
+| No issuer | With no `spec.identity`, or `issuer: external`, `olf infra query` keeps the workload path: there is no Dex client to sign in with. An external issuer would need its own principal mapping and is not designed here |
 | Denial | Polaris's refusal reaches the person as a Trino error whose message is generic ("Failed to list namespaces"); the reason is in the error's cause chain: a 403 naming the principal, its active roles and the operation, a 401 for an invalid or expired token, or the refused token exchange when no token was sent (verification item 5). A write by a role that may only read is refused by SeaweedFS, not Polaris: the cause is an S3 `Access Denied` on the vended credential (verification item 8). `olf` reads the chain, names the role it read from the token, the stage and the schema, and says which role grants the access, from `data_access` |
 | Docstring | "It is not per-user access" becomes false on the person path and is rewritten with the build |
 
@@ -280,7 +280,7 @@ needs no `NAMESPACE_LIST`: its grants already let it list namespaces.
 
 | Limit | Why it is accepted |
 | --- | --- |
-| A write that commits after the token expires fails at the commit. Polaris receives the token captured when the query was submitted; `olf` refreshes before submitting, so a statement has about 5 minutes to reach its commit (T) | `olf query` is for inspection and small changes. Loads belong to pipelines, which keep their workload credentials. A longer Dex token lifetime would loosen the ADR 0014 session bound for every client |
+| A write that commits after the token expires fails at the commit. Polaris receives the token captured when the query was submitted; `olf` refreshes before submitting, so a statement has about 5 minutes to reach its commit (T) | `olf infra query` is for inspection and small changes. Loads belong to pipelines, which keep their workload credentials. A longer Dex token lifetime would loosen the ADR 0014 session bound for every client |
 | Polaris records the principal `github` and the active roles, not the person | Trino's query log records the person (user = e-mail). Per-person principals would need GitHub membership synced into Polaris (rejected below) |
 | The extra credential is the bearer: a client that holds another person's token gets that person's grants | Possession of a bearer token is the authority, as on every OIDC path. Trino keeps extra credentials out of the session it serialises into query information (V, `SessionRepresentation`), so the token is not shown in the UI or `system.runtime.queries` |
 | Gold-only roles see Bronze and Silver namespace names | Section 5 |
@@ -299,7 +299,7 @@ pull request").
 | ADR 0014 | `data_access` beside `grants`; the `query_api` service row (all four roles); `olf-cli` as a fifth Dex client |
 | ADR 0015 | The deferral ends for one caller: `mixed` with OIDC for people tokens. Every workload keeps Polaris's own credentials, so pipelines still do not depend on the issuer. Stage catalogs are created with STS available, and its "Data files" row changes for the person path |
 | ADR 0016 | `/v1` accepts Dex bearer tokens for audience `olf-cli`, which its Web UI section rejected while no caller needed it; the people catalogs and their rules |
-| `identity-callers.md`, `identity-classes.md` | `olf query` becomes a class-1 (human) caller from the workstation through the ingress; the workload path stays class 2 |
+| `identity-callers.md`, `identity-classes.md` | `olf infra query` becomes a class-1 (human) caller from the workstation through the ingress; the workload path stays class 2 |
 | `docs/reference/roles-and-permissions.md` | The data-access matrix |
 
 ## Build sequence
@@ -318,12 +318,12 @@ Split along the seams `AGENTS.md` names, each with its tests:
 3. Polaris: `mixed` authentication, the rendered mapper, and the bootstrap
    objects of section 5 except the namespace grants, with `olf-signed-in`.
    Items 3 and 4 passed; settle items 5-6 first.
-4. `olf catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
+4. `olf infra catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
    the deployer's `CATALOG_MANAGE_ACCESS`.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
    rules of section 4, step 6.
 6. Dex `olf-cli` client and the `query_api` route and perimeter instance.
-7. `olf query` person path, `--as-workload`, the token cache, and `olf e2e`
+7. `olf infra query` person path, `--as-workload`, the token cache, and `olf e2e`
    cases: per role through the stub GitHub users the e2e already runs, an
    `analyst` denied DEV Silver, a `viewer` denied DEV Gold, a
    `data-engineer` writing DEV and denied writing PROD, a `platform-admin`
@@ -343,11 +343,11 @@ against the pinned images (Dex v2.46.0, Polaris 1.4.0, Trino 480, SeaweedFS
 | 1 | SeaweedFS limits S3 requests signed with `AssumeRole` credentials to the session policy (section 3, finding 3) | Passed. A credential carrying Polaris's per-table policy reads only its table, not a sibling whose path starts with the table's, and cannot write; without the policy the role reaches every table. Static identities keep their legacy authorization | Step 2 gives SeaweedFS its advanced IAM file (STS signing key as an in-cluster Secret, the role, its trust policy) and Polaris's identity `sts:AssumeRole`; how narrow that grant can be is open (T) |
 | 2 | Polaris vends credentials through SeaweedFS STS for a catalog with STS available, and still serves a request without delegation | Passed. Delegated loads return a SeaweedFS STS credential scoped to the table, read-only for `TABLE_READ_DATA`, writable for `TABLE_WRITE_DATA`, refused without `TABLE_READ_DATA`; loads without delegation are unchanged. Default lifetime one hour | Step 2 sets `STORAGE_CREDENTIAL_DURATION_SECONDS` to 900 (section 7) |
 | 3 | Polaris trusts the local CA for the Dex JWKS, discovery off (ADR 0015 to-verify) | Passed, through a named Quarkus TLS configuration; without the CA Polaris refuses the token (500). Wrong audience and tampered tokens get 401; Polaris's own tokens keep working with Dex down. **Found:** a token that maps to no role activates every role of the principal | `olf-signed-in` (finding 3; section 4, steps 10 and 11; section 5) |
-| 4 | Dex access tokens carry `email`, `groups` and `federated_claims` for step 1's scopes, `aud` equal to `olf-cli` | Passed with the GitHub connector as the module renders it, against the e2e's stub GitHub, device flow as a public client. `groups` holds mapped teams only; a refresh re-reads teams and a removed member is refused. A person in no mapped team is refused, but their device code stays pending | `olf query` bounds its device-flow polling (section 6). Removal takes effect from the first refresh after Dex's 3-second reuse interval |
-| 5 | Polaris refuses the token exchange of Trino's unsigned JWT, so a query without the person's token fails closed (step 8) | Passed. Polaris answers the exchange with 400 and the query fails; `trino-people-<stage>`, given a grant to expose a fallback, is used only for the catalog's configuration call. With a Dex token the query runs with that person's role. Trino's message is generic; the reason is in the error's cause chain | `olf query` reads the cause chain (section 6) |
+| 4 | Dex access tokens carry `email`, `groups` and `federated_claims` for step 1's scopes, `aud` equal to `olf-cli` | Passed with the GitHub connector as the module renders it, against the e2e's stub GitHub, device flow as a public client. `groups` holds mapped teams only; a refresh re-reads teams and a removed member is refused. A person in no mapped team is refused, but their device code stays pending | `olf infra query` bounds its device-flow polling (section 6). Removal takes effect from the first refresh after Dex's 3-second reuse interval |
+| 5 | Polaris refuses the token exchange of Trino's unsigned JWT, so a query without the person's token fails closed (step 8) | Passed. Polaris answers the exchange with 400 and the query fails; `trino-people-<stage>`, given a grant to expose a fallback, is used only for the catalog's configuration call. With a Dex token the query runs with that person's role. Trino's message is generic; the reason is in the error's cause chain | `olf infra query` reads the cause chain (section 6) |
 | 6 | Catalog-level grants apply to every namespace and table, and a Gold-only role can run `SHOW SCHEMAS` with `NAMESPACE_LIST` (section 5) | Passed. `olf-read` and `olf-write` reach Bronze, Silver, Gold and nested namespaces and tables created after the grant; `olf-read` cannot create. `olf-gold-read` lists every schema, nested ones included, and reads only Gold: Bronze and Silver tables, table lists and properties get 403. `olf-signed-in` cannot list. `information_schema.tables` over the whole catalog fails for a Gold-only role; filtered to a Gold schema it works. `olf-read` lists namespaces without `NAMESPACE_LIST` | Section 5 as designed; the `information_schema` limit is accepted (section 5) |
 | 7 | `session-timeout=0s` builds a fresh session per request with a refreshed token (step 9) | Passed. With the timeout at zero each query reaches Polaris with the token it was sent with: another token under the same Trino user and source gets that token's role, and a fresh token works after the first expired. A control catalog with Trino's default timeout kept presenting the first token: the second token was ignored, and once the first expired every query failed | Step 7 as designed; the zero timeout is required |
-| 8 | Trino 480's people catalog reads and commits with vended credentials and no static S3 key (section 3, finding 4) | Passed, with no S3 key in the catalog or Trino's environment. A data engineer creates, inserts, deletes and creates-as-select; an analyst reads Gold. The analyst's insert is refused by SeaweedFS with `Access Denied` on the read-only vended credential, before any commit; Bronze is refused by Polaris (403) | `olf query` names a role that may only read when the cause is an S3 `Access Denied` on a write (section 6) |
+| 8 | Trino 480's people catalog reads and commits with vended credentials and no static S3 key (section 3, finding 4) | Passed, with no S3 key in the catalog or Trino's environment. A data engineer creates, inserts, deletes and creates-as-select; an analyst reads Gold. The analyst's insert is refused by SeaweedFS with `Access Denied` on the read-only vended credential, before any commit; Bronze is refused by Polaris (403) | `olf infra query` names a role that may only read when the cause is an S3 `Access Denied` on a write (section 6) |
 | 9 | oauth2-proxy applies `--allowed-group` to a bearer session (step 4) | Passed on oauth2-proxy v7.15.5 with the perimeter module's arguments, as Traefik's forward-auth calls it for `/v1/statement`: a token whose groups hold a role at or above the floor gets 202; an unmapped group or a token without the `groups` scope gets 403; another client's audience, a tampered or expired token, or none gets 401. `--oidc-extra-audience=olf-cli` and `--extra-jwt-issuers=<issuer>=olf-cli` behave the same. A token for the perimeter's own client is also admitted | Step 4 uses `--oidc-extra-audience=olf-cli`. The perimeter's own audience passing is accepted: Trino's `required-audience=olf-cli` (step 5) refuses it |
 
 Still to run:
@@ -400,7 +400,7 @@ follow-up.
 
 - No code, Terraform or contract changes in this record; the build sequence
   above makes them.
-- Once built, a person's role is enforced below Superset for `olf query`, on the
+- Once built, a person's role is enforced below Superset for `olf infra query`, on the
   local provider with the GitHub issuer, and nowhere else.
 - Adding a query engine adds an adapter (token forwarding and vended
   credentials), never a policy.

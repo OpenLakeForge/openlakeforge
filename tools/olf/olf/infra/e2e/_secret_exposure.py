@@ -217,11 +217,11 @@ def _log_surfaces(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[str, str 
 
 
 def _diagnostics_bundle(cfg: E2EConfig, namespace: str) -> str | None:
-    """What `olf diagnostics collect` writes for the namespace, joined into one text."""
+    """What `olf infra diagnostics collect` writes for the namespace, joined into one text."""
     with tempfile.TemporaryDirectory() as tmp:
         try:
             diagnostics.collect(Path(tmp), namespace=namespace, kube_context=cfg.kube_context)
         except Exception as exc:  # an unavailable bundle is a skip, not a failure
-            log.info(f"olf diagnostics collect failed for {namespace}: {type(exc).__name__}")
+            log.info(f"olf infra diagnostics collect failed for {namespace}: {type(exc).__name__}")
             return None
         return "\n".join(path.read_text(errors="replace") for path in sorted(Path(tmp).iterdir()))

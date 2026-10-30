@@ -129,8 +129,8 @@ def build_resolver(
         catalog_path = Path(env["OPENLAKEFORGE_REPO_ROOT"]).resolve() / "release" / "component-catalog.yaml"
     else:
         # No scoped environment to inherit from: this is a top-level command
-        # (`olf doctor`, `olf e2e run`, a bare contract read) rather than a
-        # child of `olf deploy`, which exports OLF_DISTRIBUTION_ROOT via
+        # (`olf infra doctor`, `olf infra e2e run`, a bare contract read) rather than a
+        # child of `olf infra deploy`, which exports OLF_DISTRIBUTION_ROOT via
         # `DeploymentContext.command_env`. Resolving relative to the current
         # directory sent an installed user's default (managed) toolchain
         # lookup to `./release/component-catalog.yaml`, so every managed tool

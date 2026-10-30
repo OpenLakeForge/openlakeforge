@@ -160,6 +160,8 @@ _infra_command("break-glass", break_glass.break_glass_command)
 _infra_command("query", query.query, warn=False)
 app.command("init")(init.initialize)
 app.command("login")(platform_commands.login)
+app.command("whoami")(platform_commands.whoami)
+app.command("logout")(platform_commands.logout)
 
 
 @app.callback()

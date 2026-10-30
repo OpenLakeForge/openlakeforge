@@ -19,7 +19,7 @@ checkout-local shell files.
 
 A second problem sat alongside it. Even with orchestration solved, a user had to
 install Terraform, Helm, kubectl, and kind globally at compatible versions before
-`olf deploy` would run — OpenLakeForge's implementation details were the user's
+`olf infra deploy` would run — OpenLakeForge's implementation details were the user's
 prerequisites.
 
 ## Decision
@@ -64,7 +64,7 @@ supply their own binaries.
 
 AWS IAM Identity Center and Microsoft Entra authentication run through boto3 and
 the Azure SDKs. Neither the `aws` nor the `az` CLI is a prerequisite —
-`olf auth login --provider aws|azure` opens the vendor-hosted sign-in page and
+`olf infra auth login --provider aws|azure` opens the vendor-hosted sign-in page and
 OpenLakeForge never collects or hosts credentials itself.
 
 Two provider constraints survive as narrowly-scoped credential bridges, because

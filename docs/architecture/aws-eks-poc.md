@@ -95,21 +95,21 @@ olf check infra
 AWS POC lifecycle:
 
 ```sh
-olf deploy --provider aws --phase foundation
-olf deploy --provider aws
-olf forward --provider aws
-olf e2e run --env aws
-olf destroy --provider aws
+olf infra deploy --provider aws --phase foundation
+olf infra deploy --provider aws
+olf infra forward --provider aws
+olf infra e2e run --env aws
+olf infra destroy --provider aws
 ```
 
-`olf deploy --provider aws` runs the foundation, platform, and artifacts phases
+`olf infra deploy --provider aws` runs the foundation, platform, and artifacts phases
 in order. The artifact phase reconciles catalog namespaces, builds and pushes
 project-code to ECR, imports Superset report assets, deploys OpenMetadata
 metadata, patches Dagster runtime images, and restarts Dagster workloads.
 
-Use `olf destroy --provider aws --phase platform` followed by
-`olf destroy --provider aws --phase foundation` only when you want to tear down
-the two Terraform roots manually; `olf destroy --provider aws` wraps both in
+Use `olf infra destroy --provider aws --phase platform` followed by
+`olf infra destroy --provider aws --phase foundation` only when you want to tear down
+the two Terraform roots manually; `olf infra destroy --provider aws` wraps both in
 that order.
 
 ## Compatibility Gate
@@ -121,10 +121,10 @@ The AWS full-suite compatibility gate proves:
 - Trino can query both layers through Glue;
 - OpenMetadata can seed and crawl Glue-backed namespaces.
 
-`olf e2e run --env aws` first checks cluster health, provider contracts, S3,
+`olf infra e2e run --env aws` first checks cluster health, provider contracts, S3,
 Glue, Trino, and core workloads, then launches all Dagster product jobs and
 validates tables, marts, dashboards, metadata, and runtime artifacts. Use
-`olf e2e run --env aws --suite smoke` to run only the preflight checks.
+`olf infra e2e run --env aws --suite smoke` to run only the preflight checks.
 
 ## POC Limits
 

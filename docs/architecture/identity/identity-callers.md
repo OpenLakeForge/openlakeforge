@@ -5,7 +5,7 @@ Every authentication path on the local stack, classified into exactly one class
 what it built: Dex with GitHub, the perimeter (#176), Superset and OpenMetadata
 sign-in with role sync (#25), the Trino UI sign-in (HTTP: a fixed user behind
 the perimeter; HTTPS: OAuth2 through Dex), per-class workload credentials,
-default-deny network policy (#46), and `olf break-glass` with its drills. Rows
+default-deny network policy (#46), and `olf infra break-glass` with its drills. Rows
 state what the code does. Where a fact was not checked on a running cluster the
 cell says **to verify**.
 
@@ -48,19 +48,19 @@ principal and stage scope; Secret reference; rotation.
 
 | Path | Caller | Endpoint / transport | Credential / boundary | Scope | Secret | Rotation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Platform and bootstrap (`olf deploy`, `destroy`, `check`, `diagnostics`) | Workstation or CI runner | Kubernetes API through kubeconfig; Terraform, Helm, kubectl | Kubernetes RBAC; the local kind kubeconfig is cluster-admin | Whole cluster | None | Kubeconfig lifecycle belongs to the cluster |
-| Revision and activation store (`olf project build`, `deploy`, `status`, `revision inspect\|verify`) | Workstation or CI | `kubectl port-forward` to the SeaweedFS Service (`s3.port_forward_client`); credentials read by `k8s.secret_value` | RBAC (`secrets` get, `pods/portforward`) plus an S3 key | The ops-bucket Secret named by the contract, default `seaweedfs-s3-creds`: the SeaweedFS S3 admin key, not a stage key (**to verify** against the contract) | `seaweedfs-s3-creds`, keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Terraform-generated; residual debt |
-| Catalog reconciliation (`olf catalog sync-namespaces`) | Workstation or CI | `kubectl port-forward` to Polaris | OAuth client credentials of the Polaris `deployer` principal | Deployer principal's catalog roles | `polaris-deployer-creds` (name from the contract) | Polaris bootstrap Job |
-| Metadata reconciliation (`olf openmetadata deploy-metadata`) | Workstation or CI | `access.service_url`: the ingress route when the contract has routes (the local default), a port-forward otherwise, with `OLF_PORT_FORWARD=1`, or for a route behind an enabled perimeter | The admin bot `olf-automation`, JWT in Secret `openmetadata-automation-bot`; the native admin login (`OPENMETADATA_ADMIN_EMAIL`, default `admin@open-metadata.org`; the password is read from Secret `openmetadata-admin` unless `OPENMETADATA_ADMIN_PASSWORD` is set) is used only while basic login still works, to create the bot, and stops working once sign-in is on | Instance-wide admin | With identity on: `openmetadata-automation-bot`, key `OPENMETADATA_AUTOMATION_JWT`; otherwise Secret `openmetadata-admin`, key `admin-password` | None |
-| Superset report deployment (`olf report import`) | Workstation or CI | Same `access.service_url` | Superset native admin login; the password is read from Secret `superset-credentials` in the stage namespace unless `SUPERSET_ADMIN_PASSWORD` is set | Instance-wide admin | None; generated per stage | None |
-| Workstation e2e (`olf e2e run`) | Workstation | kubectl exec and run, and port-forwards (Trino CLI pod, Dagster, portal) | RBAC; the Trino CLI runs as `--user olf-<stage>-runtime` over HTTPS to `localhost:8443` when `trino_workload_authentication` is `tls` or `password`, with the principal's password from `trino-credential-olf-<stage>-runtime` on the CLI's stdin at `password`, the local default with `spec.access`; its isolation probes try a claimed user name with a DEV password, with no password and with a wrong one ([ADR 0016](../../adr/0016-trino-workload-authentication.md)). The perimeter check uses the ingress hostnames and signs in through Dex's GitHub connector against a stub GitHub the e2e runs in `olf-system`, as one stub user per mapped role | Creates and deletes the stub pod, Service and certificate; no real account | None: the stub accepts any code | None |
+| Platform and bootstrap (`olf infra deploy`, `destroy`, `check`, `diagnostics`) | Workstation or CI runner | Kubernetes API through kubeconfig; Terraform, Helm, kubectl | Kubernetes RBAC; the local kind kubeconfig is cluster-admin | Whole cluster | None | Kubeconfig lifecycle belongs to the cluster |
+| Revision and activation store (`olf infra project build`, `deploy`, `status`, `revision inspect\|verify`) | Workstation or CI | `kubectl port-forward` to the SeaweedFS Service (`s3.port_forward_client`); credentials read by `k8s.secret_value` | RBAC (`secrets` get, `pods/portforward`) plus an S3 key | The ops-bucket Secret named by the contract, default `seaweedfs-s3-creds`: the SeaweedFS S3 admin key, not a stage key (**to verify** against the contract) | `seaweedfs-s3-creds`, keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Terraform-generated; residual debt |
+| Catalog reconciliation (`olf infra catalog sync-namespaces`) | Workstation or CI | `kubectl port-forward` to Polaris | OAuth client credentials of the Polaris `deployer` principal | Deployer principal's catalog roles | `polaris-deployer-creds` (name from the contract) | Polaris bootstrap Job |
+| Metadata reconciliation (`olf infra openmetadata deploy-metadata`) | Workstation or CI | `access.service_url`: the ingress route when the contract has routes (the local default), a port-forward otherwise, with `OLF_PORT_FORWARD=1`, or for a route behind an enabled perimeter | The admin bot `olf-automation`, JWT in Secret `openmetadata-automation-bot`; the native admin login (`OPENMETADATA_ADMIN_EMAIL`, default `admin@open-metadata.org`; the password is read from Secret `openmetadata-admin` unless `OPENMETADATA_ADMIN_PASSWORD` is set) is used only while basic login still works, to create the bot, and stops working once sign-in is on | Instance-wide admin | With identity on: `openmetadata-automation-bot`, key `OPENMETADATA_AUTOMATION_JWT`; otherwise Secret `openmetadata-admin`, key `admin-password` | None |
+| Superset report deployment (`olf infra report import`) | Workstation or CI | Same `access.service_url` | Superset native admin login; the password is read from Secret `superset-credentials` in the stage namespace unless `SUPERSET_ADMIN_PASSWORD` is set | Instance-wide admin | None; generated per stage | None |
+| Workstation e2e (`olf infra e2e run`) | Workstation | kubectl exec and run, and port-forwards (Trino CLI pod, Dagster, portal) | RBAC; the Trino CLI runs as `--user olf-<stage>-runtime` over HTTPS to `localhost:8443` when `trino_workload_authentication` is `tls` or `password`, with the principal's password from `trino-credential-olf-<stage>-runtime` on the CLI's stdin at `password`, the local default with `spec.access`; its isolation probes try a claimed user name with a DEV password, with no password and with a wrong one ([ADR 0016](../../adr/0016-trino-workload-authentication.md)). The perimeter check uses the ingress hostnames and signs in through Dex's GitHub connector against a stub GitHub the e2e runs in `olf-system`, as one stub user per mapped role | Creates and deletes the stub pod, Service and certificate; no real account | None: the stub accepts any code | None |
 | CI (`.github/workflows/local-full-e2e.yml`) | GitHub runner | The same `olf` commands against a kind cluster created on the runner | The ephemeral cluster's kubeconfig. The only GitHub secret the workflow uses is `GITHUB_TOKEN`, for the registry | Ephemeral cluster | None for platform credentials | Cluster is discarded |
 
 ### Class 2: in-cluster
 
 | Path | Caller | Endpoint / transport | Credential / boundary | Scope | Secret | Rotation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Superset to Trino | Superset pod, stage namespace | `trino:8080` ClusterIP, plain HTTP; HTTPS on `tls_port` with the CA mounted from `olf-local-ca` when `trino_workload_authentication` is not `off` | At `password` (the local default with `spec.access`): the stage principal's password, set by `olf report import` through the import's `passwords` field. Otherwise **none**: the SQLAlchemy URI carries only a user name (`trino://<user>@...`), which `olf` sets to the stage's `olf-<stage>-runtime` from the contract ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | Trino catalog rules match that principal | The stage's `trino-credential`, read by `olf report import` | Rotation re-runs the import; per [ADR 0016](../../adr/0016-trino-workload-authentication.md) |
+| Superset to Trino | Superset pod, stage namespace | `trino:8080` ClusterIP, plain HTTP; HTTPS on `tls_port` with the CA mounted from `olf-local-ca` when `trino_workload_authentication` is not `off` | At `password` (the local default with `spec.access`): the stage principal's password, set by `olf infra report import` through the import's `passwords` field. Otherwise **none**: the SQLAlchemy URI carries only a user name (`trino://<user>@...`), which `olf` sets to the stage's `olf-<stage>-runtime` from the contract ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | Trino catalog rules match that principal | The stage's `trino-credential`, read by `olf infra report import` | Rotation re-runs the import; per [ADR 0016](../../adr/0016-trino-workload-authentication.md) |
 | dbt to Trino (Dagster run pod) | Run pod | Same Trino Service | `OPENLAKEFORGE_DBT_TRINO_USER` is `olf-<stage>-runtime`. Over HTTPS with the CA mounted from `olf-local-ca` when `trino_workload_authentication` is not `off`; at `password` dbt-trino `method: ldap` with the stage's password ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | Same | At `password`, the stage's `trino-credential` through a `secretKeyRef` | Run pods read it at launch; per [ADR 0016](../../adr/0016-trino-workload-authentication.md) |
 | Trino to Polaris | Trino pod | Polaris REST in the shared namespace | OAuth client credentials of the stage's Trino principal | One stage catalog | `trino_credentials_secret_name`, keys `POLARIS_TRINO_CLIENT_ID` / `_SECRET` | Rotate the Polaris principal; the bootstrap Job rotates a principal whose Secret is gone |
 | Floe runner to Polaris | Floe Job | Polaris REST | OAuth client credentials of the stage's Floe principal | One stage catalog | `floe_credentials_secret_name`, keys `POLARIS_FLOE_CLIENT_ID` / `_SECRET`, replicated into the stage namespace | Same |
@@ -109,7 +109,7 @@ Two cases differ:
 
 **Built.** `access.service_url` port-forwards to every route in
 `shared.access.perimeter.protected_routes` when the perimeter is enabled, so
-`olf openmetadata deploy-metadata`, `olf report import` and the e2e assertions
+`olf infra openmetadata deploy-metadata`, `olf infra report import` and the e2e assertions
 reach the internal Service and never meet forwardAuth. Only the ingress drills
 in `olf e2e` pass `through_ingress=True`.
 
@@ -126,8 +126,8 @@ The tree configures none. Three paths reach the same webserver and GraphQL API:
 
 | Path | Who | What stops everyone else |
 | --- | --- | --- |
-| `https://dagster-<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014, seam 3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
-| `kubectl port-forward` to the `dagster-dagster-webserver` Service | `olf e2e run` (`e2e/_dagster.py`) and an operator | Kubernetes RBAC: `pods/portforward` in the stage namespace. The forward binds loopback, and the caller needs no session |
+| `https://dagster-<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014, seam 3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf infra e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
+| `kubectl port-forward` to the `dagster-dagster-webserver` Service | `olf infra e2e run` (`e2e/_dagster.py`) and an operator | Kubernetes RBAC: `pods/portforward` in the stage namespace. The forward binds loopback, and the caller needs no session |
 | The Service by its in-cluster name | Any pod | Default-deny NetworkPolicy: only Traefik and the stage's own namespace are allowed ([network policy and RBAC](identity-network-policy-and-rbac.md)) |
 
 The two internal paths are class 2 (a workload or operator acting through
@@ -137,7 +137,7 @@ the perimeter-protected ingress, and the kind ingress listens on `127.0.0.1`
 (ADR 0013). The OpenMetadata Dagster connector is deferred
 (`technical-debt.md`), so OpenMetadata does not call Dagster today.
 The stage namespace's default-deny policy, not a probe, is what limits the
-in-cluster path: the negative probes of `olf e2e run --env local`
+in-cluster path: the negative probes of `olf infra e2e run --env local`
 (`e2e/_network.py`) cover PostgreSQL, Polaris, Trino, OpenMetadata and Dex, not
 Dagster.
 
@@ -168,7 +168,7 @@ roles to `full`.
 - **Polaris keeps its own client credentials.** Whether the issuer could
   authenticate the catalog callers instead is evaluated in
   [ADR 0015](../../adr/0015-polaris-identity-provider-evaluation.md) and deferred.
-- **Static `admin` password for Superset.** `olf report import` authenticates
+- **Static `admin` password for Superset.** `olf infra report import` authenticates
   with it; OpenMetadata moved to the `olf-automation` bot.
 - **Unattended automation with human SSO on** (ingestion, Superset to Trino,
-  Floe and dbt to the catalog) is exercised by `olf e2e run --env local`.
+  Floe and dbt to the catalog) is exercised by `olf infra e2e run --env local`.

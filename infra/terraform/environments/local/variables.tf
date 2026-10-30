@@ -128,6 +128,12 @@ variable "dagster_chart_package_path" {
   default     = null
 }
 
+variable "storage_size" {
+  description = "Size of the self-hosted object storage volumes: a row of release/storage-sizes.yaml (spec.storage.size)."
+  type        = string
+  default     = "small"
+}
+
 variable "seaweedfs_chart_package_path" {
   description = "Optional local SeaweedFS Helm chart package used by local-up to avoid transient chart download failures."
   type        = string
@@ -188,7 +194,7 @@ variable "access_issuer" {
 }
 
 variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. `olf deploy` (deprecated, single stage) leaves this true; `olf platform apply` sets it false so `olf project deploy` owns the openlakeforge-project release instead."
+  description = "Whether Terraform owns the Dagster user-code deployments. `olf infra deploy` (deprecated, single stage) leaves this true; `olf infra platform apply` sets it false so `olf infra project deploy` owns the openlakeforge-project release instead."
   type        = bool
   default     = true
 }

@@ -218,7 +218,7 @@
   fi
 
   # Every governed stage gets its own `<service>.lakehouse_<stage>` database
-  # entity: `olf openmetadata deploy-metadata` seeds a stage's schemas and
+  # entity: `olf infra openmetadata deploy-metadata` seeds a stage's schemas and
   # tables under that root (#211) and OpenMetadata rejects a schema whose
   # database does not resolve. Only the canonical stage's catalog is crawled --
   # the Iceberg service above holds one connection.
@@ -436,7 +436,7 @@
   remove_service dashboardServices superset superset-metadata-ingestion
 
   # The baseline SSO signup relies on. The switch to SSO itself is applied by
-  # `olf openmetadata deploy-metadata`, after the platform apply: the issuer's
+  # `olf infra openmetadata deploy-metadata`, after the platform apply: the issuer's
   # host only resolves once Traefik exists (#432).
   if [ -n "$sso_enabled" ]; then
     # Self-signup makes every admitted person a user, and every user inherits

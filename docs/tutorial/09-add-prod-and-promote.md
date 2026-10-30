@@ -44,7 +44,7 @@ spec:
 Then create the namespaces, buckets and catalogs for every enabled stage:
 
 ```bash
-olf platform apply -f openlakeforge.yaml
+olf infra platform apply -f openlakeforge.yaml
 ```
 
 ## 2. Choose a registry
@@ -61,7 +61,7 @@ docker login ghcr.io                     # or docker.io
 ## 3. Build the revision once
 
 ```bash
-IMAGE="$(olf project image -f openlakeforge.yaml | tee /dev/stderr | tail -n 1)"
+IMAGE="$(olf infra project image -f openlakeforge.yaml | tee /dev/stderr | tail -n 1)"
 ```
 
 It builds the project-code image, pushes it and loads it into kind, showing its
@@ -70,7 +70,7 @@ progress, and ends with a digest-pinned reference,
 `IMAGE`. Build the revision from it the same way:
 
 ```bash
-REVISION="$(olf project build --project . --image "$IMAGE" | tee /dev/stderr | tail -n 1)"
+REVISION="$(olf infra project build --project . --image "$IMAGE" | tee /dev/stderr | tail -n 1)"
 echo "$REVISION"
 ```
 
@@ -83,14 +83,14 @@ digest.
 Activate it in DEV and validate it there first:
 
 ```bash
-olf project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
-olf e2e run --env local -f openlakeforge.yaml --stage dev --suite full
+olf infra project deploy -f openlakeforge.yaml --stage dev --revision "$REVISION"
+olf infra e2e run --env local -f openlakeforge.yaml --stage dev --suite full
 ```
 
 Only when DEV passes, activate the same revision in PROD:
 
 ```bash
-olf project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
+olf infra project deploy -f openlakeforge.yaml --stage prod --revision "$REVISION"
 ```
 
 Activation reconciles the stage's catalog namespaces, activates its Floe
@@ -99,7 +99,7 @@ location. It never rebuilds source.
 
 ## 5. Find the schedule
 
-Open the PROD Dagster, listed under `URLs` by `olf status --provider local`,
+Open the PROD Dagster, listed under `URLs` by `olf infra status --provider local`,
 and open the **Automation** or **Schedules** page. The schedule
 `campaign_performance_daily` (`0 3 * * *`, UTC) exists in PROD only, and it is
 stopped: deploying a revision never starts it. Switch it on there when you want
@@ -112,8 +112,8 @@ commands, so any CI can run the same ones:
 
 | Action | Does |
 | --- | --- |
-| `OpenLakeForge/openlakeforge/.github/actions/build-revision` | `olf project image`, then `olf project build`; outputs `image` and `revision` |
-| `OpenLakeForge/openlakeforge/.github/actions/deploy-stage` | `olf project deploy --stage <s> --revision <r>`, fails unless `olf project status` records exactly `<r>`, and optionally runs `olf e2e run --suite full` |
+| `OpenLakeForge/openlakeforge/.github/actions/build-revision` | `olf infra project image`, then `olf infra project build`; outputs `image` and `revision` |
+| `OpenLakeForge/openlakeforge/.github/actions/deploy-stage` | `olf infra project deploy --stage <s> --revision <r>`, fails unless `olf infra project status` records exactly `<r>`, and optionally runs `olf infra e2e run --suite full` |
 
 Behaviour follows the stage and revision you pass, never the branch name. A
 workflow runs `build-revision` once, then `deploy-stage` for DEV, then for PROD
@@ -125,7 +125,7 @@ protect the `prod` environment are in
 ## Check it worked
 
 ```bash
-olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
+olf infra e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 ```
 
 It validates PROD with the topology the profile recorded: it launches every
@@ -142,7 +142,7 @@ Local OpenLakeForge full e2e validation passed.
   and catalog.
 - You build one revision and activate that same revision in every stage.
 - Schedules exist only in PROD, and start stopped.
-- The two CI actions are thin wrappers over `olf project image`, `build` and
+- The two CI actions are thin wrappers over `olf infra project image`, `build` and
   `deploy`.
 
 ## Next

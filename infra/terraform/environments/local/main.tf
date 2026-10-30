@@ -47,7 +47,7 @@ locals {
   artifact_base_uri     = "s3://${var.ops_bucket_name}"
   log_base_uri          = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
-  # Catalog namespaces themselves are not declared here. `olf catalog
+  # Catalog namespaces themselves are not declared here. `olf infra catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
   # those namespaces follow.
@@ -190,6 +190,8 @@ module "seaweedfs" {
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
+  storage_size       = var.storage_size
+  storage_sizes_file = "${path.root}/../../../../release/storage-sizes.yaml"
   chart_package_path = var.seaweedfs_chart_package_path
   bucket_names = concat(flatten([
     for binding in values(local.stage_storage) : [
@@ -429,7 +431,7 @@ module "openmetadata" {
   deps_chart_package_path = var.openmetadata_deps_chart_package_path
   # One Iceberg connection crawls one catalog: the canonical stage's. Every
   # other governed stage still gets its own database root and services below,
-  # which is what `olf openmetadata deploy-metadata` seeds into (#131).
+  # which is what `olf infra openmetadata deploy-metadata` seeds into (#131).
   catalog_contract = merge(
     local.catalog_contract,
     local.stage_catalog_contracts[local.governance_dagster_stage],
@@ -442,7 +444,7 @@ module "openmetadata" {
   })
   postgresql_contract = local.metadata_database_contract
   # Empty by design: the database schemas mirror Polaris namespaces, which now
-  # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
+  # come into existence in Phase 2. `olf infra openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names = []
   # Only governed stages: the ingestion-bot JWT is a live credential, and a

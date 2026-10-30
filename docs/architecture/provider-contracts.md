@@ -23,7 +23,7 @@ parser, and local, Azure, and AWS fixtures. A native v3 runtime must select a
 stage explicitly. No profile or project descriptor receives a bucket, catalog,
 provider adapter, credential, or generated endpoint.
 
-`olf deploy` has three ordered phases:
+`olf infra deploy` has three ordered phases:
 
 1. Foundation creates the cluster and registry.
 2. Platform creates static Terraform-managed services.
@@ -35,9 +35,9 @@ runs artifacts only; platform never waits for project artifacts.
 
 `olf` reads the contract from the platform root's Terraform output. A job that
 deploys a project revision without that state (a CI runner, say) uses a copy
-instead: `olf platform contract -f openlakeforge.yaml > contract.json` prints
+instead: `olf infra platform contract -f openlakeforge.yaml > contract.json` prints
 it where the platform was applied, and `OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE`
-points `olf project build`, `deploy` and `status` at the copy. (`olf e2e run`
+points `olf infra project build`, `deploy` and `status` at the copy. (`olf infra e2e run`
 still reads the Dagster service and code-location names from the platform's
 Terraform outputs, so it needs that state.) The contract names Secrets and
 their keys, never their values. A file that is named but missing or malformed fails
@@ -241,7 +241,7 @@ Glue database/schema name —
 `sales_silver` as `lakehouse_dev_sales_silver` for DEV and
 `lakehouse_prod_sales_silver` for PROD, so both stages' physical databases
 coexist in the one shared catalog without colliding. Every consumer that
-resolves a physical Glue name (`olf catalog sync-namespaces`, dbt
+resolves a physical Glue name (`olf infra catalog sync-namespaces`, dbt
 profile/source schema config, and Floe once Silver runs on Glue) must apply this
 same prefix — IAM scopes each stage's role to `database/<prefix>_*` regardless,
 so an unprefixed name is simply denied rather than silently reading the wrong
@@ -307,7 +307,7 @@ For dlt's S3 credentials, a key the stage sets wins. An unset key falls back to
 the pod's default AWS credential chain, which is how a cloud workload identity
 is picked up.
 
-**Fail closed.** `olf deploy` refuses to activate a revision whose sources the
+**Fail closed.** `olf infra deploy` refuses to activate a revision whose sources the
 stage has not bound. It names each missing ConfigMap, Secret or key, and
 reads Secret key names only, never values. A binding removed after
 activation stops the next run pod from starting. No workload falls back to

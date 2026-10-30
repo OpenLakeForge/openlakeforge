@@ -73,7 +73,7 @@ Where they apply:
   the job carries.
 - A Bronze asset materialized outside its product job gets no binding and
   fails with dlt's missing-config error.
-- `olf deploy` refuses to activate a revision whose sources the stage has not
+- `olf infra deploy` refuses to activate a revision whose sources the stage has not
   bound. It reads Secret key names only, never values.
 
 A loader that is a real dlt source runs it through

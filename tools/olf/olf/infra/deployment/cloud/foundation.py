@@ -145,7 +145,7 @@ def foundation_down(
         if namespace_result.ok:
             raise DeploymentPreconditionError(
                 f"namespace '{config.namespace}' still exists on '{facts.kube_context}'. Run "
-                f"'olf destroy --provider {backend.scope} --phase platform' before destroying the "
+                f"'olf infra destroy --provider {backend.scope} --phase platform' before destroying the "
                 f"{backend.scope} foundation. Pass --force only if you intentionally want to delete "
                 "the foundation with platform resources still present."
             )

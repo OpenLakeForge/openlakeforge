@@ -25,7 +25,7 @@ namespace.
 
 ## Enforcement is checked, not assumed
 
-`olf deploy --provider local` runs a canary after the foundation. It proves a
+`olf infra deploy --provider local` runs a canary after the foundation. It proves a
 client and server pair connect with no policy, then requires an ingress-only
 and an egress-only deny to block it. The deploy fails if the cluster does not
 enforce NetworkPolicy. The canary runs in the deploy only. `olf e2e` runs
@@ -76,7 +76,7 @@ The `default` ServiceAccount of every namespace has no Role. `olf e2e` asserts
 the denials with `kubectl auth can-i` as each ServiceAccount, and lists every
 Role bound in the OpenLakeForge namespaces that grants a Secret verb or pod
 creation, failing on any not named above. No break-glass Role exists in the
-repository: `olf break-glass` uses the operator's own kubeconfig
+repository: `olf infra break-glass` uses the operator's own kubeconfig
 ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)).
 
 ## Limits

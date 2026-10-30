@@ -37,7 +37,7 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
 
     Glue database lifecycle moved to Phase 2 (ADR 0002), so the provider
     contract no longer publishes a namespace/database list to check against --
-    `olf catalog sync-namespaces` is what is under test here, and the only
+    `olf infra catalog sync-namespaces` is what is under test here, and the only
     source of truth for "did it work" is AWS itself.
     """
     log.step("Checking S3 artifact bucket and Glue catalog databases...")

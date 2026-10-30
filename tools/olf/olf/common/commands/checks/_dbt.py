@@ -23,7 +23,7 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     # `libs` is distribution-owned, not project-owned (ADR 0009): an
     # installed project's root has only `lakehouse_code/`, so the
     # distribution root must be on sys.path too, not just the project root.
-    # Mirrors `olf dbt parse`'s identical fix. `_distribution_root_for`
+    # Mirrors `olf infra dbt parse`'s identical fix. `_distribution_root_for`
     # prefers `root` itself when `--repo-root` selects a complete, separate
     # checkout, so that checkout's own `libs/dbt/render_profiles` wins.
     project_spec = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
@@ -63,7 +63,7 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     }
     for project in projects:
         # Rendered outside the checkout so the check never leaves a
-        # profiles.yml behind for the next `olf project build` (#546).
+        # profiles.yml behind for the next `olf infra project build` (#546).
         with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
             write_profile(project, output_dir=Path(profiles_dir))
             _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=project_spec.root, env=env)

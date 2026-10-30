@@ -74,7 +74,7 @@ def test_foundation_state_path_override_applies_to_every_provider(
 
 def test_aws_kubeconfig_path_override(tmp_path: Path) -> None:
     """A kubeconfig override isolates a
-    parallel `olf deploy --provider aws --kubeconfig-path "$AWS_KUBECONFIG_PATH"` run with its own kubeconfig.
+    parallel `olf infra deploy --provider aws --kubeconfig-path "$AWS_KUBECONFIG_PATH"` run with its own kubeconfig.
     """
     override = tmp_path / "custom" / "aws-smoke.yaml"
 
@@ -191,7 +191,7 @@ def test_installed_context_keeps_terraform_state_and_data_outside_distribution(t
 
 def test_installed_context_without_project_root_still_externalizes_terraform_state(tmp_path: Path) -> None:
     """The documented quick start - `uv tool install openlakeforge` then
-    `olf deploy` with no `--project-root` - deploys the bundled demo, so
+    `olf infra deploy` with no `--project-root` - deploys the bundled demo, so
     `project_root` and `distribution_root` are the *same* read-only payload.
 
     Regression test: `command_env` used to gate the external state/data
