@@ -105,9 +105,9 @@ def test_a_drifted_platform_state_refuses_before_anything_is_deleted(tmp_path: P
     kubectl = FakeKubectl()
 
     def drifted(_ctx: Any) -> None:
-        raise secrets_rotation.RotationError("platform state has drifted; run olf deploy first")
+        raise secrets_rotation.RotationError("platform state has drifted; run olf infra deploy first")
 
-    with pytest.raises(secrets_rotation.RotationError, match="drifted; run olf deploy first"):
+    with pytest.raises(secrets_rotation.RotationError, match="drifted; run olf infra deploy first"):
         rotate(tmp_path, kubectl, platform_check=drifted)
 
     assert kubectl.deletes() == []
@@ -129,7 +129,7 @@ def test_a_missing_sibling_client_refuses_so_the_shared_job_regenerates_only_the
 ) -> None:
     kubectl = FakeKubectl({name: f"uid-{name}/1" for name in CLIENTS if name != missing})
 
-    with pytest.raises(secrets_rotation.RotationError, match=f"{missing}.*run olf deploy first"):
+    with pytest.raises(secrets_rotation.RotationError, match=f"{missing}.*run olf infra deploy first"):
         rotate(tmp_path, kubectl)
 
     assert kubectl.deletes() == []
@@ -288,7 +288,7 @@ def test_the_state_check_refuses_when_the_core_objects_are_missing(
     monkeypatch.setattr(platform, "require_foundation_state", lambda _config: None)
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: False)
 
-    with pytest.raises(secrets_rotation.RotationError, match="platform state has drifted; run olf deploy first"):
+    with pytest.raises(secrets_rotation.RotationError, match="platform state has drifted; run olf infra deploy first"):
         secrets_rotation.check_platform_state(context(tmp_path))
 
 
@@ -303,7 +303,9 @@ def test_a_missing_foundation_state_refuses_before_anything_is_deleted(
     monkeypatch.setattr(platform, "platform_state_holds_core", lambda *a, **k: True)
     kubectl = FakeKubectl()
 
-    with pytest.raises(secrets_rotation.RotationError, match="foundation Terraform state is missing.*olf deploy first"):
+    with pytest.raises(
+        secrets_rotation.RotationError, match="foundation Terraform state is missing.*olf infra deploy first"
+    ):
         rotate(tmp_path, kubectl, platform_check=secrets_rotation.check_platform_state)
 
     assert kubectl.deletes() == []
@@ -340,7 +342,9 @@ def test_failing_setup_or_stage_removal_refuses_before_anything_is_deleted(
 def test_a_sibling_without_the_client_secret_key_refuses_before_anything_is_deleted(tmp_path: Path) -> None:
     kubectl = FakeKubectl(without_key=("dex-client-openmetadata",))
 
-    with pytest.raises(secrets_rotation.RotationError, match="dex-client-openmetadata.*lacks the key.*olf deploy"):
+    with pytest.raises(
+        secrets_rotation.RotationError, match="dex-client-openmetadata.*lacks the key.*olf infra deploy"
+    ):
         rotate(tmp_path, kubectl)
 
     assert kubectl.deletes() == []
@@ -355,7 +359,7 @@ def test_apply_targets_refuses_a_drifted_state_without_resetting_or_applying(mon
     tools = SimpleNamespace(terraform=SimpleNamespace(apply=lambda *a, **k: applied.append(k)))
     config = SimpleNamespace(paths=SimpleNamespace(platform_terraform_dir=Path("platform")))
 
-    with pytest.raises(DeploymentPreconditionError, match="drifted; run olf deploy first"):
+    with pytest.raises(DeploymentPreconditionError, match="drifted; run olf infra deploy first"):
         platform.apply_targets(config, tools, env={}, extra_args=["-target=x"])  # type: ignore[arg-type]
 
     assert applied == []

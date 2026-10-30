@@ -37,4 +37,4 @@ def connect(
         github_app.connect_github(context, no_browser=no_browser)
     except github_app.GitHubConnectError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    log.info("Next: olf deploy --provider local")
+    log.info("Next: olf infra deploy --provider local")

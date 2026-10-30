@@ -387,7 +387,7 @@ def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
 ) -> None:
     """Superset exports what was imported into it: the stage's own connection
     and physical schemas. Exporting must hand back the bundle that was checked
-    in, which `olf report validate` accepts without hand edits."""
+    in, which `olf infra report validate` accepts without hand edits."""
     checked_in = _write_report_bundle(tmp_path)
     (checked_in / "databases" / "trino.yaml").write_text(
         "database_name: Trino\n"

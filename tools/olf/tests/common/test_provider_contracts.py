@@ -1066,7 +1066,7 @@ def test_contract_emitted_before_the_field_resolves_the_merged_default() -> None
 
 
 def test_a_contract_predating_the_field_still_builds_its_runtime_environment() -> None:
-    """`olf deploy`'s artifacts phase reads the same contract; it must not start
+    """`olf infra deploy`'s artifacts phase reads the same contract; it must not start
     failing on Terraform state nobody has re-applied."""
     contract = _fixture("local-provider-contracts-v3.json")
     for stage in contract["stages"].values():
@@ -1145,8 +1145,8 @@ def test_renaming_a_code_location_moves_the_binding_digest() -> None:
 
 
 def test_deployment_profile_name_mismatch_names_both_values() -> None:
-    """The nightly full e2e failed on this check for eleven runs: `olf deploy
-    --profile full` records the "legacy" shorthand topology while `olf e2e
+    """The nightly full e2e failed on this check for eleven runs: `olf infra deploy
+    --profile full` records the "legacy" shorthand topology while `olf infra e2e
     run` re-resolved the project profile. A message without the two names
     sends the reader to the CI log rather than to the two profiles that
     disagree."""

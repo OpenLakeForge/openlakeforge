@@ -182,7 +182,7 @@ def list_openmetadata_domains() -> list[tuple[str, str]]:
         raise typer.Exit(
             code=fail(
                 "OpenMetadata is not deployed: the governance layer is disabled. "
-                "Set `preset: full` in openlakeforge.yaml and run `olf deploy`."
+                "Set `preset: full` in openlakeforge.yaml and run `olf infra deploy`."
             )
         )
     governance = _governance_service()
@@ -196,7 +196,7 @@ def list_openmetadata_domains() -> list[tuple[str, str]]:
                 raise typer.Exit(
                     code=fail(
                         f"No OpenMetadata automation token: Secret {AUTOMATION_BOT} is missing from namespace "
-                        f"{namespace}. The governance bootstrap Job writes it; rerun `olf deploy` to recreate it."
+                        f"{namespace}. The governance bootstrap Job writes it; rerun `olf infra deploy` to recreate it."
                     )
                 )
             return OpenMetadataClient(base_url, token=token).list_domains()

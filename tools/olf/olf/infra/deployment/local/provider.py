@@ -2,7 +2,7 @@
 
 Every method is a one-line delegate into a sibling `olf.common.deployment.local.*`
 module, so the granular Make target delegates (`--phase foundation`, etc.)
-and the combined `olf deploy`/`olf destroy` verbs share the exact same code
+and the combined `olf infra deploy`/`olf infra destroy` verbs share the exact same code
 path - nothing is duplicated between them.
 """
 
@@ -114,7 +114,7 @@ class LocalProvider:
         Local has no registry of its own, so a publishable revision depends on
         an external one (GHCR, Docker Hub) named by
         `PROJECT_CODE_IMAGE_REPOSITORY`. Pushing is what creates the registry
-        digest `olf project build` requires -- a kind-only image has just a
+        digest `olf infra project build` requires -- a kind-only image has just a
         local config Id, which is not pullable. The kind load still happens
         either way so the default `Never` pull policy keeps working.
 

@@ -1,4 +1,4 @@
-"""`olf secrets rotate`: rotate a workload secret in one command (#178)."""
+"""`olf infra secrets rotate`: rotate a workload secret in one command (#178)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ app = typer.Typer(help="Rotate workload secrets.")
 def rotate(
     target: str = typer.Argument(..., help="dex-client-perimeter, dex-client-trino or github-app."),
     profile_file: str = typer.Option(
-        "", "--file", "-f", help="Deployment Profile v1 path, as for `olf platform apply -f`."
+        "", "--file", "-f", help="Deployment Profile v1 path, as for `olf infra platform apply -f`."
     ),
     project_root: str = typer.Option(
         "", "--project", "--project-root", help="Project root; defaults to the current directory."
@@ -26,7 +26,7 @@ def rotate(
 ) -> None:
     """Delete TARGET's Secret, have the platform apply create it again, and restart what reads it.
 
-    `github-app` registers a new GitHub App through `olf github connect`.
+    `github-app` registers a new GitHub App through `olf infra github connect`.
     """
     from olf.common.deployment.errors import DeploymentError
     from olf.common.tooling.toolkit import Toolkit
@@ -35,7 +35,7 @@ def rotate(
     if target not in secrets_rotation.TARGETS:
         raise typer.Exit(code=fail(secrets_rotation.unknown_target_message(target)))
     if profile_file:
-        # The profile-driven context, as `olf platform apply -f`: it leaves project-owned deployments alone.
+        # The profile-driven context, as `olf infra platform apply -f`: it leaves project-owned deployments alone.
         context = deployment_context_for_profile(
             profile_file, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
         )

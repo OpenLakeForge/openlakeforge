@@ -209,7 +209,7 @@ jobs:
 
       - name: Pin the published example image in the payload catalog
         # The catalog cannot hold the digest of the image built from its own commit, so the release stamps it in
-        # here, before the payload is built: `olf deploy` then pulls exactly the image whose lakehouse_code it ships.
+        # here, before the payload is built: `olf infra deploy` then pulls exactly the image whose lakehouse_code it ships.
         if: needs.prepare.outputs.dry_run == 'false'
         run: |
           set -euo pipefail

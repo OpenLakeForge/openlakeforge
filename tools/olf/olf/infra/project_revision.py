@@ -230,7 +230,7 @@ class ProjectRevisionManifest:
                 "distribution component."
             )
         # The JSON Schema also enforces this, but only runs during a local
-        # `olf project build` (see manifest_schema_errors); a hand-crafted or
+        # `olf infra project build` (see manifest_schema_errors); a hand-crafted or
         # corrupted-but-internally-consistent sidecar read straight off the
         # store bypasses it entirely, so the hand-rolled model must enforce
         # it too -- a self-consistent manifest pointing at a mutable tag is

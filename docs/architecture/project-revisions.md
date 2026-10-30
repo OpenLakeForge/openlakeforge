@@ -3,7 +3,7 @@
 A project revision is a frozen, content-addressed identity for one complete
 promotable data project: descriptors, Floe contracts, dbt, Dagster
 orchestration code, report assets when present, and the project-code image
-digest. `olf project build` computes and publishes it; `olf project revision
+digest. `olf infra project build` computes and publishes it; `olf infra project revision
 inspect|verify` read it back without rebuilding source. See
 [ADR 0012](../adr/0012-project-revisions-and-promotion.md) for the decision
 this implements, and [`#154`](https://github.com/OpenLakeForge/openlakeforge/issues/154)
@@ -29,16 +29,16 @@ provider, must never invalidate a revision that already exists.
 ## Stage activation
 
 ```bash
-olf platform apply -f openlakeforge.yaml
-olf project image  -f openlakeforge.yaml
-olf project build  --project . --image <repository>@sha256:<digest>
-olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
-olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
-olf project status -f openlakeforge.yaml --json
+olf infra platform apply -f openlakeforge.yaml
+olf infra project image  -f openlakeforge.yaml
+olf infra project build  --project . --image <repository>@sha256:<digest>
+olf infra project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
+olf infra project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
+olf infra project status -f openlakeforge.yaml --json
 ```
 
-`olf project image` builds and pushes the project-code image and prints the
-digest-pinned reference `olf project build` requires.
+`olf infra project image` builds and pushes the project-code image and prints the
+digest-pinned reference `olf infra project build` requires.
 
 A revision is identified partly by that image, so the reference has to mean the
 same thing from every stage -- which makes a **registry** part of the contract,
@@ -99,8 +99,8 @@ catalog boundary, never part of an asset's identity.
 
 A Superset report bundle is the one component promotion never re-derives:
 PROD imports what DEV exported, and nothing exports from PROD to repair it.
-`olf project build` therefore refuses a bundle that could not survive that
-trip, and `olf report validate` runs the same rules on demand:
+`olf infra project build` therefore refuses a bundle that could not survive that
+trip, and `olf infra report validate` runs the same rules on demand:
 
 - **`metadata.yaml` declares `type: assets` and a format version.** That type
   is what selects the import command the deploy path runs; anything else
@@ -153,10 +153,10 @@ every component, reports included, by the revision's own scan.
 ## Building and verifying
 
 ```bash
-olf project build --project . --image ghcr.io/example/project-code@sha256:<digest>
+olf infra project build --project . --image ghcr.io/example/project-code@sha256:<digest>
 ```
 
-Refuses to build from an invalid project — `olf project build` runs the same
+Refuses to build from an invalid project — `olf infra project build` runs the same
 checks as `olf project validate` first. The image reference must already
 carry a digest, or resolve to one through the image's registry `RepoDigest`
 (so it has been pushed to, or pulled from, a registry); a bare mutable tag
@@ -165,7 +165,7 @@ could point at a moving tag, or at a digest nothing can pull, is not
 actually immutable.
 
 ```bash
-olf project revision verify --revision sha256:<digest>
+olf infra project revision verify --revision sha256:<digest>
 ```
 
 Re-derives every component's digest from the published objects and compares
@@ -184,7 +184,7 @@ which path on disk the project was built from.
 
 ## Publishing
 
-`olf project build` publishes under `project/revisions/sha256/<digest>/`,
+`olf infra project build` publishes under `project/revisions/sha256/<digest>/`,
 either to the ops bucket (`--via port-forward` for in-cluster S3-compatible
 storage, `--via direct` for cloud S3) or to a local directory with `--output
 DIR`. Every published object is immutable: republishing the same revision is

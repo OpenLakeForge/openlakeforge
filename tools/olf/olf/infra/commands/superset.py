@@ -249,11 +249,11 @@ def _deprecated_alias(command: Callable[..., None], replacement: str) -> Callabl
     return alias
 
 
-app.command("deploy-reports", help="Deprecated alias of `olf report import`.")(
-    _deprecated_alias(report_import, "olf report import")
+app.command("deploy-reports", help="Deprecated alias of `olf infra report import`.")(
+    _deprecated_alias(report_import, "olf infra report import")
 )
-app.command("export-reports", help="Deprecated alias of `olf report export`.")(
-    _deprecated_alias(report_export, "olf report export")
+app.command("export-reports", help="Deprecated alias of `olf infra report export`.")(
+    _deprecated_alias(report_export, "olf infra report export")
 )
 
 

@@ -1,4 +1,4 @@
-"""Workload-secret rotation (#178): `olf secrets rotate`.
+"""Workload-secret rotation (#178): `olf infra secrets rotate`.
 
 Runs the documented procedure (docs/guides/identity/rotate-secrets.md, "Rotate
 secrets") in one command. It reads a Secret's identity (uid and
@@ -72,7 +72,7 @@ def require_local_github_issuer(context: Any) -> None:
     """The rotation is the local Dex runbook: refuse any other provider or issuer before touching anything."""
     identity = context.topology.identity
     if context.provider.value != "local" or identity is None or identity.issuer != "github":
-        raise RotationError("olf secrets rotate needs provider: local with identity.issuer: github")
+        raise RotationError("olf infra secrets rotate needs provider: local with identity.issuer: github")
 
 
 def kube_args(context: Any) -> dict[str, Any]:
@@ -126,9 +126,9 @@ def check_platform_state(context: Any) -> None:
     try:
         platform.require_foundation_state(provider.config)
     except DeploymentPreconditionError as exc:
-        raise RotationError(f"{exc} Run olf deploy first.") from exc
+        raise RotationError(f"{exc} Run olf infra deploy first.") from exc
     if not platform.platform_state_holds_core(provider.config, provider.tools, env=provider.env):
-        raise RotationError("platform state has drifted; run olf deploy first")
+        raise RotationError("platform state has drifted; run olf infra deploy first")
     try:
         platform.prepare_targets(provider.config, provider.tools, env=provider.env)
     except DeploymentError as exc:
@@ -179,13 +179,13 @@ def preflight(context: Any, target: str, *, kubectl: Any, platform_check: Callab
     platform_check(context)
     # A missing target is recoverable (the Job creates it); an existing malformed one is not.
     if secret_identity(kubectl, context, target) is not None and not has_client_secret_key(kubectl, context, target):
-        raise RotationError(f"Secret '{target}' lacks the key client-secret; run olf deploy first")
+        raise RotationError(f"Secret '{target}' lacks the key client-secret; run olf infra deploy first")
     for client in DEX_CLIENTS:
         sibling = f"dex-client-{client}"
         if sibling != target and not has_client_secret_key(kubectl, context, sibling):
             raise RotationError(
                 f"Secret '{sibling}' is missing or lacks the key client-secret, and the shared Job would "
-                "regenerate it too; run olf deploy first"
+                "regenerate it too; run olf infra deploy first"
             )
 
 

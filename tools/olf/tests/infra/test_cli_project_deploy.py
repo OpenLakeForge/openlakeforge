@@ -1,4 +1,4 @@
-"""`olf project deploy` activates a stage under that stage's contract environment.
+"""`olf infra project deploy` activates a stage under that stage's contract environment.
 
 The revision store is opened under a contract environment that stays in
 `os.environ` underneath the one activation applies. Opened for the default

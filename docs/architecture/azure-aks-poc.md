@@ -20,7 +20,7 @@ private networking, and managed observability.
 
 The shell running the Azure workflow needs:
 
-- Azure authentication established with `olf auth login --provider azure`.
+- Azure authentication established with `olf infra auth login --provider azure`.
 - The intended subscription selected during that login.
 - Permissions to create resource groups, AKS clusters, ACR registries, and role
   assignments.
@@ -43,7 +43,7 @@ cd infra/terraform/foundations/azure-aks
 cp sandbox.tfvars.example sandbox.tfvars
 # Edit resource_group_name, create_resource_group, location, and node_vm_size.
 cd ../../../..
-olf deploy --provider azure --var-file infra/terraform/foundations/azure-aks/sandbox.tfvars
+olf infra deploy --provider azure --var-file infra/terraform/foundations/azure-aks/sandbox.tfvars
 ```
 
 Some corporate sandboxes only allow resource creation inside a pre-created
@@ -52,8 +52,8 @@ foundation state and set `create_resource_group = false` in `sandbox.tfvars`.
 Terraform will read the existing resource group and still create the POC-owned
 resources inside it: AKS, ACR, and the AKS-to-ACR pull role assignment.
 
-The same tfvars file is used by `olf deploy`, `olf destroy`, and
-`olf destroy --phase foundation`. With `create_resource_group = false`, foundation
+The same tfvars file is used by `olf infra deploy`, `olf infra destroy`, and
+`olf infra destroy --phase foundation`. With `create_resource_group = false`, foundation
 destroy removes the AKS and ACR resources owned by this stack but leaves the
 external resource group in place.
 
@@ -62,16 +62,16 @@ external resource group in place.
 Create AKS and ACR:
 
 ```bash
-olf deploy --provider azure --phase foundation
+olf infra deploy --provider azure --phase foundation
 ```
 
 Deploy the platform:
 
 ```bash
-olf deploy --provider azure
+olf infra deploy --provider azure
 ```
 
-`olf deploy --provider azure` runs three phases:
+`olf infra deploy --provider azure` runs three phases:
 
 1. `--phase foundation` creates or refreshes the AKS and ACR foundation.
 2. `--phase platform` runs Terraform in `infra/terraform/environments/azure-poc`.
@@ -92,7 +92,7 @@ repository is unavailable.
 Forward service UIs to localhost:
 
 ```bash
-olf forward --provider azure
+olf infra forward --provider azure
 ```
 
 Ports match the local stack:
@@ -114,13 +114,13 @@ olf check contracts
 olf check infra
 ```
 
-After `olf deploy --provider azure`, run:
+After `olf infra deploy --provider azure`, run:
 
 ```bash
-olf e2e run --env azure
+olf infra e2e run --env azure
 ```
 
-`olf e2e run --env azure` defaults to the full suite. The e2e check:
+`olf infra e2e run --env azure` defaults to the full suite. The e2e check:
 
 - Confirms pods are `Running` or completed bootstrap pods are `Succeeded`.
 - Launches and polls these Dagster jobs to `SUCCESS`:
@@ -140,19 +140,19 @@ olf e2e run --env azure
 Destroy only the platform:
 
 ```bash
-olf destroy --provider azure --phase platform
+olf infra destroy --provider azure --phase platform
 ```
 
 Then destroy AKS, ACR, and the resource group resources:
 
 ```bash
-olf destroy --provider azure --phase foundation
+olf infra destroy --provider azure --phase foundation
 ```
 
 For a full teardown, run:
 
 ```bash
-olf destroy --provider azure
+olf infra destroy --provider azure
 ```
 
 The foundation destroy phase refuses to run while the `lakehouse` namespace

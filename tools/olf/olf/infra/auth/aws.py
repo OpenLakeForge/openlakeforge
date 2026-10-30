@@ -136,7 +136,7 @@ def login_aws(
             identity = boto3.Session(profile_name=chosen_profile).client("sts").get_caller_identity()
         except Exception as exc:
             raise AuthenticationError(
-                f"AWS profile '{chosen_profile}' is unavailable; run 'olf auth login --provider aws' to sign in."
+                f"AWS profile '{chosen_profile}' is unavailable; run 'olf infra auth login --provider aws' to sign in."
             ) from exc
         state = {"source": "profile", "profile": chosen_profile, "identity": identity}
         save_state("aws", state, env)
@@ -161,7 +161,9 @@ def login_aws(
     interval = int(device.get("interval", 5))
     while True:
         if time.monotonic() >= deadline:
-            raise AuthenticationError("AWS device authorization expired; run 'olf auth login --provider aws' again.")
+            raise AuthenticationError(
+                "AWS device authorization expired; run 'olf infra auth login --provider aws' again."
+            )
         try:
             token = oidc.create_token(
                 clientId=registration["clientId"],
@@ -249,7 +251,7 @@ def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any
     if state.get("source") == "profile":
         return boto3.Session(profile_name=str(state["profile"]), region_name=region)
     if state.get("source") != "olf-sso":
-        raise AuthenticationError("unknown AWS authentication source; run 'olf auth login --provider aws'.")
+        raise AuthenticationError("unknown AWS authentication source; run 'olf infra auth login --provider aws'.")
     state = _refresh_aws_access_token(state, environ)
     sso = _sso_client("sso", region=str(state["sso_region"]))
     credentials = sso.get_role_credentials(
@@ -307,7 +309,7 @@ def _refresh_aws_access_token(state: dict[str, Any], environ: Mapping[str, str])
         return state
     refresh_token = state.get("refresh_token")
     if not refresh_token:
-        raise AuthenticationError("AWS SSO session expired; run 'olf auth login --provider aws'.")
+        raise AuthenticationError("AWS SSO session expired; run 'olf infra auth login --provider aws'.")
     oidc = _sso_client("sso-oidc", region=str(state["sso_region"]))
     try:
         token = oidc.create_token(
@@ -317,7 +319,7 @@ def _refresh_aws_access_token(state: dict[str, Any], environ: Mapping[str, str])
             refreshToken=str(refresh_token),
         )
     except Exception as exc:
-        raise AuthenticationError("AWS SSO session expired; run 'olf auth login --provider aws'.") from exc
+        raise AuthenticationError("AWS SSO session expired; run 'olf infra auth login --provider aws'.") from exc
     state["access_token"] = token["accessToken"]
     state["access_expires_at"] = _expires_at(token["expiresIn"])
     if token.get("refreshToken"):

@@ -71,7 +71,7 @@ The local and Azure providers write Silver through Polaris, a REST catalog. An
 AWS stage writes through AWS Glue: its catalog definition names the database
 `<stage prefix>{domain}`, which Floe completes with each domain's Silver
 namespace, so `sales` lands in `lakehouse_dev_sales_silver`, the database
-`olf catalog sync-namespaces` creates. Floe never creates a Glue database
+`olf infra catalog sync-namespaces` creates. Floe never creates a Glue database
 itself, and the Job authenticates with the pod's own AWS identity. Glue
 supports `overwrite` and `append`; merge write modes need a REST catalog. The
 AWS writer path is still a rollout gate in the

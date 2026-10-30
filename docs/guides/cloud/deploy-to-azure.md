@@ -32,14 +32,14 @@ Azure SDK and its own pinned tools.
 | Source | How |
 | --- | --- |
 | A service principal or workload identity | `ARM_CLIENT_ID`, `ARM_TENANT_ID` and `ARM_CLIENT_SECRET` (or a certificate or OIDC token), the `AZURE_*` equivalents, or a managed identity |
-| An existing `az login` session | `olf auth login --provider azure` reuses it when the `az` CLI is installed |
-| Browser sign-in | `olf auth login --provider azure`, then pick the subscription |
+| An existing `az login` session | `olf infra auth login --provider azure` reuses it when the `az` CLI is installed |
+| Browser sign-in | `olf infra auth login --provider azure`, then pick the subscription |
 
 On a machine without a browser, add `--device-code`. `--tenant-id` and
 `--subscription-id` skip the prompts. Check which identity `olf` will use:
 
 ```bash
-olf auth status --provider azure
+olf infra auth status --provider azure
 ```
 
 ## 2. Point the profile at Azure
@@ -60,7 +60,7 @@ spec:
 - Delete any `access:` block: the cloud publishes no routes, and an `access:`
   block would require `spec.identity`.
 - Leave out `spec.identity`. The cloud deployment publishes no routes, so
-  there is nothing to sign in to: you reach the services with `olf forward`
+  there is nothing to sign in to: you reach the services with `olf infra forward`
   from your machine, and authentication stays off.
 - Keep DEV as the only stage: the cloud guides are validated with one stage.
 
@@ -91,7 +91,7 @@ export AZURE_TFVARS_FILE="$(pwd)/azure.tfvars"
 | `resource_group_name` | no, default `rg-openlakeforge-azure-poc` | The group to create, or the existing one to use |
 
 Keep `AZURE_TFVARS_FILE` exported for every later command, including
-`olf destroy`: the foundation cannot be read without it.
+`olf infra destroy`: the foundation cannot be read without it.
 
 Other settings are environment variables:
 
@@ -104,7 +104,7 @@ Other settings are environment variables:
 ## 4. Deploy
 
 ```bash
-olf deploy --provider azure
+olf infra deploy --provider azure
 ```
 
 It runs three phases, which you can also run one at a time with `--phase`:
@@ -127,14 +127,14 @@ your machine, on the same ports as locally (Dagster on
 with Ctrl-C:
 
 ```bash
-olf forward --provider azure
+olf infra forward --provider azure
 ```
 
-Run the end-to-end suite after you stop `olf forward`: `olf` runs one command
+Run the end-to-end suite after you stop `olf infra forward`: `olf` runs one command
 at a time, and the suite opens its own port-forwards.
 
 ```bash
-olf e2e run --env azure
+olf infra e2e run --env azure
 ```
 
 It launches every product's job and checks the Silver and Gold tables, and on
@@ -144,7 +144,7 @@ Full also the dashboards and OpenMetadata. It ends with
 ## 6. Tear down
 
 ```bash
-olf destroy --provider azure
+olf infra destroy --provider azure
 ```
 
 It removes the platform, then AKS and ACR. With
@@ -157,20 +157,20 @@ same `AZURE_TFVARS_FILE`. With `--phase`, destroy `platform` before
 
 | Area | Today |
 | --- | --- |
-| Access | No ingress, DNS, TLS or sign-in. Services are reached with `olf forward` only, by whoever has credentials to the cluster, with no OpenLakeForge sign-in in front of them. |
+| Access | No ingress, DNS, TLS or sign-in. Services are reached with `olf infra forward` only, by whoever has credentials to the cluster, with no OpenLakeForge sign-in in front of them. |
 | Stages | Validated with DEV only. |
 | Services | SeaweedFS, Polaris and PostgreSQL run inside the cluster on its disks, with no backups or high availability. Azure Blob Storage and managed PostgreSQL are not used. |
 | State | Terraform state stays on your machine under `~/.openlakeforge`. There is no remote backend. |
 | Secrets | Generated service passwords live in Kubernetes Secrets and in the local Terraform state. |
 
 The main running costs are the AKS nodes (three of `node_vm_size`), their
-disks and ACR, plus data transfer. They accrue until `olf destroy` finishes.
+disks and ACR, plus data transfer. They accrue until `olf infra destroy` finishes.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `Azure is not authenticated` | Run `olf auth login --provider azure`, then `olf auth status --provider azure`. |
+| `Azure is not authenticated` | Run `olf infra auth login --provider azure`, then `olf infra auth status --provider azure`. |
 | `Azure foundation configuration not found` | Export `AZURE_TFVARS_FILE` pointing at your variables file. |
 | A VM size or quota error | Pick a `node_vm_size` your region offers and your subscription has quota for. |
 | A policy forbids creating resource groups | Ask for a group, then set `create_resource_group = false` and its `resource_group_name` and `location`. |

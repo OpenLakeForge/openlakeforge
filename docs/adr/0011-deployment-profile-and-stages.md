@@ -173,7 +173,7 @@ its provider adapter (#133, #114). None belongs in this profile.
 
 ### The v0.2 compatibility path
 
-`olf deploy --provider local --profile slim|full` keeps its exact current
+`olf infra deploy --provider local --profile slim|full` keeps its exact current
 behavior as a deprecated shorthand: `olf.common.profile.legacy_single_stage_topology`
 resolves it to one enabled DEV stage using the preset's capability defaults,
 proving the shorthand is exactly the single-DEV-stage case of the general
@@ -194,8 +194,8 @@ topology free of namespaces, Helm releases, and endpoints.
   effective topology before any mutation, for both humans and CI.
 - The stage-aware platform, data plane, project revision and activation
   (`#133`, `#114`, `#154`, `#115`) consume `DeploymentTopology`, not
-  `--profile`/`--provider` flags directly: `olf platform apply -f` and
-  `olf project deploy -f --stage` take the profile file.
+  `--profile`/`--provider` flags directly: `olf infra platform apply -f` and
+  `olf infra project deploy -f --stage` take the profile file.
 - Local, AWS, and Azure POC shapes are representable without credentials,
   raw resource values, or endpoints — those stay behind provider contracts (ADR 0003).
 

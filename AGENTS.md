@@ -26,7 +26,7 @@ closed with a pointer here rather than fixed.
 
 | Not a goal | Why |
 | --- | --- |
-| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
+| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf infra deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
 | Windows support | Deployment targets are Linux and macOS. |
 
 The audience is a small data team without a platform engineer, and that is a
@@ -93,7 +93,7 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
    logical identities by provider/deployment contracts, never embedded in the
    descriptors themselves — see `docs/schema/governance.schema.json` and
    `docs/schema/source.schema.json`.
-3. **Three deploy phases, two lifecycles** (ADR 0002). `olf deploy` runs
+3. **Three deploy phases, two lifecycles** (ADR 0002). `olf infra deploy` runs
    `foundation` → `platform` → `artifacts` in order, and each is selectable
    with `--phase`. Foundation and platform are static infrastructure that
    Terraform owns; artifacts is everything derived from `lakehouse_code/`.
@@ -154,7 +154,7 @@ tests in the same change.
 
 **Every claim in the docs is verified before it ships.** Run the command, or
 grep the path, or do not write the sentence. This is not hypothetical: four
-places in this repository documented `olf e2e run --suite smoke` as *the*
+places in this repository documented `olf infra e2e run --suite smoke` as *the*
 end-to-end validation while `e2e/_runner.py` only launches
 `inventory.default_product`, so the advertised check could pass with another
 product's pipeline broken. When a doc names a module, flag, path, or default,
@@ -294,11 +294,11 @@ protection — that 404 is not evidence that `main` is unprotected.
 When a change touches the deployed stack, verify at runtime as well:
 
 ```bash
-uv run --project tools/olf olf deploy --provider local
-uv run --project tools/olf olf e2e run --env local
+uv run --project tools/olf olf infra deploy --provider local
+uv run --project tools/olf olf infra e2e run --env local
 ```
 
-`olf e2e run --env local` launches every product pipeline, verifies Silver and Gold
+`olf infra e2e run --env local` launches every product pipeline, verifies Silver and Gold
 tables through Trino, checks Superset dashboards and OpenMetadata assets, and
 confirms ops-bucket artifacts exist.
 

@@ -17,13 +17,13 @@ spec:
 ```
 
 ```bash
-olf deploy --provider local
+olf infra deploy --provider local
 ```
 
 The deploy applies the change in place: Terraform adds OpenMetadata and
 Superset and leaves the data path and its tables as they are. Its artifacts
 phase imports every dashboard bundle under `lakehouse_code/dashboards/superset/`.
-`olf status --provider local` lists the Superset URL, for example
+`olf infra status --provider local` lists the Superset URL, for example
 `http://superset-dev.olf.localhost`. With sign-in off, Superset opens as its
 local Admin.
 
@@ -70,7 +70,7 @@ deploy does not import it into Superset.
 Deploy the new product so the platform knows it, then build its table:
 
 ```bash
-olf deploy --provider local --phase artifacts
+olf infra deploy --provider local --phase artifacts
 ```
 
 In Dagster, launch `campaign_summary_pipeline` once, so
@@ -83,7 +83,7 @@ Then build the dashboard in Superset: open **Datasets**, add a dataset from the
 ## 4. Export a dashboard
 
 After you build or change a dashboard in the Superset UI, export it back into
-its bundle. `olf report export` takes the stage you authored in; author in
+its bundle. `olf infra report export` takes the stage you authored in; author in
 DEV. For the `campaign_summary` draft of step 3, which has nothing exported
 yet, name the dashboard by the slug you gave it in Superset (its
 **Properties**):
@@ -91,7 +91,7 @@ yet, name the dashboard by the slug you gave it in Superset (its
 ```bash
 SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/campaign_summary \
 SUPERSET_DASHBOARD="campaign-summary" \
-  olf report export --stage dev
+  olf infra report export --stage dev
 ```
 
 For a dashboard that is already in a bundle, such as the demo
@@ -117,19 +117,19 @@ dashboard next to the demo ones.
 
 ## 5. Import a bundle
 
-The next `olf deploy` imports every bundle. To import without a full deploy:
+The next `olf infra deploy` imports every bundle. To import without a full deploy:
 
 ```bash
-olf report import --stage dev
+olf infra report import --stage dev
 ```
 
-`olf project build` packages the bundles into a project revision, so a revision
+`olf infra project build` packages the bundles into a project revision, so a revision
 promoted to PROD carries its dashboards.
 
 ## Check it worked
 
 ```bash
-olf report validate
+olf infra report validate
 ```
 
 It checks every bundle for stable identities, resolvable references and no

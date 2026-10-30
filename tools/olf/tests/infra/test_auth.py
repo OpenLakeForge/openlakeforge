@@ -195,7 +195,7 @@ def test_azure_status_translates_an_expired_sdk_token_into_a_clean_cli_error(
 
     assert result.exit_code != 0
     assert "Traceback" not in result.output
-    assert "olf auth login --provider azure" in result.output
+    assert "olf infra auth login --provider azure" in result.output
 
 
 def test_terraform_auth_environment_keeps_automation_ahead_of_saved_state(

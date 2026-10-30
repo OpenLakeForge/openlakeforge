@@ -54,7 +54,7 @@ in.
 | Authorization | Kubernetes RBAC for operators and CI. For pods, a per-service credential from a Secret that a bootstrap Job generates once and reuses |
 | Network | Reachability between pods is decided by default-deny NetworkPolicy ([identity-network-policy-and-rbac.md](identity-network-policy-and-rbac.md)) |
 | Trino | Callers authenticate to Trino with a password per principal over HTTPS when `trino_workload_authentication` is `password`. The local root defaults to `password` when the profile has `spec.access`, and to `off` otherwise ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) |
-| Rotation | `olf secrets rotate` for `dex-client-perimeter`, `dex-client-trino` and `github-app`; the Superset and OpenMetadata clients are rotated by hand ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
+| Rotation | `olf infra secrets rotate` for `dex-client-perimeter`, `dex-client-trino` and `github-app`; the Superset and OpenMetadata clients are rotated by hand ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
 
 Workstation and CI automation reaches services by an RBAC-authorized
 `kubectl port-forward` or by in-cluster execution for routes protected by the
@@ -85,7 +85,7 @@ holds a canonical role.
 ## Break-glass
 
 When the issuer is down, a cluster administrator is a class 2 caller: their
-kubeconfig, not the issuer, is the authority. `olf break-glass` uses that to
+kubeconfig, not the issuer, is the authority. `olf infra break-glass` uses that to
 reach a service for a bounded time and records the use
 ([Break-glass access](../../guides/identity/break-glass.md)). It does not turn
 the perimeter off.

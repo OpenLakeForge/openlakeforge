@@ -92,7 +92,7 @@ The catalog technology remains Polaris for local/Azure and Glue for AWS; no
 new Iceberg catalog technology is introduced. Physical Glue and S3 names stay
 out of Deployment Profiles and `lakehouse_code` descriptors, but AWS's shared
 catalog means every consumer that resolves a physical Glue database/schema
-name (Floe's per-domain profile rendering, `olf catalog sync-namespaces`, dbt
+name (Floe's per-domain profile rendering, `olf infra catalog sync-namespaces`, dbt
 profile/source schema config) must apply the same `namespace_prefix`, or it
 silently resolves to the wrong stage's database, or one IAM denies.
 

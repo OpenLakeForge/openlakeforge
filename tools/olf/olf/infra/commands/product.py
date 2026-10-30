@@ -1,4 +1,4 @@
-"""`olf product new` -- golden-path product (Gold) scaffolding; `olf product run` -- launch its pipeline."""
+"""`olf product new` -- golden-path product (Gold) scaffolding; `olf infra product run` -- launch its pipeline."""
 
 from __future__ import annotations
 

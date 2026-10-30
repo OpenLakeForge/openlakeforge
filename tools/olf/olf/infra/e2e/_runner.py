@@ -206,7 +206,7 @@ def check_commands(cfg: E2EConfig) -> None:
         except ToolchainError as exc:
             # A managed tool that couldn't be provisioned (bad digest,
             # broken download, unwritable cache) is a different failure
-            # from "not found", but `olf e2e run` only catches E2EError -
+            # from "not found", but `olf infra e2e run` only catches E2EError -
             # surface it there too, with the actionable reason, instead of
             # letting it escape as a raw traceback.
             missing.append(f"{managed_tool} ({exc})")
