@@ -386,6 +386,9 @@ jobs:
           - image: superset
             context: images/superset
             dockerfile: images/superset/Dockerfile
+          - image: platform-api
+            context: .
+            dockerfile: images/platform-api/Dockerfile
     steps:
       - name: Resolve the image namespace
         # Registry repository names must be lowercase, and the owner is not
@@ -567,8 +570,10 @@ jobs:
 
           project_code_reference="$(cat artifacts/project-code.digest.txt)"
           superset_reference="$(cat artifacts/superset.digest.txt)"
+          platform_api_reference="$(cat artifacts/platform-api.digest.txt)"
           cp artifacts/project-code.spdx.json "${bundle_dir}/project-code.spdx.json"
           cp artifacts/superset.spdx.json "${bundle_dir}/superset.spdx.json"
+          cp artifacts/platform-api.spdx.json "${bundle_dir}/platform-api.spdx.json"
           cp artifacts/*.trivy.json "${bundle_dir}/"
           cp python-artifacts/* "${bundle_dir}/"
 
@@ -578,6 +583,7 @@ jobs:
             --git-sha "${GITHUB_SHA}" \
             --image "project-code=${project_code_reference}" \
             --image "superset=${superset_reference}" \
+            --image "platform-api=${platform_api_reference}" \
             --output "${bundle_dir}/component-manifest.json"
 
           uv run --project tools/olf --locked olf release compatibility-matrix \
@@ -651,6 +657,7 @@ jobs:
             ${{ steps.assemble.outputs.bundle_dir }}/CHANGELOG.md
             ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
+            ${{ steps.assemble.outputs.bundle_dir }}/platform-api.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/*.trivy.json
             ${{ steps.assemble.outputs.bundle_dir }}/*.whl
             ${{ steps.assemble.outputs.bundle_dir }}/*.tar.gz
