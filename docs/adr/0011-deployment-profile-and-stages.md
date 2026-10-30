@@ -108,7 +108,11 @@ rejected on `aws`, whose object storage is managed S3 with no volume to size;
 it applies on `local` and `azure`, where SeaweedFS is self-hosted.
 
 The resolved sizes are carried on `DeploymentTopology` (`query_size`,
-`storage_size`) and printed by `olf profile resolve`. `storage_size` reaches
+`storage_size`) and printed by `olf profile resolve`. `query_size` selects a
+row of `release/query-sizes.yaml`, which the local root receives as its
+`query_sizing` variable (AWS and Azure keep their Trino values until their own
+adapter changes); a size change therefore moves only the Trino Helm
+values, never a ProjectRevision or the project image. `storage_size` reaches
 the local and Azure roots as the `storage_size` Terraform variable, which
 selects a row of `release/storage-sizes.yaml`: the one provider-neutral table,
 read by the SeaweedFS module for the PVC sizes and the volume server's slot
@@ -116,8 +120,7 @@ count. `small` is the sizing the module carried before the profile could
 choose, so a profile without the field renders the same Helm values. The
 table also holds `medium` and `large` rows, provisional until #329, which the
 profile does not accept until `olf` refuses to shrink a volume or to grow one
-whose StorageClass cannot expand (#326). Nothing reads `query_size` yet (#324);
-the capacity preflight is #327.
+whose StorageClass cannot expand (#326). The capacity preflight is #327.
 
 ### `spec.project`: the customer's source and image registry
 
@@ -246,3 +249,9 @@ changes no rendered Terraform or Helm input.
 2026-10-30: `storage_size` drives the SeaweedFS volume sizes through
 `release/storage-sizes.yaml` (#326). `small` renders the Helm values it did
 before; `medium` and `large` stay rejected until the grow-only rule lands.
+
+2026-10-30: `query.size` renders Trino from `release/query-sizes.yaml` through
+each root's `query_sizing` variable (#324). `small` renders the same values as
+before. The `medium` and `large` rows are defined but still fail validation:
+workers need network flows, authentication across nodes (#367) and a kind run
+before the tier counts as tested.

@@ -122,6 +122,16 @@ both fields deploys exactly as it did before they existed, and
 `olf profile resolve` prints the effective sizes (`sizes: query=small
 storage=small`; `query` and `storage` in `--json`).
 
+`query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
+workers, heap, memory and per-query limits. It changes only the Trino Helm
+values, never the project image or a ProjectRevision. The `medium` and `large`
+rows are defined but not yet accepted: workers still need network flows to the
+coordinator, authentication across nodes
+([#367](https://github.com/OpenLakeForge/openlakeforge/issues/367)) and a kind
+run (#324). Their values are placeholders until the
+[#328](https://github.com/OpenLakeForge/openlakeforge/issues/328) and
+[#329](https://github.com/OpenLakeForge/openlakeforge/issues/329) baseline.
+
 `storage.size` picks one row of `release/storage-sizes.yaml`, which sets the
 PVC size of the SeaweedFS master, filer and volume server and the number of
 volume slots on the volume server. The Terraform SeaweedFS module renders the
@@ -133,11 +143,11 @@ grows (#326).
 
 What each size means on the local profile:
 
-| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server (`release/storage-sizes.yaml`) | Available |
+| Size | Trino (`release/query-sizes.yaml`) | SeaweedFS volume server (`release/storage-sizes.yaml`) | Available |
 | --- | --- | --- | --- |
 | `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC, 80 slots; master 1Gi, filer 5Gi | Yes |
-| `medium` | Not defined | Row defined (300Gi), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
-| `large` | Not defined | Row defined (2Ti), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `medium` | Row defined (coordinator plus 2 workers), not yet selectable | Row defined (300Gi), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `large` | Row defined (coordinator plus 4 workers), not yet selectable | Row defined (2Ti), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
 
 This page gives no data-volume or host-capacity guidance because none has been
 measured.

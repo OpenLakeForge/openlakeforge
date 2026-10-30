@@ -115,6 +115,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "shared_namespace",
         "stages",
         "manage_user_deployments",
+        "query_sizing",
         "storage_size",
         "kube_context",
         "kubeconfig_path",

@@ -41,6 +41,7 @@ _PAYLOAD_FILES = (
     "openlakeforge.yaml",
     "release/component-catalog.yaml",
     "release/identity-roles.yaml",
+    "release/query-sizes.yaml",
     "release/network-flows.yaml",
     "release/storage-sizes.yaml",
 )

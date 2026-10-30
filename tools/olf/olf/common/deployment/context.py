@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.profile import Provider
 from olf.common.project import ProjectSpec
+from olf.common.query_sizing import load_query_sizing
 
 if TYPE_CHECKING:
     from olf.common.profile import DeploymentTopology, StageName
@@ -66,6 +67,15 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
         "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
         "manage_user_deployments": "true" if context.manage_user_deployments else "false",
     }
+
+
+def query_variables(context: DeploymentContext) -> dict[str, str]:
+    """`spec.query.size` as its row of `release/query-sizes.yaml`.
+
+    Local only so far: AWS and Azure take it in their own adapter changes.
+    """
+    sizing = load_query_sizing(context.paths.distribution_root, context.topology.query_size).terraform_value()
+    return {"query_sizing": json.dumps(sizing, sort_keys=True, separators=(",", ":"))}
 
 
 def storage_variables(context: DeploymentContext) -> dict[str, str]:

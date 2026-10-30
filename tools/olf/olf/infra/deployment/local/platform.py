@@ -17,7 +17,7 @@ from pathlib import Path
 
 from olf.common import log
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
-from olf.common.deployment.context import stage_namespace, storage_variables
+from olf.common.deployment.context import query_variables, stage_namespace, storage_variables
 from olf.common.deployment.context import topology_variables as _topology_variables
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
@@ -204,7 +204,7 @@ def require_github_oauth_secret(
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
-    return topology_variables(config) | storage_variables(config.context) | {
+    return topology_variables(config) | query_variables(config.context) | storage_variables(config.context) | {
         "kube_context": config.kube_context,
         "kubeconfig_path": str(config.paths.kubeconfig_path),
         # The Terraform helm provider (not the `helm` CLI olf's own tooling
