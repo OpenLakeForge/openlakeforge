@@ -25,9 +25,9 @@ Every claim below carries a mark. **V** is verified against the cited source
 or documentation (read, not run). **T** is to test: derived or assumed, and
 not run. Pins: Trino 480 and the Apache Iceberg 1.10.1 client it builds
 against (`dep.iceberg.version` in Trino's `pom.xml` at tag 480), Polaris
-1.4.0, Dex v2.46.0, SeaweedFS 4.23 (`release/component-catalog.yaml`).
+1.4.0, Dex v2.46.0, SeaweedFS 4.48 (`release/component-catalog.yaml`).
 Polaris sources are read at tag `apache-polaris-1.4.0`, Iceberg at
-`apache-iceberg-1.10.1`, SeaweedFS at `4.23`. DuckDB is not pinned yet; its
+`apache-iceberg-1.10.1`, SeaweedFS at `4.48`. DuckDB is not pinned yet; its
 claims are from the DuckDB Iceberg catalog documentation.
 
 ## Context
@@ -159,7 +159,7 @@ engine adapter:
 | --- | --- | --- | --- |
 | 1 | Loading a table with read delegation needs `TABLE_READ_DATA`, with write delegation `TABLE_WRITE_DATA`. `CATALOG_MANAGE_CONTENT` implies both, `TABLE_READ_DATA` implies only the read. The grants of section 5 therefore already decide which credentials are vended | V | `PolarisAuthorizableOperation` (`LOAD_TABLE_WITH_READ_DELEGATION`, `..._WRITE_DELEGATION`); `PolarisAuthorizerImpl` super-privileges |
 | 2 | Polaris vends S3 credentials through STS `AssumeRole` with a session policy scoped to the table. The bootstrap creates every stage catalog with `stsUnavailable: true`, so nothing is vended today | V (`stsUnavailable` in the bootstrap); T (the `AssumeRole` call and its policy, not read in Polaris's source; the call against a non-AWS endpoint) | `modules/catalog/polaris/templates/bootstrap.sh.tftpl` |
-| 3 | SeaweedFS 4.23 implements STS `AssumeRole` and accepts a session `Policy` (normalised by `sts.NormalizeSessionPolicy`), with durations from 15 minutes to 12 hours. Whether S3 requests signed with the issued credentials are limited by that policy was not read | V (endpoint); T (enforcement) | `weed/s3api/s3api_sts.go` at tag `4.23` |
+| 3 | SeaweedFS 4.48 implements STS `AssumeRole` and accepts a session `Policy` (normalised by `sts.NormalizeSessionPolicy`), with durations from 15 minutes to 12 hours. Whether S3 requests signed with the issued credentials are limited by that policy was not read | V (endpoint); T (enforcement) | `weed/s3api/s3api_sts.go` at tag `4.48` |
 | 4 | Trino 480 asks for vended credentials per REST catalog with `iceberg.rest-catalog.vended-credentials-enabled`, which sends `X-Iceberg-Access-Delegation: vended-credentials` | V (property and header); T (the people catalog reads and writes with no static S3 key) | `IcebergRestCatalogConfig`, `TrinoIcebergRestCatalogFactory` |
 | 5 | DuckDB attaches an Iceberg REST catalog with a bearer token (`CREATE SECRET (TYPE iceberg, TOKEN ...)`) and requests vended credentials with `ACCESS_DELEGATION_MODE 'vended_credentials'`; Polaris is the documented example | V (documentation); T (against this Polaris) | DuckDB Iceberg extension, "Iceberg REST catalogs" |
 
@@ -317,7 +317,7 @@ Split along the seams `AGENTS.md` names, each with its tests:
 
 The **T** items that could change the design, to run on kind first:
 
-1. SeaweedFS 4.23 limits S3 requests signed with `AssumeRole` credentials to
+1. SeaweedFS 4.48 limits S3 requests signed with `AssumeRole` credentials to
    the session policy (section 3, finding 3).
 2. Polaris 1.4.0 vends credentials through SeaweedFS's STS endpoint for a
    catalog with STS available, and still serves a request without delegation.
@@ -414,3 +414,8 @@ Build step 1: `data_access` in `release/identity-roles.yaml`, rendered into
 `shared.identity.roles` by every root and validated by `olf` (vocabulary,
 monotonic on every stage and layer, the three catalog-role shapes); the
 provider-contract schema gains the section.
+
+SeaweedFS pin moved from 4.23 to 4.48 for the S3 gateway's read-buffer
+retention fix. Finding 3 was re-read at tag `4.48`: `AssumeRole` still takes a
+`Policy` through `sts.NormalizeSessionPolicy` and still allows 15 minutes to 12
+hours unless an STS `MaxSessionLength` is configured, which this stack does not.

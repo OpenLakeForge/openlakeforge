@@ -353,7 +353,7 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
     "seaweedfs": ChartDefault(
         chart_ref="seaweedfs/seaweedfs",
         repository="https://seaweedfs.github.io/seaweedfs/helm",
-        version="4.23.0",
+        version="4.48.0",
     ),
     "polaris": ChartDefault(
         chart_ref="polaris/polaris",
