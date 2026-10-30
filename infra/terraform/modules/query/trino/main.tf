@@ -12,12 +12,14 @@ locals {
     dev = var.catalog_contract
   })
 
-  storage_secret_env_from = var.storage_contract.credentials_secret_name == null ? [] : [
-    {
-      secretRef = {
-        name = var.storage_contract.credentials_secret_name
-      }
-    },
+  # Named, not AWS_*: the people catalogs carry no key and must read only with
+  # the credentials Polaris vends, and the S3 client's default chain would
+  # otherwise find this key in the environment (ADR 0019).
+  storage_secret_env = var.storage_contract.credentials_secret_name == null ? [] : [
+    for name, key in {
+      OPENLAKEFORGE_S3_ACCESS_KEY_ID     = coalesce(var.storage_contract.access_key_id_key, "AWS_ACCESS_KEY_ID")
+      OPENLAKEFORGE_S3_SECRET_ACCESS_KEY = coalesce(var.storage_contract.secret_access_key_key, "AWS_SECRET_ACCESS_KEY")
+    } : { name = name, valueFrom = { secretKeyRef = { name = var.storage_contract.credentials_secret_name, key = key } } }
   ]
 
   catalog_secret_env = flatten([
@@ -48,8 +50,8 @@ locals {
     var.storage_contract.endpoint == null ? "" : "s3.endpoint=${var.storage_contract.endpoint}",
     var.storage_contract.path_style_access == null ? "" : "s3.path-style-access=${var.storage_contract.path_style_access}",
     "s3.region=${var.storage_contract.region}",
-    var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-access-key=$${ENV:AWS_ACCESS_KEY_ID}",
-    var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-secret-key=$${ENV:AWS_SECRET_ACCESS_KEY}",
+    var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-access-key=$${ENV:OPENLAKEFORGE_S3_ACCESS_KEY_ID}",
+    var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-secret-key=$${ENV:OPENLAKEFORGE_S3_SECRET_ACCESS_KEY}",
   ]))
 
   iceberg_catalog_properties = {
@@ -105,6 +107,7 @@ locals {
           allow   = "read-only"
         }
       ],
+      local.people_catalog_rules,
       [
         { catalog = "system", allow = "read-only" },
         { catalog = ".*", allow = "none" },
@@ -143,7 +146,7 @@ locals {
       ]),
       [{ privileges = ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"] }],
     )
-  }, local.principal_rules))
+  }, local.principal_rules, local.people_query_rules))
 
   # Overlay on the base values file. For `small` it restates what the file
   # already sets (plus the chart's own query.max-memory), so the rendered
@@ -181,6 +184,7 @@ locals {
     for key, rules in {
       principals = concat(
         [for principal in local.credential_principals : { principal = principal, user = principal, allow = true }],
+        local.people_principal_rules,
         [{ principal = ".*", user = ".*", allow = false }],
       )
     } : key => rules if local.auth_enabled
@@ -236,7 +240,7 @@ locals {
   auth_values = {
     server = {
       config = {
-        authenticationType = "PASSWORD"
+        authenticationType = local.people_enabled ? "PASSWORD,JWT" : "PASSWORD"
       }
     }
     auth = { passwordAuthSecret = "trino-password-file" }
@@ -249,6 +253,7 @@ locals {
       "internal-communication.shared-secret=$${ENV:TRINO_INTERNAL_SECRET}",
       ],
       local.ui_properties,
+      local.people_jwt_properties,
     )
     additionalNodeProperties = ["node.internal-address=localhost"]
     # Traefik reaches Trino over HTTPS, trusting the CA through the file-provider
@@ -289,10 +294,9 @@ resource "helm_release" "trino" {
     file(var.base_values_file),
     ], local.sizing_values, [
     yamlencode({
-      envFrom = local.storage_secret_env_from
-      env     = concat(local.catalog_secret_env, local.internal_secret_env, local.oidc_env)
+      env = concat(local.storage_secret_env, local.catalog_secret_env, local.internal_secret_env, local.oidc_env, local.people_catalog_env)
 
-      catalogs = local.iceberg_catalog_properties
+      catalogs = merge(local.iceberg_catalog_properties, local.people_catalog_properties)
 
       accessControl = {
         type       = "configmap"

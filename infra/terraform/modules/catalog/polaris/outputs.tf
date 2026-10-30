@@ -60,3 +60,8 @@ output "stage_contracts" {
     }
   }
 }
+
+output "people_credentials_secret_names" {
+  description = "Stage -> the Secret, in this namespace, of that stage's trino-people principal (keys POLARIS_CLIENT_ID, POLARIS_CLIENT_SECRET). Empty without person_access."
+  value       = local.people_secret_names
+}

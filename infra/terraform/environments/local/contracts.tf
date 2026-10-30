@@ -519,6 +519,20 @@ locals {
         group = module.perimeter[0].route_group["shared/query_api"]
       })
     },
+    length(module.platform_api) == 0 ? {} : {
+      # Not a contract route: the API is a path on the portal's host. It sits
+      # behind the lowest floor, which every canonical role clears, and its own
+      # permission matrix decides above that (ADR 0021, decision 3).
+      "platform-api" = {
+        host         = local.base_domain
+        tls_host     = local.base_domain
+        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
+        service_name = module.platform_api[0].service_name
+        service_port = module.platform_api[0].service_port
+        path         = module.platform_api[0].path
+        group        = local.identity_roles.precedence[length(local.identity_roles.precedence) - 1]
+      }
+    },
   )
 
   access_contract = {

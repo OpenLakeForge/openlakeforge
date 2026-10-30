@@ -61,7 +61,7 @@ the component catalog; it is not deployment-configurable. Terraform reads it
 with `yamldecode(file(...))` in each root's `contracts.tf`; `olf` reads the
 same file to validate the contract.
 
-| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) | Trino `/v1` for `olf infra query` (`query_api`) |
+| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) | Trino `/v1` for `olf query` (`query_api`) |
 | --- | --- | --- | --- | --- | --- |
 | `platform-admin` | Admin | Admin | full | yes | yes |
 | `data-engineer` | Alpha | write | full | yes | yes |
@@ -579,5 +579,5 @@ commands that need none (`init`, `check`, scaffolding) have no identity; a
 platform surface that signs a person in through Dex, and so is class 1, is
 decided and not built.
 
-`query_api` grant row: Trino's `/v1` at the `viewer` floor for `olf infra
-query`, routed at the ingress without a contract route (ADR 0019, build step 6).
+`query_api` grant row: Trino's `/v1` at the `viewer` floor for `olf query`,
+routed at the ingress without a contract route (ADR 0019, build step 6).

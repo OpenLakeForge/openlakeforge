@@ -31,6 +31,10 @@ PERSON_ACCESS = {
     "catalog_roles": CATALOG_ROLES,
     "catalogs": ["lakehouse_dev", "lakehouse_prod"],
     "assigned": ASSIGNED,
+    "people": [
+        {"principal": f"trino-people-{stage}", "secret": f"polaris-{stage}-trino-people-creds"}
+        for stage in ("dev", "prod")
+    ],
 }
 
 
@@ -131,8 +135,14 @@ def _run(url: str, tmp_path: Path, person_access: dict = PERSON_ACCESS) -> subpr
         for name in ("request", "already_present")
     )
     person = (TEMPLATES / "person-access.sh.tftpl").read_text().replace("${person_access}", json.dumps(person_access))
+    # The bootstrap's create_principal_secret mints credentials and writes Secrets; its own behaviour is not this
+    # script's, so a stub records what it is asked for.
+    stub = f'create_principal_secret() {{ echo "$*" >> "{tmp_path / "principals"}"; }}\n'
     script = (
-        f'set -eu\npolaris_url="{url}"\nPOLARIS_TOKEN=t\n' + helpers.replace("%%{", "%{").replace("$${", "${") + person
+        f'set -eu\npolaris_url="{url}"\nPOLARIS_TOKEN=t\nNAMESPACE=olf-system\n'
+        + helpers.replace("%%{", "%{").replace("$${", "${")
+        + stub
+        + person
     ).replace("/tmp/polaris-body", str(tmp_path / "body"))
     return subprocess.run(["sh", "-ec", script], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
 
@@ -201,8 +211,7 @@ def _run_deployer_grants(url: str, tmp_path: Path, *, person_access_enabled: boo
     for name, value in values.items():
         block = block.replace("${" + name + "}", value)
     script = (
-        f'set -eu\npolaris_url="{url}"\nPOLARIS_TOKEN=t\n'
-        + (helpers + block).replace("%%{", "%{").replace("$${", "${")
+        f'set -eu\npolaris_url="{url}"\nPOLARIS_TOKEN=t\n' + (helpers + block).replace("%%{", "%{").replace("$${", "${")
     ).replace("/tmp/polaris-body", str(tmp_path / "body"))
     return subprocess.run(["sh", "-ec", script], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
 
@@ -238,3 +247,18 @@ def test_a_rerun_of_the_deployer_grants_writes_nothing(polaris: tuple[FakePolari
 
     assert result.returncode == 0, result.stderr
     assert [write for write in fake.writes if not write.startswith("POST")] == []
+
+
+def test_each_stage_gets_a_trino_people_principal_with_no_role(
+    polaris: tuple[FakePolaris, str], tmp_path: Path
+) -> None:
+    fake, url = polaris
+
+    result = _run(url, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "principals").read_text().splitlines() == [
+        f"trino-people-{stage} polaris-{stage}-trino-people-creds POLARIS_CLIENT_ID POLARIS_CLIENT_SECRET olf-system"
+        for stage in ("dev", "prod")
+    ]
+    assert not any(name.startswith("trino-people") for name in fake.principals)

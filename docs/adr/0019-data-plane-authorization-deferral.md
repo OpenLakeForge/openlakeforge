@@ -2,15 +2,15 @@
 
 ## Status
 
-Decided, **build steps 1 to 4, 6 and 7 (`olf query`) of 8 landed** (tracked in #674): this is the
+Decided, **build steps 1 to 7 of 8 landed** (tracked in #674): this is the
 design for #367. Step 1 puts `data_access` in the role model, validated by
 `olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
 catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
 and creates the principal, roles and catalog grants of section 5, except the
 Gold namespace grants. Step 4 makes `olf infra catalog sync-namespaces` grant
-those, with the deployer's added privilege. Step 6 routes Trino's `/v1` to the
-`viewer` floor, and step 7 adds `olf query`; Trino accepts a person's token
-from step 5. Verification items 1 (SeaweedFS STS enforces the session policy),
+those, with the deployer's added privilege. Step 5 makes Trino accept people's
+tokens and adds the people catalogs, step 6 routes Trino's `/v1` to the `viewer`
+floor, and step 7 adds `olf query`. Verification items 1 (SeaweedFS STS enforces the session policy),
 2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
 local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
 needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
@@ -346,7 +346,11 @@ Split along the seams `AGENTS.md` names, each with its tests:
    added by the bootstrap and is not removed if people's access is switched off
    again.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
-   rules of section 4, step 6.
+   rules of section 4, step 6. **Landed**, with `trino-people-<stage>` and its
+   Secret from the Polaris bootstrap. Found while building: the coordinator
+   held the platform S3 key as `AWS_*` variables, which the S3 client's default
+   chain would have handed a people catalog without vended credentials; the
+   key moved to `OPENLAKEFORGE_S3_*` (ADR 0016).
 6. Dex `olf-cli` client and the `query_api` route and perimeter instance.
    **Landed:** the `olf-cli` client and the perimeter's acceptance of its
    bearer tokens already existed (`olf platform`); the step adds the
@@ -516,6 +520,16 @@ for `federated:id`. The client was run against the pinned stack of step 5: a
 data engineer writes, an analyst reads through Trino's paging, and the
 refusals (S3 on a write, Polaris on Bronze, a workload catalog) each produce
 their message.
+
+Build step 5: Trino authenticates `PASSWORD,JWT` when the local root passes
+`people_access` (`issuer: github`, `password` level), adds a people catalog per
+stage on its `trino-people-<stage>` credential, and the rules of section 4,
+step 6. Run against the pinned Trino 480 with the rendered `rules.json`, Polaris
+1.4.0, Dex and SeaweedFS STS: a data engineer creates and writes through the
+people catalog, an analyst reads Gold and is refused a write by S3, a query
+without the person's token fails closed, a token cannot act as another user or
+use a workload catalog, another client's token gets 401, and a person sees only
+their own queries.
 
 Build step 6: the `query_api` grant row (every role) and, with `issuer: github`
 and Trino at `password`, an ingress route for `trino.<base_domain>/v1` behind
