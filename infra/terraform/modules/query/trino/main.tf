@@ -327,7 +327,8 @@ resource "helm_release" "trino" {
     # as localhost and mount the certificate on the coordinator only, so a
     # worker would register with itself. Multi-node with authentication is #367.
     precondition {
-      condition     = var.query_sizing == null || var.query_sizing.workers == 0 || !local.tls_enabled
+      # A conditional, not ||: Terraform evaluates both operands, and .workers on null fails the plan.
+      condition     = var.query_sizing == null ? true : (var.query_sizing.workers == 0 || !local.tls_enabled)
       error_message = "spec.query.size medium and large add Trino workers, which are not supported with Trino workload authentication (tls or password): deploy without spec.access, or use size small."
     }
     # The principals rule is built from stage_namespaces and the catalog rules
