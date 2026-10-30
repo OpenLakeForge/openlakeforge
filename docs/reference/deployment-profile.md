@@ -120,20 +120,27 @@ deployment does not provide. Any other value, and any CPU, memory, worker or
 volume field, is rejected as an unknown value or field. A profile that omits
 both fields deploys exactly as it did before they existed, and
 `olf profile resolve` prints the effective sizes (`sizes: query=small
-storage=small`; `query` and `storage` in `--json`). Nothing deploys differently
-by size yet.
+storage=small`; `query` and `storage` in `--json`).
 
-What each size means on the local profile, as the Helm values set it today:
+`storage.size` picks one row of `release/storage-sizes.yaml`, which sets the
+PVC size of the SeaweedFS master, filer and volume server and the number of
+volume slots on the volume server. The Terraform SeaweedFS module renders the
+chosen row over `infra/helm/values/local/seaweedfs.yaml`; `small` is the sizing
+that file carried before the profile could choose. The file already holds
+`medium` and `large` rows, provisional until the #329 report calibrates them,
+but the profile does not accept them until `olf` enforces that a volume only
+grows (#326).
 
-| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server (`seaweedfs.yaml`) | Available |
+What each size means on the local profile:
+
+| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server (`release/storage-sizes.yaml`) | Available |
 | --- | --- | --- | --- |
-| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC | Yes |
-| `medium` | Not defined | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
-| `large` | Not defined | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC, 80 slots; master 1Gi, filer 5Gi | Yes |
+| `medium` | Not defined | Row defined (300Gi), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `large` | Not defined | Row defined (2Ti), not yet selectable | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
 
-The `small` volume figure is the chart default, not yet derived from
-`storage.size`; the profile does not change it. This page gives no data-volume
-or host-capacity guidance because none has been measured.
+This page gives no data-volume or host-capacity guidance because none has been
+measured.
 
 ### `spec.stages`
 
