@@ -12,7 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,17 +55,19 @@ def person_token(instance: sessions.Instance) -> tuple[str, dict[str, Any]]:
     return token, claims
 
 
-def run_statement(url: str, sql: str, *, token: str, user: str, catalog: str) -> Result:
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-Trino-User": user,
-        "X-Trino-Catalog": catalog,
-        "X-Trino-Source": SOURCE,
-        "X-Trino-Extra-Credential": f"token={token}",
-    }
+def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, catalog: str) -> Result:
+    """`bearer` is asked again before every page: a Dex token lasts five minutes, and a result can take longer to
+    page through. The extra credential is read once, at submission, where Polaris captures it."""
+    headers = {"X-Trino-User": user, "X-Trino-Catalog": catalog, "X-Trino-Source": SOURCE}
+    token = bearer()
     columns: list[str] = []
     rows: list[list[Any]] = []
-    body = _call("POST", url, headers, data=sql.encode("utf-8"))
+    body = _call(
+        "POST",
+        url,
+        {**headers, "Authorization": f"Bearer {token}", "X-Trino-Extra-Credential": f"token={token}"},
+        data=sql.encode("utf-8"),
+    )
     while True:
         if "error" in body:
             raise sessions.PlatformError(explain(body["error"], catalog))
@@ -74,7 +76,7 @@ def run_statement(url: str, sql: str, *, token: str, user: str, catalog: str) ->
         rows.extend(body.get("data") or [])
         if "nextUri" not in body:
             return Result(columns, rows)
-        body = _call("GET", body["nextUri"], headers)
+        body = _call("GET", body["nextUri"], {**headers, "Authorization": f"Bearer {bearer()}"})
 
 
 def _call(method: str, url: str, headers: dict[str, str], data: bytes | None = None) -> dict[str, Any]:
@@ -146,11 +148,23 @@ def explain(error: dict[str, Any], stage: str) -> str:
     return text or "the query failed without an error message."
 
 
+def json_keys(columns: Sequence[str]) -> list[str]:
+    """Column names as object keys: a repeated name (`SELECT 1 AS id, 2 AS id`, a join) gets `_2`, `_3`, so no
+    value is dropped."""
+    keys: list[str] = []
+    for name in columns:
+        key, n = name, 1
+        while key in keys:
+            n += 1
+            key = f"{name}_{n}"
+        keys.append(key)
+    return keys
+
+
 def render(result: Result, output_format: str) -> str:
     if output_format == "json":
-        return "".join(
-            json.dumps(dict(zip(result.columns, row, strict=False)), default=str) + "\n" for row in result.rows
-        )
+        keys = json_keys(result.columns)
+        return "".join(json.dumps(dict(zip(keys, row, strict=True)), default=str) + "\n" for row in result.rows)
     if output_format == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer, lineterminator="\n")
@@ -207,8 +221,14 @@ def query(
                 "per-person queries need sign-in with GitHub (spec.identity.issuer: github); "
                 "operators can use `olf infra query`, which runs as the stage's workload user"
             )
-        token, claims = person_token(instance)
-        result = run_statement(statement_url(instance), sql, token=token, user=str(claims["email"]), catalog=stage)
+        _, claims = person_token(instance)
+        result = run_statement(
+            statement_url(instance),
+            sql,
+            bearer=lambda: sessions.active_session(instance).id_token,
+            user=str(claims["email"]),
+            catalog=stage,
+        )
     except (sessions.PlatformError, OSError, ValueError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(render(result, output_format), nl=False)

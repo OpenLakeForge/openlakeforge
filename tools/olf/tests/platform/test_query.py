@@ -46,6 +46,7 @@ class FakeTrino:
         self.requests: list[dict[str, Any]] = []
         self.status = 200
         self.error: dict[str, Any] | None = None
+        self.columns = ["id", "name"]
         self.url = ""
         trino = self
 
@@ -63,7 +64,11 @@ class FakeTrino:
                     self._reply({"error": trino.error})
                     return
                 self._reply(
-                    {"columns": [{"name": "id"}, {"name": "name"}], "data": [[1, "a"]], "nextUri": f"{trino.url}/next"}
+                    {
+                        "columns": [{"name": c} for c in trino.columns],
+                        "data": [[1, "a"]],
+                        "nextUri": f"{trino.url}/next",
+                    }
                 )
 
             def do_GET(self) -> None:
@@ -205,3 +210,26 @@ def test_a_deployment_without_github_sign_in_points_to_the_workload_path(tmp_pat
 
     assert result.exit_code == 1
     assert "olf infra query" in result.stderr
+
+
+def test_json_keeps_every_value_of_a_repeated_column_name(trino: FakeTrino) -> None:
+    _sign_in()
+    trino.columns = ["id", "id"]
+
+    result = _query("--format", "json", "SELECT 1 AS id, 'a' AS id")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[0] == '{"id": 1, "id_2": "a"}'
+
+
+def test_every_page_asks_for_a_current_token_and_only_the_submission_carries_the_extra_credential(
+    trino: FakeTrino,
+) -> None:
+    tokens = iter(["first", "refreshed"])
+
+    person_query.run_statement(trino.url, "SELECT 1", bearer=lambda: next(tokens), user=EMAIL, catalog="dev")
+
+    submitted, page = (request["headers"] for request in trino.requests)
+    assert (submitted["Authorization"], submitted["X-Trino-Extra-Credential"]) == ("Bearer first", "token=first")
+    assert page["Authorization"] == "Bearer refreshed"
+    assert "X-Trino-Extra-Credential" not in page
