@@ -212,7 +212,7 @@ def test_platform_down_also_removes_a_stage_the_profile_no_longer_enables(tmp_pa
     class _Runner(_TeardownScriptedRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
             argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
-            if "get" in argv and "namespace" in argv and any(a.startswith("openlakeforge.io/") for a in argv):
+            if "get" in argv and "namespace" in argv and "-l" in argv:
                 self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
                 return CommandResult(
                     argv=(), returncode=0, stdout="olf-system\nolf-dev\nolf-prod\n", stderr="", duration_seconds=0.0
@@ -240,7 +240,7 @@ def test_platform_down_fails_closed_when_namespace_discovery_errors(tmp_path: Pa
     class _Runner(_TeardownScriptedRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
             argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
-            if "get" in argv and "namespace" in argv and any(a.startswith("openlakeforge.io/") for a in argv):
+            if "get" in argv and "namespace" in argv and "-l" in argv:
                 self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
                 return CommandResult(
                     argv=(),

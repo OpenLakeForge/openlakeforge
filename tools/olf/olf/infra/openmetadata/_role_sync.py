@@ -15,7 +15,7 @@ from typing import Any
 
 from olf.common.profile import GitHubSpec
 from olf.infra import github_app
-from olf.infra.openmetadata._auth import AUTOMATION_JWT_KEY, AUTOMATION_SECRET
+from olf.infra.openmetadata._auth import AUTOMATION_BOT, AUTOMATION_JWT_KEY
 
 NAME = "openmetadata-role-sync"
 # Inside the 15 min native-service revocation bound of identity-sessions-and-recovery.md.
@@ -48,7 +48,7 @@ def role_sync_manifests(
             {"name": "ROLE_TEAMS", "value": json.dumps({role: list(slugs) for role, slugs in github.teams.items()})},
             {"name": "ROLE_PRECEDENCE", "value": json.dumps(precedence)},
             {"name": "OM_URL", "value": om_url},
-            _secret_env("OM_JWT", AUTOMATION_SECRET, AUTOMATION_JWT_KEY),
+            _secret_env("OM_JWT", AUTOMATION_BOT, AUTOMATION_JWT_KEY),
             # Fixed key names `olf github connect` writes.
             _secret_env("APP_ID", app, "app-id"),
             _secret_env("PRIVATE_KEY", app, "private-key"),
