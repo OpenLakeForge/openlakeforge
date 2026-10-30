@@ -53,6 +53,7 @@ from olf.infra.commands import diagnostics as infra_diagnostics
 from olf.infra.commands import images as infra_images
 from olf.infra.commands import product as infra_product
 from olf.infra.commands import project as infra_project
+from olf.platform import commands as platform_commands
 
 app = typer.Typer(
     name="olf",
@@ -135,6 +136,7 @@ _infra_command("forward", deployment.forward)
 _infra_command("break-glass", break_glass.break_glass_command)
 _infra_command("query", query.query)
 app.command("init")(init.initialize)
+app.command("login")(platform_commands.login)
 
 
 @app.callback()
