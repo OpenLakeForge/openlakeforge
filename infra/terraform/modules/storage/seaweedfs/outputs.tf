@@ -19,6 +19,9 @@ output "contract" {
     master_service_name     = local.master_service_name
     master_http_port        = 9333
     master_endpoint         = "http://${local.master_service_name}.${var.namespace}:9333"
+    # The gateway serves STS on its S3 port.
+    sts_role_arn = local.sts_role_arn
+    sts_endpoint = "http://${local.s3_service_name}.${var.namespace}:${var.s3_port}"
   }
 
   depends_on = [

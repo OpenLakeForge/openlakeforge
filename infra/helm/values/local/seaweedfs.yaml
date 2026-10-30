@@ -81,6 +81,9 @@ s3:
   # chunk once its readers finish; the budget caps what concurrent GETs hold.
   extraArgs:
     - -readerCacheSizeMB=64
+    # The STS role Polaris assumes to vend table-scoped credentials (ADR 0019),
+    # written to the auth Secret by the credentials Job.
+    - -iam.config=/etc/sw/seaweedfs_iam_config
   # Go's default GC lets the heap reach twice the live set and returns idle
   # pages lazily, which alone filled the old 256Mi limit under load.
   extraEnvironmentVars:
