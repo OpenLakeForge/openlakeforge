@@ -1,0 +1,18 @@
+# The platform API's permission matrix (ADR 0021, decision 3), in the style of
+# ADR 0014's role floors. Every route the API serves has exactly one row, keyed
+# by the route's name; a route without a row is refused, never served.
+#
+# role:   the lowest canonical role allowed (release/identity-roles.yaml,
+#         precedence); every role above it is allowed too. `anonymous` takes
+#         no token at all and is for probes only.
+# stages: the stages the operation applies to, for an operation that names
+#         one in its path; "*" is every enabled stage. Empty: the operation
+#         names no stage, and a stage in its path is refused.
+
+[operations.healthz]
+role = "anonymous"
+stages = []
+
+[operations.whoami]
+role = "viewer"
+stages = []
