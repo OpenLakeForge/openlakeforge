@@ -309,7 +309,7 @@ def test_tls_failure_explains_the_local_ca(monkeypatch: pytest.MonkeyPatch) -> N
     def refuse(*args: object, **kwargs: object) -> None:
         raise requests.exceptions.SSLError("self-signed certificate")
 
-    monkeypatch.setattr(requests, "get", refuse)
+    monkeypatch.setattr(requests, "request", refuse)
 
     with pytest.raises(sessions.PlatformError, match="olf infra access trust"):
         sessions.discover(sessions.Instance("olf.example.com", "https://auth.olf.example.com", CLIENT))
