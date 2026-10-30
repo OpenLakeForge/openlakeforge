@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 
@@ -65,11 +67,33 @@ def verify() -> bool | str:
     return os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE") or True
 
 
+def send(method: str, url: str, **kwargs: Any) -> requests.Response:
+    """A request that reaches `*.localhost` issuers: RFC 6761 says loopback, but glibc and macOS often answer
+    NXDOMAIN, and a proxy chosen from the hostname would carry the request away from loopback."""
+    host = urlsplit(url).hostname or ""
+    local = host.endswith(".localhost")
+    resolver = socket.getaddrinfo
+
+    def getaddrinfo(name: Any, *args: Any, **rest: Any) -> Any:
+        return resolver("127.0.0.1" if local and name == host else name, *args, **rest)
+
+    previous = os.environ.get("NO_PROXY")
+    if local:
+        socket.getaddrinfo = getaddrinfo  # type: ignore[assignment]  # typeshed pins the stdlib signature
+        os.environ["NO_PROXY"] = ",".join(filter(None, [host, previous]))
+    try:
+        return requests.request(method, url, verify=verify(), **kwargs)
+    finally:
+        socket.getaddrinfo = resolver
+        if previous is None:
+            os.environ.pop("NO_PROXY", None)
+        else:
+            os.environ["NO_PROXY"] = previous
+
+
 def discover(instance: Instance) -> Mapping[str, Any]:
     try:
-        response = requests.get(
-            f"{instance.issuer.rstrip('/')}/.well-known/openid-configuration", timeout=15, verify=verify()
-        )
+        response = send("GET", f"{instance.issuer.rstrip('/')}/.well-known/openid-configuration", timeout=15)
         response.raise_for_status()
         document = response.json()
     except requests.exceptions.SSLError as exc:
@@ -131,7 +155,8 @@ def active_session(instance: Instance) -> Session:
     if not session.refresh_token:
         raise expired
     try:
-        response = requests.post(
+        response = send(
+            "POST",
             str(discover(instance)["token_endpoint"]),
             data={
                 "grant_type": "refresh_token",
@@ -139,7 +164,6 @@ def active_session(instance: Instance) -> Session:
                 "client_id": instance.client_id,
             },
             timeout=15,
-            verify=verify(),
         )
         tokens = response.json()
     except (requests.RequestException, ValueError) as exc:

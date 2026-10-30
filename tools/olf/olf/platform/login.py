@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import requests
 
-from olf.platform.session import SCOPES, Instance, PlatformError, Session, discover, save, verify
+from olf.platform.session import SCOPES, Instance, PlatformError, Session, discover, save, send
 
 _TIMEOUT_SECONDS = 300
 
@@ -77,7 +77,8 @@ def login(instance: Instance, *, open_browser: bool, announce: Callable[[str], N
         raise PlatformError(f"the issuer refused the sign-in: {received.get('error', 'no authorization code')}")
 
     try:
-        response = requests.post(
+        response = send(
+            "POST",
             str(endpoints["token_endpoint"]),
             data={
                 "grant_type": "authorization_code",
@@ -87,7 +88,6 @@ def login(instance: Instance, *, open_browser: bool, announce: Callable[[str], N
                 "code_verifier": verifier,
             },
             timeout=15,
-            verify=verify(),
         )
         tokens = response.json()
     except (requests.RequestException, ValueError) as exc:

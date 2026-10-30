@@ -321,3 +321,23 @@ def test_ssl_cert_file_is_honoured_for_verification(monkeypatch: pytest.MonkeyPa
     assert sessions.verify() == "/tmp/ca.crt"
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/bundle.crt")
     assert sessions.verify() == "/tmp/bundle.crt"
+
+
+def test_a_localhost_issuer_is_reached_when_the_resolver_refuses_it(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import socket
+
+    real = socket.getaddrinfo
+
+    def nxdomain(host: object, *args: object, **kwargs: object) -> object:
+        if isinstance(host, str) and host.endswith(".localhost"):
+            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        return real(host, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", nxdomain)
+    port = issuer.url.rsplit(":", 1)[1]
+    instance = sessions.Instance("olf.localhost", f"http://auth.olf.localhost:{port}", CLIENT)
+
+    assert "token_endpoint" in sessions.discover(instance)
+    assert socket.getaddrinfo is nxdomain
