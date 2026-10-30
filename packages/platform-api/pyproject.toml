@@ -9,6 +9,9 @@ description = "OpenLakeForge platform API: one backend for the portal, olf and a
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.115,<1",
+  # Direct so its path source applies: uv reads [tool.uv.sources] for direct
+  # dependencies only, and the library depends on it.
+  "openlakeforge-domain-model==0.5.0a1",
   "openlakeforge-lakehouse-services==0.5.0a1",
   "pyjwt[crypto]>=2.10,<3",
   "uvicorn>=0.30,<1",

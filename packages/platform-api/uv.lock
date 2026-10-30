@@ -303,14 +303,13 @@ wheels = [
 [[package]]
 name = "openlakeforge-domain-model"
 version = "0.5.0a1"
-source = { registry = "https://pypi.org/simple" }
+source = { directory = "../domain-model" }
 dependencies = [
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/57/eb15ffd47079a13a3771c63096e0fdc1cd79d212aab8f968f0209904e1ca/openlakeforge_domain_model-0.5.0a1.tar.gz", hash = "sha256:b6b5ed3aa5486c334d050c931e6ec841fc077434f1709a305ad8c1197815d527", size = 9551, upload-time = "2026-10-23T16:15:38.758Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/83/1b84be140b1f098f9326ca13a074842fcdca304b14c868d6c040191ae78a/openlakeforge_domain_model-0.5.0a1-py3-none-any.whl", hash = "sha256:d8217d47273c87622df545ba75559c409f1f2aad6d4adf6a49e8f5288763fd53", size = 10902, upload-time = "2026-10-23T16:15:37.569Z" },
-]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0,<7" }]
 
 [[package]]
 name = "openlakeforge-lakehouse-services"
@@ -335,6 +334,7 @@ version = "0.5.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "openlakeforge-domain-model" },
     { name = "openlakeforge-lakehouse-services" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "uvicorn" },
@@ -352,6 +352,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "openlakeforge-domain-model", directory = "../domain-model" },
     { name = "openlakeforge-lakehouse-services", directory = "../lakehouse-services" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
