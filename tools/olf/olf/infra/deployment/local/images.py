@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from olf.common import log
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
-from olf.common.image_build import build_project_code_image, build_superset_image
+from olf.common.image_build import build_platform_api_image, build_project_code_image, build_superset_image
 from olf.common.tooling.toolkit import Toolkit
 
 
@@ -88,6 +88,23 @@ def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env
     log.step("Ensuring local Superset platform image is available to kind...")
     load_image_into_kind(tagged, config, tools, env=env)
     return tagged.rsplit(":", 1)[1]
+
+
+def prepare_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
+    """Build `images/platform-api` and load it into kind; returns the reference to deploy.
+
+    No release has published the image yet, so there is no digest to pin
+    (release/component-catalog.yaml) and every local deploy builds it. Tagged by
+    image ID, as Superset's local build is, so a changed image rolls the pod.
+    """
+    log.step("Building the platform API image...")
+    image = build_platform_api_image(config, tools, env=env)
+    image_id = json.loads(tools.docker.image_inspect(image, env=env, check=True).stdout)[0]["Id"]
+    tagged = f"{config.images.platform_api_repository}:local-{image_id.removeprefix('sha256:')[:12]}"
+    tools.docker.tag(image, tagged, env=env)
+    log.step("Ensuring the platform API image is available to kind...")
+    load_image_into_kind(tagged, config, tools, env=env)
+    return tagged
 
 
 def prepare_project_code_image(
