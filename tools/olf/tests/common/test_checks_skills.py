@@ -58,7 +58,9 @@ def test_repository_skills_are_valid() -> None:
 
 
 def test_rejects_unknown_commands_options_and_bare_groups(tmp_path: Path, details: dict[str, str]) -> None:
-    text = VALID + "\nRun `olf deplyo` or `olf check`.\n\n```bash\nolf infra deploy --provider local \\\n  --phse x\n```\n"
+    text = (
+        VALID + "\nRun `olf deplyo` or `olf check`.\n\n```bash\nolf infra deploy --provider local \\\n  --phse x\n```\n"
+    )
     _skill(tmp_path, text, extra=details)
     errors = _skills.skill_errors(tmp_path, CLI)
     assert len(errors) == 3
