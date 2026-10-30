@@ -550,3 +550,10 @@ baseline until the role sync lands. Details in
 Data access (ADR 0019, build step 1): `release/identity-roles.yaml` gains
 `data_access`, rendered into `shared.identity.roles` with the rest of the file
 and validated by `olf`; nothing enforces it yet.
+
+Per-operation classes (#536, [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)):
+"every `olf` call is class 2" is replaced by a rule per operation. Commands
+that need cluster or cloud permissions live under `olf infra` and stay class 2;
+commands that need none (`init`, `check`, scaffolding) have no identity; a
+platform surface that signs a person in through Dex, and so is class 1, is
+decided and not built.

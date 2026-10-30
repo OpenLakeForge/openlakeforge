@@ -17,11 +17,17 @@ cell says **to verify**.
 | 2. Workload / automation, no cloud API | A pod calling another component, or `olf` and CI calling the cluster | A service credential from a Secret, or Kubernetes RBAC | A human account; routed through the perimeter; a member of a canonical role |
 | 3. Cloud workload | A pod calling a cloud API (S3, Glue, Secrets Manager) | Cloud IAM through Pod Identity / workload identity (#45) | A canonical role |
 
-Classification rule: a caller that reaches a service **through the issuer** is
-class 1. A caller that authenticates with a service credential or Kubernetes
-RBAC is class 2, whether it runs in a pod or on a workstation, and even when a
-person started it. `olf` and CI are therefore class 2 with Kubernetes RBAC as
-their identity. (Interpretation of #178 for out-of-cluster callers; confirm.)
+Classification rule: the class belongs to the operation. A caller that reaches
+a service **through the issuer** is class 1. A caller that authenticates with a
+service credential or Kubernetes RBAC is class 2, whether it runs in a pod or
+on a workstation, and even when a person started it. `olf infra` commands and CI
+are therefore class 2 with Kubernetes RBAC as their identity; `olf` commands
+that need no permissions (`init`, `check`, `project validate`) have none. A
+Dex-session platform surface is planned and not built
+([ADR 0020](../../adr/0020-infrastructure-common-and-platform-cli-surfaces.md)).
+The command paths in the rows below are the earlier top-level ones, which still
+work as hidden aliases of `olf infra ...`. (Interpretation of #178 for
+out-of-cluster callers; confirm.)
 
 Class 3 is inventoried for clarity only. Exercising cloud credentials or their
 rotation is outside this milestone.
