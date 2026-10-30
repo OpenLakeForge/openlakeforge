@@ -154,6 +154,13 @@ def test_floe_runs_one_kubernetes_job_per_domain_on_the_project_code_image() -> 
     assert "command" not in runner
 
 
+def test_the_job_is_polled_often_enough_to_end_its_step_promptly() -> None:
+    runner = _runner({**_STAGE, "AWS_REGION": "us-east-1"})
+
+    # Each poll interval is wall-clock time added to the end of every Silver step.
+    assert runner["poll_interval_seconds"] == 2
+
+
 def test_the_job_memory_limit_leaves_room_above_floes_duckdb_cap() -> None:
     resources = _runner({**_STAGE, "AWS_REGION": "us-east-1"})["resources"]
 
