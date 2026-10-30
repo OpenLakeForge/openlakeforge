@@ -207,6 +207,19 @@ def test_login_asks_an_external_issuer_only_for_scopes_it_advertises(
     assert set(issuer.authorize_queries[0]["scope"].split()) == {"openid", "profile", "email", "offline_access"}
 
 
+def test_login_to_dex_also_asks_for_the_connector_id_dex_does_not_advertise(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    issuer.scopes_supported = ["openid", "email", "groups", "profile", "offline_access"]  # Dex v2.46.0's list
+    _browser(monkeypatch)
+
+    login_flow.login(
+        sessions.Instance("olf.example.com", issuer.url, CLIENT, dex=True), open_browser=True, announce=lambda _: None
+    )
+
+    assert "federated:id" in issuer.authorize_queries[0]["scope"].split()
+
+
 def test_no_browser_prints_the_url_and_never_opens_one(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("webbrowser.open", lambda url: pytest.fail("opened a browser"))
     printed: list[str] = []
@@ -295,7 +308,7 @@ def test_instance_comes_from_the_profile(tmp_path: Path) -> None:
 
     github = Path(__file__).parents[1] / "fixtures/profiles/valid_github_identity.yaml"
     dex = sessions.resolve_instance(str(github))
-    assert (dex.issuer, dex.client_id) == ("https://auth.olf.localhost", CLIENT)
+    assert (dex.issuer, dex.client_id, dex.dex) == ("https://auth.olf.localhost", CLIENT, True)
 
 
 def test_plain_http_access_with_identity_still_signs_in(tmp_path: Path) -> None:

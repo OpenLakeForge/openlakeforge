@@ -26,6 +26,7 @@ from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
 from olf.infra.deployment.engine import DeploymentConfig
+from olf.infra.deployment.storage_resize import require_storage_size_applies
 from olf.infra.github_app import GitHubApp, store_app
 
 _APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
@@ -78,6 +79,16 @@ def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """`spec.access` as the local root's inputs; absent, the root deploys no ingress."""
     access = config.context.topology.access
     return {} if access is None else {"access_base_domain": access.base_domain, "access_issuer": access.issuer}
+
+
+def platform_api_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """The platform API validates tokens against the issuer, so it is deployed only with spec.identity. The
+    reference is computed, not built, so a plan and the apply after it name the same image."""
+    if config.context.topology.identity is None:
+        return {}
+    from olf.infra.deployment.local import images
+
+    return {"platform_api_image": images.platform_api_image(config)}
 
 
 def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -221,7 +232,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "project_code_image_revision": images.project_code_revision,
     } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
-    }
+    } | platform_api_variables(config)
 
 
 def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -559,6 +570,11 @@ def platform_up(
 
         superset_tag = images.prepare_superset_image(config, tools, env=env)
 
+    if platform_api_variables(config):
+        from olf.infra.deployment.local import images
+
+        images.prepare_platform_api_image(config, tools, env=env)
+
     prepare_charts(config, tools, env=env)
 
     log.step("Initializing Terraform...")
@@ -566,6 +582,7 @@ def platform_up(
 
     require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env=env)
+    require_storage_size_applies(config, tools, kube_context=config.kube_context, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 
     variables = platform_apply_variables(config)

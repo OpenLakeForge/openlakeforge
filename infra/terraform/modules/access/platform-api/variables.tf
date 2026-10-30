@@ -1,0 +1,64 @@
+variable "namespace" {
+  description = "Kubernetes namespace where the platform API is deployed."
+  type        = string
+}
+
+variable "release_name" {
+  description = "Name of the platform API Deployment, Service and ConfigMap."
+  type        = string
+  default     = "platform-api"
+}
+
+# No default: no release has published the image, so there is no digest to pin
+# here (images/platform-api/README.md). The root passes the image olf built.
+variable "image" {
+  description = "platform-api image reference: the local build olf loaded into kind until a release pins one in release/component-catalog.yaml."
+  type        = string
+}
+
+variable "image_pull_policy" {
+  description = "Pull policy for the image; Never for an image olf loaded into kind."
+  type        = string
+  default     = "IfNotPresent"
+}
+
+variable "issuer_url" {
+  description = "identity.oidc issuer_url: the issuer whose tokens the API validates."
+  type        = string
+}
+
+variable "audiences" {
+  description = "Client ids whose tokens the API accepts (ADR 0021, decision 3). At least one."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.audiences) > 0 && alltrue([for audience in var.audiences : audience != ""])
+    error_message = "audiences must list at least one non-empty client id; an empty list would accept any audience."
+  }
+}
+
+variable "role_claim" {
+  description = "identity.oidc role_claim: the token claim holding the role values."
+  type        = string
+}
+
+variable "role_mapping" {
+  description = "identity.oidc role_mapping: canonical role to the claim values that carry it."
+  type        = map(list(string))
+}
+
+variable "precedence" {
+  description = "Canonical roles, highest first (release/identity-roles.yaml)."
+  type        = list(string)
+}
+
+variable "stages" {
+  description = "Enabled stage names, the only stages a stage-scoped operation answers for."
+  type        = list(string)
+}
+
+variable "ca_configmap_name" {
+  description = "ConfigMap in `namespace` whose ca.crt signs the issuer's certificate (modules/access/in-cluster-resolution). Null when the issuer's certificate chains to a public root."
+  type        = string
+  default     = null
+}

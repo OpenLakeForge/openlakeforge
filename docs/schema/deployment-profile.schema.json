@@ -48,8 +48,8 @@
         "storage": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Self-hosted object storage (SeaweedFS). Rejected on aws, whose object storage is S3. Only `small` has a tested backend; `medium` and `large` are rejected until one lands (#326).",
-          "properties": {"size": {"enum": ["small"], "default": "small"}}
+          "description": "Self-hosted object storage (SeaweedFS). Rejected on aws, whose object storage is S3. The volume sizes behind each value are in release/storage-sizes.yaml.",
+          "properties": {"size": {"enum": ["small", "medium", "large"], "default": "small"}}
         },
         "project": {
           "type": "object",

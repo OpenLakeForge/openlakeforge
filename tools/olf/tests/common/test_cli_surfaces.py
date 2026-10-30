@@ -53,7 +53,9 @@ def test_visible_infra_commands_live_under_olf_infra() -> None:
     assert misplaced == []
 
 
-@pytest.mark.parametrize("path", PRE_2B_PATHS, ids=" ".join)
+# `olf query` is the platform command for a person's own queries (ADR 0019); its pre-2b alias to
+# `olf infra query` ended there, the one exception ADR 0020 names.
+@pytest.mark.parametrize("path", [p for p in PRE_2B_PATHS if p != ("query",)], ids=" ".join)
 def test_pre_2b_path_reaches_its_new_home(path: tuple[str, ...]) -> None:
     assert path in BY_PATH
     home = ("infra", *path) if ("infra", *path) in BY_PATH else path
@@ -126,8 +128,6 @@ def test_old_path_warns_on_stderr_and_behaves_like_the_new_one(old: str, new: st
     assert MOVED not in new_result.stderr
 
 
-def test_olf_query_alias_does_not_warn() -> None:
-    # `olf infra query` stays a top-level command once per-person access lands (ADR 0020).
-    result = CliRunner().invoke(app, ["query", *MISSING, "--stage", "dev", "SELECT 1"])
-    assert result.exit_code == 1
-    assert MOVED not in result.stderr
+def test_olf_query_is_the_platform_command_and_olf_infra_query_the_workload_one() -> None:
+    assert BY_PATH[("query",)].__module__ == "olf.platform.query"
+    assert inspect.unwrap(BY_PATH[("infra", "query")]).__module__ == "olf.infra.commands.query"

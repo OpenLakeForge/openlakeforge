@@ -20,8 +20,9 @@ at the top level. `olf --help` lists the top-level groups and `olf infra --help`
 the infrastructure ones. The earlier top-level paths of the infra commands
 (`olf deploy`, `olf project deploy`) still work as hidden aliases. Each prints one
 line on stderr naming its new path and then runs unchanged, so scripts that parse
-stdout keep working. `olf query` is the exception: it stays a top-level command
-and prints no warning. See
+stdout keep working. `olf query` is the exception: it is a platform command of
+its own, a person's queries, while `olf infra query` runs as the stage's
+workload user. See
 [ADR 0020](../adr/0020-infrastructure-common-and-platform-cli-surfaces.md).
 
 ## Options shared by lifecycle commands
@@ -132,6 +133,29 @@ olf infra access trust --output ./olf-local-ca.crt
 export REQUESTS_CA_BUNDLE="$PWD/olf-local-ca.crt"   # SSL_CERT_FILE also works
 olf login
 ```
+
+## Query as yourself
+
+`olf query` runs SQL against a stage's data as the signed-in person, through
+Trino at `https://trino.<base_domain>/v1`. It needs `spec.identity.issuer:
+github` and `olf login` first. What you may read or write on each stage and
+layer is your role's `data_access` row in `release/identity-roles.yaml`, which
+Polaris enforces ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md)).
+When Polaris or the object store refuses a query, `olf query` says why.
+
+```bash
+olf query --stage prod "SELECT count(*) FROM order_revenue_gold.mart_order_revenue_by_day"
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--stage` | `dev` | `dev`, `uat` or `prod`: the stage's people catalog is the session default, so SQL names `<schema>.<table>` |
+| `--format` | `table` | `table`, `csv` or `json` (one object per row) |
+| `--file` | — | Read the SQL from a file instead of the argument |
+| `--profile-file`, `-f` | `openlakeforge.yaml` | Deployment Profile of the deployment |
+
+`olf infra query` runs the same SQL as the stage's workload user through
+`kubectl exec`, for operators: it needs cluster access, not a sign-in.
 
 ## Installation and toolchain
 
