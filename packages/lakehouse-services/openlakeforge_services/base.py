@@ -11,9 +11,15 @@ import requests
 
 
 class ServiceClientError(RuntimeError):
-    """Base error for service client failures."""
+    """Base error for service client failures.
 
-    pass
+    `status` is the service's HTTP status when it answered with one, so a
+    caller can tell a refusal (401, 403) from a failure without parsing text.
+    """
+
+    def __init__(self, message: str = "", *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class TransientServiceError(ServiceClientError):
@@ -60,8 +66,8 @@ class JsonHttpClient:
         status = response.status_code
         if status not in ok_statuses:
             if 500 <= status < 600:
-                raise TransientServiceError(f"{method} {path} failed with HTTP {status}: {response.text}")
-            raise ServiceClientError(f"{method} {path} failed with HTTP {status}: {response.text}")
+                raise TransientServiceError(f"{method} {path} failed with HTTP {status}: {response.text}", status=status)
+            raise ServiceClientError(f"{method} {path} failed with HTTP {status}: {response.text}", status=status)
         return response
 
     def request(

@@ -1,7 +1,7 @@
 ARG PYTHON_BASE_IMAGE=python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 FROM ${PYTHON_BASE_IMAGE}
 
-# The package runs from source on PYTHONPATH: installing it would need
+# The packages run from source on PYTHONPATH: installing them would need
 # setuptools, which the slim base does not ship, for no gain.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,6 +12,11 @@ WORKDIR /opt/openlakeforge
 COPY images/platform-api/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock && rm /tmp/requirements.lock
 
+# The service clients and the domain model they read descriptors with are path
+# dependencies in uv.lock, so the exported lock leaves them out
+# (--no-emit-package) and their source is copied beside the API.
+COPY packages/domain-model/openlakeforge_domain ./openlakeforge_domain
+COPY packages/lakehouse-services/openlakeforge_services ./openlakeforge_services
 COPY packages/platform-api/openlakeforge_platform_api ./openlakeforge_platform_api
 
 # nobody, as the pod's securityContext also requires; the service writes

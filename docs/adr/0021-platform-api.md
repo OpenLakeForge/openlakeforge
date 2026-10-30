@@ -2,16 +2,18 @@
 
 ## Status
 
-Decided, **build step 1 done, build step 2 begun**: `packages/lakehouse-services`
+Decided, **build step 1 done, build step 3 begun**: `packages/lakehouse-services`
 holds every service client — the HTTP transport, Dagster, OpenMetadata and
 Superset — and the operations built on them: Superset report import and export
 (`openlakeforge_services.reports`) and OpenMetadata metadata deployment
 (`openlakeforge_services.governance`). `olf/infra` keeps only what resolves
-endpoints and credentials from a deployment. The platform API's skeleton is in
-`packages/platform-api`: token validation, the permission matrix,
-`/api/healthz` and `/api/v1/whoami`, with no service endpoint. The local
-provider deploys it with `spec.identity` (`modules/access/platform-api`), from
-an image `olf` builds, since no release has published one to pin.
+endpoints and credentials from a deployment. The platform API in
+`packages/platform-api` has token validation, the permission matrix,
+`/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
+runs per stage, and OpenMetadata domains and data products with the caller's
+token forwarded. Archived logs are not served yet. The local provider deploys it
+with `spec.identity` (`modules/access/platform-api`), from an image `olf`
+builds, since no release has published one to pin.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -308,3 +310,10 @@ CLI or forwarded by the API; service credentials remain for Superset, Dagster
 and the object store. Decision 3 now applies to those service-credential
 calls only, the OpenMetadata bot credential is dropped, and the context table
 records which services accept the person's token.
+
+Build step 3, first part (#668): Dagster jobs and runs under
+`/api/v1/stages/{stage}/`, at the Dagster route's `data-engineer` floor, with
+no credential; OpenMetadata domains and data products at the `viewer` floor,
+forwarding the caller's token unchanged. Archived logs, first-time user
+registration on the OpenMetadata path, and the endpoints' e2e through the
+perimeter remain.
