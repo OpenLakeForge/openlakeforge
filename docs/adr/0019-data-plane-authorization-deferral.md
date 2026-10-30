@@ -2,12 +2,14 @@
 
 ## Status
 
-Decided, **build steps 1 to 3 of 8 landed** (tracked in #674): this is the
+Decided, **build steps 1 to 4 of 8 landed** (tracked in #674): this is the
 design for #367. Step 1 puts `data_access` in the role model, validated by
 `olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
 catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
 and creates the principal, roles and catalog grants of section 5, except the
-Gold namespace grants; no caller presents a person's token yet. Verification items 1 (SeaweedFS STS enforces the session policy),
+Gold namespace grants. Step 4 makes `olf infra catalog sync-namespaces` grant
+those, with the deployer's added privilege; no caller presents a person's token
+yet. Verification items 1 (SeaweedFS STS enforces the session policy),
 2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
 local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
 needs to `olf-cli`) passed. Item 3 found that Polaris activates **all** of a
@@ -251,12 +253,20 @@ Gold namespaces come from the descriptors, not from a list in shared code:
 `PhysicalProductNames.gold_namespace` in the domain model, resolved by the same
 inventory `sync-namespaces` already uses. Granting on a namespace the artifacts
 phase creates keeps rule 3 of `AGENTS.md`: the platform apply never waits for
-user code. A pruned namespace takes its grants with it.
+user code. A pruned namespace takes its grants with it: Polaris's `dropEntity`
+deletes every grant record on the dropped entity (V,
+`AtomicOperationMetaStoreManager` at tag `apache-polaris-1.4.0`), so
+`sync-namespaces --prune` revokes nothing itself. Polaris answers a repeated grant with HTTP 500, so the command reads
+the role's grants and writes only the missing ones. A stack without
+`spec.identity.issuer: github` has no `olf-gold-read`; the command finds its
+grants answer 404 and skips them.
 
 **Accepted cost:** the stage deployer principal gains `CATALOG_MANAGE_ACCESS` on
 its own stage catalog to make those grants. It already holds
 `CATALOG_MANAGE_METADATA`, which can drop any table there; the added power is
-granting within that one catalog, including to itself. The alternative, a
+granting within that one catalog, including to itself. The bootstrap grants it
+only when people sign in (`person_access`), the one case where the role exists;
+a stack without it keeps the deployer's earlier privilege. The alternative, a
 nested `gold` parent namespace with one grant, means re-laying every Gold
 namespace and is not worth it for this.
 
@@ -323,7 +333,11 @@ Split along the seams `AGENTS.md` names, each with its tests:
    also revokes a catalog role a narrowed `data_access` row no longer names.
    `trino-people-<stage>` moves to step 5, where its catalog uses it.
 4. `olf infra catalog sync-namespaces` grants `olf-gold-read` on Gold namespaces;
-   the deployer's `CATALOG_MANAGE_ACCESS`.
+   the deployer's `CATALOG_MANAGE_ACCESS`. **Landed:** the grants are made after
+   the namespaces are reconciled, on every run, so a stack that enables people's
+   access later gets them on its next artifacts phase. The deployer privilege is
+   added by the bootstrap and is not removed if people's access is switched off
+   again.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
    rules of section 4, step 6.
 6. Dex `olf-cli` client and the `query_api` route and perimeter instance.
@@ -471,3 +485,10 @@ each role's catalog role to its `data_access` row. Polaris reaches Traefik for
 Dex's keys (ADR 0017, F4). Checked against the pinned Polaris 1.4.0 and Dex:
 it starts while Dex is unreachable, and a token whose groups map to no role
 reaches nothing.
+
+Build step 4: `olf infra catalog sync-namespaces` grants `olf-gold-read`
+`TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES` and `VIEW_READ_PROPERTIES` on each
+Gold namespace of the stage, from the descriptors; the deployer principal gains
+`CATALOG_MANAGE_ACCESS` on its stage catalog when people sign in. Polaris drops
+a namespace's grants with the namespace (read in the 1.4.0 source, not run), so
+pruning needs no revoke.
