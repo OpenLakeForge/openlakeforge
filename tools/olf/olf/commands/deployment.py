@@ -16,7 +16,7 @@ from pathlib import Path
 import typer
 
 from olf.commands._shared import deployment_context as _build_context
-from olf.commands._shared import fail
+from olf.log import fail
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
 

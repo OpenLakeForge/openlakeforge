@@ -21,6 +21,7 @@ import yaml
 from olf import access, config, k8s, layers, log
 from olf.clients.superset import SupersetClient
 from olf.contracts import CONTRACT_STAGE_ENV
+from olf.dashboard_checks import STAGE_NEUTRAL_SQLALCHEMY_URI
 from olf.profile import StageName
 
 
@@ -34,10 +35,6 @@ SUPERSET_PASSWORD_MASK = "XXXXXXXXXX"
 # Created in-cluster by the Superset module, release "superset".
 ADMIN_SECRET = "superset-credentials"
 _TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
-# The placeholder a checked-in database YAML carries. `build_report_bundle`
-# replaces it with the target stage's connection, and `unpack_export_bundle`
-# puts it back so an exported bundle promotes unchanged.
-STAGE_NEUTRAL_SQLALCHEMY_URI = "trino://superset@trino:8080/iceberg"
 
 
 @dataclass(frozen=True)

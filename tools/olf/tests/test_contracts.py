@@ -242,8 +242,7 @@ def test_a_v2_contract_refuses_to_answer_for_another_stage() -> None:
     another stage would hand that stage DEV's namespace, catalog, and
     capability flags while reporting success."""
     from olf.contracts import ProviderContractError
-    from olf.deployment.context import Provider
-    from olf.profile import Preset, StageName, legacy_single_stage_topology
+    from olf.profile import Preset, Provider, StageName, legacy_single_stage_topology
 
     contracts = load_fixture("local-provider-contracts.json")
     topology = legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.SLIM)
@@ -271,7 +270,7 @@ def test_provenance_is_recorded_only_for_an_applied_contract() -> None:
 def test_a_contract_file_replaces_terraform_state_and_fails_closed_when_missing(tmp_path: Path) -> None:
     """A CI deploy job has no platform Terraform state (#119); a file it named
     but cannot read must never read as "not applied yet"."""
-    from olf.contracts import PROVIDER_CONTRACTS_FILE_ENV, load_provider_contracts
+    from olf.contract_state import PROVIDER_CONTRACTS_FILE_ENV, load_provider_contracts
     from olf.provider_contracts import ProviderContractError
 
     fixture = FIXTURES / "conformance-provider-contracts.json"

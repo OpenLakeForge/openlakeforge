@@ -38,7 +38,7 @@ def contract_env_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         calls.append({"repo_root": repo_root, "topology": topology, "stage": stage})
         return ({}, [])
 
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ=None: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir, *, environ=None: None)
     monkeypatch.setattr(contracts_module, "build_contract_env", _build_contract_env)
     return calls
 
@@ -177,7 +177,6 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
     directory. This exercises `deployment_context` being called with
     `--project-root` and every downstream default following the returned
     context's paths instead of `config.repo_root()`."""
-    from olf import contracts as contracts_module
     from olf.deployment.context import DeploymentContext
 
     project_root = tmp_path / "project"
@@ -205,7 +204,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
         return None
 
     monkeypatch.setattr("olf.commands.e2e.deployment_context", _fake_deployment_context)
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", _fake_load_contracts)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _fake_load_contracts)
 
     calls: list[dict] = []
 
@@ -258,13 +257,12 @@ def test_e2e_run_surfaces_a_toolchain_failure_from_contract_resolution_cleanly(
     resolving the provider-contract environment - before e2e.run() and its
     own E2EError-only preflight are ever reached - must fail the same clean
     way as an E2EError, not escape as a raw ToolchainError traceback."""
-    from olf import contracts as contracts_module
     from olf.deployment.errors import ToolchainError
 
     def _raise(terraform_dir, *, environ=None):  # noqa: ANN001, ANN202
         raise ToolchainError("terraform", reason="digest mismatch")
 
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", _raise)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _raise)
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
 
     result = runner.invoke(app, ["e2e", "run", "--env", "local"])

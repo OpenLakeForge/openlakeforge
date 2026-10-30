@@ -20,7 +20,7 @@ def external_state_options(
     plugin data rooted outside `terraform_dir` (installed distributions).
 
     Every direct Terraform invocation - `Terraform._run` and any caller that
-    shells out to `terraform` on its own (`olf.contracts.load_provider_contracts`,
+    shells out to `terraform` on its own (`olf.contract_state.load_provider_contracts`,
     `olf.e2e._shell.terraform_output`) - must resolve state and data roots
     identically, or an installed deployment's `-chdir`'d `terraform output`
     silently reads the read-only payload's default (absent) state instead of

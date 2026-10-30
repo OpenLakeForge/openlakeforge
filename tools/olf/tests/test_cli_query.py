@@ -45,7 +45,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         return "ok\n"
 
     monkeypatch.setattr(trino, "run_sql", run_sql)
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_a, **_k: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "olf.contracts.build_contract_env",
         lambda *_a, **_k: ({"OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_prod"}, []),
@@ -165,7 +165,7 @@ def test_query_reports_an_invalid_provider_contract_without_a_traceback(
     def invalid(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
         raise ProviderContractError("unsupported provider contract schema")
 
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", invalid)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", invalid)
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile)
 

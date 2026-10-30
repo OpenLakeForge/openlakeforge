@@ -9,8 +9,8 @@ from pathlib import Path
 import typer
 
 from olf import config
-from olf.commands._shared import fail
 from olf.deployment.errors import DeploymentError
+from olf.log import fail
 from olf.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Render and validate dbt product projects.")

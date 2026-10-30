@@ -8,8 +8,8 @@ from olf.commands._shared import (
     applied_runtime_environment,
     deployment_context,
     deployment_context_for_profile,
-    fail,
 )
+from olf.log import fail
 
 app = typer.Typer(help="End-to-end environment validation.")
 

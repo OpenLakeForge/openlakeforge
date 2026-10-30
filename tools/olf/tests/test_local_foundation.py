@@ -31,8 +31,7 @@ def _host_ports_free(monkeypatch: pytest.MonkeyPatch) -> set[int]:
 def _config(tmp_path: Path) -> LocalDeploymentConfig:
     from dataclasses import replace
 
-    from olf.deployment.context import Provider
-    from olf.profile import AccessSpec, Preset, legacy_single_stage_topology
+    from olf.profile import AccessSpec, Preset, Provider, legacy_single_stage_topology
 
     topology = replace(legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.FULL), access=AccessSpec())
     context = DeploymentContext.local(repo_root=tmp_path, topology=topology)

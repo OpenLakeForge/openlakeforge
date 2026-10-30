@@ -10,9 +10,9 @@ from _tooling_support import RecordedCall, RecordingRunner
 from olf.deployment.cloud.aws import AwsBackend
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile, Provider
+from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.profile import DeploymentProfile, Preset, ProviderSpec, StageName, StageSpec, resolve_topology
+from olf.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 from olf.tooling.toolkit import Toolkit

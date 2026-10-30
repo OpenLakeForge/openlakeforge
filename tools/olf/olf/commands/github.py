@@ -5,7 +5,8 @@ from __future__ import annotations
 import typer
 
 from olf import log
-from olf.commands._shared import deployment_context, fail
+from olf.commands._shared import deployment_context
+from olf.log import fail
 
 app = typer.Typer(help="GitHub sign-in: create the GitHub App and store its credentials.")
 

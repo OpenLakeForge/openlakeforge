@@ -11,11 +11,18 @@ from urllib.parse import urlsplit
 import yaml
 
 from olf import config
-from olf.deployment.context import Provider
+from olf.contract_validation import (
+    V3_SCHEMA_VERSION,
+    ProviderContractError,
+    _absolute_http_uri,
+    _oidc_issuer_url,
+    _string,
+)
 from olf.profile import (
     _BASE_DOMAIN_PATTERN,
     DeploymentTopology,
     IdentitySpec,
+    Provider,
     StageName,
     is_secret_key,
     is_secret_name,
@@ -27,9 +34,6 @@ from olf.provider_contracts._validation import (
     _CATALOG_TYPE_BY_PROVIDER,
     _CATALOG_TYPES,
     _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER,
-    V3_SCHEMA_VERSION,
-    ProviderContractError,
-    _absolute_http_uri,
     _canonical_stage_reference,
     _check_glue_catalog_id,
     _code_locations,
@@ -37,12 +41,10 @@ from olf.provider_contracts._validation import (
     _frozen,
     _http_host_port_uri,
     _mapping,
-    _oidc_issuer_url,
     _reference,
     _s3_uri_bucket,
     _same_origin,
     _stage_name,
-    _string,
     _tcp_port,
 )
 

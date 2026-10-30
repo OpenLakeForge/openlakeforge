@@ -21,8 +21,8 @@ from conftest import CONFORMANCE_PROFILE, CONFORMANCE_STAGES, E2E_REPO_ROOT
 from olf.commands._shared import deployment_context_for_profile
 from olf.contracts import build_contract_env
 from olf.contracts_check import profile_schema_errors
-from olf.deployment.context import DeploymentContext, Provider, stage_namespace, topology_variables
-from olf.profile import DeploymentTopology, Preset, StageName, load_deployment_profile, resolve_topology
+from olf.deployment.context import DeploymentContext, stage_namespace, topology_variables
+from olf.profile import DeploymentTopology, Preset, Provider, StageName, load_deployment_profile, resolve_topology
 from olf.provider_contracts import parse_provider_contracts
 
 # The provider contract the local root rendered from openlakeforge.conformance.yaml

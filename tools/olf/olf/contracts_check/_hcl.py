@@ -8,7 +8,7 @@ from typing import Any
 
 import hcl2
 
-from olf import contracts as contracts_module
+from olf import contract_state
 from olf.contracts_check._report import CheckResult
 
 # Terraform environment roots that carry a `contracts.tf` provider-contract
@@ -357,7 +357,7 @@ def _installed_contract_environ(env: str) -> dict[str, str] | None:
 def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
     """Tier 3: assert Phase-2-forbidden fields are absent from the *resolved*
     `provider_contracts.catalog` value, reusing the already-existing
-    `contracts.load_provider_contracts()` (reads `terraform output -json` from
+    `contract_state.load_provider_contracts()` (reads `terraform output -json` from
     applied state). Skips (does not fail) when no environment has been
     applied yet -- the normal case for a bare CI checkout -- matching
     `contracts.env`'s own fallback behavior."""
@@ -368,7 +368,7 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
 
     for env in _ENVIRONMENT_ROOTS:
         terraform_dir = repo_root / "infra/terraform/environments" / env
-        contracts = contracts_module.load_provider_contracts(
+        contracts = contract_state.load_provider_contracts(
             str(terraform_dir), environ=_installed_contract_environ(env)
         )
         if contracts is None:

@@ -290,7 +290,8 @@ class CloudProvider:
                 )
             )
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
-            from olf.contracts import ProviderContractError, load_provider_contracts
+            from olf.contract_state import load_provider_contracts
+            from olf.contracts import ProviderContractError
 
             contract_dir = Path(
                 self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)

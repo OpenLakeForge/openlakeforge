@@ -10,8 +10,8 @@ from pathlib import Path
 import typer
 import yaml
 
-from olf.commands._shared import fail
 from olf.commands.checks._shared import _root, _run
+from olf.log import fail
 from olf.tooling.toolkit import Toolkit
 
 

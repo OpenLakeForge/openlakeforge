@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._shared import fail
+from olf.log import fail
 
 app = typer.Typer(help="Inspect and manage the managed CLI toolchain (Terraform, Helm, kubectl, kind).")
 

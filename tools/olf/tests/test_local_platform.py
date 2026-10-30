@@ -10,10 +10,11 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
-from olf.deployment.context import DeploymentContext, Profile, Provider
+from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local import platform
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.profile import Provider
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 from olf.tooling.toolkit import Toolkit

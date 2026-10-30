@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._shared import fail
 from olf.commands.checks._shared import _root
+from olf.log import fail
 from olf.tooling.toolkit import Toolkit
 
 

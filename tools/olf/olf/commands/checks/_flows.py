@@ -8,8 +8,8 @@ from pathlib import Path
 import typer
 import yaml
 
-from olf.commands._shared import fail
 from olf.commands.checks._shared import _root
+from olf.log import fail
 
 FLOWS_PATH = "release/network-flows.yaml"
 ADR_PATH = "docs/adr/0017-local-network-policy-and-rbac.md"

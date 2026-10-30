@@ -20,3 +20,9 @@ def warn(message: str) -> None:
 
 def error(message: str) -> None:
     print(f"ERROR: {message}", file=sys.stderr, flush=True)
+
+
+def fail(message: str) -> int:
+    """Log error and return exit code 1."""
+    error(message)
+    return 1

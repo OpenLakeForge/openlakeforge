@@ -9,8 +9,9 @@ from _tooling_support import RecordedCall, RecordingRunner
 from olf.deployment.cloud import platform
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile, Provider
+from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.profile import Provider
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 from olf.tooling.toolkit import Toolkit
