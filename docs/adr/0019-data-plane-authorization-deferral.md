@@ -345,11 +345,14 @@ file of it can be read.
 ### Proof: SeaweedFS STS session policy (item 1)
 
 `uv run --project tools/olf python docs/testing/seaweedfs_sts_proof.py`
-downloads the SeaweedFS image pinned in `release/component-catalog.yaml` from
-Docker Hub by digest, checks the index, the linux/amd64 manifest and every layer
-against their sha256, and runs its `/usr/bin/weed` as one `weed server`
+downloads the SeaweedFS image pinned in `release/component-catalog.yaml` by
+digest, checks the index, the linux/amd64 manifest and every layer against
+their sha256, and runs its `/usr/bin/weed` as one `weed server`
 process with an S3 identity file and an advanced IAM file (`-s3.iam.config`).
-No cluster, no Docker. The IAM file defines one role, `polaris-vending`, with
+No cluster, no Docker. It fetches from Docker Hub; `--registry mirror.gcr.io`
+fetches the same digest from Google's Docker Hub mirror when Docker Hub
+rate-limits anonymous pulls, and the digest check makes the two equivalent. The
+IAM file defines one role, `polaris-vending`, with
 `s3:*` on the bucket, trusted only by the identity `polaris`
 (`arn:aws:iam::000000000000:user/polaris`, SeaweedFS's fixed account id). The
 script calls `AssumeRole` as `polaris` with the session policy Polaris 1.4.0
@@ -359,8 +362,9 @@ condition, `GetBucketLocation`, and `PutObject`/`DeleteObject` for a write
 location; 405 characters for one table). Its self-check is
 `tools/olf/tests/test_seaweedfs_sts_proof.py`.
 
-Run on 2026-10-30 against `chrislusf/seaweedfs:4.23` (version `30GB 4.23
-73fc9e383`): exit 0, all 16 cases passing. Each case expects one exact
+Run on 2026-10-30 against `chrislusf/seaweedfs:4.48` (version `30GB 4.48
+530be3e37`, fetched through `mirror.gcr.io`): exit 0, all 16 cases passing. The
+same 16 cases had passed on the earlier pin, 4.23 (`30GB 4.23 73fc9e383`). Each case expects one exact
 result (allowed, SeaweedFS's `AccessDenied`, or `InvalidAccessKeyId` for the
 tampered token), so an unrelated error such as `NoSuchKey` fails it rather
 than passing as a denial.
@@ -471,5 +475,6 @@ retention fix. Finding 3 was re-read at tag `4.48`: `AssumeRole` still takes a
 hours unless an STS `MaxSessionLength` is configured, which this stack does not.
 
 Verification item 1 run: `docs/testing/seaweedfs_sts_proof.py` against the
-pinned SeaweedFS 4.23 binary, 16 cases passing; section 3, finding 3 is now
-verified by a run, and the proof records what build step 2 must configure.
+pinned SeaweedFS binary, 16 cases passing on 4.23 and again on 4.48; section 3,
+finding 3 is now verified by a run, and the proof records what build step 2
+must configure.

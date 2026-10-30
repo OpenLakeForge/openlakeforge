@@ -6,11 +6,12 @@ This starts the pinned SeaweedFS binary (no cluster, no Docker), configures one 
 requests credentials with the session policy Polaris 1.4.0 builds, and prints PASS/FAIL per case: a read credential
 must reach its own table and nothing else, a write credential must write only its own table.
 
-    uv run --project tools/olf python docs/testing/seaweedfs_sts_proof.py [--weed PATH]
+    uv run --project tools/olf python docs/testing/seaweedfs_sts_proof.py [--weed PATH | --registry HOST]
 
-Without --weed it downloads the image pinned in release/component-catalog.yaml from Docker Hub by digest, checks
-every manifest and layer against its sha256, and runs the image's /usr/bin/weed. Everything lives in a temporary
-directory removed on exit.
+Without --weed it downloads the image pinned in release/component-catalog.yaml by digest, checks every manifest and
+layer against its sha256, and runs the image's /usr/bin/weed. The digest check makes any registry serving the same
+digest equivalent, so --registry mirror.gcr.io (Google's Docker Hub mirror) stands in when Docker Hub rate-limits
+anonymous pulls. Everything lives in a temporary directory removed on exit.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ OWN_TABLE = "sales_gold/orders"
 OTHER_TABLE = "hr_gold/salaries"
 # A sibling whose path starts with the table's path: a policy matching on a bare prefix would leak it.
 SIBLING_TABLE = "sales_gold/orders_archive"
-REGISTRY = "https://registry-1.docker.io/v2"
+DOCKER_HUB = "registry-1.docker.io"
 MANIFEST_TYPES = ", ".join(
     [
         "application/vnd.oci.image.index.v1+json",
@@ -67,9 +68,11 @@ def pinned_image(name: str = "seaweedfs") -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-def _verified(url: str, digest: str, token: str, accept: str | None = None) -> bytes:
+def _verified(
+    url: str, digest: str, token: str | None, accept: str | None = None
+) -> bytes:
     headers = {
-        "Authorization": f"Bearer {token}",
+        **({"Authorization": f"Bearer {token}"} if token else {}),
         **({"Accept": accept} if accept else {}),
     }
     with urllib.request.urlopen(
@@ -81,19 +84,22 @@ def _verified(url: str, digest: str, token: str, accept: str | None = None) -> b
     return body
 
 
-def fetch_weed(work: Path) -> Path:
+def fetch_weed(work: Path, registry: str = DOCKER_HUB) -> Path:
     """The pinned image's /usr/bin/weed, every blob checked against the digest that names it."""
     repository, digest = pinned_image()
-    query = urllib.parse.urlencode(
-        {"service": "registry.docker.io", "scope": f"repository:{repository}:pull"}
-    )
-    with urllib.request.urlopen(
-        f"https://auth.docker.io/token?{query}", timeout=60
-    ) as response:
-        token = json.load(response)["token"]
+    base = f"https://{registry}/v2"
+    token = None
+    if registry == DOCKER_HUB:
+        query = urllib.parse.urlencode(
+            {"service": "registry.docker.io", "scope": f"repository:{repository}:pull"}
+        )
+        with urllib.request.urlopen(
+            f"https://auth.docker.io/token?{query}", timeout=60
+        ) as response:
+            token = json.load(response)["token"]
     manifest = json.loads(
         _verified(
-            f"{REGISTRY}/{repository}/manifests/{digest}", digest, token, MANIFEST_TYPES
+            f"{base}/{repository}/manifests/{digest}", digest, token, MANIFEST_TYPES
         )
     )
     if "manifests" in manifest:
@@ -102,17 +108,17 @@ def fetch_weed(work: Path) -> Path:
             for m in manifest["manifests"]
             if m["platform"] == {"architecture": "amd64", "os": "linux"}
         )
-        url = f"{REGISTRY}/{repository}/manifests/{platform['digest']}"
+        url = f"{base}/{repository}/manifests/{platform['digest']}"
         manifest = json.loads(_verified(url, platform["digest"], token, MANIFEST_TYPES))
     rootfs = work / "rootfs"
     for layer in manifest["layers"]:
         blob = _verified(
-            f"{REGISTRY}/{repository}/blobs/{layer['digest']}", layer["digest"], token
+            f"{base}/{repository}/blobs/{layer['digest']}", layer["digest"], token
         )
         with tarfile.open(fileobj=io.BytesIO(blob)) as archive:
             archive.extractall(rootfs, filter="tar")
     print(
-        f"verified {repository}@{digest} (linux/amd64, {len(manifest['layers'])} layers)"
+        f"verified {repository}@{digest} from {registry} (linux/amd64, {len(manifest['layers'])} layers)"
     )
     return rootfs / "usr/bin/weed"
 
@@ -486,10 +492,15 @@ def main() -> int:
         type=Path,
         help="a SeaweedFS binary to run instead of the pinned image's",
     )
+    parser.add_argument(
+        "--registry",
+        default=DOCKER_HUB,
+        help="the registry to fetch the pinned digest from (default: Docker Hub)",
+    )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="olf-seaweedfs-sts-proof-") as tmp:
         work = Path(tmp)
-        weed = args.weed.resolve() if args.weed else fetch_weed(work)
+        weed = args.weed.resolve() if args.weed else fetch_weed(work, args.registry)
         print(
             subprocess.run(
                 [str(weed), "version"], capture_output=True, text=True, check=True
