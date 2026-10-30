@@ -6,8 +6,8 @@ import json
 
 import typer
 
-from olf.commands._shared import fail
 from olf.distribution import DistributionError, DistributionManager, runtime_layout
+from olf.log import fail
 
 app = typer.Typer(help="Inspect and maintain the OpenLakeForge platform distribution.")
 

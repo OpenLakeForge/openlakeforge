@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from olf.deployment.errors import CommandExecutionError
-from olf.deployment.retry import RetryPolicy, run_with_retry
+from olf.tooling.retry import RetryPolicy, run_with_retry
 
 
 def _error(returncode: int = 1) -> CommandExecutionError:

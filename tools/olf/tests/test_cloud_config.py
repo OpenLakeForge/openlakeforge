@@ -87,7 +87,7 @@ def _write_catalog(tmp_path: Path, *, trino_sha256: str, dagster_sha256: str) ->
     a real `component-catalog.yaml` always declares all of them, so a
     partial fixture would make `CatalogChart.load` raise for any chart
     beyond the two this fixture used to focus on."""
-    from olf.deployment.charts import CHART_DEFAULTS
+    from olf.chart_pins import CHART_DEFAULTS
 
     overrides = {"trino": trino_sha256, "dagster": dagster_sha256}
     lines = ["components:", "  helm:", "    charts:"]

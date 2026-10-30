@@ -10,7 +10,8 @@ from pathlib import Path
 
 import typer
 
-from olf.commands._shared import deployment_context, fail
+from olf.commands._shared import deployment_context
+from olf.log import fail
 
 app = typer.Typer(help="Service access through the ingress: local CA trust.")
 
@@ -75,7 +76,7 @@ def trust(
     and other tools on the workstation.
     """
     from olf.access import LOCAL_CA_KEY, LOCAL_CA_SECRET
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
     context = deployment_context(
         "local",

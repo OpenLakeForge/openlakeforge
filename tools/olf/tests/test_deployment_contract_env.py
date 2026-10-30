@@ -25,7 +25,7 @@ def _kwargs(tmp_path: Path, **overrides: object) -> dict[str, object]:
 def test_applies_contract_exports_and_restores_previous_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
@@ -49,7 +49,7 @@ def test_applies_contract_exports_and_restores_previous_environment(
 
 
 def test_extra_variables_override_contract_exports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
@@ -61,7 +61,7 @@ def test_extra_variables_override_contract_exports(monkeypatch: pytest.MonkeyPat
 
 
 def test_restores_environment_even_when_the_block_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
@@ -84,7 +84,7 @@ def test_uses_the_scoped_environment_for_contract_terraform(monkeypatch: pytest.
         assert terraform_dir == str(tmp_path / "infra/terraform/environments/aws-poc")
         return None
 
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", _load)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _load)
     monkeypatch.setattr(contracts_module, "build_contract_env", lambda *args, **kwargs: ({}, []))
 
     with contract_env.applied_contract_environment(
@@ -110,7 +110,7 @@ def test_selected_stage_survives_into_the_contract_environment(
     silently give PROD the unrecognised-stage behaviour, which is no schedules at all."""
     from olf.deployment.context import DeploymentContext
 
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir, *, environ: None)
     monkeypatch.setattr(contracts_module, "build_contract_env", lambda *args, **kwargs: ({}, []))
     context = DeploymentContext.local(repo_root=tmp_path, stage="dev")
 

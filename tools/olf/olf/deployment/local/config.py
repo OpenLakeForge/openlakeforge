@@ -21,8 +21,8 @@ from olf.deployment.env_settings import int_env as _int_env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
 from olf.deployment.project_code import published_example_image, split_published_image
-from olf.deployment.retry import RetryPolicy
 from olf.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY
+from olf.tooling.retry import RetryPolicy
 
 
 @dataclass(frozen=True)

@@ -10,10 +10,10 @@ from olf.deployment.cloud.azure import AzureBackend
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.toolkit import Toolkit
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm", "aws", "az")
 _FACTS = FoundationFacts(
@@ -54,8 +54,6 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> CloudDeployme
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.aws import AwsCli
-    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -71,8 +69,6 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 
@@ -235,11 +231,10 @@ def test_resolve_foundation_facts_uses_acr_name_output_when_present(tmp_path: Pa
 
 
 def test_update_kubeconfig_uses_aks_get_credentials(tmp_path: Path) -> None:
-    backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
     azure = _Azure()
-    object.__setattr__(tools, "azure", azure)
+    backend = AzureBackend(azure)
 
     backend.update_kubeconfig(tools, _FACTS, kubeconfig_path=tmp_path / "kc.yaml", env={})
 
@@ -248,11 +243,10 @@ def test_update_kubeconfig_uses_aks_get_credentials(tmp_path: Path) -> None:
 
 
 def test_registry_login_uses_acr_login_with_acr_name(tmp_path: Path) -> None:  # noqa: ARG001
-    backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
     azure = _Azure()
-    object.__setattr__(tools, "azure", azure)
+    backend = AzureBackend(azure)
 
     backend.registry_login(tools, _FACTS, repository=_FACTS.project_code_repository, env={})
 
@@ -267,11 +261,10 @@ def test_registry_login_derives_acr_name_from_an_overridden_repository(tmp_path:
     must target *that* registry, matching the AWS backend's equivalent fix,
     not the foundation's `facts.azure_acr_name`.
     """
-    backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
     azure = _Azure()
-    object.__setattr__(tools, "azure", azure)
+    backend = AzureBackend(azure)
     overridden_repository = "otheracr.azurecr.io/shared/project-code"
 
     backend.registry_login(tools, _FACTS, repository=overridden_repository, env={})
@@ -285,11 +278,10 @@ def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_regi
     override is supplied, the login must not depend on `facts.azure_acr_name`
     being resolvable at all.
     """
-    backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
     azure = _Azure()
-    object.__setattr__(tools, "azure", azure)
+    backend = AzureBackend(azure)
     facts_without_registry = FoundationFacts(
         cluster_name="aks-openlakeforge-poc",
         kube_context="aks-openlakeforge-poc",
@@ -305,17 +297,15 @@ def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_regi
 
 def test_cluster_reachable_refuses_facts_without_a_resource_group() -> None:
     tools = _toolkit(RecordingRunner(_ok()))
-    object.__setattr__(tools, "azure", _Azure())
 
     with pytest.raises(DeploymentPreconditionError, match="resource group"):
-        AzureBackend().cluster_reachable(tools, replace(_FACTS, azure_resource_group=None), env={})
+        AzureBackend(_Azure()).cluster_reachable(tools, replace(_FACTS, azure_resource_group=None), env={})
 
 
 def test_cluster_reachable_uses_aks_show(tmp_path: Path) -> None:  # noqa: ARG001
-    backend = AzureBackend()
     runner = RecordingRunner(_fail())
     tools = _toolkit(runner)
-    object.__setattr__(tools, "azure", _Azure(reachable=False))
+    backend = AzureBackend(_Azure(reachable=False))
 
     reachable = backend.cluster_reachable(tools, _FACTS, env={})
 
@@ -388,9 +378,8 @@ def test_artifact_transport_is_port_forward() -> None:
 
 
 def test_preflight_wraps_account_show_failure() -> None:
-    backend = AzureBackend()
     tools = _toolkit(_RaisingRunner())
-    object.__setattr__(tools, "azure", _Azure(fail_account=True))
+    backend = AzureBackend(_Azure(fail_account=True))
 
     with pytest.raises(DeploymentPreconditionError, match="olf auth login"):
         backend.preflight(tools, env={})

@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from openlakeforge_domain import LakehouseInventory
 
-from olf import contracts, log
+from olf import contract_state, log
 from olf.tooling.resolver import build_resolver
 from olf.tooling.terraform import external_state_options
 
@@ -159,7 +159,7 @@ def is_transient_kubectl_error(error: Exception) -> bool:
 def _terraform_output_args(terraform_dir: Path, *, mode: str, name: str) -> tuple[list[str], dict[str, str] | None]:
     """Build a `terraform output` argv/env pair for the AWS/Azure foundation
     reads in this module - the same external-state translation
-    `Terraform._run`/`olf.contracts.load_provider_contracts` apply, or an
+    `Terraform._run`/`olf.contract_state.load_provider_contracts` apply, or an
     installed distribution's foundation state under `OLF_HOME` is never
     found (see `olf.tooling.terraform.external_state_options`).
     """
@@ -180,7 +180,7 @@ def terraform_output(terraform_dir: Path | None, name: str) -> str:
 
 
 def load_provider_contracts_or_raise(cfg: E2EConfig) -> dict[str, Any]:
-    provider_contracts = contracts.load_provider_contracts(str(cfg.contract_terraform_dir))
+    provider_contracts = contract_state.load_provider_contracts(str(cfg.contract_terraform_dir))
     if provider_contracts is None:
         raise E2EError(f"could not load provider_contracts from {cfg.contract_terraform_dir}")
     return provider_contracts

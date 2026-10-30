@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from olf import config
-from olf.deployment.context import Provider
+from olf.contract_validation import ProviderContractError, _oidc_issuer_url
 
 PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
 PROFILE_KIND = "DeploymentProfile"
@@ -92,6 +92,12 @@ class StageName(StrEnum):
 class Preset(StrEnum):
     SLIM = "slim"
     FULL = "full"
+
+
+class Provider(StrEnum):
+    LOCAL = "local"
+    AWS = "aws"
+    AZURE = "azure"
 
 
 @dataclass(frozen=True)
@@ -533,9 +539,6 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
         raise DeploymentProfileError(f"{where}.github requires issuer 'github'")
     issuer_url = document.get("issuer_url")
     if "issuer_url" in document:  # by key: an explicit null is invalid, not omitted
-        # Lazy: provider_contracts imports this module (cycle).
-        from olf.provider_contracts._validation import ProviderContractError, _oidc_issuer_url
-
         try:
             _oidc_issuer_url(issuer_url, where=f"{where}.issuer_url")
         except ProviderContractError as exc:

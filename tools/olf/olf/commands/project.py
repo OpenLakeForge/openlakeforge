@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from olf.commands._shared import deployment_context_for_profile, fail
+from olf.commands._shared import deployment_context_for_profile
+from olf.log import fail
 from olf.project import ProjectSpec, validate_project
 
 if TYPE_CHECKING:
@@ -26,8 +27,9 @@ app.add_typer(revision_app, name="revision")
 
 
 def _profile_provider(context, *, var_file: str = ""):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import Toolkit, build_provider
+    from olf.deployment.engine import build_provider
     from olf.deployment.errors import DeploymentError
+    from olf.tooling.toolkit import Toolkit
 
     try:
         env = context.command_env(base=os.environ)
@@ -168,7 +170,7 @@ def status(
     json_output: bool = typer.Option(False, "--json", help="Render stable JSON."),
 ) -> None:
     """Compare each stage's immutable active pointer with its user deployment."""
-    from olf import contracts
+    from olf import contract_state
     from olf.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
     from olf.deployment.activation import (
         read_platform_globals,
@@ -262,7 +264,7 @@ def status(
                     # would hide the drift status exists to surface. An
                     # unreadable contract is an answer here too, for the same
                     # reason the platform release is.
-                    raw_contract = contracts.load_provider_contracts(
+                    raw_contract = contract_state.load_provider_contracts(
                         str(contract_dir), environ=provider.env, resolver=provider.tools.resolver
                     )
                     code_locations = (

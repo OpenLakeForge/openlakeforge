@@ -15,18 +15,22 @@ from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.cluster_name import aws_cluster_name
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import topology_variables
-from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.portforward import ForwardTarget
+from olf.tooling.aws import AwsSdk
+from olf.tooling.toolkit import Toolkit
 
 
 class AwsBackend:
     scope = "aws"
 
+    def __init__(self, aws: AwsSdk | None = None) -> None:
+        self._aws = aws or AwsSdk()
+
     def preflight(self, tools: Toolkit, *, env: Mapping[str, str]) -> None:
         try:
-            tools.aws.sts_get_caller_identity(env=env)
+            self._aws.sts_get_caller_identity(env=env)
         except Exception as exc:
             raise DeploymentPreconditionError(
                 f"AWS is not authenticated. Run 'olf auth login --provider aws': {exc}"
@@ -99,12 +103,12 @@ class AwsBackend:
         )
 
     def cluster_reachable(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> bool:
-        return tools.aws.eks_describe_cluster(facts.cluster_name, region=_region(facts), env=env, check=False).ok
+        return self._aws.eks_describe_cluster(facts.cluster_name, region=_region(facts), env=env, check=False).ok
 
     def update_kubeconfig(
         self, tools: Toolkit, facts: FoundationFacts, *, kubeconfig_path: Path, env: Mapping[str, str]
     ) -> None:
-        tools.aws.eks_update_kubeconfig(
+        self._aws.eks_update_kubeconfig(
             facts.cluster_name,
             region=_region(facts),
             kubeconfig_path=kubeconfig_path,
@@ -116,7 +120,7 @@ class AwsBackend:
         self, tools: Toolkit, facts: FoundationFacts, *, repository: str, env: Mapping[str, str]
     ) -> None:
         registry = repository.split("/", 1)[0]
-        password = tools.aws.ecr_get_login_password(region=_region(facts), env=env)
+        password = self._aws.ecr_get_login_password(region=_region(facts), env=env)
         tools.docker.login(registry, username="AWS", password=password, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:

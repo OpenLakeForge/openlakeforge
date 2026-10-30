@@ -11,7 +11,7 @@ from pathlib import Path
 import typer
 
 from olf import config
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Collect bounded deployment diagnostics.")
 _OUTPUT_ARGUMENT = typer.Argument(..., help="Directory to receive text diagnostics.")

@@ -9,11 +9,12 @@ from _tooling_support import RecordedCall, RecordingRunner
 from olf.deployment.cloud import platform
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile, Provider
-from olf.deployment.engine import Toolkit
+from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.profile import Provider
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.toolkit import Toolkit
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm", "aws", "az")
 _FACTS = FoundationFacts(
@@ -64,8 +65,6 @@ def _topology(*, dev_analytics: bool, prod_analytics: bool):  # noqa: ANN202
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.aws import AwsCli
-    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -81,8 +80,6 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 

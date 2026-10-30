@@ -147,7 +147,7 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
         return str(kw["on_code"]("code123"))
 
     monkeypatch.setattr("olf.commands.github.deployment_context", lambda *a, **k: context)
-    monkeypatch.setattr("olf.deployment.engine.Toolkit.default", lambda **k: SimpleNamespace(kubectl=kubectl))
+    monkeypatch.setattr("olf.tooling.toolkit.Toolkit.default", lambda **k: SimpleNamespace(kubectl=kubectl))
     monkeypatch.setattr("olf.deployment.kube_ops.namespace_exists", lambda *a, **k: True)
     monkeypatch.setattr(github_app, "wait_for_code", wait)
     monkeypatch.setattr(

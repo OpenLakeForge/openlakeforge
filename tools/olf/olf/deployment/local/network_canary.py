@@ -16,10 +16,10 @@ from typing import Any
 import yaml
 
 from olf import log
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local import prefetch
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.tooling.toolkit import Toolkit
 
 _NAMESPACE = "olf-netpol-canary"
 _PORT = 8080

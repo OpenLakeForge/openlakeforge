@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._shared import fail
 from olf.initialization import InitializationError, initialize_project
+from olf.log import fail
 from olf.profile import Preset, StageName
 
 

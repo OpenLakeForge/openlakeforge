@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Protocol
 
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError
 from olf.deployment.portforward import ForwardTarget
+from olf.tooling.toolkit import Toolkit
 
 
 def output_raw_or_empty(tools: Toolkit, terraform_dir: Path, name: str, *, env: Mapping[str, str]) -> str:

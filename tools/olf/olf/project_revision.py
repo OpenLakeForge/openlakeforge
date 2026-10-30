@@ -432,7 +432,7 @@ def is_digest_pinned(image: str) -> bool:
 
 
 def _default_resolve_image_digest(image: str) -> str:
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
     tools = Toolkit.default()
     result = tools.docker.image_inspect(image, check=False)

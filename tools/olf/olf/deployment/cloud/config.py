@@ -29,7 +29,7 @@ from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
 from olf.deployment.project_code import published_example_image, split_published_image
-from olf.deployment.retry import RetryPolicy
+from olf.tooling.retry import RetryPolicy
 
 _DEFAULT_PYTHON_BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
 _DEFAULT_PYTHON_BASE_IMAGE = {

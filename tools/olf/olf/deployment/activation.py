@@ -15,7 +15,7 @@ from typing import Any
 import yaml
 from openlakeforge_domain import load_lakehouse_inventory
 
-from olf import contracts
+from olf import contract_state
 from olf.artifact_store import RevisionStore
 from olf.deployment import contract_env
 from olf.deployment.artifact_steps import (
@@ -759,7 +759,7 @@ def deploy_revision(
     contract_dir = _contract_dir(context, env)
     kube_context = _kube_context(provider)
     platform_globals = _platform_globals(provider, kube_context=kube_context, env=env)
-    raw_contract = contracts.load_provider_contracts(str(contract_dir), environ=env)
+    raw_contract = contract_state.load_provider_contracts(str(contract_dir), environ=env)
     if raw_contract is None:
         raise ActivationError(f"provider contracts are unavailable from {contract_dir}; run olf platform apply first.")
     try:

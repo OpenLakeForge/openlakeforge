@@ -14,9 +14,9 @@ from pathlib import Path
 import typer
 
 from olf import config
-from olf.commands._shared import fail
-from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.log import fail
+from olf.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 workflow_app = typer.Typer(help="GitHub release-workflow safety checks.")
@@ -130,14 +130,13 @@ def build_bundle(
 ) -> None:
     """Build a local, inspectable release bundle with Python-owned checksums."""
     from olf import release as release_module
-    from olf.commands.images import _local_config
-    from olf.deployment.local.images import build_project_code_image, build_superset_image
+    from olf.image_build import build_project_code_image, build_superset_image, local_image_config
 
     root = config.repo_root()
     output = (root / output_dir).resolve()
     catalog = release_module.load_catalog(root / "release/component-catalog.yaml")
     bundle_env = _bundle_environment(catalog)
-    settings, tools = _local_config("openlakeforge-local", environ=bundle_env)
+    settings, tools = local_image_config("openlakeforge-local", environ=bundle_env)
     try:
         project = build_project_code_image(settings, tools, env=bundle_env)
         superset = build_superset_image(settings, tools, env=bundle_env)

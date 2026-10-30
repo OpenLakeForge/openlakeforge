@@ -356,7 +356,7 @@ jobs:
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
-        run: uv run --project tools/olf --locked python -c "import json; from olf import contracts; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contracts.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-before-promotion.json
+        run: uv run --project tools/olf --locked python -c "import json; from olf import contract_state; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contract_state.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-before-promotion.json
 
       - name: Activate the same revision in PROD (promotion -- no rebuild)
         if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
@@ -376,7 +376,7 @@ jobs:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: |
           set -euo pipefail
-          uv run --project tools/olf --locked python -c "import json; from olf import contracts; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contracts.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-after-promotion.json
+          uv run --project tools/olf --locked python -c "import json; from olf import contract_state; from olf.e2e._isolation import stage_bucket_objects; print(json.dumps(stage_bucket_objects(contract_state.load_provider_contracts('unused'), 'prod', ('bronze', 'silver', 'gold'), namespace='olf-system'), indent=1, sort_keys=True))" > prod-buckets-after-promotion.json
           if ! diff -u prod-buckets-before-promotion.json prod-buckets-after-promotion.json; then
             echo "::error::promotion wrote to PROD's lakehouse buckets (diff above); it must copy no data"
             exit 1

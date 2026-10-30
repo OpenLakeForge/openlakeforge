@@ -9,7 +9,6 @@ command environment, or `KUBE_CONTEXT` gets baked in empty.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,10 +21,11 @@ from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.provider import CloudProvider
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.engine import DeploymentPhase
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.status import StatusReport
 from olf.tooling.azure import AzureSdk
+from olf.tooling.toolkit import Toolkit
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -45,10 +45,10 @@ def _config(tmp_path: Path) -> CloudDeploymentConfig:
 
 
 def test_status_reports_every_owned_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf.deployment.context import Provider
     from olf.profile import (
         DeploymentProfile,
         Preset,
+        Provider,
         ProviderSpec,
         StageCapabilities,
         StageName,
@@ -162,7 +162,6 @@ def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscripti
     """
     context = DeploymentContext.azure(repo_root=tmp_path)
     config = CloudDeploymentConfig.from_environment({}, context=context)
-    backend = AzureBackend()
     subscriptions = [
         SimpleNamespace(subscription_id="sub-id", display_name="One", tenant_id="tenant", state="Enabled"),
         SimpleNamespace(subscription_id="other-sub-id", display_name="Two", tenant_id="tenant", state="Enabled"),
@@ -173,8 +172,9 @@ def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscripti
             subscriptions=SimpleNamespace(list=lambda: subscriptions)
         ),
     )
-    toolkit = replace(_toolkit(), azure=azure_sdk)
-    provider = CloudProvider.create(config, backend, toolkit=toolkit, environ={"OLF_HOME": str(tmp_path)})
+    provider = CloudProvider.create(
+        config, AzureBackend(azure_sdk), toolkit=_toolkit(), environ={"OLF_HOME": str(tmp_path)}
+    )
     monkeypatch.setattr("olf.auth.selected_azure_subscription", lambda _environ: "other-sub-id")
 
     report = provider.doctor(DeploymentPhase.FOUNDATION)
@@ -321,7 +321,7 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
         "olf.deployment.cloud.provider.docker_health",
         lambda *args, **kwargs: health_calls.append("docker") or None,
     )
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -335,7 +335,7 @@ def test_cloud_artifacts_doctor_requires_platform_provider_contracts(
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", facts=_FACTS)
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)
 

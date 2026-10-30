@@ -502,14 +502,14 @@ def _check_chart_versions_match_deployment_wrappers(repo_root: Path) -> CheckRes
     module default stay aligned, and that the two chart sets match exactly.
 
     Every deployment provider (#124 local, #125 AWS/Azure) now resolves
-    every deployed chart through `olf.deployment.charts.CHART_DEFAULTS`
+    every deployed chart through `olf.chart_pins.CHART_DEFAULTS`
     rather than a Trino/Dagster-only pair of hardcoded fields (#147) - a
     chart added to a Terraform module without a matching `CHART_DEFAULTS`
     entry would otherwise fetch straight from its upstream repository,
     unverified against the component catalog, and go unnoticed exactly as
     5 of the 7 catalog charts did before this check existed.
     """
-    from olf.deployment.charts import CHART_DEFAULTS
+    from olf.chart_pins import CHART_DEFAULTS
 
     module_versions = _helm_chart_versions_from_terraform_modules(repo_root)
     module_charts = frozenset(module_versions)

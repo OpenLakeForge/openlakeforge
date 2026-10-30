@@ -10,9 +10,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from olf.deployment.errors import CommandExecutionError, ToolingError
-from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
+from olf.tooling.retry import RetryPolicy, RetryPredicate
 
 
 class KubeContextUnreachableError(ToolingError):

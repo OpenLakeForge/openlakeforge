@@ -7,8 +7,8 @@ from urllib.parse import urlparse
 
 import typer
 
-from olf import config
-from olf.commands._shared import fail, log_step
+from olf import config, log
+from olf.log import fail
 
 app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
 
@@ -143,10 +143,10 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
     )
 
     if provider == "polaris":
-        log_step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
+        log.step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
         _sync_polaris_namespaces(desired=desired, dry_run=dry_run, prune=prune)
     elif provider == "aws-glue":
-        log_step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
+        log.step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
         _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune, namespace_prefix=namespace_prefix)
     else:
         raise typer.Exit(code=fail(f"Catalog provider {provider!r} has no namespace reconciliation backend."))

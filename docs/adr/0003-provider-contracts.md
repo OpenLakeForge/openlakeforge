@@ -75,7 +75,7 @@ Adding a provider or stage-scoped capability starts by extending v3 and its
 fixtures, then implementing provider adapters; a provider must not invent a
 competing wire shape.
 
-`olf.contracts.load_provider_contracts` still returns either version
+`olf.contract_state.load_provider_contracts` still returns either version
 unchanged, so a contract from state predating this rollout keeps parsing;
 `build_contract_env` is where a v3 payload resolves, given a
 `DeploymentTopology` plus a stage. Every current deploy/e2e/artifact code path

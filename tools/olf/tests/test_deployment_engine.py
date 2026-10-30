@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from olf.deployment.context import DeploymentContext, Provider
-from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
+from olf.deployment.context import DeploymentContext
+from olf.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
 from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
-from olf.tooling.aws import AwsCli
-from olf.tooling.azure import AzureCli
+from olf.profile import Provider
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -175,13 +174,3 @@ def test_build_provider_returns_cloud_provider_for_aws_and_azure(tmp_path) -> No
 
         assert provider.context is context
         assert provider.backend.scope == provider_enum.value
-
-
-def test_toolkit_default_includes_aws_and_azure_adapters() -> None:
-    # aws/az are not managed tools (#127), so host mode is enough here and
-    # keeps this test independent of the managed-toolchain resolution path,
-    # which is covered by tests/test_toolchain_resolver.py.
-    toolkit = Toolkit.default(environ={"OLF_TOOLCHAIN_MODE": "host"})
-
-    assert isinstance(toolkit.aws, AwsCli)
-    assert isinstance(toolkit.azure, AzureCli)

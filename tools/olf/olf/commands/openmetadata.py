@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 import typer
 
-from olf import config
-from olf.commands._shared import fail, log_step
+from olf import config, log
+from olf.log import fail
 from olf.openmetadata._ingestion import run_trino_ingestion
 from olf.profile import DeploymentProfileError
 from olf.project import ProjectSpec
@@ -90,7 +90,7 @@ def deploy_openmetadata_metadata() -> None:
     governance = _governance_service()
     namespace = governance.namespace
 
-    log_step(f"Waiting for OpenMetadata deployment {governance.service}...")
+    log.step(f"Waiting for OpenMetadata deployment {governance.service}...")
     k8s.wait_for_rollout(f"deployment/{governance.service}", namespace)
 
     # Before anything talks to the server: it restarts when SSO is applied.
@@ -101,7 +101,7 @@ def deploy_openmetadata_metadata() -> None:
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     try:
-        log_step(apply_role_sync(namespace, om_url=f"http://{governance.service}:{governance.remote_port}"))
+        log.step(apply_role_sync(namespace, om_url=f"http://{governance.service}:{governance.remote_port}"))
     except (k8s.KubectlError, DeploymentProfileError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     with governance.url() as base_url:
@@ -127,7 +127,7 @@ def deploy_openmetadata_metadata() -> None:
             # Before the seeding, which fails on tables OpenMetadata has not
             # crawled yet. Once per artifacts deploy, no CronJob: the pipeline
             # it replaces was deployed paused and never scheduled.
-            log_step("Crawling Trino into OpenMetadata...")
+            log.step("Crawling Trino into OpenMetadata...")
             run_trino_ingestion(os.environ, namespace=namespace, service=cfg.catalog_service)
             client = om.OpenMetadataClient(cfg.base_url, token=token)
             om.OpenMetadataDeployer(cfg, client).deploy()
