@@ -11,7 +11,8 @@ from __future__ import annotations
 import time
 import urllib.parse
 
-from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+
 from olf.infra.openmetadata._config import OpenMetadataConfig
 
 

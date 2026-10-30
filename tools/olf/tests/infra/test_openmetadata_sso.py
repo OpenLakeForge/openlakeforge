@@ -5,8 +5,8 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
+from openlakeforge_services.openmetadata import OpenMetadataError
 
-from olf.common.clients.openmetadata import OpenMetadataError
 from olf.infra import k8s
 from olf.infra.openmetadata import _sso
 

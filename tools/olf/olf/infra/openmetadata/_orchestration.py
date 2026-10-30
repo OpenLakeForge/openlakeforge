@@ -19,8 +19,8 @@ from openlakeforge_domain import (
     load_lakehouse_inventory_from_descriptors,
     load_source_descriptor,
 )
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
-from olf.common.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.infra.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
 from olf.infra.openmetadata._payloads import domain_payload, product_contract_key, product_entries, product_payload
 from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler

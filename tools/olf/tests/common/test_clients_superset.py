@@ -3,8 +3,7 @@ from pathlib import Path
 import pytest
 from conftest import FakeSuperset
 from openlakeforge_services.base import ServiceClientError
-
-from olf.common.clients.superset import SupersetClient
+from openlakeforge_services.superset import SupersetClient
 
 DASHBOARD_UUID = "6f1c1d3e-8f0a-4c1e-9a77-2a8a3c3b5f10"
 
