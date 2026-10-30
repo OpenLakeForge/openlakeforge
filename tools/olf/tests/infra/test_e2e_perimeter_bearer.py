@@ -85,3 +85,47 @@ def test_tampering_changes_the_signature_but_keeps_the_token_shape() -> None:
     tampered = _real_tamper(token)
     assert tampered != token and tampered.startswith("aaa.bbb.") and len(tampered) == len(token)
     assert _real_tamper("a.b.cAcccc") != "a.b.cAcccc"
+
+
+def _api_check(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    monkeypatch.setattr(bearer.requests, "get", lambda url, headers, **kw: _get(paths, answers, url, headers))
+    bearer.check_platform_api(
+        "https://olf.localhost", ["platform-admin", "viewer"], lambda role: f"cli:{role}", lambda r: f"other:{r}"
+    )
+    return paths
+
+
+def _get(paths: list[str], answers: dict[str, Any], url: str, headers: dict[str, str]) -> Any:
+    """A perimeter-fronted API: `answers` maps a path to (status, body) for a `cli:<role>` token's role."""
+    path = url.removeprefix("https://olf.localhost")
+    paths.append(path)
+    token = headers.get("Authorization", "").removeprefix("Bearer ") or None
+    if token is None or token.startswith(("bad:", "other:")):
+        return SimpleNamespace(status_code=401, json=dict, text="")
+    status, body = answers[path](token.removeprefix("cli:"))
+    return SimpleNamespace(status_code=status, json=lambda: body, text=str(body))
+
+
+HEALTHY = {
+    "/api/healthz": lambda role: (200, {"status": "ok"}),
+    "/api/v1/whoami": lambda role: (200, {"role": role}),
+}
+
+
+def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = _api_check(monkeypatch, HEALTHY)
+    assert "/api/healthz" in paths and paths.count("/api/v1/whoami") >= 2
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        ({"/api/healthz": lambda role: (502, {})}, "healthz"),
+        ({"/api/v1/whoami": lambda role: (200, {"role": "viewer"})}, "whoami for platform-admin"),
+        ({"/api/v1/whoami": lambda role: (403, {})}, "whoami"),
+    ],
+)
+def test_a_wrong_platform_api_answer_fails(monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], match: str) -> None:
+    with pytest.raises(E2EError, match=match):
+        _api_check(monkeypatch, {**HEALTHY, **change})

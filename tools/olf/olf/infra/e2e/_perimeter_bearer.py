@@ -29,6 +29,8 @@ CLI_CLIENT = "olf-cli"
 API_SERVICE = "orchestration"
 API_PATH = "/graphql?query=%7Bversion%7D"
 SCOPE = "openid email profile groups"
+# The platform API answers under /api on the portal's host (ADR 0021).
+PLATFORM_API_HOST_REF = "shared/portal"
 
 
 class _LoopbackRedirect(requests.adapters.BaseAdapter):
@@ -170,15 +172,46 @@ def check_bearer_tokens(
     # RFC 8252 loopback redirect: Dex accepts any port, none is registered.
     loopback = f"http://127.0.0.1:{20000 + secrets.randbelow(40000)}/callback"
     client_id = identity["clients"][CLI_CLIENT]["client_id"]
+    issued: dict[str, str] = {}
 
+    # One sign-in per role serves every check below; each is a full code flow at the stub.
     def cli_token(role: str) -> str:
-        return issue_id_token(cfg, identity, logins[role], client_id, loopback)
+        if role not in issued:
+            issued[role] = issue_id_token(cfg, identity, logins[role], client_id, loopback)
+        return issued[role]
 
     other_token = _other_client_token(cfg, identity, routes, logins)
     if other_token is None:
         log.info("Skipping the other-client token case: no superset client secret or reporting route to use.")
     check_bearer_decisions(f"{routes[ref]}{API_PATH}", roles, lambda role: admits(ref, role), cli_token, other_token)
+    if PLATFORM_API_HOST_REF in routes:
+        check_platform_api(routes[PLATFORM_API_HOST_REF].rstrip("/"), roles, cli_token, other_token)
     log.info("Not checking an expired token: it needs a wait past the 5 minute ID token lifetime.")
+
+
+def check_platform_api(
+    base_url: str,
+    roles: list[str],
+    cli_token: Callable[[str], str],
+    other_token: Callable[[str], str] | None,
+) -> None:
+    """Through the perimeter, /api/healthz answers, /api/v1/whoami names each mapped role the token carries, and
+    the tokens the perimeter refuses are refused there too. Every canonical role clears the perimeter's lowest
+    floor; the API's own matrix decides above it."""
+    log.step("Checking the platform API through the perimeter...")
+
+    def get(path: str, role: str) -> requests.Response:
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {cli_token(role)}"}
+        return requests.get(f"{base_url}{path}", headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+
+    health = get("/api/healthz", roles[0])
+    if health.status_code != 200:
+        raise E2EError(f"{base_url}/api/healthz through the perimeter: got HTTP {health.status_code}")
+    for role in roles:
+        reply = get("/api/v1/whoami", role)
+        if reply.status_code != 200 or reply.json().get("role") != role:
+            raise E2EError(f"{base_url}/api/v1/whoami for {role}: got HTTP {reply.status_code} {reply.text[:200]}")
+    check_bearer_decisions(f"{base_url}/api/v1/whoami", roles, lambda role: True, cli_token, other_token)
 
 
 def _other_client_token(
