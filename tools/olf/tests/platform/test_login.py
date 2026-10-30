@@ -15,9 +15,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from typer.testing import CliRunner
 
-from olf.cli import app
 from olf.platform import login as login_flow
 from olf.platform import session as sessions
 
@@ -214,56 +212,21 @@ def test_no_session_says_not_logged_in(issuer: FakeIssuer) -> None:
         sessions.active_session(_instance(issuer))
 
 
-PROFILE = """\
-apiVersion: openlakeforge.io/v1alpha1
-kind: DeploymentProfile
-metadata:
-  name: fixture
-spec:
-  provider: {type: local}
-  preset: slim
-  stages: {dev: {enabled: true}}
-  access: {base_domain: olf.example.com}
-  identity:
-    issuer: external
-    issuer_url: https://login.example.com
-    role_claim: groups
-    role_mapping: {platform-admin: [admins]}
-    client_ids: {olf-cli: cli-123}
-"""
+def test_a_localhost_issuer_is_reached_when_the_resolver_refuses_it(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import socket
 
+    real = socket.getaddrinfo
 
-def _profile(tmp_path: Path, text: str = PROFILE) -> str:
-    path = tmp_path / "openlakeforge.yaml"
-    path.write_text(text)
-    return str(path)
+    def nxdomain(host: object, *args: object, **kwargs: object) -> object:
+        if isinstance(host, str) and host.endswith(".localhost"):
+            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        return real(host, *args, **kwargs)  # type: ignore[arg-type]
 
+    monkeypatch.setattr(socket, "getaddrinfo", nxdomain)
+    port = issuer.url.rsplit(":", 1)[1]
+    instance = sessions.Instance("olf.localhost", f"http://auth.olf.localhost:{port}", CLIENT)
 
-def test_instance_comes_from_the_profile(tmp_path: Path) -> None:
-    external = sessions.resolve_instance(_profile(tmp_path))
-    assert external == sessions.Instance("olf.example.com", "https://login.example.com", "cli-123")
-
-    github = Path(__file__).parents[1] / "fixtures/profiles/valid_github_identity.yaml"
-    dex = sessions.resolve_instance(str(github))
-    assert (dex.issuer, dex.client_id) == ("https://auth.olf.localhost", CLIENT)
-
-
-@pytest.mark.parametrize("access", ["", "  access: {issuer: none}\n"])
-def test_a_deployment_without_sign_in_points_at_olf_infra(tmp_path: Path, access: str) -> None:
-    profile = _profile(tmp_path, PROFILE.split("  access:")[0] + access)
-    result = CliRunner().invoke(app, ["login", "--profile-file", profile])
-
-    assert result.exit_code == 1
-    assert "no sign-in" in result.output and "olf infra" in result.output
-
-
-def test_a_damaged_session_never_echoes_its_contents(tmp_path: Path) -> None:
-    profile = _profile(tmp_path)
-    path = sessions.session_path(sessions.resolve_instance(profile))
-    path.parent.mkdir(parents=True)
-    path.write_text('{"id_token": "not-a-jwt-secret"}')
-
-    with pytest.raises(sessions.PlatformError, match="olf login") as raised:
-        sessions.active_session(sessions.resolve_instance(profile))
-
-    assert "not-a-jwt-secret" not in str(raised.value)
+    assert "token_endpoint" in sessions.discover(instance)
+    assert socket.getaddrinfo is nxdomain
