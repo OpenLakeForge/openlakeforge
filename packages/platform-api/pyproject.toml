@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openlakeforge-platform-api"
+version = "0.5.0a1"
+description = "OpenLakeForge platform API: one backend for the portal, olf and agents (ADR 0021)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pyjwt[crypto]>=2.10,<3",
+  "uvicorn>=0.30,<1",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.27,<1",
+  "mypy>=1.13,<2",
+  "pytest>=9.0.3,<10",
+  "PyYAML>=6,<7",
+  "types-pyyaml>=6.0.12.20260815",
+]
+
+[tool.setuptools.packages.find]
+include = ["openlakeforge_platform_api*"]
+
+# The permission matrix is data the package reads at startup, so it ships
+# inside the wheel and the image.
+[tool.setuptools.package-data]
+openlakeforge_platform_api = ["permissions.toml", "py.typed"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["openlakeforge_platform_api", "tests"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
