@@ -209,13 +209,14 @@ def test_canary_image_is_loaded_into_nodes_before_its_pods_are_created() -> None
 
 def test_full_identity_selection_matches_the_catalog_pins() -> None:
     features = DeploymentFeatures(governance_enabled=True, analytics_enabled=True)
-    images = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG, dex=True)
+    images = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG, portal=True, dex=True)
     tags = {prefetch.archive_reference(i) for i in images}
 
     for name in (
         "seaweedfs", "traefik", "cert_manager_controller", "cert_manager_webhook", "cert_manager_cainjector",
         "postgres", "trino", "polaris", "polaris_admin_tool", "opensearch", "openmetadata_ingestion",
-        "superset", "superset_init", "superset_redis", "oauth2_proxy", "dex",
+        "superset", "superset_init", "superset_redis", "oauth2_proxy", "dex", "cert_manager_startupapicheck", "portal",
+        "dagster_busybox",
     ):  # fmt: skip
         assert prefetch.archive_reference(_CATALOG[name]) in tags, name
     # no preloaded tag drifts from the catalog; only the OpenMetadata server is pinned outside it

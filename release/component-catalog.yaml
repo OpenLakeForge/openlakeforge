@@ -98,6 +98,7 @@ components:
   images:
     k8s_bootstrap: alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e
     dagster_control_plane: docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee
+    dagster_busybox: docker.io/busybox:1.28@sha256:141c253bc4c3fd0a201d32dc1f493bcf3fff003b6df416dea4f41046e0f37d47
     opensearch: opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a
     project_code_base: python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
     superset_base: apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705

@@ -196,7 +196,8 @@ class _ImageDeploymentSource:
 # this check) could not tell "not deployed anywhere in this repo" apart from
 # "deployed, but the tag changed since this was last searched for" -- a
 # version bump made the drift this check exists to catch disappear silently.
-_IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
+# A tuple registers one image deployed from differently shaped sources.
+_IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource | tuple[_ImageDeploymentSource, ...]] = {
     "k8s_bootstrap": _ImageDeploymentSource(
         paths=(
             "infra/terraform/modules/catalog/polaris/variables.tf",
@@ -223,18 +224,31 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         paths=("infra/helm/values/local/dagster.yaml",),
         image_key_paths=(("dagsterWebserver", "image"), ("dagsterDaemon", "image")),
     ),
+    "dagster_busybox": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/dagster.yaml",),
+        image_key_paths=(("busybox", "image"),),
+    ),
     "opensearch": _ImageDeploymentSource(
         paths=("infra/helm/values/local/openmetadata-deps.yaml",),
         repository_key_path=("opensearch", "image", "repository"),
         tag_key_path=("opensearch", "image", "tag"),
     ),
-    "postgres": _ImageDeploymentSource(
-        paths=(
-            "infra/terraform/modules/storage/postgresql/workload.tf",
-            "infra/terraform/modules/storage/postgresql/bootstrap.tf",
-            "infra/terraform/modules/storage/rds-postgresql/main.tf",
+    "postgres": (
+        _ImageDeploymentSource(
+            paths=(
+                "infra/terraform/modules/storage/postgresql/workload.tf",
+                "infra/terraform/modules/storage/postgresql/bootstrap.tf",
+                "infra/terraform/modules/storage/rds-postgresql/main.tf",
+            ),
+            full_ref_pattern=re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
         ),
-        full_ref_pattern=re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
+        # Dagster's check-db-ready init container.
+        _ImageDeploymentSource(
+            paths=("infra/helm/values/local/dagster.yaml",),
+            registry_key_path=("postgresql", "image", "registry"),
+            repository_key_path=("postgresql", "image", "repository"),
+            tag_key_path=("postgresql", "image", "tag"),
+        ),
     ),
     "seaweedfs": _ImageDeploymentSource(
         paths=("infra/helm/values/local/seaweedfs.yaml",),
@@ -333,6 +347,11 @@ def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:
     return value
 
 
+def _docker_hub_short(reference: str) -> str:
+    """`docker.io/library/postgres:x` and `postgres:x` name the same image."""
+    return reference.removeprefix("docker.io/").removeprefix("library/")
+
+
 def _deployed_image_references(source_path: Path, source: _ImageDeploymentSource) -> list[str]:
     """Read every complete image reference from one registered source file."""
     source_text = source_path.read_text()
@@ -394,28 +413,29 @@ def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, A
         if name in _BUILD_ONLY_IMAGES:
             continue
 
-        source = _IMAGE_DEPLOYMENT_SOURCES.get(name)
-        if source is None:
+        registered = _IMAGE_DEPLOYMENT_SOURCES.get(name)
+        if registered is None:
             problems.append(
                 f"{name}: no registered deployment source -- add it to _IMAGE_DEPLOYMENT_SOURCES or "
                 "_BUILD_ONLY_IMAGES in tools/olf/olf/release/_readiness.py"
             )
             continue
 
-        for relative_path in source.paths:
-            source_path = repo_root / relative_path
-            if not source_path.is_file():
-                problems.append(f"{name}: deployment source {relative_path} does not exist")
-                continue
+        for source in registered if isinstance(registered, tuple) else (registered,):
+            for relative_path in source.paths:
+                source_path = repo_root / relative_path
+                if not source_path.is_file():
+                    problems.append(f"{name}: deployment source {relative_path} does not exist")
+                    continue
 
-            deployed_references = _deployed_image_references(source_path, source)
-            if not deployed_references:
-                problems.append(f"{name}: {relative_path} has no complete image reference")
-                continue
+                deployed_references = _deployed_image_references(source_path, source)
+                if not deployed_references:
+                    problems.append(f"{name}: {relative_path} has no complete image reference")
+                    continue
 
-            for deployed in deployed_references:
-                if deployed != ref:
-                    problems.append(f"{name}: catalog pins {ref!r} but {relative_path} pins {deployed!r}")
+                for deployed in deployed_references:
+                    if _docker_hub_short(deployed) != _docker_hub_short(ref):
+                        problems.append(f"{name}: catalog pins {ref!r} but {relative_path} pins {deployed!r}")
 
     if problems:
         return CheckResult("catalog images match their deployment sources", False, "; ".join(problems))
