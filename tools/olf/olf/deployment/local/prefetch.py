@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import platform as _platform
 import tempfile
+import threading
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from olf import log
@@ -197,22 +197,34 @@ def _prefetch_one_image(
     log.step(f"Saving {archive_image}...")
     tools.docker.save(archive_image, output_path=archive, env=env)
 
+    errors: list[BaseException] = []
+
     def load(node: str) -> None:
-        log.step(f"Loading {image} into kind node '{node}'...")
-        tools.docker.exec_(
-            node,
-            ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
-            privileged=True,
-            interactive=True,
-            stdin_path=archive,
-            env=env,
-        )
-        if archive_image != image:
-            # Only resolves the registry manifest: the layers are already in the node from the import.
-            tools.docker.exec_(node, ["crictl", "pull", image], env=env)
+        try:
+            log.step(f"Loading {image} into kind node '{node}'...")
+            tools.docker.exec_(
+                node,
+                ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
+                privileged=True,
+                interactive=True,
+                stdin_path=archive,
+                env=env,
+            )
+            if archive_image != image:
+                # Only resolves the registry manifest: the layers are already in the node from the import.
+                tools.docker.exec_(node, ["crictl", "pull", image], env=env)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread below
+            errors.append(exc)
 
     # Each node unpacks into its own containerd, so loading them together is ~1.7x faster than one by one.
-    with ThreadPoolExecutor(max_workers=len(nodes)) as pool:
-        list(pool.map(load, nodes))
+    # Daemon threads joined by hand, not an executor: a signal deadline (`olf smoke`) interrupts `join` on
+    # the main thread, where an executor's exit would first wait out the blocked `docker exec` calls.
+    threads = [threading.Thread(target=load, args=(node,), daemon=True) for node in nodes]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
     # Every node holds its own copy now; keeping the archive until the run ends doubled the disk use.
     archive.unlink(missing_ok=True)

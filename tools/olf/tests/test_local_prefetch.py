@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import signal
+import time
 from pathlib import Path
 
 import pytest
@@ -279,3 +281,22 @@ def test_prefetch_imports_into_workers_and_traefik_into_every_node(tmp_path: Pat
     images = prefetch.selected_images(config.features, server_arch="amd64", catalog_images=_CATALOG, perimeter=False)
     assert imported.count(nodes[1]) == imported.count(nodes[2]) == len(images)
     assert imported.count(nodes[0]) == 1  # Traefik only
+
+
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="the smoke deadline is a POSIX interval timer")
+def test_smoke_deadline_interrupts_a_blocked_node_import(tmp_path: Path) -> None:
+    from olf.smoke import SmokeError, _deadline
+
+    class _BlockedImport(_ScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            if "import" in argv and "ctr" in argv:
+                time.sleep(5)
+            return super().run(command, **kwargs)
+
+    started = time.monotonic()
+    with pytest.raises(SmokeError), _deadline(1):
+        prefetch.prefetch_images(
+            _config(tmp_path, profile=Profile.SLIM), _toolkit(_BlockedImport()), env={}, work_dir=tmp_path
+        )
+    assert time.monotonic() - started < 3
