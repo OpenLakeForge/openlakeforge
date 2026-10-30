@@ -29,6 +29,10 @@ locals {
     [for name in compact([try(var.person_access.principal_name, "")]) : { regex = "^\\Q${name}\\E$", replacement = "PRINCIPAL_ROLE:olf-signed-in" }],
   )
 
+  # The credential of each stage's Trino people catalog (ADR 0019, section 4,
+  # step 7), in this namespace beside Trino's own.
+  people_secret_names = { for stage in keys(local.stage_catalogs) : stage => "polaris-${stage}-trino-people-creds" if local.person_access_enabled }
+
   person_https = startswith(try(var.person_access.issuer_url, ""), "https://")
 
   person_values = !local.person_access_enabled ? [] : [yamlencode({
@@ -72,6 +76,7 @@ locals {
         olf-gold-read = ["NAMESPACE_LIST"]
       }
       catalogs = [for stage in values(local.stage_catalogs) : stage.catalog_name]
+      people   = [for stage in keys(local.stage_catalogs) : { principal = "trino-people-${stage}", secret = local.people_secret_names[stage] }]
       # olf-signed-in is reconciled to hold no catalog role at all.
       assigned = merge({ olf-signed-in = {} }, local.person_catalog_roles)
     })

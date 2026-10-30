@@ -41,3 +41,11 @@
       done
     done
   done
+
+  # The credential of each stage's Trino people catalog. It holds no principal
+  # role and so no grant: Trino uses it only for the catalog's configuration
+  # call, and every table request carries the person's own token.
+  for entry in $(person -c '.people[]'); do
+    create_principal_secret "$(printf %s "$entry" | jq -r .principal)" "$(printf %s "$entry" | jq -r .secret)" \
+      "POLARIS_CLIENT_ID" "POLARIS_CLIENT_SECRET" "$NAMESPACE"
+  done

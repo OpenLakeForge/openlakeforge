@@ -63,6 +63,8 @@ variable "storage_contract" {
     region                  = string
     path_style_access       = optional(bool)
     credentials_secret_name = optional(string)
+    access_key_id_key       = optional(string)
+    secret_access_key_key   = optional(string)
     provider                = optional(string)
     implementation          = optional(string)
     auth_mode               = optional(string)
@@ -210,5 +212,20 @@ variable "web_ui_oidc" {
   validation {
     condition     = var.web_ui_oidc == null || var.workload_authentication != "off"
     error_message = "web_ui_oidc needs workload_authentication tls or password: Trino OAuth2 needs the HTTPS listener and its CA."
+  }
+}
+
+variable "people_access" {
+  description = "People's queries (ADR 0019): issuer_url and client_id of the Dex tokens Trino accepts by JWT, and catalogs, stage -> the Secret (keys POLARIS_CLIENT_ID, POLARIS_CLIENT_SECRET) of that stage's trino-people principal. Each stage gets a people catalog named after it. null adds nothing."
+  type = object({
+    issuer_url = string
+    client_id  = string
+    catalogs   = map(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.people_access == null || var.workload_authentication == "password"
+    error_message = "people_access needs workload_authentication password: JWT is added beside PASSWORD on the HTTPS-only coordinator."
   }
 }
