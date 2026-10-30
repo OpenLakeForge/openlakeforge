@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY
-from olf.common.deployment.context import topology_variables
+from olf.common.deployment.context import storage_variables, topology_variables
 from olf.common.deployment.env_settings import env as _env
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.tooling.toolkit import Toolkit
@@ -148,7 +148,7 @@ class AzureBackend:
         from olf.infra.deployment.cloud.images import resolve_effective_images
 
         images = resolve_effective_images(config.images, facts)
-        return topology_variables(config.context) | {
+        return topology_variables(config.context) | storage_variables(config.context) | {
             "kube_context": facts.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),
             # See local/platform.py::platform_apply_variables: the Terraform

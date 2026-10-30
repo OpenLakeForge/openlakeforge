@@ -325,6 +325,7 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
         "shared_namespace",
         "stages",
         "manage_user_deployments",
+        "storage_size",
         "kube_context",
         "kubeconfig_path",
         "helm_repository_cache_path",

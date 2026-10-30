@@ -68,6 +68,11 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
     }
 
 
+def storage_variables(context: DeploymentContext) -> dict[str, str]:
+    """`spec.storage.size`, for the roots that self-host object storage (local, azure). AWS has none to size."""
+    return {"storage_size": context.topology.storage_size.value}
+
+
 def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
     """Honor `FOUNDATION_STATE_PATH`, matching every removed provider's
     stack scripts (`FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-

@@ -190,6 +190,8 @@ module "seaweedfs" {
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
+  storage_size       = var.storage_size
+  storage_sizes_file = "${path.root}/../../../../release/storage-sizes.yaml"
   chart_package_path = var.seaweedfs_chart_package_path
   bucket_names = concat(flatten([
     for binding in values(local.stage_storage) : [
