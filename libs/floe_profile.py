@@ -204,7 +204,10 @@ def _job_runner(
         "resources": {"cpu": "500m", "memory_mb": 1024, "memory_limit_mb": 6144},
         "timeout_seconds": 3600,
         "ttl_seconds_after_finished": 3600,
-        "poll_interval_seconds": 5,
+        # dagster-floe reads the Job's status once per interval, so a domain
+        # step ends up to this long after its Job has: one GET every 2 s is
+        # cheap next to the time a slower poll adds to every Silver step.
+        "poll_interval_seconds": 2,
         "secrets": secrets,
     }
 
