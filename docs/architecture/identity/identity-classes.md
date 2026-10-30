@@ -27,7 +27,7 @@ For `olf` that gives three surfaces ([ADR 0020](../../adr/0020-infrastructure-co
 | --- | --- | --- |
 | Infra | Everything under `olf infra` (`deploy`, `plan`, `query`, `project deploy`, ...), and CI running them | 2, with Kubernetes RBAC or cloud IAM as the identity |
 | Common | `olf init`, `check`, `profile`, `project validate` and the other commands that need no permissions | None |
-| Platform | Planned: `olf login`, `whoami`, `domain list` through a Dex session | 1, not built |
+| Platform | `olf login`, `whoami`, `logout` and `query` through a Dex session; `domain list` planned | 1 |
 
 The four canonical roles apply to class 1 only. A
 role never grants a pod anything, and a service credential never signs a person
@@ -43,7 +43,7 @@ in.
 | Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration: users pass the perimeter and then need each service's own login |
 | Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; with Dex, a revocation reaches the perimeter within about 5 min. With an external issuer, a removed role can last up to the issuer's 10 h SSO lifetime when its refresh responses carry no ID token with the role claim ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
-| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. No `olf` command uses it yet, so `olf` stays class 2 (#536) |
+| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. `olf query` uses it: Trino authenticates the token, and Polaris grants the role's `data_access` row ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md)). `olf infra query` stays class 2 |
 
 ## Class 2: in-cluster workload and automation
 

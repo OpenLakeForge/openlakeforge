@@ -22,9 +22,12 @@ a service **through the issuer** is class 1. A caller that authenticates with a
 service credential or Kubernetes RBAC is class 2, whether it runs in a pod or
 on a workstation, and even when a person started it. `olf infra` commands and CI
 are therefore class 2 with Kubernetes RBAC as their identity; `olf` commands
-that need no permissions (`init`, `check`, `project validate`) have none. A
-Dex-session platform surface is planned and not built
+that need no permissions (`init`, `check`, `project validate`) have none. The
+platform commands sign a person in through Dex and are class 1: `olf query` is
+the one that reaches data
 ([ADR 0020](../../adr/0020-infrastructure-common-and-platform-cli-surfaces.md)).
+`olf infra query` runs the same SQL as the stage's workload user and stays
+class 2.
 The command paths in the rows below are the earlier top-level ones, which still
 work as hidden aliases of `olf infra ...`. (Interpretation of #178 for
 out-of-cluster callers; confirm.)
@@ -43,6 +46,7 @@ principal and stage scope; Secret reference; rotation.
 | --- | --- | --- | --- | --- | --- | --- |
 | Browser through the perimeter (#176) | Person's browser | `https://<service>.<base_domain>` via Traefik, forwardAuth to oauth2-proxy | Issuer login, perimeter cookie | Canonical role against `shared.identity.roles`, every enabled stage | None (cookie secret in [identity-credentials.md](identity-credentials.md)) | Session policy in [identity-sessions-and-recovery.md](identity-sessions-and-recovery.md) |
 | Browser to Superset / OpenMetadata native OIDC (#25, built) | Person's browser | Same route; the app redirects to the issuer | Issuer login, native session | Role claim mapped by the role model | Client Secrets `dex-client-superset` / `-openmetadata` | Client rotation runbook |
+| A person's own queries (`olf query`, [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md)) | Workstation | `https://trino.<base_domain>/v1/statement` via Traefik (the `query_api` route at the `viewer` floor); Trino authenticates the token, and the stage's people catalog passes it to Polaris | Dex ID token for the public `olf-cli` client, from `olf login`, as the bearer and as the `token` extra credential | Trino user is the token's e-mail, the people catalogs only; Polaris grants the role's `data_access` row, and storage reads use credentials it vends per table | None: a mode-0600 session file under `OLF_HOME` | ID token 5 min, refreshed from the session |
 
 ### Class 2: `olf`, CI and workstation
 
