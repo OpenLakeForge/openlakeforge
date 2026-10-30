@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from openlakeforge_domain import Product
 
@@ -24,7 +24,9 @@ DAGSTER_RELEASE_NAME = "dagster"
 DAGSTER_WEBSERVER_SERVICE_NAME = f"{DAGSTER_RELEASE_NAME}-dagster-webserver"
 
 
-def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] | None = None) -> None:
+def launch_and_poll_dagster_jobs(
+    cfg: E2EConfig, *, products: Sequence[Product] | None = None, tags: Mapping[str, str] | None = None
+) -> None:
     log.step("Launching and polling Dagster product jobs...")
     assert cfg.dagster_local_port is not None
     webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
@@ -47,7 +49,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
         for product in products or cfg.inventory.products:
             job = product.job_name
             try:
-                run_id = client.launch(job)
+                run_id = client.launch(job, tags=tags)
             except ServiceClientError as exc:
                 diagnostics = _bounded_pod_diagnostics(
                     cfg,

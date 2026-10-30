@@ -29,7 +29,7 @@ from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
 from libs.source_bindings import source_binding_tags
-from openlakeforge_domain import inventory_for
+from openlakeforge_domain import full_refresh_scope, inventory_for
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
@@ -185,8 +185,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         )
         previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
         os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
+        # Both scopes rebuild Gold: after a Bronze reload, an incremental model
+        # would otherwise keep rows its rebuilt inputs no longer hold.
+        full_refresh = full_refresh_scope(context.run.tags) is not None
         try:
-            invocation = dbt.cli(["build"], context=context)
+            invocation = dbt.cli(["build", *(["--full-refresh"] if full_refresh else [])], context=context)
             yield from invocation.stream()
         finally:
             if previous_job_name is None:
