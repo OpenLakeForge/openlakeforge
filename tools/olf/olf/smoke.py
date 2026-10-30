@@ -14,8 +14,9 @@ from unittest.mock import patch
 from olf import config, e2e, log
 from olf.deployment import contract_env
 from olf.deployment.context import DeploymentContext, Profile
-from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
+from olf.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
 from olf.deployment.errors import DeploymentError
+from olf.tooling.toolkit import Toolkit
 
 
 class SmokeError(RuntimeError):

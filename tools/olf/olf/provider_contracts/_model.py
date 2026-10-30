@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+from olf.contract_validation import V2_SCHEMA_VERSION, ProviderContractError, _string
 from olf.profile import StageName
-from olf.provider_contracts._validation import V2_SCHEMA_VERSION, ProviderContractError, _mapping, _stage_name, _string
+from olf.provider_contracts._validation import _mapping, _stage_name
 
 # What a stage runs when its contract predates the field. A platform applied
 # before #185 has a persisted 3.0.0 orchestration object with only the two

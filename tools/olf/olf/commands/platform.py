@@ -7,14 +7,16 @@ from pathlib import Path
 
 import typer
 
-from olf.commands._shared import deployment_context_for_profile, fail
+from olf.commands._shared import deployment_context_for_profile
+from olf.log import fail
 
 app = typer.Typer(help="Plan and apply static foundation/platform infrastructure.")
 
 
 def _engine(context, *, var_file: str):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import DeploymentEngine, Toolkit, build_provider
+    from olf.deployment.engine import DeploymentEngine, build_provider
     from olf.deployment.errors import DeploymentError
+    from olf.tooling.toolkit import Toolkit
 
     try:
         env = context.command_env(base=os.environ)
@@ -70,7 +72,7 @@ def contract(
     """
     import json
 
-    from olf import contracts
+    from olf import contract_state
     from olf.deployment.errors import DeploymentError
     from olf.provider_contracts import ProviderContractError
 
@@ -80,7 +82,7 @@ def contract(
         # OLF_HOME; the process env alone reads the payload's absent state.
         # Always the applied state: exporting must never echo an earlier copy
         # the override points at (or read the file `>` is truncating).
-        payload = contracts.load_provider_contracts(
+        payload = contract_state.load_provider_contracts(
             str(context.paths.platform_terraform_dir),
             environ=context.command_env(base=os.environ),
             honor_contract_file=False,

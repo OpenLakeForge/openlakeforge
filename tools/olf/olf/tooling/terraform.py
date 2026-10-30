@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from olf.deployment.errors import CommandExecutionError
-from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
+from olf.tooling.retry import RetryPolicy, RetryPredicate
 
 
 def external_state_options(
@@ -20,7 +20,7 @@ def external_state_options(
     plugin data rooted outside `terraform_dir` (installed distributions).
 
     Every direct Terraform invocation - `Terraform._run` and any caller that
-    shells out to `terraform` on its own (`olf.contracts.load_provider_contracts`,
+    shells out to `terraform` on its own (`olf.contract_state.load_provider_contracts`,
     `olf.e2e._shell.terraform_output`) - must resolve state and data roots
     identically, or an installed deployment's `-chdir`'d `terraform output`
     silently reads the read-only payload's default (absent) state instead of

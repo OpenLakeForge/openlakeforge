@@ -13,7 +13,7 @@ from olf.deployment.cloud import artifacts
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -137,7 +137,7 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
     config = _config(tmp_path)
     tools = _toolkit()
     backend = FakeCloudBackend(scope="aws")
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )

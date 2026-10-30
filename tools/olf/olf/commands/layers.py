@@ -16,7 +16,7 @@ def layers_enabled(
     layer: str = typer.Option(..., "--layer", help="Optional layer: analytics or governance."),
 ) -> None:
     """Exit successfully only when an optional platform layer is enabled."""
-    from olf.commands._shared import fail
+    from olf.log import fail
 
     try:
         is_enabled = layers_module.enabled(os.environ, layer)

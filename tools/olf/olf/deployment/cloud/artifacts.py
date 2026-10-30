@@ -26,7 +26,7 @@ from olf.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.images import build_and_push_project_code_image, resolve_effective_images
-from olf.deployment.engine import Toolkit
+from olf.tooling.toolkit import Toolkit
 
 
 @contextmanager

@@ -1,7 +1,7 @@
 """Provider-neutral contract-environment activation.
 
 Replaces sourcing `scripts/contracts/load-runtime-env.sh`: calls
-`olf.contracts.load_provider_contracts`/`build_contract_env` directly and
+`olf.contract_state.load_provider_contracts`/`build_contract_env` directly and
 applies the exports/unsets to `os.environ` for the duration of a block,
 restoring the previous values on exit. This is the in-process bridge to the
 existing `os.environ`-reading library modules (`olf.k8s`, `olf.config`,
@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from olf import contracts
+from olf import contract_state, contracts
 
 if TYPE_CHECKING:
     from olf.profile import DeploymentTopology, StageName
@@ -48,9 +48,9 @@ def applied_contract_environment(
     if environ is not None:
         base.update(environ)
     provider_contracts = (
-        contracts.load_provider_contracts(str(contract_terraform_dir), environ=base)
+        contract_state.load_provider_contracts(str(contract_terraform_dir), environ=base)
         if environ
-        else contracts.load_provider_contracts(str(contract_terraform_dir))
+        else contract_state.load_provider_contracts(str(contract_terraform_dir))
     )
     exports, unsets = contracts.build_contract_env(
         base, provider_contracts, repo_root=repo_root, topology=topology, stage=stage

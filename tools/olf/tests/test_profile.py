@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from olf.deployment.context import Provider
 from olf.profile import (
     AccessSpec,
     DeploymentProfileError,
     Preset,
+    Provider,
     ResolvedProject,
     StageName,
     legacy_single_stage_topology,

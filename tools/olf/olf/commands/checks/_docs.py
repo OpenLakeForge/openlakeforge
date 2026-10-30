@@ -17,8 +17,8 @@ from urllib.parse import unquote
 import typer
 import yaml
 
-from olf.commands._shared import fail
 from olf.commands.checks._shared import _root
+from olf.log import fail
 
 MANIFEST = "docs/navigation.yaml"
 

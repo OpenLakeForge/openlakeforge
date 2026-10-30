@@ -20,7 +20,6 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from olf import contracts
 from olf.cli import app
 from olf.commands import project as project_cmd
 from olf.deployment.context import DeploymentContext
@@ -131,7 +130,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", lambda *a, **k: context)
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *a, **k: provider)
     monkeypatch.setattr(project_cmd, "_artifact_transport", lambda *a, **k: object())
-    monkeypatch.setattr(contracts, "load_provider_contracts", lambda *a, **k: state.contract)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *a, **k: state.contract)
     monkeypatch.setattr(
         "olf.profile.load_deployment_profile",
         lambda *a, **k: SimpleNamespace(
@@ -208,7 +207,7 @@ def test_status_fails_cleanly_on_an_unreadable_contract(stage, monkeypatch: pyte
     def _unreadable(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
         raise ProviderContractError("OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE=/gone.json: No such file")
 
-    monkeypatch.setattr(contracts, "load_provider_contracts", _unreadable)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", _unreadable)
 
     result = runner.invoke(app, ["project", "status", "-f", "openlakeforge.yaml", "--stage", "dev"])
 

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.profile import Provider
 from olf.project import ProjectSpec
 
 if TYPE_CHECKING:
@@ -91,12 +92,6 @@ def _resolved_namespaces(*, stage: StageName) -> tuple[str, str]:
     `--namespace` for exactly this reason).
     """
     return stage_namespace(stage), SHARED_NAMESPACE
-
-
-class Provider(StrEnum):
-    LOCAL = "local"
-    AWS = "aws"
-    AZURE = "azure"
 
 
 class Profile(StrEnum):

@@ -10,12 +10,12 @@ from _tooling_support import RecordedCall, RecordingRunner
 from olf.deployment.cloud.aws import AwsBackend
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile, Provider
-from olf.deployment.engine import Toolkit
+from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
-from olf.profile import DeploymentProfile, Preset, ProviderSpec, StageName, StageSpec, resolve_topology
+from olf.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.toolkit import Toolkit
 
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm", "aws", "az")
 _FACTS = FoundationFacts(
@@ -49,8 +49,6 @@ def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> CloudDeployme
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
-    from olf.tooling.aws import AwsCli
-    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -66,8 +64,6 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
-        aws=AwsCli(runner, resolver),
-        azure=AzureCli(runner, resolver),
     )
 
 
@@ -218,11 +214,10 @@ def test_resolve_foundation_facts_tolerates_missing_registry_outputs(tmp_path: P
 
 
 def test_update_kubeconfig_uses_eks_update_kubeconfig_with_alias(tmp_path: Path) -> None:
-    backend = AwsBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
     aws = _Aws()
-    object.__setattr__(tools, "aws", aws)
+    backend = AwsBackend(aws)
 
     backend.update_kubeconfig(tools, _FACTS, kubeconfig_path=tmp_path / "kc.yaml", env={})
 
@@ -242,19 +237,17 @@ def test_update_kubeconfig_uses_eks_update_kubeconfig_with_alias(tmp_path: Path)
 
 def test_update_kubeconfig_refuses_facts_without_a_region(tmp_path: Path) -> None:
     tools = _toolkit(RecordingRunner(_ok()))
-    object.__setattr__(tools, "aws", _Aws())
 
     with pytest.raises(DeploymentPreconditionError, match="aws_region"):
-        AwsBackend().update_kubeconfig(
+        AwsBackend(_Aws()).update_kubeconfig(
             tools, replace(_FACTS, aws_region=None), kubeconfig_path=tmp_path / "kc.yaml", env={}
         )
 
 
 def test_registry_login_uses_ecr_password_via_docker_login(tmp_path: Path) -> None:
-    backend = AwsBackend()
     runner = RecordingRunner(_ok("ecr-password\n"))
     tools = _toolkit(runner)
-    object.__setattr__(tools, "aws", _Aws())
+    backend = AwsBackend(_Aws())
 
     backend.registry_login(tools, _FACTS, repository=_FACTS.project_code_repository, env={})
 
@@ -269,10 +262,9 @@ def test_registry_login_uses_the_effective_repository_not_the_foundation_default
     for *that* registry - matching the removed shell scripts, which always derived
     `registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"` from the effective repository.
     """
-    backend = AwsBackend()
     runner = RecordingRunner(_ok("ecr-password\n"))
     tools = _toolkit(runner)
-    object.__setattr__(tools, "aws", _Aws())
+    backend = AwsBackend(_Aws())
     overridden_repository = "999999999999.dkr.ecr.us-east-1.amazonaws.com/shared/project-code"
 
     backend.registry_login(tools, _FACTS, repository=overridden_repository, env={})
@@ -282,10 +274,9 @@ def test_registry_login_uses_the_effective_repository_not_the_foundation_default
 
 
 def test_cluster_reachable_uses_eks_describe_cluster(tmp_path: Path) -> None:
-    backend = AwsBackend()
     runner = RecordingRunner(_fail())
     tools = _toolkit(runner)
-    object.__setattr__(tools, "aws", _Aws(reachable=False))
+    backend = AwsBackend(_Aws(reachable=False))
 
     reachable = backend.cluster_reachable(tools, _FACTS, env={})
 

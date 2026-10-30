@@ -18,7 +18,7 @@ from olf.auth import (
     login_aws,
     login_azure,
 )
-from olf.commands._shared import fail
+from olf.log import fail
 
 app = typer.Typer(help="Authenticate cloud providers through their official SDK flows.", no_args_is_help=True)
 

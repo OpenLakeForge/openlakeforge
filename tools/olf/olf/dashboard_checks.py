@@ -8,6 +8,11 @@ from typing import Any
 
 import yaml
 
+# The placeholder a checked-in database YAML carries. `build_report_bundle`
+# replaces it with the target stage's connection, and `unpack_export_bundle`
+# puts it back so an exported bundle promotes unchanged.
+STAGE_NEUTRAL_SQLALCHEMY_URI = "trino://superset@trino:8080/iceberg"
+
 _ALLOWED_VIZ_TYPES = {"echarts_timeseries_bar", "echarts_timeseries_line", "pie", "table"}
 
 

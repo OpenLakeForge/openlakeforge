@@ -14,7 +14,7 @@ def _no_real_contract_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     test_cli_e2e.py's `_no_real_contract_resolution`)."""
     from olf import contracts as contracts_module
 
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ=None: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda terraform_dir, *, environ=None: None)
     monkeypatch.setattr(
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )

@@ -181,7 +181,7 @@ def test_installed_distribution_skips_readonly_lockfile_when_none_is_checked_in(
 
 
 def test_apply_forwards_retry_policy_to_runner() -> None:
-    from olf.deployment.retry import RetryPolicy
+    from olf.tooling.retry import RetryPolicy
 
     terraform, runner = _terraform()
     policy = RetryPolicy(max_attempts=2, delay_seconds=0)

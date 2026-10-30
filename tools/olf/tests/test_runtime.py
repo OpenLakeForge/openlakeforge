@@ -17,9 +17,9 @@ def test_standalone_contract_context_honors_custom_contract_root(monkeypatch, tm
 
 def test_standalone_local_contract_context_honors_custom_contract_root(monkeypatch, tmp_path) -> None:  # noqa: ANN001
     from olf.deployment.context import DeploymentContext
-    from olf.deployment.engine import Toolkit
     from olf.deployment.local.config import LocalDeploymentConfig
     from olf.deployment.local.provider import LocalProvider
+    from olf.tooling.toolkit import Toolkit
 
     context = DeploymentContext.local(repo_root=tmp_path)
     config = LocalDeploymentConfig.from_environment({}, context=context)
@@ -56,9 +56,9 @@ def test_provider_contract_environment_threads_project_root_to_build_context(mon
     regardless of what the user selected.
     """
     from olf.deployment.context import DeploymentContext
-    from olf.deployment.engine import Toolkit
     from olf.deployment.local.config import LocalDeploymentConfig
     from olf.deployment.local.provider import LocalProvider
+    from olf.tooling.toolkit import Toolkit
 
     context = DeploymentContext.local(repo_root=tmp_path)
     config = LocalDeploymentConfig.from_environment({}, context=context)

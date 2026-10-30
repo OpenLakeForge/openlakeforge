@@ -16,14 +16,15 @@ from pathlib import Path
 import typer
 
 from olf.commands._shared import deployment_context as _build_context
-from olf.commands._shared import fail
+from olf.log import fail
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
 
 
 def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
-    from olf.deployment.engine import DeploymentEngine, Toolkit, build_provider
+    from olf.deployment.engine import DeploymentEngine, build_provider
     from olf.deployment.errors import DeploymentError
+    from olf.tooling.toolkit import Toolkit
 
     try:
         tooling_env = context.command_env(base=os.environ)

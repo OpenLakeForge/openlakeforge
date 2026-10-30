@@ -10,7 +10,6 @@ from pathlib import Path
 
 import typer
 
-from olf.commands._shared import fail
 from olf.commands.checks._shared import (
     _check_cache_root,
     _distribution_root_for,
@@ -18,6 +17,7 @@ from olf.commands.checks._shared import (
     _run,
     _uv_pip_install,
 )
+from olf.log import fail
 
 
 def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:

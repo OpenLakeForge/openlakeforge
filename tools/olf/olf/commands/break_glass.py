@@ -7,7 +7,8 @@ import os
 import typer
 
 from olf import break_glass
-from olf.commands._shared import deployment_context, fail
+from olf.commands._shared import deployment_context
+from olf.log import fail
 
 
 def break_glass_command(
@@ -26,7 +27,7 @@ def break_glass_command(
     Ports bind to 127.0.0.1; Superset and OpenMetadata open a shell in their pod.
     The perimeter and every Ingress are left untouched.
     """
-    from olf.deployment.engine import Toolkit
+    from olf.tooling.toolkit import Toolkit
 
     if service not in break_glass.TARGETS:
         raise typer.Exit(code=fail(f"unknown service {service!r}; expected one of {', '.join(break_glass.TARGETS)}"))
@@ -52,7 +53,7 @@ def break_glass_command(
     if service == "trino":
         from pathlib import Path
 
-        from olf.contracts import load_provider_contracts
+        from olf.contract_state import load_provider_contracts
 
         contract_dir = Path(env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir))
         contracts = load_provider_contracts(str(contract_dir.resolve()), environ=env, resolver=tools.resolver)

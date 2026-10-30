@@ -914,7 +914,6 @@ def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
 def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     import json
 
-    from olf import contracts
     from olf.commands import platform as platform_module
 
     applied = {"schema_version": "3.0.0", "stages": {}}
@@ -922,9 +921,7 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
         paths=SimpleNamespace(platform_terraform_dir=Path("/platform")), command_env=lambda base: dict(base)
     )
     monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: context)
-    monkeypatch.setattr(
-        contracts,
-        "load_provider_contracts",
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts",
         lambda terraform_dir, environ, honor_contract_file, **_k: None if honor_contract_file else applied,
     )
 
@@ -933,7 +930,7 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
     assert result.exit_code == 0
     assert json.loads(result.output) == applied
 
-    monkeypatch.setattr(contracts, "load_provider_contracts", lambda *_a, **_k: None)
+    monkeypatch.setattr("olf.contract_state.load_provider_contracts", lambda *_a, **_k: None)
     assert runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"]).exit_code != 0
 
 
@@ -971,7 +968,7 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
         raise subprocess.CalledProcessError(1, argv, output="", stderr="Error: Unsupported state file format")
 
     monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Terraform())
-    monkeypatch.setattr("olf.contracts.subprocess.run", _corrupt_state)
+    monkeypatch.setattr("olf.contract_state.subprocess.run", _corrupt_state)
     result = runner.invoke(app, ["platform", "contract", "-f", "openlakeforge.yaml"])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)

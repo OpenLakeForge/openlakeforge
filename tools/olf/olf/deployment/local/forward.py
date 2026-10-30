@@ -10,9 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from olf import log
-from olf.deployment.engine import Toolkit
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.portforward import ForwardSpec, ForwardTarget
+from olf.tooling.toolkit import Toolkit
 
 
 def resolve_dagster_webserver_pod(

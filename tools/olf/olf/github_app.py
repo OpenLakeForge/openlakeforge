@@ -281,8 +281,8 @@ def connect_github(context: Any, *, no_browser: bool = False) -> str:
     """Create the GitHub App for spec.identity.github, store it as the Secret `oauth_app_secret_ref` names, and
     return the install link. Used by `olf github connect`; `olf deploy` runs `create_app` before the cluster exists."""
     from olf import log
-    from olf.deployment.engine import Toolkit
     from olf.deployment.kube_ops import namespace_exists
+    from olf.tooling.toolkit import Toolkit
 
     namespace = context.shared_namespace
     kube = _kube(context)

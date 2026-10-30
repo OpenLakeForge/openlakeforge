@@ -5,7 +5,8 @@ from __future__ import annotations
 import typer
 
 from olf.commands._project import writable_project_layout
-from olf.commands._shared import applied_runtime_environment, deployment_context_for_profile, fail
+from olf.commands._shared import applied_runtime_environment, deployment_context_for_profile
+from olf.log import fail
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError, parse_source_resource
 from olf.scaffold.product import plan_product_new

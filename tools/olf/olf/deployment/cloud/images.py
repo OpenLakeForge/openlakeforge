@@ -13,8 +13,8 @@ from dataclasses import replace
 from olf import log
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig, CloudImageSettings
-from olf.deployment.engine import Toolkit
 from olf.deployment.project_code import project_code_build_context
+from olf.tooling.toolkit import Toolkit
 
 
 def resolve_effective_images(images: CloudImageSettings, facts: FoundationFacts) -> CloudImageSettings:
