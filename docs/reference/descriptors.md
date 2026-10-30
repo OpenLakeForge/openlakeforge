@@ -41,7 +41,7 @@ resources:
 | `resources` | array, at least one | yes | The source's table-like inputs. |
 | `resources[].name` | identifier | yes | Unique within the source. |
 | `resources[].description` | string | no | Human-readable description. |
-| `resources[].load.mode` | `full` or `incremental` | no | `full` (the default) replaces the resource's Bronze files on every run. `incremental` appends only the rows past the cursor. See [Load modes](#load-modes). |
+| `resources[].load.mode` | `full` or `incremental` | no | `full` (the default) replaces the resource's Bronze files on every run. `incremental` declares that only the rows past the cursor should load. No loader reads it yet; see [Load modes](#load-modes). |
 | `resources[].load.cursor` | column name | with `incremental` | The column whose last loaded value the next run starts after. Not allowed with `full`. |
 | `resources[].load.primary_key` | array of column names | with `incremental` | The row's identity, which Silver merges a changed row onto. |
 | `runtime.config` | array of key names | no | Names of the non-secret settings the loader reads, such as an API base URL. |
@@ -89,7 +89,12 @@ A loader that is a real dlt source runs it through
 
 ### Load modes
 
-Each layer declares its load mode where its owner keeps it:
+Each layer declares its load mode where its owner keeps it.
+
+The Bronze declaration is a contract only for now. OpenLakeForge validates it
+and checks Silver against it, but no Bronze loader reads it yet: the CSV
+loader still replaces its files on every run. The dlt loader that honours it
+is #624.
 
 | Layer | Declared in | Incremental | Full |
 | --- | --- | --- | --- |
