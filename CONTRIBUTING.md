@@ -42,7 +42,7 @@ Run these from the repository root.
 
 ```bash
 uv run --project tools/olf ruff check tools/olf
-uv run --project tools/olf pytest tools/olf/tests/test_checks_docs.py
+uv run --project tools/olf pytest tools/olf/tests/common/test_checks_docs.py
 ```
 
 Swap in the test file that covers the code you changed. Documentation

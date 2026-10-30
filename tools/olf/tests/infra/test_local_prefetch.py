@@ -16,7 +16,7 @@ from olf.common.tooling.resolver import PathExecutableResolver
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment.local import prefetch
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 _CATALOG = load_catalog(_REPO_ROOT / "release" / "component-catalog.yaml")["components"]["images"]
 
 

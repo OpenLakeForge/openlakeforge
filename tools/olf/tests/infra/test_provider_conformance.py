@@ -90,8 +90,8 @@ from olf.infra.deployment.engine import (
     build_provider,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 every_provider = pytest.mark.parametrize("provider", tuple(Provider), ids=[p.value for p in Provider])
 

@@ -70,7 +70,7 @@ def test_release_version_conversion() -> None:
 
 
 def test_payload_archive_is_deterministic_for_the_same_checkout(tmp_path: Path) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     one = build_embedded_payload(root, archive=tmp_path / "one.tar.gz", metadata_path=tmp_path / "one.json")
     two = build_embedded_payload(root, archive=tmp_path / "two.tar.gz", metadata_path=tmp_path / "two.json")
 
@@ -121,7 +121,7 @@ def test_checkout_defaults_to_source_mode_even_when_a_payload_has_been_generated
     layout = runtime_layout({})
 
     assert layout.is_source
-    assert layout.distribution_root == Path(__file__).resolve().parents[3]
+    assert layout.distribution_root == Path(__file__).resolve().parents[4]
 
 
 def test_installed_layout_defaults_the_project_to_the_current_directory(
@@ -182,7 +182,7 @@ def test_installed_layout_keeps_platform_assets_in_the_payload_when_a_project_is
 def test_distribution_version_at_reads_a_distribution_root(tmp_path: Path) -> None:
     from olf.common.distribution import distribution_version_at
 
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[4]
 
     assert distribution_version_at(repo_root) == _catalog_version(repo_root)
     # An external project checkout ships no catalog; activation must read the
@@ -201,7 +201,7 @@ def _catalog_version(root: Path) -> str:
 def test_the_payload_ships_every_repo_file_a_terraform_root_reads(tmp_path: Path) -> None:
     import re
 
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[4]
     build_embedded_payload(repo_root, archive=tmp_path / "payload.tar.gz", metadata_path=tmp_path / "payload.json")
     with tarfile.open(tmp_path / "payload.tar.gz") as bundle:
         shipped = set(bundle.getnames())

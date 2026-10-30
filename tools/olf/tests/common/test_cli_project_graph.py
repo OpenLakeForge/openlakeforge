@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from olf.cli import app
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 
 runner = CliRunner()
 

@@ -2,42 +2,15 @@ from __future__ import annotations
 
 import platform
 import shutil
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _local_config_support import _PIN, _published_config, _write_full_catalog
 
 from olf.common.deployment.context import DeploymentContext, Profile
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.deployment.local.config import ImageSettings, LocalDeploymentConfig
-from olf.common.profile import Preset, ProjectImageSpec, ProjectSpec, legacy_single_stage_topology
-from olf.common.profile import Provider as ProfileProvider
-
-
-def _write_full_catalog(repo_root: Path, *, overrides: dict[str, str] | None = None) -> Path:
-    """A catalog covering every chart the local provider might resolve - a
-    real `component-catalog.yaml` always declares all of them, so a partial
-    fixture would make `CatalogChart.load` raise for any chart beyond the
-    one(s) a given test focuses on."""
-    from olf.common.chart_pins import CHART_DEFAULTS
-
-    overrides = overrides or {}
-    lines = ["components:", "  helm:", "    charts:"]
-    for index, (name, default) in enumerate(CHART_DEFAULTS.items()):
-        sha256 = overrides.get(name, f"{index:0>2}" * 32)
-        lines.extend(
-            [
-                f"      {name}:",
-                f"        repository: {default.repository}",
-                f"        reference: {default.chart_ref}",
-                f"        version: {default.version}",
-                f'        sha256: "{sha256}"',
-            ]
-        )
-    catalog_path = repo_root / "release/component-catalog.yaml"
-    catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    catalog_path.write_text("\n".join(lines) + "\n")
-    return catalog_path
+from olf.common.profile import ProjectImageSpec, ProjectSpec
 
 
 def test_full_profile_defaults(tmp_path: Path) -> None:
@@ -211,28 +184,9 @@ def test_a_user_var_file_resolves_against_the_project_not_the_payload(tmp_path: 
     assert config.terraform.var_file == project / "custom.tfvars"
 
 
-_PIN = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0-alpha.1@sha256:" + "a" * 64
-
-
 @pytest.fixture(autouse=True)
 def _amd64(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
-
-
-def _published_config(
-    tmp_path: Path,
-    environ: dict[str, str] | None = None,
-    *,
-    project: ProjectSpec | None = None,
-    project_root: Path | None = None,
-):
-    catalog = _write_full_catalog(tmp_path)
-    catalog.write_text(catalog.read_text() + f"  images:\n    project_code: {_PIN}\n")
-    topology = replace(
-        legacy_single_stage_topology(provider=ProfileProvider.LOCAL, preset=Preset.FULL), project=project
-    )
-    context = DeploymentContext.local(repo_root=project_root or tmp_path, distribution_root=tmp_path, topology=topology)
-    return LocalDeploymentConfig.from_environment(environ or {}, context=context)
 
 
 def test_no_customer_project_deploys_the_published_example_by_digest(tmp_path: Path) -> None:

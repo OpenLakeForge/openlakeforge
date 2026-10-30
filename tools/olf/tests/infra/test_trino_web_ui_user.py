@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-UI_TF = Path(__file__).parents[3] / "infra/terraform/modules/query/trino/ui.tf"
+UI_TF = Path(__file__).parents[4] / "infra/terraform/modules/query/trino/ui.tf"
 pytestmark = pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform is not installed")
 
 HARNESS = """

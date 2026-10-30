@@ -12,8 +12,8 @@ from olf.common.profile import StageName, resolve_topology, validate_deployment_
 from olf.common.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 from olf.infra.contracts import build_contract_env
 
-FIXTURES = Path(__file__).parent / "fixtures"
-REPO_ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = Path(__file__).parents[1] / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 SCHEMA = json.loads((REPO_ROOT / "docs/schema/provider-contracts.schema.json").read_text())
 
 

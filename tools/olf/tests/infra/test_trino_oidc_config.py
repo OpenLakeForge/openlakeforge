@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-OIDC_TF = Path(__file__).resolve().parents[3] / "infra/terraform/modules/query/trino/oidc.tf"
+OIDC_TF = Path(__file__).resolve().parents[4] / "infra/terraform/modules/query/trino/oidc.tf"
 
 pytestmark = pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform is not installed")
 

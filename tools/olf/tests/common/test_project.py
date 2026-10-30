@@ -44,7 +44,7 @@ def test_external_project_contains_no_distribution_assets(external_project: Path
 
 
 def test_project_validation_reports_a_valid_external_project(external_project: Path) -> None:
-    distribution = Path(__file__).resolve().parents[3]
+    distribution = Path(__file__).resolve().parents[4]
 
     report = validate_project(ProjectSpec(root=external_project, distribution_root=distribution))
 
@@ -66,7 +66,7 @@ def test_project_validation_reports_a_valid_external_project(external_project: P
 
 def test_project_validation_reports_missing_profile_without_non_json_output(external_project: Path) -> None:
     (external_project / "openlakeforge.yaml").unlink()
-    distribution = Path(__file__).resolve().parents[3]
+    distribution = Path(__file__).resolve().parents[4]
 
     result = runner.invoke(app, ["project", "validate", "--project", str(external_project)])
 
@@ -84,7 +84,7 @@ def test_project_validation_reports_missing_profile_without_non_json_output(exte
 def test_project_validation_reports_missing_plural_path(external_project: Path) -> None:
     dashboards = external_project / "lakehouse_code/dashboards"
     shutil.rmtree(dashboards)
-    distribution = Path(__file__).resolve().parents[3]
+    distribution = Path(__file__).resolve().parents[4]
 
     report = validate_project(ProjectSpec(root=external_project, distribution_root=distribution))
 
@@ -94,7 +94,7 @@ def test_project_validation_reports_missing_plural_path(external_project: Path) 
 
 def test_project_validation_reports_missing_declared_asset(external_project: Path) -> None:
     (external_project / "lakehouse_code/pipelines/dagster/order_revenue.py").unlink()
-    distribution = Path(__file__).resolve().parents[3]
+    distribution = Path(__file__).resolve().parents[4]
 
     report = validate_project(ProjectSpec(root=external_project, distribution_root=distribution))
 
@@ -106,7 +106,7 @@ def test_project_validation_reports_missing_declared_asset(external_project: Pat
 def test_project_validation_reports_invalid_descriptors(external_project: Path) -> None:
     lakehouse = external_project / "lakehouse_code/governance.yml"
     lakehouse.write_text("apiVersion: invalid\n", encoding="utf-8")
-    distribution = Path(__file__).resolve().parents[3]
+    distribution = Path(__file__).resolve().parents[4]
 
     report = validate_project(ProjectSpec(root=external_project, distribution_root=distribution))
 
@@ -140,7 +140,7 @@ def test_project_code_check_uses_external_code_and_distribution_dependencies(
 
     _project_code.project_code(str(external_project))
 
-    distribution = Path(__file__).resolve().parents[3]
+    distribution = Path(__file__).resolve().parents[4]
     argv, cwd, env = calls[-1]
     assert argv[-1] == str(external_project)
     assert cwd == external_project

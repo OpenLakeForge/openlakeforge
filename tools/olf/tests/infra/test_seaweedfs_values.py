@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-VALUES = Path(__file__).parents[3] / "infra/helm/values/local/seaweedfs.yaml"
+VALUES = Path(__file__).parents[4] / "infra/helm/values/local/seaweedfs.yaml"
 
 
 def test_object_data_survives_pod_replacement() -> None:

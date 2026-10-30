@@ -9,7 +9,7 @@ from pathlib import Path
 
 from test_postgresql_credentials_job import FAKE_KUBECTL
 
-MODULE = Path(__file__).resolve().parents[3] / "infra/terraform/modules/storage/seaweedfs"
+MODULE = Path(__file__).resolve().parents[4] / "infra/terraform/modules/storage/seaweedfs"
 TEMPLATE = MODULE / "templates/credentials.sh.tftpl"
 KEYS = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
 STAGE_ACTIONS = {

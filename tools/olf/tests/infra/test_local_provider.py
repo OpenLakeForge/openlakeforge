@@ -267,7 +267,7 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
 def test_the_image_command_returns_the_published_example_without_building(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     import platform
 
-    from test_local_config import _PIN, _published_config
+    from _local_config_support import _PIN, _published_config
 
 
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")

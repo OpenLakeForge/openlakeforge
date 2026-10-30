@@ -7,7 +7,7 @@ from openlakeforge_domain import CatalogNamespace
 
 from olf.infra import catalog
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def ns(name: str, location: str) -> CatalogNamespace:

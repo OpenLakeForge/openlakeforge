@@ -10,8 +10,8 @@ import yaml
 from olf.common import contracts_check
 from olf.common.contracts_check import _hcl
 
-ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parents[4]
+FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 
 def _repo_with_schemas(tmp_path: Path) -> Path:

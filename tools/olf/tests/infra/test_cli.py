@@ -249,7 +249,7 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
         # The selected project root holds no `libs`, which stays
         # distribution-owned; without this the render_profiles import below
         # resolves against the project root and fails.
-        monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(Path(__file__).resolve().parents[3]))
+        monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(Path(__file__).resolve().parents[4]))
         yield
 
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
@@ -272,7 +272,7 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
     `from libs.dbt.render_profiles import ...` - only inserting the
     project root on sys.path leaves that import unresolvable.
     """
-    distribution_root = Path(__file__).resolve().parents[3]
+    distribution_root = Path(__file__).resolve().parents[4]
     project_root = tmp_path / "custom-project"
     project = project_root / "lakehouse_code/gold/demo/dbt"
     project.mkdir(parents=True)

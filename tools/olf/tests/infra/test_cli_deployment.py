@@ -132,7 +132,7 @@ def test_platform_apply_opts_into_stage_removal_only_when_asked(
 
     monkeypatch.setattr("olf.infra.commands.platform.deployment_context_for_profile", resolve)
     monkeypatch.setattr("olf.infra.commands.platform._engine", lambda *a, **k: _FakeEngine())
-    profile = Path(__file__).resolve().parents[3] / "openlakeforge.conformance.yaml"
+    profile = Path(__file__).resolve().parents[4] / "openlakeforge.conformance.yaml"
 
     result = runner.invoke(app, ["platform", "apply", "-f", str(profile), *flag])
 
@@ -364,7 +364,7 @@ def test_profile_context_keeps_an_external_checkout_separate_from_the_distributi
 
     monkeypatch.delenv("OPENLAKEFORGE_REPO_ROOT", raising=False)
     monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)
-    checkout = Path(__file__).resolve().parents[3]
+    checkout = Path(__file__).resolve().parents[4]
 
     context = deployment_context_for_profile(str(external_project / "openlakeforge.yaml"))
 

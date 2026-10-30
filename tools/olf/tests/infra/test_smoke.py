@@ -38,7 +38,7 @@ def test_run_uses_deployment_engine_and_e2e_without_make(monkeypatch: pytest.Mon
             "LOCAL_KUBECONFIG_PATH": str(tmp_path / "ci.yaml"),
             # tmp_path has no release/component-catalog.yaml; managed
             # toolchain resolution is exercised separately in
-            # tests/test_toolchain_resolver.py.
+            # tests/common/test_toolchain_resolver.py.
             "OLF_TOOLCHAIN_MODE": "host",
         },
         monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__,

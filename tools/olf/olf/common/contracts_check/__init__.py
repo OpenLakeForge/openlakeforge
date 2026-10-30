@@ -5,7 +5,7 @@ structured checks: parsed Terraform HCL, the canonical domain model plus
 JSON Schema, and the Floe project layout, and parsed Helm values. There is no shell left to
 cover — `olf check structure` rejects tracked `.sh` files (ADR 0008). Deploy
 phase ordering is covered separately by
-`tools/olf/tests/test_deployment_engine.py`, not by this module.
+`tools/olf/tests/infra/test_deployment_engine.py`, not by this module.
 """
 
 from __future__ import annotations

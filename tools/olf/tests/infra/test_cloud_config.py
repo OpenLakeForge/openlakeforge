@@ -426,7 +426,7 @@ _PIN = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0-alpha.1@sha256:" 
 def _published_config(tmp_path: Path, environ: dict[str, str] | None = None, *, project=None) -> CloudDeploymentConfig:
     from dataclasses import replace
 
-    from test_local_config import _write_full_catalog
+    from _local_config_support import _write_full_catalog
 
     from olf.common.profile import Preset, legacy_single_stage_topology
     from olf.common.profile import Provider as ProfileProvider

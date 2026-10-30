@@ -4,7 +4,7 @@ from pathlib import Path
 
 from olf.common.commands.checks._flows import ADR_PATH, FLOWS_PATH, flow_errors
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 VALID = (
     "workloads:\n  pg: {app.kubernetes.io/name: postgresql}\nflows:\n  - id: F6\n    from: {scope: stage}\n"
     "    to: {scope: shared, pods: {app.kubernetes.io/name: postgresql}}\n    ports: [5432]\n    tag: V\n"

@@ -24,7 +24,7 @@ from olf.common.scaffold.domain import plan_domain_new
 from olf.common.scaffold.product import plan_product_new
 from olf.common.scaffold.source import plan_source_new
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 runner = CliRunner()
 
 

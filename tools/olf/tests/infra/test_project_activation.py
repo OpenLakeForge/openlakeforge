@@ -117,7 +117,7 @@ def test_active_pointer_reads_immutable_activation(tmp_path: Path) -> None:
 
 
 def test_materialize_uses_only_verified_published_content(external_project: Path, tmp_path: Path) -> None:
-    distribution_root = Path(__file__).resolve().parents[3]
+    distribution_root = Path(__file__).resolve().parents[4]
     spec = ProjectSpec(root=external_project, distribution_root=distribution_root)
     manifest = project_revision.build_project_revision(
         spec,

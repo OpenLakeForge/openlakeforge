@@ -20,8 +20,8 @@ from olf.common.profile import (
     validate_deployment_profile,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures" / "profiles"
-SCHEMAS = Path(__file__).resolve().parents[3] / "docs" / "schema"
+FIXTURES = Path(__file__).parents[1] / "fixtures" / "profiles"
+SCHEMAS = Path(__file__).resolve().parents[4] / "docs" / "schema"
 
 
 def _load_fixture(name: str) -> dict:
@@ -29,7 +29,7 @@ def _load_fixture(name: str) -> dict:
 
 
 def test_load_deployment_profile_parses_the_repo_root_profile() -> None:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[4]
 
     profile = load_deployment_profile(repo_root / "openlakeforge.yaml")
 

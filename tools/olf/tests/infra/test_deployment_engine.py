@@ -11,7 +11,7 @@ from olf.common.deployment.errors import DeploymentPreconditionError, Unsupporte
 from olf.common.profile import Provider
 from olf.infra.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 
 
 def _runnable_project(tmp_path: Path) -> Path:

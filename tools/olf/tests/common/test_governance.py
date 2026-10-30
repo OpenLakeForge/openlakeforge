@@ -11,7 +11,7 @@ from openlakeforge_domain import LakehouseDescriptorError, load_governance_descr
 
 from olf.common.contracts_check._governance import _check_governance_conformance
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 SCHEMAS = ROOT / "docs/schema"
 GOVERNANCE = """\
 apiVersion: openlakeforge.io/v1beta1

@@ -6,7 +6,7 @@ import yaml
 from olf.common.release import _readiness
 from olf.common.release._manifest import load_catalog
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 
 
 def test_check_images_digest_pinned_flags_missing_digest() -> None:

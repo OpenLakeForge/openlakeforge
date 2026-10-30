@@ -14,8 +14,8 @@ from olf.common.profile import resolve_topology, validate_deployment_profile
 from olf.infra import k8s, superset
 from olf.infra.contracts import build_contract_env
 
-FIXTURES = Path(__file__).parent / "fixtures"
-REPO_ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = Path(__file__).parents[1] / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 _EXTERNAL_IDENTITY = {
@@ -483,7 +483,7 @@ def test_the_v2_dev_compatibility_contract_still_resolves() -> None:
     from olf.infra.contracts import build_contract_env
 
     contract = json.loads((FIXTURES / "local-provider-contracts.json").read_text())
-    exports, _ = build_contract_env({}, contract, repo_root=Path(__file__).resolve().parents[3])
+    exports, _ = build_contract_env({}, contract, repo_root=Path(__file__).resolve().parents[4])
 
     target = superset.resolve_stage_report_target(exports, stage="dev")
 

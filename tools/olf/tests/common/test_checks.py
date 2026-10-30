@@ -10,7 +10,7 @@ from olf.common.commands.checks import _project_code, _shared, _structure
 
 
 def test_dashboard_validation_accepts_the_repository_assets() -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
 
     assert dashboard_checks.validate_superset_assets(root) == []
 

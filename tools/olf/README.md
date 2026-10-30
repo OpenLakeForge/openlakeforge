@@ -61,14 +61,14 @@ Run every command from the repository root.
    example covers `tools/olf/olf/infra/deployment/cloud/config.py`:
 
 ```sh
-   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py
+   uv run --project tools/olf pytest tools/olf/tests/infra/test_cloud_config.py
 ```
 
    To list the tests in a module and run one of them:
 
 ```sh
-   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py --collect-only -q
-   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py -k test_image_platform_env_var_is_scope_prefixed
+   uv run --project tools/olf pytest tools/olf/tests/infra/test_cloud_config.py --collect-only -q
+   uv run --project tools/olf pytest tools/olf/tests/infra/test_cloud_config.py -k test_image_platform_env_var_is_scope_prefixed
 ```
 
 3. Lint the file you touched:

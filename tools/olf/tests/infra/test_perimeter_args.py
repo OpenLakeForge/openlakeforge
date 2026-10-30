@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-MAIN = Path(__file__).resolve().parents[3] / "infra/terraform/modules/access/perimeter/main.tf"
+MAIN = Path(__file__).resolve().parents[4] / "infra/terraform/modules/access/perimeter/main.tf"
 
 
 def test_parallel_sign_ins_get_their_own_csrf_cookie() -> None:

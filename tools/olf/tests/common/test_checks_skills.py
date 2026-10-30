@@ -8,7 +8,7 @@ import typer.main
 from olf.cli import app
 from olf.common.commands.checks import _skills
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 CLI = typer.main.get_group(app)
 
 VALID = """\

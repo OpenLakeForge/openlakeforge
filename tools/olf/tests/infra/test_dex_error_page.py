@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-MAIN = Path(__file__).resolve().parents[3] / "infra/terraform/modules/identity/dex/main.tf"
+MAIN = Path(__file__).resolve().parents[4] / "infra/terraform/modules/identity/dex/main.tf"
 
 
 def test_error_page_is_mounted_over_the_stock_template_with_both_causes() -> None:

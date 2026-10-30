@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT))
 PROJECTS = sorted(REPO_ROOT.glob("lakehouse_code/gold/*/dbt"))
 # No default: an unset stage catalog fails the run instead of reaching DEV.

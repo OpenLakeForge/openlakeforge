@@ -9,7 +9,7 @@ from pathlib import Path
 
 from test_postgresql_credentials_job import FAKE_KUBECTL
 
-MODULE = Path(__file__).resolve().parents[3] / "infra/terraform/modules/analytics/superset"
+MODULE = Path(__file__).resolve().parents[4] / "infra/terraform/modules/analytics/superset"
 
 
 def _script() -> str:

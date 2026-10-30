@@ -58,7 +58,7 @@ def test_accepts_a_tree_whose_pages_are_listed_and_whose_links_resolve(tree: Pat
 
 
 def test_accepts_the_repository_docs() -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
 
     assert _docs.docs_errors(root) == []
 

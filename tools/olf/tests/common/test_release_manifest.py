@@ -6,7 +6,7 @@ import yaml
 
 from olf.common.release import _manifest
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 
 
 def _write_catalog(tmp_path: Path, **overrides) -> Path:

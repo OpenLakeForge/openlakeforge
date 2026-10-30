@@ -19,8 +19,8 @@ from olf.infra import project_activation, project_revision
 from olf.infra.artifact_store import FilesystemRevisionStore
 from olf.infra.deployment import activation as activation_module
 
-FIXTURES = Path(__file__).parent / "fixtures"
-ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = Path(__file__).parents[1] / "fixtures"
+ROOT = Path(__file__).resolve().parents[4]
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
 _DEFAULT_LOCATIONS = (CodeLocation(name="openlakeforge-dagster", definitions_module="lakehouse_code.definitions"),)
 
@@ -1141,7 +1141,7 @@ def test_stage_query_tls_fields_of_a_real_contract_reach_the_code_server() -> No
 
     from olf.infra.contracts import build_contract_env
 
-    contract = json.loads((Path(__file__).parent / "fixtures/local-provider-contracts-v3.json").read_text())
+    contract = json.loads((Path(__file__).parents[1] / "fixtures/local-provider-contracts-v3.json").read_text())
     contract["stages"]["dev"]["query"].update(tls_port="8443", ca_configmap_name="olf-local-ca")
 
     exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology_of(contract), stage="dev")

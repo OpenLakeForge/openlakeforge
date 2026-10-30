@@ -39,7 +39,7 @@ def _layout(tmp_path: Path) -> RuntimeLayout:
     (definitions.parent / "__pycache__" / "definitions.pyc").write_bytes(b"stale")
     schema = distribution / "docs" / "schema"
     schema.mkdir(parents=True)
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     for name in ("governance.schema.json", "source.schema.json"):
         (schema / name).write_bytes((root / "docs" / "schema" / name).read_bytes())
     project = tmp_path / "project"

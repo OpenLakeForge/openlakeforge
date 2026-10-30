@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 _spec = importlib.util.spec_from_file_location("olf_oidc", ROOT / "images/superset/olf_oidc.py")
 assert _spec and _spec.loader
 olf_oidc = importlib.util.module_from_spec(_spec)

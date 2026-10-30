@@ -82,7 +82,7 @@ unchanged, so a contract from state predating this rollout keeps parsing;
 now resolves and passes that stage explicitly (#114); the v2 branch exists
 only for that backward-compatibility read.
 
-`tools/olf/tests/test_provider_contracts.py` validates the v3 schema and
+`tools/olf/tests/common/test_provider_contracts.py` validates the v3 schema and
 local, Azure, and AWS fixtures against the typed parser; `olf check contracts`
 covers the current Terraform v3 surface, structured HCL, and rendered
 profile/Floe output. The architecture guide records the field families and

@@ -5,8 +5,8 @@ import pytest
 
 from olf.infra.contracts import build_contract_env, render_shell_exports
 
-FIXTURES = Path(__file__).parent / "fixtures"
-REPO_ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = Path(__file__).parents[1] / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def load_fixture(name: str) -> dict:

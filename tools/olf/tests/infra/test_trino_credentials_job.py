@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[3] / "infra/terraform/modules/query/trino/templates/password-file.py"
+SCRIPT = Path(__file__).resolve().parents[4] / "infra/terraform/modules/query/trino/templates/password-file.py"
 
 
 def test_each_line_is_a_pbkdf2_entry_that_verifies_its_password() -> None:

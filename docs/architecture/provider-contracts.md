@@ -264,7 +264,7 @@ workload-identity reference; it never supplies credentials.
 
 ## Validation and migration
 
-`tools/olf/tests/test_provider_contracts.py` validates the local, Azure, and
+`tools/olf/tests/common/test_provider_contracts.py` validates the local, Azure, and
 AWS fixture contracts against the published v3 JSON Schema and the typed
 parser on every test run (`olf check contracts` covers the Terraform HCL
 surface and rendered profile/Floe output; it does not re-run the fixture

@@ -5,7 +5,7 @@ import yaml
 from olf.common.release import _compatibility
 from olf.common.release._manifest import load_catalog
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 
 
 def _write_catalog(tmp_path: Path, **overrides) -> Path:

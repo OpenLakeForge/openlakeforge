@@ -117,7 +117,7 @@ def test_a_native_v3_terraform_output_is_returned_for_a_stage_aware_caller(
 
     assert contracts == {"schema_version": "3.0.0"}
     with pytest.raises(ProviderContractError, match="requires a resolved DeploymentTopology"):
-        build_contract_env({}, contracts, repo_root=Path(__file__).resolve().parents[3])
+        build_contract_env({}, contracts, repo_root=Path(__file__).resolve().parents[4])
 
 
 def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

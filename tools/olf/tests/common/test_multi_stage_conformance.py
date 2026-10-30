@@ -37,7 +37,7 @@ from olf.infra.contracts import build_contract_env
 # (#220). Refresh it from that run's `rendered-provider-contract` artifact when
 # the root's derivation changes; the nightly's isolation probes run against the
 # live rendering, so a drifted fixture cannot hide a rendering regression.
-_LOCAL_CONTRACT_FIXTURE = Path(__file__).parent / "fixtures" / "conformance-provider-contracts.json"
+_LOCAL_CONTRACT_FIXTURE = Path(__file__).parents[1] / "fixtures" / "conformance-provider-contracts.json"
 
 
 def _local_contract_for(topology: DeploymentTopology) -> dict[str, Any]:

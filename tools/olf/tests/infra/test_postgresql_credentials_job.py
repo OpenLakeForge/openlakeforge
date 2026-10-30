@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 TEMPLATE = (
-    Path(__file__).resolve().parents[3] / "infra/terraform/modules/storage/postgresql/templates/credentials.sh.tftpl"
+    Path(__file__).resolve().parents[4] / "infra/terraform/modules/storage/postgresql/templates/credentials.sh.tftpl"
 )
 
 # A stand-in for kubectl that keeps Secrets as files, one directory per Secret.

@@ -10,7 +10,7 @@ from openlakeforge_domain import (
     load_source,
 )
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 
 
 def _lakehouse(product_id: str = "revenue", domain: str = "sales") -> str:

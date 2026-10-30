@@ -9,7 +9,7 @@ from openlakeforge_domain.inventory import Source
 
 from olf.infra.deployment.source_bindings import missing_source_bindings
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT))
 
 from libs.source_bindings import K8S_CONFIG_TAG, source_binding_tags  # noqa: E402

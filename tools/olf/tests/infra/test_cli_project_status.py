@@ -26,7 +26,7 @@ from olf.common.profile import StageName, resolve_topology, validate_deployment_
 from olf.infra.commands import project as project_cmd
 from olf.infra.project_activation import ProjectActivation
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parents[1] / "fixtures"
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
 _DIGEST = "sha256:" + "b" * 64
 _ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
@@ -78,7 +78,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     locations = contract["stages"]["dev"]["orchestration"]["code_locations"]
     context = DeploymentContext.local(
         repo_root=tmp_path,
-        distribution_root=Path(__file__).resolve().parents[3],
+        distribution_root=Path(__file__).resolve().parents[4],
         topology=topology,
         stage="dev",
         work_root=tmp_path / "work",

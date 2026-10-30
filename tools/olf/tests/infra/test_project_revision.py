@@ -8,7 +8,7 @@ from olf.common.project import ProjectSpec
 from olf.infra import project_revision
 from olf.infra.artifact_store import FilesystemRevisionStore
 
-_DISTRIBUTION_ROOT = Path(__file__).resolve().parents[3]
+_DISTRIBUTION_ROOT = Path(__file__).resolve().parents[4]
 _DIGEST_IMAGE = "ghcr.io/openlakeforge/openlakeforge-project-code@sha256:" + "a" * 64
 _DISTRIBUTION_VERSION = "0.2.0-alpha.1"
 

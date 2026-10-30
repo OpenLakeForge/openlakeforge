@@ -9,7 +9,7 @@ from pathlib import Path
 from test_postgresql_credentials_job import FAKE_KUBECTL
 
 TEMPLATE = (
-    Path(__file__).resolve().parents[3]
+    Path(__file__).resolve().parents[4]
     / "infra/terraform/modules/governance/openmetadata/templates/bootstrap.sh.tftpl"
 )
 

@@ -222,7 +222,7 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
 
 def _contract_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, stage: str) -> None:
     """Point e2e at an exported contract file only: no Terraform directory exists."""
-    contract = json.loads((Path(__file__).parent / "fixtures" / "local-provider-contracts-v3.json").read_text())
+    contract = json.loads((Path(__file__).parents[1] / "fixtures" / "local-provider-contracts-v3.json").read_text())
     contract["stages"]["prod"]["orchestration"]["code_locations"] = [
         {"name": "sales", "definitions_module": "lakehouse_code.sales"},
         {"name": "supply-chain", "definitions_module": "lakehouse_code.supply_chain"},

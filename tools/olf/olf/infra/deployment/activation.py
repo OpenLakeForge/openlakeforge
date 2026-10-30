@@ -74,7 +74,7 @@ _RUNTIME_ALIASES = (
 # OPENLAKEFORGE_* name in the operator's process also shipped workstation
 # paths, deployer Secret names and settings no workload reads (#546). The
 # *_SECRET_NAME and *_KEY names are Secret and key names the Floe Job spec
-# references, never credential values. tests/test_deployment_activation.py
+# references, never credential values. tests/infra/test_deployment_activation.py
 # fails when runtime code reads a name this list does not account for.
 _RUNTIME_ENV = (
     "OPENLAKEFORGE_ARTIFACT_BASE_URI",

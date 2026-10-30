@@ -148,7 +148,7 @@ been written.
 implementation must keep the test passing. Do not assert on private attributes
 or internal call order, and do not write a mock that restates the function body
 — that tests the mock. Drive behaviour from fixtures, as
-`tools/olf/tests/test_contracts_check.py` does with its invalid-descriptor
+`tools/olf/tests/common/test_contracts_check.py` does with its invalid-descriptor
 files. One module per `olf` module, broadly; new `olf` behaviour ships with
 tests in the same change.
 

@@ -67,7 +67,7 @@ def test_hourly_refresh_runs_the_same_pod_as_the_job(environ):
 
 
 def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
-    module = Path(__file__).parents[3] / "infra/terraform/modules/governance/openmetadata"
+    module = Path(__file__).parents[4] / "infra/terraform/modules/governance/openmetadata"
     assert not (module / "refresh.tf").exists()
     assert "$catalog_service-metadata-ingestion" not in (module / "templates/bootstrap.sh.tftpl").read_text()
 

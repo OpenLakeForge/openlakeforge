@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 
 
 def test_catalog_declares_release_and_lockfiles() -> None:

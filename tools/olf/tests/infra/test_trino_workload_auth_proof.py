@@ -7,7 +7,7 @@ import importlib.util
 import re
 from pathlib import Path
 
-PROOF = Path(__file__).resolve().parents[3] / "docs" / "testing" / "trino_workload_auth_proof.py"
+PROOF = Path(__file__).resolve().parents[4] / "docs" / "testing" / "trino_workload_auth_proof.py"
 spec = importlib.util.spec_from_file_location("trino_workload_auth_proof", PROOF)
 proof = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proof)
