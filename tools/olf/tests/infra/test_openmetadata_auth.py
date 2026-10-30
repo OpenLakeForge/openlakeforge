@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from openlakeforge_services.governance import MetadataReconciler
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
 from olf.infra import k8s
 from olf.infra.openmetadata import _auth
-from olf.infra.openmetadata._reconciliation import OpenMetadataReconciler
 
 
 def test_automation_token_is_the_secret_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,7 +33,7 @@ def test_automation_token_is_none_without_sso(monkeypatch: pytest.MonkeyPatch) -
 def test_basic_login_is_skipped_with_the_automation_token() -> None:
     client = OpenMetadataClient("http://om", token="bot")
     # The config is read only by the basic login, which must not be reached.
-    reconciler = OpenMetadataReconciler(None, client)  # type: ignore[arg-type]
+    reconciler = MetadataReconciler(None, client)  # type: ignore[arg-type]
 
     reconciler.login()
 

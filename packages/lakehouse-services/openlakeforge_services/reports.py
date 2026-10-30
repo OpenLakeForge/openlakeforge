@@ -13,12 +13,13 @@ import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol
+from typing import Any
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
+from .progress import SILENT, Progress
 from .superset import SupersetClient
 
 # Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
@@ -33,25 +34,6 @@ STAGE_NEUTRAL_SQLALCHEMY_URI = "trino://superset@trino:8080/iceberg"
 # Superset creates this role empty (images/superset/olf_oidc.py); analysts and
 # viewers read nothing until it holds the imported schemas.
 DATA_ACCESS_ROLE = "olf_data_access"
-
-
-class Progress(Protocol):
-    """Where an operation reports what it is doing; `olf`'s `log` module is one."""
-
-    def step(self, message: str) -> None: ...
-
-    def info(self, message: str) -> None: ...
-
-
-class _Silent:
-    def step(self, message: str) -> None:
-        pass
-
-    def info(self, message: str) -> None:
-        pass
-
-
-SILENT: Progress = _Silent()
 
 
 @dataclass(frozen=True)
