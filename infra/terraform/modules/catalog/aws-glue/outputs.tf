@@ -21,7 +21,7 @@ output "contract" {
     # catalog_namespaces here: database lifecycle is reconciled in Phase 2
     # (ADR 0002), so Phase 1 has nothing authoritative to report. Omitting the
     # keys -- rather than emitting empty lists -- is what lets
-    # olf/contracts.py fall back to the descriptor-derived values instead of
+    # olf/infra/contracts.py fall back to the descriptor-derived values instead of
     # exporting an empty JSON array over them.
     endpoint                     = local.rest_uri
     auth_mode                    = "aws-sigv4-pod-identity"

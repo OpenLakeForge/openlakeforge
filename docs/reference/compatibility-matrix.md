@@ -57,7 +57,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | openmetadata | 1.13.6 |
 | openmetadata-dependencies | 1.13.6 |
 | polaris | 1.4.1 |
-| seaweedfs | 4.23.0 |
+| seaweedfs | 4.48.0 |
 | superset | 0.15.5 |
 | traefik | 41.6.1 |
 | trino | 1.42.2 |
@@ -82,6 +82,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | cert_manager_controller | `quay.io/jetstack/cert-manager-controller:v1.21.2@sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8` |
 | cert_manager_startupapicheck | `quay.io/jetstack/cert-manager-startupapicheck:v1.21.2@sha256:46e75b6866359ffb5d82624f41e3ed1c70b2994982702ced547ce5edb418a8f5` |
 | cert_manager_webhook | `quay.io/jetstack/cert-manager-webhook:v1.21.2@sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae` |
+| dagster_busybox | `docker.io/busybox:1.28@sha256:141c253bc4c3fd0a201d32dc1f493bcf3fff003b6df416dea4f41046e0f37d47` |
 | dagster_control_plane | `docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee` |
 | dex | `ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777` |
 | k8s_bootstrap | `alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e` |
@@ -93,7 +94,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | portal | `ghcr.io/openlakeforge/openlakeforge-portal:0.3.0@sha256:544523333c3cd83e0e73b281529e1c9ccc93b4eb87e8c0964b82211e219beae9` |
 | postgres | `postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777` |
 | project_code_base | `python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de` |
-| seaweedfs | `chrislusf/seaweedfs:4.23@sha256:c6d6fb84b081f1f09bb089184ff4b45d2f163a1bfa8b354d04cf400c6e06f242` |
+| seaweedfs | `chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d` |
 | superset | `ghcr.io/openlakeforge/openlakeforge/superset:0.5.0-alpha.1@sha256:ef312c379b0f58faa77e70192cc909b730f4a228fed1ce1614b5bed0118eb08e` |
 | superset_base | `apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705` |
 | superset_init | `apache/superset:dockerize@sha256:afe59523a6c8774c3b16d0f44146b2e52f327a7d26a47b4cc63b904fcdedf057` |

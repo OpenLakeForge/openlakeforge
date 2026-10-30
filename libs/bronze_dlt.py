@@ -23,18 +23,6 @@ from openlakeforge_domain import load_source
 
 from libs.bronze_csv import BronzeLoadResult
 
-# Floe merges every pending Bronze file of an entity in one MERGE and, when a
-# key repeats, keeps its first row in URI order. A Silver run that catches up
-# on several batches must keep the newest version of a row, so the newest
-# batch has to sort first: file names start with a countdown from the load id.
-# Drop this once Floe keeps the last occurrence instead.
-_NEWEST_FIRST_FROM = 10**17
-_LAYOUT = "{table_name}/{newest_first}.{load_id}.{file_id}.{ext}"
-
-
-def _newest_first(schema_name: str, table_name: str, load_id: str, file_id: str, ext: str) -> str:
-    return f"{_NEWEST_FIRST_FROM - int(float(load_id) * 1_000_000):017d}"
-
 
 def _declared_cursor(resource: Any) -> str | None:
     wrapper = resource.incremental
@@ -79,14 +67,15 @@ def bronze_pipeline(
         )
         if (value := env.get(name, "").strip())
     }
+    # dlt's default layout, `<resource>/<load_id>.<file_id>.<ext>`, sorts batches
+    # oldest first. Floe orders pending files by URI and, for a key that repeats
+    # across them, merges the latest file's row, so a layout must keep that order.
     return dlt.pipeline(
         pipeline_name=f"{stage}__{source}",
         pipelines_dir=tempfile.mkdtemp(prefix=f"olf-dlt-{source}-"),
         destination=dlt.destinations.filesystem(
             bucket_url=destination,
             credentials=credentials if destination.startswith("s3://") else None,
-            layout=_LAYOUT,
-            extra_placeholders={"newest_first": _newest_first},
         ),
         dataset_name=source,
     )

@@ -121,7 +121,22 @@ The provider contract is therefore the single owner:
 `stages.<name>.orchestration.code_locations` carries `{name,
 definitions_module}` per entry, emitted by every environment root from the same
 Terraform local it passes to the Dagster module, and read back by `olf` through
-`olf.provider_contracts`. Neither consumer holds its own copy.
+`olf.common.provider_contracts`. Neither consumer holds its own copy.
+
+### A full refresh is a run tag
+
+A full refresh is a property of one run, not of a descriptor. The run tag
+`openlakeforge/full_refresh` (`bronze` or `gold`) is the contract between
+whoever launches the run (the Dagster launchpad, or `olf product run
+--full-refresh`) and the project-code runtime; `openlakeforge_domain.runs`
+holds it. A tag reaches every asset of the job without each one declaring a
+config schema, including the Floe assets dagster-floe builds. Both scopes run
+`dbt build --full-refresh`. `bronze` also drops the files and dlt cursors of
+the job's incremental Bronze resources and extracts them again. Silver merges
+that extract: dagster-floe 0.4.2 cannot pass Floe's `--full-refresh` for one
+run, so a row deleted at the source stays in Silver. There is no Silver-only
+scope: incremental Bronze keeps every batch, so Silver can only be rebuilt
+from a Bronze reloaded in full.
 
 ### Kubernetes run launcher
 
@@ -173,3 +188,6 @@ provider-specific profiles (`local`, `aws`, `azure`) and the image's
 `DBT_PROFILE_ENV` choice are replaced by one profile of `env_var()`
 references, and the manifest baked at build is parsed with placeholders
 instead of the local DEV catalog.
+
+2026-10-30 (#342, #344): a run tag asks one run for a full refresh, and `olf
+product run` launches a product with it.

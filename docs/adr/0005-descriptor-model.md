@@ -57,11 +57,6 @@ Silver's mode stays in the Floe contract and Gold's in the dbt model, because
 Floe and dbt own those layers. `olf check contracts` checks that the Bronze
 and Silver modes fit together.
 
-A full refresh is a property of one run, not of a descriptor. The run tag
-`openlakeforge/full_refresh` (`bronze` or `gold`) is the contract between
-`olf product run` and the project-code runtime; `openlakeforge_domain.runs`
-holds it. `docs/reference/descriptors.md` lists what each scope rebuilds.
-
 ### `openlakeforge-domain-model` is the only implementation
 
 The `packages/domain-model/` distribution, imported as `openlakeforge_domain`,
@@ -129,6 +124,5 @@ tables in a stage's `<product>_gold` and `<domain>_silver` schemas through
 Trino. A project still on `lakehouse.yaml` does not load; rewrite it as
 `governance.yml` (alpha, no production deployments).
 
-2026-10-30 (#342, #343, #344): `Source` resources gained an optional `load`
-block, and the full-refresh run tag was added. The field is optional and
-defaults to today's behaviour, so `Source` stays `v1alpha3`.
+2026-10-30 (#342, #343): `Source` resources gained an optional `load` block.
+It defaults to today's behaviour, so `Source` stays `v1alpha3`.

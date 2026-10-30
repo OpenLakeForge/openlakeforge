@@ -70,6 +70,7 @@ labels expressing intended sequence within a milestone.
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
+| `skills/` | Agent skills for people operating a stack with `olf`; validated by `olf check skills` |
 | `infra/terraform/environments/` | Per-environment wiring; `contracts.tf` is the contract surface |
 | `infra/terraform/foundations/` | Cluster and registry creation (kind, AKS, EKS) |
 | `infra/terraform/modules/` | Component modules grouped by capability |
@@ -132,7 +133,7 @@ review than it saved to write.
 recording something the reader cannot recover from the code: a provider
 constraint, an upstream bug, a trade-off, a reason the obvious approach fails.
 Two examples of the house pattern —
-`tools/olf/olf/deployment/cloud/config.py` explaining why `var_file` and
+`tools/olf/olf/infra/deployment/cloud/config.py` explaining why `var_file` and
 `foundation_var_file` are separate channels (because a shared one would fail
 Azure's `-var-file` validation), and `tools/olf/tests/conftest.py`'s toolchain
 fixture explaining that without it, tests download real binaries into the
@@ -147,7 +148,7 @@ been written.
 implementation must keep the test passing. Do not assert on private attributes
 or internal call order, and do not write a mock that restates the function body
 — that tests the mock. Drive behaviour from fixtures, as
-`tools/olf/tests/test_contracts_check.py` does with its invalid-descriptor
+`tools/olf/tests/common/test_contracts_check.py` does with its invalid-descriptor
 files. One module per `olf` module, broadly; new `olf` behaviour ships with
 tests in the same change.
 
@@ -175,7 +176,7 @@ this rule stops one.
 
 Split along the seams the architecture already has:
 
-1. The contract change (`contracts.tf`, `olf/provider_contracts/`, a schema) with
+1. The contract change (`contracts.tf`, `olf/common/provider_contracts/`, a schema) with
    its tests, and no adapter using it yet.
 2. One pull request per provider adapter — local, then AWS, then Azure.
 3. Docs and ADR updates land with the change that makes them true, not after.

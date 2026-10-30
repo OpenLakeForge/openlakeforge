@@ -21,7 +21,7 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf deploy\|destroy\|status\|forward --provider P` | Orchestrate a provider lifecycle without shell wrappers. |
 | `olf auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0008). |
 | `olf toolchain list\|install\|path\|clean` | Inspect, provision, or remove the managed Terraform/Helm/kubectl/kind toolchain under `OLF_HOME`. |
-| `olf check structure\|docs\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates; `docs` validates `docs/navigation.yaml` and every relative docs link. |
+| `olf check structure\|docs\|skills\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates; `docs` validates `docs/navigation.yaml` and every relative docs link; `skills` validates the agent skills under `skills/` and every `olf` command they show. |
 | `olf contracts env\|check` | Print the resolved provider contract environment, or validate it against the active provider/profile. |
 | `olf dbt parse [--project-dir D]` | Render dbt profiles and run `dbt deps`/`dbt parse` for one or every product Gold project. |
 | `olf source new NAME --resource R` / `olf domain new NAME --input SRC/RESOURCE` / `olf product new DOMAIN/PRODUCT --input ... --gold-table T` | Golden-path scaffolding for a Bronze source, Silver domain, or Gold product. |
@@ -58,23 +58,23 @@ Run every command from the repository root.
 ```
 
 2. While iterating, run only the test module for the code you changed. This
-   example covers `tools/olf/olf/deployment/cloud/config.py`:
+   example covers `tools/olf/olf/infra/deployment/cloud/config.py`:
 
 ```sh
-   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py
+   uv run --project tools/olf pytest tools/olf/tests/infra/test_cloud_config.py
 ```
 
    To list the tests in a module and run one of them:
 
 ```sh
-   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py --collect-only -q
-   uv run --project tools/olf pytest tools/olf/tests/test_cloud_config.py -k test_image_platform_env_var_is_scope_prefixed
+   uv run --project tools/olf pytest tools/olf/tests/infra/test_cloud_config.py --collect-only -q
+   uv run --project tools/olf pytest tools/olf/tests/infra/test_cloud_config.py -k test_image_platform_env_var_is_scope_prefixed
 ```
 
 3. Lint the file you touched:
 
 ```sh
-   uv run --project tools/olf ruff check tools/olf/olf/deployment/cloud/config.py
+   uv run --project tools/olf ruff check tools/olf/olf/infra/deployment/cloud/config.py
 ```
 
 4. Before opening a pull request, run all the gates from

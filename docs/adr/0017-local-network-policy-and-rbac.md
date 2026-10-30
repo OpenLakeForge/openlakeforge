@@ -239,7 +239,7 @@ slice; "exception" is recorded and pinned by the e2e check.
 | `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3 (also in [`identity-callers.md`](../architecture/identity/identity-callers.md), Dagster run launcher): no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
 | `traefik` ClusterRole | Secrets `get/list/watch` in **all** namespaces; Ingress status update [V] | TLS Secrets | Exception E4; narrowing to namespaces is a chart option, **T** |
 | cert-manager ClusterRoles | Secrets `get/list/watch/create/update/delete` cluster-wide [V] | issuing certificates | Exception E5, inherent; the controller-challenges ClusterRole also creates pods and Services for HTTP-01 solvers, and the webhook has a namespaced `dynamic-serving` Role on its CA Secret (get/list/watch/update pinned, create namespace-wide) |
-| `seaweedfs` ClusterRole `seaweedfs-rw-cr` | pods `get/list/watch/create/update/patch/delete` in **all** namespaces [V] | the chart's "hack for delete pod master after migration" | **Done (slice 4)**: `global.seaweedfs.createClusterRole: false` in `seaweedfs.yaml` [V: chart 4.23 template]; the slice 5 e2e asserts the ClusterRole is gone |
+| `seaweedfs` ClusterRole `seaweedfs-rw-cr` | pods `get/list/watch/create/update/patch/delete` in **all** namespaces [V] | the chart's "hack for delete pod master after migration" | **Done (slice 4)**: `global.seaweedfs.createClusterRole: false` in `seaweedfs.yaml` [V: chart 4.48 template]; the slice 5 e2e asserts the ClusterRole is gone |
 | `tigera-operator`, `calico-node` (Option B) | cluster-wide, privileged | the CNI | Exception E6, inherent |
 | `olf` operator and CI | the kind kubeconfig is cluster-admin | everything | Trusted (#46). No recovery Role is provisioned: `olf break-glass` uses the operator's own kubeconfig (cluster-admin on kind), see [`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md) |
 
@@ -256,11 +256,11 @@ Secret verb, or create on pods, Jobs, CronJobs or workload controllers (which
 reads Secrets by mounting them), and compares the set with E1 to E6: a new one fails the run until
 this ADR names it. The comparison is by role kind, role, subject and resources, not by name prefix; bindings to the
 `system:serviceaccounts[:<ns>]` groups apply to every ServiceAccount in the OLF namespaces. A Secret pinned by
-`resourceNames` must match the pins in `E1_PINS` (`tools/olf/olf/e2e/_network.py`), the one list of the documented names.
+`resourceNames` must match the pins in `E1_PINS` (`tools/olf/olf/infra/e2e/_network.py`), the one list of the documented names.
 
 ## Conformance test
 
-New `tools/olf/olf/e2e/_network.py`, called from `_runner.py` before the
+New `tools/olf/olf/infra/e2e/_network.py`, called from `_runner.py` before the
 pipeline checks, driven by `release/network-flows.yaml` (the flow rows, the
 denied pairs, the RBAC expectations). Probe pods use the `k8s_bootstrap` image
 (`curl`, `kubectl`, `python3`) the way `check_discovery_from_pod` does, with its
@@ -289,7 +289,7 @@ needs one line. The probe namespace and every temporary policy are removed in a
 | Flow rows, denied pairs, RBAC expectations | `release/network-flows.yaml`, schema in `docs/schema/`, validated by `olf check`; registered in `_structure.py` |
 | Policies | New module `infra/terraform/modules/security/network-policy` (`main.tf`, `variables.tf`, `outputs.tf`; `kubernetes_network_policy_v1`), instantiated once in `environments/local/main.tf` after the namespaces and given the namespace names, the `kubernetes` Service's cluster IP and the API server endpoint (a `kubernetes_endpoints_v1` data source) for F20. Local root only; AWS and Azure are out of scope |
 | RBAC changes | the modules that own the Roles (`catalog/polaris`, `governance/openmetadata`) and Helm values (`seaweedfs.yaml`) |
-| CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
+| CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/infra/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
 | Gate and canary | `foundation_up` / a deploy precondition, and `e2e/_network.py` |
 | Docs flipped from "not yet verified" | [`identity-callers.md`](../architecture/identity/identity-callers.md) Dagster and internal-reachability rows, ADR 0014 seam 3 paragraph, the #178 limitation line |
 
@@ -351,6 +351,11 @@ each as an edit to the flow file in that PR.
 
 ## History
 
+SeaweedFS chart 4.23.0 to 4.48.0: the ClusterRole is still gated by
+`global.seaweedfs.createClusterRole` and absent from the render. The new
+default Lance port on the S3 gateway is turned off (`s3.lancePort: 0`), so its
+ports and flows are unchanged.
+
 Keycloak removed (#384 slice c): the flow and RBAC tables name Dex where they
 named Keycloak, and the rows that existed only for Keycloak are deleted: F18
 (realm Job to Keycloak), F22 (Keycloak to the `spec.identity.smtp` host), F26
@@ -365,7 +370,7 @@ inventory with its exceptions, the conformance plan, the slice order and the
 maintainer's decisions. Nothing built.
 
 Slice 1a built: `olf deploy --provider local` runs the canary
-(`olf/deployment/local/network_canary.py`) after the foundation and fails
+(`olf/infra/deployment/local/network_canary.py`) after the foundation and fails
 unless a deny-all namespace blocks a client its policy-free twin reaches.
 (Superseded below by the one-pair, two-direction canary.)
 Observed once, outside `olf`'s own cluster: on a stock kind v0.31.0 cluster

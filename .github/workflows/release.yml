@@ -232,7 +232,7 @@ jobs:
           mkdir -p dist/python
           uv run --project tools/olf --locked python -c '
           from pathlib import Path
-          from olf.distribution import build_embedded_payload
+          from olf.common.distribution import build_embedded_payload
           root = Path(".")
           a = build_embedded_payload(root, archive=Path("dist/python/one.tar.gz"), metadata_path=Path("dist/python/one.json"))
           b = build_embedded_payload(root, archive=Path("dist/python/two.tar.gz"), metadata_path=Path("dist/python/two.json"))

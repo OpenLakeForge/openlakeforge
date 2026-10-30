@@ -41,7 +41,7 @@ resources:
 | `resources` | array, at least one | yes | The source's table-like inputs. |
 | `resources[].name` | identifier | yes | Unique within the source. |
 | `resources[].description` | string | no | Human-readable description. |
-| `resources[].load.mode` | `full` or `incremental` | no | `full` (the default) replaces the resource's Bronze files on every run. `incremental` appends only the rows past the cursor. See [Load modes](#load-modes). |
+| `resources[].load.mode` | `full` or `incremental` | no | `full` (the default) replaces the resource's Bronze files on every run. `incremental` declares that only the rows past the cursor should load. No loader reads it yet; see [Load modes](#load-modes). |
 | `resources[].load.cursor` | column name | with `incremental` | The column whose last loaded value the next run starts after. Not allowed with `full`. |
 | `resources[].load.primary_key` | array of column names | with `incremental` | The row's identity, which Silver merges a changed row onto. |
 | `runtime.config` | array of key names | no | Names of the non-secret settings the loader reads, such as an API base URL. |
@@ -100,20 +100,22 @@ Each layer declares its load mode where its owner keeps it:
 `olf check contracts` rejects a Silver entity whose mode does not fit its
 Bronze resource. An entity reading an incremental resource needs
 `incremental_mode: file` and a merge mode. Not `append`: a `bronze` full
-refresh lands every row again, and Floe cannot rebuild an appended table for
-one run (OpenLakeForge/floe#1091), so the refresh would duplicate the whole
-history. An entity reading a full resource cannot use `append` either, which
-would add every row again on each run.
+refresh lands every row again, and a run cannot yet rebuild Silver (see the
+known limits below), so the refresh would duplicate the whole history. An
+entity reading a full resource cannot use `append` either, which would add
+every row again on each run.
 
 A loader with an incremental resource runs its dlt source through
 `libs.bronze_dlt.load_dlt_source`. The connector declares the cursor with
 `dlt.sources.incremental` on the column `load.cursor` names, and the load
 fails if the two differ. A run with nothing new past the cursor writes no
-Bronze file, so Floe has no new file to read either.
+Bronze file, so Floe has no new file to read either. The CSV loader has no
+incremental mode: it replaces its files on every run.
 
-Floe merges an entity's pending files in one `MERGE` and keeps the first row
-of a repeated key. A Silver run catching up on several Bronze batches must
-keep the newest version, so Bronze file names sort the newest batch first.
+Floe merges an entity's pending files in one `MERGE`, in file order, and keeps
+the latest file's row when a key repeats across them. dlt names Bronze files
+after the load id, so a Silver run catching up on several batches merges each
+row's newest version.
 
 ### Full refresh
 
@@ -131,10 +133,11 @@ Silver can only be rebuilt from a Bronze reloaded in full.
 
 Known limits:
 
-- Floe rejects `--full-refresh` with merge modes, and dagster-floe has no
-  per-run option for it. After a `bronze` refresh, Silver merges the full
-  extract onto the table it already has, so a row deleted at the source stays
-  in Silver.
+- Floe 0.8.6 rebuilds a `merge_scd1` table with `floe run --full-refresh`,
+  but dagster-floe 0.4.2 has no per-run way to ask for it
+  (OpenLakeForge/floe#1097). After a `bronze` refresh, Silver therefore
+  merges the full extract onto the table it already has, so a row deleted at
+  the source stays in Silver.
 - A run killed after dlt wrote some files of a batch but before it saved
   the cursor leaves those files in Bronze. The rerun extracts the same rows
   again into a newer batch. Silver keeps the newer rows and reports the

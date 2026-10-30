@@ -16,6 +16,14 @@ for how a release is cut and verified.
 
 ### Added
 
+- Agent skills under `skills/`, in the open Agent Skills format, starting
+  with `deploying-openlakeforge`: any coding agent that loads `SKILL.md`
+  files can install `olf`, deploy, inspect, troubleshoot and tear down a
+  stack. Install them with `npx skills add OpenLakeForge/openlakeforge`.
+- `olf check skills` resolves every `olf` command a skill shows against the
+  real command tree and its options, checks the frontmatter against the Agent
+  Skills specification, and keeps links inside the skill directory. It runs
+  in `olf check all` and on every pull request.
 - `source.yaml` accepts an optional `runtime` block naming the settings
   (`config`) and credentials (`secrets`) a source's loader reads, as key names
   only. Each stage binds the values in a ConfigMap `olf-source-<source>` and a
@@ -36,7 +44,7 @@ for how a release is cut and verified.
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image
-  (`floe-python` 0.8.4, `dagster-floe` 0.4.2). The code location builds the
+  (`floe-python` 0.8.6, `dagster-floe` 0.4.2). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
   renders for its own stage, and each domain runs as one Kubernetes Job on the
   same image, which receives that profile as text and runs plain `floe`: a
