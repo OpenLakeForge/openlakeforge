@@ -22,6 +22,12 @@
       "required": ["provider", "preset", "stages"],
       "if": {"properties": {"provider": {"properties": {"type": {"const": "local"}}}}},
       "then": {"dependentRequired": {"identity": ["access"]}, "properties": {"project": {"required": ["image"]}}},
+      "allOf": [
+        {
+          "if": {"properties": {"provider": {"properties": {"type": {"const": "aws"}}}}},
+          "then": {"properties": {"storage": false}}
+        }
+      ],
       "properties": {
         "provider": {
           "type": "object",
@@ -33,6 +39,18 @@
           }
         },
         "preset": {"enum": ["slim", "full"]},
+        "query": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The shared Trino. Only `small` has a tested backend; `medium` and `large` are rejected until one lands (#324).",
+          "properties": {"size": {"enum": ["small"], "default": "small"}}
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Self-hosted object storage (SeaweedFS). Rejected on aws, whose object storage is S3. Only `small` has a tested backend; `medium` and `large` are rejected until one lands (#326).",
+          "properties": {"size": {"enum": ["small"], "default": "small"}}
+        },
         "project": {
           "type": "object",
           "additionalProperties": false,
