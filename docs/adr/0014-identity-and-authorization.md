@@ -148,8 +148,9 @@ generic OIDC) is a checklist, not a schema change:**
 1. Emit `implementation: identity.oidc` with the adapter in `adapter`.
 2. Provide `issuer_url`, `role_claim`, and `role_mapping` keyed by canonical
    role, in the issuer's own claim values.
-3. Provide all four `clients` with `client_id` and `secret_ref{name,key}`;
-   secret values never enter Terraform outputs, the provider contract, logs
+3. Provide all five `clients`: `perimeter`, `superset`, `openmetadata` and
+   `trino` with `client_id` and `secret_ref{name,key}`, and the public `olf-cli`
+   with `client_id` only (a `secret_ref` on it is rejected); secret values never enter Terraform outputs, the provider contract, logs
    or CI. Secrets the adapter generates are created in-cluster by a bootstrap
    Job, not by Terraform, so they are not in Terraform state.
 4. Declare `capabilities` honestly.
