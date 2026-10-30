@@ -2,7 +2,7 @@
 
 ## Status
 
-Decided, **build steps 1 to 3 of 8 landed** (tracked in #674): this is the
+Decided, **build steps 1 to 3 and 7 (`olf query`) of 8 landed** (tracked in #674): this is the
 design for #367. Step 1 puts `data_access` in the role model, validated by
 `olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
 catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
@@ -268,21 +268,26 @@ because Trino lists the tables of every schema and Polaris refuses Bronze and
 Silver; filtered to a Gold schema it works (verification item 6). `olf-read`
 needs no `NAMESPACE_LIST`: its grants already let it list namespaces.
 
-### 6. `olf infra query`
+### 6. `olf query`
+
+ADR 0020 places a person's own queries on the platform surface: `olf query`,
+which reaches Trino's `query_api` route and nothing in the cluster. `olf infra
+query` keeps the workload path for operators; it is what this record first
+called `--as-workload`.
 
 | Behaviour | Detail |
 | --- | --- |
-| Default | With `spec.identity.issuer: github` and `spec.access`, `olf infra query` uses the person path above. It signs in on first use or when the refresh token has expired, printing Dex's verification URL and code. A person GitHub admits to no mapped team is refused in the browser, but the device code itself stays `authorization_pending` until it expires (verification item 4), so `olf` stops polling after a bounded wait and says the sign-in was not completed or refused |
-| `--as-workload` | Today's path, kept: `kubectl exec` as `olf-<stage>-runtime`. It is the break-glass path when Dex is down (ADR 0014 lists Trino through its internal Service) and the one `olf e2e` uses. Who may use it is still who holds `pods/exec`, a platform-admin in practice |
-| No issuer | With no `spec.identity`, or `issuer: external`, `olf infra query` keeps the workload path: there is no Dex client to sign in with. An external issuer would need its own principal mapping and is not designed here |
-| Denial | Polaris's refusal reaches the person as a Trino error whose message is generic ("Failed to list namespaces"); the reason is in the error's cause chain: a 403 naming the principal, its active roles and the operation, a 401 for an invalid or expired token, or the refused token exchange when no token was sent (verification item 5). A write by a role that may only read is refused by SeaweedFS, not Polaris: the cause is an S3 `Access Denied` on the vended credential (verification item 8). `olf` reads the chain, names the role it read from the token, the stage and the schema, and says which role grants the access, from `data_access` |
-| Docstring | "It is not per-user access" becomes false on the person path and is rewritten with the build |
+| Sign-in | `olf login`, the platform session (ADR 0020): Authorization Code with PKCE in a browser, a mode-0600 session under `OLF_HOME`, refreshed when the ID token is due. For the Dex adapter it also asks for `federated:id`, which Dex does not advertise. A session from before `olf query` lacks `federated_claims`, and `olf query` asks for `olf login` again. A person in no mapped team is refused in the browser; the loopback wait ends after 5 minutes |
+| Request | `POST https://trino.<base_domain>/v1/statement`, then each `nextUri`, with the ID token as `Authorization: Bearer` and as `X-Trino-Extra-Credential: token=`, `X-Trino-User` the token's e-mail and `X-Trino-Catalog` the stage's people catalog. Output: `table`, `csv` or `json` |
+| `olf infra query` | `kubectl exec` as `olf-<stage>-runtime`, unchanged. It is the break-glass path when Dex is down (ADR 0014 lists Trino through its internal Service) and the one `olf e2e` uses for pipelines. Who may use it is still who holds `pods/exec`, a platform-admin in practice |
+| No GitHub sign-in | With no `spec.identity`, or `issuer: external`, `olf query` refuses and names `olf infra query`: there is no principal mapping for an external issuer |
+| Denial | Trino's message is generic ("Failed to list namespaces"); the reason is in the cause chain. `olf query` names it: a Polaris 403 ("your role does not reach it", pointing to `data_access`), an S3 `Access Denied` on a write ("your role may only read"), a catalog other than the people catalogs, a 401 (`olf login`), or a 403 at the perimeter (no role). Run against the pinned stack: each message comes from the real error |
 
 ### 7. Limits accepted
 
 | Limit | Why it is accepted |
 | --- | --- |
-| A write that commits after the token expires fails at the commit. Polaris receives the token captured when the query was submitted; `olf` refreshes before submitting, so a statement has about 5 minutes to reach its commit (T) | `olf infra query` is for inspection and small changes. Loads belong to pipelines, which keep their workload credentials. A longer Dex token lifetime would loosen the ADR 0014 session bound for every client |
+| A write that commits after the token expires fails at the commit. Polaris receives the token captured when the query was submitted; `olf` refreshes before submitting, so a statement has about 5 minutes to reach its commit (T) | `olf query` is for inspection and small changes. Loads belong to pipelines, which keep their workload credentials. A longer Dex token lifetime would loosen the ADR 0014 session bound for every client |
 | Polaris records the principal `github` and the active roles, not the person | Trino's query log records the person (user = e-mail). Per-person principals would need GitHub membership synced into Polaris (rejected below) |
 | The extra credential is the bearer: a client that holds another person's token gets that person's grants | Possession of a bearer token is the authority, as on every OIDC path. Trino keeps extra credentials out of the session it serialises into query information (V, `SessionRepresentation`), so the token is not shown in the UI or `system.runtime.queries` |
 | Gold-only roles see Bronze and Silver namespace names | Section 5 |
@@ -471,3 +476,12 @@ each role's catalog role to its `data_access` row. Polaris reaches Traefik for
 Dex's keys (ADR 0017, F4). Checked against the pinned Polaris 1.4.0 and Dex:
 it starts while Dex is unreachable, and a token whose groups map to no role
 reaches nothing.
+
+Build step 7, `olf query`: ADR 0020 puts a person's queries on the platform
+surface, so section 6 is `olf query`, signing in with `olf login` (PKCE, the
+platform session) rather than a device flow of its own, and `olf infra query`
+is the workload path the section called `--as-workload`. `olf login` asks Dex
+for `federated:id`. The client was run against the pinned stack of step 5: a
+data engineer writes, an analyst reads through Trino's paging, and the
+refusals (S3 on a write, Polaris on Bronze, a workload catalog) each produce
+their message.

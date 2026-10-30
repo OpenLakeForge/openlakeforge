@@ -35,6 +35,8 @@ class Instance:
     base_domain: str
     issuer: str
     client_id: str
+    # The Dex adapter (`identity.issuer: github`), which serves people's data access (ADR 0019).
+    dex: bool = False
 
     @property
     def anonymous(self) -> bool:
@@ -67,7 +69,8 @@ def resolve_instance(profile_file: str) -> Instance:
     scheme = "http" if access.issuer == "none" else "https"
     issuer = identity.issuer_url if identity.issuer == "external" else f"{scheme}://auth.{access.base_domain}"
     assert issuer is not None  # validated: issuer 'external' requires issuer_url
-    return Instance(access.base_domain, issuer, (identity.client_ids or {}).get(CLI_CLIENT, CLI_CLIENT))
+    client_id = (identity.client_ids or {}).get(CLI_CLIENT, CLI_CLIENT)
+    return Instance(access.base_domain, issuer, client_id, dex=identity.issuer == "github")
 
 
 def verify() -> bool | str:

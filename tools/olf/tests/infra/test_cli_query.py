@@ -61,7 +61,9 @@ def test_query_runs_against_the_selected_stage_catalog(tmp_path: Path, calls: li
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile, stages=("dev", "prod"))
 
-    result = runner.invoke(app, ["query", "-f", str(profile), "--stage", "prod", "--format", "csv", "SELECT 1"])
+    result = runner.invoke(
+        app, ["infra", "query", "-f", str(profile), "--stage", "prod", "--format", "csv", "SELECT 1"]
+    )
 
     assert result.exit_code == 0, result.output
     assert "ok" in result.output
@@ -80,7 +82,7 @@ def test_query_reads_the_sql_from_a_file(tmp_path: Path, calls: list[dict]) -> N
     sql = tmp_path / "report.sql"
     sql.write_text("SELECT 2", encoding="utf-8")
 
-    result = runner.invoke(app, ["query", "-f", str(profile), "--file", str(sql)])
+    result = runner.invoke(app, ["infra", "query", "-f", str(profile), "--file", str(sql)])
 
     assert result.exit_code == 0, result.output
     assert calls[0]["sql"] == "SELECT 2"
@@ -95,7 +97,7 @@ def test_query_rejects_an_empty_sql_file(
     sql = tmp_path / "empty.sql"
     sql.write_text(content, encoding="utf-8")
 
-    result = runner.invoke(app, ["query", "--file", str(sql)])
+    result = runner.invoke(app, ["infra", "query", "--file", str(sql)])
 
     assert result.exit_code == 1
     assert "the SQL is empty" in result.output
@@ -114,7 +116,7 @@ def test_query_reports_an_unreadable_sql_file_without_a_traceback(
     if path_kind == "directory":
         sql.mkdir()
 
-    result = runner.invoke(app, ["query", "--file", str(sql)])
+    result = runner.invoke(app, ["infra", "query", "--file", str(sql)])
 
     assert result.exit_code == 1
     assert f"cannot read {sql}" in result.output
@@ -127,7 +129,7 @@ def test_query_rejects_a_stage_the_profile_does_not_enable(tmp_path: Path, calls
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile)
 
-    result = runner.invoke(app, ["query", "-f", str(profile), "--stage", "prod", "SELECT 1"])
+    result = runner.invoke(app, ["infra", "query", "-f", str(profile), "--stage", "prod", "SELECT 1"])
 
     assert result.exit_code == 1
     assert "stage 'prod' is not enabled" in result.output
@@ -143,7 +145,7 @@ def test_query_rejects_a_stage_the_profile_does_not_enable(tmp_path: Path, calls
     ],
 )
 def test_query_rejects_bad_arguments(args: list[str], message: str) -> None:
-    result = runner.invoke(app, ["query", *args])
+    result = runner.invoke(app, ["infra", "query", *args])
 
     assert result.exit_code == 1
     assert message in result.output
@@ -153,7 +155,7 @@ def test_query_refuses_aws_until_glue_prefixes_are_handled(tmp_path: Path, calls
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile, provider="aws")
 
-    result = runner.invoke(app, ["query", "-f", str(profile), "SELECT 1"])
+    result = runner.invoke(app, ["infra", "query", "-f", str(profile), "SELECT 1"])
 
     assert result.exit_code == 1
     assert "does not support the aws provider" in result.output
@@ -172,7 +174,7 @@ def test_query_reports_an_invalid_provider_contract_without_a_traceback(
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile)
 
-    result = runner.invoke(app, ["query", "-f", str(profile), "SELECT 1"])
+    result = runner.invoke(app, ["infra", "query", "-f", str(profile), "SELECT 1"])
 
     assert result.exit_code == 1
     assert result.exception is None or isinstance(result.exception, SystemExit)

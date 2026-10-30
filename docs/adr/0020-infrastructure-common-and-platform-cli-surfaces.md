@@ -48,7 +48,7 @@ either command package.
 | --- | --- |
 | Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report *`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
 | Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
-| Platform | `login`, `whoami`, `logout`; `domain list` and `query` are planned |
+| Platform | `login`, `whoami`, `logout`, `query`; `domain list` is planned |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
@@ -63,11 +63,11 @@ code is not permission-free yet:
 They move to common when those validators move.
 
 `olf infra query` is workload-scoped: it runs as the stage's shared Trino
-principal. Per-person access is [ADR 0019](0019-data-plane-authorization-deferral.md).
-When that path is built, `olf query` becomes the platform command and
-`olf infra query` keeps the workload path for operators. The hidden alias
-`olf query` → `olf infra query` ends in that change, the one exception to the
-migration rule below, and `test_cli_surfaces.py` drops it in the same change.
+principal. `olf query` is the platform command for a person's own queries
+([ADR 0019](0019-data-plane-authorization-deferral.md)): it signs in with the
+platform session and reaches only Trino's `query_api` route. The hidden alias
+`olf query` → `olf infra query` ended with it, the one exception to the
+migration rule below.
 
 `olf check contracts` and `olf contracts check` are common, but one of their
 checks (`hcl_phase_two_invariants`) runs `terraform output` against applied
@@ -82,8 +82,7 @@ callback, takes the same options, and does not appear in `--help`.
 deploy` and `olf infra project deploy`. An alias prints one line on stderr,
 `this command moved to `olf infra <path>`; the old path will be removed in a
 later release`, and then behaves as before: same stdout and exit code. `olf
-query` prints nothing, because it becomes a platform command once per-person
-access exists. `tools/olf/tests/common/test_cli_surfaces.py` holds the list of
+query` is no alias: it is the platform command. `tools/olf/tests/common/test_cli_surfaces.py` holds the list of
 earlier paths and fails if one stops resolving to its new home or stops warning.
 
 ## Non-interactive platform authentication
@@ -132,3 +131,6 @@ direction: `olf/platform` imports only `olf.common`.
 
 The hidden aliases started warning once the documentation and CI moved to
 `olf infra` (#536, PR 6).
+
+`olf query` is a platform command (ADR 0019, build step 7); its alias to `olf
+infra query` ended.
