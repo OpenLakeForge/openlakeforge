@@ -7,14 +7,14 @@ import os
 from collections.abc import Mapping, Sequence
 
 from openlakeforge_domain import Product
-
-from olf.common import log
-from olf.common.clients.base import ServiceClientError
-from olf.common.clients.dagster import (  # noqa: F401 - re-exported
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.dagster import (  # noqa: F401 - re-exported
     DagsterClient,
     DagsterHTTPError,
     DagsterTransientError,
 )
+
+from olf.common import log
 from olf.infra import access, k8s
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._health import _bounded_pod_diagnostics
@@ -63,7 +63,7 @@ def launch_and_poll_dagster_jobs(
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
             try:
-                client.poll(job, run_id, timeout_seconds=timeout_seconds)
+                client.poll(job, run_id, timeout_seconds=timeout_seconds, on_status=log.info)
             except ServiceClientError as exc:
                 raise E2EError(str(exc)) from exc
 

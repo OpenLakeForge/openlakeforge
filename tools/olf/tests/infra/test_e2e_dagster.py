@@ -4,10 +4,10 @@ from typing import Any
 
 import pytest
 from conftest import E2E_INVENTORY, e2e_cfg
+from openlakeforge_services import dagster as dagster_client_module
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.dagster import DagsterClient, DagsterTransientError
 
-from olf.common.clients import dagster as dagster_client_module
-from olf.common.clients.base import ServiceClientError
-from olf.common.clients.dagster import DagsterClient, DagsterTransientError
 from olf.common.contract_state import PROVIDER_CONTRACTS_FILE_ENV
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e import _dagster
@@ -359,6 +359,25 @@ def test_dagster_poll_reports_failure() -> None:
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
 
 
+def test_dagster_poll_reports_each_status_change_once() -> None:
+    statuses = iter(["QUEUED", "STARTED", "STARTED", "SUCCESS"])
+    reported: list[str] = []
+    client = DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {
+            "data": {"runOrError": {"__typename": "Run", "status": next(statuses)}}
+        },
+    )
+
+    client.poll("sales_order_revenue_pipeline", "run-1", attempts=4, delay=0, on_status=reported.append)
+
+    assert reported == [
+        "sales_order_revenue_pipeline: QUEUED (run-1)",
+        "sales_order_revenue_pipeline: STARTED (run-1)",
+        "sales_order_revenue_pipeline: SUCCESS (run-1)",
+    ]
+
+
 def test_dagster_poll_failure_names_the_failed_steps_error() -> None:
     def request_json(query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
         if "logsForRun" in query:
@@ -476,7 +495,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
         def launch(self, _job: str, *, tags=None) -> str:  # noqa: ANN001
             return "run-1"
 
-        def poll(self, _job: str, _run_id: str, *, timeout_seconds: int) -> None:
+        def poll(self, _job: str, _run_id: str, *, timeout_seconds: int, on_status=None) -> None:  # noqa: ANN001
             timeouts.append(timeout_seconds)
 
     monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)

@@ -212,11 +212,12 @@ jobs:
         run: |
           set -euo pipefail
           uv build --out-dir dist/python/domain-model packages/domain-model
+          uv build --out-dir dist/python/lakehouse-services packages/lakehouse-services
           uv build --out-dir dist/python/openlakeforge tools/olf
           wheel="$(ls dist/python/openlakeforge/openlakeforge-*.whl)"
           version="$(basename "${wheel}" | cut -d- -f2)"
-          uv tool install --find-links dist/python/domain-model --find-links dist/python/openlakeforge \
-            "openlakeforge==${version}" --python 3.12
+          uv tool install --find-links dist/python/domain-model --find-links dist/python/lakehouse-services \
+            --find-links dist/python/openlakeforge "openlakeforge==${version}" --python 3.12
           echo "$(uv tool dir --bin)" >> "${GITHUB_PATH}"
           # An installed olf keeps its state, and the kind kubeconfig, under
           # OLF_HOME (default ~/.openlakeforge), not in any checkout.

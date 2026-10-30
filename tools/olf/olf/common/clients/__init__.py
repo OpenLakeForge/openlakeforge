@@ -1,9 +1,1 @@
-"""Shared HTTP service clients for Dagster, Superset, and OpenMetadata."""
-
-from __future__ import annotations
-
-__all__ = [
-    "ServiceClientError",
-    "TransientServiceError",
-    "JsonHttpClient",
-]
+"""Superset and OpenMetadata HTTP clients, on the transport in `openlakeforge_services.base`."""

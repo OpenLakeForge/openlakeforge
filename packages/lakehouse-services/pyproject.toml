@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openlakeforge-lakehouse-services"
+version = "0.5.0a1"
+description = "OpenLakeForge service clients and operations shared by olf and the platform API"
+requires-python = ">=3.12"
+dependencies = ["requests>=2.32,<3"]
+
+[tool.setuptools.packages.find]
+include = ["openlakeforge_services*"]
+
+# The package's annotations reach olf and the platform API only with the
+# PEP 561 marker; without it both see every client as `Any`.
+[tool.setuptools.package-data]
+openlakeforge_services = ["py.typed"]
