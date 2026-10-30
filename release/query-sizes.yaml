@@ -1,0 +1,62 @@
+# Trino sizes for spec.query.size (deployment profile, #323). One mapping for
+# every provider: `olf` renders the chosen entry into the `query_sizing`
+# Terraform variable, and modules/query/trino turns it into Helm values. The
+# profile carries no worker, CPU or memory field of its own.
+#
+# `small` is today's single-node Trino and must stay identical to
+# infra/helm/values/local/trino.yaml (a test enforces it; the chart default
+# supplies max_memory). `medium` and `large` are provisional: they are sized
+# to fit a local kind host, not measured. #328/#329 own the baseline that
+# replaces them.
+#
+# workers: worker pods; 0 runs the coordinator alone.
+# schedule_on_coordinator: whether the coordinator also executes query work.
+# heap: JVM max heap. A node needs heap above 1/0.7 of max_memory_per_node
+#   because Trino reserves 30% of it as headroom.
+# max_memory: query.max-memory, the per-query limit across the cluster.
+# max_memory_per_node: query.max-memory-per-node, the per-query limit on one node.
+sizes:
+  small:
+    workers: 0
+    schedule_on_coordinator: true
+    max_memory: 4GB
+    max_memory_per_node: 1GB
+    coordinator:
+      heap: 2G
+      cpu_request: 500m
+      memory_request: 2Gi
+      memory_limit: 3Gi
+  # Coordinator plus 2 workers. Needs about 6Gi of requested memory (9Gi at the
+  # limit) and 1.5 CPU for Trino alone, on top of the rest of the stack.
+  medium:
+    workers: 2
+    schedule_on_coordinator: false
+    max_memory: 2GB
+    max_memory_per_node: 1GB
+    coordinator:
+      heap: 2G
+      cpu_request: 500m
+      memory_request: 2Gi
+      memory_limit: 3Gi
+    worker:
+      heap: 2G
+      cpu_request: 500m
+      memory_request: 2Gi
+      memory_limit: 3Gi
+  # Coordinator plus 4 workers. Needs about 10Gi of requested memory (15Gi at
+  # the limit) and 2.5 CPU for Trino alone, on top of the rest of the stack.
+  large:
+    workers: 4
+    schedule_on_coordinator: false
+    max_memory: 4GB
+    max_memory_per_node: 1GB
+    coordinator:
+      heap: 2G
+      cpu_request: 500m
+      memory_request: 2Gi
+      memory_limit: 3Gi
+    worker:
+      heap: 2G
+      cpu_request: 500m
+      memory_request: 2Gi
+      memory_limit: 3Gi

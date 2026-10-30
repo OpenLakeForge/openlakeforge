@@ -110,30 +110,37 @@ stage.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `spec.query.size` | `small` | `small` | The shared Trino. `small` is coordinator only, no workers. |
+| `spec.query.size` | `small`, `medium` or `large` | `small` | The shared Trino. `small` is coordinator only; `medium` and `large` add workers. |
 | `spec.storage.size` | `small` | `small` | The SeaweedFS object storage. Not valid on `aws`. |
 
-`medium` and `large` are reserved names, not usable values. They fail
-validation with a message naming the issue that will implement them (#324 for
-Trino, #326 for storage volumes), so a profile never asks for capacity the
-deployment does not provide. Any other value, and any CPU, memory, worker or
-volume field, is rejected as an unknown value or field. A profile that omits
+`spec.query.size` accepts `medium` and `large`. `spec.storage.size` does not
+yet: they fail validation with a message naming the issue that will implement
+them (#326), so a profile never asks for capacity the deployment does not
+provide. Any other value, and any CPU, memory, worker or volume field, is
+rejected as an unknown value or field. A profile that omits
 both fields deploys exactly as it did before they existed, and
 `olf profile resolve` prints the effective sizes (`sizes: query=small
-storage=small`; `query` and `storage` in `--json`). Nothing deploys differently
-by size yet.
+storage=small`; `query` and `storage` in `--json`). `query.size` changes only
+the Trino Helm values: it never changes the project image or a ProjectRevision.
 
-What each size means on the local profile, as the Helm values set it today:
+What each size means on the local profile. The Trino column is defined in
+`release/query-sizes.yaml`; the SeaweedFS column is the Helm value today:
 
-| Size | Trino (`infra/helm/values/local/trino.yaml`) | SeaweedFS volume server (`seaweedfs.yaml`) | Available |
+| Size | Trino (`release/query-sizes.yaml`) | SeaweedFS volume server (`seaweedfs.yaml`) | Available |
 | --- | --- | --- | --- |
-| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi PVC | Yes |
-| `medium` | Not defined | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
-| `large` | Not defined | Not defined | No: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324), [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) |
+| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit; the same values as `infra/helm/values/local/trino.yaml` | 20Gi PVC | Yes |
+| `medium` | Coordinator plus 2 workers, 2G heap and 3Gi limit each; asks the cluster for about 6Gi memory and 1.5 CPU | Not defined | Trino only (provisional): [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) for storage |
+| `large` | Coordinator plus 4 workers, same node sizes; asks for about 10Gi memory and 2.5 CPU, on top of the rest of the stack | Not defined | Trino only (provisional): [#326](https://github.com/OpenLakeForge/openlakeforge/issues/326) for storage |
 
 The `small` volume figure is the chart default, not yet derived from
-`storage.size`; the profile does not change it. This page gives no data-volume
-or host-capacity guidance because none has been measured.
+`storage.size`; the profile does not change it. The `medium` and `large` Trino
+values are provisional: modest on purpose and not yet verified on a kind
+cluster. The baseline in
+[#328](https://github.com/OpenLakeForge/openlakeforge/issues/328) and
+[#329](https://github.com/OpenLakeForge/openlakeforge/issues/329) replaces
+them. Workers are refused while Trino workload authentication is on, which is
+the default when `spec.access` is set: the apply fails with a message naming
+the size. Fault-tolerant execution is not enabled at any size yet.
 
 ### `spec.stages`
 

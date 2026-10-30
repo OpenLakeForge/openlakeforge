@@ -749,11 +749,17 @@ def test_small_storage_resolves_where_object_storage_is_self_hosted() -> None:
     assert json.loads(topology.render_json())["query"] == {"size": "small"}
 
 
+@pytest.mark.parametrize("size", ["medium", "large"])
+def test_query_accepts_the_tiers_with_workers(size: str) -> None:
+    topology = resolve_topology(validate_deployment_profile(_with_sizes(query={"size": size})))
+
+    assert topology.query_size == Size(size)
+    assert json.loads(topology.render_json())["query"] == {"size": size}
+
+
 @pytest.mark.parametrize(
     ("block", "size", "tracker"),
     [
-        ("query", "medium", "#324"),
-        ("query", "large", "#324"),
         ("storage", "medium", "#326"),
         ("storage", "large", "#326"),
     ],
@@ -776,8 +782,9 @@ def test_storage_is_rejected_on_aws_because_s3_is_managed() -> None:
 
 def test_the_schema_agrees_with_the_parser_on_sizes(tmp_path) -> None:
     assert not _schema_errors(_with_sizes(query={"size": "small"}, storage={"size": "small"}), tmp_path)
+    assert not _schema_errors(_with_sizes(query={"size": "large"}), tmp_path)
     for rejected in (
-        _with_sizes(query={"size": "medium"}),
+        _with_sizes(query={"size": "huge"}),
         _with_sizes(storage={"size": "large"}),
         _with_sizes(query={"size": "small", "workers": 4}),
         _with_sizes(_AWS, storage={"size": "small"}),

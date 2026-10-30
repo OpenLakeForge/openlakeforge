@@ -41,6 +41,7 @@ _PAYLOAD_FILES = (
     "openlakeforge.yaml",
     "release/component-catalog.yaml",
     "release/identity-roles.yaml",
+    "release/query-sizes.yaml",
     "release/network-flows.yaml",
 )
 _EXCLUDED_PARTS = frozenset({".terraform", ".tmp", "__pycache__", ".pytest_cache", ".venv", "dist", "build"})

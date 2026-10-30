@@ -393,6 +393,7 @@ module "trino" {
   namespace                  = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file           = "${path.root}/../../../helm/values/local/trino.yaml"
   chart_package_path         = var.trino_chart_package_path
+  query_sizing               = var.query_sizing
   storage_contract           = local.storage_contract
   catalog_contract           = local.catalog_contract
   stage_catalog_contracts    = local.stage_catalog_contracts

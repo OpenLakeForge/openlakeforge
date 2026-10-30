@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.profile import Provider
 from olf.common.project import ProjectSpec
+from olf.common.query_sizing import load_query_sizing
 
 if TYPE_CHECKING:
     from olf.common.profile import DeploymentTopology, StageName
@@ -65,6 +66,11 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
         "shared_namespace": context.shared_namespace,
         "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
         "manage_user_deployments": "true" if context.manage_user_deployments else "false",
+        "query_sizing": json.dumps(
+            load_query_sizing(context.paths.distribution_root, topology.query_size).terraform_value(),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
     }
 
 

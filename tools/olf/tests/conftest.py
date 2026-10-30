@@ -73,6 +73,24 @@ def _pin_project_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(E2E_REPO_ROOT))
 
 
+@pytest.fixture(autouse=True)
+def _query_sizes_in_stub_roots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Contexts built over an empty `tmp_path` still find `release/query-sizes.yaml`.
+
+    `topology_variables` reads the size mapping from the distribution root, and
+    most deployment tests build their context around a bare temporary
+    directory rather than a payload. A test that supplies its own file wins.
+    """
+    from olf.common.deployment import context
+    from olf.common.query_sizing import QUERY_SIZES_PATH, load_query_sizing
+
+    def load(distribution_root: Path, size):  # noqa: ANN001, ANN202
+        present = (distribution_root / QUERY_SIZES_PATH).is_file()
+        return load_query_sizing(distribution_root if present else E2E_REPO_ROOT, size)
+
+    monkeypatch.setattr(context, "load_query_sizing", load)
+
+
 @pytest.fixture
 def external_project(tmp_path: Path) -> Path:
     """Copy only the versioned data-project payload into a separate root."""

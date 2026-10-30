@@ -145,6 +145,32 @@ locals {
     )
   }, local.principal_rules))
 
+  # Overlay on the base values file. For `small` it restates what the file
+  # already sets (plus the chart's own query.max-memory), so the rendered
+  # manifests do not change; for larger sizes it adds the worker deployment.
+  sizing_node_values = {
+    for role, node in {
+      coordinator = try(var.query_sizing.coordinator, null)
+      worker      = try(var.query_sizing.worker, null)
+      } : role => {
+      jvm = { maxHeapSize = node.heap }
+      config = merge(
+        { query = { maxMemoryPerNode = var.query_sizing.max_memory_per_node } },
+        { for key, value in { nodeScheduler = { includeCoordinator = var.query_sizing.schedule_on_coordinator } } : key => value if role == "coordinator" },
+      )
+      resources = {
+        requests = { cpu = node.cpu_request, memory = node.memory_request }
+        limits   = { memory = node.memory_limit }
+      }
+    } if node != null
+  }
+  sizing_values = var.query_sizing == null ? [] : [yamlencode(merge(local.sizing_node_values, {
+    server = {
+      workers = var.query_sizing.workers
+      config  = { query = { maxMemory = var.query_sizing.max_memory } }
+    }
+  }))]
+
   tls_enabled  = var.workload_authentication != "off"
   auth_enabled = var.workload_authentication == "password"
   # Each verified principal may become exactly its own user, so a DEV password
@@ -261,6 +287,7 @@ resource "helm_release" "trino" {
 
   values = concat([
     file(var.base_values_file),
+    ], local.sizing_values, [
     yamlencode({
       envFrom = local.storage_secret_env_from
       env     = concat(local.catalog_secret_env, local.internal_secret_env, local.oidc_env)
@@ -296,6 +323,13 @@ resource "helm_release" "trino" {
   )
 
   lifecycle {
+    # The TLS and password values (below) point every node at the coordinator
+    # as localhost and mount the certificate on the coordinator only, so a
+    # worker would register with itself. Multi-node with authentication is #367.
+    precondition {
+      condition     = var.query_sizing == null || var.query_sizing.workers == 0 || !local.tls_enabled
+      error_message = "spec.query.size medium and large add Trino workers, which are not supported with Trino workload authentication (tls or password): deploy without spec.access, or use size small."
+    }
     # The principals rule is built from stage_namespaces and the catalog rules
     # from the catalog contracts; a stage in only one would be locked out.
     precondition {

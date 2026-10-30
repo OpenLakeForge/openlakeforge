@@ -99,19 +99,22 @@ volume quantities, and there is no per-stage size, because one Trino serves
 every stage. Both default to `small`, which is today's footprint, so a profile
 without the fields resolves and renders exactly as before.
 
-Only tiers with a tested backend are accepted. `medium` and `large` are part of
-the vocabulary but fail validation, naming the issue that will implement them
-(#324 for Trino workers, #326 for SeaweedFS volumes), rather than being
-accepted as a promise nothing keeps. Growing the set is the change that
+Only tiers with a backend are accepted. `medium` and `large` are part of the
+vocabulary; one that no backend implements fails validation, naming the issue
+that will implement it (#326 for SeaweedFS volumes), rather than being
+accepted as a promise nothing keeps. `query` accepts all three: its sizes are
+defined once in `release/query-sizes.yaml` and rendered into every provider
+root's `query_sizing` Terraform variable (#324). Growing the set is the change that
 implements and tests the tier; existing profiles stay valid. `storage` is also
 rejected on `aws`, whose object storage is managed S3 with no volume to size;
 it applies on `local` and `azure`, where SeaweedFS is self-hosted.
 
 The resolved sizes are carried on `DeploymentTopology` (`query_size`,
-`storage_size`) and printed by `olf profile resolve`. Nothing reads them yet:
-no Terraform variable or Helm value depends on them, which is why accepting
-only `small` is not a no-op promise. Their consumers are #324 and #326, with
-the capacity preflight in #327.
+`storage_size`) and printed by `olf profile resolve`. `query_size` is read by
+`topology_variables`, which turns it into the `query_sizing` variable; a size
+change therefore moves only the Trino Helm values, never a ProjectRevision or
+the project image. `storage_size` has no consumer yet (#326), and the capacity
+preflight is #327.
 
 ### `spec.project`: the customer's source and image registry
 
@@ -236,3 +239,9 @@ lightweight-beta decision of 2026-10-27, `medium` and `large` fail validation
 until a tested backend lands (#324, #326) and `storage` is rejected on `aws`.
 The "sizing" exclusion is narrowed to raw resource values; the contract slice
 changes no rendered Terraform or Helm input.
+
+2026-10-30: `query.size` accepts `medium` and `large` (#324 first slice): the
+sizes live in `release/query-sizes.yaml` and reach Trino through the
+`query_sizing` variable of every provider root. Their values are provisional
+until the #328/#329 baseline. Workers are refused while Trino workload
+authentication is on (ADR 0016).
