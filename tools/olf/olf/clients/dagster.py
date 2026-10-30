@@ -43,9 +43,10 @@ class DagsterClient:
         self.expected_location_names = tuple(expected_location_names)
         self._request_json = request_json or self._requests_graphql
 
-    def launch(self, job_name: str) -> str:
+    def launch(self, job_name: str, *, tags: Mapping[str, str] | None = None) -> str:
         location_name, repository_name = self.wait_for_repository(job_name)
         launch_key = f"openlakeforge-e2e-{job_name}-{uuid.uuid4().hex}"
+        run_tags = {**(tags or {}), "openlakeforge/e2e-key": launch_key}
         variables = {
             "executionParams": {
                 "selector": {
@@ -56,7 +57,7 @@ class DagsterClient:
                 "runConfigData": {},
                 "mode": "default",
                 "executionMetadata": {
-                    "tags": [{"key": "openlakeforge/e2e-key", "value": launch_key}],
+                    "tags": [{"key": key, "value": value} for key, value in run_tags.items()],
                 },
             }
         }
