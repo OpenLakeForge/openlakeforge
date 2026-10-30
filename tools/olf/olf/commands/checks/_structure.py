@@ -55,6 +55,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/adr/0016-trino-workload-authentication.md",
     "docs/adr/0017-local-network-policy-and-rbac.md",
     "docs/architecture/identity/identity-service-permissions.md",
+    "docs/testing/seaweedfs_sts_proof.py",
     "docs/testing/trino_workload_auth_proof.py",
     "infra/terraform/modules/query/trino/certificate/Chart.yaml",
     "infra/terraform/modules/query/trino/certificate/templates/certificate.yaml",

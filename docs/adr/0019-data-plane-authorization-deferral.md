@@ -4,7 +4,8 @@
 
 Decided, **build step 1 of 8 landed**: this is the design for #367. Step 1
 puts `data_access` in the role model, validated by `olf` and enforced by
-nothing yet. **Binding today:**
+nothing yet. Verification item 1 (SeaweedFS STS enforces the session policy)
+passed. **Binding today:**
 v0.5-alpha has service-level authorization only, and nothing in it restricts
 which tables a signed-in user reads (Context). **Decided for the build:**
 `olf query` stops running through `kubectl exec` as the stage's shared
@@ -159,7 +160,7 @@ engine adapter:
 | --- | --- | --- | --- |
 | 1 | Loading a table with read delegation needs `TABLE_READ_DATA`, with write delegation `TABLE_WRITE_DATA`. `CATALOG_MANAGE_CONTENT` implies both, `TABLE_READ_DATA` implies only the read. The grants of section 5 therefore already decide which credentials are vended | V | `PolarisAuthorizableOperation` (`LOAD_TABLE_WITH_READ_DELEGATION`, `..._WRITE_DELEGATION`); `PolarisAuthorizerImpl` super-privileges |
 | 2 | Polaris vends S3 credentials through STS `AssumeRole` with a session policy scoped to the table. The bootstrap creates every stage catalog with `stsUnavailable: true`, so nothing is vended today | V (`stsUnavailable` in the bootstrap); T (the `AssumeRole` call and its policy, not read in Polaris's source; the call against a non-AWS endpoint) | `modules/catalog/polaris/templates/bootstrap.sh.tftpl` |
-| 3 | SeaweedFS 4.48 implements STS `AssumeRole` and accepts a session `Policy` (normalised by `sts.NormalizeSessionPolicy`), with durations from 15 minutes to 12 hours. Whether S3 requests signed with the issued credentials are limited by that policy was not read | V (endpoint); T (enforcement) | `weed/s3api/s3api_sts.go` at tag `4.48` |
+| 3 | SeaweedFS 4.48 implements STS `AssumeRole` and accepts a session `Policy` of at most 2048 characters, with durations from 15 minutes to 12 hours. A request signed with the issued credentials is allowed only when the role's attached policies **and** the session policy both allow it; a request without a session token keeps the legacy authorization of its static identity | V, run (proof below) | `weed/s3api/s3api_sts.go`, `weed/iam/integration/iam_manager.go`, `weed/s3api/auth_credentials.go` (`VerifyActionPermission`, `authorizationRoute`) at tag `4.48` |
 | 4 | Trino 480 asks for vended credentials per REST catalog with `iceberg.rest-catalog.vended-credentials-enabled`, which sends `X-Iceberg-Access-Delegation: vended-credentials` | V (property and header); T (the people catalog reads and writes with no static S3 key) | `IcebergRestCatalogConfig`, `TrinoIcebergRestCatalogFactory` |
 | 5 | DuckDB attaches an Iceberg REST catalog with a bearer token (`CREATE SECRET (TYPE iceberg, TOKEN ...)`) and requests vended credentials with `ACCESS_DELEGATION_MODE 'vended_credentials'`; Polaris is the documented example | V (documentation); T (against this Polaris) | DuckDB Iceberg extension, "Iceberg REST catalogs" |
 
@@ -317,8 +318,8 @@ Split along the seams `AGENTS.md` names, each with its tests:
 
 The **T** items that could change the design, to run on kind first:
 
-1. SeaweedFS 4.48 limits S3 requests signed with `AssumeRole` credentials to
-   the session policy (section 3, finding 3).
+1. **Passed** (proof below). SeaweedFS 4.48 limits S3 requests signed with
+   `AssumeRole` credentials to the session policy (section 3, finding 3).
 2. Polaris 1.4.0 vends credentials through SeaweedFS's STS endpoint for a
    catalog with STS available, and still serves a request without delegation.
 3. Polaris 1.4.0 trusts the local CA for the Dex JWKS (ADR 0015 to-verify),
@@ -340,6 +341,53 @@ The **T** items that could change the design, to run on kind first:
 With vended credentials, the earlier question of whether some Trino read path
 skips `loadTable` no longer decides access: without a table's credentials no
 file of it can be read.
+
+### Proof: SeaweedFS STS session policy (item 1)
+
+`uv run --project tools/olf python docs/testing/seaweedfs_sts_proof.py`
+downloads the SeaweedFS image pinned in `release/component-catalog.yaml` from
+Docker Hub by digest, checks the index, the linux/amd64 manifest and every layer
+against their sha256, and runs its `/usr/bin/weed` as one `weed server`
+process with an S3 identity file and an advanced IAM file (`-s3.iam.config`).
+No cluster, no Docker. The IAM file defines one role, `polaris-vending`, with
+`s3:*` on the bucket, trusted only by the identity `polaris`
+(`arn:aws:iam::000000000000:user/polaris`, SeaweedFS's fixed account id). The
+script calls `AssumeRole` as `polaris` with the session policy Polaris 1.4.0
+builds for a table (`AwsCredentialsStorageIntegration.policyString`: `GetObject`
+and `GetObjectVersion` on `<table>/*`, `ListBucket` with an `s3:prefix`
+condition, `GetBucketLocation`, and `PutObject`/`DeleteObject` for a write
+location; 405 characters for one table). Its self-check is
+`tools/olf/tests/test_seaweedfs_sts_proof.py`.
+
+Run on 2026-10-30 against `chrislusf/seaweedfs:4.23` (version `30GB 4.23
+73fc9e383`): exit 0, all 16 cases passing. Denials are SeaweedFS's
+`AccessDenied` unless stated.
+
+| Case | Request | Result |
+| --- | --- | --- |
+| r1 | read credential, GET an object of its table | allowed |
+| r2 | read credential, GET another namespace's table | denied |
+| r3 | read credential, GET `sales_gold/orders_archive`, a sibling whose path starts with the table's | denied |
+| r4 | read credential, PUT in its table | denied |
+| r5, r6, r7 | read credential, LIST its table's prefix; another table's prefix; the whole bucket | allowed; denied; denied |
+| w1, w2 | write credential, PUT and DELETE in its table | allowed |
+| w3, w4 | write credential, PUT in and GET from another table | denied |
+| c1 | control: credential with no session policy, GET another table | allowed (the role allows it; the session policy is what restricts) |
+| c2 | read credential with a tampered session token | `InvalidAccessKeyId` |
+| a1 | `AssumeRole` by an identity neither trusted by the role nor granted `sts:AssumeRole` | denied |
+| s1, s2 | a static identity with the legacy `Read` action, with STS enabled: GET any table; PUT | allowed; denied |
+
+What the run settles for build step 2: STS needs SeaweedFS's advanced IAM file
+beside the identity file, holding the STS signing key, the role, its trust
+policy and its attached policy, so the signing key is one more in-cluster
+Secret. The caller needs `sts:AssumeRole`; the proof gives `polaris` the legacy
+`Admin` action, and a narrower grant for the platform's Polaris identity is
+for step 2 to settle (T). The workloads' static keys are unaffected (s1, s2).
+
+**Not proved:** the platform's SeaweedFS Helm deployment (separate master,
+volume, filer and S3 components) with this configuration; Polaris itself
+calling the STS endpoint (item 2); credential expiry, since the shortest
+duration is 15 minutes.
 
 ## Superset 6.1.0: per-user propagation (carried forward)
 
@@ -419,3 +467,7 @@ SeaweedFS pin moved from 4.23 to 4.48 for the S3 gateway's read-buffer
 retention fix. Finding 3 was re-read at tag `4.48`: `AssumeRole` still takes a
 `Policy` through `sts.NormalizeSessionPolicy` and still allows 15 minutes to 12
 hours unless an STS `MaxSessionLength` is configured, which this stack does not.
+
+Verification item 1 run: `docs/testing/seaweedfs_sts_proof.py` against the
+pinned SeaweedFS 4.23 binary, 16 cases passing; section 3, finding 3 is now
+verified by a run, and the proof records what build step 2 must configure.
