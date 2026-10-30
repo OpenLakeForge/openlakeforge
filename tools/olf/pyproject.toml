@@ -91,6 +91,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `libs` is the project-code image's package at the repository root, beside the CLI.
+pythonpath = ["../.."]
 
 [tool.coverage.run]
 source = ["olf"]
