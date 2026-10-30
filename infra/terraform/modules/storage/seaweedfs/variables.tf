@@ -32,6 +32,17 @@ variable "base_values_file" {
   type        = string
 }
 
+variable "storage_size" {
+  description = "Row of storage_sizes_file that sizes the master, filer and volume server PVCs (spec.storage.size)."
+  type        = string
+  default     = "small"
+}
+
+variable "storage_sizes_file" {
+  description = "Path to release/storage-sizes.yaml."
+  type        = string
+}
+
 variable "image_tag" {
   description = "SeaweedFS image tag used by the chart and bucket jobs."
   type        = string

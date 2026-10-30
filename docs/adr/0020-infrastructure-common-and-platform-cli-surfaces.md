@@ -130,4 +130,5 @@ Deployment Profile: the issuer is `https://auth.<base_domain>` for
 under `OLF_HOME`; the OS keyring is a follow-up. A test holds the import
 direction: `olf/platform` imports only `olf.common`.
 
-Aliases started warning once the documentation and CI moved to `olf infra` (PR 6).
+The hidden aliases started warning once the documentation and CI moved to
+`olf infra` (#536, PR 6).

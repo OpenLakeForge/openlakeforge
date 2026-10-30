@@ -104,6 +104,12 @@ variable "dagster_chart_package_path" {
   default     = null
 }
 
+variable "storage_size" {
+  description = "Size of the self-hosted object storage volumes: a row of release/storage-sizes.yaml (spec.storage.size)."
+  type        = string
+  default     = "small"
+}
+
 variable "seaweedfs_chart_package_path" {
   description = "Optional local SeaweedFS Helm chart package used by azure-up to avoid transient chart download failures."
   type        = string
