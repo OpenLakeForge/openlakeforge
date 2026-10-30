@@ -365,7 +365,9 @@ def test_identity_client_ids_are_validated() -> None:
     document["spec"].setdefault("access", {})
     document["spec"]["identity"] = base | {"client_ids": {"trino": "0oa1"}}
     assert validate_deployment_profile(document).identity.client_ids == {"trino": "0oa1"}
-    for bad in ({"nope": "x"}, {"trino": ""}, {}):
+    document["spec"]["identity"] = base | {"client_ids": {"olf-cli": "0oa2"}}
+    assert validate_deployment_profile(document).identity.client_ids == {"olf-cli": "0oa2"}
+    for bad in ({"nope": "x"}, {"cli": "x"}, {"trino": ""}, {}):
         document["spec"].setdefault("access", {})
         document["spec"]["identity"] = base | {"client_ids": bad}
         with pytest.raises(DeploymentProfileError):

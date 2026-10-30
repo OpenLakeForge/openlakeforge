@@ -45,6 +45,9 @@
         "name": "oidc-trino-client",
         "key": "client-secret"
       }
+    },
+    "olf-cli": {
+      "client_id": "olf-cli-public"
     }
   },
   "adapter": "external",

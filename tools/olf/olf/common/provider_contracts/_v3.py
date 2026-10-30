@@ -172,7 +172,9 @@ _OIDC_OPTIONAL = {"adapter", "capabilities"}
 _OIDC_CAPABILITIES = frozenset({"email_delivery", "groups_in_token", "logout_endpoint"})
 # The adapter OpenLakeForge deploys for each issuer it deploys; `external` has none.
 _DEPLOYED_ADAPTER = {"github": "dex"}
-_OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino")
+_OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino", "olf-cli")
+# A public client authenticates with PKCE, so the contract holds no secret for it.
+_PUBLIC_OIDC_CLIENTS = frozenset({"olf-cli"})
 
 
 def _secret_ref(value: object, *, where: str) -> None:
@@ -238,9 +240,12 @@ def _check_identity_oidc(
     clients = _fields(identity["clients"], where=f"{where}.clients", required=set(_OIDC_CLIENTS))
     for name, client in clients.items():
         client_where = f"{where}.clients.{name}"
-        document = _fields(client, where=client_where, required={"client_id", "secret_ref"})
+        public = name in _PUBLIC_OIDC_CLIENTS
+        required = {"client_id"} if public else {"client_id", "secret_ref"}
+        document = _fields(client, where=client_where, required=required)
         _string(document["client_id"], where=f"{client_where}.client_id")
-        _secret_ref(document["secret_ref"], where=f"{client_where}.secret_ref")
+        if not public:
+            _secret_ref(document["secret_ref"], where=f"{client_where}.secret_ref")
     adapter = _DEPLOYED_ADAPTER.get(selected.issuer)
     if adapter is not None and identity.get("adapter") != adapter:
         raise ProviderContractError(
