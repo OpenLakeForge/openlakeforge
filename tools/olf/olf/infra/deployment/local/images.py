@@ -8,6 +8,7 @@ export, `kind get nodes` during prefetch).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 from collections.abc import Mapping
@@ -90,21 +91,34 @@ def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env
     return tagged.rsplit(":", 1)[1]
 
 
-def prepare_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
-    """Build `images/platform-api` and load it into kind; returns the reference to deploy.
+def platform_api_image(config: LocalDeploymentConfig) -> str:
+    """The reference a local deploy gives the platform API image, named after what it is built from.
 
     No release has published the image yet, so there is no digest to pin
-    (release/component-catalog.yaml) and every local deploy builds it. Tagged by
-    image ID, as Superset's local build is, so a changed image rolls the pod.
+    (release/component-catalog.yaml) and every local deploy builds it. Naming
+    it after its sources rather than the built image ID lets `olf infra plan`
+    resolve the same reference the apply loads without building anything, and
+    a changed source still changes the pod spec, so the pod rolls.
     """
+    root = config.paths.distribution_root
+    digest = hashlib.sha256(config.images.project_code_python_base_image.encode())
+    sources = [root / "images/platform-api/Dockerfile", root / "images/platform-api/requirements.lock"]
+    sources += sorted((root / "packages/platform-api/openlakeforge_platform_api").rglob("*"))
+    for path in sources:
+        if path.is_file() and "__pycache__" not in path.parts:
+            digest.update(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes())
+    return f"{config.images.platform_api_repository}:local-{digest.hexdigest()[:12]}"
+
+
+def prepare_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
+    """Build `images/platform-api` and load it into kind under `platform_api_image`."""
     log.step("Building the platform API image...")
     image = build_platform_api_image(config, tools, env=env)
-    image_id = json.loads(tools.docker.image_inspect(image, env=env, check=True).stdout)[0]["Id"]
-    tagged = f"{config.images.platform_api_repository}:local-{image_id.removeprefix('sha256:')[:12]}"
-    tools.docker.tag(image, tagged, env=env)
+    reference = platform_api_image(config)
+    tools.docker.tag(image, reference, env=env)
     log.step("Ensuring the platform API image is available to kind...")
-    load_image_into_kind(tagged, config, tools, env=env)
-    return tagged
+    load_image_into_kind(reference, config, tools, env=env)
+    return reference
 
 
 def prepare_project_code_image(

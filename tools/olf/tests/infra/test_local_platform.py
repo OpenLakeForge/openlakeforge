@@ -817,12 +817,11 @@ def test_platform_up_deploys_the_platform_api_only_with_an_issuer(
     from olf.common.profile import AccessSpec, IdentitySpec
     from olf.infra.deployment.local import images
 
-    built: list[str] = []
-    reference = "ghcr.io/openlakeforge/openlakeforge/platform-api:local-0123456789ab"
+    built: list[LocalDeploymentConfig] = []
 
-    def prepare(*_args: object, **_kwargs: object) -> str:
-        built.append(reference)
-        return reference
+    def prepare(config: LocalDeploymentConfig, *_args: object, **_kwargs: object) -> str:
+        built.append(config)
+        return images.platform_api_image(config)
 
     monkeypatch.setattr(images, "prepare_platform_api_image", prepare)
     topology = replace(_topology(analytics=False), access=AccessSpec())
@@ -842,5 +841,9 @@ def test_platform_up_deploys_the_platform_api_only_with_an_issuer(
     platform.platform_up(config, _toolkit(runner), env={})
 
     apply = next(c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv)
+    reference = images.platform_api_image(config)
     assert (f"-var=platform_api_image={reference}" in apply.argv) is with_identity
     assert bool(built) is with_identity
+    # `olf infra plan` passes platform_apply_variables alone; it must name the image the apply loads, or a plan
+    # after a deploy would show the API being destroyed.
+    assert (platform.platform_apply_variables(config).get("platform_api_image") == reference) is with_identity

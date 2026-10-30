@@ -80,6 +80,16 @@ def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return {} if access is None else {"access_base_domain": access.base_domain, "access_issuer": access.issuer}
 
 
+def platform_api_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """The platform API validates tokens against the issuer, so it is deployed only with spec.identity. The
+    reference is computed, not built, so a plan and the apply after it name the same image."""
+    if config.context.topology.identity is None:
+        return {}
+    from olf.infra.deployment.local import images
+
+    return {"platform_api_image": images.platform_api_image(config)}
+
+
 def identity_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """`spec.identity` as the local root's inputs. An `external` issuer carries
     its claim mapping with it; `github` carries its organisation and teams."""
@@ -221,7 +231,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "project_code_image_revision": images.project_code_revision,
     } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
-    }
+    } | platform_api_variables(config)
 
 
 def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -559,13 +569,10 @@ def platform_up(
 
         superset_tag = images.prepare_superset_image(config, tools, env=env)
 
-    # The platform API validates tokens against the issuer, so it is deployed
-    # only with spec.identity (modules/access/platform-api).
-    platform_api_image = None
-    if config.context.topology.identity is not None:
+    if platform_api_variables(config):
         from olf.infra.deployment.local import images
 
-        platform_api_image = images.prepare_platform_api_image(config, tools, env=env)
+        images.prepare_platform_api_image(config, tools, env=env)
 
     prepare_charts(config, tools, env=env)
 
@@ -583,8 +590,6 @@ def platform_up(
             "superset_image_tag": superset_tag,
             "superset_image_pull_policy": "Never",
         }
-    if platform_api_image:
-        variables |= {"platform_api_image": platform_api_image}
     var_files = platform_var_files(config)
 
     namespace_resources = {_SHARED_NAMESPACE_RESOURCE_ADDR: config.context.shared_namespace} | {

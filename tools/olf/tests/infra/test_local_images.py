@@ -286,7 +286,7 @@ def test_build_platform_api_image_builds_from_the_repository_root_on_the_pinned_
     assert f"PYTHON_BASE_IMAGE={config.images.project_code_python_base_image}" in build_call.argv
 
 
-def test_prepare_platform_api_image_loads_a_content_tag_into_kind(tmp_path: Path) -> None:
+def test_prepare_platform_api_image_loads_the_source_named_reference_into_kind(tmp_path: Path) -> None:
     config = _config(tmp_path)
     runner = _ScriptedRunner()
     tools = _toolkit(runner)
@@ -294,7 +294,21 @@ def test_prepare_platform_api_image_loads_a_content_tag_into_kind(tmp_path: Path
     reference = images.prepare_platform_api_image(config, tools, env={})
 
     repo = "ghcr.io/openlakeforge/openlakeforge/platform-api"
-    assert reference == f"{repo}:local-0123456789ab"
+    assert reference == images.platform_api_image(config)
+    assert reference.startswith(f"{repo}:local-")
     argvs = [c.argv for c in runner.calls]
     assert ["docker", "tag", f"{repo}:local", reference] in argvs
     assert ["kind", "load", "docker-image", reference, "--name", "openlakeforge-local"] in argvs
+
+
+def test_the_platform_api_reference_names_its_sources_without_building(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    package = tmp_path / "packages/platform-api/openlakeforge_platform_api"
+    package.mkdir(parents=True)
+    (package / "app.py").write_text("first\n")
+
+    before = images.platform_api_image(config)
+    assert images.platform_api_image(config) == before
+    (package / "app.py").write_text("second\n")
+
+    assert images.platform_api_image(config) != before
