@@ -146,21 +146,18 @@ and nothing here has measured how much data a host or cluster needs for them.
 
 #### Changing the storage size
 
-A volume only grows. `olf deploy` compares `storage.size` with the
-PersistentVolumeClaims it finds before it changes anything:
+Choose the size when you create a deployment. `olf deploy` compares
+`storage.size` with the PersistentVolumeClaims it finds before it changes
+anything:
 
 | Change | Result |
 | --- | --- |
 | Same size, or a first deployment | Nothing to do. |
-| Larger, and the claim's StorageClass sets `allowVolumeExpansion: true` | `olf` expands the claims, then applies. The data stays. |
+| Larger, and the claim's StorageClass sets `allowVolumeExpansion: true` | Refused before anything is applied, for now: growing volumes in place is not supported yet (#326). |
 | Larger, and the StorageClass does not allow expansion | Refused before anything is applied. The message names the StorageClass. |
 | Smaller | Refused before anything is applied, whatever the StorageClass allows. |
 
-`olf` never deletes and recreates a volume to apply a size. Kubernetes does not
-let a StatefulSet's volume claim template change, which is where the SeaweedFS
-chart writes the size, so when it expands claims `olf` also deletes the three
-SeaweedFS StatefulSets with `--cascade=orphan` (the controller objects only;
-pods and volumes are left alone) and the apply recreates them.
+`olf` never deletes and recreates a volume to apply a size.
 
 On the local profile the kind cluster's default StorageClass, `standard`, is
 the `rancher.io/local-path` provisioner. kind v0.32.0 installs it from
