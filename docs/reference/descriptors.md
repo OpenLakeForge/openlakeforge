@@ -94,14 +94,16 @@ Each layer declares its load mode where its owner keeps it:
 | Layer | Declared in | Incremental | Full |
 | --- | --- | --- | --- |
 | Bronze | `resources[].load` in `source.yaml` | dlt appends the rows past `cursor` as new files | dlt replaces the files |
-| Silver | the entity's Floe contract | `incremental_mode: file` with `merge_scd1`, `merge_scd2` or `append` | `overwrite` |
+| Silver | the entity's Floe contract | `incremental_mode: file` with `merge_scd1` or `merge_scd2` | `overwrite` |
 | Gold | the dbt model's `materialized` config | `incremental` with a `unique_key` and the `merge` strategy | `table` |
 
 `olf check contracts` rejects a Silver entity whose mode does not fit its
 Bronze resource. An entity reading an incremental resource needs
-`incremental_mode: file` and `append` or a merge mode. An entity reading a
-full resource cannot use `append`, which would add every row again on each
-run.
+`incremental_mode: file` and a merge mode. Not `append`: a `bronze` full
+refresh lands every row again, and Floe cannot rebuild an appended table for
+one run (OpenLakeForge/floe#1091), so the refresh would duplicate the whole
+history. An entity reading a full resource cannot use `append` either, which
+would add every row again on each run.
 
 A loader with an incremental resource runs its dlt source through
 `libs.bronze_dlt.load_dlt_source`. The connector declares the cursor with

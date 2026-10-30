@@ -626,8 +626,8 @@ def test_silver_load_modes_reject_overwriting_an_incremental_resource(tmp_path: 
     assert "orders.yml" in result.detail and "crm/orders" in result.detail
 
 
-@pytest.mark.parametrize("write_mode", ["merge_scd1", "append"])
-def test_silver_load_modes_accept_new_files_merged_or_appended(tmp_path: Path, write_mode: str) -> None:
+@pytest.mark.parametrize("write_mode", ["merge_scd1", "merge_scd2"])
+def test_silver_load_modes_accept_new_files_merged_on_keys(tmp_path: Path, write_mode: str) -> None:
     entity = _project_with_incremental_orders(tmp_path)
     entity.write_text(
         entity.read_text(encoding="utf-8") + f'incremental_mode: "file"\nsink: {{ write_mode: "{write_mode}" }}\n',
@@ -665,3 +665,17 @@ def test_source_schema_requires_a_cursor_for_an_incremental_resource() -> None:
     assert any("cursor" in error.message for error in validator.iter_errors(document))
     document["resources"][0]["load"]["cursor"] = "updated_at"
     assert not list(validator.iter_errors(document))
+
+
+def test_silver_load_modes_reject_appending_an_incremental_resource(tmp_path: Path) -> None:
+    """A Bronze full refresh lands every row again, which an appended table would duplicate."""
+    entity = _project_with_incremental_orders(tmp_path)
+    entity.write_text(
+        entity.read_text(encoding="utf-8") + 'incremental_mode: "file"\nsink: { write_mode: "append" }\n',
+        encoding="utf-8",
+    )
+
+    result = contracts_check._check_silver_load_modes(tmp_path)
+
+    assert not result.ok
+    assert "orders.yml" in result.detail and "'append'" in result.detail
