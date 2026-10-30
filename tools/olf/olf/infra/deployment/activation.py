@@ -149,7 +149,7 @@ def _selected_stage(  # noqa: ANN001
     parsed = parse_provider_contracts(raw_contract, topology, distribution_root=distribution_root)
     if parsed.compatibility_v2 or parsed.schema_version != "3.0.0":
         raise ActivationError(
-            "olf project deploy requires a native provider-contract v3 platform; v2 is DEV compatibility only."
+            "olf infra project deploy requires a native provider-contract v3 platform; v2 is DEV compatibility only."
         )
     return parsed.deployment, parsed.for_stage(stage)
 
@@ -582,7 +582,7 @@ def _platform_globals(provider: DeploymentProvider, *, kube_context: str, env: M
     if values is None:
         raise ActivationError(
             f"the {_PLATFORM_RELEASE!r} release is not installed in {provider.context.namespace}; "
-            "run olf platform apply before activating a revision."
+            "run olf infra platform apply before activating a revision."
         )
     return values
 
@@ -758,7 +758,9 @@ def deploy_revision(
     platform_globals = _platform_globals(provider, kube_context=kube_context, env=env)
     raw_contract = contract_state.load_provider_contracts(str(contract_dir), environ=env)
     if raw_contract is None:
-        raise ActivationError(f"provider contracts are unavailable from {contract_dir}; run olf platform apply first.")
+        raise ActivationError(
+            f"provider contracts are unavailable from {contract_dir}; run olf infra platform apply first."
+        )
     try:
         deployment, selected = _selected_stage(
             raw_contract,

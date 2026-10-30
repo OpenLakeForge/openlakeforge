@@ -5,7 +5,7 @@ GitHub, and the GitHub team they belong to decides which services they can
 open.
 
 **You will** add `spec.identity` to the profile, create and install a GitHub
-App during `olf deploy`, and sign in as an analyst, in about 25 minutes.
+App during `olf infra deploy`, and sign in as an analyst, in about 25 minutes.
 
 **Start from** the project of [lesson 7](07-govern-and-trace-lineage.md): the
 Full preset on a local deployment, so that Superset, Dagster and OpenMetadata
@@ -76,8 +76,8 @@ olf profile validate --project .
 This lesson turns sign-in on for a fresh deployment. Start it clean:
 
 ```bash
-olf destroy --provider local
-olf deploy --provider local
+olf infra destroy --provider local
+olf infra deploy --provider local
 ```
 
 Switching an existing authentication-off stack to GitHub sign-in in place is
@@ -85,7 +85,7 @@ not covered yet.
 
 The GitHub step comes first, while you are still at the terminal:
 
-1. `olf deploy` notices that the Secret `github-oauth-app` does not exist and
+1. `olf infra deploy` notices that the Secret `github-oauth-app` does not exist and
    prints a URL to confirm a GitHub App. The browser opens on it; on WSL the
    URL is opened through Windows when `explorer.exe` is available. Either way
    the URL is printed, so you can open it yourself.
@@ -96,7 +96,7 @@ The GitHub step comes first, while you are still at the terminal:
    in the Secret and sends the browser on to the app's install page.
 4. On the install page, install the app on your organization.
 
-`olf deploy` waits up to 15 minutes for step 2. After that it runs unattended
+`olf infra deploy` waits up to 15 minutes for step 2. After that it runs unattended
 and no further input is needed. It only asks in an interactive terminal; in CI
 it fails on a missing Secret instead, and `--no-github-connect` does the same
 by choice. Credentials are never printed.
@@ -168,10 +168,10 @@ spec:
   access: {}
 ```
 
-Run `olf deploy --provider local` again, then trust the CA in your browser:
+Run `olf infra deploy --provider local` again, then trust the CA in your browser:
 
 ```bash
-olf access trust
+olf infra access trust
 ```
 
 It writes the CA certificate and prints the commands for your platform. Skip
@@ -185,7 +185,7 @@ the scheme: on plain HTTP the UI opens as a fixed user behind the perimeter,
 and on HTTPS it signs in through Dex.
 
 The GitHub App records the callback URL for the scheme it was created with.
-After switching scheme, run `olf secrets rotate github-app` to register an app
+After switching scheme, run `olf infra secrets rotate github-app` to register an app
 with the new URL, and install it again.
 
 ## 7. Authentication off
@@ -227,7 +227,7 @@ fresh private window for each sign-in.
    refresh, the perimeter re-reads your teams and refuses you. Note the time
    from removal to refusal; it stays within about 5 minutes.
 7. **Automation is unaffected.** While you try the steps above,
-   `olf e2e run --env local` still passes, and the OpenMetadata ingestion and
+   `olf infra e2e run --env local` still passes, and the OpenMetadata ingestion and
    dbt runs keep working. They use service credentials, not a person's
    session.
 
@@ -257,11 +257,11 @@ team, GitHub's sign-in is followed by Dex's refusal page, which links to the
 ## What you learned
 
 - `spec.identity` turns sign-in on; a GitHub team decides each person's role.
-- `olf deploy` creates and stores the GitHub App for you, then you install it
+- `olf infra deploy` creates and stores the GitHub App for you, then you install it
   on the organization.
 - Membership is managed in GitHub, and a removed member is refused within
   minutes, not at the next deploy.
-- Plain HTTP is the default locally; `spec.access: {}` with `olf access trust`
+- Plain HTTP is the default locally; `spec.access: {}` with `olf infra access trust`
   gives HTTPS.
 
 ## Next

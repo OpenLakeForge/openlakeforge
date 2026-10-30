@@ -21,7 +21,7 @@ def test_prepare_config_derives_terraform_roots_from_distribution_root(
     `--project-root`) is not where its Terraform roots live - those are in
     the read-only payload extracted under `OLF_HOME`. `distribution_root`
     must drive `foundation_terraform_dir`/`contract_terraform_dir`
-    independently of `repo_root`, or `olf e2e run` searches an installed
+    independently of `repo_root`, or `olf infra e2e run` searches an installed
     project root that has no `infra/` tree at all."""
     monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
     distribution_root = tmp_path / "distribution"
@@ -520,7 +520,7 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
 ) -> None:
     """A managed tool that fails to provision (bad digest, broken download,
     unwritable cache) must surface as E2EError - the only exception type
-    `olf e2e run` catches - not escape as a raw ToolchainError traceback."""
+    `olf infra e2e run` catches - not escape as a raw ToolchainError traceback."""
     from olf.common.deployment.errors import ToolchainError
 
     class _FailingResolver:

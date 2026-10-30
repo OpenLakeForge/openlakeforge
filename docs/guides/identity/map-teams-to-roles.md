@@ -37,7 +37,7 @@ The mapping is part of the deployment, so changing which teams feed a role
 takes a deploy:
 
 ```bash
-olf deploy --provider local
+olf infra deploy --provider local
 ```
 
 Changing who is in a team does not: see

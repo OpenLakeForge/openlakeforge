@@ -165,7 +165,7 @@ Then deploy only the artifacts phase, which covers everything derived from
 `lakehouse_code/`:
 
 ```bash
-olf deploy --provider local --phase artifacts
+olf infra deploy --provider local --phase artifacts
 ```
 
 It reconciles the catalog namespaces, builds the project-code image and
@@ -176,8 +176,8 @@ restarts Dagster's code location.
 Launch `campaign_performance_pipeline` in Dagster, then query the mart:
 
 ```bash
-olf query "SELECT * FROM campaign_performance_gold.mart_campaign_performance"
+olf infra query "SELECT * FROM campaign_performance_gold.mart_campaign_performance"
 ```
 
-`olf e2e run --env local --suite full` also covers the new product, because it
+`olf infra e2e run --env local --suite full` also covers the new product, because it
 discovers products from `governance.yml`.

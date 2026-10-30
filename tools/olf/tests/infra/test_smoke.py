@@ -94,7 +94,7 @@ def test_run_exports_the_provider_contract_environment_before_e2e(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """e2e.run() must see the same contract-derived exports the CLI's own
-    `olf e2e run` applies (e.g. OPENLAKEFORGE_QUERY_TRINO_CATALOG) - without
+    `olf infra e2e run` applies (e.g. OPENLAKEFORGE_QUERY_TRINO_CATALOG) - without
     them, Trino catalog lookups silently fall back to the stale "iceberg"
     default instead of this profile's actual stage catalog name."""
     from olf.infra import contracts as contracts_module

@@ -99,7 +99,7 @@ def test_a_glue_stage_writes_each_domain_into_its_own_prefixed_database() -> Non
 
     (catalog,) = profile["catalogs"]["definitions"]
     # Floe puts the domain's Silver namespace (`sales_silver`) where `{domain}`
-    # stands: `lakehouse_dev_sales_silver`, as `olf catalog sync-namespaces` names it.
+    # stands: `lakehouse_dev_sales_silver`, as `olf infra catalog sync-namespaces` names it.
     assert catalog == {
         "name": "iceberg_catalog",
         "type": "glue",

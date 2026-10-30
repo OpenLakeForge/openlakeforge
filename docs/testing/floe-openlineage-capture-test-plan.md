@@ -26,7 +26,7 @@ separately in ADR 0001.
 
 | Requirement | Expected State |
 | --- | --- |
-| Local stack | `uv run --project tools/olf --locked olf deploy --provider local --phase foundation` and `uv run --project tools/olf --locked olf deploy --provider local` have completed. |
+| Local stack | `uv run --project tools/olf --locked olf infra deploy --provider local --phase foundation` and `uv run --project tools/olf --locked olf infra deploy --provider local` have completed. |
 | Floe | The project-code image carries the pinned `floe-python`; Floe runs in one Kubernetes Job per domain on that image; the run pod forwards its `OPENLINEAGE_URL` and `OPENLINEAGE_ENDPOINT` to the Job, which renders its lineage endpoint from them. |
 | OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
 | dbt OpenLineage | Disabled. The test isolates Floe events only. |
@@ -60,7 +60,7 @@ container is enough. It does not need authentication for the first capture pass.
 | 8 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/crm/...`, never `/bronze/crm/...`. |
 | 9 | Validate job naming. | `job.namespace` carries the namespace and `job.name` is not prefixed by the Polaris REST URI. |
 | 10 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.<domain>_silver.<table>` entities. |
-| 11 | Reapply the stage's active revision with `olf project deploy`. | The user deployment's lineage variables return to the stage contract's values. |
+| 11 | Reapply the stage's active revision with `olf infra project deploy`. | The user deployment's lineage variables return to the stage contract's values. |
 
 ## Optional OpenMetadata Acceptance Pass
 

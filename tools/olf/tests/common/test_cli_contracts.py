@@ -9,7 +9,7 @@ runner = CliRunner()
 
 
 def test_contracts_env_surfaces_a_toolchain_failure_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`olf contracts env` calls load_provider_contracts() outside any
+    """`olf infra contracts env` calls load_provider_contracts() outside any
     DeploymentError boundary of its own - a managed-toolchain provisioning
     failure (#127) resolving terraform must still surface the same clean
     CLI failure every other olf command produces, not a raw traceback."""

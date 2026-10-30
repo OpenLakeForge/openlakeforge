@@ -93,7 +93,7 @@ _REQUIRED_CONTRACT_CHECKS_BY_ENV = {
 }
 
 # ADR 0002: catalog namespace/database lifecycle belongs to Phase 2
-# (`olf catalog sync-namespaces`), never to Terraform-owned locals or module
+# (`olf infra catalog sync-namespaces`), never to Terraform-owned locals or module
 # arguments in `main.tf`/`contracts.tf`.
 _FORBIDDEN_PHASE_TWO_FIELDS = (
     "catalog_namespaces",
@@ -244,7 +244,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
                     errors.append(
                         f"{env}/contracts.tf: local {local_name!r} references Phase-2-owned field "
                         f"{forbidden_field!r} (ADR 0002: namespaces/schemas are reconciled by "
-                        f"`olf catalog sync-namespaces`, not declared in Terraform)"
+                        f"`olf infra catalog sync-namespaces`, not declared in Terraform)"
                     )
 
         # Terraform loads output blocks from every .tf file in the root.
@@ -327,9 +327,9 @@ def _installed_contract_environ(env: str) -> dict[str, str] | None:
     distribution, matching `DeploymentContext.command_env()` exactly.
 
     `load_provider_contracts()` defaults to `os.environ`, which never has
-    these vars outside an active `olf deploy` invocation. Without this, an
+    these vars outside an active `olf infra deploy` invocation. Without this, an
     installed distribution's `terraform output` reads the read-only
-    payload's absent default state instead of what `olf deploy` wrote under
+    payload's absent default state instead of what `olf infra deploy` wrote under
     `OLF_HOME`, and every environment is silently reported as unapplied
     (see `olf.common.tooling.terraform.external_state_options`). Returns `None`
     for a source checkout, where Terraform's own directory-relative default

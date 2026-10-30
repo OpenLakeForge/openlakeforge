@@ -7,14 +7,14 @@ import os
 from collections.abc import Mapping, Sequence
 
 from openlakeforge_domain import Product
-
-from olf.common import log
-from olf.common.clients.base import ServiceClientError
-from olf.common.clients.dagster import (  # noqa: F401 - re-exported
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.dagster import (  # noqa: F401 - re-exported
     DagsterClient,
     DagsterHTTPError,
     DagsterTransientError,
 )
+
+from olf.common import log
 from olf.infra import access, k8s
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._health import _bounded_pod_diagnostics
@@ -63,7 +63,7 @@ def launch_and_poll_dagster_jobs(
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
             try:
-                client.poll(job, run_id, timeout_seconds=timeout_seconds)
+                client.poll(job, run_id, timeout_seconds=timeout_seconds, on_status=log.info)
             except ServiceClientError as exc:
                 raise E2EError(str(exc)) from exc
 
@@ -77,8 +77,8 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
         return []
     from olf.infra.deployment.activation import _RELEASE as ACTIVATION_RELEASE
 
-    # User code is the platform release's subchart under `olf deploy`, and its
-    # own release once `olf project deploy` activates a revision.
+    # User code is the platform release's subchart under `olf infra deploy`, and its
+    # own release once `olf infra project deploy` activates a revision.
     releases = {DAGSTER_RELEASE_NAME, ACTIVATION_RELEASE}
     return [
         str(item.get("metadata", {}).get("name"))

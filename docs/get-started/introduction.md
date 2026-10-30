@@ -69,11 +69,11 @@ are yours:
 
 | Responsibility | What OpenLakeForge gives you |
 | --- | --- |
-| The cluster and its capacity | `olf deploy` creates a local kind cluster, an EKS cluster or an AKS cluster |
+| The cluster and its capacity | `olf infra deploy` creates a local kind cluster, an EKS cluster or an AKS cluster |
 | Access and sign-in | Plain HTTP on `*.olf.localhost` locally; GitHub sign-in when you add `spec.identity` ([Connect GitHub](../guides/identity/connect-github.md)) |
 | Who may use which service | Canonical roles mapped to GitHub teams; membership changes happen in GitHub |
 | Upgrades | Pinned component versions per release ([Compatibility matrix](../reference/compatibility-matrix.md)) |
-| Diagnosis | `olf status`, `olf diagnostics collect`, `olf e2e run` |
+| Diagnosis | `olf infra status`, `olf infra diagnostics collect`, `olf infra e2e run` |
 
 Backups, restore drills and monitoring are on the roadmap, not in the alpha:
 see the [milestones](https://github.com/OpenLakeForge/openlakeforge/milestones).

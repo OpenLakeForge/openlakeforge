@@ -87,7 +87,7 @@ uv tool install "openlakeforge==0.5.0a1" --python 3.12
 
 mkdir my-lakehouse && cd my-lakehouse
 olf init                      # writes openlakeforge.yaml and lakehouse_code/
-olf deploy --provider local   # builds the kind cluster and the whole platform
+olf infra deploy --provider local   # builds the kind cluster and the whole platform
 ```
 
 Then open the portal at `http://olf.localhost`, run an example data product in

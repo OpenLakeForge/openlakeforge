@@ -64,7 +64,7 @@ output "shared_namespace" {
 }
 
 output "stage_names" {
-  description = "Stages this root has provisioned. `olf deploy` compares it against the resolved topology to refuse an apply that would silently remove one."
+  description = "Stages this root has provisioned. `olf infra deploy` compares it against the resolved topology to refuse an apply that would silently remove one."
   value       = sort(keys(local.enabled_stages))
 }
 

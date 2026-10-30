@@ -1,4 +1,4 @@
-"""Dagster GraphQL client relocated from e2e.py for shared use."""
+"""Dagster GraphQL client: launch, poll and inspect runs."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import requests
-
-from olf.common import log
 
 from .base import ServiceClientError, TransientServiceError
 
@@ -167,6 +165,7 @@ class DagsterClient:
         timeout_seconds: int = DAGSTER_JOB_TIMEOUT_SECONDS,
         delay: float = 10.0,
         attempts: int | None = None,
+        on_status: Callable[[str], None] | None = None,
     ) -> None:
         terminal = {"SUCCESS", "FAILURE", "CANCELED"}
         last_error: Exception | None = None
@@ -199,7 +198,8 @@ class DagsterClient:
                 raise ServiceClientError(f"could not read run {run_id}: {result}")
             status = result["status"]
             if status != last_status:
-                log.info(f"{job_name}: {status} ({run_id})")
+                if on_status is not None:
+                    on_status(f"{job_name}: {status} ({run_id})")
                 last_status = status
             if status in terminal:
                 if status != "SUCCESS":

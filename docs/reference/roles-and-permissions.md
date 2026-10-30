@@ -115,7 +115,7 @@ credential from a Secret (to Trino, a password per principal: with
 and to `off` without it), and reach services through port-forwards or their
 in-cluster addresses, never through the sign-in perimeter. Whoever holds the
 kubeconfig can therefore reach every service; a role limits browsers, not
-cluster access. `olf break-glass` is the recorded way to use that when the
+cluster access. `olf infra break-glass` is the recorded way to use that when the
 issuer is down ([Break-glass access](../guides/identity/break-glass.md)).
 
 OpenLakeForge roles are never cloud IAM permissions.

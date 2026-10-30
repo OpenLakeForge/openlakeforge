@@ -59,7 +59,7 @@ def remote_port(service: str, tls_port: int | None = None) -> int | None:
 
 def scheme(service: str, tls_port: int | None = None) -> str:
     if service == "trino" and tls_port:
-        return "https (verify with the local CA: olf access trust)"
+        return "https (verify with the local CA: olf infra access trust)"
     return "http"
 
 

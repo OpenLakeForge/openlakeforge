@@ -558,3 +558,25 @@ def test_release_cli_exposes_bundle_building_without_a_shell_wrapper() -> None:
 
     assert result.exit_code == 0
     assert "build-bundle" in result.output
+
+
+def test_check_python_package_versions_passes_on_real_repo() -> None:
+    catalog = load_catalog(ROOT / "release/component-catalog.yaml")
+    result = _readiness._check_python_package_versions(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_python_package_versions_names_every_drifted_distribution(tmp_path: Path) -> None:
+    published = {
+        "tools/olf": ("openlakeforge", "0.5.0a1"),
+        "packages/domain-model": ("openlakeforge-domain-model", "0.5.0a1"),
+        "packages/lakehouse-services": ("openlakeforge-lakehouse-services", "0.4.0a1"),
+    }
+    for directory, (name, version) in published.items():
+        (tmp_path / directory).mkdir(parents=True)
+        (tmp_path / directory / "pyproject.toml").write_text(f'[project]\nname = "{name}"\nversion = "{version}"\n')
+
+    result = _readiness._check_python_package_versions(tmp_path, {"distribution": {"version": "0.5.0-alpha.1"}})
+
+    assert not result.ok
+    assert result.detail == "packages/lakehouse-services/pyproject.toml version '0.4.0a1', expected '0.5.0a1'"

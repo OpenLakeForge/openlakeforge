@@ -31,20 +31,20 @@ and its own pinned tools.
 | Source | How |
 | --- | --- |
 | Automation credentials | `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, a web identity token (GitHub Actions OIDC), a container role or an EC2 instance profile |
-| An existing AWS profile | `olf auth login --provider aws --profile <name>` |
-| IAM Identity Center (SSO) | `olf auth login --provider aws --start-url <portal URL> --sso-region <region>` |
+| An existing AWS profile | `olf infra auth login --provider aws --profile <name>` |
+| IAM Identity Center (SSO) | `olf infra auth login --provider aws --start-url <portal URL> --sso-region <region>` |
 
 For IAM Identity Center, the start URL is your AWS access portal URL, and
 `--sso-region` is the region of your Identity Center instance, which can
 differ from the region you deploy to. The command opens a browser to approve
 the device; add `--no-browser` to print the URL and code instead. With no
-option at all, `olf auth login --provider aws` reuses the `default` profile, or
+option at all, `olf infra auth login --provider aws` reuses the `default` profile, or
 asks for the start URL.
 
 Check which identity `olf` will use:
 
 ```bash
-olf auth status --provider aws
+olf infra auth status --provider aws
 ```
 
 ## 2. Point the profile at AWS
@@ -66,7 +66,7 @@ spec:
 - Delete any `access:` block: the cloud publishes no routes, and an `access:`
   block would require `spec.identity`.
 - Leave out `spec.identity`. The cloud deployment publishes no routes, so
-  there is nothing to sign in to: you reach the services with `olf forward`
+  there is nothing to sign in to: you reach the services with `olf infra forward`
   from your machine, and authentication stays off.
 - Keep DEV as the only stage: the cloud guides are validated with one stage.
 
@@ -86,8 +86,8 @@ that runs `olf`:
 | `AWS_NODE_DESIRED_SIZE`, `AWS_NODE_MIN_SIZE`, `AWS_NODE_MAX_SIZE` | `3`, `1`, `4` | Node group size |
 | `AWS_TFVARS_FILE` | none | A Terraform variables file, for resource tags |
 
-Set the same values for every later command, including `olf e2e run` and
-`olf destroy`: they find the cluster by its name.
+Set the same values for every later command, including `olf infra e2e run` and
+`olf infra destroy`: they find the cluster by its name.
 
 To tag every resource, for cost tracking or because your organization requires
 it, put the tags in a variables file and export its path:
@@ -107,7 +107,7 @@ Keep it out of git. The same file applies to the cluster and the platform.
 ## 4. Deploy
 
 ```bash
-olf deploy --provider aws
+olf infra deploy --provider aws
 ```
 
 It runs three phases, which you can also run one at a time with `--phase`:
@@ -130,14 +130,14 @@ your machine, on the same ports as locally (Dagster on
 `8585`), and stop with Ctrl-C:
 
 ```bash
-olf forward --provider aws
+olf infra forward --provider aws
 ```
 
-Run the end-to-end suite after you stop `olf forward`: `olf` runs one command
+Run the end-to-end suite after you stop `olf infra forward`: `olf` runs one command
 at a time, and the suite opens its own port-forwards.
 
 ```bash
-olf e2e run --env aws
+olf infra e2e run --env aws
 ```
 
 It launches every product's job on EKS, checks the Silver and Gold tables
@@ -147,7 +147,7 @@ ends with `... e2e validation passed.`
 ## 6. Tear down
 
 ```bash
-olf destroy --provider aws
+olf infra destroy --provider aws
 ```
 
 It removes the platform (RDS, buckets, Helm releases), then the foundation
@@ -159,17 +159,17 @@ destroy `platform` before `foundation`; the foundation refuses to go first.
 
 | Area | Today |
 | --- | --- |
-| Access | No ingress, DNS, TLS or sign-in. Services are reached with `olf forward` only, by whoever has credentials to the cluster, with no OpenLakeForge sign-in in front of them. |
+| Access | No ingress, DNS, TLS or sign-in. Services are reached with `olf infra forward` only, by whoever has credentials to the cluster, with no OpenLakeForge sign-in in front of them. |
 | Stages | Validated with DEV only. |
 | State | Terraform state stays on your machine under `~/.openlakeforge`. There is no remote backend, so losing that directory loses the ability to update or destroy the deployment with `olf`. |
 | Secrets | Generated service passwords live in Kubernetes Secrets and in the local Terraform state. |
 | Network | Nodes run in public subnets, and the EKS API endpoint accepts connections from any address (`0.0.0.0/0`), protected by IAM authentication. |
 | Data | RDS is a single `db.t4g.micro` instance with no final snapshot on destroy. There are no backups. |
-| `olf query` | Not supported on AWS yet. |
+| `olf infra query` | Not supported on AWS yet. |
 
 The main running costs are the EKS control plane, three `m7i.large` nodes and
 the RDS instance, plus S3 storage and data transfer. They accrue until
-`olf destroy` finishes.
+`olf infra destroy` finishes.
 
 Workload identity uses EKS Pod Identity rather than IRSA, because the
 restricted test account the AWS deployment was built in denied creating an
@@ -181,10 +181,10 @@ foundation state.
 
 | Symptom | Fix |
 | --- | --- |
-| `AWS is not authenticated` | Run `olf auth login --provider aws`, then `olf auth status --provider aws`. |
+| `AWS is not authenticated` | Run `olf infra auth login --provider aws`, then `olf infra auth status --provider aws`. |
 | `x509: certificate signed by unknown authority` from the SDK | A proxy intercepts TLS: `export AWS_CA_BUNDLE=/path/to/your-ca-bundle.pem`. |
 | An `AccessDenied` or `UnauthorizedOperation` error | Your identity lacks a permission from the prerequisites. Organization policies (SCPs) can also require tags or names; set them with `AWS_TFVARS_FILE` and `AWS_CLUSTER_NAME`. |
-| `olf e2e run` cannot find the cluster | Export the same `AWS_CLUSTER_NAME` as for the deploy. |
+| `olf infra e2e run` cannot find the cluster | Export the same `AWS_CLUSTER_NAME` as for the deploy. |
 
 To promote revisions from CI, see
 [CI/CD and environment promotion](../promote-dev-to-prod.md).

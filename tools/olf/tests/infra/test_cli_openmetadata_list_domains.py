@@ -1,4 +1,4 @@
-"""`olf openmetadata list-domains` against a fake OpenMetadata, with the cluster stubbed out."""
+"""`olf infra openmetadata list-domains` against a fake OpenMetadata, with the cluster stubbed out."""
 
 from __future__ import annotations
 

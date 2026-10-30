@@ -2,7 +2,7 @@
 
 These are internal to `olf.common.toolchain`; `olf.common.tooling.resolver` catches them
 and re-raises `olf.common.deployment.errors.ToolchainError` (a `DeploymentError`),
-matching how every other deployment failure surfaces to `olf doctor` and the
+matching how every other deployment failure surfaces to `olf infra doctor` and the
 CLI's `--phase`/lifecycle commands.
 """
 

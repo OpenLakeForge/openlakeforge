@@ -31,10 +31,10 @@ spec:
 ## 2. Deploy the change
 
 ```bash
-olf deploy --provider local
+olf infra deploy --provider local
 ```
 
-`olf deploy` applies the change to the running deployment: Terraform adds
+`olf infra deploy` applies the change to the running deployment: Terraform adds
 OpenMetadata and Superset and leaves the data path, your product and its
 tables as they are. The deploy imports every dashboard under
 `lakehouse_code/dashboards/superset/` into Superset in its artifacts phase.
@@ -57,12 +57,12 @@ it `Health Score by Segment (edited)` and save it.
 
 ## 5. Export the dashboard as code
 
-Export the dashboard back into its bundle directory, which `olf report export`
+Export the dashboard back into its bundle directory, which `olf infra report export`
 does for the stage you authored in:
 
 ```bash
 SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/sales_customer_health \
-  olf report export --stage dev
+  olf infra report export --stage dev
 ```
 
 `SUPERSET_REPORT_SOURCE_DIR` picks the bundle; without it the command exports
@@ -80,14 +80,14 @@ be promoted to PROD.
 A directory is a promotable report once the export has written its
 `metadata.yaml`. Its datasets name the Gold schema they read, which is how
 OpenLakeForge knows the products the dashboard serves. One dashboard can
-consume several products. The next `olf deploy` (or `olf
-report import`) imports the bundle into Superset, and `olf project build`
+consume several products. The next `olf infra deploy` (or `olf infra
+report import`) imports the bundle into Superset, and `olf infra project build`
 packages it into a project revision.
 
 ## Check it worked
 
 ```bash
-olf report validate
+olf infra report validate
 ```
 
 It checks every bundle for stable identities, resolvable references and no
@@ -99,11 +99,11 @@ stage-bound values, and prints:
 
 ## What you learned
 
-- `spec.preset: full` plus `olf deploy` adds Superset and OpenMetadata in place;
+- `spec.preset: full` plus `olf infra deploy` adds Superset and OpenMetadata in place;
   the deploy imports every dashboard bundle in the project.
 - Dashboards live in `lakehouse_code/dashboards/superset/<dashboard>/` and are
   found by their `metadata.yaml`; their datasets name the products they read.
-- `olf report export` pulls UI edits into git; `olf report import` and `olf
+- `olf infra report export` pulls UI edits into git; `olf infra report import` and `olf infra
   deploy` push the bundle back.
 
 ## Next

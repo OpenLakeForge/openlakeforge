@@ -101,7 +101,7 @@ resource "helm_release" "dagster" {
             # `includeConfigInLaunchedRuns` on the code location means a
             # launched run inherits that server's image, so this is only the
             # fallback for a run whose origin carries none -- it never
-            # outranks an activated revision. The deprecated `olf deploy`
+            # outranks an activated revision. The deprecated `olf infra deploy`
             # path still patches this `job_image` in place, so it has to
             # exist.
             imagePullPolicy = var.project_code_image_pull_policy
@@ -136,8 +136,8 @@ resource "helm_release" "dagster" {
       }
     }),
 
-    # `olf deploy` runs the control plane on the project-code image and patches
-    # it in place during its artifacts phase (`olf k8s set-project-code-image`
+    # `olf infra deploy` runs the control plane on the project-code image and patches
+    # it in place during its artifacts phase (`olf infra k8s set-project-code-image`
     # targets the webserver and daemon by name), so it also needs that image's
     # pull policy -- `Never` locally, where the image only ever exists inside
     # kind. The catalog-pinned control plane in `base_values_file` applies

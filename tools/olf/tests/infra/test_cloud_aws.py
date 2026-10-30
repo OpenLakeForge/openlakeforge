@@ -97,8 +97,8 @@ def test_foundation_apply_and_destroy_variables_are_identical_and_wrap_bare_inst
 
 
 def test_default_cluster_name_matches_the_e2e_default(tmp_path: Path) -> None:
-    """A direct `olf deploy --provider aws` (no AWS_CLUSTER_NAME set)
-    creates this cluster; `olf e2e run --env aws` (also unset) must target
+    """A direct `olf infra deploy --provider aws` (no AWS_CLUSTER_NAME set)
+    creates this cluster; `olf infra e2e run --env aws` (also unset) must target
     the same one - see the cross-reference comment on
     AwsBackend/`_DEFAULT_CLUSTER_NAME` and `commands._shared.default_kube_context`.
     """

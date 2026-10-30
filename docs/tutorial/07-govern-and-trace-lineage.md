@@ -26,7 +26,7 @@ kubectl -n olf-system get secret openmetadata-admin -o jsonpath='{.data.admin-pa
 
 ## 2. Find the domain and data product
 
-You wrote no OpenMetadata configuration. The artifacts phase of `olf deploy`
+You wrote no OpenMetadata configuration. The artifacts phase of `olf infra deploy`
 reads `lakehouse_code/governance.yml` and creates:
 
 | governance.yml | OpenMetadata |
@@ -36,7 +36,7 @@ reads `lakehouse_code/governance.yml` and creates:
 
 In the left menu, open **Domains** and select `Marketing`. Its data product
 `Campaign Performance` is listed, with the description from `governance.yml`.
-To change either, edit that file and run `olf deploy --provider local --phase
+To change either, edit that file and run `olf infra deploy --provider local --phase
 artifacts`.
 
 ## 3. Find the tables
@@ -60,7 +60,7 @@ in your project turns this on.
 ## Check it worked
 
 ```bash
-olf e2e run --env local --suite full
+olf infra e2e run --env local --suite full
 ```
 
 With the Full preset the suite also checks OpenMetadata: it requires every

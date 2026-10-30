@@ -308,7 +308,7 @@ def test_default_image_tag_falls_back_to_utc_timestamp_outside_a_git_repo(tmp_pa
 def test_default_image_tag_prefers_a_stable_distribution_identity_over_a_timestamp(tmp_path: Path) -> None:
     """An installed, non-git project root (the bundled demo, or a plain
     --project-root folder) must not fall back to the wall-clock timestamp:
-    separate `olf deploy --phase platform` and `--phase artifacts` are
+    separate `olf infra deploy --phase platform` and `--phase artifacts` are
     separate CLI invocations, so a fresh timestamp each time would leave
     platform configuring Dagster with one tag while artifacts builds and
     pushes a different one - the code server could never pull it."""
@@ -407,7 +407,7 @@ def test_cloud_deployment_config_var_file_argument_never_reaches_azure_platform_
     `foundation_var_file`, never `var_file` - `var_file` also feeds the
     platform apply (`cloud/platform.py`), and Azure's platform Terraform
     root rejects a tfvars file entirely (ADR 0008, binding requirement).
-    A combined `olf deploy --provider azure --var-file <foundation.tfvars>`
+    A combined `olf infra deploy --provider azure --var-file <foundation.tfvars>`
     run must not fail Terraform `-var-file` validation at the platform
     phase.
     """

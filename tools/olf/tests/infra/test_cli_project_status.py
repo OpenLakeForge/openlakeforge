@@ -1,4 +1,4 @@
-"""`olf project status` on a running stage.
+"""`olf infra project status` on a running stage.
 
 The command had no coverage at all, which is how it came to call
 `release_runs_activation` without an argument that had become required: the

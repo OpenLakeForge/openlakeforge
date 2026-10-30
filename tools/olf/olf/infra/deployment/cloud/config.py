@@ -73,7 +73,7 @@ def default_image_tag(repo_root: Path, *, scope: str, distribution_root: Path | 
 
     Prefers `repo_root`'s git SHA. Falls back to a tag derived from
     `distribution_root`'s content-addressed payload path when given and
-    installed - stable across the separate `olf deploy` invocations one
+    installed - stable across the separate `olf infra deploy` invocations one
     `--phase platform` then `--phase artifacts` run makes, unlike the
     wall-clock timestamp last resort: a fresh timestamp on every invocation
     left the platform phase configuring Dagster with one tag while the
@@ -253,7 +253,7 @@ class CloudTerraformSettings:
 
     `foundation_var_file` is the separate channel an explicit `--var-file`
     CLI override travels through for Azure foundation operations: it must
-    never also populate `var_file`, or a combined `olf deploy --provider
+    never also populate `var_file`, or a combined `olf infra deploy --provider
     azure --var-file <foundation.tfvars>` run would forward that file into
     the platform apply too and fail Terraform's `-var-file` validation
     there (Azure's platform root declares none of the foundation-only

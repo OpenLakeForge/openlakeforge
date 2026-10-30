@@ -102,7 +102,7 @@ def test_account_show_falls_back_to_the_saved_olf_login_subscription(monkeypatch
     """`doctor()` builds its preflight environment without Terraform's
     `ARM_SUBSCRIPTION_ID` overlay (see `olf.infra.deployment.cloud.provider.doctor`),
     so an identity with several subscriptions and only saved OLF state must
-    still resolve to the one the user selected during `olf auth login`
+    still resolve to the one the user selected during `olf infra auth login`
     instead of raising "subscription is not selected".
     """
     import olf.infra.auth as auth

@@ -53,7 +53,7 @@ _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project de
 # Sign-in: add spec.identity (issuer: github, see
 # https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/identity/connect-github.md#troubleshooting;
 # OAuth App callback http://auth.olf.localhost/callback). HTTPS: drop
-# spec.access.issuer and run `olf access trust`.
+# spec.access.issuer and run `olf infra access trust`.
 """
 
 
@@ -101,7 +101,7 @@ class InitializationResult:
     @property
     def next_command(self) -> str:
         if not self.empty:
-            return "olf platform apply -f openlakeforge.yaml"
+            return "olf infra platform apply -f openlakeforge.yaml"
         return (
             "olf source new <source> --resource <resource>, then olf product new "
             "<domain>/<product> --input <source>/<resource> --gold-table <table>"

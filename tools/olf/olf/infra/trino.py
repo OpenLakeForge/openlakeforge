@@ -1,4 +1,4 @@
-"""Running the Trino CLI inside the coordinator pod, shared by `olf query` and `olf e2e`.
+"""Running the Trino CLI inside the coordinator pod, shared by `olf infra query` and `olf e2e`.
 
 Both callers go through `kubectl exec` on the coordinator because that is the
 only path to Trino that needs nothing on the workstation: no port-forward, no
@@ -164,14 +164,14 @@ def explain_failure(target: TrinoTarget, detail: str) -> str:
     if "access denied" in lowered:
         return (
             f"Trino denied the query for {target.user}: {text}\n"
-            "olf query runs as the stage's runtime workload user, which can only reach its own stage's catalog."
+            "olf infra query runs as the stage's runtime workload user, which can only reach its own stage's catalog."
         )
     if ("catalog" in lowered and ("does not exist" in lowered or "not found" in lowered)) or (
         "notfound" in lowered and ("namespace" in lowered or "trino-coordinator" in lowered)
     ):
         return (
             f"stage {target.stage!r} does not look deployed ({target.catalog} is not served by Trino): "
-            f"deploy it first with `olf deploy`.\n{text}"
+            f"deploy it first with `olf infra deploy`.\n{text}"
         )
     if "unable to connect to the server" in lowered or "connection refused" in lowered:
         return f"cannot reach the cluster behind kube context {target.kube_context!r}: {text}"
@@ -200,7 +200,7 @@ def run_sql(
                 raise TrinoQueryError(
                     f"cannot read the password Secret {password_secret(target)} in namespace {target.namespace}: "
                     f"{(lookup.stderr or lookup.stdout or '').strip()}\n"
-                    "olf query needs RBAC permission to get that Secret."
+                    "olf infra query needs RBAC permission to get that Secret."
                 )
             password = decode_password(lookup.stdout or "")
             stdin = f"{password}\n"

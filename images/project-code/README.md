@@ -13,7 +13,7 @@ Build and load the image into kind with:
 
 ```bash
 uv run --project tools/olf --locked olf images build project-code
-uv run --project tools/olf --locked olf images load project-code
+uv run --project tools/olf --locked olf infra images load project-code
 ```
 
 The image contains Dagster, the Floe Python core (`floe-python`) with
@@ -27,7 +27,7 @@ this same image; dagster-floe passes that profile to the Job as text, so the
 Job runs plain `floe`. See [Floe validation](../../docs/architecture/floe-validation.md).
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
-Docker Hub during `olf deploy --provider aws --phase artifacts`.
+Docker Hub during `olf infra deploy --provider aws --phase artifacts`.
 dbt is bound the same way. The Docker build renders one `profiles.yml` from
 `libs/dbt/profiles/trino.yml` into `generated/dbt-profiles/`, outside
 `lakehouse_code/`. Every connection value in it is an `env_var()` reference

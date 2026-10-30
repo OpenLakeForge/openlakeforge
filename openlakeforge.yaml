@@ -12,12 +12,12 @@ spec:
     dev:
       enabled: true
   # Plain HTTP on *.olf.localhost: no certificate step (ADR 0013). Remove
-  # `issuer: none` for the HTTPS stack (`olf access trust`).
+  # `issuer: none` for the HTTPS stack (`olf infra access trust`).
   access:
     issuer: none
-  # Sign-in through GitHub and Dex. Run `olf github connect` to create the
+  # Sign-in through GitHub and Dex. Run `olf infra github connect` to create the
   # GitHub App and its Secret (docs/guides/identity/connect-github.md; manual OAuth App is the fallback):
-  # (`olf deploy` asks for the GitHub confirmation itself when the Secret is missing.)
+  # (`olf infra deploy` asks for the GitHub confirmation itself when the Secret is missing.)
   # identity:
   #   issuer: github
   #   github:

@@ -58,14 +58,14 @@ collision error, never a silent overwrite.
 
 `tools/olf/olf/infra/artifact_store.py` owns the bucket/client resolution revisions
 publish through (`RevisionStore`, `S3RevisionStore` for in-cluster or direct
-cloud S3, `FilesystemRevisionStore` for `olf project build --output DIR`).
+cloud S3, `FilesystemRevisionStore` for `olf infra project build --output DIR`).
 
 ### Validation is layered the same way as descriptors and profiles
 
 `ProjectRevisionManifest` has a hand-rolled model (`to_json`/`from_json`/
 `validate`) for actionable, fail-closed errors, and
 `docs/schema/project-revision.schema.json` for the versioned, tool-checkable
-shape (ADR 0005, ADR 0011). `olf project build` runs both: the manifest must
+shape (ADR 0005, ADR 0011). `olf infra project build` runs both: the manifest must
 round-trip through its own aggregate check, declare every required component
 (`descriptors`, `floe`, `dbt`, `dagster`, `image`, `distribution`), carry a
 digest-pinned `project_code_image`, and pass a value scan before it is
@@ -128,7 +128,7 @@ the revision digest nor the image. A source binding is read when a run pod
 starts, so editing its ConfigMap or Secret takes effect on the next run
 without a redeploy. A provider-contract value reaches the code location
 through its Helm release, so changing one means activating the same revision
-again. `olf deploy` refuses an activation whose sources the stage has not
+again. `olf infra deploy` refuses an activation whose sources the stage has not
 bound, and reads Secret key names only. The [provider
 contracts](../architecture/provider-contracts.md#where-stage-bindings-reach-a-workload)
 document lists each path and its limits.
@@ -137,11 +137,11 @@ document lists each path and its limits.
 
 | Command | Behavior |
 | --- | --- |
-| `olf project build --project P --image REF` | Validate the project, freeze its content, resolve/require a digest-pinned image, publish |
-| `olf project revision inspect --revision R` | Read a published manifest without rebuilding source |
-| `olf project revision verify --revision R` | Re-verify manifest self-consistency, the distribution-compatibility gate, and every published object's digest |
-| `olf project deploy -f PROFILE --stage STAGE --revision R` | Materialize only verified published content and activate the stage |
-| `olf project status -f PROFILE [--stage STAGE] [--json]` | Compare immutable activation records with the observed user deployment |
+| `olf infra project build --project P --image REF` | Validate the project, freeze its content, resolve/require a digest-pinned image, publish |
+| `olf infra project revision inspect --revision R` | Read a published manifest without rebuilding source |
+| `olf infra project revision verify --revision R` | Re-verify manifest self-consistency, the distribution-compatibility gate, and every published object's digest |
+| `olf infra project deploy -f PROFILE --stage STAGE --revision R` | Materialize only verified published content and activate the stage |
+| `olf infra project status -f PROFILE [--stage STAGE] [--json]` | Compare immutable activation records with the observed user deployment |
 
 
 ## Consequences

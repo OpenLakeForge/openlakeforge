@@ -101,10 +101,10 @@ olf product new sales/accounts_report --input crm/accounts --gold-table mart_acc
 ## Deploy
 
 ```bash
-olf deploy --provider local
+olf infra deploy --provider local
 ```
 
-The first deploy takes several minutes while images download. `olf deploy`
+The first deploy takes several minutes while images download. `olf infra deploy`
 runs four phases in order; `--phase` runs one of them:
 
 | Phase | What it does | Rerun it when |
@@ -124,7 +124,7 @@ Every phase reconciles what already exists, so running it again is safe.
 | `full` | Slim plus OpenMetadata (governance, lineage) and Superset (dashboards) |
 
 Set `preset: full` under `spec` in `openlakeforge.yaml` and run
-`olf deploy --provider local` again. The change applies in place: nothing
+`olf infra deploy --provider local` again. The change applies in place: nothing
 already deployed is removed. Setting `preset: slim` removes the two services
 the same way.
 
@@ -145,7 +145,7 @@ In a source checkout of the repository, the kubeconfig is
 ## Access the services
 
 ```bash
-olf status --provider local
+olf infra status --provider local
 ```
 
 The `URLs` section lists every service. With the default profile:
@@ -188,12 +188,12 @@ spec:
   access: {}
 ```
 
-`olf deploy` creates the CA once, in the cluster. Your browser rejects the
+`olf infra deploy` creates the CA once, in the cluster. Your browser rejects the
 routes until it trusts that CA. Export it and print the trust commands for
 your system:
 
 ```bash
-olf access trust
+olf infra access trust
 ```
 
 It writes `openlakeforge-local-ca.crt` and prints the commands for Linux,
@@ -204,11 +204,11 @@ store, because the browser runs on Windows.
 
 ### Reach Polaris and SeaweedFS
 
-Polaris and SeaweedFS have no route. `olf forward` port-forwards every service
+Polaris and SeaweedFS have no route. `olf infra forward` port-forwards every service
 to fixed ports on `localhost` until you press Ctrl-C:
 
 ```bash
-olf forward --provider local
+olf infra forward --provider local
 ```
 
 | Port | Service |
@@ -222,30 +222,30 @@ olf forward --provider local
 | 9000 | SeaweedFS S3 API |
 | 9333 | SeaweedFS Master UI |
 
-`OLF_PORT_FORWARD=1` makes `olf`'s own commands, such as `olf e2e run`,
+`OLF_PORT_FORWARD=1` makes `olf`'s own commands, such as `olf infra e2e run`,
 port-forward instead of using the ingress, for example while you debug it.
 
 ## Tear down
 
 ```bash
-olf destroy --provider local
+olf infra destroy --provider local
 ```
 
 It destroys the platform services, then the kind cluster. The cluster holds
 all state, so this deletes your Bronze, Silver and Gold data and Dagster's run
 history. `openlakeforge.yaml` and `lakehouse_code/` are not touched, and the
-next `olf deploy` rebuilds the same platform from them. With HTTPS, a rebuilt
-cluster has a new CA: run `olf access trust` again.
+next `olf infra deploy` rebuilds the same platform from them. With HTTPS, a rebuilt
+cluster has a new CA: run `olf infra access trust` again.
 
 | To remove | Run |
 | --- | --- |
-| Only the platform, keeping the cluster | `olf destroy --provider local --phase platform` |
-| Only the cluster, after the platform | `olf destroy --provider local --phase foundation` |
+| Only the platform, keeping the cluster | `olf infra destroy --provider local --phase platform` |
+| Only the cluster, after the platform | `olf infra destroy --provider local --phase foundation` |
 | The managed toolchain under `~/.openlakeforge` | `olf toolchain clean --all` |
 
 `--phase foundation` refuses to run while platform namespaces exist; `--force`
 overrides that and loses them. After `--phase platform`, bring the platform
-back with `olf deploy --provider local --phase platform`, then
+back with `olf infra deploy --provider local --phase platform`, then
 `--phase artifacts`.
 
 ## Contributor checkout
@@ -256,7 +256,7 @@ commands through uv from its root:
 ```bash
 git clone https://github.com/OpenLakeForge/openlakeforge.git
 cd openlakeforge
-uv run --project tools/olf --locked olf deploy --provider local
+uv run --project tools/olf --locked olf infra deploy --provider local
 ```
 
 The contributor workflow and its gates are in
@@ -265,7 +265,7 @@ The contributor workflow and its gates are in
 ## Check it worked
 
 ```bash
-olf e2e run --env local --suite full
+olf infra e2e run --env local --suite full
 ```
 
 It launches every product's job and checks the Silver and Gold tables through

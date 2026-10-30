@@ -46,7 +46,7 @@ def load_provider_contracts(
     instead of failing closed.
 
     With OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE set, the contract is read from
-    that file instead (`olf platform contract` writes it): a CI job deploying
+    that file instead (`olf infra platform contract` writes it): a CI job deploying
     a project revision to an applied platform has no access to the
     platform's Terraform state (#119). The file was named deliberately, so a
     missing or malformed one fails closed rather than reading as "not

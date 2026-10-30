@@ -33,7 +33,7 @@ class AwsBackend:
             self._aws.sts_get_caller_identity(env=env)
         except Exception as exc:
             raise DeploymentPreconditionError(
-                f"AWS is not authenticated. Run 'olf auth login --provider aws': {exc}"
+                f"AWS is not authenticated. Run 'olf infra auth login --provider aws': {exc}"
             ) from exc
 
     def foundation_state_resource_addr(self) -> str:

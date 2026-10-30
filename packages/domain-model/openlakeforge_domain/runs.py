@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # A Dagster run tag rather than run config: a tag reaches every asset of the
 # job (Bronze, Floe's own Silver assets, dbt) without each one declaring a
-# config schema, and the launchpad and `olf product run` set it the same way.
+# config schema, and the launchpad and `olf infra product run` set it the same way.
 FULL_REFRESH_TAG = "openlakeforge/full_refresh"
 
 # `bronze` reloads Bronze from scratch, rebuilds Silver from it and rebuilds

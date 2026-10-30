@@ -102,7 +102,7 @@ def status(provider: str = typer.Option(..., "--provider", help="aws or azure.")
         state = load_state(provider)
         if state is None:
             raise AuthenticationError(
-                f"No {provider} authentication is configured. Run 'olf auth login --provider {provider}'."
+                f"No {provider} authentication is configured. Run 'olf infra auth login --provider {provider}'."
             )
         safe = {
             key: value for key, value in state.items() if key not in {"access_token", "refresh_token", "client_secret"}
@@ -129,7 +129,7 @@ def status(provider: str = typer.Option(..., "--provider", help="aws or azure.")
                 # common re-login case, not just a genuinely unknown source.
                 raise AuthenticationError(
                     "Azure authentication is present but the SDK could not obtain a token "
-                    f"(likely expired or unavailable): {exc}. Run 'olf auth login --provider azure'."
+                    f"(likely expired or unavailable): {exc}. Run 'olf infra auth login --provider azure'."
                 ) from exc
             safe["principal"] = safe.get("principal", "managed by Azure SDK")
             safe["subscription"] = safe.get("subscription_id", "unknown")
