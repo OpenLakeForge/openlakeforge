@@ -22,7 +22,7 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf infra auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0008). |
 | `olf toolchain list\|install\|path\|clean` | Inspect, provision, or remove the managed Terraform/Helm/kubectl/kind toolchain under `OLF_HOME`. |
 | `olf check structure\|docs\|skills\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates; `docs` validates `docs/navigation.yaml` and every relative docs link; `skills` validates the agent skills under `skills/` and every `olf` command they show. |
-| `olf infra contracts env\|check` | Print the resolved provider contract environment, or validate it against the active provider/profile. |
+| `olf infra contracts env`, `olf contracts check` | Print the resolved provider contract environment, or validate it against the active provider/profile. |
 | `olf infra dbt parse [--project-dir D]` | Render dbt profiles and run `dbt deps`/`dbt parse` for one or every product Gold project. |
 | `olf source new NAME --resource R` / `olf domain new NAME --input SRC/RESOURCE` / `olf product new DOMAIN/PRODUCT --input ... --gold-table T` | Golden-path scaffolding for a Bronze source, Silver domain, or Gold product. |
 | `olf layers enabled --profile P` | List which medallion/governance/analytics layers a profile enables. |
