@@ -294,12 +294,19 @@ def client(
     )
 
 
+# Each case names the exact result it expects, so an unrelated failure (NoSuchKey,
+# InternalError, NotImplemented) cannot pass as a denial.
+ALLOWED = "allowed"
+DENIED = "AccessDenied"
+BAD_TOKEN = "InvalidAccessKeyId"
+
+
 def _outcome(call: Callable[[], object]) -> str:
     try:
         call()
     except ClientError as exc:
         return exc.response["Error"]["Code"]
-    return "allowed"
+    return ALLOWED
 
 
 def run(weed: Path, work: Path) -> int:
@@ -376,91 +383,90 @@ def run(weed: Path, work: Path) -> int:
                 RoleArn=ROLE_ARN, RoleSessionName="probe", DurationSeconds=900
             )
 
-        cases: list[tuple[str, str, Callable[[], object], bool]] = [
-            ("r1", "read credential, GET own table", get(read, OWN_TABLE), True),
+        cases: list[tuple[str, str, Callable[[], object], str]] = [
+            ("r1", "read credential, GET own table", get(read, OWN_TABLE), ALLOWED),
             (
                 "r2",
                 "read credential, GET another namespace's table",
                 get(read, OTHER_TABLE),
-                False,
+                DENIED,
             ),
             (
                 "r3",
                 f"read credential, GET sibling {SIBLING_TABLE}",
                 get(read, SIBLING_TABLE),
-                False,
+                DENIED,
             ),
-            ("r4", "read credential, PUT own table", put(read, OWN_TABLE), False),
+            ("r4", "read credential, PUT own table", put(read, OWN_TABLE), DENIED),
             (
                 "r5",
                 "read credential, LIST own table prefix",
                 listing(read, f"{OWN_TABLE}/"),
-                True,
+                ALLOWED,
             ),
             (
                 "r6",
                 "read credential, LIST another table's prefix",
                 listing(read, f"{OTHER_TABLE}/"),
-                False,
+                DENIED,
             ),
             (
                 "r7",
                 "read credential, LIST the whole bucket",
                 listing(read, None),
-                False,
+                DENIED,
             ),
-            ("w1", "write credential, PUT own table", put(write, OWN_TABLE), True),
+            ("w1", "write credential, PUT own table", put(write, OWN_TABLE), ALLOWED),
             (
                 "w2",
                 "write credential, DELETE own table",
                 delete(write, OWN_TABLE),
-                True,
+                ALLOWED,
             ),
             (
                 "w3",
                 "write credential, PUT another table",
                 put(write, OTHER_TABLE),
-                False,
+                DENIED,
             ),
             (
                 "w4",
                 "write credential, GET another table",
                 get(write, OTHER_TABLE),
-                False,
+                DENIED,
             ),
             (
                 "c1",
                 "control: no session policy, GET another table",
                 get(full, OTHER_TABLE),
-                True,
+                ALLOWED,
             ),
             (
                 "c2",
                 "read credential with a tampered session token",
                 get(tampered, OWN_TABLE),
-                False,
+                BAD_TOKEN,
             ),
             (
                 "a1",
                 "AssumeRole by an identity neither trusted nor granted sts:AssumeRole",
                 assume("reader"),
-                False,
+                DENIED,
             ),
             # The workloads' static keys (Floe, Trino) must keep their legacy authorization with STS enabled.
             (
                 "s1",
                 "static Read identity, GET any table",
                 get(reader, OTHER_TABLE),
-                True,
+                ALLOWED,
             ),
-            ("s2", "static Read identity, PUT", put(reader, OWN_TABLE), False),
+            ("s2", "static Read identity, PUT", put(reader, OWN_TABLE), DENIED),
         ]
         failures = 0
-        for case, description, call, expect_allowed in cases:
+        for case, description, call, expected in cases:
             outcome = _outcome(call)
-            ok = (outcome == "allowed") == expect_allowed
+            ok = outcome == expected
             failures += not ok
-            expected = "allowed" if expect_allowed else "denied"
             print(
                 f"{'PASS' if ok else 'FAIL'}  {case:3} {description}: expected {expected}, got {outcome}"
             )

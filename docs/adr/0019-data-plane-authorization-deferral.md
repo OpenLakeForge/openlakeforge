@@ -360,8 +360,10 @@ location; 405 characters for one table). Its self-check is
 `tools/olf/tests/test_seaweedfs_sts_proof.py`.
 
 Run on 2026-10-30 against `chrislusf/seaweedfs:4.23` (version `30GB 4.23
-73fc9e383`): exit 0, all 16 cases passing. Denials are SeaweedFS's
-`AccessDenied` unless stated.
+73fc9e383`): exit 0, all 16 cases passing. Each case expects one exact
+result (allowed, SeaweedFS's `AccessDenied`, or `InvalidAccessKeyId` for the
+tampered token), so an unrelated error such as `NoSuchKey` fails it rather
+than passing as a denial.
 
 | Case | Request | Result |
 | --- | --- | --- |
