@@ -222,4 +222,10 @@
 %{ for stage_name, stage in stage_catalogs ~}
   create_principal_secret "${stage.deployer_principal_name}" "${stage.deployer_credentials_secret_name}" "POLARIS_DEPLOYER_CLIENT_ID" "POLARIS_DEPLOYER_CLIENT_SECRET" "${stage.namespace}" "true"
   grant_catalog_access "${stage.deployer_principal_name}" "${deployer_principal_role}-${stage_name}" "${deployer_catalog_role}" "CATALOG_MANAGE_METADATA" "${stage.catalog_name}"
+%{ if person_access_enabled ~}
+  # `olf infra catalog sync-namespaces` grants olf-gold-read on each Gold
+  # namespace as this principal (ADR 0019, section 5). Without people's access
+  # that role does not exist, so the deployer keeps its narrower privilege.
+  grant_catalog_access "${stage.deployer_principal_name}" "${deployer_principal_role}-${stage_name}" "${deployer_catalog_role}" "CATALOG_MANAGE_ACCESS" "${stage.catalog_name}"
+%{ endif ~}
 %{ endfor ~}
