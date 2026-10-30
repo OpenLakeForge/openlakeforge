@@ -1,4 +1,4 @@
-"""Platform CLI session: login and refresh against a fake issuer."""
+"""Platform CLI session: login, refresh, whoami and logout against a fake issuer."""
 
 from __future__ import annotations
 
@@ -157,6 +157,21 @@ def test_login_stores_a_pkce_session_in_a_private_file(issuer: FakeIssuer, monke
     assert sessions.active_session(instance).refresh_token == "refresh-1"
 
 
+def test_login_tightens_the_mode_of_an_existing_session_file(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instance = _instance(issuer)
+    path = sessions.session_path(instance)
+    path.parent.mkdir(parents=True)
+    path.write_text("{}")
+    path.chmod(0o644)
+    _browser(monkeypatch)
+
+    login_flow.login(instance, open_browser=True, announce=lambda _: None)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_no_browser_prints_the_url_and_never_opens_one(issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("webbrowser.open", lambda url: pytest.fail("opened a browser"))
     printed: list[str] = []
@@ -257,13 +272,52 @@ def test_a_deployment_without_sign_in_points_at_olf_infra(tmp_path: Path, access
     assert "no sign-in" in result.output and "olf infra" in result.output
 
 
+def test_whoami_and_logout_never_print_a_token(tmp_path: Path) -> None:
+    profile = _profile(tmp_path)
+    instance = sessions.resolve_instance(profile)
+    id_token = _jwt(
+        {"preferred_username": "ada", "email": "ada@example.com", "groups": ["olf-analysts"], "exp": time.time() + 600}
+    )
+    sessions.save(instance, sessions.Session(instance.issuer, id_token, "access-secret", "refresh-secret"))
+    runner = CliRunner()
+
+    who = runner.invoke(app, ["whoami", "--profile-file", profile])
+
+    assert who.exit_code == 0
+    for expected in ("olf.example.com", "https://login.example.com", "ada", "ada@example.com", "olf-analysts"):
+        assert expected in who.output
+    assert not {id_token, "access-secret", "refresh-secret"} & set(who.output.split())
+
+    out = runner.invoke(app, ["logout", "--profile-file", profile])
+    assert out.exit_code == 0 and not sessions.session_path(instance).exists()
+    assert "not logged in" in runner.invoke(app, ["whoami", "--profile-file", profile]).output
+    assert "Not logged in" in runner.invoke(app, ["logout", "--profile-file", profile]).output
+
+
 def test_a_damaged_session_never_echoes_its_contents(tmp_path: Path) -> None:
     profile = _profile(tmp_path)
     path = sessions.session_path(sessions.resolve_instance(profile))
     path.parent.mkdir(parents=True)
     path.write_text('{"id_token": "not-a-jwt-secret"}')
 
-    with pytest.raises(sessions.PlatformError, match="olf login") as raised:
-        sessions.active_session(sessions.resolve_instance(profile))
+    result = CliRunner().invoke(app, ["whoami", "--profile-file", profile])
 
-    assert "not-a-jwt-secret" not in str(raised.value)
+    assert result.exit_code == 1 and "olf login" in result.output and "not-a-jwt-secret" not in result.output
+
+
+def test_tls_failure_explains_the_local_ca(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise requests.exceptions.SSLError("self-signed certificate")
+
+    monkeypatch.setattr(requests, "get", refuse)
+
+    with pytest.raises(sessions.PlatformError, match="olf infra access trust"):
+        sessions.discover(sessions.Instance("olf.example.com", "https://auth.olf.example.com", CLIENT))
+
+
+def test_ssl_cert_file_is_honoured_for_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert sessions.verify() is True
+    monkeypatch.setenv("SSL_CERT_FILE", "/tmp/ca.crt")
+    assert sessions.verify() == "/tmp/ca.crt"
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/bundle.crt")
+    assert sessions.verify() == "/tmp/bundle.crt"

@@ -41,7 +41,7 @@ on a violation. `olf/cli.py` is the only module that imports both.
 | --- | --- |
 | Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report *`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
 | Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
-| Platform (planned) | `login`, `whoami`, `logout`, `domain list` |
+| Platform | `login`, `whoami`, `logout`; `domain list` is planned |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
@@ -100,3 +100,11 @@ design against these requirements.
 ## History
 
 New record (#536).
+
+The platform surface exists (#536, PR 4): `olf/platform` holds `olf login`,
+`olf whoami` and `olf logout`, registered at the top level. The instance comes
+from the Deployment Profile, not from a discovery document: the issuer is
+`https://auth.<base_domain>` for `identity.issuer: github` and `issuer_url` for
+`external`, and the client is `identity.client_ids['olf-cli']` or `olf-cli`.
+The session is a mode-0600 file under `OLF_HOME`; the OS keyring is a follow-up.
+A test holds the import direction: `olf/platform` imports only `olf.common`.

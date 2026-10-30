@@ -154,3 +154,11 @@ def active_session(instance: Instance) -> Session:
     )
     save(instance, refreshed)
     return refreshed
+
+
+def delete(instance: Instance) -> bool:
+    try:
+        session_path(instance).unlink()
+    except FileNotFoundError:
+        return False
+    return True
