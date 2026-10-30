@@ -7,7 +7,9 @@
 # infra/helm/values/local/trino.yaml (a test enforces it; the chart default
 # supplies max_memory). `medium` and `large` are provisional: they are sized
 # to fit a local kind host, not measured. #328/#329 own the baseline that
-# replaces them.
+# replaces them. The profile does not accept them yet (#324): workers still
+# need network flows to the coordinator, authentication across nodes (#367)
+# and a kind run.
 #
 # workers: worker pods; 0 runs the coordinator alone.
 # schedule_on_coordinator: whether the coordinator also executes query work.

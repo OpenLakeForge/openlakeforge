@@ -42,8 +42,8 @@
         "query": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The shared Trino. `medium` and `large` add workers with provisional values (release/query-sizes.yaml).",
-          "properties": {"size": {"enum": ["small", "medium", "large"], "default": "small"}}
+          "description": "The shared Trino. Only `small` has a tested backend; `medium` and `large` are rejected until one lands (#324).",
+          "properties": {"size": {"enum": ["small"], "default": "small"}}
         },
         "storage": {
           "type": "object",

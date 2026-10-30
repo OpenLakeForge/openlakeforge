@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import shutil
 from pathlib import Path
@@ -92,9 +93,9 @@ def test_a_missing_mapping_is_refused(tmp_path: Path) -> None:
 
 
 def _topology(size: Size):  # noqa: ANN202
+    # The profile still accepts only `small` (#324), so the larger tiers are set on the resolved topology.
     document = yaml.safe_load((E2E_REPO_ROOT / "openlakeforge.yaml").read_text())
-    document["spec"]["query"] = {"size": size.value}
-    return resolve_topology(validate_deployment_profile(document))
+    return dataclasses.replace(resolve_topology(validate_deployment_profile(document)), query_size=size)
 
 
 def _context(tmp_path: Path, size: Size) -> DeploymentContext:
@@ -128,20 +129,20 @@ def test_a_size_change_never_reaches_the_project_image_or_revision(tmp_path: Pat
     shutil.copytree(E2E_REPO_ROOT / "lakehouse_code", project / "lakehouse_code")
     base = yaml.safe_load((E2E_REPO_ROOT / "openlakeforge.yaml").read_text())
 
-    def resolved(size: str) -> tuple[object, str, dict[str, str]]:
-        document = {**base, "spec": {**base["spec"], "query": {"size": size}}}
-        (project / "openlakeforge.yaml").write_text(yaml.safe_dump(document))
-        profile = validate_deployment_profile(document)
+    profile = validate_deployment_profile(base)
+    (project / "openlakeforge.yaml").write_text(yaml.safe_dump(base))
+
+    def resolved(size: Size) -> tuple[object, str, dict[str, str]]:
         revision = project_revision.build_project_revision(
             ProjectSpec(root=project, distribution_root=E2E_REPO_ROOT),
             image=image,
             distribution_version="0.2.0-alpha.1",
         )
-        variables = platform.platform_apply_variables(_local_config(tmp_path, resolve_topology(profile)))
+        variables = platform.platform_apply_variables(_local_config(tmp_path, _topology(size)))
         image_variables = {key: value for key, value in variables.items() if key.startswith("project_code_image")}
         return resolve_project(profile), revision.revision, image_variables
 
-    small, medium, large = (resolved(size) for size in ("small", "medium", "large"))
+    small, medium, large = (resolved(size) for size in (Size.SMALL, Size.MEDIUM, Size.LARGE))
 
     assert small == medium == large
 
