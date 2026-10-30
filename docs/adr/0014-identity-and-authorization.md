@@ -257,6 +257,7 @@ Route grants are read from `release/identity-roles.yaml` and nowhere else.
 | Login callback | One host, `oauth2.<base_domain>/oauth2/*`, answered by the any-role instance and not behind the perimeter; the `perimeter` client has that single redirect URI, and the cookie on `.<base_domain>` carries the session to every route |
 | Cookie secret | Created by an in-cluster Job only if missing (`oauth2-proxy-cookie`); Terraform never reads it. Rotation: delete the Secret, replace the Job, restart the proxies (signs everyone out once) |
 | Client secret | `secretKeyRef` to `identity.oidc.clients.perimeter.secret_ref` |
+| Bearer tokens | Every instance starts with `--skip-jwt-bearer-tokens=true` and `--extra-jwt-issuers=<issuer_url>=<olf-cli client_id>`, and the forwardAuth middleware passes the `Authorization` header on. A bearer token issued to `olf-cli` is checked for issuer, audience, signature and expiry, then meets the instance's `--allowed-group` like a session, so the role floor still decides. A token issued to a client other than `olf-cli` or `perimeter` gets 401. The `perimeter` client's own tokens are accepted as well, which the flag cannot exclude. oauth2-proxy reads a bearer token's roles from a hardcoded `groups` claim, so the flags are set only when `role_claim` is `groups`; with any other claim a bearer token gets 401 |
 
 Behaviour, all decided by the proxy before a request reaches a service:
 
@@ -264,6 +265,9 @@ Behaviour, all decided by the proxy before a request reaches a service:
 | --- | --- |
 | No session, browser | 302 to the issuer's login (the one login page for every service); after login back to the original URL |
 | No session, `Accept: application/json`, `X-Requested-With`, or path under `/api`, `/graphql`, `/v1` | 401, never an HTML login page |
+| `Authorization: Bearer` token issued to `olf-cli`, role permitted | 2xx from the service |
+| That token, role not permitted | 403 |
+| Bearer token expired, with a tampered signature, or issued to another client (`superset`) | 401 on an API path |
 | Session, role not permitted, or no recognised role | 403 with the "Access is role-restricted" page and a link to the portal. The proxy clears the session cookie on this path, so the next page load passes silently through the issuer's SSO session |
 | Issuer down | A session the proxy cannot refresh expires with its 5 min access token and is not extended; a new login fails |
 | Proxy down | forwardAuth cannot reach it and Traefik answers an error, never the service |
@@ -381,10 +385,11 @@ is not.
 
 Fifth OIDC consumer (#536): `olf-cli` joins `identity.oidc.clients` as a public
 client, so the command-line client can sign a person in with Authorization Code
-and PKCE on a loopback redirect, with no distributable secret. An external
-issuer registers it like the other consumers (`client_ids` may override the id)
-as a public client with loopback redirects, the `profile`, `groups` and, for
-refresh, `offline_access` scopes; OpenMetadata keys users on
+and PKCE on a loopback redirect, with no distributable secret. The perimeter
+accepts the bearer tokens it issues and keeps enforcing each route's role floor.
+An external issuer registers it like the other consumers (`client_ids` may
+override the id) as a public client with loopback redirects, the `profile`,
+`groups` and, for refresh, `offline_access` scopes; OpenMetadata keys users on
 `preferred_username`, so the issuer must emit it. No `olf` command uses the
 client yet.
 

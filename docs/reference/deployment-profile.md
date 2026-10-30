@@ -301,10 +301,11 @@ role, and one claim value may not map to two roles.
 
 #### `spec.identity.client_ids` (`external` only)
 
-An object with at least one key from `perimeter`, `superset`, `openmetadata` and
-`trino`; each value is a non-empty string. A consumer left out uses its own name
-as the client id. `external` deploys no issuer: you provide the four client
-Secrets the contract names, as described in ADR 0014.
+An object with at least one key from `perimeter`, `superset`, `openmetadata`,
+`trino` and `olf-cli`; each value is a non-empty string. A consumer left out
+uses its own name as the client id. `external` deploys no issuer: you provide
+the four client Secrets the contract names, as described in ADR 0014. `olf-cli`
+is a public client and has no Secret.
 
 ---
 
