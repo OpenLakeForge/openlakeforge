@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +15,13 @@ class SettingsError(ValueError):
 
 @dataclass(frozen=True)
 class Settings:
-    """The identity.oidc fields the API validates tokens against (ADR 0014), and the enabled stages.
+    """The identity.oidc fields the API validates tokens against (ADR 0014), the enabled stages, and service endpoints.
 
     `precedence` and `role_mapping` are the contract's, rendered from
     release/identity-roles.yaml and the profile; the API holds no copy of its own.
+    Dagster runs one webserver per stage, so its GraphQL URL is keyed by stage.
+    A stage with no URL here is answered as not configured rather than refusing
+    the API's start.
     """
 
     issuer_url: str
@@ -28,6 +31,7 @@ class Settings:
     precedence: tuple[str, ...]
     stages: tuple[str, ...]
     ca_file: str | None = None
+    dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -42,6 +46,9 @@ class Settings:
                 precedence=tuple(str(role) for role in data["precedence"]),
                 stages=tuple(str(stage) for stage in data.get("stages", ())),
                 ca_file=data.get("ca_file"),
+                dagster_graphql_urls={
+                    str(stage): str(url) for stage, url in (data.get("dagster_graphql_urls") or {}).items()
+                },
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -63,3 +70,8 @@ class Settings:
         unknown = sorted(set(self.role_mapping) - set(self.precedence))
         if unknown:
             raise SettingsError(f"role_mapping names roles outside precedence: {', '.join(unknown)}")
+        # A Dagster URL for a stage that is not enabled would be reachable by no
+        # route, which means the rendering is wrong, not that the stage is off.
+        stray = sorted(set(self.dagster_graphql_urls) - set(self.stages))
+        if stray:
+            raise SettingsError(f"dagster_graphql_urls names stages that are not enabled: {', '.join(stray)}")

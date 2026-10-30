@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 
+from openlakeforge_platform_api import reads
 from openlakeforge_platform_api.permissions import ANONYMOUS, PermissionMatrix
 from openlakeforge_platform_api.settings import Settings
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
@@ -103,6 +104,9 @@ def create_app(
     app.state.validator = validator or TokenValidator(settings)
     app.add_api_route("/api/healthz", healthz, methods=["GET"], name="healthz")
     app.add_api_route("/api/v1/whoami", whoami, methods=["GET"], name="whoami")
+    app.add_api_route("/api/v1/stages/{stage}/jobs", reads.list_jobs, methods=["GET"], name="list_jobs")
+    app.add_api_route("/api/v1/stages/{stage}/runs", reads.list_runs, methods=["GET"], name="list_runs")
+    app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
     return app
 
 

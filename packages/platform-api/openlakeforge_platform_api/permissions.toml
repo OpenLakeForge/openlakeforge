@@ -16,3 +16,20 @@ stages = []
 [operations.whoami]
 role = "viewer"
 stages = []
+
+# Dagster checks nothing itself, so these rows are the only control on what the
+# API reads there. The floor is the Dagster UI route's (ADR 0014: only
+# data-engineer and platform-admin have an `orchestration` grant), so the API
+# shows no one a run the perimeter would not let them open in Dagster.
+[operations.list_jobs]
+role = "data-engineer"
+stages = ["*"]
+
+[operations.list_runs]
+role = "data-engineer"
+stages = ["*"]
+
+[operations.get_run]
+role = "data-engineer"
+stages = ["*"]
+

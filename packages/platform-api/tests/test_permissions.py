@@ -45,12 +45,15 @@ def test_every_shipped_route_has_exactly_one_row_and_every_row_a_route(settings:
     assert routes == set(app.state.permissions.operations)
 
 
-def test_the_shipped_matrix_serves_only_healthz_and_whoami(settings: Settings) -> None:
-    app = create_app(settings)
+def test_the_shipped_app_serves_only_its_read_routes(settings: Settings) -> None:
+    routes = [route for route in create_app(settings).routes if isinstance(route, APIRoute)]
 
-    assert sorted(route.path for route in app.routes if isinstance(route, APIRoute)) == [
-        "/api/healthz",
-        "/api/v1/whoami",
+    assert sorted((route.path, ",".join(sorted(route.methods or ()))) for route in routes) == [
+        ("/api/healthz", "GET"),
+        ("/api/v1/stages/{stage}/jobs", "GET"),
+        ("/api/v1/stages/{stage}/runs", "GET"),
+        ("/api/v1/stages/{stage}/runs/{run_id}", "GET"),
+        ("/api/v1/whoami", "GET"),
     ]
 
 
