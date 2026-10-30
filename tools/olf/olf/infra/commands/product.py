@@ -29,7 +29,7 @@ def product_run(
     The run loads Bronze as each resource's `source.yaml` load mode declares,
     and dbt builds Gold. A full refresh applies to this one run only.
     """
-    from openlakeforge_domain import FULL_REFRESH_SCOPES, FULL_REFRESH_TAG
+    from openlakeforge_domain import FULL_REFRESH_SCOPES, full_refresh_tags
 
     from olf.common.deployment.errors import DeploymentError
     from olf.common.provider_contracts import ProviderContractError
@@ -58,7 +58,7 @@ def product_run(
                 known = ", ".join(sorted(candidate.id for candidate in cfg.inventory.products))
                 raise typer.Exit(code=fail(f"unknown product {product!r}; this project has: {known}."))
             prepare_kube_context(cfg)
-            tags = {FULL_REFRESH_TAG: full_refresh} if full_refresh else None
+            tags = full_refresh_tags(full_refresh) if full_refresh else None
             launch_and_poll_dagster_jobs(cfg, products=selected, tags=tags)
     except (E2EError, DeploymentError, ProviderContractError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

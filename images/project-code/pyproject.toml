@@ -17,7 +17,7 @@ dependencies = [
   "dagster==1.13.7",
   "dagster-aws==0.29.7",
   "dagster-dbt==0.29.7",
-  "dagster-floe[floe]==0.4.2",
+  "dagster-floe[floe]==0.4.3",
   "dagster-k8s==0.29.7",
   "dagster-postgres==0.29.7",
   "dagster-webserver==1.13.7",

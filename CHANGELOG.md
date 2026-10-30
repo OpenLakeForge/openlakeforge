@@ -44,7 +44,7 @@ for how a release is cut and verified.
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image
-  (`floe-python` 0.8.6, `dagster-floe` 0.4.2). The code location builds the
+  (`floe-python` 0.8.6, `dagster-floe` 0.4.3). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
   renders for its own stage, and each domain runs as one Kubernetes Job on the
   same image, which receives that profile as text and runs plain `floe`: a

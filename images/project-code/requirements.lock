@@ -547,9 +547,9 @@ dagster-dbt==0.29.7 \
     --hash=sha256:76c5c3275cfe2234f0b3784b87ffb981cec3370b730158b88c404ee755365071 \
     --hash=sha256:b94ff7406f87b3cdd6fef02c02b2ece6241a262afd3d9499e5de2f3535a0e511
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
-dagster-floe==0.4.2 \
-    --hash=sha256:12fb9f2d482fb2685fa07a616fada9dd0d35bf0ed051b07eb3e400e6d56f3a1d \
-    --hash=sha256:798fa6727b3bfa3c8a82555aab1a3f4af31c5eb868134fb9449490494fbb7a6b
+dagster-floe==0.4.3 \
+    --hash=sha256:0228407667bb6b710f97bf112dff8d18965988168f3df7f6c4092525a9a31ac1 \
+    --hash=sha256:46aa3754afa4d9eee382d80ddbfbf7ee08a8d0b652dddefb463a57973f74aae6
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
 dagster-graphql==1.13.7 \
     --hash=sha256:c8658e8e353ceedd08fc88e3ba1258fc80f480170ca15363f668a44d1ea953ee \
