@@ -2,13 +2,14 @@
 
 ## Status
 
-Decided, **build steps 1 to 4 of 8 landed** (tracked in #674): this is the
+Decided, **build steps 1 to 5 of 8 landed** (tracked in #674): this is the
 design for #367. Step 1 puts `data_access` in the role model, validated by
 `olf`. Step 2 gives SeaweedFS an STS role for Polaris and creates new stage
 catalogs with STS available. Step 3 makes Polaris accept people's Dex tokens
 and creates the principal, roles and catalog grants of section 5, except the
 Gold namespace grants. Step 4 makes `olf infra catalog sync-namespaces` grant
-those, with the deployer's added privilege; no caller presents a person's token
+those, with the deployer's added privilege. Step 5 makes Trino accept people's
+tokens and adds the people catalogs; nothing routes a person's query to Trino
 yet. Verification items 1 (SeaweedFS STS enforces the session policy),
 2 (Polaris vends table-scoped credentials through it), 3 (Polaris trusts the
 local CA for Dex) and 4 (Dex's GitHub connector issues the tokens the design
@@ -340,7 +341,11 @@ Split along the seams `AGENTS.md` names, each with its tests:
    added by the bootstrap and is not removed if people's access is switched off
    again.
 5. Trino: `PASSWORD,JWT`, the people catalogs with vended credentials, the
-   rules of section 4, step 6.
+   rules of section 4, step 6. **Landed**, with `trino-people-<stage>` and its
+   Secret from the Polaris bootstrap. Found while building: the coordinator
+   held the platform S3 key as `AWS_*` variables, which the S3 client's default
+   chain would have handed a people catalog without vended credentials; the
+   key moved to `OPENLAKEFORGE_S3_*` (ADR 0016).
 6. Dex `olf-cli` client and the `query_api` route and perimeter instance.
 7. `olf infra query` person path, `--as-workload`, the token cache, and `olf e2e`
    cases: per role through the stub GitHub users the e2e already runs, an
@@ -495,3 +500,13 @@ a namespace's grants with the namespace, so pruning needs no revoke. Run against
 Polaris 1.4.0 with `olf`'s client as the deployer: the grants land, a rerun plans
 nothing, a recreated namespace has no grants left, and a stack without people's
 access answers 404 for the role, so it is skipped.
+
+Build step 5: Trino authenticates `PASSWORD,JWT` when the local root passes
+`people_access` (`issuer: github`, `password` level), adds a people catalog per
+stage on its `trino-people-<stage>` credential, and the rules of section 4,
+step 6. Run against the pinned Trino 480 with the rendered `rules.json`, Polaris
+1.4.0, Dex and SeaweedFS STS: a data engineer creates and writes through the
+people catalog, an analyst reads Gold and is refused a write by S3, a query
+without the person's token fails closed, a token cannot act as another user or
+use a workload catalog, another client's token gets 401, and a person sees only
+their own queries.

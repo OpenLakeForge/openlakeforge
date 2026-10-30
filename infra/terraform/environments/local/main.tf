@@ -427,6 +427,13 @@ module "trino" {
     client_id  = local.identity_oidc.clients.trino.client_id
     secret_ref = local.identity_oidc.clients.trino.secret_ref
   } : null
+  # People's queries (ADR 0019): Dex tokens issued to olf-cli, and a people
+  # catalog per stage on the credential the Polaris bootstrap created for it.
+  people_access = local.identity_dex && local.trino_workload_authentication == "password" ? {
+    issuer_url = local.identity_oidc.issuer_url
+    client_id  = local.identity_oidc.clients["olf-cli"].client_id
+    catalogs   = module.polaris.people_credentials_secret_names
+  } : null
 
   depends_on = [
     module.polaris,
