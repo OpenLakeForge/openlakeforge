@@ -43,9 +43,7 @@ def _write_bundle(root: Path) -> None:
     (bundle / "dashboards" / "dash.yaml").write_text("dashboard_title: Orders\n")
 
 
-def test_import_reports_imports_each_bundle_and_grants_its_schemas(
-    tmp_path: Path, fake_superset: FakeSuperset
-) -> None:
+def test_import_reports_imports_each_bundle_and_grants_its_schemas(tmp_path: Path, fake_superset: FakeSuperset) -> None:
     _write_bundle(tmp_path)
     fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev_order_revenue_gold]")
     progress = _Recorder()
@@ -143,3 +141,83 @@ def test_export_report_leaves_a_stage_neutral_assets_bundle(tmp_path: Path, fake
     assert database["extra"] == {"engine_params": {}}
     assert yaml.safe_load((target / "datasets" / "mart.yaml").read_text())["schema"] == "order_revenue_gold"
     assert progress.messages == [("step", "Exporting dashboard 'orders' from Superset")]
+
+
+_DASHBOARD_UUID = "22222222-2222-5222-8222-222222222222"
+
+
+def _platform_api_superset(server: FakeSuperset) -> None:
+    """A Superset whose init created the platform API's role and user, with one imported dashboard."""
+    server.roles[reports.PLATFORM_API_ROLE] = set()
+    server.users[reports.PLATFORM_API_USERNAME] = 9
+    server.dashboards[_DASHBOARD_UUID] = 4
+    server.dashboard_assets[4] = {"charts": [5], "datasets": [6]}
+    # admin (1) imported everything; a person (2) co-owns the chart; the dataset was already handed over.
+    server.owners.update({("dashboard", 4): [1], ("chart", 5): [1, 2], ("dataset", 6): [1, 9]})
+
+
+def test_import_reports_grants_the_platform_api_its_schemas_and_hands_each_dashboard_over(
+    tmp_path: Path, fake_superset: FakeSuperset
+) -> None:
+    _write_bundle(tmp_path)
+    (tmp_path / _REPORT_DIR / "dashboards" / "dash.yaml").write_text(
+        f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n"
+    )
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
+    _platform_api_superset(fake_superset)
+    progress = _Recorder()
+
+    reports.import_reports(
+        _client(fake_superset),
+        tmp_path,
+        [_REPORT_DIR],
+        work_dir=tmp_path / "work",
+        sqlalchemy_uri="trino://olf-dev@trino:8080/lakehouse_dev",
+        progress=progress,
+    )
+
+    assert fake_superset.roles[reports.PLATFORM_API_ROLE] == {1}
+    assert fake_superset.roles[reports.DATA_ACCESS_ROLE] == {1}
+    # Every owner is kept; the dataset that already had the user is left alone.
+    assert fake_superset.owner_puts == [("dashboard", 4, [1, 9]), ("chart", 5, [1, 2, 9])]
+    assert progress.messages[-1] == ("info", "Made olf-platform-api a co-owner of 2 report asset(s)")
+
+
+def test_a_second_import_hands_nothing_over_again(tmp_path: Path, fake_superset: FakeSuperset) -> None:
+    _platform_api_superset(fake_superset)
+    client = _client(fake_superset)
+
+    assert client.add_owner(_DASHBOARD_UUID, 9) == 2
+    assert client.add_owner(_DASHBOARD_UUID, 9) == 0
+    assert len(fake_superset.owner_puts) == 2
+
+
+def test_without_the_platform_api_user_nothing_is_handed_over(tmp_path: Path, fake_superset: FakeSuperset) -> None:
+    _write_bundle(tmp_path)
+    (tmp_path / _REPORT_DIR / "dashboards" / "dash.yaml").write_text(
+        f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n"
+    )
+    fake_superset.dashboards[_DASHBOARD_UUID] = 4
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
+    progress = _Recorder()
+
+    reports.import_reports(
+        _client(fake_superset),
+        tmp_path,
+        [_REPORT_DIR],
+        work_dir=tmp_path / "work",
+        sqlalchemy_uri="trino://olf-dev@trino:8080/lakehouse_dev",
+        progress=progress,
+    )
+
+    assert fake_superset.owner_puts == []
+    assert progress.messages[-1] == ("info", "Superset has no olf-platform-api user; no report asset is handed over")
+
+
+def test_terraform_creates_the_role_and_user_the_handover_names() -> None:
+    terraform = Path(__file__).resolve().parents[4] / "infra/terraform/modules"
+    superset = (terraform / "analytics/superset/main.tf").read_text()
+    platform_api = (terraform / "access/platform-api/superset_users.tf").read_text()
+
+    assert f'platform_api_role = "{reports.PLATFORM_API_ROLE}"' in superset
+    assert f'superset_username     = "{reports.PLATFORM_API_USERNAME}"' in platform_api
