@@ -34,6 +34,12 @@ STAGE_NEUTRAL_SQLALCHEMY_URI = "trino://superset@trino:8080/iceberg"
 # Superset creates this role empty (images/superset/olf_oidc.py); analysts and
 # viewers read nothing until it holds the imported schemas.
 DATA_ACCESS_ROLE = "olf_data_access"
+# The platform API's Superset service user and role (ADR 0021, open item 3), created by Superset's init script
+# (infra/terraform/modules/analytics/superset and access/platform-api, which name them the same). Re-importing a
+# report asset needs ownership, so the import makes this user a co-owner of what it imports; exporting one needs
+# data access, so the role gets the same schemas as DATA_ACCESS_ROLE.
+PLATFORM_API_ROLE = "olf_platform_api"
+PLATFORM_API_USERNAME = "olf-platform-api"
 
 
 @dataclass(frozen=True)
@@ -134,9 +140,17 @@ def _export_member(relative: PurePosixPath, content: bytes, schema_prefix: str) 
         _neutral_database(document)
     else:
         schema = document.get("schema")
-        if not (schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix)):
+        # Superset 6.1.0 sets a dataset's catalog to its connection's default on any update when the
+        # database has no multi-catalog (commands/dataset/update.py): a UI edit, or the platform API's
+        # owner handover. That default is the stage's own catalog, so it is dropped; each stage's
+        # connection supplies its own, as for a dataset imported without one.
+        if document.get("catalog") is None and not (
+            schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix)
+        ):
             return content
-        document["schema"] = schema.removeprefix(schema_prefix)
+        document.pop("catalog", None)
+        if schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix):
+            document["schema"] = schema.removeprefix(schema_prefix)
     return yaml.safe_dump(document, sort_keys=False).encode("utf-8")
 
 
@@ -222,6 +236,20 @@ def bundle_schema_perms(bundle_path: Path) -> set[str]:
 
 
 
+def bundle_dashboard_uuids(bundle_path: Path) -> list[str]:
+    """The uuid of each dashboard in a report bundle, in archive order."""
+    uuids: list[str] = []
+    with ZipFile(bundle_path) as bundle:
+        for name in bundle.namelist():
+            parts = PurePosixPath(name).parts
+            if len(parts) < 3 or parts[1] != "dashboards" or not name.lower().endswith((".yaml", ".yml")):
+                continue
+            document = yaml.safe_load(bundle.read(name))
+            if isinstance(document, dict) and (uuid := canonical_uuid(document.get("uuid"))):
+                uuids.append(uuid)
+    return uuids
+
+
 def import_reports(
     client: SupersetClient,
     repo_root: Path,
@@ -237,6 +265,7 @@ def import_reports(
     """Build and import each report bundle, then grant the data-access role its schemas."""
     work_dir.mkdir(parents=True, exist_ok=True)
     schema_perms: set[str] = set()
+    dashboards: list[str] = []
     for report_dir in report_dirs:
         source_dir = repo_root / report_dir
         if not (source_dir / "metadata.yaml").is_file():
@@ -252,10 +281,31 @@ def import_reports(
         client.import_assets(bundle_path, database_password=database_password)
         progress.info(f"Deployed Superset report assets from {report_dir}")
         schema_perms |= bundle_schema_perms(bundle_path)
+        dashboards += bundle_dashboard_uuids(bundle_path)
     if schema_perms:
         # The role exists only when Superset runs with sign-in (identity.oidc).
         if not client.grant_permissions(DATA_ACCESS_ROLE, "schema_access", sorted(schema_perms)):
             progress.info("Superset sign-in is off; no data-access role to grant")
+        if client.grant_permissions(PLATFORM_API_ROLE, "schema_access", sorted(schema_perms)):
+            progress.info(f"Granted {PLATFORM_API_ROLE} the report schemas, so the platform API can export them")
+    _hand_over(client, dashboards, progress)
+
+
+def _hand_over(client: SupersetClient, dashboards: Sequence[str], progress: Progress) -> None:
+    """Make the platform API's service user a co-owner of every dashboard imported, and its charts and datasets.
+
+    An import keeps the owners an asset has and adds the importer, so the user
+    stays an owner across later imports. Without the platform API there is no
+    such user, and nothing is handed over.
+    """
+    if not dashboards:
+        return
+    user = client.user_id(PLATFORM_API_USERNAME)
+    if user is None:
+        progress.info(f"Superset has no {PLATFORM_API_USERNAME} user; no report asset is handed over")
+        return
+    changed = sum(client.add_owner(dashboard, user) for dashboard in dashboards)
+    progress.info(f"Made {PLATFORM_API_USERNAME} a co-owner of {changed} report asset(s)")
 
 
 def export_report(
