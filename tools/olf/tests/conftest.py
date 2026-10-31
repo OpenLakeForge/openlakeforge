@@ -13,7 +13,7 @@ import re
 import shutil
 import threading
 import urllib.parse
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -311,10 +311,10 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
 
 
 class FakeOpenMetadata(ThreadingHTTPServer):
-    """An OpenMetadata stand-in serving cursor-paged `GET /api/v1/domains` to the bot token.
+    """An OpenMetadata stand-in serving cursor-paged domains and data products to the bot token.
 
     Every request is recorded as (method, path), so a test can prove a command
-    only reads. `fail_status` makes the domains endpoint answer with that status.
+    only reads. `fail_status` makes the collection endpoints answer with that status.
     """
 
     token = "bot-jwt"
@@ -323,6 +323,8 @@ class FakeOpenMetadata(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", 0), _FakeOpenMetadataHandler)
         self.url = f"http://127.0.0.1:{self.server_address[1]}"
         self.domains: list[dict[str, str]] = []
+        self.data_products: list[dict[str, object]] = []
+        self.queries: list[dict[str, list[str]]] = []
         self.requests: list[tuple[str, str]] = []
         self.fail_status: int | None = None
 
@@ -349,17 +351,23 @@ class _FakeOpenMetadataHandler(BaseHTTPRequestHandler):
         url = self._record()
         if self.headers.get("Authorization") != f"Bearer {self.server.token}":
             return self._reply(401, {"message": "Not authorized"})
-        if url.path != "/api/v1/domains":
+        collections: dict[str, Sequence[object]] = {
+            "/api/v1/domains": self.server.domains,
+            "/api/v1/dataProducts": self.server.data_products,
+        }
+        if url.path not in collections:
             return self._reply(404, {"message": "Not found"})
         if self.server.fail_status:
-            return self._reply(self.server.fail_status, {"message": "domains unavailable"})
+            return self._reply(self.server.fail_status, {"message": "collection unavailable"})
         query = urllib.parse.parse_qs(url.query)
+        self.server.queries.append(query)
+        entities = collections[url.path]
         start = int(query.get("after", ["0"])[0])
         end = start + int(query["limit"][0])
-        paging = {"total": len(self.server.domains)}
-        if end < len(self.server.domains):
+        paging: dict[str, object] = {"total": len(entities)}
+        if end < len(entities):
             paging["after"] = str(end)
-        self._reply(200, {"data": self.server.domains[start:end], "paging": paging})
+        self._reply(200, {"data": entities[start:end], "paging": paging})
 
     def _refuse(self) -> None:
         self._record()

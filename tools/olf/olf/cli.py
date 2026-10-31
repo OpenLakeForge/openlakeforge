@@ -27,6 +27,7 @@ from olf.common.commands import (
     profile,
     project,
     release,
+    report,
     source,
     toolchain,
 )
@@ -55,6 +56,7 @@ from olf.infra.commands import images as infra_images
 from olf.infra.commands import product as infra_product
 from olf.infra.commands import project as infra_project
 from olf.platform import commands as platform_commands
+from olf.platform import query as platform_query
 
 app = typer.Typer(
     name="olf",
@@ -112,9 +114,9 @@ def _infra_group(group: typer.Typer, name: str, *, common: typer.Typer | None = 
     app.add_typer(legacy, name=name)
 
 
-def _infra_command(name: str, callback: Callable[..., None], *, warn: bool = True) -> None:
+def _infra_command(name: str, callback: Callable[..., None]) -> None:
     infra_app.command(name)(callback)
-    app.command(name, hidden=True)(moved_alias(callback, f"olf infra {name}") if warn else callback)
+    app.command(name, hidden=True)(moved_alias(callback, f"olf infra {name}"))
 
 
 app.add_typer(infra_app, name="infra")
@@ -139,7 +141,10 @@ _infra_group(catalog.app, "catalog")
 _infra_group(artifacts.app, "artifacts")
 _infra_group(auth.app, "auth")
 _infra_group(superset.app, "superset")
-_infra_group(superset.report_app, "report")
+_infra_group(superset.report_app, "report", common=report.app)
+# `report validate` moved from infra to common (#664). Added after
+# `_infra_group` copied the group, so only `olf infra report` gains the alias.
+superset.report_app.command("validate", hidden=True)(moved_alias(report.validate, "olf report validate"))
 _infra_group(openmetadata.app, "openmetadata")
 _infra_group(k8s.app, "k8s")
 _infra_group(e2e.app, "e2e")
@@ -155,10 +160,11 @@ _infra_command("destroy", deployment.destroy)
 _infra_command("status", deployment.status)
 _infra_command("forward", deployment.forward)
 _infra_command("break-glass", break_glass.break_glass_command)
-# `olf query` becomes a platform command once per-person Trino access exists
-# (ADR 0020), so it keeps its top-level path and does not warn.
-_infra_command("query", query.query, warn=False)
+infra_app.command("query")(query.query)
 app.command("init")(init.initialize)
+# A person's own queries (ADR 0019); `olf infra query` keeps the workload path. The pre-2b alias
+# `olf query` -> `olf infra query` ends here, the one exception ADR 0020 names.
+app.command("query")(platform_query.query)
 app.command("login")(platform_commands.login)
 app.command("whoami")(platform_commands.whoami)
 app.command("logout")(platform_commands.logout)

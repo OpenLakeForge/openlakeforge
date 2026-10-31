@@ -35,7 +35,7 @@ locals {
     { portal = local.last_role },
     { for service, roles in local.held : service => roles[length(roles) - 1] if length(roles) > 0 },
   )
-  route_floor = { for ref in var.protected_refs : ref => try(local.service_floor[reverse(split("/", ref))[0]], null) }
+  route_floor = { for ref in concat(var.protected_refs, var.path_refs) : ref => try(local.service_floor[reverse(split("/", ref))[0]], null) }
   # One instance per distinct floor. The last role's instance always exists:
   # it answers the login callback and admits every recognised role.
   floors = toset(concat([local.last_role], compact(values(local.route_floor))))

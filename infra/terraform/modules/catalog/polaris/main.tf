@@ -57,7 +57,8 @@ locals {
   })
   # The Job template is immutable, so a changed workload-namespace set has to
   # produce a new Job name for the credential replicas to be created.
-  bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
+  bootstrap_script = "${local.workload_bootstrap_script}${local.person_access_script}"
+  workload_bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
     release_name               = var.release_name
     oauth_scope                = local.oauth_scope
     stage_catalogs             = local.stage_catalogs
@@ -72,6 +73,7 @@ locals {
     om_catalog_role            = var.om_catalog_role
     deployer_principal_role    = var.deployer_principal_role
     deployer_catalog_role      = var.deployer_catalog_role
+    person_access_enabled      = local.person_access_enabled
   })
 
   bootstrap_job_name = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"

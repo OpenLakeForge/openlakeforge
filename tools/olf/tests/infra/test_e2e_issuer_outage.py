@@ -29,6 +29,8 @@ class Cluster:
         self.up_error = overrides.get("up_error", False)
         self.ingress_after = overrides.get("ingress_after", "same")
         self.protected_error = overrides.get("protected_error", False)
+        self.person_open = overrides.get("person_open", False)
+        self.person_checked_while_down = False
         self.ingress_reads = 0
 
     def scale(self, n: int) -> None:
@@ -49,6 +51,11 @@ class Cluster:
         if self.protected_error:
             raise E2EError("route open")
 
+    def person_path_closed(self) -> None:
+        self.person_checked_while_down = self.dex == 0
+        if self.person_open:
+            raise E2EError("a query without a token got HTTP 200")
+
     def reach(self, service: str) -> int | None:
         if self.dex == 0:
             self.reached_while_down.append(service)
@@ -65,6 +72,7 @@ class Cluster:
             records=lambda: self.recorded,
             ingresses=self.ingresses,
             still_protected=self.protected,
+            person_path_closed=self.person_path_closed,
             replicas=2,
             reason=REASON,
             pause=lambda _s: None,
@@ -76,6 +84,7 @@ def test_the_drill_reaches_both_services_during_the_outage_and_restores_dex() ->
     cluster = Cluster()
     cluster.run()
     assert cluster.reached_while_down == ["trino", "dagster"]
+    assert cluster.person_checked_while_down
     assert cluster.dex == 2
     assert cluster.waited_up
 
@@ -87,6 +96,7 @@ def test_the_drill_reaches_both_services_during_the_outage_and_restores_dex() ->
         ({"statuses": {"trino": 200, "dagster": 503}}, "dagster did not answer"),
         ({"statuses": {"trino": None, "dagster": 200}}, "trino did not answer"),
         ({"recorded": [_record("trino")]}, "No complete break-glass record for dagster"),
+        ({"person_open": True}, "without a token"),
         ({"recorded": [_record("trino"), _record("dagster", ended="")]}, "No complete break-glass record for dagster"),
         # An older drill's complete record must not vouch for this run.
         ({"recorded": [_record("trino"), {**_record("dagster"), "reason": "e2e issuer-outage drill old"}]}, "dagster"),

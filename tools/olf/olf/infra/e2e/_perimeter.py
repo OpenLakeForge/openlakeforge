@@ -28,6 +28,7 @@ from olf.infra.e2e._identity_github import (
     stub_host,
 )
 from olf.infra.e2e._perimeter_bearer import check_bearer_tokens
+from olf.infra.e2e._person_access import check_person_access
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 
 PORTAL_REF = "shared/portal"
@@ -69,11 +70,11 @@ def check_perimeter(cfg: E2EConfig) -> None:
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
     ):
-        _check_dex_perimeter(cfg, identity, perimeter["protected_routes"], routes)
+        _check_dex_perimeter(cfg, identity, perimeter["protected_routes"], routes, list(contracts["stages"]))
 
 
 def _check_dex_perimeter(
-    cfg: E2EConfig, identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str]
+    cfg: E2EConfig, identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str], stages: list[str]
 ) -> None:
     """Sign in through Dex's GitHub connector against the stub and check every role's decisions."""
     if not dex_points_at_stub(cfg):
@@ -103,6 +104,7 @@ def _check_dex_perimeter(
         for role, login in logins.items():
             check_role_decisions(identity, protected, routes, role, login, sign_in)
         check_bearer_tokens(cfg, identity, routes, logins, lambda ref, role: _grants(identity, ref, role))
+        check_person_access(cfg, identity, stages, routes, logins)
 
 
 def check_unauthenticated_requests(

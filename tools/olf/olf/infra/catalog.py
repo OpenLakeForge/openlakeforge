@@ -12,6 +12,9 @@ from openlakeforge_domain import CatalogNamespace, inventory_for
 MANAGED_BY_KEY = "openlakeforge.io/managed-by"
 MANAGED_BY_VALUE = "openlakeforge"
 CATALOG_KEY = "openlakeforge.io/catalog"
+# ADR 0019, section 5. The role itself is created by the Polaris bootstrap, and only when people sign in.
+GOLD_READ_ROLE = "olf-gold-read"
+GOLD_READ_PRIVILEGES = ("TABLE_READ_DATA", "NAMESPACE_READ_PROPERTIES", "VIEW_READ_PROPERTIES")
 
 
 class NamespaceSyncError(RuntimeError):
@@ -150,6 +153,28 @@ def desired_namespaces(
         namespace_prefix=namespace_prefix,
     )
     return physical.catalog_namespaces
+
+
+def desired_gold_namespaces(repo_root: Path, *, namespace_prefix: str = "") -> tuple[str, ...]:
+    """Physical Gold namespace names, from the same inventory as `desired_namespaces`."""
+    physical = inventory_for(repo_root).resolve_physical_names(
+        catalog_database_fqn="", bronze_bucket="", silver_bucket="", gold_bucket="", namespace_prefix=namespace_prefix
+    )
+    return tuple(sorted(product.gold_namespace for product in physical.products))
+
+
+def plan_gold_grants(held: frozenset[tuple[str, str]], gold_namespaces: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    """The (namespace, privilege) grants `GOLD_READ_ROLE` lacks.
+
+    Polaris answers a repeated grant with HTTP 500, not 409, so only what is
+    missing may be written.
+    """
+    return tuple(
+        (namespace, privilege)
+        for namespace in sorted(gold_namespaces)
+        for privilege in GOLD_READ_PRIVILEGES
+        if (namespace, privilege) not in held
+    )
 
 
 def apply_namespace_sync(client: NamespaceClient, plan: NamespaceSyncPlan) -> None:

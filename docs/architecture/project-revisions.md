@@ -100,7 +100,7 @@ catalog boundary, never part of an asset's identity.
 A Superset report bundle is the one component promotion never re-derives:
 PROD imports what DEV exported, and nothing exports from PROD to repair it.
 `olf infra project build` therefore refuses a bundle that could not survive that
-trip, and `olf infra report validate` runs the same rules on demand:
+trip, and `olf report validate` runs the same rules on demand:
 
 - **`metadata.yaml` declares `type: assets` and a format version.** That type
   is what selects the import command the deploy path runs; anything else

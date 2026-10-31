@@ -266,6 +266,12 @@ as before. The `medium` and `large` rows are defined but still fail validation:
 workers need network flows, authentication across nodes (#367) and a kind run
 before the tier counts as tested.
 
-2026-10-30: `storage.size` accepts `medium` and `large` (#326), with the
-grow-only rule enforced before the platform apply. `query.size` still accepts
-`small` only.
+2026-10-30: `storage.size` accepts `medium` and `large` (#326) when a
+deployment is created; a change to an existing deployment's size is refused
+before the platform apply until growing in place lands. `query.size` still
+accepts `small` only.
+
+2026-10-31: an existing deployment's volumes grow in place where the claim's
+StorageClass sets `allowVolumeExpansion: true` (#326): `olf` patches the
+claims and releases the SeaweedFS StatefulSets with `--cascade=orphan` before
+the apply. Shrinking, and growing on a class that cannot expand, stay refused.

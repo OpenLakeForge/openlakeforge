@@ -121,7 +121,7 @@
             },
             "grants": {
               "type": "object",
-              "propertyNames": {"enum": ["orchestration", "reporting", "governance_service", "query"]},
+              "propertyNames": {"enum": ["orchestration", "reporting", "governance_service", "query", "query_api"]},
               "additionalProperties": {
                 "type": "object",
                 "minProperties": 1,

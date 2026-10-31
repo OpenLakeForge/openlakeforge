@@ -30,6 +30,7 @@ workloads:
   traefik: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}
   oauth2-proxy: {openlakeforge.io/workload: oauth2-proxy} # a pod label the perimeter module sets; the floors differ in name
   portal: {app.kubernetes.io/name: portal}
+  platform-api: {app.kubernetes.io/name: platform-api}
   dex: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}
   cert-manager-controller: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}
   cert-manager-cainjector: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}
@@ -199,6 +200,11 @@ flows:
     tag: V
   - id: F3
     from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    ports: [8080] # /api on the portal's host
+    tag: V
+  - id: F3
+    from: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
     tag: V
@@ -208,11 +214,17 @@ flows:
     ports: [8443, 8000] # web when the issuer is none
     tag: V
   - id: F4
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443, 8000] # the platform API reads the issuer's discovery document and keys at its public URL
+    tag: T # needs a token validated on a running cluster
+  - id: F4
     from:
       - {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
       - {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+      - {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443, 8000] # OpenMetadata's and the Trino Web UI's OIDC calls to the issuer's public URL (discovery, token, keys), rewritten to Traefik: websecure, or web with issuer none (Trino's UI is HTTPS only)
+    ports: [8443, 8000] # OpenMetadata's and the Trino Web UI's OIDC calls to the issuer's public URL (discovery, token, keys), and Polaris's key requests for people's tokens (ADR 0019), rewritten to Traefik: websecure, or web with issuer none (Trino's UI is HTTPS only)
     tag: T # needs a sign-in on a running cluster
   - id: F13
     from: [{scope: shared, pods: {openlakeforge.io/job: governance-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}]
@@ -254,3 +266,8 @@ flows:
     to: {scope: any}
     ports: [443]
     tag: T # api.github.com (or the Enterprise host) every 5 min; NetworkPolicy cannot name a host
+  - id: F31
+    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
+    ports: [5556]
+    tag: T # the JWT keys for people's tokens (ADR 0019), fetched at startup, before Traefik exists

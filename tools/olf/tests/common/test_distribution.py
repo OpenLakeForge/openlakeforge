@@ -213,3 +213,26 @@ def test_the_payload_ships_every_repo_file_a_terraform_root_reads(tmp_path: Path
             if path.startswith(".tmp/"):
                 continue
             assert path in shipped, f"{tf.name} reads {path}, not in the payload"
+
+
+
+def test_the_payload_ships_every_path_the_platform_api_image_copies(tmp_path: Path) -> None:
+    import re
+
+    # An installed olf builds this image with the payload as its context
+    # (build_platform_api_image), so a COPY source the payload lacks fails only
+    # for installed users, never from a checkout.
+    repo_root = Path(__file__).resolve().parents[4]
+    dockerfile = (repo_root / "images/platform-api/Dockerfile").read_text()
+    build_embedded_payload(repo_root, archive=tmp_path / "payload.tar.gz", metadata_path=tmp_path / "payload.json")
+    with tarfile.open(tmp_path / "payload.tar.gz") as bundle:
+        shipped = bundle.getnames()
+    sources = [
+        source
+        for line in re.findall(r"^COPY\s+(?!--)(.+)$", dockerfile, re.MULTILINE)
+        for source in line.split()[:-1]
+    ]
+    assert sources, "the Dockerfile copies nothing from its context"
+    for source in sources:
+        prefix = source.rstrip("/") + "/"
+        assert any(name == source or name.startswith(prefix) for name in shipped), f"{source} is not in the payload"

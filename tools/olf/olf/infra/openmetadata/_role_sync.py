@@ -49,7 +49,7 @@ def role_sync_manifests(
             {"name": "ROLE_PRECEDENCE", "value": json.dumps(precedence)},
             {"name": "OM_URL", "value": om_url},
             _secret_env("OM_JWT", AUTOMATION_BOT, AUTOMATION_JWT_KEY),
-            # Fixed key names `olf github connect` writes.
+            # Fixed key names `olf infra github connect` writes.
             _secret_env("APP_ID", app, "app-id"),
             _secret_env("PRIVATE_KEY", app, "private-key"),
         ],

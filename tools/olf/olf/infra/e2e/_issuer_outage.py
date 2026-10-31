@@ -1,7 +1,8 @@
 """Issuer-outage recovery drill (#177): Dex is down, break-glass still reaches the services.
 
 Dex is scaled to zero, a fresh perimeter sign-in must fail, Trino and Dagster
-must answer through recorded break-glass sessions, and after Dex is restored a
+must answer through recorded break-glass sessions, a person's query is refused
+while the workload path still answers (ADR 0019), and after Dex is restored a
 fresh sign-in must work again. Dex is always restored, even when a step fails.
 The two timings it logs are the ones recorded in
 docs/architecture/identity/identity-sessions-and-recovery.md.
@@ -26,9 +27,16 @@ import requests
 from olf.common import config, log
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra import access, break_glass
-from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, sign_in_with_stub, stub_host
+from olf.infra.e2e._identity_github import (
+    REQUEST_TIMEOUT,
+    dex_points_at_stub,
+    github_stub,
+    sign_in_with_stub,
+    stub_host,
+)
 from olf.infra.e2e._perimeter import check_unauthenticated_requests
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._trino import trino_scalar
 
 REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
 PORTS = {"trino": 15558, "dagster": 15557}
@@ -54,6 +62,7 @@ def run_drill(
     records: Callable[[], list[dict[str, str]]],
     ingresses: Callable[[], str],
     still_protected: Callable[[], None],
+    person_path_closed: Callable[[], None],
     replicas: int,
     reason: str = REASON,
     clock: Callable[[], float] = time.monotonic,
@@ -78,6 +87,7 @@ def run_drill(
             mine = [r for r in done if r.get("reason") == reason and r.get("service") == service]
             if not any(r.get("user") and r.get("ended") and "duration_seconds" in r for r in mine):
                 raise E2EError(f"No complete break-glass record for {service}: {done}")
+        person_path_closed()
         ok = True
     finally:
         try:
@@ -147,6 +157,22 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
         protected = access_contract["perimeter"]["protected_routes"]
         check_unauthenticated_requests(identity, protected, routes, login=f"{identity['issuer_url']}/auth")
 
+    def person_path_closed() -> None:
+        # No person can sign in, so no query reaches Trino as a person; `olf infra query`'s path still answers.
+        query_route = contracts["shared"]["access"]["routes"].get("shared/query")
+        if "query_api" in identity["roles"]["grants"] and query_route:
+            reply = requests.post(
+                f"{query_route['url'].rstrip('/')}/v1/statement",
+                data=b"SELECT 1",
+                headers={"Accept": "application/json"},
+                allow_redirects=False,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if reply.status_code != 401:
+                raise E2EError(f"A query without a token got HTTP {reply.status_code} with Dex down, expected 401.")
+        if trino_scalar(cfg, "SELECT 1") != "1":
+            raise E2EError("The workload path did not answer SELECT 1 with Dex down.")
+
     def walk() -> requests.Response:
         landing = sign_in_with_stub(portal, login, stub_host(cfg))[1]
         log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}")
@@ -213,6 +239,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                     signed_in=signed_in,
                     ingresses=ingresses,
                     still_protected=still_protected,
+                    person_path_closed=person_path_closed,
                     refused=refused,
                     reach=reach,
                     records=records,

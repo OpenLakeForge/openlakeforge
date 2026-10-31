@@ -2,9 +2,12 @@
 
 ## Status
 
-Decided: **deferred**. This is an evaluation (#26), not a migration. Nothing
-in the tree changes. It also records the catalog-side findings that the
-data-plane authorization assessment (#179) needs.
+Decided: **deferred for workloads**. This is an evaluation (#26), not a
+migration; every workload keeps Polaris's own credentials. It also records the
+catalog-side findings that the data-plane authorization assessment (#179)
+needs. For people's tokens the deferral has ended: with
+`spec.identity.issuer: github`, Polaris runs `mixed` and accepts Dex tokens
+issued to `olf-cli` (ADR 0019, build step 3).
 
 Scope of the evidence. The deployed Polaris is the image `apache/polaris:1.4.0`
 (`release/component-catalog.yaml`, `infra/helm/values/local/polaris.yaml`)
@@ -33,8 +36,8 @@ every caller, and whether it is worth doing in v0.5-alpha.
 | How is the principal read from the token? | `polaris.oidc.principal-mapper`: `id-claim-path` and `name-claim-path` (chart: `oidc.principalMapper.idClaimPath` / `nameClaimPath`; one of the two is required). The id is parsed as a number, so a UUID `sub` cannot be the id claim; the name claim must equal an existing Polaris principal name |
 | Token exchange or brokering? | Not for external tokens. Polaris' own `/api/catalog/v1/oauth/tokens` accepts `client_credentials` and `urn:ietf:params:oauth:grant-type:token-exchange`, but the exchange only re-issues a token that verifies against Polaris' own `TokenBroker` signing key (`JWTBroker.generateFromToken`). In `external` mode the token endpoint is disabled (the docs say HTTP 501; the chart says the token service is always disabled and the broker unused). No path exchanges an issuer token for a Polaris token: with an external issuer the client presents the issuer's token directly |
 | Chart support | Chart 1.4.1 exposes `authentication.type`, `authentication.realmOverrides` and an `oidc` block (`authServeUrl`, `client.id`, `client.secret`, `principalMapper`, `principalRolesMapper`); defaults are `internal` and an empty `oidc.authServeUrl`. Only one default OIDC tenant is supported through values |
-| What does this deployment set? | Nothing: `infra/helm/values/local/polaris.yaml` has no `authentication` or `oidc` key, so Polaris runs `internal`, and `release.tf` passes only persistence and storage settings |
-| Issuer reachability | **To verify.** The issuer URL is `https://auth.<base_domain>` behind Traefik with the local CA (ADR 0014). The Polaris pod would need to resolve that host and trust the CA in its JVM trust store, as the other back-channel consumers do (`in-cluster-resolution`). Whether the 1.4.0 image honours a mounted CA bundle was not checked |
+| What does this deployment set? | Without `spec.identity.issuer: github`, nothing: Polaris runs `internal`. With it, `modules/catalog/polaris/person_access.tf` sets `mixed` and the `oidc` block for people's Dex tokens (ADR 0019) |
+| Issuer reachability | **Verified** (ADR 0019, verification item 3). The issuer URL is `https://auth.<base_domain>` behind Traefik with the local CA (ADR 0014). Polaris resolves it through `in-cluster-resolution` and trusts the CA mounted from the `olf-local-ca` ConfigMap through a named Quarkus TLS configuration; it starts while the issuer is unreachable and fetches the keys on the first token |
 | Which claim names the principal for an issuer service-account token? | **To verify** against Dex (this row was written against Keycloak, since removed). A client-credentials token's `sub` is a UUID, which cannot be the numeric id claim. A name claim can be a protocol mapper with a fixed value, or the issuer's own name claim; which fits the existing principal names (`trino-<stage>`, `floe-<stage>`, ... in `environments/local/main.tf`) was not tested |
 
 ## How the Polaris credential is consumed today
@@ -47,7 +50,7 @@ every caller below is class 2 (`identity-callers.md`).
 | --- | --- | --- |
 | Trino, per stage catalog | The stage's Trino principal; Secret `trino_credentials_secret_name`, keys `POLARIS_TRINO_CLIENT_ID` / `_SECRET`, in the shared namespace | `iceberg.rest-catalog.security=OAUTH2`, `oauth2.credential=<id>:<secret>`, `oauth2.server-uri` = the contract `token_uri`, `oauth2.scope` = `PRINCIPAL_ROLE:ALL`, `vended-credentials-enabled=false` (`modules/query/trino`). Granted `CATALOG_MANAGE_CONTENT` on that stage's catalog |
 | Floe domain Job | The stage's Floe principal; Secret `floe_credentials_secret_name` in the stage namespace, referenced by each domain's Floe Job through `secretKeyRef` | The stage profile `libs/floe_profile.py` renders names the token URI, scope and the Secret's keys; Floe authenticates with those credentials against that URI. `CATALOG_MANAGE_CONTENT` |
-| `olf infra catalog sync-namespaces` | The stage's deployer principal; Secret `polaris-deployer-creds`, read through RBAC | `olf/infra/polaris.py` POSTs `grant_type=client_credentials` with HTTP Basic to the token path over a port-forward. `CATALOG_MANAGE_METADATA` |
+| `olf infra catalog sync-namespaces` | The stage's deployer principal; Secret `polaris-deployer-creds`, read through RBAC | `olf/infra/polaris.py` POSTs `grant_type=client_credentials` with HTTP Basic to the token path over a port-forward. `CATALOG_MANAGE_METADATA`, and `CATALOG_MANAGE_ACCESS` when people sign in (ADR 0019) |
 | Platform bootstrap Job | The Polaris root client (created in-cluster by the Polaris module's credentials Job, so not in Terraform state) | Exchanges at the internal token endpoint, then creates catalogs, principals, roles and grants and writes each principal's Secret (`bootstrap.sh.tftpl`) |
 | dbt | **None.** Gold is written through Trino as `olf-<stage>-runtime` | The bootstrap Job deletes the legacy `dbt` principal and `polaris-dbt-creds` Secret. #26 still lists dbt as a Polaris writer; it no longer is |
 | OpenMetadata | **None used.** The bootstrap Job still creates the `om` principal, its Secret `om_credentials_secret_name` and a `CATALOG_MANAGE_CONTENT` grant on every stage catalog | The lakehouse service crawls through Trino as `openmetadata` (OpenMetadata 1.13 removed the Iceberg connector; `technical-debt.md`). No module, `olf` command or chart reads the `om` Secret: only the Polaris bootstrap and an unused field of the OpenMetadata contract variable name it. It is a dormant credential with a write-level grant |
@@ -116,7 +119,7 @@ Where table-level policy would be enforced, as the tree is wired today:
 | Catalog authorization | Polaris RBAC on the REST catalog: securables catalog, namespace, table, view and policy; privileges such as `TABLE_READ_DATA` granted to catalog roles, assigned to principal roles, assigned to principals. Optional external decision point (`polaris.authorization.type`, OPA documented). Evaluated for the principal on the request | AWS IAM on Glue databases and tables, optionally Lake Formation grants evaluated for the calling IAM principal. Today AWS scopes each stage's Pod Identity role to `database/<prefix>_*` and has **no Lake Formation** (`technical-debt.md`) |
 | Who the catalog sees | Trino's per-stage principal with `CATALOG_MANAGE_CONTENT`, not the end user | The stage's Pod Identity role |
 | Effect today | Stage isolation only: one catalog per stage, one principal per catalog | Stage isolation by name prefix and IAM |
-| Data files | **Not gated by Polaris here.** Trino reads object storage with its own S3 key (`s3.aws-access-key`) and `vended-credentials-enabled=false`. `TABLE_READ_DATA` is defined as receiving catalog-vended storage credentials, so a per-table grant would not restrict file reads unless Trino switched to vended credentials. SeaweedFS issues them through its STS, and new SeaweedFS stage catalogs are created with STS available (ADR 0019, build step 2); only ADR 0019's person path asks for them | IAM on the S3 prefixes |
+| Data files | **Workload path: not gated by Polaris.** Trino's stage catalogs read object storage with their own S3 key and `vended-credentials-enabled=false`. `TABLE_READ_DATA` is defined as receiving catalog-vended storage credentials, so a per-table grant does not restrict those reads. **Person path: gated** (ADR 0019). The people catalogs `<stage>` hold no S3 key and ask for vended credentials, which SeaweedFS issues through its STS, scoped by a session policy to the table, and read-only unless the person's role writes there. New stage catalogs are created with STS available (ADR 0019, build step 2) | IAM on the S3 prefixes |
 | Engine-level | Trino access control (`catalog_access_rules`, `tables` rules in `modules/query/trino`) keys on a user name Trino does not authenticate (register entry "Trino has no client authentication"); #26 chooses the mechanism | Same |
 
 Implications to carry into #179's ADR:
@@ -157,3 +160,11 @@ deferral, and the catalog-side findings for #179.
 
 The "Data files" row: SeaweedFS stage catalogs are now created with STS
 available, which ADR 0019's person path uses; the workload path is unchanged.
+
+The deferral ended for people's tokens (ADR 0019, build step 3): Polaris runs
+`mixed` with `issuer: github`; the reachability row was verified. Workloads are
+unchanged.
+
+The "Data files" row splits by path (ADR 0019, build step 8): a person's
+queries read with credentials Polaris vends per table, so `TABLE_READ_DATA`
+gates their file reads; the workload path still reads with the stage's S3 key.

@@ -243,6 +243,26 @@ module "portal" {
   sign_out_url = local.sign_out_url
 }
 
+# ADR 0021: the platform API, at /api on the portal's host. It validates every
+# token itself, so it needs an issuer; it holds no service credential yet.
+module "platform_api" {
+  source = "../../modules/access/platform-api"
+  count  = local.identity_enabled && var.platform_api_image != null ? 1 : 0
+
+  namespace         = kubernetes_namespace_v1.shared.metadata[0].name
+  image             = var.platform_api_image
+  image_pull_policy = "Never"
+  issuer_url        = local.identity_oidc.issuer_url
+  # Bearer tokens from olf only: a browser session's token does not reach
+  # the API yet (ADR 0021, open item 1).
+  audiences         = [local.identity_oidc.clients["olf-cli"].client_id]
+  role_claim        = local.identity_oidc.role_claim
+  role_mapping      = local.identity_oidc.role_mapping
+  precedence        = local.identity_roles.precedence
+  stages            = sort(keys(local.enabled_stages))
+  ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
+}
+
 module "traefik" {
   source = "../../modules/access/traefik"
   count  = local.access_enabled ? 1 : 0
@@ -282,6 +302,7 @@ module "perimeter" {
   client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
   cli_client_id     = local.identity_oidc.clients["olf-cli"].client_id
   protected_refs    = local.perimeter_protected_refs
+  path_refs         = local.query_api_enabled ? ["shared/query_api"] : []
   scope             = local.identity_scope
 
   github_organization = try(var.identity_github.organization, null)
@@ -367,6 +388,16 @@ module "polaris" {
   bootstrap_revision    = local.polaris_bootstrap_hash
   workload_namespaces   = values(local.stage_namespaces)
   replicate_credentials = false
+  # People's Dex tokens (ADR 0019): the GitHub connector's id names the one
+  # principal every person's token maps to.
+  person_access = local.identity_dex ? {
+    issuer_url        = local.identity_oidc.issuer_url
+    client_id         = local.identity_oidc.clients["olf-cli"].client_id
+    principal_name    = module.dex[0].connector_id
+    role_mapping      = local.identity_oidc.role_mapping
+    data_access       = local.identity_roles.data_access
+    ca_configmap_name = module.in_cluster_resolution[0].ca_configmap_name
+  } : null
   stage_catalogs = {
     for name, binding in local.stage_storage : name => {
       namespace                        = local.stage_namespaces[name]
@@ -386,6 +417,8 @@ module "polaris" {
   depends_on = [
     module.seaweedfs,
     kubernetes_namespace_v1.stage,
+    # The pod mounts the CA ConfigMap this module publishes.
+    module.in_cluster_resolution,
   ]
 }
 
@@ -414,6 +447,16 @@ module "trino" {
     issuer_url = local.identity_oidc.issuer_url
     client_id  = local.identity_oidc.clients.trino.client_id
     secret_ref = local.identity_oidc.clients.trino.secret_ref
+  } : null
+  # People's queries (ADR 0019): Dex tokens issued to olf-cli, and a people
+  # catalog per stage on the credential the Polaris bootstrap created for it.
+  people_access = local.identity_dex && local.trino_workload_authentication == "password" ? {
+    issuer_url = local.identity_oidc.issuer_url
+    client_id  = local.identity_oidc.clients["olf-cli"].client_id
+    # Dex's own Service, not the ingress: Traefik takes Trino's route, so it
+    # is created after Trino, which needs the keys to start (flow F31).
+    keys_url = "http://${one(module.dex[*].service_name)}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${one(module.dex[*].http_port)}/keys"
+    catalogs = module.polaris.people_credentials_secret_names
   } : null
 
   depends_on = [
@@ -607,6 +650,7 @@ locals {
     { for name in ["traefik", "portal", "publish-local-ca"] : name => local.access_enabled },
     { for name in ["cert-manager-controller", "cert-manager-cainjector", "cert-manager-webhook", "cert-manager-startupapicheck"] : name => length(module.cert_manager) > 0 },
     { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
+    { "platform-api" = length(module.platform_api) > 0 },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
   )
@@ -615,8 +659,11 @@ locals {
   # port the profile names (F23).
   profile_flows = concat(
     var.identity_issuer == "external" ? [{
-      id    = "F23"
-      from  = { scope = "shared", pods = { "openlakeforge.io/workload" = "oauth2-proxy" } }
+      id = "F23"
+      from = [
+        { scope = "shared", pods = { "openlakeforge.io/workload" = "oauth2-proxy" } },
+        { scope = "shared", pods = { "app.kubernetes.io/name" = "platform-api" } },
+      ]
       to    = { scope = "any" }
       ports = [try(tonumber(regex("^(?i:https)://(?:\\[[^]]*\\]|[^/:?#]+):([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
       tag   = "T"

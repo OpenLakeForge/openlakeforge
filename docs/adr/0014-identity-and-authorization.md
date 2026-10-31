@@ -61,12 +61,18 @@ the component catalog; it is not deployment-configurable. Terraform reads it
 with `yamldecode(file(...))` in each root's `contracts.tf`; `olf` reads the
 same file to validate the contract.
 
-| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) |
-| --- | --- | --- | --- | --- |
-| `platform-admin` | Admin | Admin | full | yes |
-| `data-engineer` | Alpha | write | full | yes |
-| `analyst` | Gamma | read | — | — |
-| `viewer` | read-only | read | — | — |
+| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) | Trino `/v1` for `olf query` (`query_api`) |
+| --- | --- | --- | --- | --- | --- |
+| `platform-admin` | Admin | Admin | full | yes | yes |
+| `data-engineer` | Alpha | write | full | yes | yes |
+| `analyst` | Gamma | read | — | — | yes |
+| `viewer` | read-only | read | — | — | yes |
+
+`query_api` is the query service's `/v1` path, not a route of its own: the
+ingress routes `trino.<base_domain>/v1` to the `viewer` floor when people sign
+in with GitHub, while the Web UI keeps the `query` floor. What a person reads
+there is decided by Polaris, not this row ([ADR 0019](0019-data-plane-authorization-deferral.md)).
+The perimeter's `path_refs` give it a floor; `protected_routes` does not list it.
 
 Rules that bind:
 
@@ -94,8 +100,10 @@ medallion layer ([ADR 0019](0019-data-plane-authorization-deferral.md)): the
 mapping keyed by canonical role that the boundary below reserves. It is held
 to the same rules (closed vocabulary, monotonic on every stage and layer,
 equal to the release file) plus one of its own: each stage row is a shape a
-Polaris catalog role can express. It is carried and validated only; Polaris
-enforces it in a later build step of ADR 0019.
+Polaris catalog role can express. Polaris enforces it for a person's own
+queries (`olf query`): each row becomes the catalog role the person's role holds
+on that stage's catalog, and the storage credentials a query reads with are
+vended for the tables that role reaches (ADR 0019, sections 4 and 5).
 
 ### Boundary: OpenLakeForge roles versus cloud IAM
 
@@ -106,10 +114,11 @@ enforces it in a later build step of ADR 0019.
 | Portable | identical on local, on-prem, AWS, Azure | provider-specific by nature |
 
 End-user roles are never expressed in cloud IAM; that would make the product
-non-portable. If per-user data access later binds canonical roles to cloud
-principals (an `analyst` mapped to an IAM role with Lake Formation grants,
-#179), that is a fifth mapping keyed by canonical role, added then. Nothing
-here forecloses it and nothing here builds it.
+non-portable. Per-user data access binds canonical roles to Polaris catalog
+roles instead, the fifth mapping keyed by canonical role (`data_access`, ADR
+0019), and Polaris vends the storage credentials. It is built for the local
+provider; the AWS root is to follow with Polaris rather than Glue and Lake
+Formation (#681).
 
 ### Seam 2 — issuer (GitHub through Dex built for local)
 
@@ -250,7 +259,7 @@ Route grants are read from `release/identity-roles.yaml` and nowhere else.
 | Piece | How |
 | --- | --- |
 | Role floor | Grants are monotonic, so what a service admits is a prefix of `precedence`, fully described by its lowest role. The module computes each protected route's floor from its service name (`portal` has none: the lowest role) |
-| Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today: `oauth2-proxy-viewer` (any recognised role: portal, Superset, OpenMetadata) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new service is a row in the matrix; a new floor is a new instance without new code |
+| Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today: `oauth2-proxy-viewer` (any recognised role: portal, Superset, OpenMetadata, Trino `/v1` with people's access) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new service is a row in the matrix; a new floor is a new instance without new code |
 | Middleware | Traefik file-provider middlewares (a `Middleware` CRD cannot be planned before the Traefik release installs it): `olf-strip-identity` deletes every inbound `X-Forwarded-*` / `X-Auth-Request-*` identity header, then `olf-auth-<floor>` forwards to that floor's proxy and copies only the proxy's `X-Auth-Request-*` headers upstream |
 | Ingress | One `Ingress` per namespace and floor (`openlakeforge-routes[-<floor>]`) carrying the middleware annotation; the namespace's one wildcard certificate is still issued from a single primary `Ingress` (ADR 0013 decision 6) |
 | Protected set | Every route of `shared.access.routes` except `shared/identity`, derived, never listed. `olf` rejects a contract whose `shared.access.perimeter.protected_routes` differs |
@@ -572,3 +581,14 @@ that need cluster or cloud permissions live under `olf infra` and stay class 2;
 commands that need none (`init`, `check`, scaffolding) have no identity; a
 platform surface that signs a person in through Dex, and so is class 1, is
 decided and not built.
+
+`query_api` grant row: Trino's `/v1` at the `viewer` floor for `olf query`,
+routed at the ingress without a contract route (ADR 0019, build step 6).
+
+Data access enforced (ADR 0019, build steps 2-8): `data_access` is no longer
+carried only. With `spec.identity.issuer: github` on the local provider, a
+person's own queries (`olf query`, through the `query_api` route with an
+`olf-cli` token) reach what their role's row grants, enforced by Polaris
+catalog roles and vended storage credentials. Every workload keeps its stage
+principal. The boundary above records Polaris, not cloud IAM, as the place
+canonical roles reach data.

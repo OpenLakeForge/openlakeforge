@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 from openlakeforge_domain import LakehouseInventory
+from openlakeforge_services import reports
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from openlakeforge_services.superset import SupersetClient
@@ -53,7 +54,7 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     as, or how many it exports — that identity lives only in the
     source-controlled Superset export YAML under
     ``<report_source_dir>/dashboards/*.yaml`` (or ``.yml``, both of which
-    ``superset.build_report_bundle`` packages), which is what actually gets
+    ``reports.build_report_bundle`` packages), which is what actually gets
     imported. Reading it here (rather than inventing slug/title from
     id/displayName) is what lets a product export a differently named or
     multiple dashboards without failing this check.
@@ -63,7 +64,7 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     expected: dict[str, str] = {}
     for dashboard in sorted(cfg.inventory.dashboards, key=lambda item: item.report_source_dir):
         report_dir = cfg.repo_root / dashboard.report_source_dir
-        dashboard_files = superset.discover_dashboard_files(report_dir)
+        dashboard_files = reports.discover_dashboard_files(report_dir)
         if not dashboard_files:
             raise E2EError(f"{report_dir / 'dashboards'}: dashboard {dashboard.name!r} exports no Superset dashboards")
         for dashboard_file in dashboard_files:

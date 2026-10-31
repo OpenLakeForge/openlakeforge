@@ -148,11 +148,25 @@ It prints one row per marketing channel, with its `campaign_count`,
 `total_spend` and `total_conversions`. Add `--format csv` or `--format json`
 for other output.
 
+`olf infra query` runs as the stage's workload user, through your cluster
+access. If your deployment signs people in with GitHub
+(`spec.identity.issuer: github`), you can run the same query as yourself:
+
+```bash
+olf login
+olf query "SELECT * FROM campaign_performance_gold.mart_campaign_performance ORDER BY channel"
+```
+
+Your role then decides what you read: an `analyst` reads this Gold mart but is
+refused the Silver tables beneath it
+([Roles and permissions](../reference/roles-and-permissions.md#what-each-role-reads-and-writes)).
+
 ## What you learned
 
 - `olf product new` creates a product-owned dbt project and a Dagster module
   and registers the product in `governance.yml`.
-- `olf infra query` reads any Silver or Gold table of a stage from your machine.
+- `olf infra query` reads any Silver or Gold table of a stage from your machine;
+  `olf query` runs SQL as yourself, limited to what your role reads.
 - Gold is plain SQL over declared Silver sources; tests run as part of the
   build.
 - `olf infra deploy --phase artifacts` ships code changes without touching the
