@@ -97,6 +97,13 @@ for how a release is cut and verified.
   `OPENLAKEFORGE_STORAGE_BRONZE_BUCKET`, with no `lakehouse-bronze` fallback
   (#546).
 
+### Fixed
+
+- Trino's `query.max-stage-count` now reaches `config.properties` from
+  `release/query-sizes.yaml`. The Trino chart reads free-form properties only
+  from its top-level list, so the coordinator-level list it was rendered into
+  was ignored and the server kept the default of 150 stages (#706).
+
 ### Removed
 
 - `olf floe render-profile|generate-manifests|revision`, `olf artifacts

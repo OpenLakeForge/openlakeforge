@@ -233,3 +233,41 @@ def test_a_non_amd64_machine_builds_the_example_itself(tmp_path: Path, monkeypat
 def test_a_pin_without_a_digest_fails_clearly() -> None:
     with pytest.raises(DeploymentPreconditionError, match="no digest"):
         ImageSettings.from_environment({}, published="ghcr.io/o/project-code:0.5.0-alpha.1")
+
+
+def _edited_project(tmp_path: Path) -> Path:
+    (tmp_path / "lakehouse_code").mkdir()
+    (tmp_path / "lakehouse_code" / "definitions.py").write_text("defs = 1\n")
+    project = tmp_path / "acme"
+    (project / "lakehouse_code").mkdir(parents=True)
+    (project / "lakehouse_code" / "definitions.py").write_text("acme = 1\n")
+    return project
+
+
+def test_the_profile_image_repository_is_where_the_project_builds_and_deploys(tmp_path: Path) -> None:
+    declared = ProjectSpec(image=ProjectImageSpec(repository="ghcr.io/acme/acme-lakehouse-code"))
+    # The profile outranks the environment, as `resolve_project` documents.
+    environ = {"PROJECT_CODE_IMAGE_REPOSITORY": "ghcr.io/someone-else/code"}
+
+    images = _published_config(tmp_path, environ, project=declared, project_root=_edited_project(tmp_path)).images
+
+    assert images.project_code_build_image == "ghcr.io/acme/acme-lakehouse-code:local"
+    assert images.project_code_image == "ghcr.io/acme/acme-lakehouse-code:local"
+    assert not images.project_code_needs_repository
+
+
+def test_the_environment_names_the_repository_when_the_profile_does_not(tmp_path: Path) -> None:
+    environ = {"PROJECT_CODE_IMAGE_REPOSITORY": "ghcr.io/acme/code"}
+
+    images = _published_config(tmp_path, environ, project_root=_edited_project(tmp_path)).images
+
+    assert images.project_code_build_image == "ghcr.io/acme/code:local"
+    assert not images.project_code_needs_repository
+
+
+def test_edited_code_without_a_repository_is_flagged_but_the_example_is_not(tmp_path: Path) -> None:
+    edited = _published_config(tmp_path, project_root=_edited_project(tmp_path)).images
+    example = _published_config(tmp_path).images
+
+    assert edited.project_code_needs_repository
+    assert not example.project_code_needs_repository
