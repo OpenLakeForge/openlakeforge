@@ -211,6 +211,9 @@ class FakeSuperset(ThreadingHTTPServer):
         ] = {}  # dashboard id -> {"charts": [...], "datasets": [...]}
         self.owners: dict[tuple[str, int], list[int]] = {}  # (dashboard|chart|dataset, id) -> owner ids
         self.owner_puts: list[tuple[str, int, list[int]]] = []
+        self.databases: dict[str, str] = {}  # uuid -> database name
+        self.my_roles: dict[str, list[list[str]]] = {}  # role -> [[permission, view menu], ...] of the signed-in user
+        self.import_forms: list[dict[str, str]] = []
 
 
 class _FakeSupersetHandler(BaseHTTPRequestHandler):
@@ -260,6 +263,13 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             if not bundles:
                 return self._reply(400, {"message": "Request is not valid"})
             self.server.imported.append(bundles[0].get_payload(decode=True))
+            self.server.import_forms.append(
+                {
+                    str(part.get_param("name", header="content-disposition")): part.get_content().strip()
+                    for part in message.iter_parts()
+                    if part.get_param("name", header="content-disposition") != "bundle"
+                }
+            )
             return self._reply(200, {"message": "OK"})
         role_grant = re.fullmatch(r"/api/v1/security/roles/(\d+)/permissions", self.path)
         if role_grant and self._authorized():
@@ -319,6 +329,13 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             if dashboard_id not in self.server.exports:
                 return self._reply(404, {"message": "Not found"})
             return self._reply(200, self.server.exports[dashboard_id], {"Content-Type": "application/zip"})
+        if url.path == "/api/v1/database/":
+            rows = [{"uuid": u, "database_name": n} for u, n in sorted(self.server.databases.items())]
+            size = query.get("page_size", 100)
+            page = rows[query.get("page", 0) * size : (query.get("page", 0) + 1) * size]
+            return self._reply(200, {"result": page, "count": len(rows)})
+        if url.path == "/api/v1/me/roles/":
+            return self._reply(200, {"result": {"roles": self.server.my_roles}})
         if url.path == "/api/v1/security/users/":
             users = self.server.users
             return self._reply(

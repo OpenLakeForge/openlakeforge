@@ -56,7 +56,7 @@ class SupersetClient(JsonHttpClient):
         dashboard_id = self.request("GET", f"/api/v1/dashboard/{quote(dashboard, safe='')}")["result"]["id"]
         return self.send("GET", "/api/v1/dashboard/export/", params={"q": f"!({int(dashboard_id)})"}).content
 
-    def import_assets(self, bundle: Path, *, database_password: str = "") -> None:
+    def import_assets(self, bundle: Path, *, database_password: str = "", sparse: bool = False) -> None:
         """Import a `type: assets` bundle, overwriting every asset it carries.
 
         `/assets/import/` runs ImportAssetsCommand, which always overwrites and
@@ -67,12 +67,16 @@ class SupersetClient(JsonHttpClient):
         `database_password` is sent in the `passwords` form field, which Superset
         applies to each database in the bundle and stores encrypted, so the
         password is never written into the zip.
+
+        `sparse` resolves every asset the bundle refers to but does not carry,
+        databases above all, among those Superset already holds, by uuid. A
+        bundle imported sparsely needs no database, and so cannot replace one.
         """
         # Flask-WTF CSRF protection covers the REST API too; the token is tied to
         # the session cookie the csrf_token call sets. Referer is checked once
         # Superset is served over HTTPS (WTF_CSRF_SSL_STRICT).
         csrf_token = self._csrf_token()
-        form: dict[str, str] = {}
+        form: dict[str, str] = {"sparse": "true"} if sparse else {}
         if database_password:
             with ZipFile(bundle) as archive:
                 names = [PurePosixPath(*PurePosixPath(n).parts[1:]).as_posix() for n in archive.namelist()]
@@ -133,6 +137,28 @@ class SupersetClient(JsonHttpClient):
         )
         return True
 
+
+    def databases(self) -> dict[str, str]:
+        """Each database Superset holds: its uuid, canonical, to its name."""
+        found: dict[str, str] = {}
+        page = 0
+        while True:
+            body = self.request(
+                "GET",
+                "/api/v1/database/",
+                params={"q": json.dumps({"columns": ["uuid", "database_name"], "page": page, "page_size": 100})},
+            )
+            rows = body.get("result", [])
+            for row in rows:
+                found[str(row["uuid"]).lower()] = str(row["database_name"])
+            page += 1
+            if not rows or page * 100 >= body.get("count", 0):
+                return found
+
+    def my_schema_access(self) -> set[str]:
+        """The `[database].[schema]` view menus this user's roles hold `schema_access` on."""
+        roles = self.request("GET", "/api/v1/me/roles/").get("result", {}).get("roles", {})
+        return {str(view) for permissions in roles.values() for name, view in permissions if name == "schema_access"}
 
     def user_id(self, username: str) -> int | None:
         """The id of the Superset user `username`, or None when there is none."""
