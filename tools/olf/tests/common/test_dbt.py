@@ -33,6 +33,15 @@ def test_every_product_profile_takes_its_stage_from_the_environment() -> None:
         assert "olf-system" not in profile
 
 
+def test_every_gold_session_may_plan_a_75_table_union() -> None:
+    from libs.dbt.render_profiles import render_profile
+
+    output = yaml.safe_load(render_profile(PROJECTS[0]))[PROJECTS[0].parent.name]["outputs"]["runtime"]
+
+    # About two stages per table read; Trino's default of 150 refused 75 tables at 152 stages (#706).
+    assert output["session_properties"]["query_max_stage_count"] >= 2 * 75 + 2
+
+
 def test_profile_reaches_trino_over_https_only_when_the_pod_is_given_the_ca() -> None:
     from libs.dbt.render_profiles import render_profile
 
