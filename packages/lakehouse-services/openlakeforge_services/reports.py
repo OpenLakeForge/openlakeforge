@@ -8,6 +8,7 @@ Callers pass a logged-in `SupersetClient` and every credential.
 
 from __future__ import annotations
 
+import io
 import re
 import shutil
 from collections.abc import Sequence
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import UUID
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import yaml
 
@@ -176,6 +177,93 @@ def unpack_export_bundle(bundle_path: Path, target_dir: Path, *, schema_prefix: 
             destination = target_dir / Path(relative.as_posix())
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(_export_member(relative, bundle.read(member), schema_prefix))
+
+
+class UploadRejected(ValueError):
+    """An uploaded report is not one the API imports; the message says why and names no server detail."""
+
+
+@dataclass(frozen=True)
+class PreparedUpload:
+    """A report a person uploaded, rewritten for one stage's Superset and ready for a sparse import."""
+
+    bundle: bytes
+    dashboards: tuple[str, ...]
+    schema_perms: frozenset[str]
+
+
+UPLOAD_ROOT = "report"
+_UPLOAD_KINDS = {"datasets", "charts", "dashboards"}
+
+
+def prepare_upload(archive: bytes, databases: dict[str, str], *, schema_prefix: str = "") -> PreparedUpload:
+    """Rebuild an uploaded report directory (zipped from its root) as an assets bundle for a sparse import.
+
+    Only `metadata.yaml` and the YAML under datasets/, charts/ and dashboards/
+    are kept. Databases are never taken from an upload: a sparse import
+    resolves each dataset's `database_uuid` among the databases the stage's
+    Superset already holds (`databases`, uuid to name), so an upload cannot
+    replace a connection, and a uuid that names none of them is refused.
+    Dataset schemas get the stage's prefix, as `build_report_bundle` does.
+    """
+    try:
+        source = ZipFile(io.BytesIO(archive))
+        names = source.namelist()
+    except (BadZipFile, ValueError) as exc:
+        raise UploadRejected("the upload is not a zip archive") from exc
+    dashboards: list[str] = []
+    schema_perms: set[str] = set()
+    out = io.BytesIO()
+    with source, ZipFile(out, "w", ZIP_DEFLATED) as bundle:
+        bundle.writestr(f"{UPLOAD_ROOT}/metadata.yaml", yaml.safe_dump({"version": "1.0.0", "type": "assets"}))
+        for name in names:
+            path = PurePosixPath(name)
+            if name.endswith("/") or path.name.startswith("."):
+                continue
+            if path.is_absolute() or ".." in path.parts or "\\" in name:
+                raise UploadRejected(f"{name!r} is not a path inside the report")
+            if path.suffix.lower() not in {".yaml", ".yml"} or len(path.parts) < 2 or path.parts[0] not in _UPLOAD_KINDS:
+                continue  # metadata.yaml is rewritten above; databases/ and anything else are never imported
+            document = yaml.safe_load(source.read(name))
+            if not isinstance(document, dict):
+                raise UploadRejected(f"{name} is not a YAML mapping")
+            if path.parts[0] == "datasets":
+                database = canonical_uuid(document.get("database_uuid"))
+                schema = document.get("schema")
+                if database not in databases:
+                    raise UploadRejected(f"{name} uses a database this stage's Superset does not have")
+                if not isinstance(schema, str) or not schema:
+                    raise UploadRejected(f"{name} has no schema")
+                document["schema"] = f"{schema_prefix}{schema}"
+                schema_perms.add(f"[{databases[database]}].[{document['schema']}]")
+            elif path.parts[0] == "dashboards" and (uuid := canonical_uuid(document.get("uuid"))):
+                dashboards.append(uuid)
+            bundle.writestr(f"{UPLOAD_ROOT}/{path.as_posix()}", yaml.safe_dump(document, sort_keys=False))
+    if not dashboards:
+        raise UploadRejected("the upload has no dashboard")
+    return PreparedUpload(out.getvalue(), tuple(dashboards), frozenset(schema_perms))
+
+
+def neutral_export(raw: bytes, *, schema_prefix: str = "") -> bytes:
+    """Superset's export zip with each asset put back to its stage-neutral form, as `unpack_export_bundle` does.
+
+    Done in memory: the platform API runs with a read-only root filesystem.
+    The bundle keeps Superset's own top-level directory and declares
+    `type: assets`, so `unpack_export_bundle` and an import both accept it.
+    """
+    out = io.BytesIO()
+    with ZipFile(io.BytesIO(raw)) as source, ZipFile(out, "w", ZIP_DEFLATED) as bundle:
+        for member in source.namelist():
+            path = PurePosixPath(member)
+            if len(path.parts) < 2 or path.name.startswith(".") or path.suffix.lower() not in {".yaml", ".yml"}:
+                continue
+            relative = PurePosixPath(*path.parts[1:])
+            content = _export_member(relative, source.read(member), schema_prefix)
+            if relative.as_posix() == "metadata.yaml":
+                metadata = yaml.safe_load(content) or {}
+                content = yaml.safe_dump({**metadata, "type": "assets"}, sort_keys=False).encode("utf-8")
+            bundle.writestr(member, content)
+    return out.getvalue()
 
 
 def canonical_uuid(value: object) -> str | None:
