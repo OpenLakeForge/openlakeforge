@@ -62,3 +62,15 @@ variable "ca_configmap_name" {
   type        = string
   default     = null
 }
+
+variable "dagster_graphql_urls" {
+  description = "Each enabled stage's Dagster webserver GraphQL URL, keyed by stage. The API refuses to start on a key outside `stages`."
+  type        = map(string)
+  default     = {}
+}
+
+variable "openmetadata_url" {
+  description = "OpenMetadata's in-cluster base URL, which the API forwards each caller's token to. Null when governance is not deployed."
+  type        = string
+  default     = null
+}

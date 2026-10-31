@@ -244,7 +244,8 @@ module "portal" {
 }
 
 # ADR 0021: the platform API, at /api on the portal's host. It validates every
-# token itself, so it needs an issuer; it holds no service credential yet.
+# token itself, so it needs an issuer. It holds no service credential: Dagster
+# takes none, and OpenMetadata gets the caller's own token.
 module "platform_api" {
   source = "../../modules/access/platform-api"
   count  = local.identity_enabled && var.platform_api_image != null ? 1 : 0
@@ -261,6 +262,12 @@ module "platform_api" {
   precedence        = local.identity_roles.precedence
   stages            = sort(keys(local.enabled_stages))
   ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
+  # Reached in-cluster over F32 (ADR 0017), around the perimeter.
+  dagster_graphql_urls = {
+    for name in keys(local.enabled_stages) :
+    name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
+  }
+  openmetadata_url = local.governance_contract.endpoint
 }
 
 module "traefik" {

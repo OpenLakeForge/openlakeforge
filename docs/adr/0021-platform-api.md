@@ -318,3 +318,6 @@ no credential; OpenMetadata domains and data products at the `viewer` floor,
 forwarding the caller's token unchanged. Archived logs, first-time user
 registration on the OpenMetadata path, and the endpoints' e2e through the
 perimeter remain.
+Second part: the local root renders each stage's Dagster GraphQL URL and
+OpenMetadata's URL into the API's settings, and ADR 0017's F32 lets the API
+reach them.
