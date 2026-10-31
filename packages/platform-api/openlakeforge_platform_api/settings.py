@@ -60,6 +60,8 @@ class Settings:
     # is read per stage from the environment (superset_password_env), mounted from the Secret its Job mints.
     superset_urls: Mapping[str, str] = field(default_factory=dict)
     superset_username: str | None = None
+    # A stage whose catalog shares schemas with other stages prefixes its own (AWS Glue); none locally.
+    superset_schema_prefixes: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -87,6 +89,9 @@ class Settings:
                 audit_base_uri=data.get("audit_base_uri") or None,
                 superset_urls={str(stage): str(url) for stage, url in (data.get("superset_urls") or {}).items()},
                 superset_username=data.get("superset_username") or None,
+                superset_schema_prefixes={
+                    str(stage): str(prefix) for stage, prefix in (data.get("superset_schema_prefixes") or {}).items()
+                },
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc

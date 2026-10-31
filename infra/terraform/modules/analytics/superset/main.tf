@@ -22,7 +22,7 @@ locals {
 
   # The platform API's service role (ADR 0021, open item 3, checked against
   # Superset 6.1.0): import assets, read and write datasets, charts and
-  # dashboards, export dashboards, read databases. No Admin, no SQL Lab, no role
+  # dashboards, export dashboards, read databases and its own roles. No Admin, no SQL Lab, no role
   # management, and no write on databases: the API imports sparsely and never
   # sends a database. Export also needs data access, which the artifacts phase
   # grants this role beside olf_data_access. `fab import-roles` only adds, so a
@@ -36,6 +36,11 @@ locals {
       ["can_read", "Chart"], ["can_write", "Chart"],
       ["can_read", "Dashboard"], ["can_write", "Dashboard"], ["can_export", "Dashboard"],
       ["can_read", "Database"],
+      # Its own roles (/api/v1/me/roles/), to check a report's schemas were granted before importing it.
+      ["can_read", "CurrentUserRestApi"],
+      # The CSRF token (/api/v1/security/csrf_token/) every import posts with;
+      # the view is the class name, not "Security", which is Admin-only.
+      ["can_read", "SecurityRestApi"],
     ] : { permission = { name = pair[0] }, view_menu = { name = pair[1] } }]
   }])
   platform_api_init = var.platform_api_user == null ? "" : <<-SH
