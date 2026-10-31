@@ -9,6 +9,11 @@ export them. It signs in with Superset's database provider, which
 
 An upload never brings a database: `reports.prepare_upload` drops them and the
 import runs sparse, so a dataset resolves to a connection the stage already has.
+
+An upload is read as a stream and refused with 413 once it passes
+MAX_UPLOAD_BYTES (or declares more in Content-Length), before it is buffered
+whole and before the audited attempt: nothing is attempted, so nothing is
+recorded but the 413 itself.
 """
 
 from __future__ import annotations
@@ -19,7 +24,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import Body, HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from openlakeforge_services import reports
 from openlakeforge_services.base import ServiceClientError, TransientServiceError
 from openlakeforge_services.superset import SupersetClient
@@ -60,14 +66,28 @@ def _superset_errors(stage: str) -> Iterator[None]:
         raise HTTPException(status_code=502, detail=f"Superset for stage {stage!r} answered with an error") from exc
 
 
-def import_report(
-    request: Request,
-    stage: str,
-    archive: bytes = Body(..., media_type="application/zip"),  # noqa: B008 - FastAPI's parameter API
-) -> dict[str, Any]:
+async def _read_capped(request: Request) -> bytes:
+    """The request body, refused as soon as it is known to be over MAX_UPLOAD_BYTES: a chunked body has no length."""
+    too_large = HTTPException(status_code=413, detail=f"a report upload is at most {MAX_UPLOAD_BYTES} bytes")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+        raise too_large
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_UPLOAD_BYTES:
+            raise too_large
+    return bytes(body)
+
+
+async def import_report(request: Request, stage: str) -> dict[str, Any]:
     """Import a report directory, zipped from its root, into the stage's Superset, overwriting what it carries."""
-    if len(archive) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"a report upload is at most {MAX_UPLOAD_BYTES} bytes")
+    archive = await _read_capped(request)
+    # Superset's client blocks; the event loop stays free while it runs.
+    return await run_in_threadpool(_import_report, request, stage, archive)
+
+
+def _import_report(request: Request, stage: str, archive: bytes) -> dict[str, Any]:
     prefix = request.app.state.settings.superset_schema_prefixes.get(stage, "")
     with audited(request, stage=stage, target={"report": f"{len(archive)} bytes"}) as outcome:
         client = _superset(request, stage)

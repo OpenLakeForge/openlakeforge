@@ -227,6 +227,49 @@ def test_an_upload_the_api_will_not_import_is_422_with_its_reason(
     assert superset.imports == []
 
 
+def test_a_chunked_upload_with_no_length_is_cut_off_past_the_limit(
+    api: TestClient, mint: Mint, store: AuditStore, superset: FakeSuperset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from openlakeforge_platform_api import report_routes
+
+    monkeypatch.setattr(report_routes, "MAX_UPLOAD_BYTES", 1024)
+    sent: list[int] = []
+
+    def chunks() -> Iterator[bytes]:
+        for _ in range(100):
+            sent.append(512)
+            yield b"x" * 512
+
+    headers = {**_as(mint, "data-engineer"), "Content-Type": "application/zip"}
+    response = api.post("/api/v1/stages/dev/reports", content=chunks(), headers=headers)
+
+    assert response.status_code == 413
+    assert "content-length" not in {k.lower() for k in response.request.headers}
+    assert store.records == [] and superset.imports == []
+
+
+def test_a_declared_length_over_the_limit_is_413_before_the_body_is_read(
+    api: TestClient, mint: Mint, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from openlakeforge_platform_api import report_routes
+
+    monkeypatch.setattr(report_routes, "MAX_UPLOAD_BYTES", 1024)
+    reads: list[int] = []
+    original = report_routes.Request.stream
+
+    async def counted(self: Any) -> Any:
+        async for chunk in original(self):
+            reads.append(len(chunk))
+            yield chunk
+
+    monkeypatch.setattr(report_routes.Request, "stream", counted)
+
+    response = _import(api, _as(mint, "data-engineer"), b"x" * 4096)
+
+    assert response.status_code == 413
+    assert reads == [] and store.records == []
+
+
 def test_an_upload_over_the_limit_is_413_before_anything_is_recorded(
     api: TestClient, mint: Mint, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
