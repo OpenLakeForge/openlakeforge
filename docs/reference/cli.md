@@ -20,9 +20,11 @@ at the top level. `olf --help` lists the top-level groups and `olf infra --help`
 the infrastructure ones. The earlier top-level paths of the infra commands
 (`olf deploy`, `olf project deploy`) still work as hidden aliases. Each prints one
 line on stderr naming its new path and then runs unchanged, so scripts that parse
-stdout keep working. `olf query` is the exception: it is a platform command of
+stdout keep working. `olf query` is an exception: it is a platform command of
 its own, a person's queries, while `olf infra query` runs as the stage's
-workload user. See
+workload user. `olf report import|export` are the other: they move one report
+as you through the platform API, while `olf infra report import|export` move
+every bundle as the stage's Superset admin. See
 [ADR 0020](../adr/0020-infrastructure-common-and-platform-cli-surfaces.md).
 
 ## Options shared by lifecycle commands
@@ -174,9 +176,11 @@ what it may launch.
 | `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--limit` 1 to 5000 (default 500) | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf product list` | Data products and their domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
+| `olf report import <dir>` | Imports one report directory into the stage's Superset, on `dev` only, overwriting the assets it carries. Only `metadata.yaml`, `datasets/`, `charts/` and `dashboards/` are sent, at most 500 files, 2 MiB each and 10 MiB in all; datasets use the stage's existing connections, and every schema they read must already be granted by the artifacts phase | `data-engineer` |
+| `olf report export <dashboard> <dir>` | Exports one dashboard, by uuid or slug, into a report directory, stage-neutral; its managed assets are replaced | `data-engineer` |
 
-Each takes `--json` to print the API's JSON instead of a table, and
-`--profile-file` (`-f`). `jobs`, `runs` and `logs` take `--stage` (default `dev`). When
+Each but `report export` takes `--json` to print the API's JSON instead of a table, and
+`--profile-file` (`-f`). `jobs`, `runs`, `logs` and `report` take `--stage` (default `dev`). When
 the API refuses, the command says why: an expired or rejected session asks you
 to run `olf login`, and a role below the operation's floor names the role it
 needs.

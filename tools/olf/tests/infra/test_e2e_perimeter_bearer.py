@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from zipfile import ZipFile
 
 import pytest
 
@@ -166,3 +169,62 @@ def test_on_a_stage_outside_the_launch_row_every_role_is_refused(monkeypatch: py
         precedence=["platform-admin", "data-engineer", "analyst", "viewer"],
     )
     assert [auth for auth, _ in statuses] == ["Bearer cli:platform-admin", "Bearer cli:viewer"]
+
+
+def _import_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, answer: Any) -> list[tuple[str, int]]:
+    (tmp_path / "dashboards").mkdir()
+    (tmp_path / "metadata.yaml").write_text("version: 1.0.0\n")
+    (tmp_path / "dashboards/orders.yaml").write_text("slug: orders\n")
+    seen: list[tuple[str, int]] = []
+
+    def post(url: str, headers: dict[str, str], **kw: Any) -> Any:
+        assert url == f"https://olf.localhost/api/v1/stages/{stage}/reports"
+        assert headers["Content-Type"] == "application/zip"
+        with ZipFile(io.BytesIO(kw["data"])) as archive:
+            assert sorted(archive.namelist()) == ["dashboards/orders.yaml", "metadata.yaml"]
+        role = headers["Authorization"].removeprefix("Bearer cli:")
+        status = answer(role)
+        seen.append((role, status))
+        return SimpleNamespace(status_code=status, text="")
+
+    monkeypatch.setattr(bearer.requests, "post", post)
+    bearer.check_report_import(
+        "https://olf.localhost",
+        ["platform-admin", "data-engineer", "analyst", "viewer"],
+        lambda role: f"cli:{role}",
+        tmp_path,
+        stage=stage,
+        precedence=["platform-admin", "data-engineer", "analyst", "viewer"],
+    )
+    return seen
+
+
+def test_a_data_engineer_imports_the_projects_report_on_dev_and_an_analyst_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen = _import_check(
+        monkeypatch, tmp_path, "dev", lambda role: 200 if role in {"platform-admin", "data-engineer"} else 403
+    )
+    assert seen == [("platform-admin", 200), ("data-engineer", 200), ("analyst", 403), ("viewer", 403)]
+
+
+def test_on_a_stage_outside_the_import_row_every_role_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen = _import_check(monkeypatch, tmp_path, "prod", lambda role: 403)
+    assert {status for _, status in seen} == {403}
+
+
+@pytest.mark.parametrize(
+    ("answer", "match"),
+    [
+        (
+            lambda role: 409 if role == "data-engineer" else 403 if role in {"analyst", "viewer"} else 200,
+            "data-engineer importing.*409",
+        ),
+        (lambda role: 200, "analyst importing.*expected HTTP 403, got 200"),
+    ],
+)
+def test_a_wrong_import_answer_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answer: Any, match: str) -> None:
+    with pytest.raises(E2EError, match=match):
+        _import_check(monkeypatch, tmp_path, "dev", answer)

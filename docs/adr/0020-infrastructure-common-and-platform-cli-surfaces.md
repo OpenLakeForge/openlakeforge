@@ -6,7 +6,8 @@ Partly binding. **Binding today:** the `olf infra` group, the common top-level
 commands, and the hidden aliases that keep every earlier path working (#536,
 PR 2b), the platform session commands `olf login`, `whoami` and `logout`
 (PR 4), `olf query`, and the platform reads `olf jobs list`, `olf runs
-list|show`, `olf domain list` and `olf product list` (#669). **Decided, not
+list|show`, `olf domain list` and `olf product list` (#669), and `olf report
+import|export` (#670). **Decided, not
 built:** the non-interactive authentication contract below. Platform
 commands are clients of the platform API, decided in
 [ADR 0021](0021-platform-api.md) and not built either, except where a
@@ -50,7 +51,7 @@ either command package.
 | --- | --- |
 | Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
 | Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
-| Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show`, `domain list`, `product list` |
+| Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show\|launch`, `logs`, `domain list`, `product list`, `report import\|export` |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
@@ -63,8 +64,17 @@ builds through the cloud provider and needs cloud credentials on `aws` and
 principal. `olf query` is the platform command for a person's own queries
 ([ADR 0019](0019-data-plane-authorization-deferral.md)): it signs in with the
 platform session and reaches only Trino's `query_api` route. The hidden alias
-`olf query` → `olf infra query` ended with it, the one exception to the
+`olf query` → `olf infra query` ended with it, the first exception to the
 migration rule below.
+
+`olf report import|export` is the second. `olf infra report import|export` run
+as the stage's Superset admin and move every bundle a project holds, for
+operators. `olf report import <dir>` and `olf report export <dashboard> <dir>`
+move one report as the signed-in person, through the platform API: the import
+is zipped on the client within the API's limits and runs as the stage's
+non-admin service user, DEV only, and the export is unpacked into the report
+directory as the infra export unpacks it. Their hidden aliases to the infra
+commands ended.
 
 `olf check contracts` and `olf contracts check` are common, but one of their
 checks (`hcl_phase_two_invariants`) runs `terraform output` against applied
@@ -79,7 +89,8 @@ callback, takes the same options, and does not appear in `--help`.
 deploy` and `olf infra project deploy`. An alias prints one line on stderr,
 `this command moved to `olf infra <path>`; the old path will be removed in a
 later release`, and then behaves as before: same stdout and exit code. `olf
-query` is no alias: it is the platform command. A command that moves from
+query`, `olf report import` and `olf report export` are no aliases: they are
+platform commands. A command that moves from
 infra to common keeps its `olf infra` path the same way, warning with its
 common path: `olf infra report validate` runs `olf report validate`.
 `tools/olf/tests/common/test_cli_surfaces.py` holds the list of earlier paths
@@ -151,3 +162,9 @@ OpenMetadata's own route as planned: one client for the CLI and the portal, and
 one place for the first-time-user registration. Only `olf query` still calls a
 service's route directly. `domain list` and `product list` sit in the common
 `domain` and `product` groups beside `new`, on the platform surface.
+
+`olf report import|export` are platform commands (#670), the second exception to
+the migration rule: their pre-2b aliases to `olf infra report import|export`
+ended, and the infra commands stay for operators. The import zips only
+`metadata.yaml` and the YAML under `datasets/`, `charts/` and `dashboards/`,
+so a report's `databases/` never leaves the machine.

@@ -105,11 +105,13 @@ class FakeAPI:
                         "path": url.path,
                         "query": parse_qs(url.query),
                         "authorization": self.headers.get("Authorization"),
-                        "body": json.loads(self.rfile.read(length)) if length else None,
+                        "body": self.body(self.rfile.read(length)) if length else None,
                     }
                 )
                 if api_.status != 200:
                     payload, status = api_.body or b"", api_.status
+                elif isinstance(answers.get(url.path), bytes):
+                    payload, status = answers[url.path], ok
                 elif url.path in answers:
                     payload, status = json.dumps(answers[url.path]).encode(), ok
                 else:
@@ -118,6 +120,10 @@ class FakeAPI:
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(payload)
+
+            def body(self, raw: bytes) -> Any:
+                """JSON as its value; anything else, such as a zipped report, as its bytes."""
+                return json.loads(raw) if self.headers.get("Content-Type") == "application/json" else raw
 
             def log_message(self, *args: object) -> None:
                 pass

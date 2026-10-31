@@ -111,7 +111,12 @@ def _infra_group(group: typer.Typer, name: str, *, common: typer.Typer | None = 
         app.add_typer(legacy, name=name, hidden=True)
         return
     legacy.info = common.info
-    legacy.registered_commands = [*common.registered_commands, *legacy.registered_commands]
+    # A name the common group owns is its command, never an alias to the infra one (ADR 0020's exceptions).
+    owned = {info.name for info in common.registered_commands}
+    legacy.registered_commands = [
+        *common.registered_commands,
+        *(info for info in legacy.registered_commands if info.name not in owned),
+    ]
     legacy.registered_groups = [*common.registered_groups, *legacy.registered_groups]
     app.add_typer(legacy, name=name)
 
@@ -126,6 +131,10 @@ def _infra_command(name: str, callback: Callable[..., None]) -> None:
 # common group's commands when it runs.
 domain.app.command("list")(platform_reads.domain_list)
 product.app.command("list")(platform_reads.product_list)
+# `report import|export` are platform commands through the API, the second exception ADR 0020 names after
+# `olf query`: their pre-2b aliases to `olf infra report import|export` end, and the infra commands stay there.
+report.app.command("import")(platform_writes.report_import)
+report.app.command("export")(platform_writes.report_export)
 
 app.add_typer(infra_app, name="infra")
 
