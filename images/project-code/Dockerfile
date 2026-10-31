@@ -15,6 +15,13 @@ COPY packages/domain-model ./packages/domain-model
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/domain-model
 
+# Floe's merge write modes load DuckDB extensions, which DuckDB would otherwise
+# download at run time; Floe Job pods have no egress (#725). Installed here for
+# the locked DuckDB, into the image user's default extension directory, and
+# loaded once with downloads disabled so a missing one fails the build.
+COPY libs/__init__.py libs/duckdb_extensions.py ./libs/
+RUN python -m libs.duckdb_extensions install && python -m libs.duckdb_extensions verify
+
 COPY lakehouse_code ./lakehouse_code
 COPY libs ./libs
 
