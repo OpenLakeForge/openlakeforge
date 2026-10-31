@@ -46,12 +46,13 @@ def get(instance: sessions.Instance, path: str, params: Mapping[str, Any] | None
     if response.status_code == 401:
         raise sessions.PlatformError(f"the platform API refused your session ({detail or 'HTTP 401'}); run `olf login`")
     if response.status_code == 403:
-        # The perimeter's own refusal is not JSON: it stops a person whose teams map to no role at all.
+        # A refusal that is not the API's JSON came from the perimeter in front of it, most often for a person whose
+        # teams map to no role at all; its other middlewares are not ruled out, so the message says "most often".
         raise sessions.PlatformError(
             f"the platform API refused this: {detail}"
             if detail
-            else "the perimeter refused you: your GitHub teams map to no OpenLakeForge role. "
-            "A platform-admin assigns roles"
+            else "the perimeter refused the request (HTTP 403); most often your GitHub teams map to no OpenLakeForge "
+            "role, which a platform-admin assigns"
         )
     if response.status_code == 404 and not detail:
         raise sessions.PlatformError(

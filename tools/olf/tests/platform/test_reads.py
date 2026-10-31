@@ -204,7 +204,7 @@ def test_the_perimeters_own_refusal_says_no_role_is_assigned(fake: FakeAPI) -> N
     result = _olf("jobs", "list")
 
     assert result.exit_code == 1
-    assert "your GitHub teams map to no OpenLakeForge role" in result.stderr
+    assert "the perimeter refused the request (HTTP 403); most often your GitHub teams map to no" in result.stderr
 
 
 def test_a_stage_the_deployment_does_not_enable_is_reported_by_the_api(fake: FakeAPI) -> None:
