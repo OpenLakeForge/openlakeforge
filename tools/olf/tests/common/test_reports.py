@@ -1,6 +1,6 @@
 import io
 from pathlib import Path
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 import yaml
@@ -223,6 +223,97 @@ def test_terraform_creates_the_role_and_user_the_handover_names() -> None:
     assert f'superset_username     = "{reports.PLATFORM_API_USERNAME}"' in platform_api
 
 
+def _upload(files: dict[str, str]) -> bytes:
+    raw = io.BytesIO()
+    with ZipFile(raw, "w") as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return raw.getvalue()
+
+
+_UPLOAD = {
+    "metadata.yaml": "version: 1.0.0\ntype: Dashboard\n",
+    "databases/trino.yaml": f"database_name: Elsewhere\nsqlalchemy_uri: trino://x@evil:443/c\nuuid: {_DATABASE_UUID}\n",
+    "datasets/mart.yaml": f"table_name: mart_orders\nschema: order_revenue_gold\ndatabase_uuid: {_DATABASE_UUID}\n",
+    "charts/c.yaml": "slice_name: Revenue\n",
+    "dashboards/d.yaml": f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n",
+    "notes.txt": "ignored",
+}
+
+
+def test_an_upload_loses_its_databases_and_gets_the_stages_schemas_and_a_sparse_bundle() -> None:
+    prepared = reports.prepare_upload(_upload(_UPLOAD), {_DATABASE_UUID: "Trino"}, schema_prefix="lakehouse_dev_")
+
+    with ZipFile(io.BytesIO(prepared.bundle)) as bundle:
+        names = sorted(bundle.namelist())
+        assert names == [
+            "report/charts/c.yaml",
+            "report/dashboards/d.yaml",
+            "report/datasets/mart.yaml",
+            "report/metadata.yaml",
+        ]
+        assert yaml.safe_load(bundle.read("report/metadata.yaml"))["type"] == "assets"
+        assert yaml.safe_load(bundle.read("report/datasets/mart.yaml"))["schema"] == "lakehouse_dev_order_revenue_gold"
+    assert prepared.dashboards == (_DASHBOARD_UUID,)
+    assert prepared.schema_perms == {"[Trino].[lakehouse_dev_order_revenue_gold]"}
+
+
+@pytest.mark.parametrize(
+    ("files", "message"),
+    [
+        ({"../datasets/x.yaml": "a: 1"}, "is not a path inside the report"),
+        ({"/datasets/x.yaml": "a: 1"}, "is not a path inside the report"),
+        ({"datasets/x.yaml": "table_name: t\nschema: s\ndatabase_uuid: 33333333-3333-5333-8333-333333333333\n"},
+         "uses a database this stage's Superset does not have"),
+        ({"datasets/x.yaml": f"table_name: t\ndatabase_uuid: {_DATABASE_UUID}\n"}, "has no schema"),
+        ({"dashboards/d.yaml": "- not a mapping\n"}, "is not a YAML mapping"),
+        ({"charts/c.yaml": "slice_name: x\n"}, "has no dashboard"),
+    ],
+)  # fmt: skip
+def test_an_upload_the_api_must_not_import_is_refused_with_its_reason(files: dict[str, str], message: str) -> None:
+    with pytest.raises(reports.UploadRejected, match=message):
+        reports.prepare_upload(_upload(files), {_DATABASE_UUID: "Trino"})
+
+
+def test_an_upload_that_is_not_a_zip_is_refused() -> None:
+    with pytest.raises(reports.UploadRejected, match="not a zip archive"):
+        reports.prepare_upload(b"not a zip", {})
+
+
+def test_an_export_is_put_back_to_its_stage_neutral_form_in_memory() -> None:
+    raw = _upload(
+        {
+            "dashboard_export/metadata.yaml": "version: 1.0.0\ntype: Dashboard\n",
+            "dashboard_export/databases/trino.yaml": "database_name: Trino\nsqlalchemy_uri: trino://olf-dev@trino:8080/x\n",
+            "dashboard_export/datasets/mart.yaml": "table_name: m\nschema: lakehouse_dev_order_revenue_gold\n",
+        }
+    )
+
+    with ZipFile(io.BytesIO(reports.neutral_export(raw, schema_prefix="lakehouse_dev_"))) as bundle:
+        assert yaml.safe_load(bundle.read("dashboard_export/metadata.yaml"))["type"] == "assets"
+        database = yaml.safe_load(bundle.read("dashboard_export/databases/trino.yaml"))
+        assert database["sqlalchemy_uri"] == reports.STAGE_NEUTRAL_SQLALCHEMY_URI
+        assert yaml.safe_load(bundle.read("dashboard_export/datasets/mart.yaml"))["schema"] == "order_revenue_gold"
+
+
+def test_the_client_imports_sparsely_lists_databases_and_reads_its_own_schema_access(
+    tmp_path: Path, fake_superset: FakeSuperset
+) -> None:
+    fake_superset.databases = {_DATABASE_UUID: "Trino"}
+    fake_superset.my_roles = {
+        "olf_platform_api": [["can_import_", "ImportExportRestApi"], ["schema_access", "[Trino].[order_revenue_gold]"]]
+    }
+    bundle = tmp_path / "b.zip"
+    bundle.write_bytes(reports.prepare_upload(_upload(_UPLOAD), {_DATABASE_UUID: "Trino"}).bundle)
+    client = _client(fake_superset)
+
+    client.import_assets(bundle, sparse=True)
+
+    assert fake_superset.import_forms == [{"sparse": "true"}]
+    assert client.databases() == {_DATABASE_UUID: "Trino"}
+    assert client.my_schema_access() == {"[Trino].[order_revenue_gold]"}
+
+
 @pytest.mark.parametrize("prefix", ["", "lakehouse_dev_"])
 def test_an_exported_datasets_catalog_is_dropped_since_superset_sets_the_stages_on_any_update(
     tmp_path: Path, prefix: str
@@ -244,3 +335,39 @@ def test_an_exported_datasets_catalog_is_dropped_since_superset_sets_the_stages_
         "schema": "order_revenue_gold",
     }
     assert (target / "datasets" / "plain.yaml").read_text() == "table_name: plain\nschema: order_revenue_gold\n"
+
+
+def _deflated(files: dict[str, str]) -> bytes:
+    raw = io.BytesIO()
+    with ZipFile(raw, "w", compression=ZIP_DEFLATED) as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return raw.getvalue()
+
+
+def test_a_highly_compressible_upload_is_refused_before_it_is_expanded() -> None:
+    bomb = _deflated({"datasets/x.yaml": "a: " + "x" * (reports.MAX_UPLOAD_MEMBER_BYTES + 1)})
+
+    assert len(bomb) < 64 * 1024  # small on the wire
+    with pytest.raises(reports.UploadRejected, match="is over"):
+        reports.prepare_upload(bomb, {_DATABASE_UUID: "Trino"})
+
+
+def test_an_upload_with_too_many_files_is_refused() -> None:
+    many = _deflated({f"charts/c{i}.yaml": "a: 1\n" for i in range(reports.MAX_UPLOAD_MEMBERS + 1)})
+
+    with pytest.raises(reports.UploadRejected, match="more than"):
+        reports.prepare_upload(many, {})
+
+
+def test_a_member_that_expands_beyond_its_declared_size_is_refused() -> None:
+    honest = _deflated({"dashboards/d.yaml": "a: " + "x" * 100_000})
+    # Declare 10 bytes in both the local header (offset 22) and the central directory (offset 24).
+    lying = bytearray(honest)
+    for signature, offset in ((b"PK\x03\x04", 22), (b"PK\x01\x02", 24)):
+        at = lying.index(signature) + offset
+        lying[at : at + 4] = (10).to_bytes(4, "little")
+
+    # zipfile stops at the declared size and then fails the CRC; the bounded read refuses it should that change.
+    with pytest.raises(reports.UploadRejected, match="beyond its declared size|cannot be read as YAML"):
+        reports.prepare_upload(bytes(lying), {})
