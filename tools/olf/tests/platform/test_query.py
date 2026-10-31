@@ -117,6 +117,17 @@ def test_a_query_carries_the_person_token_twice_and_their_email_and_stage(trino:
     assert trino.requests[1]["headers"]["Authorization"] == f"Bearer {TOKEN}"
 
 
+def test_a_query_needs_no_cluster_access(trino: FakeTrino, monkeypatch: pytest.MonkeyPatch) -> None:
+    # #671: the platform path reaches Trino's public route with the person's token, never kubectl.
+    monkeypatch.setenv("KUBECONFIG", "/nonexistent")
+    _sign_in()
+
+    result = _query("SELECT 1")
+
+    assert result.exit_code == 0, result.output
+    assert trino.requests[0]["headers"]["Authorization"] == f"Bearer {TOKEN}"
+
+
 @pytest.mark.parametrize(
     ("output_format", "expected"),
     [

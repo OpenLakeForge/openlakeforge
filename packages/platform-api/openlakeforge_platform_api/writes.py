@@ -29,9 +29,16 @@ def launch_run(request: Request, stage: str, body: LaunchRequest) -> dict[str, s
         with reads._dagster_errors(stage):
             # The job is found among the jobs the read endpoint lists, which neither waits nor reloads a code
             # location as the e2e's launch does: an unknown name is answered at once.
-            job = next((job for job in client.list_jobs() if job.name == body.job), None)
-            if job is None:
+            matches = [job for job in client.list_jobs() if job.name == body.job]
+            if not matches:
                 raise HTTPException(status_code=404, detail=f"no job {body.job!r} in stage {stage!r}")
+            # Two code locations may each define a job of that name; launching the first found would pick one
+            # for the person without saying which.
+            if len(matches) > 1:
+                where = ", ".join(sorted(f"{job.location}/{job.repository}" for job in matches))
+                detail = f"job {body.job!r} is defined in more than one place in stage {stage!r}: {where}"
+                raise HTTPException(status_code=409, detail=detail)
+            [job] = matches
             run_id = client.launch(
                 job.name,
                 tags={LAUNCHED_BY_TAG: principal.email or principal.subject},
