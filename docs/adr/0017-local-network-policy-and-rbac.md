@@ -204,16 +204,22 @@ port [D]).
 | F31 | the Trino coordinator | Dex (`olf-system`) | 5556 | the signing keys for people's tokens ([ADR 0019](0019-data-plane-authorization-deferral.md)), which Trino fetches at startup and cannot start without; Traefik is created after Trino, so F4 is not yet usable then. The Web UI's sign-in stays on F4 | T |
 | F32 | the platform API | Dagster webserver 80 (stage); OpenMetadata 8585 | 80, 8585 | its read endpoints ([ADR 0021](0021-platform-api.md)): each stage's GraphQL URL (`dagster_graphql_urls`), and OpenMetadata with the caller's token forwarded (`openmetadata_url`), both rendered by `modules/access/platform-api` | T |
 | F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and nothing else | T |
-| F34 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
+| F34 | Dagster run pods (`app.kubernetes.io/component=run_worker`) of a stage whose profile declares `spec.stages.<stage>.source_egress.ports` | any address outside the pod and Service ranges | the declared ports, TCP | Bronze sources that read an external API or database (#660); their host and port are stage bindings (`olf-source-<id>` ConfigMaps) that reach the run pod only. No FQDN selector, so the ports on any address, as F28 and F30; rendered from the profile, as F23, as its own policy `olf-flows-f34` in that stage's namespace only. A stage that declares nothing gets no row | T |
+| F35 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
 the labels and egress of Floe's runner Jobs (`floe_dagster.kubernetes_runner`
-is in the image, not the tree) and of Dagster run pods; whether Polaris calls
+is in the image, not the tree); whether Polaris calls
 SeaweedFS (F7); the ordering of Service DNAT and policy evaluation in the
 chosen CNI, which decides whether F20 needs the ClusterIP, the endpoint, or
 both (the plan allows both); whether any chart pod needs internet egress
-(none is expected; images are pulled by the node, not the pod).
+(none is expected; images are pulled by the node, not the pod). Dagster run
+pods' external egress is settled by F34: the label is the one the pinned
+`dagster-k8s` run launcher puts on the run Job's pod template [V:
+`dagster_k8s/launcher.py` and `job.py` of 0.29.7, the version
+`images/project-code` pins], and what they reach is declared per stage in
+the profile, because the hosts are stage bindings no file in the tree holds.
 
 Denied by construction, and tested (negative matrix below): everything not in
 the table. Notably stage to stage (DEV cannot reach PROD's Dagster or
@@ -291,7 +297,7 @@ needs one line. The probe namespace and every temporary policy are removed in a
 | What | Where |
 | --- | --- |
 | Flow rows, denied pairs, RBAC expectations | `release/network-flows.yaml`, schema in `docs/schema/`, validated by `olf check`; registered in `_structure.py` |
-| Policies | New module `infra/terraform/modules/security/network-policy` (`main.tf`, `variables.tf`, `outputs.tf`; `kubernetes_network_policy_v1`), instantiated once in `environments/local/main.tf` after the namespaces and given the namespace names, the `kubernetes` Service's cluster IP and the API server endpoint (a `kubernetes_endpoints_v1` data source) for F20. Local root only; AWS and Azure are out of scope |
+| Policies | New module `infra/terraform/modules/security/network-policy` (`main.tf`, `variables.tf`, `outputs.tf`; `kubernetes_network_policy_v1`), instantiated once in `environments/local/main.tf` after the namespaces and given the namespace names, the `kubernetes` Service's cluster IP and the API server endpoint (a `kubernetes_endpoints_v1` data source) for F20. Local root only; AWS and Azure are out of scope. Profile-driven rows (F23, F34) are built in that root's `profile_flows`; F34 from the `stage_source_egress_ports` input `olf` renders from `spec.stages.<stage>.source_egress` |
 | RBAC changes | the modules that own the Roles (`catalog/polaris`, `governance/openmetadata`) and Helm values (`seaweedfs.yaml`) |
 | CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/infra/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
 | Gate and canary | `foundation_up` / a deploy precondition, and `e2e/_network.py` |
@@ -514,6 +520,20 @@ names the new Secret. The stage identities' ops-bucket grant now ends at
 `activations/<stage>/*`: SeaweedFS 4.48 matches actions with a wildcard in which
 `*` also matches `/`, not with `filepath.Match` as the module's comment said.
 
+F34 added (#660): a stage's Dagster run pods reach the ports its profile
+declares in `spec.stages.<stage>.source_egress.ports`, on any address outside
+the pod and Service ranges, and nothing else; a stage that declares none is
+unchanged. The declaration is in the Deployment Profile rather than in
+`source.yaml` or derived at activation: the policy is platform state Terraform
+owns, and the platform apply never reads user code (ADR 0002); the hosts and
+ports are stage bindings, not descriptor facts; and a code commit should not
+widen a stage's network. The module renders a stage row that names pods as its
+own policy, since the namespace-wide `olf-flows` would give the grant to every
+pod in the stage. The label narrows, it does not isolate (decision 4). The AWS
+and Azure roots render no NetworkPolicy, so the field has no effect there. The
+negative matrix is unchanged: no probe pod carries the run-worker label, and
+F34 opens no in-cluster address.
+
 The platform API's audit records (ADR 0021, decision 3) travel over F33 with a
 second identity, `openlakeforge-platform-api-audit`, granted `Write` on
 `audit/platform-api/` only; the credentials Job's Role in `olf-system` names its
@@ -527,6 +547,6 @@ and `platform-api-superset` by name. One Job in the API's namespace writing out,
 rather than one per stage writing in, keeps `olf-system` free of Secrets another
 module created.
 
-F34 added (#670): the platform API reaches each stage's Superset on 8088 for the
+F35 added (#670): the platform API reaches each stage's Superset on 8088 for the
 report routes, signed in as its own service user, not `admin`. The stage rule is
 namespace-wide, as F32's is.

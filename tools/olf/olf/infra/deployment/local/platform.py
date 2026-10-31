@@ -81,6 +81,16 @@ def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return {} if access is None else {"access_base_domain": access.base_domain, "access_issuer": access.issuer}
 
 
+def source_egress_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """`spec.stages.<stage>.source_egress.ports` of the enabled stages; the root renders ADR 0017 F34 from it."""
+    ports = {
+        stage.name.value: list(stage.source_egress_ports)
+        for stage in config.context.topology.stages
+        if stage.enabled and stage.source_egress_ports
+    }
+    return {"stage_source_egress_ports": json.dumps(ports, sort_keys=True, separators=(",", ":"))}
+
+
 def platform_api_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """The platform API validates tokens against the issuer, so it is deployed only with spec.identity. The
     reference is computed, not built, so a plan and the apply after it name the same image."""
@@ -232,7 +242,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "project_code_image_revision": images.project_code_revision,
     } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
-    } | platform_api_variables(config)
+    } | platform_api_variables(config) | source_egress_variables(config)
 
 
 def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:

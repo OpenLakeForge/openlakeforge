@@ -4,7 +4,7 @@ variable "stage_namespaces" {
 }
 
 variable "flows" {
-  description = "Rows of release/network-flows.yaml, as decoded by yamldecode. Rows reach a stage namespace or one of the workloads below; others are ignored here."
+  description = "Rows of release/network-flows.yaml, as decoded by yamldecode, plus the profile-driven rows of the root. Rows reach a stage namespace or one of the workloads below; others are ignored here. A stage row that names pods may carry `stages`, the stage names it is rendered in."
   type        = any
 }
 

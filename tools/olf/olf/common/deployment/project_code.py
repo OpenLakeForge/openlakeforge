@@ -76,8 +76,13 @@ def published_example_image(context: DeploymentContext, environ: Mapping[str, st
         return None
     components = (yaml.safe_load(catalog_path.read_text()) or {}).get("components") or {}
     pinned = (components.get("images") or {}).get("project_code")
-    project_code = context.paths.repo_root / "lakehouse_code"
-    bundled = context.paths.distribution_root / "lakehouse_code"
-    if pinned and project_code != bundled and _code_tree(project_code) != _code_tree(bundled):
+    if pinned and not runs_bundled_example(context.paths):
         return None
     return pinned
+
+
+def runs_bundled_example(paths: DeploymentPaths) -> bool:
+    """Whether the project's `lakehouse_code/` is the distribution's own, unedited."""
+    project_code = paths.repo_root / "lakehouse_code"
+    bundled = paths.distribution_root / "lakehouse_code"
+    return project_code == bundled or _code_tree(project_code) == _code_tree(bundled)
