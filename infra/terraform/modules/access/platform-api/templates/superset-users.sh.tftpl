@@ -1,0 +1,35 @@
+#!/bin/sh
+# The platform API's Superset service user, one per stage (ADR 0021, open item 3).
+# Each password is minted here once, in the API's namespace, and never by
+# Terraform (#400). A copy goes to the stage's namespace, where Superset's init
+# script reads it to create the user; the API's namespace holds the source, so a
+# copy that differs is overwritten from it, and rotation is deleting the source.
+set -eu
+
+rand() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"; }
+password_of() {
+  kubectl get secret "$2" -n "$1" -o 'go-template={{with index .data "password"}}{{.}}{{end}}' | base64 -d
+}
+
+for entry in ${stage_secrets}; do
+  source="$${entry%%=*}"
+  stage_namespace="$${entry#*=}"
+  if kubectl get secret "$source" -n ${namespace} >/dev/null 2>&1; then
+    echo "Secret $source exists in ${namespace}; keeping it"
+  else
+    kubectl create secret generic "$source" -n ${namespace} \
+      --from-literal=username=${username} --from-literal=password="$(rand 32)" >/dev/null
+    echo "Created Secret $source in ${namespace}"
+  fi
+  password=$(password_of ${namespace} "$source")
+  if ! kubectl get secret ${stage_secret} -n "$stage_namespace" >/dev/null 2>&1; then
+    kubectl create secret generic ${stage_secret} -n "$stage_namespace" \
+      --from-literal=username=${username} --from-literal=password="$password" >/dev/null
+    echo "Created Secret ${stage_secret} in $stage_namespace"
+  elif [ "$(password_of "$stage_namespace" ${stage_secret})" != "$password" ]; then
+    kubectl patch secret ${stage_secret} -n "$stage_namespace" -p "{\"stringData\":{\"password\":\"$password\"}}" >/dev/null
+    echo "Updated Secret ${stage_secret} in $stage_namespace from $source"
+  else
+    echo "Secret ${stage_secret} in $stage_namespace matches $source"
+  fi
+done

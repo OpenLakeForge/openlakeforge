@@ -53,6 +53,7 @@ locals {
   # ops bucket; the platform API's read-only key is scoped to the same prefixes.
   stage_log_prefixes   = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
   platform_api_enabled = local.identity_enabled && var.platform_api_image != null
+  bootstrap_job_image  = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   # Shared by the audit identity's grant and the API's settings, which must agree.
   platform_api_audit_prefix = "audit/platform-api/"
   # Catalog namespaces themselves are not declared here. `olf infra catalog
@@ -305,6 +306,10 @@ module "platform_api" {
   # same Job mints, over the same flow.
   audit_base_uri           = "${local.artifact_base_uri}/${local.platform_api_audit_prefix}"
   audit_writer_secret_name = module.seaweedfs.audit_writer_secret_name
+  # One Superset service user per stage with Superset; this module mints each
+  # password and copies it into the stage's namespace (ADR 0017, Exception E1).
+  superset_service_users = { for name in keys(local.analytics_stages) : name => kubernetes_namespace_v1.stage[name].metadata[0].name }
+  bootstrap_job_image    = local.bootstrap_job_image
 }
 
 module "traefik" {
@@ -598,8 +603,11 @@ module "superset" {
   trino_ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   # Only with an issuer deployed (spec.identity); without one Superset keeps
   # its local login. Nothing here names an issuer product.
-  bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
+  bootstrap_job_image = local.bootstrap_job_image
   public_admin        = !local.identity_enabled
+  # The platform API's service user (ADR 0021, open item 3); its password is
+  # minted by the platform API module's Job, which this waits for.
+  platform_api_user = local.platform_api_enabled ? module.platform_api[0].superset_user : null
   oidc = !local.identity_deployed ? null : {
     issuer_url        = local.identity_oidc.issuer_url
     role_claim        = local.identity_oidc.role_claim

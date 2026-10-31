@@ -270,7 +270,7 @@ cluster rights (ADR 0020).
 | --- | --- | --- |
 | 1 | How a browser session's token reaches the platform API | The perimeter sets `--set-xauthrequest=true` but does not pass the access token on; passing it needs oauth2-proxy and Traefik `authResponseHeaders` configuration, not yet written or run. Portal pages that read OpenMetadata depend on it, since the API has no credential of its own to fall back to. That session's token is issued to the perimeter's client; OpenMetadata ignores `aud`, so it should pass, but no one has run it |
 | 2 | A token Trino accepts for the portal's query page | Trino requires the audience `olf-cli` (ADR 0019, step 5), and a browser session's token is the perimeter's. Dex cross-client trust or a client Trino also accepts are candidates; neither is tested. It changes ADR 0014 and ADR 0019 |
-| 3 | The narrowest credential per service | Which Superset operations a non-admin service user can perform has not been checked against Superset 6.1.0 |
+| 3 | The narrowest credential per service | Settled for Superset (#670, see History): a non-admin service user, role `olf_platform_api`, can import and export. It must co-own the report assets to overwrite them, and needs data access to export them |
 
 ## Build order
 
@@ -370,3 +370,19 @@ Third part: the SeaweedFS credentials Job mints the API's audit key in
 under its own variable names, beside the log reader's key, and the local root
 sets `audit_base_uri` from the same prefix as the grant. `olf runs launch` posts
 the launch with the stored session's token and does not retry it.
+
+Open item 3, Superset, checked against the 6.1.0 source (#670):
+`ImportExportRestApi` is an Alpha view, not an Admin one
+(`security/manager.py`), so a role of its own can hold `can_import_` there. The
+import overwrites every asset with permission checks on: it needs `can_write`
+on each type, and an existing dataset, chart or dashboard may be overwritten
+only by an owner or an admin. Export filters charts by data access alone
+(`charts/filters.py`), so the role needs the report schemas' `schema_access`.
+The import form's `sparse=true` resolves databases already in Superset by uuid,
+so the API sends no database: the service user holds no `can_write` on
+databases, the API needs no Trino credential, and an uploaded report cannot
+replace a stage's connection. The role is created from data by Superset's init
+script (`fab import-roles`, which only adds permissions); the user's password is
+minted in `olf-system` by one Job that copies it into each stage namespace.
+The artifacts phase making the user a co-owner of what it imports and granting
+the role `schema_access`, the API's mount and its flow to Superset follow.
