@@ -113,6 +113,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
     assert set(variables) == {
         "profile_name",
         "shared_namespace",
+        "stage_source_egress_ports",
         "stages",
         "manage_user_deployments",
         "query_sizing",
@@ -847,3 +848,21 @@ def test_platform_up_deploys_the_platform_api_only_with_an_issuer(
     # `olf infra plan` passes platform_apply_variables alone; it must name the image the apply loads, or a plan
     # after a deploy would show the API being destroyed.
     assert (platform.platform_apply_variables(config).get("platform_api_image") == reference) is with_identity
+
+
+def test_source_egress_reaches_the_root_only_for_enabled_stages_that_declare_ports(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    topology = _topology(dev=True, prod=True)
+    assert json.loads(platform.platform_apply_variables(_config(tmp_path, topology=topology))[
+        "stage_source_egress_ports"
+    ]) == {}
+
+    stages = tuple(
+        replace(stage, source_egress_ports=(443, 5432)) if stage.name.value in {"dev", "uat"} else stage
+        for stage in topology.stages
+    )
+    variables = platform.platform_apply_variables(_config(tmp_path, topology=replace(topology, stages=stages)))
+
+    # uat is disabled in this topology, so its ports never reach the root.
+    assert json.loads(variables["stage_source_egress_ports"]) == {"dev": [443, 5432]}

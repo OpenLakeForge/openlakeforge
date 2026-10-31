@@ -65,6 +65,7 @@ def resolve(
         typer.echo(
             f"  {stage.name.value}: enabled={stage.enabled} "
             f"analytics={stage.capabilities.analytics} governance={stage.capabilities.governance}"
+            + (f" source_egress={','.join(map(str, stage.source_egress_ports))}" if stage.source_egress_ports else "")
         )
     typer.echo(
         f"project: source={resolved_project.source} image={resolved_project.image_repository or 'provider registry'} "
