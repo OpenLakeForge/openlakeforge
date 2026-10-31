@@ -221,3 +221,26 @@ def test_terraform_creates_the_role_and_user_the_handover_names() -> None:
 
     assert f'platform_api_role = "{reports.PLATFORM_API_ROLE}"' in superset
     assert f'superset_username     = "{reports.PLATFORM_API_USERNAME}"' in platform_api
+
+
+@pytest.mark.parametrize("prefix", ["", "lakehouse_dev_"])
+def test_an_exported_datasets_catalog_is_dropped_since_superset_sets_the_stages_on_any_update(
+    tmp_path: Path, prefix: str
+) -> None:
+    export = tmp_path / "export.zip"
+    with ZipFile(export, "w") as bundle:
+        bundle.writestr("dashboard_export/metadata.yaml", "version: 1.0.0\ntype: Dashboard\n")
+        bundle.writestr(
+            "dashboard_export/datasets/mart.yaml",
+            f"table_name: mart_orders\ncatalog: lakehouse_dev\nschema: {prefix}order_revenue_gold\n",
+        )
+        bundle.writestr("dashboard_export/datasets/plain.yaml", "table_name: plain\nschema: order_revenue_gold\n")
+    target = tmp_path / "out"
+
+    reports.unpack_export_bundle(export, target, schema_prefix=prefix)
+
+    assert yaml.safe_load((target / "datasets" / "mart.yaml").read_text()) == {
+        "table_name": "mart_orders",
+        "schema": "order_revenue_gold",
+    }
+    assert (target / "datasets" / "plain.yaml").read_text() == "table_name: plain\nschema: order_revenue_gold\n"

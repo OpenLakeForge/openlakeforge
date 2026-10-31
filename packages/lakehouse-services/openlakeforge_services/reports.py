@@ -140,9 +140,17 @@ def _export_member(relative: PurePosixPath, content: bytes, schema_prefix: str) 
         _neutral_database(document)
     else:
         schema = document.get("schema")
-        if not (schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix)):
+        # Superset 6.1.0 sets a dataset's catalog to its connection's default on any update when the
+        # database has no multi-catalog (commands/dataset/update.py): a UI edit, or the platform API's
+        # owner handover. That default is the stage's own catalog, so it is dropped; each stage's
+        # connection supplies its own, as for a dataset imported without one.
+        if document.get("catalog") is None and not (
+            schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix)
+        ):
             return content
-        document["schema"] = schema.removeprefix(schema_prefix)
+        document.pop("catalog", None)
+        if schema_prefix and isinstance(schema, str) and schema.startswith(schema_prefix):
+            document["schema"] = schema.removeprefix(schema_prefix)
     return yaml.safe_dump(document, sort_keys=False).encode("utf-8")
 
 
