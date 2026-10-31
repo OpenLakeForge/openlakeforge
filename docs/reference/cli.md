@@ -162,13 +162,15 @@ olf query --stage prod "SELECT count(*) FROM order_revenue_gold.mart_order_reven
 These commands read the platform as the signed-in person, through the platform
 API at `https://<base_domain>/api`
 ([ADR 0021](../adr/0021-platform-api.md)). They need `olf login` first, no
-kubeconfig, and no infra credential: the API decides what your role may read.
+kubeconfig, and no infra credential: the API decides what your role may read, and
+what it may launch.
 
 | Command | Reads | Lowest role |
 | --- | --- | --- |
 | `olf jobs list` | The stage's pipeline jobs | `data-engineer` |
 | `olf runs list` | The stage's most recent runs, newest first; `--job` for one job, `--limit` 1 to 100 (default 20) | `data-engineer` |
 | `olf runs show <run-id>` | One run's status, times and tags | `data-engineer` |
+| `olf runs launch <job>` | Launches the job as you, on `dev` only; the API stores an audit record first and launches nothing if it cannot | `data-engineer` |
 | `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--limit` 1 to 5000 (default 500) | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf product list` | Data products and their domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |

@@ -19,6 +19,9 @@ locals {
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url
     s3_region       = var.s3_region
+    # Written with the key in audit_writer_secret_name; without it, every
+    # operation that changes state answers 503.
+    audit_base_uri = var.audit_base_uri
   }
 }
 
@@ -76,6 +79,24 @@ resource "kubernetes_deployment_v1" "platform_api" {
             content {
               secret_ref {
                 name = var.log_reader_secret_name
+              }
+            }
+          }
+
+          # The write-only audit key, under names boto3 does not read on its
+          # own, so it can never stand in for the log reader's key.
+          dynamic "env" {
+            for_each = var.audit_writer_secret_name == null ? {} : {
+              OPENLAKEFORGE_AUDIT_ACCESS_KEY_ID     = "AWS_ACCESS_KEY_ID"
+              OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
+            }
+            content {
+              name = env.key
+              value_from {
+                secret_key_ref {
+                  name = var.audit_writer_secret_name
+                  key  = env.value
+                }
               }
             }
           }

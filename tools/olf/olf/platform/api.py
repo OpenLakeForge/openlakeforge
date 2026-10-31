@@ -1,4 +1,4 @@
-"""The platform API as the platform commands' one backend (ADR 0021): an authenticated GET, its refusals explained."""
+"""The platform API as the platform commands' one backend (ADR 0021): authenticated calls, their refusals explained."""
 
 from __future__ import annotations
 
@@ -28,13 +28,23 @@ def _detail(response: requests.Response) -> str:
 
 
 def get(instance: sessions.Instance, path: str, params: Mapping[str, Any] | None = None) -> Any:
+    return _send(instance, "GET", path, params=dict(params or {}))
+
+
+def post(instance: sessions.Instance, path: str, body: Mapping[str, Any]) -> Any:
+    """A state-changing call. Never retried here: the API records each attempt, and a lost answer is the API's to
+    reconcile, not a reason to ask twice."""
+    return _send(instance, "POST", path, json=dict(body))
+
+
+def _send(instance: sessions.Instance, method: str, path: str, **request: Any) -> Any:
     url = f"{base_url(instance)}{path}"
     headers = {"Accept": "application/json"}
     token = sessions.bearer_token(instance)
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        response = sessions.send("GET", url, headers=headers, params=dict(params or {}), timeout=60)
+        response = sessions.send(method, url, headers=headers, timeout=60, **request)
     except requests.exceptions.SSLError as exc:
         raise sessions.PlatformError(
             f"cannot verify the TLS certificate of {instance.base_domain}. A local deployment uses its own CA: run "
@@ -59,7 +69,7 @@ def get(instance: sessions.Instance, path: str, params: Mapping[str, Any] | None
             f"{instance.base_domain} serves no platform API at {url}; it is deployed with sign-in "
             "(spec.identity) and the platform API image"
         )
-    if response.status_code != 200:
+    if not 200 <= response.status_code < 300:
         raise sessions.PlatformError(f"the platform API answered HTTP {response.status_code}: {detail or 'no detail'}")
     try:
         return response.json()
