@@ -695,6 +695,17 @@ locals {
       ports = [try(tonumber(regex("^(?i:https)://(?:\\[[^]]*\\]|[^/:?#]+):([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
       tag   = "T"
     }] : [],
+    # F34: a stage's run pods reach the external sources the profile declares
+    # for it (spec.stages.<stage>.source_egress.ports); nothing when it
+    # declares none.
+    [for stage, ports in var.stage_source_egress_ports : {
+      id     = "F34"
+      stages = [stage]
+      from   = { scope = "stage", pods = { "app.kubernetes.io/component" = "run_worker" } }
+      to     = { scope = "any" }
+      ports  = ports
+      tag    = "T"
+    } if length(ports) > 0],
   )
 }
 

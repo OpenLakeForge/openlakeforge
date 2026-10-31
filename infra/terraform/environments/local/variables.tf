@@ -271,3 +271,14 @@ variable "identity_github" {
   })
   default = null
 }
+
+variable "stage_source_egress_ports" {
+  description = "Deployment Profile spec.stages.<stage>.source_egress.ports: stage name to the TCP ports its Dagster run pods may open to any address outside the pod and Service ranges (ADR 0017 F34). A stage absent or with no ports gets no external egress."
+  type        = map(list(number))
+  default     = {}
+
+  validation {
+    condition     = alltrue([for ports in values(var.stage_source_egress_ports) : alltrue([for p in ports : p == floor(p) && p > 0 && p < 65536])])
+    error_message = "spec.stages.<stage>.source_egress.ports must be port numbers between 1 and 65535."
+  }
+}

@@ -9,8 +9,23 @@ terraform {
 locals {
   # A row may list several sources under `from`; each becomes its own row.
   rows    = flatten([for f in var.flows : [for s in flatten([f.from]) : merge(f, { from = s })]])
-  egress  = [for f in local.rows : f if f.from.scope == "stage"]
+  egress  = [for f in local.rows : f if f.from.scope == "stage" && length(try(f.from.pods, {})) == 0]
   ingress = [for f in local.rows : f if f.to.scope == "stage"]
+
+  # A stage row that names pods narrows a grant the namespace-wide policy
+  # would otherwise give every pod (F34), so it gets a policy of its own in
+  # each stage its `stages` list names (all of them when absent). Labels in a
+  # stage namespace are set by user code (decision 4): this narrows, it does
+  # not isolate.
+  stage_pod_egress = merge([
+    for index, f in local.rows : {
+      for stage, namespace in var.stage_namespaces : "${stage}/${lower(f.id)}-${index}" => {
+        name      = "olf-flows-${lower(f.id)}"
+        namespace = namespace
+        flow      = f
+      } if contains(try(f.stages, keys(var.stage_namespaces)), stage)
+    } if f.from.scope == "stage" && length(try(f.from.pods, {})) > 0
+  ]...)
 
   # Peers a namespace selector cannot name are addresses. `any` stops short of
   # the pod and Service ranges so it cannot reach a pod by IP.
@@ -129,6 +144,42 @@ resource "kubernetes_network_policy_v1" "allow" {
             port     = tostring(ports.value[0])
             protocol = ports.value[1]
           }
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_network_policy_v1.default_deny]
+}
+
+resource "kubernetes_network_policy_v1" "stage_pods" {
+  for_each = local.stage_pod_egress
+
+  metadata {
+    name      = each.value.name
+    namespace = each.value.namespace
+  }
+  spec {
+    pod_selector {
+      match_labels = each.value.flow.from.pods
+    }
+    policy_types = ["Egress"]
+
+    egress {
+      dynamic "to" {
+        for_each = local.cidrs[each.value.flow.to.scope]
+        content {
+          ip_block {
+            cidr   = to.value
+            except = each.value.flow.to.scope == "any" ? var.internal_cidrs : null
+          }
+        }
+      }
+      dynamic "ports" {
+        for_each = setproduct(each.value.flow.ports, try(each.value.flow.protocols, ["TCP"]))
+        content {
+          port     = tostring(ports.value[0])
+          protocol = ports.value[1]
         }
       }
     }

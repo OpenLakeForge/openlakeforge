@@ -73,7 +73,8 @@ _IMAGE_REPOSITORY_PATTERN_SOURCE = (
 _IMAGE_REPOSITORY_PATTERN = re.compile(_IMAGE_REPOSITORY_PATTERN_SOURCE)
 # The package the release publishes: `<IMAGE_NAMESPACE>/project-code` in release.yml, namespaced by the repository.
 PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/openlakeforge/project-code"
-_STAGE_FIELDS = {"enabled", "capabilities"}
+_STAGE_FIELDS = {"enabled", "capabilities", "source_egress"}
+_SOURCE_EGRESS_FIELDS = {"ports"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
 
 _SHARED_SERVICES = ("catalog", "governance", "metadata_database", "query")
@@ -231,6 +232,7 @@ class StageSpec:
     name: StageName
     enabled: bool = True
     capabilities: StageCapabilities | None = None
+    source_egress_ports: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -254,6 +256,8 @@ class ResolvedStage:
     name: StageName
     enabled: bool
     capabilities: StageCapabilities
+    # TCP ports the stage's run pods may open to hosts outside the cluster (ADR 0017 F34); empty is closed.
+    source_egress_ports: tuple[int, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -263,6 +267,7 @@ class ResolvedStage:
                 "analytics": self.capabilities.analytics,
                 "governance": self.capabilities.governance,
             },
+            "source_egress": {"ports": list(self.source_egress_ports)},
         }
 
 
@@ -340,6 +345,22 @@ def _validate_capabilities(document: object, *, field: str, source: str) -> Stag
     return StageCapabilities(analytics=analytics, governance=governance)
 
 
+def _validate_source_egress(document: object, *, field: str, source: str) -> tuple[int, ...]:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: {field} must be an object")
+    _forbid_unexpected(document, _SOURCE_EGRESS_FIELDS, where=f"{source}: {field}")
+    ports = document.get("ports")
+    if (
+        not isinstance(ports, list)
+        or not ports
+        or not all(isinstance(p, int) and not isinstance(p, bool) and 0 < p < 65536 for p in ports)
+    ):
+        raise DeploymentProfileError(f"{source}: {field}.ports must be a non-empty list of port numbers (1-65535)")
+    if len(set(ports)) != len(ports):
+        raise DeploymentProfileError(f"{source}: {field}.ports must not repeat a port")
+    return tuple(sorted(ports))
+
+
 def _validate_stage(name: str, document: object, *, source: str) -> StageSpec:
     try:
         stage_name = StageName(name)
@@ -357,7 +378,14 @@ def _validate_stage(name: str, document: object, *, source: str) -> StageSpec:
         capabilities = _validate_capabilities(
             document["capabilities"], field=f"spec.stages.{name}.capabilities", source=source
         )
-    return StageSpec(name=stage_name, enabled=enabled, capabilities=capabilities)
+    source_egress_ports: tuple[int, ...] = ()
+    if "source_egress" in document:
+        source_egress_ports = _validate_source_egress(
+            document["source_egress"], field=f"spec.stages.{name}.source_egress", source=source
+        )
+    return StageSpec(
+        name=stage_name, enabled=enabled, capabilities=capabilities, source_egress_ports=source_egress_ports
+    )
 
 
 def _validate_provider(document: object, *, source: str) -> ProviderSpec:
@@ -766,7 +794,14 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
             resolved.append(ResolvedStage(name=stage_name, enabled=False, capabilities=StageCapabilities()))
             continue
         capabilities = stage.capabilities if stage.capabilities is not None else defaults
-        resolved.append(ResolvedStage(name=stage_name, enabled=True, capabilities=capabilities))
+        resolved.append(
+            ResolvedStage(
+                name=stage_name,
+                enabled=True,
+                capabilities=capabilities,
+                source_egress_ports=stage.source_egress_ports,
+            )
+        )
 
     return DeploymentTopology(
         profile_name=profile.name,
