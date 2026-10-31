@@ -90,6 +90,7 @@ def test_tampering_changes_the_signature_but_keeps_the_token_shape() -> None:
 def _api_check(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> list[str]:
     paths: list[str] = []
     monkeypatch.setattr(bearer.requests, "get", lambda url, headers, **kw: _get(paths, answers, url, headers))
+    monkeypatch.setattr(bearer.requests, "post", lambda url, headers, **kw: _get(paths, answers, url, headers))
     bearer.check_platform_api(
         "https://olf.localhost",
         ["platform-admin", "viewer"],
@@ -117,6 +118,8 @@ HEALTHY = {
     "/api/v1/whoami": lambda role: (200, {"role": role}),
     # The matrix's data-engineer floor; platform-admin is above it, viewer below.
     "/api/v1/stages/dev/logs": lambda role: (200, {"lines": []}) if role == "platform-admin" else (403, {}),
+    # The launch route's data-engineer floor: an absent job is 404 once the attempt is stored.
+    "/api/v1/stages/dev/runs": lambda role: (404, {}) if role == "platform-admin" else (403, {}),
 }
 
 
@@ -124,6 +127,7 @@ def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: p
     paths = _api_check(monkeypatch, HEALTHY)
     assert "/api/healthz" in paths and paths.count("/api/v1/whoami") >= 2
     assert paths.count("/api/v1/stages/dev/logs") >= 2
+    assert paths.count("/api/v1/stages/dev/runs") == 2
 
 
 @pytest.mark.parametrize(
@@ -135,8 +139,30 @@ def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: p
         # The object store refusing the API's key, or a viewer let through.
         ({"/api/v1/stages/dev/logs": lambda role: (502, {})}, "platform-admin.*stages/dev/logs.*502"),
         ({"/api/v1/stages/dev/logs": lambda role: (200, {})}, "viewer.*stages/dev/logs.*200"),
+        # The API could not store the attempt, or a viewer reached the job lookup.
+        ({"/api/v1/stages/dev/runs": lambda role: (503, {})}, "platform-admin launching.*503.*not stored"),
+        ({"/api/v1/stages/dev/runs": lambda role: (404, {})}, "viewer launching.*expected HTTP 403, got 404"),
     ],
 )
 def test_a_wrong_platform_api_answer_fails(monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], match: str) -> None:
     with pytest.raises(E2EError, match=match):
         _api_check(monkeypatch, {**HEALTHY, **change})
+
+
+def test_on_a_stage_outside_the_launch_row_every_role_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    statuses: list[tuple[str, int]] = []
+
+    def post(url: str, headers: dict[str, str], **kw: Any) -> Any:
+        assert url == "https://olf.localhost/api/v1/stages/prod/runs" and kw["json"] == {"job": bearer.ABSENT_JOB}
+        statuses.append((headers["Authorization"], 403))
+        return SimpleNamespace(status_code=403)
+
+    monkeypatch.setattr(bearer.requests, "post", post)
+    bearer.check_launch_audit(
+        "https://olf.localhost",
+        ["platform-admin", "viewer"],
+        lambda role: f"cli:{role}",
+        stage="prod",
+        precedence=["platform-admin", "data-engineer", "analyst", "viewer"],
+    )
+    assert [auth for auth, _ in statuses] == ["Bearer cli:platform-admin", "Bearer cli:viewer"]

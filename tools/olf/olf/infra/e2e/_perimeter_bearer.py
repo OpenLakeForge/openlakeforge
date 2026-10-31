@@ -32,8 +32,12 @@ API_PATH = "/graphql?query=%7Bversion%7D"
 SCOPE = "openid email profile groups"
 # The platform API answers under /api on the portal's host (ADR 0021).
 PLATFORM_API_HOST_REF = "shared/portal"
-# The logs route's row in packages/platform-api's permissions.toml.
+# The logs and launch routes' rows in packages/platform-api's permissions.toml.
 LOGS_FLOOR = "data-engineer"
+LAUNCH_FLOOR = "data-engineer"
+LAUNCH_STAGES = ("dev",)
+# No stage has a job by this name, so a launch request for it never starts a run.
+ABSENT_JOB = "olf_e2e_no_such_job"
 
 
 class _LoopbackRedirect(requests.adapters.BaseAdapter):
@@ -211,7 +215,7 @@ def check_platform_api(
 ) -> None:
     """Through the perimeter, /api/healthz answers, /api/v1/whoami names each mapped role the token carries, and
     the tokens the perimeter refuses are refused there too. Every canonical role clears the perimeter's lowest
-    floor; the API's own matrix decides above it, as the stage's archived-logs route shows."""
+    floor; the API's own matrix decides above it, as the stage's archived-logs and launch routes show."""
     log.step("Checking the platform API through the perimeter...")
 
     def get(path: str, role: str) -> requests.Response:
@@ -232,6 +236,32 @@ def check_platform_api(
     logs = f"{base_url}/api/v1/stages/{stage}/logs?date={datetime.now(UTC).date().isoformat()}&limit=1"
     floor = precedence.index(LOGS_FLOOR)
     check_bearer_decisions(logs, roles, lambda role: precedence.index(role) <= floor, cli_token, other_token)
+    check_launch_audit(base_url, roles, cli_token, stage=stage, precedence=precedence)
+
+
+def check_launch_audit(
+    base_url: str, roles: list[str], cli_token: Callable[[str], str], *, stage: str, precedence: Sequence[str]
+) -> None:
+    """The first state-changing route, without changing anything: a launch of a job no stage has.
+
+    The API stores the attempt with its write-only audit key before it looks the job up, and answers 503 without
+    acting when it cannot. So a 404 at or above the floor proves the audit write path end to end, and nothing
+    runs; below the floor, or on a stage outside the row, the answer is 403 (ADR 0021, decision 3).
+    """
+    url = f"{base_url}/api/v1/stages/{stage}/runs"
+    floor = precedence.index(LAUNCH_FLOOR)
+    for role in roles:
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {cli_token(role)}"}
+        reply = requests.post(
+            url, headers=headers, json={"job": ABSENT_JOB}, allow_redirects=False, timeout=REQUEST_TIMEOUT
+        )
+        permitted = stage in LAUNCH_STAGES and precedence.index(role) <= floor
+        expected = 404 if permitted else 403
+        if reply.status_code != expected:
+            hint = " (503: the audit record was not stored)" if reply.status_code == 503 else ""
+            raise E2EError(
+                f"{role} launching {ABSENT_JOB} at {url}: expected HTTP {expected}, got {reply.status_code}{hint}"
+            )
 
 
 def _other_client_token(

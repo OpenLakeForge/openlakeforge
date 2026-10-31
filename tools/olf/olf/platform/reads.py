@@ -1,7 +1,7 @@
 """`olf jobs`, `olf runs`, `olf logs`, `olf domain list` and `olf product list`: reads through the platform API.
 
 Each sends the signed-in person's token and nothing else: the API decides what
-the person may read or launch (ADR 0021), so these run with no kubeconfig and no infra
+the person may read (ADR 0021), so these run with no kubeconfig and no infra
 credential, for a person or their local agent alike.
 """
 
@@ -26,6 +26,8 @@ _PROFILE = typer.Option(
 # The API answers 404 for a stage the deployment does not enable, so no stage list is kept here.
 _STAGE = typer.Option("dev", "--stage", help="Stage to read.")
 _JSON = typer.Option(False, "--json", help="Print the platform API's JSON instead of a table.")
+# The same options for the commands that change state (olf/platform/writes.py).
+PROFILE_OPTION, STAGE_OPTION, JSON_OPTION = _PROFILE, _STAGE, _JSON
 
 jobs_app = typer.Typer(help="Pipeline jobs of a stage, read through the platform API.", no_args_is_help=True)
 runs_app = typer.Typer(help="Pipeline runs of a stage, through the platform API.", no_args_is_help=True)
@@ -52,14 +54,14 @@ def _duration(run: dict[str, Any]) -> str:
     return f"{run['ended_at'] - run['started_at']:.0f}s"
 
 
-def _stage_path(stage: str, rest: str) -> str:
+def stage_path(stage: str, rest: str) -> str:
     return f"/v1/stages/{quote(stage, safe='')}/{rest}"
 
 
 @jobs_app.command("list")
 def jobs_list(stage: str = _STAGE, as_json: bool = _JSON, profile_file: str = _PROFILE) -> None:
     """List a stage's pipeline jobs."""
-    jobs = _read(profile_file, _stage_path(stage, "jobs"))["jobs"]
+    jobs = _read(profile_file, stage_path(stage, "jobs"))["jobs"]
     _show(
         as_json,
         jobs,
@@ -78,7 +80,7 @@ def runs_list(
 ) -> None:
     """List a stage's most recent pipeline runs, newest first."""
     params: dict[str, Any] = {"limit": limit, **({"job": job} if job else {})}
-    runs = _read(profile_file, _stage_path(stage, "runs"), params)["runs"]
+    runs = _read(profile_file, stage_path(stage, "runs"), params)["runs"]
     _show(
         as_json,
         runs,
@@ -89,25 +91,6 @@ def runs_list(
     )
 
 
-@runs_app.command("launch")
-def runs_launch(
-    job: str = typer.Argument(..., help="The job to launch, as `olf jobs list` prints it."),
-    stage: str = _STAGE,
-    as_json: bool = _JSON,
-    profile_file: str = _PROFILE,
-) -> None:
-    """Launch one of a stage's jobs as you; the API records who asked for it."""
-    try:
-        run = api.post(sessions.resolve_instance(profile_file), _stage_path(stage, "runs"), {"job": job})
-    except sessions.PlatformError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc
-    if as_json:
-        typer.echo(json.dumps(run, indent=2))
-        return
-    typer.echo(f"Launched {run['job']} on {run['stage']}: run {run['run_id']}")
-    typer.echo(f"Follow it with `olf runs show {run['run_id']} --stage {run['stage']}`.")
-
-
 @runs_app.command("show")
 def runs_show(
     run_id: str = typer.Argument(..., help="The run's id, as `olf runs list` prints it."),
@@ -116,7 +99,7 @@ def runs_show(
     profile_file: str = _PROFILE,
 ) -> None:
     """Show one run's status, times and tags."""
-    run = _read(profile_file, _stage_path(stage, f"runs/{quote(run_id, safe='')}"))
+    run = _read(profile_file, stage_path(stage, f"runs/{quote(run_id, safe='')}"))
     _show(
         as_json,
         run,
@@ -160,7 +143,7 @@ def logs(
         params["pod"] = pod
     if container:
         params["container"] = container
-    result = _read(profile_file, _stage_path(stage, "logs"), params)
+    result = _read(profile_file, stage_path(stage, "logs"), params)
     if as_json:
         typer.echo(json.dumps(result, indent=2))
         return
