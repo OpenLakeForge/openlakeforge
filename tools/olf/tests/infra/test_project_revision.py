@@ -664,6 +664,56 @@ def test_build_still_allows_a_bare_env_lookup_with_no_default(external_project: 
     assert manifest.revision.startswith("sha256:")
 
 
+_RNACENTRAL_PASSTHROUGH = """
+
+def _engine(*, host: str, port: int, database: str, username: str, password: str) -> object:
+    return dict(username=username, password=password, host=host)
+
+
+def rnacentral(password: str = dlt.secrets.value, token=None):
+    client.token = self.token
+    return _engine(host="db", port=5432, database="rna", username="reader", password=password)
+"""
+
+
+def test_build_allows_a_python_secret_passthrough(external_project: Path) -> None:
+    """A dlt connector forwards a secret it read through `dlt.secrets.value`; names are not values (#659)."""
+    connector = external_project / "lakehouse_code/bronze/crm/dlt/crm.py"
+    connector.write_text(connector.read_text() + _RNACENTRAL_PASSTHROUGH)
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'password = "hunter22"',
+        "engine(password='hunter22')",
+        'token = f"sk-live-{suffix}"',
+        'config = {"password": "production-password"}',
+        'password = os.getenv("DB_PASSWORD", "changeme123")',
+    ],
+)
+def test_build_still_rejects_a_python_credential_literal(external_project: Path, line: str) -> None:
+    connector = external_project / "lakehouse_code/bronze/crm/dlt/crm.py"
+    connector.write_text(connector.read_text() + f"\n{line}\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+@pytest.mark.parametrize("line", ["password: hunter22", "token: production-token"])
+def test_build_still_rejects_an_unquoted_yaml_credential(external_project: Path, line: str) -> None:
+    """Only Python reads an unquoted name as a reference; in YAML it is the literal value."""
+    descriptor = external_project / "lakehouse_code/governance.yml"
+    descriptor.write_text(descriptor.read_text() + f"\n# {line}\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
 def test_registry_host_only_matches_provider_native_registries() -> None:
     """A revision may live outside the provider's registry; logging in there would fail."""
     from olf.infra.deployment.activation import _registry_host
