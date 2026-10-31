@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,6 +29,21 @@ class TransientServiceError(ServiceClientError):
     pass
 
 
+# A 429 says the service did not process the request, so it is sent again after the wait the service asks
+# for (Superset's limiter allows 50 requests a second per client); a service still refusing after that fails.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_MAX_WAIT_SECONDS = 5.0
+
+
+def _rate_limit_wait(response: requests.Response) -> float:
+    """`Retry-After` in seconds when the service sends one, else one second, never more than the cap."""
+    try:
+        wait = float(response.headers.get("Retry-After", "1"))
+    except ValueError:
+        wait = 1.0
+    return min(max(wait, 0.0), RATE_LIMIT_MAX_WAIT_SECONDS)
+
+
 @dataclass
 class JsonHttpClient:
     """JSON HTTP client with consistent timeout, auth, and error classification."""
@@ -51,17 +67,22 @@ class JsonHttpClient:
         """Make an HTTP request and return the raw response.
 
         Classifies 5xx/connection/timeout as TransientServiceError (retryable),
-        other HTTP errors as ServiceClientError.
+        other HTTP errors as ServiceClientError. A 429 is sent again, up to
+        RATE_LIMIT_RETRIES times, after the wait the service asks for.
         """
         all_headers = {"Accept": "application/json", **(headers or {})}
         if self.token:
             all_headers["Authorization"] = f"Bearer {self.token}"
-        try:
-            response = self.session.request(
-                method, f"{self.base_url}{path}", headers=all_headers, timeout=self.timeout, **kwargs
-            )
-        except (requests.ConnectionError, requests.Timeout) as exc:
-            raise TransientServiceError(f"{method} {path} failed: {exc}") from exc
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                response = self.session.request(
+                    method, f"{self.base_url}{path}", headers=all_headers, timeout=self.timeout, **kwargs
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                raise TransientServiceError(f"{method} {path} failed: {exc}") from exc
+            if response.status_code != 429 or 429 in ok_statuses or attempt == RATE_LIMIT_RETRIES:
+                break
+            time.sleep(_rate_limit_wait(response))
 
         status = response.status_code
         if status not in ok_statuses:
