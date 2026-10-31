@@ -203,6 +203,7 @@ Each stage takes:
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Whether the stage is deployed. |
 | `capabilities` | object | the preset's defaults | Optional services in this stage. |
+| `source_egress` | object | absent: no external egress | External ports this stage's Bronze sources reach. |
 
 `capabilities` takes:
 
@@ -214,6 +215,22 @@ Each stage takes:
 The preset defaults apply only when the stage has no `capabilities` object at
 all. Once `capabilities` is written, a capability it leaves out is `false`.
 A disabled stage resolves both capabilities to `false` whatever was written.
+
+`source_egress` takes one field, `ports`: a non-empty list of distinct TCP port
+numbers. On `local`, the stage's Dagster run pods may open those ports to any
+address outside the cluster's pod and Service ranges, and no other pod gets
+them; a stage without `source_egress` reaches nothing outside the cluster
+([ADR 0017](../adr/0017-local-network-policy-and-rbac.md), F34). NetworkPolicy
+cannot name a host, so the hosts themselves stay in the stage's source
+bindings. The AWS and Azure roots apply no NetworkPolicy, so there the field
+has no effect. A disabled stage gets no egress whatever was written.
+
+```yaml
+stages:
+  dev:
+    source_egress:
+      ports: [443, 5432] # an HTTPS API and a PostgreSQL source
+```
 
 ### `spec.project`
 
