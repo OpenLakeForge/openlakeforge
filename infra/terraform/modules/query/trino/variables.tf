@@ -216,10 +216,11 @@ variable "web_ui_oidc" {
 }
 
 variable "people_access" {
-  description = "People's queries (ADR 0019): issuer_url and client_id of the Dex tokens Trino accepts by JWT, and catalogs, stage -> the Secret (keys POLARIS_CLIENT_ID, POLARIS_CLIENT_SECRET) of that stage's trino-people principal. Each stage gets a people catalog named after it. null adds nothing."
+  description = "People's queries (ADR 0019): issuer_url and client_id of the Dex tokens Trino accepts by JWT, keys_url where Trino fetches the issuer's signing keys at startup (an address that answers before the ingress exists), and catalogs, stage -> the Secret (keys POLARIS_CLIENT_ID, POLARIS_CLIENT_SECRET) of that stage's trino-people principal. Each stage gets a people catalog named after it. null adds nothing."
   type = object({
     issuer_url = string
     client_id  = string
+    keys_url   = string
     catalogs   = map(string)
   })
   default = null

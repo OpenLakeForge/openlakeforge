@@ -203,8 +203,11 @@ are Superset's `impersonate_user` and dbt-trino's `impersonation_user`.
 Built for a person's own queries (`olf query`) by ADR 0019 (build step 5): with
 `spec.identity.issuer: github` at the `password` level, the coordinator
 authenticates `PASSWORD,JWT`. A Dex token for audience `olf-cli` authenticates a
-person by e-mail; its keys are fetched from `https://auth.<base_domain>/keys`
-with the CA at `jwk.http-client.trust-store-path`. The person reaches only the
+person by e-mail. Trino fetches the keys at startup and does not start without
+them, so they come from Dex's Service in `olf-system` (flow F31), not from
+`https://auth.<base_domain>/keys`: that host is Traefik, which is created after
+Trino (the same reason as "Issuer reachability" above). The tokens still name
+the public issuer, which `required-issuer` checks. The person reaches only the
 people catalogs, and a `queries` rule lets them view and kill only their own
 queries. The platform S3 key moves from `AWS_*` to `OPENLAKEFORGE_S3_*`
 variables, so a people catalog, which carries no key, cannot fall back to it
@@ -343,3 +346,8 @@ authenticate with their own credentials as the positive controls.
 `JWT` beside `PASSWORD` for people's Dex tokens, the people catalogs and their
 rules, and the platform S3 key under `OPENLAKEFORGE_S3_*` (ADR 0019, build
 step 5).
+
+Per-user identity: Trino fetches the JWT keys for people's tokens from Dex's
+Service rather than through the ingress. The first fresh deployment with people's
+access never finished: Traefik waits for Trino's route, and Trino crash-looped on
+an unresolvable `auth.<base_domain>` while fetching the keys at startup.

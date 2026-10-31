@@ -453,7 +453,10 @@ module "trino" {
   people_access = local.identity_dex && local.trino_workload_authentication == "password" ? {
     issuer_url = local.identity_oidc.issuer_url
     client_id  = local.identity_oidc.clients["olf-cli"].client_id
-    catalogs   = module.polaris.people_credentials_secret_names
+    # Dex's own Service, not the ingress: Traefik takes Trino's route, so it
+    # is created after Trino, which needs the keys to start (flow F31).
+    keys_url = "http://${one(module.dex[*].service_name)}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${one(module.dex[*].http_port)}/keys"
+    catalogs = module.polaris.people_credentials_secret_names
   } : null
 
   depends_on = [
