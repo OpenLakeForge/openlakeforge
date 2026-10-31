@@ -206,8 +206,8 @@ _UPLOAD_KINDS = {"datasets", "charts", "dashboards"}
 # A report is a few dozen small YAML files. These bound what an upload may expand to, so a highly compressed
 # archive cannot exhaust the memory of the host that unpacks it (the platform API runs in 192 MiB).
 MAX_UPLOAD_MEMBERS = 500
-MAX_UPLOAD_MEMBER_BYTES = 5 * 1024 * 1024
-MAX_UPLOAD_TOTAL_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_MEMBER_BYTES = 2 * 1024 * 1024
+MAX_UPLOAD_TOTAL_BYTES = 10 * 1024 * 1024
 
 
 def _read_bounded(source: ZipFile, info: ZipInfo) -> bytes:
