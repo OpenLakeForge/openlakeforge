@@ -11,11 +11,12 @@ endpoints and credentials from a deployment. The platform API in
 `packages/platform-api` has token validation, the permission matrix,
 `/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
 runs per stage, and OpenMetadata domains and data products with the caller's
-token forwarded. Archived logs are not served yet. `olf jobs list`, `olf runs
-list|show`, `olf domain list` and `olf product list` read through it with the
-signed-in person's token. The local provider deploys it with `spec.identity`
-(`modules/access/platform-api`), from an image `olf` builds, since no release
-has published one to pin.
+token forwarded. Its archived-logs route reads each stage's log archive with
+a read-only object-store key the deployment does not mount yet. `olf jobs list`,
+`olf runs list|show`, `olf domain list` and `olf product list` read through it
+with the signed-in person's token. The local provider deploys it with
+`spec.identity` (`modules/access/platform-api`), from an image `olf` builds,
+since no release has published one to pin.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or

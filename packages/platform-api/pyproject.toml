@@ -8,6 +8,7 @@ version = "0.5.0a1"
 description = "OpenLakeForge platform API: one backend for the portal, olf and agents (ADR 0021)"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "boto3>=1.34,<2",
   "fastapi>=0.115,<1",
   # Direct so its path source applies: uv reads [tool.uv.sources] for direct
   # dependencies only, and the library depends on it.
@@ -23,6 +24,7 @@ openlakeforge-lakehouse-services = { path = "../lakehouse-services" }
 
 [dependency-groups]
 dev = [
+  "boto3-stubs[s3]>=1.43.88",
   "httpx>=0.27,<1",
   "mypy>=1.13,<2",
   "pytest>=9.0.3,<10",

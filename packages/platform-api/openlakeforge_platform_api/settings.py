@@ -14,14 +14,28 @@ class SettingsError(ValueError):
 
 
 @dataclass(frozen=True)
+class LogArchiveSetting:
+    """Where one stage's archiver writes, and the namespace it archives.
+
+    The namespace is fixed here, never taken from a request: the stage in the
+    path is what the permission matrix checks, so it alone decides what is read.
+    """
+
+    base_uri: str
+    namespace: str
+
+
+@dataclass(frozen=True)
 class Settings:
     """The identity.oidc fields the API validates tokens against (ADR 0014), the enabled stages, and service endpoints.
 
     `precedence` and `role_mapping` are the contract's, rendered from
     release/identity-roles.yaml and the profile; the API holds no copy of its own.
-    Dagster runs one webserver per stage, so its GraphQL URL is keyed by stage;
-    OpenMetadata is shared. A service with no endpoint here is answered as not
-    configured rather than refusing the API's start.
+    Dagster runs one webserver per stage, so its GraphQL URL is keyed by stage,
+    as is each stage's log archive; OpenMetadata is shared. A service with no
+    endpoint here is answered as not configured rather than refusing the API's
+    start. The object-store key comes from the environment (AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY), mounted from a Secret, never from this file.
     """
 
     issuer_url: str
@@ -33,6 +47,9 @@ class Settings:
     ca_file: str | None = None
     dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
     openmetadata_url: str | None = None
+    log_archives: Mapping[str, LogArchiveSetting] = field(default_factory=dict)
+    s3_endpoint_url: str | None = None
+    s3_region: str = "us-east-1"
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -51,6 +68,12 @@ class Settings:
                     str(stage): str(url) for stage, url in (data.get("dagster_graphql_urls") or {}).items()
                 },
                 openmetadata_url=data.get("openmetadata_url") or None,
+                log_archives={
+                    str(stage): LogArchiveSetting(str(archive["base_uri"]), str(archive["namespace"]))
+                    for stage, archive in (data.get("log_archives") or {}).items()
+                },
+                s3_endpoint_url=data.get("s3_endpoint_url") or None,
+                s3_region=str(data.get("s3_region") or "us-east-1"),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -77,3 +100,9 @@ class Settings:
         stray = sorted(set(self.dagster_graphql_urls) - set(self.stages))
         if stray:
             raise SettingsError(f"dagster_graphql_urls names stages that are not enabled: {', '.join(stray)}")
+        stray = sorted(set(self.log_archives) - set(self.stages))
+        if stray:
+            raise SettingsError(f"log_archives names stages that are not enabled: {', '.join(stray)}")
+        for stage, archive in self.log_archives.items():
+            if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
+                raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

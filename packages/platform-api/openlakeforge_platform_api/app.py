@@ -5,8 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import boto3
+from botocore.config import Config
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
+from openlakeforge_services.logs import ObjectStore
 
 from openlakeforge_platform_api import reads
 from openlakeforge_platform_api.permissions import ANONYMOUS, PermissionMatrix
@@ -91,11 +94,37 @@ def whoami(principal: Principal = Depends(_principal)) -> dict[str, Any]:  # noq
     }
 
 
+def _object_store(settings: Settings) -> ObjectStore | None:
+    """An S3 client for the log archive, or None when there is no archive or no key to read it with.
+
+    The key is passed explicitly from the environment (the mounted Secret):
+    left to boto3's credential chain, a missing key falls through to the
+    instance metadata endpoint, which NetworkPolicy drops, so every request
+    would hang until that times out. Creating the client opens no connection,
+    so the API starts without the store. Path-style addressing because
+    SeaweedFS serves buckets under one host.
+    """
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if not settings.log_archives or not access_key or not secret_key:
+        return None
+    client: ObjectStore = boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint_url,
+        region_name=settings.s3_region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=30, retries={"max_attempts": 2}),
+    )
+    return client
+
+
 def create_app(
     settings: Settings,
     *,
     permissions: PermissionMatrix | None = None,
     validator: TokenValidator | None = None,
+    object_store: ObjectStore | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
@@ -109,11 +138,13 @@ def create_app(
     app.state.settings = settings
     app.state.permissions = permissions or PermissionMatrix.packaged(settings.precedence)
     app.state.validator = validator or TokenValidator(settings)
+    app.state.object_store = object_store or _object_store(settings)
     app.add_api_route("/api/healthz", healthz, methods=["GET"], name="healthz")
     app.add_api_route("/api/v1/whoami", whoami, methods=["GET"], name="whoami")
     app.add_api_route("/api/v1/stages/{stage}/jobs", reads.list_jobs, methods=["GET"], name="list_jobs")
     app.add_api_route("/api/v1/stages/{stage}/runs", reads.list_runs, methods=["GET"], name="list_runs")
     app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
+    app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app

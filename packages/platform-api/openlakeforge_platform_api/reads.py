@@ -1,28 +1,34 @@
-"""Read endpoints: Dagster jobs and runs per stage, OpenMetadata domains and data products.
+"""Read endpoints: Dagster jobs and runs and archived logs per stage, OpenMetadata domains and data products.
 
-The two services take different identities (ADR 0021, decision 2). Dagster
-checks nothing, so the API reaches it with no credential and the permission
-matrix is the only check. OpenMetadata authorizes by the person's own roles, so
-the API forwards the caller's token unchanged and holds no OpenMetadata
-credential.
+The services take different identities (ADR 0021, decision 2). Dagster checks
+nothing, so the API reaches it with no credential and the permission matrix is
+the only check. The log archive is read with the API's own read-only key for
+the log prefix, so there too the matrix decides. OpenMetadata authorizes by the
+person's own roles, so the API forwards the caller's token unchanged and holds
+no OpenMetadata credential.
 """
 
 from __future__ import annotations
 
 import logging
+import zlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
+from datetime import date
 from typing import Any
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Query, Request
 from openlakeforge_services.base import ServiceClientError, TransientServiceError
 from openlakeforge_services.dagster import DagsterClient
+from openlakeforge_services.logs import LogArchive
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
 log = logging.getLogger(__name__)
 
 MAX_RUNS = 100
+MAX_LOG_LINES = 5000
 
 
 def _dagster(request: Request, stage: str) -> DagsterClient:
@@ -69,6 +75,41 @@ def get_run(request: Request, stage: str, run_id: str) -> dict[str, Any]:
     if run is None:
         raise HTTPException(status_code=404, detail=f"no run {run_id!r} in stage {stage!r}")
     return asdict(run)
+
+
+def list_logs(
+    request: Request,
+    stage: str,
+    day: date = Query(alias="date"),  # noqa: B008 - FastAPI's parameter API
+    hour: int | None = Query(default=None, ge=0, le=23),  # noqa: B008
+    pod: str = "",
+    container: str = "",
+    limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008
+) -> dict[str, Any]:
+    """The stage's archived pod log lines for a day or one hour of it, oldest archive first."""
+    archive = request.app.state.settings.log_archives.get(stage)
+    if archive is None:
+        raise HTTPException(status_code=404, detail=f"no log archive is configured for stage {stage!r}")
+    store = request.app.state.object_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="the platform API holds no object-store key for the log archive")
+    reader = LogArchive(store, archive.base_uri)
+    # The store's own message goes to the log: it can name the bucket, the key
+    # or the endpoint, none of which the caller needs.
+    try:
+        lines = reader.read(archive.namespace, day, hour=hour, pod=pod, container=container, limit=limit)
+    except ClientError as exc:
+        log.warning("the object store refused the log archive read for stage %s: %s", stage, exc)
+        raise HTTPException(status_code=502, detail=f"the object store refused stage {stage!r}'s log archive") from exc
+    except BotoCoreError as exc:
+        log.warning("the object store is unreachable for stage %s: %s", stage, exc)
+        raise HTTPException(status_code=502, detail="the object store is unreachable") from exc
+    # KeyError and TypeError: a record that is JSON but not the archiver's shape.
+    except (OSError, EOFError, zlib.error, ValueError, KeyError, TypeError) as exc:
+        log.warning("stage %s's log archive is unreadable: %s", stage, exc)
+        raise HTTPException(status_code=502, detail=f"stage {stage!r}'s log archive is unreadable") from exc
+    # `truncated` tells a client that a narrower window or a higher limit would show more.
+    return {"lines": [asdict(line) for line in lines], "truncated": len(lines) >= limit}
 
 
 def _openmetadata(request: Request) -> OpenMetadataClient:

@@ -9,6 +9,7 @@ The backend the portal, `olf`'s platform commands and agents share
 | `GET /api/v1/stages/{stage}/jobs` | The stage's Dagster jobs, without Dagster's implicit asset jobs | None: Dagster checks nothing, so the matrix row is the only check |
 | `GET /api/v1/stages/{stage}/runs?job=&limit=` | The stage's most recent runs, newest first; `limit` 1 to 100, default 20 | As above |
 | `GET /api/v1/stages/{stage}/runs/{run_id}` | One run's status and times | As above |
+| `GET /api/v1/stages/{stage}/logs?date=&hour=&pod=&container=&limit=` | The stage's archived pod log lines (`libs/k8s_log_archive.py`) for a day or one hour of it, oldest archive first; `limit` 1 to 5000, default 500, and `truncated` when it was reached | The API's read-only object-store key for the log prefix, from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the matrix row decides who reads |
 | `GET /api/v1/domains` | OpenMetadata domains | The caller's bearer token, forwarded unchanged; OpenMetadata authorizes by the person's own roles |
 | `GET /api/v1/data-products` | OpenMetadata data products and their domains | As above |
 
@@ -38,6 +39,8 @@ One JSON file, at `$OPENLAKEFORGE_PLATFORM_API_SETTINGS` (default
 | `ca_file` | Optional CA bundle added to the system roots for the issuer's TLS |
 | `dagster_graphql_urls` | Optional; each enabled stage's Dagster GraphQL URL. A stage without one answers 404 on the Dagster routes |
 | `openmetadata_url` | Optional; OpenMetadata's in-cluster base URL. Without it the OpenMetadata routes answer 404 |
+| `log_archives` | Optional; each enabled stage's archive, `{"base_uri": "s3://…", "namespace": "…"}`: where its archiver writes and the namespace it archives. A stage without one answers 404 on the logs route; the namespace is never taken from a request |
+| `s3_endpoint_url`, `s3_region` | The object store the archives are read from; the endpoint is null for AWS S3, and the region defaults to `us-east-1` |
 
 The API refuses to start on a settings file or matrix that would weaken a
 check: no audience, a role outside `precedence`, a matrix row with an unknown
