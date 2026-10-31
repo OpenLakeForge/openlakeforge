@@ -62,3 +62,30 @@ variable "ca_configmap_name" {
   type        = string
   default     = null
 }
+
+variable "log_archives" {
+  description = "Each enabled stage's log archive: the base URI its archiver writes under and the namespace it archives. The API refuses to start on a stage outside `stages`."
+  type = map(object({
+    base_uri  = string
+    namespace = string
+  }))
+  default = {}
+}
+
+variable "s3_endpoint_url" {
+  description = "The object store the log archives are read from; null for AWS S3."
+  type        = string
+  default     = null
+}
+
+variable "s3_region" {
+  description = "Region the S3 client signs for."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "log_reader_secret_name" {
+  description = "Secret in `namespace` holding the read-only object-store key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the log prefixes. Null leaves the logs route without a key."
+  type        = string
+  default     = null
+}

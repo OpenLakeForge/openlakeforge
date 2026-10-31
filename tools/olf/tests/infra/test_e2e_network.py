@@ -107,6 +107,12 @@ def test_secret_pins_must_match_the_documented_names() -> None:
     assert _grants([_rule(["secrets"], ["get"], ["anything"])], ("olf-system", "worker"))
 
 
+def test_the_seaweedfs_job_may_read_the_platform_api_log_reader_key_and_no_other_name() -> None:
+    sa = ("olf-system", "seaweedfs-credentials")
+    assert not _grants([_rule(["secrets"], ["get"], ["seaweedfs-s3-auth", "platform-api-log-reader-s3-creds"])], sa)
+    assert _grants([_rule(["secrets"], ["get"], ["platform-api-other-creds"])], sa)
+
+
 def test_service_accounts_cover_every_deployed_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake(_cfg: object, argv: list[str], **_k: object) -> str:
         if argv[:2] == ["get", "namespace"]:

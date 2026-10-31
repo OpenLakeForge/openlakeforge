@@ -143,6 +143,11 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
     ports: [8333]
     tag: V
+  - id: F33
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
+    ports: [8333] # the archived-logs route, with the read-only key for the log prefixes
+    tag: T # needs a log read on a running cluster
   - id: F10
     from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
     to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}

@@ -53,7 +53,10 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file")),
     ("postgresql-credentials", ("postgresql-*-creds",)),
     ("superset-credentials", ("superset-credentials", "superset-env")),
-    ("seaweedfs-credentials", ("seaweedfs-s3-creds", "seaweedfs-*-s3-creds", "seaweedfs-s3-auth")),
+    (
+        "seaweedfs-credentials",
+        ("seaweedfs-s3-creds", "seaweedfs-*-s3-creds", "seaweedfs-s3-auth", "platform-api-log-reader-s3-creds"),
+    ),
     ("*-credentials", ("*-client-*",)),  # dex-credentials
     ("*-cookie", ("*-cookie",)),
     ("*-oidc-secret", ("oidc-client-*", "*-client-*")),

@@ -20,7 +20,7 @@ STAGE_ACTIONS = {
             for layer in ("bronze", "silver", "gold")
             for verb in ("Read", "Write", "List")
         ),
-        *(f"{verb}:ops/activations/{stage}*" for verb in ("Read", "Write", "List")),
+        *(f"{verb}:ops/activations/{stage}/*" for verb in ("Read", "Write", "List")),
     ]
     for stage in ("dev", "prod")
 }
@@ -74,7 +74,7 @@ def _run_job(
         .replace("${auth_secret}", "seaweedfs-s3-auth")
         .replace("${s3_deployment}", "seaweedfs-s3")
         .replace("${identities}", json.dumps(identities, separators=(",", ":")))
-        .replace("${stages}", " ".join(f"{i['secret']}={i['namespace']}" for i in identities[1:]))
+        .replace("${scoped_pairs}", " ".join(f"{i['secret']}={i['namespace']}" for i in identities[1:]))
         .replace("${iam_config}", json.dumps(IAM_CONFIG, separators=(",", ":")))
         .replace("$${", "${")
     )
@@ -206,3 +206,31 @@ def test_a_config_from_before_sts_gains_the_iam_file_and_keeps_its_signing_key_a
     assert _iam(tmp_path)["sts"]["signingKey"] == key
     patches = (tmp_path / "secrets.patches").read_text().splitlines()
     assert patches[-1] == patches[-2]
+
+
+# The identity credentials.tf renders for the platform API with two stages' archive prefixes.
+LOG_READER = {
+    "name": "openlakeforge-platform-api-logs",
+    "secret": "platform-api-log-reader-s3-creds",
+    "namespace": "olf-system",
+    "actions": [
+        f"{verb}:ops/activations/{stage}/logs/k8s/*" for stage in ("dev", "prod") for verb in ("Read", "List")
+    ],
+}
+
+
+def test_the_log_reader_gets_its_own_key_in_olf_system_and_only_read_and_list(tmp_path: Path) -> None:
+    result = _run_job(tmp_path, [*IDENTITIES, LOG_READER])
+
+    assert result.returncode == 0, result.stderr
+    key = tmp_path / "secrets/olf-system/platform-api-log-reader-s3-creds"
+    identity = next(i for i in _config(tmp_path)["identities"] if i["name"] == LOG_READER["name"])
+    assert identity["credentials"] == [
+        {"accessKey": (key / KEYS[0]).read_text(), "secretKey": (key / KEYS[1]).read_text()}
+    ]
+    assert identity["actions"] == LOG_READER["actions"]
+    assert {action.split(":")[0] for action in identity["actions"]} == {"Read", "List"}
+    others = {
+        (tmp_path / "secrets" / str(i["namespace"]) / str(i["secret"]) / KEYS[0]).read_text() for i in IDENTITIES
+    }
+    assert (key / KEYS[0]).read_text() not in others

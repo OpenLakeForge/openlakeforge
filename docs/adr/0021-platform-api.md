@@ -11,8 +11,8 @@ endpoints and credentials from a deployment. The platform API in
 `packages/platform-api` has token validation, the permission matrix,
 `/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
 runs per stage, and OpenMetadata domains and data products with the caller's
-token forwarded. Its archived-logs route reads each stage's log archive with
-a read-only object-store key the deployment does not mount yet. The local
+token forwarded, and each stage's archived pod logs, read with a read-only
+object-store key scoped to the stages' log prefixes. The local
 provider deploys it with `spec.identity` (`modules/access/platform-api`), from
 an image `olf` builds, since no release has published one to pin.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
@@ -318,3 +318,8 @@ no credential; OpenMetadata domains and data products at the `viewer` floor,
 forwarding the caller's token unchanged. Archived logs, first-time user
 registration on the OpenMetadata path, and the endpoints' e2e through the
 perimeter remain.
+
+Build step 3, archived logs (#668): the platform API reads each stage's pod log
+archive with its own SeaweedFS identity, `Read` and `List` on the stages' log
+prefixes only, minted in-cluster and mounted from a Secret as decision 3 says,
+at the `data-engineer` floor.

@@ -39,3 +39,11 @@ output "stage_credentials" {
     }
   }
 }
+
+# Read through this output, a consumer is created after the Job that mints the
+# key, so its pod never starts before the Secret exists.
+output "log_reader_secret_name" {
+  description = "Secret holding the platform API's read-only key for the log prefixes, or null when log_reader_credentials is."
+  value       = var.log_reader_credentials == null ? null : var.log_reader_credentials.credentials_secret_name
+  depends_on  = [kubernetes_job_v1.credentials]
+}
