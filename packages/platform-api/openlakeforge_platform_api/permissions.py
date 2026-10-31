@@ -10,6 +10,8 @@ from typing import Any
 
 ANONYMOUS = "anonymous"
 EVERY_STAGE = "*"
+REQUIRED_KEYS = frozenset({"role", "stages"})
+ALLOWED_KEYS = REQUIRED_KEYS | {"changes_state"}
 
 
 class PermissionMatrixError(ValueError):
@@ -20,6 +22,9 @@ class PermissionMatrixError(ValueError):
 class Permission:
     role: str
     stages: tuple[str, ...]
+    # An operation that changes state is audited (ADR 0021, decision 3): it runs only once a durable record of the
+    # attempt is stored, and a refusal of an authenticated person is stored too.
+    changes_state: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,16 +36,20 @@ class PermissionMatrix:
     def from_mapping(cls, data: Mapping[str, Any], precedence: tuple[str, ...]) -> PermissionMatrix:
         operations: dict[str, Permission] = {}
         for name, row in (data.get("operations") or {}).items():
-            if not isinstance(row, Mapping) or set(row) != {"role", "stages"}:
-                raise PermissionMatrixError(f"operation {name!r} must set exactly role and stages")
-            role, stages = row["role"], row["stages"]
+            if not isinstance(row, Mapping) or not REQUIRED_KEYS <= set(row) <= ALLOWED_KEYS:
+                raise PermissionMatrixError(f"operation {name!r} sets keys other than role, stages and changes_state")
+            role, stages, changes_state = row["role"], row["stages"], row.get("changes_state", False)
             if role != ANONYMOUS and role not in precedence:
                 raise PermissionMatrixError(f"operation {name!r} names role {role!r}, not in {list(precedence)}")
             if not isinstance(stages, list) or not all(isinstance(stage, str) and stage for stage in stages):
                 raise PermissionMatrixError(f"operation {name!r}: stages must be a list of stage names")
             if role == ANONYMOUS and stages:
                 raise PermissionMatrixError(f"operation {name!r}: an anonymous operation cannot reach a stage")
-            operations[str(name)] = Permission(role=role, stages=tuple(stages))
+            if not isinstance(changes_state, bool):
+                raise PermissionMatrixError(f"operation {name!r}: changes_state must be true or false")
+            if role == ANONYMOUS and changes_state:
+                raise PermissionMatrixError(f"operation {name!r}: an anonymous operation cannot change state")
+            operations[str(name)] = Permission(role=role, stages=tuple(stages), changes_state=changes_state)
         return cls(operations=operations, precedence=precedence)
 
     @classmethod
