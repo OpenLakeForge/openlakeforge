@@ -408,3 +408,6 @@ artifacts phase grants. It is audited like a launch.
 as a stage-neutral bundle, at `data-engineer` on every stage. The service user
 signs in with Superset's database provider, which the login endpoint honours
 whatever the AUTH_TYPE (Flask-AppBuilder 5.0.2), so OIDC sign-in does not stop it.
+Every import posts with a CSRF token, so the role also holds `can_read` on
+`SecurityRestApi` (`security/api.py`), the view behind `/api/v1/security/csrf_token/`;
+the e2e's first import found it missing.

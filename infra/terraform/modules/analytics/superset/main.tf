@@ -38,6 +38,9 @@ locals {
       ["can_read", "Database"],
       # Its own roles (/api/v1/me/roles/), to check a report's schemas were granted before importing it.
       ["can_read", "CurrentUserRestApi"],
+      # The CSRF token (/api/v1/security/csrf_token/) every import posts with;
+      # the view is the class name, not "Security", which is Admin-only.
+      ["can_read", "SecurityRestApi"],
     ] : { permission = { name = pair[0] }, view_menu = { name = pair[1] } }]
   }])
   platform_api_init = var.platform_api_user == null ? "" : <<-SH
