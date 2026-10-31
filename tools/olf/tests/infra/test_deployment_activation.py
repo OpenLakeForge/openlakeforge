@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -272,7 +273,13 @@ def _build_report_harness(
 
     monkeypatch.setattr(superset_module, "deploy_reports", _fake_deploy_reports)
     metadata_calls: list[None] = []
-    monkeypatch.setattr(openmetadata_commands, "deploy_openmetadata_metadata", lambda: metadata_calls.append(None))
+    metadata_allow_missing: list[str | None] = []
+
+    def _fake_deploy_metadata() -> None:
+        metadata_calls.append(None)
+        metadata_allow_missing.append(os.environ.get("OPENMETADATA_ALLOW_MISSING_ASSETS"))
+
+    monkeypatch.setattr(openmetadata_commands, "deploy_openmetadata_metadata", _fake_deploy_metadata)
 
     def deploy(stage: str):  # noqa: ANN202
         context = DeploymentContext.local(
@@ -295,6 +302,7 @@ def _build_report_harness(
         manifest=manifest,
         report_calls=report_calls,
         metadata_calls=metadata_calls,
+        metadata_allow_missing=metadata_allow_missing,
         external_project=external_project,
         expected_dashboard_dirs=expected_dashboard_dirs,
         original_dashboard_description=original_description,
@@ -368,6 +376,48 @@ def test_governance_enabled_analytics_disabled_stage_skips_reports_without_faili
     assert activation is not None
     assert disabled.report_calls == []
     assert disabled.metadata_calls == [None]
+
+
+def _governed_contract() -> dict:
+    contract = _contract()
+    contract["shared"]["governance_service"] = {
+        "ref": "shared/governance_service",
+        "implementation": "governance.openmetadata",
+    }
+    stage = contract["stages"]["prod"]
+    stage["governance"] = {
+        "service_ref": "shared/governance_service",
+        "endpoint_ref": "stage/prod/endpoints/governance",
+    }
+    stage["endpoints"]["governance"] = "stage/prod/endpoints/governance"
+    return contract
+
+
+def test_a_first_activation_deploys_metadata_before_the_gold_tables_exist(
+    external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Activation runs before any pipeline, so empty Gold schemas are reported rather than fatal."""
+    monkeypatch.delenv("OPENMETADATA_ALLOW_MISSING_ASSETS", raising=False)
+    harness = _build_report_harness(
+        _governed_contract(), external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
+    )
+
+    harness.deploy("prod")
+
+    assert harness.metadata_allow_missing == ["true"]
+
+
+def test_an_operator_can_still_require_the_gold_tables_at_activation(
+    external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")
+    harness = _build_report_harness(
+        _governed_contract(), external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
+    )
+
+    harness.deploy("prod")
+
+    assert harness.metadata_allow_missing == ["false"]
 
 
 def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noqa: ANN001
