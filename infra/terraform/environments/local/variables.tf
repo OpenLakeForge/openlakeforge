@@ -34,6 +34,7 @@ variable "query_sizing" {
     schedule_on_coordinator = bool
     max_memory              = string
     max_memory_per_node     = string
+    max_stage_count         = number
     coordinator = object({
       heap           = string
       cpu_request    = string
