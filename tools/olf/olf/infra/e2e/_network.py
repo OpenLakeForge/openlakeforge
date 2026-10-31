@@ -72,6 +72,8 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("openmetadata-admin", "openmetadata-automation-bot", "openmetadata-ingestion-bot", "superset-credentials"),
     ),
     ("publish-local-ca", ("local-ca",)),
+    # The platform API's Superset service-user passwords: the source in olf-system, the copy in each stage namespace.
+    ("platform-api-superset-users", ("platform-api-superset-*", "platform-api-superset")),
 )
 # ADR 0017 E2 to E5: (role kind, role glob, subject glob, the only resources a risky rule may name).
 EXCEPTIONS: tuple[tuple[str, str, str, frozenset[str]], ...] = (

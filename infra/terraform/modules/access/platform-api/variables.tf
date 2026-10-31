@@ -113,3 +113,15 @@ variable "audit_writer_secret_name" {
   type        = string
   default     = null
 }
+
+variable "superset_service_users" {
+  description = "Each stage with Superset whose platform API service user this module mints a password for: stage name to its namespace (ADR 0021, open item 3). Empty mints none."
+  type        = map(string)
+  default     = {}
+}
+
+variable "bootstrap_job_image" {
+  description = "Image of the Job that mints the Superset service users' passwords (release/component-catalog.yaml, k8s_bootstrap). Needed only with superset_service_users."
+  type        = string
+  default     = null
+}

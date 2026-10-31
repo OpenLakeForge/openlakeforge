@@ -19,6 +19,35 @@ locals {
     grants       = var.oidc.grants
     sign_out_url = var.oidc.sign_out_url
   }
+
+  # The platform API's service role (ADR 0021, open item 3, checked against
+  # Superset 6.1.0): import assets, read and write datasets, charts and
+  # dashboards, export dashboards, read databases. No Admin, no SQL Lab, no role
+  # management, and no write on databases: the API imports sparsely and never
+  # sends a database. Export also needs data access, which the artifacts phase
+  # grants this role beside olf_data_access. `fab import-roles` only adds, so a
+  # permission dropped from this list stays granted until revoked by hand.
+  platform_api_role = "olf_platform_api"
+  platform_api_roles_json = jsonencode([{
+    name = local.platform_api_role
+    permissions = [for pair in [
+      ["can_import_", "ImportExportRestApi"],
+      ["can_read", "Dataset"], ["can_write", "Dataset"],
+      ["can_read", "Chart"], ["can_write", "Chart"],
+      ["can_read", "Dashboard"], ["can_write", "Dashboard"], ["can_export", "Dashboard"],
+      ["can_read", "Database"],
+    ] : { permission = { name = pair[0] }, view_menu = { name = pair[1] } }]
+  }])
+  platform_api_init = var.platform_api_user == null ? "" : <<-SH
+    cat > /tmp/olf-platform-api-role.json <<'JSON'
+    ${local.platform_api_roles_json}
+    JSON
+    superset fab import-roles --path /tmp/olf-platform-api-role.json
+    superset fab create-user --username "${var.platform_api_user.username}" --firstname OpenLakeForge \
+      --lastname "Platform API" --email "${var.platform_api_user.username}@openlakeforge.invalid" \
+      --role ${local.platform_api_role} --password "$PLATFORM_API_PASSWORD" || true
+    superset fab reset-password --username "${var.platform_api_user.username}" --password "$PLATFORM_API_PASSWORD"
+  SH
 }
 
 resource "helm_release" "superset" {
@@ -83,6 +112,7 @@ resource "helm_release" "superset" {
           superset fab create-admin --username "${var.admin_username}" --firstname OpenLakeForge --lastname Admin \
             --email "${var.admin_email}" --password "$ADMIN_PASSWORD" || true
           superset fab reset-password --username "${var.admin_username}" --password "$ADMIN_PASSWORD"
+          ${local.platform_api_init}
         SH
       }
 
@@ -111,6 +141,16 @@ resource "helm_release" "superset" {
             secretKeyRef = {
               name = local.credentials_secret_name
               key  = "admin-password"
+            }
+          }
+        },
+        ], var.platform_api_user == null ? [] : [
+        {
+          name = "PLATFORM_API_PASSWORD"
+          valueFrom = {
+            secretKeyRef = {
+              name = var.platform_api_user.secret_name
+              key  = "password"
             }
           }
         },
