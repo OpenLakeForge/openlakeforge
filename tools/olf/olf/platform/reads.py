@@ -147,7 +147,9 @@ def logs(
         return
     for line in result["lines"]:
         source = f"{line['pod']}/{line['container']}"
-        typer.echo(f"{source}  {line['line'] if line['error'] is None else '[not archived: ' + line['error'] + ']'}")
+        typer.echo(
+            f"{source}  {(line['line'] or '') if line['error'] is None else '[not archived: ' + line['error'] + ']'}"
+        )
     if result["truncated"]:
         typer.echo(
             f"Showing the first {limit} lines; narrow with --hour, --pod or --container, or raise --limit.", err=True

@@ -316,6 +316,18 @@ def test_a_truncated_answer_says_how_to_narrow_it(fake: FakeAPI, monkeypatch: py
     assert "narrow with --hour, --pod or --container, or raise --limit" in result.stderr
 
 
+def test_a_record_with_neither_line_nor_error_prints_an_empty_line(
+    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bare = {**ANSWERS["/api/v1/stages/dev/logs"]["lines"][0], "line": None}
+    monkeypatch.setitem(ANSWERS, "/api/v1/stages/dev/logs", {"lines": [bare], "truncated": False})
+
+    result = _olf("logs")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == "run-1/main  \n"
+
+
 def test_logs_json_is_the_apis_answer_with_truncated(fake: FakeAPI) -> None:
     result = _olf("logs", "--json")
 
