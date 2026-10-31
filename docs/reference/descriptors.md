@@ -75,6 +75,9 @@ Where they apply:
   fails with dlt's missing-config error.
 - `olf infra deploy` refuses to activate a revision whose sources the stage has not
   bound. It reads Secret key names only, never values.
+- On `local`, a run pod reaches a host outside the cluster only on a port the
+  stage declares in its Deployment Profile, `spec.stages.<stage>.source_egress`
+  ([reference](deployment-profile.md#specstages)).
 
 A loader that is a real dlt source runs it through
 `libs.bronze_dlt.bronze_pipeline(<source>)`:

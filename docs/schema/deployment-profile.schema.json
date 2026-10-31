@@ -204,6 +204,20 @@
             "analytics": {"type": "boolean"},
             "governance": {"type": "boolean"}
           }
+        },
+        "source_egress": {
+          "description": "External hosts this stage's Bronze sources reach. NetworkPolicy has no hostname selector, so on local the stage's Dagster run pods may open these TCP ports to any address outside the cluster's pod and Service ranges (ADR 0017 F34). Absent: no external egress.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ports"],
+          "properties": {
+            "ports": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "integer", "minimum": 1, "maximum": 65535}
+            }
+          }
         }
       }
     }

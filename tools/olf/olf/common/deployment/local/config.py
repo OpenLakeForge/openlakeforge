@@ -20,8 +20,12 @@ from olf.common.deployment.env_settings import float_env as _float_env
 from olf.common.deployment.env_settings import int_env as _int_env
 from olf.common.deployment.env_settings import retry_policy as _retry_policy
 from olf.common.deployment.env_settings import truthy as _truthy
-from olf.common.deployment.project_code import published_example_image, split_published_image
-from olf.common.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY
+from olf.common.deployment.project_code import (
+    published_example_image,
+    runs_bundled_example,
+    split_published_image,
+)
+from olf.common.profile import PUBLIC_EXAMPLE_IMAGE_REPOSITORY, Provider, ResolvedProject, resolve_declared_project
 from olf.common.tooling.retry import RetryPolicy
 
 
@@ -52,6 +56,9 @@ class ImageSettings:
     project_code_python_base_image: str
     # True when project_code_* is the release-published example image rather than a local build.
     project_code_published: bool
+    # True when edited project code resolved no repository of its own and so sits on the platform's example
+    # package: a push would overwrite the published example, so `build_project_image` refuses it.
+    project_code_needs_repository: bool
     superset_repository: str
     superset_tag: str
     superset_build: bool
@@ -83,15 +90,27 @@ class ImageSettings:
         return self.superset_build or server_arch not in ("amd64", "x86_64")
 
     @classmethod
-    def from_environment(cls, environ: Mapping[str, str], *, published: str | None = None) -> ImageSettings:
-        """`published`: a `repository:version@sha256:...` reference to deploy instead of building locally."""
-        repository, tag, pull_policy = PUBLIC_EXAMPLE_IMAGE_REPOSITORY, "local", "Never"
+    def from_environment(
+        cls,
+        environ: Mapping[str, str],
+        *,
+        project: ResolvedProject | None = None,
+        bundled_example: bool = True,
+        published: str | None = None,
+    ) -> ImageSettings:
+        """`project`: where the image repository resolved (`resolve_declared_project`); without one, only
+        `PROJECT_CODE_IMAGE_REPOSITORY` or the public example. `bundled_example`: the project code is the
+        distribution's own. `published`: a `repository:version@sha256:...` reference to deploy instead of building.
+        """
+        project = project or resolve_declared_project(None, Provider.LOCAL, environ)
+        repository = project.image_repository or PUBLIC_EXAMPLE_IMAGE_REPOSITORY
+        tag, pull_policy = "local", "Never"
         if published:
             repository, version = split_published_image(published)
             # The image is loaded into kind by prefetch, so the pod never needs registry credentials.
             tag, pull_policy = version, "IfNotPresent"
         return cls(
-            project_code_repository=_env(environ, "PROJECT_CODE_IMAGE_REPOSITORY", repository),
+            project_code_repository=repository,
             project_code_tag=_env(environ, "PROJECT_CODE_IMAGE_TAG", tag),
             project_code_pull_policy=_env(environ, "PROJECT_CODE_IMAGE_PULL_POLICY", pull_policy),
             project_code_revision=_env(environ, "PROJECT_CODE_IMAGE_REVISION", "manual"),
@@ -101,6 +120,9 @@ class ImageSettings:
                 "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
             ),
             project_code_published=bool(published),
+            # A validated local profile always names an image; an unvalidated `provider-default` has none.
+            project_code_needs_repository=project.image_repository is None
+            or (project.source == "public-example" and not bundled_example),
             superset_repository=_env(environ, "SUPERSET_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/superset"),
             superset_tag=_env(environ, "SUPERSET_IMAGE_TAG", "local"),
             superset_build=_truthy(_env(environ, "BUILD_SUPERSET_IMAGE", "false")),
@@ -295,12 +317,15 @@ class LocalDeploymentConfig:
         var_file: Path | None = None,
     ) -> LocalDeploymentConfig:
         distribution_root = context.paths.distribution_root
+        topology = context.topology
         cluster_name = context.kube_context.removeprefix("kind-") or context.kube_context
         return cls(
             context=context,
             cluster=ClusterSettings.from_environment(environ, repo_root=distribution_root, cluster_name=cluster_name),
             images=ImageSettings.from_environment(
                 environ,
+                project=resolve_declared_project(topology.project, topology.provider, environ),
+                bundled_example=runs_bundled_example(context.paths),
                 # The release image is amd64 only, and kind runs the host's architecture.
                 published=published_example_image(context, environ)
                 if platform.machine() in ("x86_64", "AMD64")
