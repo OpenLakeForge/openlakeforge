@@ -2,7 +2,7 @@
 
 ## Status
 
-Decided, **build step 1 done, build steps 3 and 4 begun**: `packages/lakehouse-services`
+Decided, **build step 1 done, build steps 3, 4 and 5 begun**: `packages/lakehouse-services`
 holds every service client — the HTTP transport, Dagster, OpenMetadata and
 Superset — and the operations built on them: Superset report import and export
 (`openlakeforge_services.reports`) and OpenMetadata metadata deployment
@@ -16,7 +16,8 @@ and data products with the caller's token forwarded. `olf jobs list`, `olf runs
 list|show`, `olf domain list` and `olf product list` read through it with the
 signed-in person's token. The local provider deploys it with `spec.identity`
 (`modules/access/platform-api`), from an image `olf` builds, since no release
-has published one to pin.
+has published one to pin. The audit that decision 3 requires of state-changing
+operations is built; no route changes state yet.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -176,7 +177,18 @@ For those calls it therefore:
   `release/network-flows.yaml`**, and its permission matrix is the only check
   on what it asks there, since Dagster checks nothing;
 - **writes an audit record** naming the person for every operation that
-  changes state;
+  changes state: who (the token's subject, email and canonical role), the
+  operation, the stage, its target, and the outcome. Each record is one JSON
+  line on stdout and, for an authenticated person, one object in the ops
+  bucket under `audit/platform-api/date=<day>/`, written with a key that may
+  only `Write` there. The API stores an `attempted` record before it acts and
+  answers 503 without acting if it cannot; the outcome follows, and a lost
+  outcome is logged rather than undoing what was done. A refusal of an
+  authenticated person is stored too; one of a caller without a valid token
+  goes to stdout only, so no anonymous caller can fill the bucket. The request
+  id in each record and key is the API's own. SeaweedFS's `Write` also
+  overwrites and deletes (`weed/s3api/s3api_server.go`, 4.48), so the records
+  are tamper-evident against everyone but the API itself, not append-only;
 - **is stateless** with a read-only root filesystem until a feature needs
   storage; saved queries or history bring the shared PostgreSQL in as their
   own decision.
@@ -337,3 +349,10 @@ Build step 3, archived logs (#668): the platform API reads each stage's pod log
 archive with its own SeaweedFS identity, `Read` and `List` on the stages' log
 prefixes only, minted in-cluster and mounted from a Secret as decision 3 says,
 at the `data-engineer` floor.
+
+Build step 5, first part (#670): decision 3 now says where audit records go. A
+pod log is lost with the pod and nothing archives `olf-system`, so the durable
+copy is an object of its own, written before the API acts. The permission
+matrix marks an operation `changes_state`, and every such operation runs inside
+the audit; without an audit key it answers 503. No operation is marked yet: the
+first, launching a run, and the write-only key's deployment follow.
