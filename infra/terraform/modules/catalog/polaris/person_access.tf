@@ -20,13 +20,24 @@ locals {
   # Polaris answers by activating every role of the principal. The connector
   # id, which every token carries, is read as a role too and maps to
   # olf-signed-in, a role with no grant, so the set is never empty.
+  #
+  # The chart writes these regexes into application.properties, where a
+  # backslash is an escape character: `\Q...\E` arrives as `Q...E` and matches
+  # nothing, so every token mapped to no role. A claim is matched literally
+  # instead by putting each character other than [A-Za-z0-9_:-] in a character
+  # class, which needs no backslash (variables.tf rejects the four characters a
+  # class cannot hold that way).
+  person_claim_regex = {
+    for claim in distinct(concat(flatten(values(try(var.person_access.role_mapping, {}))), compact([try(var.person_access.principal_name, "")]))) :
+    claim => "^${join("", [for ch in split("", claim) : can(regex("^[A-Za-z0-9_:-]$", ch)) ? ch : "[${ch}]"])}$"
+  }
   person_role_mappings = concat(
     flatten([
       for role, claims in try(var.person_access.role_mapping, {}) : [
-        for claim in claims : { regex = "^\\Q${claim}\\E$", replacement = "PRINCIPAL_ROLE:olf-${role}" }
+        for claim in claims : { regex = local.person_claim_regex[claim], replacement = "PRINCIPAL_ROLE:olf-${role}" }
       ] if contains(keys(try(var.person_access.data_access, {})), role)
     ]),
-    [for name in compact([try(var.person_access.principal_name, "")]) : { regex = "^\\Q${name}\\E$", replacement = "PRINCIPAL_ROLE:olf-signed-in" }],
+    [for name in compact([try(var.person_access.principal_name, "")]) : { regex = local.person_claim_regex[name], replacement = "PRINCIPAL_ROLE:olf-signed-in" }],
   )
 
   # The credential of each stage's Trino people catalog (ADR 0019, section 4,

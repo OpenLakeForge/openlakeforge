@@ -214,7 +214,7 @@ sequenceDiagram
 | 8 | Token to Polaris | With `session=USER` Trino passes the user's extra credentials to the Iceberg client and adds an unsigned JWT of its own as `JWT_TOKEN_TYPE`. The Iceberg client uses a `token` credential as the bearer **before** trying any token exchange. So the person's Dex token reaches Polaris; a request without it falls through to exchanging Trino's unsigned JWT, which Polaris does not accept (ADR 0015), and fails closed | V (`TrinoRestCatalog.convert`; `OAuth2Manager.maybeCreateChildSession`); V, run (verification item 5) |
 | 9 | Session cache | The Iceberg session is cached per `<user>-<source>` with `expireAfterAccess(session-timeout)`, the default one hour. A person querying more often than that would keep presenting their first, expired token, so the people catalog sets the timeout to zero and builds the session from the current token each time. Wrapping a bearer token makes no network call | V (`AuthSessionCache`, `IcebergRestCatalogConfig`: `@MinDuration("0ms")`); V, run (verification item 7) |
 | 10 | Polaris authentication | `mixed`: Polaris's own tokens first, then Quarkus OIDC. `quarkus.oidc.auth-server-url` `https://auth.<base_domain>`, `discovery-enabled=false` with `jwks-path=keys` (as Trino's UI does, because Dex is served by Traefik), the local CA through a named TLS configuration (`quarkus.oidc.tls.tls-configuration-name`, `quarkus.tls.<name>.trust-store.pem.certs`), `quarkus.oidc.token.audience=olf-cli`. Principal mapper `name-claim-path: federated_claims/connector_id`; roles from `groups` and `federated_claims/connector_id` (step 11) | V, run (verification item 3) |
-| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles and `olf-signed-in`, a principal role with no catalog role. The token's `groups` decide which canonical roles are active (finding 3). Its connector id is also read as a role and mapped to `olf-signed-in`, so the active set is never empty: without that, a token whose groups map to nothing, including one requested without the `groups` scope, which the person chooses in their own sign-in, would activate all four roles, platform-admin included (verification item 3). Revocation is Dex's: a person removed from a team is refused at their next refresh, within 5 minutes, with no Polaris change | V, run (verification items 3 and 4; connector id `github` in `modules/identity/dex/main.tf`) |
+| 11 | Polaris principal | Every Dex token from the GitHub connector names the principal `github` (the Dex module's connector id). The bootstrap creates it and grants it the four role principal roles and `olf-signed-in`, a principal role with no catalog role. The token's `groups` decide which canonical roles are active (finding 3). Its connector id is also read as a role and mapped to `olf-signed-in`, so the active set is never empty: without that, a token whose groups map to nothing, including one requested without the `groups` scope, which the person chooses in their own sign-in, would activate all four roles, platform-admin included (verification item 3). Revocation is Dex's: a person removed from a team is refused at their next refresh, within 5 minutes, with no Polaris change. The mapper's regexes match each claim literally through character classes (`acme[.]org:team`), with no backslash: the chart writes them into `application.properties`, which drops a backslash, so `\Q...\E` arrived as `Q...E`, matched nothing, and every token activated every role | V, run (verification items 3 and 4; connector id `github` in `modules/identity/dex/main.tf`) |
 
 ### 5. Polaris objects
 
@@ -546,3 +546,15 @@ records Polaris, not cloud IAM, as where canonical roles reach data; ADR
 caller inventories make `olf query` a class 1 caller; the role reference gains
 the data-access matrix, and the tutorial shows querying as yourself. Status
 set to built. Decided with it: AWS moves to Polaris instead of Glue (#681).
+
+Run on kind: the person-access e2e found a data engineer writing PROD. The role
+mapper's regexes were `^\Q<claim>\E$`; the Polaris chart writes them into
+`application.properties`, whose loader treats a backslash as an escape, so
+they matched nothing, every token mapped to no role, and Polaris activated
+every role of the principal (finding 3): every signed-in person reached
+platform-admin's grants. Verification item 3 had passed because its harness
+set the properties as system properties, which are not unescaped. The regexes
+now match through character classes, with no backslash, and a claim holding
+`[`, `]`, `\` or `^` is refused at plan time. Run against the pinned Polaris
+loading the chart's file, an analyst, a data engineer on PROD and a person in
+no mapped team are each refused again (section 4, step 11).
