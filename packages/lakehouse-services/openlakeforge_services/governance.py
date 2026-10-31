@@ -121,6 +121,12 @@ def product_entries(domain: dict) -> Iterator[dict]:
         yield normalized
 
 
+def _gold_models(lakehouse_root: Path, product_id: str) -> list[str]:
+    """A product's Gold tables: one per dbt model, named by its file (no model sets an alias)."""
+    models = lakehouse_root / "gold" / product_id / "dbt" / "models"
+    return sorted({path.stem for path in models.rglob("*.sql")})
+
+
 def product_contract_key(product: dict) -> str:
     return product.get("asset_prefix") or product.get("name") or product.get("id") or ""
 
@@ -239,6 +245,21 @@ class MetadataReconciler:
         self._ensured_schema_fqns.add(schema_fqn)
         self.progress.info(f"Upserted OpenMetadata database schema: {schema_fqn}")
 
+    def ensure_table(self, schema_fqn: str, name: str) -> None:
+        """Register a table the stage's pipelines write, before their lineage arrives.
+
+        OpenMetadata 1.13.6 attaches an OpenLineage edge only to tables it
+        already holds: its auto-create path inserts the entity without
+        updatedAt, Postgres refuses the row, and the edge is dropped. The Trino
+        ingestion adopts the entity by FQN and fills in its columns. POST, not
+        PUT: an upsert with no columns would delete the ones the ingestion
+        found, so an existing table (409) is left alone.
+        """
+        self.require_stage_scoped(schema_fqn, "table")
+        payload = {"name": name, "databaseSchema": schema_fqn, "columns": []}
+        self.client.request("POST", "/api/v1/tables", json_body=payload, ok_statuses=(200, 201, 409))
+        self.progress.info(f"Registered OpenMetadata table: {schema_fqn}.{name}")
+
 
 class MetadataDeployer:
     """Seeds one stage's storage containers, domains and data products.
@@ -281,6 +302,9 @@ class MetadataDeployer:
 
     def ensure_database_schema(self, schema_fqn: str, domain: str | None = None) -> None:
         self._reconciler.ensure_database_schema(schema_fqn, domain)
+
+    def ensure_table(self, schema_fqn: str, name: str) -> None:
+        self._reconciler.ensure_table(schema_fqn, name)
 
     def list_schema_tables(self, schema_fqn: str) -> list[dict]:
         return self._reconciler.list_schema_tables(schema_fqn)
@@ -406,7 +430,9 @@ class MetadataDeployer:
             }
         bronze_bucket = self.config.storage_bronze_bucket
         domain_specs: list[tuple[Path, dict]] = []
+        root = inventory.lakehouse_root
         for domain in lakehouse_document["domains"]:
+            name = domain["name"]
             products = []
             for product in domain["products"]:
                 bronze_entries = [
@@ -427,6 +453,7 @@ class MetadataDeployer:
                         "status": product.get("status", ""),
                         "domain": domain["name"],
                         "bronze": bronze_entries,
+                        "gold_tables": _gold_models(root, product["id"]),
                     }
                 )
             domain_specs.append(
@@ -437,6 +464,7 @@ class MetadataDeployer:
                         "displayName": domain["displayName"],
                         "description": domain.get("description", ""),
                         "status": domain.get("status", ""),
+                        "silver_tables": [entity.name for entity in entities[name]],
                         "data_products": products,
                     },
                 )
@@ -498,7 +526,13 @@ class MetadataDeployer:
             domain_body = domain_payload(domain)
             self.client.request("PUT", "/api/v1/domains", json_body=domain_body, ok_statuses=(200, 201))
             self.progress.info(f"Upserted OpenMetadata domain: {domain_body['name']}")
-            self.ensure_database_schema(self.config.catalog_silver_schema_fqns[domain["name"]], domain["name"])
+            silver_fqn = self.config.catalog_silver_schema_fqns[domain["name"]]
+            self.ensure_database_schema(silver_fqn, domain["name"])
+            # Every table a pipeline writes is registered before it runs, so
+            # its lineage resolves (ensure_table); the domain comes from the
+            # schema.
+            for table in domain.get("silver_tables", []):
+                self.ensure_table(silver_fqn, table)
 
             for product in product_entries(domain):
                 product_body = product_payload(product)
@@ -506,6 +540,8 @@ class MetadataDeployer:
                 self.progress.info(f"Upserted OpenMetadata data product: {product_body['name']}")
                 schema_fqn = self.config.catalog_gold_schema_fqns[product_contract_key(product)]
                 self.ensure_database_schema(schema_fqn, domain["name"])
+                for table in product.get("gold_tables", []):
+                    self.ensure_table(schema_fqn, table)
 
                 # A schema is a valid data-product asset, but a table does not
                 # inherit `dataProducts` from its schema (no inheritDataProducts

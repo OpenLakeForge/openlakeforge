@@ -169,11 +169,12 @@ kubeconfig, and no infra credential: the API decides what your role may read.
 | `olf jobs list` | The stage's pipeline jobs | `data-engineer` |
 | `olf runs list` | The stage's most recent runs, newest first; `--job` for one job, `--limit` 1 to 100 (default 20) | `data-engineer` |
 | `olf runs show <run-id>` | One run's status, times and tags | `data-engineer` |
+| `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--limit` 1 to 5000 (default 500) | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf product list` | Data products and their domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 
 Each takes `--json` to print the API's JSON instead of a table, and
-`--profile-file` (`-f`). `jobs` and `runs` take `--stage` (default `dev`). When
+`--profile-file` (`-f`). `jobs`, `runs` and `logs` take `--stage` (default `dev`). When
 the API refuses, the command says why: an expired or rejected session asks you
 to run `olf login`, and a role below the operation's floor names the role it
 needs.

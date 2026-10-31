@@ -866,9 +866,10 @@ def deploy_revision(
             # rather than the operator's checkout -- move this call outside
             # the `with` block and it silently imports the checkout again.
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
-                # A first activation runs before any pipeline has filled the
-                # Gold schemas, so their tables are reported, not fatal, as
-                # in the platform's own artifact deploy (local/artifacts.py).
+                # A first activation runs before any pipeline has run, so a
+                # Gold schema with no registered table is reported, not
+                # fatal, as in the platform's own artifact deploy
+                # (local/artifacts.py).
                 os.environ.setdefault("OPENMETADATA_ALLOW_MISSING_ASSETS", "true")
                 deploy_optional_layer_artifacts(contract_environ)
             config = provider.config

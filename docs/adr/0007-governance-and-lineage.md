@@ -42,22 +42,23 @@ domains and descriptions under that root. It sets a domain on the
 inherit it. A data product's assets are the tables under its Gold schema,
 attached once the crawl has found them; its Silver inputs appear as lineage.
 
-Every governed stage emits its own lineage, and OpenMetadata auto-creates the
-entities it references (`autoCreateEntities: true`). OpenMetadata 1.13+
+Every governed stage emits its own lineage. OpenMetadata 1.13+
 resolves a lineage dataset by `<service>.<database>.<schema>.<table>`, so a
 stage's edges land on its own `lakehouse_<stage>` tables even though schema and
 table names are identical across stages; 1.12 matched on schema and table
 alone, and could attach one stage's lineage to another's. Each stage emits
-under its own `dagster_<stage>` namespace. Exact resolution needs the stage's
-schemas registered before its lineage arrives: `olf infra openmetadata
-deploy-metadata` seeds each `<domain>_silver` and `<product>_gold` schema at
-activation, and the crawl never deletes schemas or tables, so a crawl before
-the stage's first run cannot retire them. The tables themselves are not
-seeded: a table first seen in lineage is auto-created under its own stage's
-schema, and the crawl adopts it by name. Pipeline entities are not
-created: OpenMetadata 1.13.6 fails to auto-create OpenLineage pipelines (an
-upstream bug), so the edges are recorded without a pipeline reference, and
-nothing may rely on pipeline entities. The nightly asserts that each stage's
+under its own `dagster_<stage>` namespace. An edge needs both of its tables registered before the lineage arrives:
+OpenMetadata 1.13.6 fails to auto-create the tables and pipelines an event
+references (an upstream bug: the entity is inserted without `updatedAt`), so
+an event naming an unknown table records no edge. `olf infra openmetadata
+deploy-metadata` therefore registers, at activation, each `<domain>_silver`
+and `<product>_gold` schema and every table the stage's pipelines write: one
+per Floe entity under the Silver schema and one per dbt model under the Gold
+schema. A table is only ever created, never overwritten, and the crawl adopts
+it by name and fills in its columns. The crawl never deletes schemas or
+tables, so a crawl before the stage's first run cannot retire them. Edges are
+recorded without a pipeline reference, and nothing may rely on pipeline
+entities. The nightly asserts that each stage's
 Gold lineage exists and never reaches another stage's database. The local root registers every
 governed stage; the AWS and Azure roots still register one until their
 adapters follow (#131).
@@ -142,6 +143,10 @@ entities are recorded as not created on OpenMetadata 1.13.6.
 
 2026-10-29 (#545): domains are set on schemas, not tables, and table stubs are
 no longer seeded; products attach their Gold tables only.
+
+2026-10-31: tables are registered at activation again, named from the Floe
+entities and dbt models, because OpenMetadata 1.13.6 cannot auto-create them
+and dropped every Gold edge without them.
 
 2026-10-28 (#533): Floe emits lineage from one Kubernetes Job per domain, with
 the endpoint in the profile the code location renders and the JWT as a Secret
