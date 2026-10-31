@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import zlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date
@@ -24,6 +24,8 @@ from openlakeforge_services.base import ServiceClientError, TransientServiceErro
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.logs import LogArchive
 from openlakeforge_services.openmetadata import OpenMetadataClient
+
+from openlakeforge_platform_api.tokens import Principal
 
 log = logging.getLogger(__name__)
 
@@ -141,13 +143,47 @@ def _openmetadata_errors() -> Iterator[None]:
         raise HTTPException(status_code=502, detail="OpenMetadata answered with an error") from exc
 
 
-def list_domains(request: Request) -> dict[str, Any]:
+def _read_openmetadata[T](request: Request, read: Callable[[OpenMetadataClient], T]) -> T:
+    """`read` with the caller's token; a caller OpenMetadata has never seen is registered once, then read again.
+
+    OpenMetadata answers 404 "user instance for <name> not found" to a valid
+    token whose user does not exist yet, as for a person who has only used the
+    CLI (ADR 0021, decision 2). The role sync assigns their roles on its next run.
+    """
+    client = _openmetadata(request)
     with _openmetadata_errors():
-        domains = _openmetadata(request).list_domains()
+        try:
+            return read(client)
+        except ServiceClientError as exc:
+            principal: Principal = request.state.principal
+            name = openmetadata_user_name(principal.username)
+            if exc.status != 404 or "user instance for" not in str(exc) or not name or not principal.email:
+                raise
+            log.info("Registering %s in OpenMetadata on first use", name)
+            client.register_self(name, principal.email)
+            return read(client)
+
+
+def openmetadata_user_name(preferred_username: str | None) -> str | None:
+    """The name OpenMetadata gives the token's holder, so a registration matches the principal it checks.
+
+    OpenMetadata 1.13.6 takes the first `jwtPrincipalClaims` entry, which this
+    platform sets to `preferred_username` (modules/governance/openmetadata),
+    keeps what comes before an `@`, and lowercases it
+    (SecurityUtil.findUserNameFromClaims). Its self-signup refuses any other name
+    with 403 OTHER_USER_SIGN_UP (UserResource.createUser), so a mismatch fails
+    closed rather than creating someone else.
+    """
+    if not preferred_username:
+        return None
+    return preferred_username.split("@")[0].lower()
+
+
+def list_domains(request: Request) -> dict[str, Any]:
+    domains = _read_openmetadata(request, lambda client: client.list_domains())
     return {"domains": [{"name": name, "display_name": display_name} for name, display_name in domains]}
 
 
 def list_data_products(request: Request) -> dict[str, Any]:
-    with _openmetadata_errors():
-        products = _openmetadata(request).list_data_products()
+    products = _read_openmetadata(request, lambda client: client.list_data_products())
     return {"data_products": [asdict(product) for product in products]}

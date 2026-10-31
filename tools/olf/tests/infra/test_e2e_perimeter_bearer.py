@@ -93,7 +93,9 @@ def test_tampering_changes_the_signature_but_keeps_the_token_shape() -> None:
 def _api_check(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> list[str]:
     paths: list[str] = []
     monkeypatch.setattr(bearer.requests, "get", lambda url, headers, **kw: _get(paths, answers, url, headers))
-    monkeypatch.setattr(bearer.requests, "post", lambda url, headers, **kw: _get(paths, answers, url, headers))
+    # The launch route shares its path with the run list; POST answers from the "POST <path>" key.
+    posts = {path.removeprefix("POST "): answer for path, answer in answers.items() if path.startswith("POST ")}
+    monkeypatch.setattr(bearer.requests, "post", lambda url, headers, **kw: _get(paths, posts, url, headers))
     bearer.check_platform_api(
         "https://olf.localhost",
         ["platform-admin", "viewer"],
@@ -122,7 +124,15 @@ HEALTHY = {
     # The matrix's data-engineer floor; platform-admin is above it, viewer below.
     "/api/v1/stages/dev/logs": lambda role: (200, {"lines": []}) if role == "platform-admin" else (403, {}),
     # The launch route's data-engineer floor: an absent job is 404 once the attempt is stored.
-    "/api/v1/stages/dev/runs": lambda role: (404, {}) if role == "platform-admin" else (403, {}),
+    "POST /api/v1/stages/dev/runs": lambda role: (404, {}) if role == "platform-admin" else (403, {}),
+    # The read routes (#668): Dagster's at data-engineer, OpenMetadata's at viewer.
+    "/api/v1/stages/dev/jobs": lambda role: (200, {"jobs": []}) if role == "platform-admin" else (403, {}),
+    "/api/v1/stages/dev/runs": lambda role: (
+        (200, {"runs": [{"run_id": "r1"}]}) if role == "platform-admin" else (403, {})
+    ),
+    "/api/v1/stages/dev/runs/r1": lambda role: (200, {"run_id": "r1"}) if role == "platform-admin" else (403, {}),
+    "/api/v1/domains": lambda role: (200, {"domains": []}),
+    "/api/v1/data-products": lambda role: (200, {"data_products": []}),
 }
 
 
@@ -130,7 +140,9 @@ def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: p
     paths = _api_check(monkeypatch, HEALTHY)
     assert "/api/healthz" in paths and paths.count("/api/v1/whoami") >= 2
     assert paths.count("/api/v1/stages/dev/logs") >= 2
-    assert paths.count("/api/v1/stages/dev/runs") == 2
+    # Two launches, then the run list's decisions and the one read that finds a run to show.
+    assert paths.count("/api/v1/stages/dev/runs") >= 4
+    assert "/api/v1/stages/dev/runs/r1" in paths and "/api/v1/domains" in paths and "/api/v1/data-products" in paths
 
 
 @pytest.mark.parametrize(
@@ -143,8 +155,15 @@ def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: p
         ({"/api/v1/stages/dev/logs": lambda role: (502, {})}, "platform-admin.*stages/dev/logs.*502"),
         ({"/api/v1/stages/dev/logs": lambda role: (200, {})}, "viewer.*stages/dev/logs.*200"),
         # The API could not store the attempt, or a viewer reached the job lookup.
-        ({"/api/v1/stages/dev/runs": lambda role: (503, {})}, "platform-admin launching.*503.*not stored"),
-        ({"/api/v1/stages/dev/runs": lambda role: (404, {})}, "viewer launching.*expected HTTP 403, got 404"),
+        ({"POST /api/v1/stages/dev/runs": lambda role: (503, {})}, "platform-admin launching.*503.*not stored"),
+        ({"POST /api/v1/stages/dev/runs": lambda role: (404, {})}, "viewer launching.*expected HTTP 403, got 404"),
+        # A read route a role below its floor reaches, or one the floor's own roles are refused.
+        ({"/api/v1/stages/dev/jobs": lambda role: (200, {})}, "viewer.*stages/dev/jobs.*200"),
+        ({"/api/v1/domains": lambda role: (403, {})}, "platform-admin.*v1/domains.*403"),
+        (
+            {"/api/v1/stages/dev/runs": lambda role: (200, {"runs": []}) if role == "platform-admin" else (403, {})},
+            "listed no run",
+        ),
     ],
 )
 def test_a_wrong_platform_api_answer_fails(monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], match: str) -> None:

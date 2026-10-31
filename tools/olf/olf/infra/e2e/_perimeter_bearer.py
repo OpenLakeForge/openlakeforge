@@ -36,6 +36,9 @@ SCOPE = "openid email profile groups"
 PLATFORM_API_HOST_REF = "shared/portal"
 # The logs and launch routes' rows in packages/platform-api's permissions.toml.
 LOGS_FLOOR = "data-engineer"
+# The read routes' rows: Dagster's at data-engineer on every stage, OpenMetadata's at viewer with no stage.
+DAGSTER_READS_FLOOR = "data-engineer"
+OPENMETADATA_READS_FLOOR = "viewer"
 LAUNCH_FLOOR = "data-engineer"
 LAUNCH_STAGES = ("dev",)
 # No stage has a job by this name, so a launch request for it never starts a run.
@@ -253,7 +256,51 @@ def check_platform_api(
     logs = f"{base_url}/api/v1/stages/{stage}/logs?date={datetime.now(UTC).date().isoformat()}&limit=1"
     floor = precedence.index(LOGS_FLOOR)
     check_bearer_decisions(logs, roles, lambda role: precedence.index(role) <= floor, cli_token, other_token)
+    check_platform_reads(base_url, roles, cli_token, other_token, stage=stage, precedence=precedence)
     check_launch_audit(base_url, roles, cli_token, stage=stage, precedence=precedence)
+
+
+def check_platform_reads(
+    base_url: str,
+    roles: list[str],
+    cli_token: Callable[[str], str],
+    other_token: Callable[[str], str] | None,
+    *,
+    stage: str,
+    precedence: Sequence[str],
+) -> None:
+    """The read routes `olf jobs`, `olf runs list|show`, `olf domain list` and `olf product list` call, each
+    decided per role as its permissions.toml row says (#668). The suite has run the stage's pipelines by now,
+    so a run exists to show; OpenMetadata answers with the caller's own token."""
+    log.step("Checking the platform API's read routes for each role...")
+    dagster = precedence.index(DAGSTER_READS_FLOOR)
+    openmetadata = precedence.index(OPENMETADATA_READS_FLOOR)
+
+    def reads_dagster(role: str) -> bool:
+        return precedence.index(role) <= dagster
+
+    def reads_openmetadata(role: str) -> bool:
+        return precedence.index(role) <= openmetadata
+
+    runs = f"{base_url}/api/v1/stages/{stage}/runs?limit=1"
+    for url in (f"{base_url}/api/v1/stages/{stage}/jobs", runs):
+        check_bearer_decisions(url, roles, reads_dagster, cli_token, other_token)
+    reader = next(role for role in roles if reads_dagster(role))
+    reply = requests.get(
+        runs,
+        headers={"Accept": "application/json", "Authorization": f"Bearer {cli_token(reader)}"},
+        allow_redirects=False,
+        timeout=REQUEST_TIMEOUT,
+    )
+    listed = reply.json().get("runs") if reply.status_code == 200 else None
+    if not listed:
+        raise E2EError(
+            f"{runs} for {reader} listed no run after the suite ran the stage's pipelines: {reply.text[:200]}"
+        )
+    run = f"{base_url}/api/v1/stages/{stage}/runs/{listed[0]['run_id']}"
+    check_bearer_decisions(run, roles, reads_dagster, cli_token, other_token)
+    for path in ("/api/v1/domains", "/api/v1/data-products"):
+        check_bearer_decisions(f"{base_url}{path}", roles, reads_openmetadata, cli_token, other_token)
 
 
 def check_launch_audit(

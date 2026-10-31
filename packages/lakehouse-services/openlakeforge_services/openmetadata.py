@@ -49,6 +49,16 @@ class OpenMetadataClient(JsonHttpClient):
         except ServiceClientError as exc:
             raise OpenMetadataError(f"OpenMetadata login failed: {exc}") from exc
 
+    def register_self(self, name: str, email: str) -> None:
+        """Create the token holder's own user, as its browser sign-in would have.
+
+        OpenMetadata creates a user only on the browser SSO callback, so a
+        person who has only used the CLI is unknown to it and every request
+        fails. Self-signup (`enableSelfSignup`) lets a token create exactly
+        the user it names; `name` is the `preferred_username` OpenMetadata
+        keys users on (ADR 0021, decision 2). A 409 means it now exists."""
+        self.request("POST", "/api/v1/users", json_body={"name": name, "email": email}, ok_statuses=(200, 201, 409))
+
     def list_domains(self, *, page_size: int = 100) -> list[tuple[str, str]]:
         """Every domain's name and display name, following the `paging.after` cursor to the last page."""
         return [

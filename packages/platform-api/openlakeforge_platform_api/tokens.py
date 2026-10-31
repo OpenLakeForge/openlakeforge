@@ -34,6 +34,8 @@ class Principal:
     email: str | None
     name: str | None
     audience: str
+    # The `preferred_username` claim alone, which OpenMetadata names its users by (ADR 0021, decision 2).
+    username: str | None = None
 
 
 def canonical_role(claim: Any, role_mapping: Mapping[str, tuple[str, ...]], precedence: tuple[str, ...]) -> str | None:
@@ -127,4 +129,5 @@ class TokenValidator:
             email=claims.get("email"),
             name=claims.get("preferred_username") or claims.get("name"),
             audience=next(audience for audience in audiences if audience in self._settings.audiences),
+            username=claims.get("preferred_username"),
         )
