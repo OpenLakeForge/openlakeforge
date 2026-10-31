@@ -416,6 +416,13 @@ Build step 3, last part (#668): a caller OpenMetadata has never seen, such as a
 person who has only used the CLI, is registered on first use. OpenMetadata
 answers such a token 404 "user instance for <name> not found"; the API then
 creates exactly that user with the caller's own token (`POST /api/v1/users`,
-which self-signup allows) and reads again, as decision 2 decided. The e2e calls
-every read route through the perimeter for every role, which is how the missing
-registration was found.
+which self-signup allows) and reads again, as decision 2 decided. The name is
+the one OpenMetadata derives: its `jwtPrincipalClaims` is `preferred_username`
+(`modules/governance/openmetadata`), taken before any `@` and lowercased
+(1.13.6, `SecurityUtil.findUserNameFromClaims`), and the API reads that claim
+from the validated token, never from the request. OpenMetadata itself refuses a
+self-signup under any other name with 403 `OTHER_USER_SIGN_UP`
+(`UserResource.createUser`), so a mismatch fails closed. Registration is not
+audited: it is the first-use side effect a browser sign-in has, not an operation
+the person asked for. The e2e calls every read route through the perimeter for
+every role, which is how the missing registration was found.

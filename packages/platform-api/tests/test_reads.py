@@ -13,6 +13,7 @@ import pytest
 from conftest import ROLE_MAPPING, Mint, bearer
 from fastapi.testclient import TestClient
 
+from openlakeforge_platform_api import reads
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.settings import Settings, SettingsError
 
@@ -304,6 +305,25 @@ def test_a_caller_openmetadata_has_never_seen_is_registered_once_with_their_own_
     assert openmetadata.registered == [{"name": "ada", "email": "ada@example.com"}]
     # The read, the registration and the retry, then the second read: always the caller's own token.
     assert openmetadata.authorizations == [f"Bearer {token}"] * 4
+
+
+@pytest.mark.parametrize(
+    ("claim", "name"), [("ada", "ada"), ("Ada-Lovelace", "ada-lovelace"), ("ada@example.com", "ada"), (None, None)]
+)
+def test_the_registered_name_is_the_principal_openmetadata_derives(claim: str | None, name: str | None) -> None:
+    assert reads.openmetadata_user_name(claim) == name
+
+
+def test_a_caller_without_preferred_username_is_not_registered(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint
+) -> None:
+    openmetadata.unknown = {"ada"}
+
+    response = api.get(
+        "/api/v1/domains", headers=bearer(mint(groups=list(ROLE_MAPPING["viewer"]), preferred_username=None))
+    )
+
+    assert response.status_code == 502 and openmetadata.registered == []
 
 
 def test_any_other_openmetadata_404_registers_nobody(

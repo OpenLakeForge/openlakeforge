@@ -156,11 +156,27 @@ def _read_openmetadata[T](request: Request, read: Callable[[OpenMetadataClient],
             return read(client)
         except ServiceClientError as exc:
             principal: Principal = request.state.principal
-            if exc.status != 404 or "user instance for" not in str(exc) or not principal.name or not principal.email:
+            name = openmetadata_user_name(principal.username)
+            if exc.status != 404 or "user instance for" not in str(exc) or not name or not principal.email:
                 raise
-            log.info("Registering %s in OpenMetadata on first use", principal.name)
-            client.register_self(principal.name, principal.email)
+            log.info("Registering %s in OpenMetadata on first use", name)
+            client.register_self(name, principal.email)
             return read(client)
+
+
+def openmetadata_user_name(preferred_username: str | None) -> str | None:
+    """The name OpenMetadata gives the token's holder, so a registration matches the principal it checks.
+
+    OpenMetadata 1.13.6 takes the first `jwtPrincipalClaims` entry, which this
+    platform sets to `preferred_username` (modules/governance/openmetadata),
+    keeps what comes before an `@`, and lowercases it
+    (SecurityUtil.findUserNameFromClaims). Its self-signup refuses any other name
+    with 403 OTHER_USER_SIGN_UP (UserResource.createUser), so a mismatch fails
+    closed rather than creating someone else.
+    """
+    if not preferred_username:
+        return None
+    return preferred_username.split("@")[0].lower()
 
 
 def list_domains(request: Request) -> dict[str, Any]:
