@@ -167,13 +167,16 @@
 
   # Enable native OpenLineage ingestion for dbt-trino and Floe. Floe
   # emits accepted Iceberg datasets under the catalog service name
-  # (polaris or aws_glue), while dbt-trino uses its Trino URI.
+  # (polaris or aws_glue), while dbt-trino uses its Trino URI: the HTTPS
+  # port when workload authentication is on, so both listeners are mapped.
   trino_namespace="${trino_lineage_namespace}"
+  trino_tls_namespace="${trino_tls_lineage_namespace}"
   lineage_settings="$(jq -n \
     --arg service "$catalog_service" \
     --arg trino "$trino_namespace" \
+    --arg trino_tls "$trino_tls_namespace" \
     --arg pipeline_service "${lineage_pipeline_service}" \
-    '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:true,eventTypeFilter:["COMPLETE"],defaultPipelineService:$pipeline_service,namespaceToServiceMapping:{($trino):$service,($service):$service}}}')"
+    '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:true,eventTypeFilter:["COMPLETE"],defaultPipelineService:$pipeline_service,namespaceToServiceMapping:({($trino):$service,($service):$service} + (if $trino_tls == "" then {} else {($trino_tls):$service} end))}}')"
   lineage_code="$(curl -sS -o /tmp/om-openlineage-body -w '%%{http_code}' \
     -X PUT "$om_url/api/v1/system/settings" \
     -H "Authorization: Bearer $ADMIN_JWT" \
