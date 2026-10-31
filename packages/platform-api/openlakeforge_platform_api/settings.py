@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,10 @@ class Settings:
     # (OPENLAKEFORGE_AUDIT_ACCESS_KEY_ID, OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY). Without both, every operation
     # that changes state answers 503: it is never run unaudited.
     audit_base_uri: str | None = None
+    # Each stage's Superset, and the service user the API signs in as there (ADR 0021, open item 3). The password
+    # is read per stage from the environment (superset_password_env), mounted from the Secret its Job mints.
+    superset_urls: Mapping[str, str] = field(default_factory=dict)
+    superset_username: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -80,6 +85,8 @@ class Settings:
                 s3_endpoint_url=data.get("s3_endpoint_url") or None,
                 s3_region=str(data.get("s3_region") or "us-east-1"),
                 audit_base_uri=data.get("audit_base_uri") or None,
+                superset_urls={str(stage): str(url) for stage, url in (data.get("superset_urls") or {}).items()},
+                superset_username=data.get("superset_username") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -115,6 +122,16 @@ class Settings:
             and urlsplit(self.audit_base_uri).netloc
         ):
             raise SettingsError("audit_base_uri must be s3://<bucket>/<prefix>/, ending in /")
+        stray = sorted(set(self.superset_urls) - set(self.stages))
+        if stray:
+            raise SettingsError(f"superset_urls names stages that are not enabled: {', '.join(stray)}")
+        if self.superset_urls and not self.superset_username:
+            raise SettingsError("superset_urls needs superset_username, the service user the API signs in as")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")
+
+
+def superset_password_env(stage: str) -> str:
+    """The variable holding `stage`'s Superset service-user password; Terraform names it the same way."""
+    return "OPENLAKEFORGE_SUPERSET_PASSWORD_" + re.sub(r"[^A-Za-z0-9]", "_", stage).upper()

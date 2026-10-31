@@ -53,7 +53,9 @@ locals {
   # ops bucket; the platform API's read-only key is scoped to the same prefixes.
   stage_log_prefixes   = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
   platform_api_enabled = local.identity_enabled && var.platform_api_image != null
-  bootstrap_job_image  = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
+  # Each stage's Superset Service; the platform API's settings name it without waiting for the release.
+  superset_service    = { name = "superset", port = 8088 }
+  bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   # Shared by the audit identity's grant and the API's settings, which must agree.
   platform_api_audit_prefix = "audit/platform-api/"
   # Catalog namespaces themselves are not declared here. `olf infra catalog
@@ -309,7 +311,15 @@ module "platform_api" {
   # One Superset service user per stage with Superset; this module mints each
   # password and copies it into the stage's namespace (ADR 0017, Exception E1).
   superset_service_users = { for name in keys(local.analytics_stages) : name => kubernetes_namespace_v1.stage[name].metadata[0].name }
-  bootstrap_job_image    = local.bootstrap_job_image
+  # Reached in-cluster over F35 (ADR 0017), as the service user above. Built
+  # from locals the Superset modules are given too, never from module.superset:
+  # a reference to it waits for every Superset release, and one failing to
+  # deploy must not hold back the API and its read routes.
+  superset_urls = {
+    for name in keys(local.analytics_stages) :
+    name => "http://${local.superset_service.name}.${local.stage_namespaces[name]}:${local.superset_service.port}"
+  }
+  bootstrap_job_image = local.bootstrap_job_image
 }
 
 module "traefik" {
@@ -591,6 +601,9 @@ module "openmetadata" {
 module "superset" {
   source   = "../../modules/analytics/superset"
   for_each = local.analytics_stages
+
+  release_name = local.superset_service.name
+  http_port    = local.superset_service.port
 
   namespace           = kubernetes_namespace_v1.stage[each.key].metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
