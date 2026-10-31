@@ -1,6 +1,6 @@
 import io
 from pathlib import Path
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 import yaml
@@ -335,3 +335,39 @@ def test_an_exported_datasets_catalog_is_dropped_since_superset_sets_the_stages_
         "schema": "order_revenue_gold",
     }
     assert (target / "datasets" / "plain.yaml").read_text() == "table_name: plain\nschema: order_revenue_gold\n"
+
+
+def _deflated(files: dict[str, str]) -> bytes:
+    raw = io.BytesIO()
+    with ZipFile(raw, "w", compression=ZIP_DEFLATED) as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return raw.getvalue()
+
+
+def test_a_highly_compressible_upload_is_refused_before_it_is_expanded() -> None:
+    bomb = _deflated({"datasets/x.yaml": "a: " + "x" * (reports.MAX_UPLOAD_MEMBER_BYTES + 1)})
+
+    assert len(bomb) < 64 * 1024  # small on the wire
+    with pytest.raises(reports.UploadRejected, match="is over"):
+        reports.prepare_upload(bomb, {_DATABASE_UUID: "Trino"})
+
+
+def test_an_upload_with_too_many_files_is_refused() -> None:
+    many = _deflated({f"charts/c{i}.yaml": "a: 1\n" for i in range(reports.MAX_UPLOAD_MEMBERS + 1)})
+
+    with pytest.raises(reports.UploadRejected, match="more than"):
+        reports.prepare_upload(many, {})
+
+
+def test_a_member_that_expands_beyond_its_declared_size_is_refused() -> None:
+    honest = _deflated({"dashboards/d.yaml": "a: " + "x" * 100_000})
+    # Declare 10 bytes in both the local header (offset 22) and the central directory (offset 24).
+    lying = bytearray(honest)
+    for signature, offset in ((b"PK\x03\x04", 22), (b"PK\x01\x02", 24)):
+        at = lying.index(signature) + offset
+        lying[at : at + 4] = (10).to_bytes(4, "little")
+
+    # zipfile stops at the declared size and then fails the CRC; the bounded read refuses it should that change.
+    with pytest.raises(reports.UploadRejected, match="beyond its declared size|cannot be read as YAML"):
+        reports.prepare_upload(bytes(lying), {})

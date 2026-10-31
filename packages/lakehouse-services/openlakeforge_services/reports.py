@@ -11,12 +11,13 @@ from __future__ import annotations
 import io
 import re
 import shutil
+import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import UUID
-from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 
 import yaml
 
@@ -202,6 +203,21 @@ class PreparedUpload:
 
 UPLOAD_ROOT = "report"
 _UPLOAD_KINDS = {"datasets", "charts", "dashboards"}
+# A report is a few dozen small YAML files. These bound what an upload may expand to, so a highly compressed
+# archive cannot exhaust the memory of the host that unpacks it (the platform API runs in 192 MiB).
+MAX_UPLOAD_MEMBERS = 500
+MAX_UPLOAD_MEMBER_BYTES = 5 * 1024 * 1024
+MAX_UPLOAD_TOTAL_BYTES = 50 * 1024 * 1024
+
+
+def _read_bounded(source: ZipFile, info: ZipInfo) -> bytes:
+    """A member's content, never more than it declared or the per-member cap: the declared size is the uploader's."""
+    limit = min(info.file_size, MAX_UPLOAD_MEMBER_BYTES)
+    with source.open(info) as member:
+        content = member.read(limit + 1)
+    if len(content) > limit:
+        raise UploadRejected(f"{info.filename} expands beyond its declared size")
+    return content
 
 
 def prepare_upload(archive: bytes, databases: dict[str, str], *, schema_prefix: str = "") -> PreparedUpload:
@@ -216,15 +232,23 @@ def prepare_upload(archive: bytes, databases: dict[str, str], *, schema_prefix: 
     """
     try:
         source = ZipFile(io.BytesIO(archive))
-        names = source.namelist()
+        members = source.infolist()
     except (BadZipFile, ValueError) as exc:
         raise UploadRejected("the upload is not a zip archive") from exc
+    # Checked on the declared sizes before anything is decompressed; _read_bounded holds each member to them.
+    if len(members) > MAX_UPLOAD_MEMBERS:
+        raise UploadRejected(f"the upload has more than {MAX_UPLOAD_MEMBERS} files")
+    if any(info.file_size > MAX_UPLOAD_MEMBER_BYTES for info in members):
+        raise UploadRejected(f"a file in the upload is over {MAX_UPLOAD_MEMBER_BYTES} bytes")
+    if sum(info.file_size for info in members) > MAX_UPLOAD_TOTAL_BYTES:
+        raise UploadRejected(f"the upload expands to over {MAX_UPLOAD_TOTAL_BYTES} bytes")
     dashboards: list[str] = []
     schema_perms: set[str] = set()
     out = io.BytesIO()
     with source, ZipFile(out, "w", ZIP_DEFLATED) as bundle:
         bundle.writestr(f"{UPLOAD_ROOT}/metadata.yaml", yaml.safe_dump({"version": "1.0.0", "type": "assets"}))
-        for name in names:
+        for info in members:
+            name = info.filename
             path = PurePosixPath(name)
             if name.endswith("/") or path.name.startswith("."):
                 continue
@@ -232,7 +256,10 @@ def prepare_upload(archive: bytes, databases: dict[str, str], *, schema_prefix: 
                 raise UploadRejected(f"{name!r} is not a path inside the report")
             if path.suffix.lower() not in {".yaml", ".yml"} or len(path.parts) < 2 or path.parts[0] not in _UPLOAD_KINDS:
                 continue  # metadata.yaml is rewritten above; databases/ and anything else are never imported
-            document = yaml.safe_load(source.read(name))
+            try:
+                document = yaml.safe_load(_read_bounded(source, info))
+            except (BadZipFile, zlib.error, yaml.YAMLError) as exc:
+                raise UploadRejected(f"{name} cannot be read as YAML") from exc
             if not isinstance(document, dict):
                 raise UploadRejected(f"{name} is not a YAML mapping")
             if path.parts[0] == "datasets":
