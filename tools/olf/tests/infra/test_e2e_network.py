@@ -114,6 +114,15 @@ def test_the_seaweedfs_job_may_read_the_platform_api_keys_and_no_other_name() ->
     assert _grants([_rule(["secrets"], ["get"], ["platform-api-other-creds"])], sa)
 
 
+def test_the_superset_users_job_may_read_only_the_platform_api_superset_secrets() -> None:
+    sa = ("olf-system", "platform-api-superset-users")
+    names = ["platform-api-superset-dev", "platform-api-superset-prod"]
+    assert not _grants([_rule(["secrets"], ["create"]), _rule(["secrets"], ["get"], names)], sa)
+    # The same ServiceAccount's Role in a stage namespace, on the copy.
+    assert not _grants([_rule(["secrets"], ["get", "patch"], ["platform-api-superset"])], sa)
+    assert _grants([_rule(["secrets"], ["get"], ["superset-credentials"])], sa)
+
+
 def test_service_accounts_cover_every_deployed_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake(_cfg: object, argv: list[str], **_k: object) -> str:
         if argv[:2] == ["get", "namespace"]:
