@@ -13,3 +13,8 @@
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
       schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
       threads: 1
+      # A Gold query reads about two stages per table, and Trino's default of
+      # 150 refused a 75-table union (#706). Matches max_stage_count in
+      # release/query-sizes.yaml; a lower server value still wins.
+      session_properties:
+        query_max_stage_count: 300
