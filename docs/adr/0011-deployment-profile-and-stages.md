@@ -126,8 +126,9 @@ A volume only grows. Before the platform apply, `olf` reads the SeaweedFS
 claims in the shared namespace and refuses, before any mutation, a size below a
 claim's current request, and a larger size when the claim's StorageClass does
 not set `allowVolumeExpansion: true`. It never deletes and recreates a volume.
-Growing in place on an expandable class is not implemented yet (#326), so any
-larger size on an existing deployment is refused too. kind's default `standard` class does not expand, so the
+Where it does expand, it patches the claims and deletes the SeaweedFS
+StatefulSets with `--cascade=orphan`, because Kubernetes forbids editing their
+volume claim templates. kind's default `standard` class does not expand, so the
 local profile is sized at creation; the migration is documented in the
 Deployment Profile reference.
 
@@ -269,3 +270,8 @@ before the tier counts as tested.
 deployment is created; a change to an existing deployment's size is refused
 before the platform apply until growing in place lands. `query.size` still
 accepts `small` only.
+
+2026-10-31: an existing deployment's volumes grow in place where the claim's
+StorageClass sets `allowVolumeExpansion: true` (#326): `olf` patches the
+claims and releases the SeaweedFS StatefulSets with `--cascade=orphan` before
+the apply. Shrinking, and growing on a class that cannot expand, stay refused.

@@ -38,6 +38,12 @@ def test_small_is_the_single_node_trino_the_local_values_file_already_sets() -> 
     assert small.max_memory == "4GB"
 
 
+@pytest.mark.parametrize("size", list(Size))
+def test_every_size_lifts_the_stage_limit_past_a_75_table_gold_query(size: Size) -> None:
+    # A query reads about two stages per table; 75 tables stopped at 152 stages under Trino's default of 150 (#706).
+    assert load_query_sizing(E2E_REPO_ROOT, size).max_stage_count >= 2 * 75 + 2
+
+
 def test_each_size_adds_workers_the_coordinator_stops_scheduling_on() -> None:
     sizing = {size: load_query_sizing(E2E_REPO_ROOT, size) for size in Size}
 
@@ -79,6 +85,8 @@ def _write_sizes(root: Path, mutate) -> Path:  # noqa: ANN001
         (Size.SMALL, lambda sizes: sizes["small"].update(schedule_on_coordinator=False), "must schedule queries"),
         (Size.MEDIUM, lambda sizes: sizes["medium"].update(workers=-1), "non-negative integer"),
         (Size.MEDIUM, lambda sizes: sizes["medium"].update(replicas=3), "unknown field"),
+        (Size.MEDIUM, lambda sizes: sizes["medium"].pop("max_stage_count"), "max_stage_count must be a positive"),
+        (Size.MEDIUM, lambda sizes: sizes["medium"].update(max_stage_count=0), "max_stage_count must be a positive"),
         (Size.MEDIUM, lambda sizes: sizes["medium"]["worker"].pop("heap"), "must set exactly"),
     ],
 )
@@ -107,6 +115,7 @@ def test_the_root_receives_the_size_as_one_typed_variable(tmp_path: Path) -> Non
 
     sizing = json.loads(variables["query_sizing"])
     assert (sizing["size"], sizing["workers"]) == ("medium", 2)
+    assert sizing["max_stage_count"] == 300
     assert sizing["worker"] == {"heap": "2G", "cpu_request": "500m", "memory_request": "2Gi", "memory_limit": "3Gi"}
 
 

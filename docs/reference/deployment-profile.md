@@ -122,7 +122,7 @@ and `olf profile resolve` prints the effective sizes (`sizes: query=small
 storage=small`; `query` and `storage` in `--json`).
 
 `query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
-workers, heap, memory and per-query limits. It changes only the Trino Helm
+workers, heap, memory, per-query limits and `query.max-stage-count`. It changes only the Trino Helm
 values, never the project image or a ProjectRevision. The `medium` and `large`
 rows are defined but not yet accepted: workers still need network flows to the
 coordinator, authentication across nodes
@@ -130,6 +130,14 @@ coordinator, authentication across nodes
 run (#324). Their values are placeholders until the
 [#328](https://github.com/OpenLakeForge/openlakeforge/issues/328) and
 [#329](https://github.com/OpenLakeForge/openlakeforge/issues/329) baseline.
+
+Every `query.size` row sets `max_stage_count: 300`, twice Trino's default of
+150. A query uses about two stages per table it reads, so one Gold query can
+read at most about 150 tables; Trino refuses a wider one with
+`QUERY_HAS_TOO_MANY_STAGES`. Split such a model into staging models, each over
+fewer tables. Each stage costs the coordinator scheduling work and memory, so
+raise the value in `release/query-sizes.yaml` only together with the
+coordinator heap.
 
 `storage.size` picks one row of `release/storage-sizes.yaml`, which sets the
 PVC size of the SeaweedFS master, filer and volume server and the number of
@@ -146,18 +154,21 @@ and nothing here has measured how much data a host or cluster needs for them.
 
 #### Changing the storage size
 
-Choose the size when you create a deployment. `olf deploy` compares
-`storage.size` with the PersistentVolumeClaims it finds before it changes
-anything:
+A volume only grows. `olf deploy` compares `storage.size` with the
+PersistentVolumeClaims it finds before it changes anything:
 
 | Change | Result |
 | --- | --- |
 | Same size, or a first deployment | Nothing to do. |
-| Larger, and the claim's StorageClass sets `allowVolumeExpansion: true` | Refused before anything is applied, for now: growing volumes in place is not supported yet (#326). |
+| Larger, and the claim's StorageClass sets `allowVolumeExpansion: true` | `olf` expands the claims, then applies. The data stays. |
 | Larger, and the StorageClass does not allow expansion | Refused before anything is applied. The message names the StorageClass. |
 | Smaller | Refused before anything is applied, whatever the StorageClass allows. |
 
-`olf` never deletes and recreates a volume to apply a size.
+`olf` never deletes and recreates a volume to apply a size. Kubernetes does not
+let a StatefulSet's volume claim template change, which is where the SeaweedFS
+chart writes the size, so when it expands claims `olf` also deletes the three
+SeaweedFS StatefulSets with `--cascade=orphan` (the controller objects only;
+pods and volumes are left alone) and the apply recreates them.
 
 On the local profile the kind cluster's default StorageClass, `standard`, is
 the `rancher.io/local-path` provisioner. kind v0.32.0 installs it from
