@@ -5,11 +5,15 @@
 # may read or write what is Polaris's decision, not a rule here.
 locals {
   people_enabled = var.people_access != null
-  people_https   = startswith(try(var.people_access.issuer_url, ""), "https://")
+  people_https   = startswith(try(var.people_access.keys_url, ""), "https://")
 
   people_jwt_properties = !local.people_enabled ? [] : concat(
     [
-      "http-server.authentication.jwt.key-file=${var.people_access.issuer_url}/keys",
+      # Trino fetches the keys at startup and does not start without them, so
+      # they come from the issuer's in-cluster address: the public one is
+      # served by Traefik, which is created after Trino (ADR 0016, "Issuer
+      # reachability"). The issuer the tokens name is still the public one.
+      "http-server.authentication.jwt.key-file=${var.people_access.keys_url}",
       "http-server.authentication.jwt.required-issuer=${var.people_access.issuer_url}",
       # A token Dex issued to the perimeter, Superset, OpenMetadata or the
       # Trino UI client names that client as its audience and is refused.

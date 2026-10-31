@@ -266,3 +266,8 @@ flows:
     to: {scope: any}
     ports: [443]
     tag: T # api.github.com (or the Enterprise host) every 5 min; NetworkPolicy cannot name a host
+  - id: F31
+    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
+    ports: [5556]
+    tag: T # the JWT keys for people's tokens (ADR 0019), fetched at startup, before Traefik exists
