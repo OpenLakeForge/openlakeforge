@@ -178,6 +178,7 @@ app.command("logout")(platform_commands.logout)
 # Platform reads, each a client of the platform API (ADR 0021).
 app.add_typer(platform_reads.jobs_app, name="jobs")
 app.add_typer(platform_reads.runs_app, name="runs")
+app.command("logs")(platform_reads.logs)
 
 
 @app.callback()
