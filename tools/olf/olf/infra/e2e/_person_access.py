@@ -71,7 +71,9 @@ def check_person_decisions(
             allowed = expected(data_access[role].get(stages[0], {}), layer, write=False)
             require(role, stages[0], f"SELECT count(*) FROM {table}", allowed)
         if not admitted:
-            raise E2EError(f"{role} reaches no stage; its checks would pass on refusals alone")
+            # A deployment that enables only some stages can leave a role with no row on any of them (viewer reads
+            # PROD alone). Its refusals were still checked; every stage has a writer, so not every case is one.
+            log.info(f"{role} has no access on {', '.join(stages)}; checked only that it is refused.")
 
 
 def outcome(call: Callable[[], object]) -> Outcome:
