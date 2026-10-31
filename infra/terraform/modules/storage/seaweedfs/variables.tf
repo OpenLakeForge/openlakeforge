@@ -100,6 +100,22 @@ variable "log_reader_credentials" {
   }
 }
 
+variable "audit_writer_credentials" {
+  description = "A write-only identity for the platform API's audit records (ADR 0021, decision 3): Write on one prefix of the ops bucket, nothing else. Null when the platform API is not deployed."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+    prefix                  = string
+  })
+  default = null
+
+  validation {
+    condition     = var.audit_writer_credentials == null || (endswith(try(var.audit_writer_credentials.prefix, ""), "/") && !startswith(try(var.audit_writer_credentials.prefix, "/"), "/"))
+    error_message = "The audit prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
+  }
+}
+
 variable "s3_port" {
   description = "SeaweedFS S3 service port."
   type        = number

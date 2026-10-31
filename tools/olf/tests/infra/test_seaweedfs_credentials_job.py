@@ -234,3 +234,30 @@ def test_the_log_reader_gets_its_own_key_in_olf_system_and_only_read_and_list(tm
         (tmp_path / "secrets" / str(i["namespace"]) / str(i["secret"]) / KEYS[0]).read_text() for i in IDENTITIES
     }
     assert (key / KEYS[0]).read_text() not in others
+
+
+AUDIT_WRITER = {
+    "name": "openlakeforge-platform-api-audit",
+    "secret": "platform-api-audit-writer-s3-creds",
+    "namespace": "olf-system",
+    "actions": ["Write:ops/audit/platform-api/*"],
+}
+
+
+def test_the_audit_writer_gets_its_own_key_beside_the_log_reader_and_only_write_on_its_prefix(
+    tmp_path: Path,
+) -> None:
+    result = _run_job(tmp_path, [*IDENTITIES, LOG_READER, AUDIT_WRITER])
+
+    assert result.returncode == 0, result.stderr
+    key = tmp_path / "secrets/olf-system/platform-api-audit-writer-s3-creds"
+    identity = next(i for i in _config(tmp_path)["identities"] if i["name"] == AUDIT_WRITER["name"])
+    assert identity["credentials"] == [
+        {"accessKey": (key / KEYS[0]).read_text(), "secretKey": (key / KEYS[1]).read_text()}
+    ]
+    assert identity["actions"] == ["Write:ops/audit/platform-api/*"]
+    reader = tmp_path / "secrets/olf-system/platform-api-log-reader-s3-creds"
+    others = {
+        (tmp_path / "secrets" / str(i["namespace"]) / str(i["secret"]) / KEYS[0]).read_text() for i in IDENTITIES
+    }
+    assert (key / KEYS[0]).read_text() not in others | {(reader / KEYS[0]).read_text()}

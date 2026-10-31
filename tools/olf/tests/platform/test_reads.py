@@ -55,6 +55,10 @@ ANSWERS: dict[str, Any] = {
 }
 
 
+LAUNCHED = {"run_id": "run-new", "job": "orders_job", "stage": "dev", "request_id": "0" * 32}
+POST_ANSWERS: dict[str, Any] = {"/api/v1/stages/dev/runs": LAUNCHED}
+
+
 class FakeAPI:
     """Answers each known path with its JSON; `status` and `body` replace every answer with a refusal."""
 
@@ -66,14 +70,27 @@ class FakeAPI:
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 - http.server's handler name
+                self.answer(ANSWERS, 200)
+
+            def do_POST(self) -> None:  # noqa: N802
+                self.answer(POST_ANSWERS, 202)
+
+            def answer(self, answers: dict[str, Any], ok: int) -> None:
                 url = urlsplit(self.path)
+                length = int(self.headers.get("Content-Length") or 0)
                 api_.requests.append(
-                    {"path": url.path, "query": parse_qs(url.query), "authorization": self.headers.get("Authorization")}
+                    {
+                        "method": self.command,
+                        "path": url.path,
+                        "query": parse_qs(url.query),
+                        "authorization": self.headers.get("Authorization"),
+                        "body": json.loads(self.rfile.read(length)) if length else None,
+                    }
                 )
                 if api_.status != 200:
                     payload, status = api_.body or b"", api_.status
-                elif url.path in ANSWERS:
-                    payload, status = json.dumps(ANSWERS[url.path]).encode(), 200
+                elif url.path in answers:
+                    payload, status = json.dumps(answers[url.path]).encode(), ok
                 else:
                     payload, status = json.dumps({"detail": "Not Found"}).encode(), 404
                 self.send_response(status)
@@ -114,6 +131,7 @@ COMMANDS = [
     ("jobs", "list"),
     ("runs", "list"),
     ("runs", "show", RUN["run_id"]),
+    ("runs", "launch", "orders_job"),
     ("domain", "list"),
     ("product", "list"),
 ]
@@ -251,3 +269,29 @@ def test_the_api_is_on_the_portals_host_with_the_issuers_scheme() -> None:
     assert api.base_url(sessions.Instance("olf.localhost", "http://auth.olf.localhost", "olf-cli")) == (
         "http://olf.localhost/api"
     )
+
+
+def test_runs_launch_posts_the_job_once_and_says_how_to_follow_the_run(fake: FakeAPI) -> None:
+    result = _olf("runs", "launch", "orders_job", "--stage", "dev")
+
+    assert result.exit_code == 0, result.output
+    assert [(r["method"], r["path"], r["body"]) for r in fake.requests] == [
+        ("POST", "/api/v1/stages/dev/runs", {"job": "orders_job"})
+    ]
+    assert result.stdout == (
+        "Launched orders_job on dev: run run-new\nFollow it with `olf runs show run-new --stage dev`.\n"
+    )
+
+
+def test_runs_launch_json_is_the_apis_answer(fake: FakeAPI) -> None:
+    assert json.loads(_olf("runs", "launch", "orders_job", "--json").stdout) == LAUNCHED
+
+
+def test_a_launch_the_api_could_not_audit_is_reported_and_not_retried(fake: FakeAPI) -> None:
+    fake.refuse(503, "the audit record could not be stored; nothing was done")
+
+    result = _olf("runs", "launch", "orders_job")
+
+    assert result.exit_code == 1
+    assert "nothing was done" in result.stderr
+    assert len(fake.requests) == 1

@@ -101,3 +101,15 @@ variable "log_reader_secret_name" {
   type        = string
   default     = null
 }
+
+variable "audit_base_uri" {
+  description = "Where the API stores audit records, s3://<bucket>/<prefix>/ (ADR 0021, decision 3). Null leaves every operation that changes state answering 503."
+  type        = string
+  default     = null
+}
+
+variable "audit_writer_secret_name" {
+  description = "Secret in `namespace` holding the write-only object-store key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the audit prefix. Null leaves the API without an audit key."
+  type        = string
+  default     = null
+}

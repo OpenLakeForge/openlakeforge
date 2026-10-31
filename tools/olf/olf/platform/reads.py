@@ -1,7 +1,7 @@
 """`olf jobs`, `olf runs`, `olf domain list` and `olf product list`: platform reads as clients of the platform API.
 
 Each sends the signed-in person's token and nothing else: the API decides what
-the person may read (ADR 0021), so these run with no kubeconfig and no infra
+the person may read or launch (ADR 0021), so these run with no kubeconfig and no infra
 credential, for a person or their local agent alike.
 """
 
@@ -28,7 +28,7 @@ _STAGE = typer.Option("dev", "--stage", help="Stage to read.")
 _JSON = typer.Option(False, "--json", help="Print the platform API's JSON instead of a table.")
 
 jobs_app = typer.Typer(help="Pipeline jobs of a stage, read through the platform API.", no_args_is_help=True)
-runs_app = typer.Typer(help="Pipeline runs of a stage, read through the platform API.", no_args_is_help=True)
+runs_app = typer.Typer(help="Pipeline runs of a stage, through the platform API.", no_args_is_help=True)
 
 
 def _read(profile_file: str, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -87,6 +87,25 @@ def runs_list(
             [run["run_id"], run["job_name"], run["status"], _time(run["created_at"]), _duration(run)] for run in items
         ],
     )
+
+
+@runs_app.command("launch")
+def runs_launch(
+    job: str = typer.Argument(..., help="The job to launch, as `olf jobs list` prints it."),
+    stage: str = _STAGE,
+    as_json: bool = _JSON,
+    profile_file: str = _PROFILE,
+) -> None:
+    """Launch one of a stage's jobs as you; the API records who asked for it."""
+    try:
+        run = api.post(sessions.resolve_instance(profile_file), _stage_path(stage, "runs"), {"job": job})
+    except sessions.PlatformError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    if as_json:
+        typer.echo(json.dumps(run, indent=2))
+        return
+    typer.echo(f"Launched {run['job']} on {run['stage']}: run {run['run_id']}")
+    typer.echo(f"Follow it with `olf runs show {run['run_id']} --stage {run['stage']}`.")
 
 
 @runs_app.command("show")
