@@ -44,6 +44,8 @@ locals {
     ? abspath(pathexpand(var.helm_repository_config_path))
     : abspath("${path.root}/../../../../.tmp/helm/local/repositories.yaml")
   )
+  # OpenMetadata's Service; the platform API's settings name it without waiting for the release.
+  openmetadata_service  = { name = "openmetadata", port = 8585 }
   artifact_base_uri     = "s3://${var.ops_bucket_name}"
   log_base_uri          = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
@@ -278,7 +280,10 @@ module "platform_api" {
     for name in keys(local.enabled_stages) :
     name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
   }
-  openmetadata_url = local.governance_contract.endpoint
+  # Built from locals the OpenMetadata module is given too, never from its
+  # contract: that waits for OpenMetadata's release and bootstrap Job, and a
+  # governance failure must not hold back the API and its other routes.
+  openmetadata_url = local.governance_enabled ? "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}" : null
   # The archived-logs route (ADR 0021): read with the key the SeaweedFS
   # credentials Job mints, over F33 (ADR 0017).
   log_archives = {
@@ -494,6 +499,9 @@ module "trino" {
 module "openmetadata" {
   source = "../../modules/governance/openmetadata"
   count  = local.governance_enabled ? 1 : 0
+
+  release_name = local.openmetadata_service.name
+  om_http_port = local.openmetadata_service.port
 
   namespace               = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file        = "${path.root}/../../../helm/values/local/openmetadata.yaml"
