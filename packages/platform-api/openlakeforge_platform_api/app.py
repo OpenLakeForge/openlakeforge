@@ -62,7 +62,12 @@ def _enforce(request: Request) -> None:
         # ADR 0014: authenticated with no recognised role is denied everywhere.
         raise HTTPException(status_code=403, detail="no OpenLakeForge role assigned; ask a platform-admin")
     if not matrix.allows(operation, principal.role, stage):
-        raise HTTPException(status_code=403, detail=f"role {principal.role!r} may not perform {operation!r}")
+        # The refusal names what would pass, so a client can tell the person which role to ask for.
+        if matrix.allows(operation, matrix.precedence[0], stage):
+            detail = f"role {principal.role!r} may not perform {operation!r}; it needs {permission.role!r} or above"
+        else:
+            detail = f"{operation!r} does not apply to stage {stage!r}" if stage else f"{operation!r} needs a stage"
+        raise HTTPException(status_code=403, detail=detail)
     request.state.principal = principal
     # Kept for the routes that forward it to a service that authorizes the person (ADR 0021, decision 2).
     request.state.token = token

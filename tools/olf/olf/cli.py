@@ -57,6 +57,7 @@ from olf.infra.commands import product as infra_product
 from olf.infra.commands import project as infra_project
 from olf.platform import commands as platform_commands
 from olf.platform import query as platform_query
+from olf.platform import reads as platform_reads
 
 app = typer.Typer(
     name="olf",
@@ -119,6 +120,12 @@ def _infra_command(name: str, callback: Callable[..., None]) -> None:
     app.command(name, hidden=True)(moved_alias(callback, f"olf infra {name}"))
 
 
+# `domain` and `product` are common groups whose `new` scaffolds; their `list` is a platform read of what the
+# deployment governs, as the signed-in person. Added before the groups are registered: `_infra_group` copies the
+# common group's commands when it runs.
+domain.app.command("list")(platform_reads.domain_list)
+product.app.command("list")(platform_reads.product_list)
+
 app.add_typer(infra_app, name="infra")
 
 app.add_typer(checks.app, name="check")
@@ -168,6 +175,9 @@ app.command("query")(platform_query.query)
 app.command("login")(platform_commands.login)
 app.command("whoami")(platform_commands.whoami)
 app.command("logout")(platform_commands.logout)
+# Platform reads, each a client of the platform API (ADR 0021).
+app.add_typer(platform_reads.jobs_app, name="jobs")
+app.add_typer(platform_reads.runs_app, name="runs")
 
 
 @app.callback()

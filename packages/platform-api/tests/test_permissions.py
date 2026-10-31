@@ -77,6 +77,22 @@ def test_an_operation_admits_its_floor_and_every_role_above(
     assert client.get("/api/v1/probe", headers=_token(mint, role)).status_code == status
 
 
+def test_a_refusal_below_the_floor_names_the_role_it_needs(settings: Settings, mint: Mint) -> None:
+    client = TestClient(_app(settings, {"probe": {"role": "data-engineer", "stages": []}}))
+
+    response = client.get("/api/v1/probe", headers=_token(mint, "analyst"))
+
+    assert response.json() == {"detail": "role 'analyst' may not perform 'probe'; it needs 'data-engineer' or above"}
+
+
+def test_a_refusal_for_a_stage_outside_the_row_names_the_stage_not_a_role(settings: Settings, mint: Mint) -> None:
+    client = TestClient(_app(settings, {"stage_probe": {"role": "viewer", "stages": ["dev"]}}))
+
+    response = client.get("/api/v1/stages/prod/probe", headers=_token(mint, "platform-admin"))
+
+    assert response.json() == {"detail": "'stage_probe' does not apply to stage 'prod'"}
+
+
 def test_a_route_without_a_row_is_refused_even_to_platform_admin(settings: Settings, mint: Mint) -> None:
     client = TestClient(_app(settings, {}))
 
