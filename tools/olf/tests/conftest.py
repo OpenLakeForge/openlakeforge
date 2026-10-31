@@ -343,7 +343,7 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             )
         if url.path == "/api/v1/dashboard/":
             return self._reply(200, {"result": [{"id": i, "slug": ref} for ref, i in self.server.dashboards.items()]})
-        assets = re.fullmatch(r"/api/v1/dashboard/(.+)/(charts|datasets)", url.path)
+        assets = re.fullmatch(r"/api/v1/dashboard/([^/]+)/(charts|datasets)", url.path)
         if assets:
             board = self.server.dashboards[urllib.parse.unquote(assets[1])]
             ids = self.server.dashboard_assets.get(board, {}).get(assets[2], [])

@@ -312,3 +312,26 @@ def test_the_client_imports_sparsely_lists_databases_and_reads_its_own_schema_ac
     assert fake_superset.import_forms == [{"sparse": "true"}]
     assert client.databases() == {_DATABASE_UUID: "Trino"}
     assert client.my_schema_access() == {"[Trino].[order_revenue_gold]"}
+
+
+@pytest.mark.parametrize("prefix", ["", "lakehouse_dev_"])
+def test_an_exported_datasets_catalog_is_dropped_since_superset_sets_the_stages_on_any_update(
+    tmp_path: Path, prefix: str
+) -> None:
+    export = tmp_path / "export.zip"
+    with ZipFile(export, "w") as bundle:
+        bundle.writestr("dashboard_export/metadata.yaml", "version: 1.0.0\ntype: Dashboard\n")
+        bundle.writestr(
+            "dashboard_export/datasets/mart.yaml",
+            f"table_name: mart_orders\ncatalog: lakehouse_dev\nschema: {prefix}order_revenue_gold\n",
+        )
+        bundle.writestr("dashboard_export/datasets/plain.yaml", "table_name: plain\nschema: order_revenue_gold\n")
+    target = tmp_path / "out"
+
+    reports.unpack_export_bundle(export, target, schema_prefix=prefix)
+
+    assert yaml.safe_load((target / "datasets" / "mart.yaml").read_text()) == {
+        "table_name": "mart_orders",
+        "schema": "order_revenue_gold",
+    }
+    assert (target / "datasets" / "plain.yaml").read_text() == "table_name: plain\nschema: order_revenue_gold\n"
