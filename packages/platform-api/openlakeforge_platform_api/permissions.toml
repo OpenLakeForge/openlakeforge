@@ -43,3 +43,10 @@ stages = []
 [operations.list_data_products]
 role = "viewer"
 stages = []
+
+# The log archive is read with the API's own read-only key for the log prefix,
+# so this row decides who reads it. Pod logs carry whatever a run printed, which
+# the Dagster UI's compute logs already show at data-engineer and above.
+[operations.list_logs]
+role = "data-engineer"
+stages = ["*"]
