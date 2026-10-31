@@ -462,3 +462,37 @@ def test_stage_lineage_requires_upstream_edges() -> None:
         _assertions.assert_openmetadata_stage_lineage(
             _lineage((), upstream=False), stage="prod", database_fqn="polaris.lakehouse_prod", tables=["g.t"]
         )
+
+
+def test_the_lineage_log_keeps_openlineage_requests_and_resolver_warnings(monkeypatch, tmp_path: Path) -> None:
+    log_text = "\n".join(
+        [
+            '10.0.0.1 - - "GET /api/v1/system/health HTTP/1.1" 200 2',
+            '10.0.0.9 - - "POST /api/v1/openlineage/lineage HTTP/1.1" 200 180',
+            "WARN [OpenLineageMapper] Could not resolve output dataset: trino://trino:8443.lakehouse_dev.g.t",
+            '127.0.0.1 - - "GET /api/v1/lineage/table/name/polaris.lakehouse_dev.g.t?upstreamDepth=3 HTTP/1.1" 200 243',
+        ]
+    )
+    calls: list[list[str]] = []
+
+    def kubectl(_cfg: Any, args: list[str], **_kwargs: Any) -> str:
+        calls.append(args)
+        return log_text
+
+    monkeypatch.setattr(_assertions, "kubectl", kubectl)
+    cfg = E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        distribution_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=None,  # type: ignore[arg-type]
+    )
+
+    lines = _assertions.openmetadata_lineage_log(cfg).splitlines()
+
+    assert calls == [["logs", "-n", cfg.platform_namespace, "deploy/openmetadata"]]
+    assert lines == log_text.splitlines()[1:3]

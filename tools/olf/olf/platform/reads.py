@@ -1,4 +1,4 @@
-"""`olf jobs`, `olf runs`, `olf domain list` and `olf product list`: platform reads as clients of the platform API.
+"""`olf jobs`, `olf runs`, `olf logs`, `olf domain list` and `olf product list`: reads through the platform API.
 
 Each sends the signed-in person's token and nothing else: the API decides what
 the person may read or launch (ADR 0021), so these run with no kubeconfig and no infra
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -132,6 +132,47 @@ def runs_show(
             *([f"tag {key}", str(value)] for key, value in sorted(item["tags"].items())),
         ],
     )
+
+
+def logs(
+    stage: str = _STAGE,
+    day: str = typer.Option("", "--date", help="Day to read, YYYY-MM-DD; today in UTC by default."),
+    hour: int | None = typer.Option(None, "--hour", min=0, max=23, help="Only this hour of the day, UTC."),
+    pod: str = typer.Option("", "--pod", help="Only this pod's lines."),
+    container: str = typer.Option("", "--container", help="Only this container's lines."),
+    limit: int = typer.Option(500, "--limit", min=1, max=5000, help="At most this many lines."),
+    as_json: bool = _JSON,
+    profile_file: str = _PROFILE,
+) -> None:
+    """Show a stage's archived pod logs for a day or one hour of it, oldest archive first.
+
+    The archive is written hourly, so the current hour may not be in it yet.
+    """
+    # Checked here because the API's own 422 for a bad date carries no message the command could show.
+    try:
+        when = date.fromisoformat(day) if day else datetime.now(UTC).date()
+    except ValueError as exc:
+        raise typer.Exit(code=fail(f"--date {day!r} is not a date in YYYY-MM-DD form")) from exc
+    params: dict[str, Any] = {"date": when.isoformat(), "limit": limit}
+    if hour is not None:
+        params["hour"] = hour
+    if pod:
+        params["pod"] = pod
+    if container:
+        params["container"] = container
+    result = _read(profile_file, _stage_path(stage, "logs"), params)
+    if as_json:
+        typer.echo(json.dumps(result, indent=2))
+        return
+    for line in result["lines"]:
+        source = f"{line['pod']}/{line['container']}"
+        typer.echo(
+            f"{source}  {(line['line'] or '') if line['error'] is None else '[not archived: ' + line['error'] + ']'}"
+        )
+    if result["truncated"]:
+        typer.echo(
+            f"Showing the first {limit} lines; narrow with --hour, --pod or --container, or raise --limit.", err=True
+        )
 
 
 def domain_list(as_json: bool = _JSON, profile_file: str = _PROFILE) -> None:

@@ -48,6 +48,27 @@ ANSWERS: dict[str, Any] = {
     },
     "/api/v1/stages/dev/runs": {"runs": [RUN]},
     f"/api/v1/stages/dev/runs/{RUN['run_id']}": RUN,
+    "/api/v1/stages/dev/logs": {
+        "lines": [
+            {
+                "archived_at": "2026-10-30T09:00:00+00:00",
+                "namespace": "olf-dev",
+                "pod": "run-1",
+                "container": "main",
+                "line": "2026-10-30T08:59:58Z started",
+                "error": None,
+            },
+            {
+                "archived_at": "2026-10-30T09:00:00+00:00",
+                "namespace": "olf-dev",
+                "pod": "run-1",
+                "container": "sidecar",
+                "line": None,
+                "error": "container not started",
+            },
+        ],
+        "truncated": False,
+    },
     "/api/v1/domains": {"domains": [{"name": "sales", "display_name": "Sales"}]},
     "/api/v1/data-products": {
         "data_products": [{"name": "orders_mart", "display_name": "Orders", "domains": ["sales", "finance"]}]
@@ -132,6 +153,7 @@ COMMANDS = [
     ("runs", "list"),
     ("runs", "show", RUN["run_id"]),
     ("runs", "launch", "orders_job"),
+    ("logs",),
     ("domain", "list"),
     ("product", "list"),
 ]
@@ -295,3 +317,70 @@ def test_a_launch_the_api_could_not_audit_is_reported_and_not_retried(fake: Fake
     assert result.exit_code == 1
     assert "nothing was done" in result.stderr
     assert len(fake.requests) == 1
+
+
+def test_logs_prints_each_line_with_its_source_and_an_unread_container_as_such(fake: FakeAPI) -> None:
+    result = _olf("logs", "--date", "2026-10-30")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == (
+        "run-1/main  2026-10-30T08:59:58Z started\nrun-1/sidecar  [not archived: container not started]\n"
+    )
+    assert result.stderr == ""
+
+
+def test_logs_passes_the_window_and_filters(fake: FakeAPI) -> None:
+    result = _olf(
+        "logs", "--stage", "dev", "--date", "2026-10-30", "--hour", "0", "--pod", "run-1", "--container", "main",
+        "--limit", "50",
+    )  # fmt: skip
+
+    assert result.exit_code == 0, result.output
+    assert fake.requests[0]["path"] == "/api/v1/stages/dev/logs"
+    assert fake.requests[0]["query"] == {
+        "date": ["2026-10-30"], "hour": ["0"], "pod": ["run-1"], "container": ["main"], "limit": ["50"],
+    }  # fmt: skip
+
+
+def test_logs_reads_today_in_utc_by_default(fake: FakeAPI) -> None:
+    from datetime import UTC, datetime
+
+    _olf("logs")
+
+    assert fake.requests[0]["query"]["date"] == [datetime.now(UTC).date().isoformat()]
+    assert "hour" not in fake.requests[0]["query"]
+
+
+def test_a_truncated_answer_says_how_to_narrow_it(fake: FakeAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(ANSWERS, "/api/v1/stages/dev/logs", {**ANSWERS["/api/v1/stages/dev/logs"], "truncated": True})
+
+    result = _olf("logs", "--limit", "2")
+
+    assert result.exit_code == 0, result.output
+    assert "narrow with --hour, --pod or --container, or raise --limit" in result.stderr
+
+
+def test_a_record_with_neither_line_nor_error_prints_an_empty_line(
+    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bare = {**ANSWERS["/api/v1/stages/dev/logs"]["lines"][0], "line": None}
+    monkeypatch.setitem(ANSWERS, "/api/v1/stages/dev/logs", {"lines": [bare], "truncated": False})
+
+    result = _olf("logs")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == "run-1/main  \n"
+
+
+def test_logs_json_is_the_apis_answer_with_truncated(fake: FakeAPI) -> None:
+    result = _olf("logs", "--json")
+
+    assert json.loads(result.stdout) == ANSWERS["/api/v1/stages/dev/logs"]
+
+
+def test_a_date_that_is_not_one_is_refused_before_any_request(fake: FakeAPI) -> None:
+    result = _olf("logs", "--date", "yesterday")
+
+    assert result.exit_code == 1
+    assert "not a date in YYYY-MM-DD form" in result.stderr
+    assert fake.requests == []
