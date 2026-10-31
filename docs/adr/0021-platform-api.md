@@ -389,3 +389,9 @@ the role `schema_access`, the API's mount and its flow to Superset follow.
 The API reads each stage's Superset URL from its settings and that stage's
 service-user password from a variable mounted from the Secret in `olf-system`,
 and reaches Superset over ADR 0017's F35.
+The artifacts phase, still importing as `admin` (decision 4), now also makes the
+service user a co-owner of every dashboard it imports, with its charts and
+datasets, keeping every other owner, and grants `olf_platform_api` the report
+schemas in the step that grants `olf_data_access` them. An import keeps owners
+and adds the importer, so the user stays an owner across later imports; without
+the platform API there is no such user or role, and both steps do nothing.

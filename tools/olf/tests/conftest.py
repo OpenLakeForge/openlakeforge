@@ -43,6 +43,7 @@ def _isolate_toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest
     monkeypatch.setenv("OLF_TOOLCHAIN_MODE", "host")
     monkeypatch.setenv("OLF_HOME", str(tmp_path_factory.mktemp("olf-home")))
 
+
 E2E_REPO_ROOT = Path(__file__).resolve().parents[3]
 E2E_INVENTORY = inventory_for(E2E_REPO_ROOT)
 CONFORMANCE_PROFILE = E2E_REPO_ROOT / "openlakeforge.conformance.yaml"
@@ -204,6 +205,12 @@ class FakeSuperset(ThreadingHTTPServer):
         self.imported: list[bytes] = []
         self.roles: dict[str, set[int]] = {"olf_data_access": set()}  # role name -> permission-view-menu ids
         self.permissions: dict[int, tuple[str, str]] = {}  # id -> (permission, view menu)
+        self.users: dict[str, int] = {}  # username -> id
+        self.dashboard_assets: dict[
+            int, dict[str, list[int]]
+        ] = {}  # dashboard id -> {"charts": [...], "datasets": [...]}
+        self.owners: dict[tuple[str, int], list[int]] = {}  # (dashboard|chart|dataset, id) -> owner ids
+        self.owner_puts: list[tuple[str, int, list[int]]] = []
 
 
 class _FakeSupersetHandler(BaseHTTPRequestHandler):
@@ -263,6 +270,18 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             return self._reply(200, {"result": "ok"})
         self._reply(404, {"message": "Not found"})
 
+    def do_PUT(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        target = re.fullmatch(r"/api/v1/(dashboard|chart|dataset)/(\d+)", self.path)
+        if not target or not self._authorized():
+            return self._reply(404, {"message": "Not found"})
+        if self.headers.get("X-CSRFToken") != "csrf-1":
+            return self._reply(400, {"errors": "The CSRF token is missing."})
+        # Superset's PUT replaces the owners list with the one sent.
+        self.server.owners[(target[1], int(target[2]))] = list(body["owners"])
+        self.server.owner_puts.append((target[1], int(target[2]), list(body["owners"])))
+        return self._reply(200, {"id": int(target[2]), "result": body})
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         url = urllib.parse.urlsplit(self.path)
         if not self._authorized():
@@ -300,13 +319,29 @@ class _FakeSupersetHandler(BaseHTTPRequestHandler):
             if dashboard_id not in self.server.exports:
                 return self._reply(404, {"message": "Not found"})
             return self._reply(200, self.server.exports[dashboard_id], {"Content-Type": "application/zip"})
+        if url.path == "/api/v1/security/users/":
+            users = self.server.users
+            return self._reply(
+                200, {"result": [{"id": i, "username": n} for n, i in users.items() if n == filters["value"]]}
+            )
         if url.path == "/api/v1/dashboard/":
             return self._reply(200, {"result": [{"id": i, "slug": ref} for ref, i in self.server.dashboards.items()]})
+        assets = re.fullmatch(r"/api/v1/dashboard/([^/]+)/(charts|datasets)", url.path)
+        if assets:
+            board = self.server.dashboards[urllib.parse.unquote(assets[1])]
+            ids = self.server.dashboard_assets.get(board, {}).get(assets[2], [])
+            return self._reply(200, {"result": [{"id": i} for i in ids]})
+        shown = re.fullmatch(r"/api/v1/(chart|dataset)/(\d+)", url.path)
+        if shown:
+            owners = self.server.owners.get((shown[1], int(shown[2])), [])
+            return self._reply(200, {"result": {"id": int(shown[2]), "owners": [{"id": o} for o in owners]}})
         if url.path.startswith("/api/v1/dashboard/"):
             ref = urllib.parse.unquote(url.path.removeprefix("/api/v1/dashboard/"))
             if ref not in self.server.dashboards:
                 return self._reply(404, {"message": "Not found"})
-            return self._reply(200, {"id": self.server.dashboards[ref], "result": {"id": self.server.dashboards[ref]}})
+            board = self.server.dashboards[ref]
+            owners = [{"id": o} for o in self.server.owners.get(("dashboard", board), [])]
+            return self._reply(200, {"id": board, "result": {"id": board, "owners": owners}})
         self._reply(404, {"message": "Not found"})
 
 

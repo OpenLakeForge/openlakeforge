@@ -134,5 +134,39 @@ class SupersetClient(JsonHttpClient):
         return True
 
 
+    def user_id(self, username: str) -> int | None:
+        """The id of the Superset user `username`, or None when there is none."""
+        found = self.request("GET", "/api/v1/security/users/", params={"q": _filter("username", username)})
+        return next((int(u["id"]) for u in found.get("result", []) if u.get("username") == username), None)
+
+    def add_owner(self, dashboard: str, user_id: int) -> int:
+        """Make `user_id` an owner of a dashboard (by uuid or slug), its charts and their datasets.
+
+        Each keeps every owner it has: Superset's PUT replaces the list, so the
+        new list is the current one plus this user. Returns how many objects
+        gained the owner; repeating it changes nothing.
+        """
+        ref = quote(dashboard, safe="")
+        board = self.request("GET", f"/api/v1/dashboard/{ref}")["result"]
+        targets = [("dashboard", int(board["id"]), board.get("owners") or [])]
+        for kind, path in (("chart", "charts"), ("dataset", "datasets")):
+            for item in self.request("GET", f"/api/v1/dashboard/{ref}/{path}").get("result", []):
+                shown = self.request("GET", f"/api/v1/{kind}/{int(item['id'])}")["result"]
+                targets.append((kind, int(item["id"]), shown.get("owners") or []))
+        changed = 0
+        for kind, pk, owners in targets:
+            held = [int(owner["id"]) for owner in owners]
+            if user_id in held:
+                continue
+            self.send(
+                "PUT",
+                f"/api/v1/{kind}/{pk}",
+                json={"owners": [*held, user_id]},
+                headers={"X-CSRFToken": self._csrf_token(), "Referer": self.base_url},
+            )
+            changed += 1
+        return changed
+
+
 def _filter(column: str, value: str) -> str:
     return json.dumps({"filters": [{"col": column, "opr": "eq", "value": value}], "page_size": 100})
