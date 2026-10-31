@@ -48,7 +48,7 @@ sequenceDiagram
     Note over Run: ② Silver — one Floe Job per domain
     Run->>API: create the sales Floe Job (--entities, 6 for order_revenue)
     Note over Floe: image project-code · SA dagster · TTL 1h · Secrets by reference
-    loop once per entity, sequential
+    loop once per entity, 4 parallel
         Floe->>S3: read Bronze, validate against the contract
         Floe->>Polaris: commit validated Iceberg tables (OAuth)
         Note over Floe: rejects → quarantined CSV
@@ -68,7 +68,8 @@ sequenceDiagram
 The exact values live in the Terraform module and the stage's rendered Floe profile: the
 run pod uses `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`, carries the
 contract-derived environment variables plus `envFrom` secrets, and runs each product job
-with `max_concurrent: 1` because the profile's Floe orchestration is `sequential`. Each
+with `max_concurrent: 4` because the profile's Floe orchestration is `parallel` with
+`max_concurrent_entities: 4`. Each
 Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the run pod's
 rendered profile as text in `FLOE_PROFILE_CONTENT`, the Dagster run id and job name
 (the parent run of its lineage events), a 6 GiB memory limit, and only the Secrets the
@@ -131,7 +132,7 @@ completion.
 ## Source of truth
 
 - [libs/product_dagster.py](../../../libs/product_dagster.py) — asset graph assembly from the Floe project
-- [libs/floe_profile.py](../../../libs/floe_profile.py) — the stage's Floe profile: storages, catalog, lineage, the per-domain `kubernetes_job` runner, sequential orchestration
+- [libs/floe_profile.py](../../../libs/floe_profile.py) — the stage's Floe profile: storages, catalog, lineage, the per-domain `kubernetes_job` runner, parallel orchestration
 - [lakehouse_code/silver/floe.yml](../../../lakehouse_code/silver/floe.yml) — the Floe project
 - [infra/terraform/modules/orchestration/dagster/main.tf](../../../infra/terraform/modules/orchestration/dagster/main.tf) — `K8sRunLauncher`, `ttlSecondsAfterFinished`, runtime env
 - [libs/dbt/profiles/](../../../libs/dbt/profiles/) — the dbt profile template, one per query engine (`trino.yml`); every stage value is an `env_var()` reference

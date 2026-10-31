@@ -11,6 +11,10 @@ locals {
     precedence   = var.precedence
     stages       = var.stages
     ca_file      = var.ca_configmap_name == null ? null : "/ca/ca.crt"
+    # Read endpoints (ADR 0021, build step 3); a service left out is answered
+    # as not configured rather than refusing the API's start.
+    dagster_graphql_urls = var.dagster_graphql_urls
+    openmetadata_url     = var.openmetadata_url
     # Read with the key in log_reader_secret_name, which never enters this file.
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url

@@ -703,9 +703,9 @@ filelock==3.30.3 \
     --hash=sha256:06e1c6d5e12277022172b7f8d090affe0e8f940f1a37ca45f548855ee51a6b86 \
     --hash=sha256:6575420cd497ed15fc43a7ac46c48f6b6371c733fc40cf5a4e216871397bc1e2
     # via dagster
-floe-python==0.8.6 \
-    --hash=sha256:3dbe5bc4bcbc078a0c49f5fc1a1617deb170fe3b831520dfc5870a1725b80a19 \
-    --hash=sha256:8660f99e4b1655e0f0a080a47bbce0133ba8c0ee8e516c030ab5383c6b07852b
+floe-python==0.8.8 \
+    --hash=sha256:1a5e1fc4e76327560b830cf76d4ca0fd08029db32618b0ae67d5938fa028de25 \
+    --hash=sha256:487400fbaa9266c328ed59cf4b6c6e10b1f608aa802664b95f986abb272edd45
     # via
     #   openlakeforge-project-code (images/project-code/pyproject.toml)
     #   dagster-floe

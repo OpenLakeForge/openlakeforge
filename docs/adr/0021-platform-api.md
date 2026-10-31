@@ -10,11 +10,11 @@ Superset — and the operations built on them: Superset report import and export
 endpoints and credentials from a deployment. The platform API in
 `packages/platform-api` has token validation, the permission matrix,
 `/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
-runs per stage, and OpenMetadata domains and data products with the caller's
-token forwarded, and each stage's archived pod logs, read with a read-only
-object-store key scoped to the stages' log prefixes. The local
-provider deploys it with `spec.identity` (`modules/access/platform-api`), from
-an image `olf` builds, since no release has published one to pin.
+runs per stage, each stage's archived pod logs, read with a read-only
+object-store key scoped to the stages' log prefixes, and OpenMetadata domains
+and data products with the caller's token forwarded. The local provider
+deploys it with `spec.identity` (`modules/access/platform-api`), from an image
+`olf` builds, since no release has published one to pin.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -318,6 +318,9 @@ no credential; OpenMetadata domains and data products at the `viewer` floor,
 forwarding the caller's token unchanged. Archived logs, first-time user
 registration on the OpenMetadata path, and the endpoints' e2e through the
 perimeter remain.
+Second part: the local root renders each stage's Dagster GraphQL URL and
+OpenMetadata's URL into the API's settings, and ADR 0017's F32 lets the API
+reach them.
 
 Build step 3, archived logs (#668): the platform API reads each stage's pod log
 archive with its own SeaweedFS identity, `Read` and `List` on the stages' log

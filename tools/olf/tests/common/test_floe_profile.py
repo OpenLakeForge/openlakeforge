@@ -154,6 +154,14 @@ def test_floe_runs_one_kubernetes_job_per_domain_on_the_project_code_image() -> 
     assert "command" not in runner
 
 
+def test_a_domain_job_runs_up_to_four_entities_at_once() -> None:
+    profile = render_profile({**_STAGE, "AWS_REGION": "us-east-1"})
+
+    # Floe 0.8.8 runs merge entities one at a time whatever the limit, so the
+    # Job's 4 GB DuckDB cap still covers one merge at most.
+    assert profile["execution"]["orchestration"] == {"strategy": "parallel", "max_concurrent_entities": 4}
+
+
 def test_the_job_is_polled_often_enough_to_end_its_step_promptly() -> None:
     runner = _runner({**_STAGE, "AWS_REGION": "us-east-1"})
 
