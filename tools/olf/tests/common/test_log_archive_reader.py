@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import importlib
 import io
 import sys
@@ -166,6 +167,14 @@ def test_a_run_with_no_pods_leaves_no_line(store: _ObjectStore, archive: Archive
     archive(_at(9), {}, "olf-dev")
 
     assert LogArchive(store, "s3://ops/stages/dev/logs").read("olf-dev", DAY) == []
+
+
+def test_a_record_that_is_not_an_object_is_skipped(store: _ObjectStore, archive: Archive) -> None:
+    archive(_at(9), {("p", "c"): "kept"}, "olf-dev")
+    (key,) = store.objects
+    store.objects[key] = gzip.compress(gzip.decompress(store.objects[key]) + b'["not", "a", "record"]\n')
+
+    assert [line.line for line in LogArchive(store, "s3://ops/stages/dev/logs").read("olf-dev", DAY)] == ["kept"]
 
 
 def test_listing_follows_the_continuation_token(store: _ObjectStore, archive: Archive) -> None:

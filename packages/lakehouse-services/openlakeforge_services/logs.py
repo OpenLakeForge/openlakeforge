@@ -104,7 +104,7 @@ class LogArchive:
                 continue
             record = json.loads(raw)
             # A run with no pods leaves one marker record naming no pod; it is not a log line.
-            if record.get("schema") != SCHEMA or "pod" not in record:
+            if not isinstance(record, dict) or record.get("schema") != SCHEMA or "pod" not in record:
                 continue
             yield ArchivedLogLine(
                 archived_at=record["archived_at"],

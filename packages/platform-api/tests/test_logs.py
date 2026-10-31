@@ -177,13 +177,53 @@ def test_an_archive_that_is_not_gzip_is_a_bad_gateway(api: TestClient, store: Ob
     assert response.json() == {"detail": "stage 'dev''s log archive is unreadable"}
 
 
-def test_the_default_store_is_an_s3_client_on_the_configured_endpoint(settings: Settings) -> None:
-    configured = _settings(settings, s3_endpoint_url="http://seaweedfs-s3.olf-system:8333", s3_region="eu-west-1")
+def test_the_default_store_reads_with_the_mounted_key_on_the_configured_endpoint(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "olf0123")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    configured = _settings(
+        settings,
+        log_archives={"dev": {"base_uri": DEV_BASE, "namespace": "olf-dev"}},
+        s3_endpoint_url="http://seaweedfs-s3.olf-system:8333",
+        s3_region="eu-west-1",
+    )
 
     store = create_app(configured).state.object_store
 
     assert store.meta.endpoint_url == "http://seaweedfs-s3.olf-system:8333"
     assert store.meta.region_name == "eu-west-1"
+    assert store._request_signer._credentials.access_key == "olf0123"
+
+
+def test_without_a_mounted_key_the_logs_route_says_so_at_once(
+    settings: Settings, mint: Mint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Nothing to fall back on: boto3's chain would otherwise try the instance metadata endpoint.
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    configured = _settings(settings, log_archives={"dev": {"base_uri": DEV_BASE, "namespace": "olf-dev"}})
+
+    response = TestClient(create_app(configured)).get(LOGS, headers=_as(mint, "data-engineer"))
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "the platform API holds no object-store key for the log archive"}
+
+
+def test_no_store_is_built_without_a_log_archive(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "olf0123")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+
+    assert create_app(settings).state.object_store is None
+
+
+def test_an_archive_record_missing_its_fields_is_a_bad_gateway(api: TestClient, store: ObjectStore, mint: Mint) -> None:
+    store.archive(KEY, [{"schema": "openlakeforge.k8s_log.v1", "pod": "p"}])
+
+    response = api.get(LOGS, headers=_as(mint, "data-engineer"))
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "stage 'dev''s log archive is unreadable"}
 
 
 @pytest.mark.parametrize(
