@@ -411,3 +411,11 @@ whatever the AUTH_TYPE (Flask-AppBuilder 5.0.2), so OIDC sign-in does not stop i
 Every import posts with a CSRF token, so the role also holds `can_read` on
 `SecurityRestApi` (`security/api.py`), the view behind `/api/v1/security/csrf_token/`;
 the e2e's first import found it missing.
+
+Build step 3, last part (#668): a caller OpenMetadata has never seen, such as a
+person who has only used the CLI, is registered on first use. OpenMetadata
+answers such a token 404 "user instance for <name> not found"; the API then
+creates exactly that user with the caller's own token (`POST /api/v1/users`,
+which self-signup allows) and reads again, as decision 2 decided. The e2e calls
+every read route through the perimeter for every role, which is how the missing
+registration was found.

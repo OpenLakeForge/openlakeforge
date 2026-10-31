@@ -97,6 +97,9 @@ class FakeOpenMetadata(_Server):
     def __init__(self) -> None:
         self.authorizations: list[str | None] = []
         self.fail_status: int | None = None
+        # A name here is a person OpenMetadata has never seen: reads answer 404 until they register.
+        self.unknown: set[str] = set()
+        self.registered: list[dict[str, Any]] = []
         self.domains: list[dict[str, Any]] = [{"name": "sales", "displayName": "Sales"}, {"name": "finance"}]
         self.data_products: list[dict[str, Any]] = [
             {"name": "orders_mart", "displayName": "Orders", "domains": [{"name": "sales"}]}
@@ -109,10 +112,21 @@ class FakeOpenMetadata(_Server):
                 if server.fail_status:
                     return self.reply(server.fail_status, {"code": server.fail_status, "message": "refused"})
                 path = urllib.parse.urlsplit(self.path).path
+                if server.unknown:
+                    name = next(iter(server.unknown))
+                    return self.reply(404, {"code": 404, "message": f"user instance for {name} not found"})
                 collection = {"/api/v1/domains": server.domains, "/api/v1/dataProducts": server.data_products}
                 if path not in collection:
                     return self.reply(404, {"message": "not found"})
                 self.reply(200, {"data": collection[path], "paging": {"total": len(collection[path])}})
+
+            def do_POST(self) -> None:  # noqa: N802
+                assert urllib.parse.urlsplit(self.path).path == "/api/v1/users"
+                server.authorizations.append(self.headers.get("Authorization"))
+                user = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                server.registered.append(user)
+                server.unknown.discard(user["name"])
+                self.reply(201, user)
 
         super().__init__(Handler)
 
@@ -274,6 +288,32 @@ def test_the_callers_token_reaches_openmetadata_unchanged(
     api.get(path, headers=bearer(token))
 
     assert openmetadata.authorizations == [f"Bearer {token}"]
+
+
+@pytest.mark.parametrize("path", OPENMETADATA_PATHS)
+def test_a_caller_openmetadata_has_never_seen_is_registered_once_with_their_own_token_then_read(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint, path: str
+) -> None:
+    openmetadata.unknown = {"ada"}
+    token = mint(groups=list(ROLE_MAPPING["viewer"]))
+
+    response = api.get(path, headers=bearer(token))
+    again = api.get(path, headers=bearer(token))
+
+    assert response.status_code == 200 and again.status_code == 200
+    assert openmetadata.registered == [{"name": "ada", "email": "ada@example.com"}]
+    # The read, the registration and the retry, then the second read: always the caller's own token.
+    assert openmetadata.authorizations == [f"Bearer {token}"] * 4
+
+
+def test_any_other_openmetadata_404_registers_nobody(
+    api: TestClient, openmetadata: FakeOpenMetadata, mint: Mint
+) -> None:
+    openmetadata.fail_status = 404
+
+    response = api.get("/api/v1/domains", headers=bearer(mint(groups=list(ROLE_MAPPING["viewer"]))))
+
+    assert response.status_code == 502 and openmetadata.registered == []
 
 
 @pytest.mark.parametrize("path", OPENMETADATA_PATHS)
