@@ -137,7 +137,6 @@ class SupersetClient(JsonHttpClient):
         )
         return True
 
-
     def databases(self) -> dict[str, str]:
         """Each database Superset holds: its uuid, canonical, to its name."""
         found: dict[str, str] = {}
