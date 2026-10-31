@@ -91,14 +91,19 @@ def _api_check(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> list
     paths: list[str] = []
     monkeypatch.setattr(bearer.requests, "get", lambda url, headers, **kw: _get(paths, answers, url, headers))
     bearer.check_platform_api(
-        "https://olf.localhost", ["platform-admin", "viewer"], lambda role: f"cli:{role}", lambda r: f"other:{r}"
+        "https://olf.localhost",
+        ["platform-admin", "viewer"],
+        lambda role: f"cli:{role}",
+        lambda r: f"other:{r}",
+        stage="dev",
+        precedence=["platform-admin", "data-engineer", "analyst", "viewer"],
     )
     return paths
 
 
 def _get(paths: list[str], answers: dict[str, Any], url: str, headers: dict[str, str]) -> Any:
     """A perimeter-fronted API: `answers` maps a path to (status, body) for a `cli:<role>` token's role."""
-    path = url.removeprefix("https://olf.localhost")
+    path = url.removeprefix("https://olf.localhost").split("?", 1)[0]
     paths.append(path)
     token = headers.get("Authorization", "").removeprefix("Bearer ") or None
     if token is None or token.startswith(("bad:", "other:")):
@@ -110,12 +115,15 @@ def _get(paths: list[str], answers: dict[str, Any], url: str, headers: dict[str,
 HEALTHY = {
     "/api/healthz": lambda role: (200, {"status": "ok"}),
     "/api/v1/whoami": lambda role: (200, {"role": role}),
+    # The matrix's data-engineer floor; platform-admin is above it, viewer below.
+    "/api/v1/stages/dev/logs": lambda role: (200, {"lines": []}) if role == "platform-admin" else (403, {}),
 }
 
 
 def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: pytest.MonkeyPatch) -> None:
     paths = _api_check(monkeypatch, HEALTHY)
     assert "/api/healthz" in paths and paths.count("/api/v1/whoami") >= 2
+    assert paths.count("/api/v1/stages/dev/logs") >= 2
 
 
 @pytest.mark.parametrize(
@@ -124,6 +132,9 @@ def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: p
         ({"/api/healthz": lambda role: (502, {})}, "healthz"),
         ({"/api/v1/whoami": lambda role: (200, {"role": "viewer"})}, "whoami for platform-admin"),
         ({"/api/v1/whoami": lambda role: (403, {})}, "whoami"),
+        # The object store refusing the API's key, or a viewer let through.
+        ({"/api/v1/stages/dev/logs": lambda role: (502, {})}, "platform-admin.*stages/dev/logs.*502"),
+        ({"/api/v1/stages/dev/logs": lambda role: (200, {})}, "viewer.*stages/dev/logs.*200"),
     ],
 )
 def test_a_wrong_platform_api_answer_fails(monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], match: str) -> None:

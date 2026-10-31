@@ -12,7 +12,8 @@ import base64
 import hashlib
 import io
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -31,6 +32,8 @@ API_PATH = "/graphql?query=%7Bversion%7D"
 SCOPE = "openid email profile groups"
 # The platform API answers under /api on the portal's host (ADR 0021).
 PLATFORM_API_HOST_REF = "shared/portal"
+# The logs route's row in packages/platform-api's permissions.toml.
+LOGS_FLOOR = "data-engineer"
 
 
 class _LoopbackRedirect(requests.adapters.BaseAdapter):
@@ -186,7 +189,14 @@ def check_bearer_tokens(
         log.info("Skipping the other-client token case: no superset client secret or reporting route to use.")
     check_bearer_decisions(f"{routes[ref]}{API_PATH}", roles, lambda role: admits(ref, role), cli_token, other_token)
     if PLATFORM_API_HOST_REF in routes:
-        check_platform_api(routes[PLATFORM_API_HOST_REF].rstrip("/"), roles, cli_token, other_token)
+        check_platform_api(
+            routes[PLATFORM_API_HOST_REF].rstrip("/"),
+            roles,
+            cli_token,
+            other_token,
+            stage=cfg.namespace.removeprefix("olf-"),
+            precedence=identity["roles"]["precedence"],
+        )
     log.info("Not checking an expired token: it needs a wait past the 5 minute ID token lifetime.")
 
 
@@ -195,10 +205,13 @@ def check_platform_api(
     roles: list[str],
     cli_token: Callable[[str], str],
     other_token: Callable[[str], str] | None,
+    *,
+    stage: str,
+    precedence: Sequence[str],
 ) -> None:
     """Through the perimeter, /api/healthz answers, /api/v1/whoami names each mapped role the token carries, and
     the tokens the perimeter refuses are refused there too. Every canonical role clears the perimeter's lowest
-    floor; the API's own matrix decides above it."""
+    floor; the API's own matrix decides above it, as the stage's archived-logs route shows."""
     log.step("Checking the platform API through the perimeter...")
 
     def get(path: str, role: str) -> requests.Response:
@@ -213,6 +226,12 @@ def check_platform_api(
         if reply.status_code != 200 or reply.json().get("role") != role:
             raise E2EError(f"{base_url}/api/v1/whoami for {role}: got HTTP {reply.status_code} {reply.text[:200]}")
     check_bearer_decisions(f"{base_url}/api/v1/whoami", roles, lambda role: True, cli_token, other_token)
+    # A 2xx needs the API's read-only key to list the stage's log prefix: a key the
+    # object store refuses is a 502, so this also proves the SeaweedFS grant. Today's
+    # partition may still be empty, which is still a 200.
+    logs = f"{base_url}/api/v1/stages/{stage}/logs?date={datetime.now(UTC).date().isoformat()}&limit=1"
+    floor = precedence.index(LOGS_FLOOR)
+    check_bearer_decisions(logs, roles, lambda role: precedence.index(role) <= floor, cli_token, other_token)
 
 
 def _other_client_token(

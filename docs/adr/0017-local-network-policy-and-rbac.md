@@ -203,6 +203,7 @@ port [D]).
 | F30 | OpenMetadata role-sync CronJob (`openlakeforge.io/job=openmetadata-role-sync`) | any address outside the pod and Service ranges | 443 | the sync reads team members from `api.github.com` ([ADR 0014](0014-identity-and-authorization.md), "OpenMetadata role sync"); no FQDN selector, so the port on any address, on that Job's pods only. Its calls to OpenMetadata ride F13 | T |
 | F31 | the Trino coordinator | Dex (`olf-system`) | 5556 | the signing keys for people's tokens ([ADR 0019](0019-data-plane-authorization-deferral.md)), which Trino fetches at startup and cannot start without; Traefik is created after Trino, so F4 is not yet usable then. The Web UI's sign-in stays on F4 | T |
 | F32 | the platform API | Dagster webserver 80 (stage); OpenMetadata 8585 | 80, 8585 | its read endpoints ([ADR 0021](0021-platform-api.md)): each stage's GraphQL URL (`dagster_graphql_urls`), and OpenMetadata with the caller's token forwarded (`openmetadata_url`), both rendered by `modules/access/platform-api` | T |
+| F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and nothing else | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -233,7 +234,7 @@ slice; "exception" is recorded and pinned by the e2e check.
 | Subject | Grant | Used for | Verdict |
 | --- | --- | --- | --- |
 | `default` ServiceAccount, every namespace | no Role [V] | token auto-mounted into Postgres, Dex, portal, oauth2-proxy, Trino and Superset pods; only `log_archive.tf` sets `automount_service_account_token` [V] | No Role, so a mounted token authorizes nothing beyond discovery. `automount_service_account_token = false` on module-owned workloads is deferred hardening, not an RBAC grant; the e2e asserts the denials below |
-| `dex-credentials`, `<perimeter>-cookie`, `postgresql-credentials` (`olf-system` and each stage namespace holding a database Secret), `superset-credentials` (each stage namespace with Superset), `seaweedfs-credentials` (`olf-system` and each stage namespace holding an S3 key Secret; in `olf-system` it also patches `seaweedfs-s3-auth` and the S3 Deployment by name) | `create` Secrets (namespace-wide) + `get` by `resourceNames` | create-if-missing credentials | Exception E1: `create` cannot be limited by `resourceNames` [V: comment in `credentials.tf`] |
+| `dex-credentials`, `<perimeter>-cookie`, `postgresql-credentials` (`olf-system` and each stage namespace holding a database Secret), `superset-credentials` (each stage namespace with Superset), `seaweedfs-credentials` (`olf-system` and each stage namespace holding an S3 key Secret, `get` naming the admin, stage and, with the platform API, `platform-api-log-reader-s3-creds` Secrets; in `olf-system` it also patches `seaweedfs-s3-auth` and the S3 Deployment by name) | `create` Secrets (namespace-wide) + `get` by `resourceNames` | create-if-missing credentials | Exception E1: `create` cannot be limited by `resourceNames` [V: comment in `credentials.tf`] |
 | `publish-local-ca` (each trust namespace) | ConfigMaps `create/get/patch/update` (namespace-wide); `get` on the CA Secret by name | publishes `olf-local-ca` | Exception E1 (ConfigMaps only) |
 | `polaris-bootstrap` (`olf-system` and each stage namespace) | ConfigMaps and Secrets `create`, namespace-wide; `delete/get/patch/update` on named Secrets and marker ConfigMaps only [V: `rbac.tf`] | principal Secrets and their `-bootstrap-pending` markers | **Done (slice 4)**: `create` stays namespace-wide (E1); `get/update/patch/delete` are pinned by `resourceNames` to the plan-time Secret names (`*_credentials_secret_name`, `polaris-dbt-creds`, and with people's access each stage's `polaris-<stage>-trino-people-creds`, ADR 0019) and their `<name>-bootstrap-pending` markers (`rbac.tf`) |
 | `openmetadata-bootstrap` (`olf-system`, governed and revoked stage namespaces) | Secrets `create`, namespace-wide; `delete/get/patch/update` on two named Secrets, `get` on `openmetadata-admin` [V] | the ingestion-bot Secret | **Done (slice 4)**: `create` stays (E1); `get/update/patch/delete` by `resourceNames` on the automation and ingestion-bot Secrets; in stage namespaces also `get` on `superset-credentials` (the admin password for the Superset service it registers) |
@@ -503,3 +504,11 @@ F32 added (#668): the platform API's read endpoints reach each stage's Dagster
 webserver and OpenMetadata in-cluster. Dagster checks nothing, so this row and
 the API's permission matrix are the only controls on what reaches its GraphQL
 API (ADR 0021, decision 3).
+
+F33 added (#668): the platform API reads each stage's pod log archive from the
+SeaweedFS S3 gateway with its own identity, `openlakeforge-platform-api-logs`,
+granted `Read` and `List` on `activations/<stage>/logs/k8s/` only. The
+SeaweedFS credentials Job mints its key into `olf-system`, so its Role there
+names the new Secret. The stage identities' ops-bucket grant now ends at
+`activations/<stage>/*`: SeaweedFS 4.48 matches actions with a wildcard in which
+`*` also matches `/`, not with `filepath.Match` as the module's comment said.

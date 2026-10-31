@@ -11,14 +11,22 @@ locals {
   auth_secret_name = "${var.release_name}-s3-auth"
 
   admin_namespaces = distinct(concat([var.namespace], var.workload_namespaces))
-  stage_namespaces = distinct([for stage in values(var.stage_credentials) : stage.namespace])
+
+  # Secrets the Job mints beside the admin pair, one per namespace that holds it.
+  scoped_credentials = concat(
+    [for stage in values(var.stage_credentials) : { secret = stage.credentials_secret_name, namespace = stage.namespace }],
+    var.log_reader_credentials == null ? [] : [{
+      secret    = var.log_reader_credentials.credentials_secret_name
+      namespace = var.log_reader_credentials.namespace
+    }],
+  )
 
   # Every namespace that receives a Secret, with the names it may read.
   credential_secret_names = {
-    for namespace in distinct(concat(local.admin_namespaces, local.stage_namespaces)) : namespace => concat(
+    for namespace in distinct(concat(local.admin_namespaces, [for scoped in local.scoped_credentials : scoped.namespace])) : namespace => concat(
       contains(local.admin_namespaces, namespace) ? [var.credentials_secret_name] : [],
       namespace == var.namespace ? [local.auth_secret_name] : [],
-      [for stage in values(var.stage_credentials) : stage.credentials_secret_name if stage.namespace == namespace],
+      [for scoped in local.scoped_credentials : scoped.secret if scoped.namespace == namespace],
     )
   }
 
@@ -36,18 +44,31 @@ locals {
       # Bronze/Silver/Gold are wholly stage-exclusive buckets, so the
       # bucket-level grant is already scoped. The ops bucket is shared across
       # every stage's activation artifacts, so its grant is further scoped to
-      # this stage's own prefix - SeaweedFS matches the action's bucket/key
-      # component with filepath.Match, so a trailing `*` confines it to
-      # `activations/<stage>/...` and denies every other stage's prefix in the
-      # same bucket.
+      # this stage's own prefix. SeaweedFS 4.48 matches an action with
+      # wildcard.MatchesWildcard, where `*` also matches `/`, so the grant
+      # ends at `activations/<stage>/*`: without the slash, `activations/dev*`
+      # would also reach a stage named `dev2`.
       actions = concat(
         flatten([for bucket in [
           binding.bronze_bucket_name,
           binding.silver_bucket_name,
           binding.gold_bucket_name,
         ] : ["Read:${bucket}", "Write:${bucket}", "List:${bucket}"]]),
-        [for action in ["Read", "Write", "List"] : "${action}:${binding.ops_bucket_name}/activations/${stage}*"],
+        [for action in ["Read", "Write", "List"] : "${action}:${binding.ops_bucket_name}/activations/${stage}/*"],
       )
+    }],
+    # Read and List only, on each archive prefix: the platform API reads pod
+    # logs and nothing else in the ops bucket. A prefix ends in `/` (variable
+    # validation), so `*` stays under it.
+    var.log_reader_credentials == null ? [] : [{
+      name      = "openlakeforge-platform-api-logs"
+      secret    = var.log_reader_credentials.credentials_secret_name
+      namespace = var.log_reader_credentials.namespace
+      actions = flatten([
+        for prefix in var.log_reader_credentials.prefixes : [
+          for action in ["Read", "List"] : "${action}:${var.log_reader_credentials.ops_bucket_name}/${prefix}*"
+        ]
+      ])
     }],
   )
 
@@ -107,7 +128,7 @@ locals {
     auth_secret      = local.auth_secret_name
     s3_deployment    = local.s3_service_name
     identities       = jsonencode(local.auth_identities)
-    stages           = join(" ", [for stage in values(var.stage_credentials) : "${stage.credentials_secret_name}=${stage.namespace}"])
+    scoped_pairs     = join(" ", [for scoped in local.scoped_credentials : "${scoped.secret}=${scoped.namespace}"])
     iam_config       = jsonencode(local.iam_config)
   })
 }

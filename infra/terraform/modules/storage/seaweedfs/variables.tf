@@ -84,6 +84,22 @@ variable "stage_credentials" {
   default = {}
 }
 
+variable "log_reader_credentials" {
+  description = "A read-only identity for the platform API's archived-logs route (ADR 0021): Read and List on each prefix of the ops bucket, nothing else. Null when the platform API is not deployed."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+    prefixes                = list(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.log_reader_credentials == null || alltrue([for prefix in try(var.log_reader_credentials.prefixes, []) : endswith(prefix, "/") && !startswith(prefix, "/")])
+    error_message = "Each log reader prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
+  }
+}
+
 variable "s3_port" {
   description = "SeaweedFS S3 service port."
   type        = number

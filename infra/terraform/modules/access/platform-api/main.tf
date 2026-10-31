@@ -15,6 +15,10 @@ locals {
     # as not configured rather than refusing the API's start.
     dagster_graphql_urls = var.dagster_graphql_urls
     openmetadata_url     = var.openmetadata_url
+    # Read with the key in log_reader_secret_name, which never enters this file.
+    log_archives    = var.log_archives
+    s3_endpoint_url = var.s3_endpoint_url
+    s3_region       = var.s3_region
   }
 }
 
@@ -63,6 +67,17 @@ resource "kubernetes_deployment_v1" "platform_api" {
           port {
             name           = "http"
             container_port = local.port
+          }
+
+          # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, which boto3 reads: the
+          # read-only key for the log prefixes the SeaweedFS credentials Job mints.
+          dynamic "env_from" {
+            for_each = var.log_reader_secret_name == null ? [] : [1]
+            content {
+              secret_ref {
+                name = var.log_reader_secret_name
+              }
+            }
           }
 
           volume_mount {

@@ -47,6 +47,10 @@ locals {
   artifact_base_uri     = "s3://${var.ops_bucket_name}"
   log_base_uri          = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
+  # Each stage's Dagster and log archiver write under their own prefix of the
+  # ops bucket; the platform API's read-only key is scoped to the same prefixes.
+  stage_log_prefixes   = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
+  platform_api_enabled = local.identity_enabled && var.platform_api_image != null
   # Catalog namespaces themselves are not declared here. `olf infra catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
@@ -214,6 +218,12 @@ module "seaweedfs" {
       ops_bucket_name         = var.ops_bucket_name
     }
   }
+  log_reader_credentials = local.platform_api_enabled ? {
+    namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+    credentials_secret_name = "platform-api-log-reader-s3-creds"
+    ops_bucket_name         = var.ops_bucket_name
+    prefixes                = [for prefix in values(local.stage_log_prefixes) : "${prefix}/k8s/"]
+  } : null
 
   depends_on = [
     kubernetes_namespace_v1.stage,
@@ -244,11 +254,12 @@ module "portal" {
 }
 
 # ADR 0021: the platform API, at /api on the portal's host. It validates every
-# token itself, so it needs an issuer. It holds no service credential: Dagster
-# takes none, and OpenMetadata gets the caller's own token.
+# token itself, so it needs an issuer. Its one service credential is the
+# read-only object-store key for the log archive: Dagster takes none, and
+# OpenMetadata gets the caller's own token.
 module "platform_api" {
   source = "../../modules/access/platform-api"
-  count  = local.identity_enabled && var.platform_api_image != null ? 1 : 0
+  count  = local.platform_api_enabled ? 1 : 0
 
   namespace         = kubernetes_namespace_v1.shared.metadata[0].name
   image             = var.platform_api_image
@@ -268,6 +279,15 @@ module "platform_api" {
     name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
   }
   openmetadata_url = local.governance_contract.endpoint
+  # The archived-logs route (ADR 0021): read with the key the SeaweedFS
+  # credentials Job mints, over F33 (ADR 0017).
+  log_archives = {
+    for name, prefix in local.stage_log_prefixes :
+    name => { base_uri = "${local.artifact_base_uri}/${prefix}", namespace = local.stage_namespaces[name] }
+  }
+  s3_endpoint_url        = module.seaweedfs.contract.endpoint
+  s3_region              = module.seaweedfs.contract.region
+  log_reader_secret_name = module.seaweedfs.log_reader_secret_name
 }
 
 module "traefik" {
@@ -618,7 +638,7 @@ module "dagster" {
   code_locations        = local.orchestration_contract.code_locations
   artifact_bucket_name  = local.artifact_bucket_contract.bucket_name
   artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
-  log_base_uri          = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
+  log_base_uri          = "${local.artifact_bucket_contract.artifact_base_uri}/${local.stage_log_prefixes[each.key]}"
   run_artifact_base_uri = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
   depends_on = [
