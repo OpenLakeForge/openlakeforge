@@ -226,4 +226,14 @@ variable "person_access" {
     ca_configmap_name = string
   })
   default = null
+
+  # The mapper matches each claim literally through character classes, which
+  # cannot hold these four characters without a backslash (person_access.tf).
+  validation {
+    condition = var.person_access == null || alltrue([
+      for claim in concat(flatten(values(var.person_access.role_mapping)), [var.person_access.principal_name]) :
+      !can(regex("[][\\\\^]", claim))
+    ])
+    error_message = "A role_mapping claim or the connector id contains [, ], \\ or ^, which Polaris's role mapper cannot match literally."
+  }
 }
