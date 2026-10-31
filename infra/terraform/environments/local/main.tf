@@ -51,6 +51,8 @@ locals {
   # ops bucket; the platform API's read-only key is scoped to the same prefixes.
   stage_log_prefixes   = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
   platform_api_enabled = local.identity_enabled && var.platform_api_image != null
+  # Shared by the audit identity's grant and the API's settings, which must agree.
+  platform_api_audit_prefix = "audit/platform-api/"
   # Catalog namespaces themselves are not declared here. `olf infra catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
@@ -224,6 +226,12 @@ module "seaweedfs" {
     ops_bucket_name         = var.ops_bucket_name
     prefixes                = [for prefix in values(local.stage_log_prefixes) : "${prefix}/k8s/"]
   } : null
+  audit_writer_credentials = local.platform_api_enabled ? {
+    namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+    credentials_secret_name = "platform-api-audit-writer-s3-creds"
+    ops_bucket_name         = var.ops_bucket_name
+    prefix                  = local.platform_api_audit_prefix
+  } : null
 
   depends_on = [
     kubernetes_namespace_v1.stage,
@@ -288,6 +296,10 @@ module "platform_api" {
   s3_endpoint_url        = module.seaweedfs.contract.endpoint
   s3_region              = module.seaweedfs.contract.region
   log_reader_secret_name = module.seaweedfs.log_reader_secret_name
+  # Audit records (ADR 0021, decision 3): stored with the write-only key the
+  # same Job mints, over the same flow.
+  audit_base_uri           = "${local.artifact_base_uri}/${local.platform_api_audit_prefix}"
+  audit_writer_secret_name = module.seaweedfs.audit_writer_secret_name
 }
 
 module "traefik" {

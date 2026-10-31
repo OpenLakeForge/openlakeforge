@@ -55,7 +55,13 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("superset-credentials", ("superset-credentials", "superset-env")),
     (
         "seaweedfs-credentials",
-        ("seaweedfs-s3-creds", "seaweedfs-*-s3-creds", "seaweedfs-s3-auth", "platform-api-log-reader-s3-creds"),
+        (
+            "seaweedfs-s3-creds",
+            "seaweedfs-*-s3-creds",
+            "seaweedfs-s3-auth",
+            "platform-api-log-reader-s3-creds",
+            "platform-api-audit-writer-s3-creds",
+        ),
     ),
     ("*-credentials", ("*-client-*",)),  # dex-credentials
     ("*-cookie", ("*-cookie",)),

@@ -58,6 +58,7 @@ from olf.infra.commands import project as infra_project
 from olf.platform import commands as platform_commands
 from olf.platform import query as platform_query
 from olf.platform import reads as platform_reads
+from olf.platform import writes as platform_writes
 
 app = typer.Typer(
     name="olf",
@@ -177,6 +178,7 @@ app.command("whoami")(platform_commands.whoami)
 app.command("logout")(platform_commands.logout)
 # Platform reads, each a client of the platform API (ADR 0021).
 app.add_typer(platform_reads.jobs_app, name="jobs")
+platform_reads.runs_app.command("launch")(platform_writes.runs_launch)
 app.add_typer(platform_reads.runs_app, name="runs")
 app.command("logs")(platform_reads.logs)
 

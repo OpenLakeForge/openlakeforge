@@ -107,9 +107,10 @@ def test_secret_pins_must_match_the_documented_names() -> None:
     assert _grants([_rule(["secrets"], ["get"], ["anything"])], ("olf-system", "worker"))
 
 
-def test_the_seaweedfs_job_may_read_the_platform_api_log_reader_key_and_no_other_name() -> None:
+def test_the_seaweedfs_job_may_read_the_platform_api_keys_and_no_other_name() -> None:
     sa = ("olf-system", "seaweedfs-credentials")
-    assert not _grants([_rule(["secrets"], ["get"], ["seaweedfs-s3-auth", "platform-api-log-reader-s3-creds"])], sa)
+    names = ["seaweedfs-s3-auth", "platform-api-log-reader-s3-creds", "platform-api-audit-writer-s3-creds"]
+    assert not _grants([_rule(["secrets"], ["get"], names)], sa)
     assert _grants([_rule(["secrets"], ["get"], ["platform-api-other-creds"])], sa)
 
 

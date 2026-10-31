@@ -19,6 +19,10 @@ locals {
       secret    = var.log_reader_credentials.credentials_secret_name
       namespace = var.log_reader_credentials.namespace
     }],
+    var.audit_writer_credentials == null ? [] : [{
+      secret    = var.audit_writer_credentials.credentials_secret_name
+      namespace = var.audit_writer_credentials.namespace
+    }],
   )
 
   # Every namespace that receives a Secret, with the names it may read.
@@ -69,6 +73,16 @@ locals {
           for action in ["Read", "List"] : "${action}:${var.log_reader_credentials.ops_bucket_name}/${prefix}*"
         ]
       ])
+    }],
+    # Write only, under one prefix: the platform API stores audit records and
+    # can neither read nor list them back. SeaweedFS 4.48 also gates overwrite
+    # and delete on Write (weed/s3api/s3api_server.go), so this is not
+    # append-only; ADR 0021 decision 3 says what that leaves.
+    var.audit_writer_credentials == null ? [] : [{
+      name      = "openlakeforge-platform-api-audit"
+      secret    = var.audit_writer_credentials.credentials_secret_name
+      namespace = var.audit_writer_credentials.namespace
+      actions   = ["Write:${var.audit_writer_credentials.ops_bucket_name}/${var.audit_writer_credentials.prefix}*"]
     }],
   )
 
