@@ -31,6 +31,14 @@ class FloeProfileError(RuntimeError):
     """The stage contract on this pod cannot drive a Floe 0.8 run."""
 
 
+# Floe 0.8.8 runs up to this many of a domain Job's entities at once. It never
+# runs two that write the same table, and every merge entity shares one slot,
+# so at most one DuckDB merge (capped at 4 GB) runs in the 6 GiB Job; the
+# others overwrite or append. dagster-floe also uses it as each product job's
+# step concurrency. 4 is the Slim host's core count.
+FLOE_ORCHESTRATION = {"strategy": "parallel", "max_concurrent_entities": 4}
+
+
 def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
     """The stage's profile, read from the contract values on this pod."""
 
@@ -128,9 +136,7 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
         "apiVersion": "floe/v1",
         "kind": "EnvironmentProfile",
         "metadata": {"name": environ.get("OPENLAKEFORGE_STAGE", "") or "openlakeforge"},
-        # Sequential: a domain's Job runs its entities one after another, so
-        # its memory is bounded by one entity's frames.
-        "execution": {"runner": runner, "orchestration": {"strategy": "sequential"}},
+        "execution": {"runner": runner, "orchestration": FLOE_ORCHESTRATION},
         "storages": {"default": "lakehouse_bronze", "definitions": storages},
         "catalogs": {"default": CATALOG_NAME, "definitions": [catalog]},
         "validation": {"strict": True},

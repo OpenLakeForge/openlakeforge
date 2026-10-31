@@ -40,15 +40,33 @@ def test_bronze_subsetability_rejects_non_subsettable_or_required_outputs(
         project_code_check._verify_bronze_subsetability(inventory, definitions)
 
 
-def test_sequential_floe_orchestration_requires_serial_job_config() -> None:
+def test_floe_orchestration_requires_the_job_config_dagster_floe_derives() -> None:
     product = SimpleNamespace(id="order_revenue", job_name="order_revenue_job")
-    job = SimpleNamespace(run_config={"execution": {"config": {"multiprocess": {"max_concurrent": 1}}}})
+    job = SimpleNamespace(run_config={"execution": {"config": {"multiprocess": {"max_concurrent": 4}}}})
 
-    project_code_check._verify_sequential_floe_orchestration(product, job)
+    project_code_check._verify_floe_orchestration(product, job, 4)
 
-    job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] = 2
-    with pytest.raises(RuntimeError, match="did not inherit Floe orchestration concurrency"):
-        project_code_check._verify_sequential_floe_orchestration(product, job)
+    job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] = 1
+    with pytest.raises(RuntimeError, match=r"did not inherit Floe orchestration concurrency \(1 != 4\)"):
+        project_code_check._verify_floe_orchestration(product, job, 4)
+
+
+@pytest.mark.parametrize(
+    ("orchestration", "expected"),
+    [
+        ({"strategy": "sequential"}, 1),
+        ({"strategy": "sequential", "max_concurrent_entities": 4}, 1),
+        ({"strategy": "parallel", "max_concurrent_entities": 4}, 4),
+        (None, 1),
+    ],
+)
+def test_floe_job_concurrency_follows_the_profile(orchestration: dict | None, expected: int) -> None:
+    assert project_code_check._floe_job_concurrency(orchestration) == expected
+
+
+def test_parallel_floe_orchestration_without_a_limit_is_refused() -> None:
+    with pytest.raises(RuntimeError, match="must set max_concurrent_entities"):
+        project_code_check._floe_job_concurrency({"strategy": "parallel"})
 
 
 @dataclass(frozen=True)
