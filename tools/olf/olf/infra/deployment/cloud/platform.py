@@ -19,7 +19,7 @@ from olf.infra.deployment import kube_ops
 from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.infra.deployment.cloud.config import CloudDeploymentConfig
 from olf.infra.deployment.local.platform import require_no_shared_namespace_replacement, require_no_stage_removal
-from olf.infra.deployment.storage_resize import require_storage_size_applies
+from olf.infra.deployment.storage_resize import grow_seaweedfs_volumes, plan_storage_resize
 
 _NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-", "postgresql-credentials-")
@@ -66,7 +66,7 @@ def platform_up(
 
     require_no_stage_removal(config, tools, kube_context=facts.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=facts.kube_context, env=env)
-    require_storage_size_applies(config, tools, kube_context=facts.kube_context, env=env)
+    plan_storage_resize(config, tools, kube_context=facts.kube_context, env=env)
 
     variables = backend.platform_apply_variables(config, facts)
     var_files = (str(config.terraform.var_file),) if config.terraform.var_file is not None else ()
@@ -97,6 +97,7 @@ def platform_up(
                 )
         tools.terraform.apply(platform_dir, var_files=var_files, variables=variables, env=env)
 
+    grow_seaweedfs_volumes(config, tools, kube_context=facts.kube_context, env=env)
     log.step(f"Applying Terraform {backend.scope} platform...")
     run_with_retry(
         _apply_once,
