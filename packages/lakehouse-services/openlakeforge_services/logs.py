@@ -22,11 +22,13 @@ SCHEMA = "openlakeforge.k8s_log.v1"
 
 
 class ObjectStore(Protocol):
-    """The two calls of a boto3 S3 client the reader makes."""
+    """The two calls of a boto3 S3 client the reader makes, with the arguments it passes."""
 
-    def list_objects_v2(self, **kwargs: Any) -> Mapping[str, Any]: ...
+    def list_objects_v2(  # noqa: N803 - boto3's argument names
+        self, *, Bucket: str, Prefix: str = ..., ContinuationToken: str = ...
+    ) -> Mapping[str, Any]: ...
 
-    def get_object(self, **kwargs: Any) -> Mapping[str, Any]: ...
+    def get_object(self, *, Bucket: str, Key: str) -> Mapping[str, Any]: ...  # noqa: N803
 
 
 @dataclass(frozen=True)
@@ -83,10 +85,11 @@ class LogArchive:
     def _keys(self, prefix: str) -> Iterator[str]:
         token = ""
         while True:
-            request: dict[str, Any] = {"Bucket": self._bucket, "Prefix": prefix}
-            if token:
-                request["ContinuationToken"] = token
-            page = self._store.list_objects_v2(**request)
+            page = (
+                self._store.list_objects_v2(Bucket=self._bucket, Prefix=prefix, ContinuationToken=token)
+                if token
+                else self._store.list_objects_v2(Bucket=self._bucket, Prefix=prefix)
+            )
             for item in page.get("Contents", []):
                 if item["Key"].endswith(".ndjson.gz"):
                     yield item["Key"]
