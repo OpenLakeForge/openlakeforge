@@ -10,7 +10,7 @@ from olf.common.scaffold._commit import commit_plan
 from olf.common.scaffold._shared import ScaffoldError, parse_source_resource
 from olf.common.scaffold.domain import plan_domain_new
 
-app = typer.Typer(help="Domain-owned Silver scaffolding.")
+app = typer.Typer(help="Domain-owned Silver scaffolding, and the domains a deployment governs.")
 
 
 @app.command("new")

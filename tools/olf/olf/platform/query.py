@@ -23,6 +23,7 @@ import typer
 
 from olf.common.log import fail
 from olf.platform import session as sessions
+from olf.platform.output import table
 
 FORMATS = ("table", "csv", "json")
 STAGES = ("dev", "uat", "prod")
@@ -171,18 +172,7 @@ def render(result: Result, output_format: str) -> str:
         writer.writerow(result.columns)
         writer.writerows(result.rows)
         return buffer.getvalue()
-    return _table(result.columns, [["NULL" if value is None else str(value) for value in row] for row in result.rows])
-
-
-def _table(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
-    widths = [max([len(name), *(len(row[i]) for row in rows)]) for i, name in enumerate(columns)]
-    lines = [
-        " | ".join(name.center(width) for name, width in zip(columns, widths, strict=True)),
-        "-+-".join("-" * width for width in widths),
-        *(" | ".join(value.ljust(width) for value, width in zip(row, widths, strict=True)) for row in rows),
-        f"({len(rows)} row{'' if len(rows) == 1 else 's'})",
-    ]
-    return "\n".join(lines) + "\n"
+    return table(result.columns, [["NULL" if value is None else str(value) for value in row] for row in result.rows])
 
 
 def query(
