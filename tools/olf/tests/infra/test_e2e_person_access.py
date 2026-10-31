@@ -100,10 +100,20 @@ def test_a_stage_no_role_writes_fails_rather_than_passing_on_refusals() -> None:
         _check(Polaris(data_access), data_access)
 
 
-def test_a_role_that_reaches_no_stage_fails_rather_than_passing_on_refusals() -> None:
-    data_access = {**DATA_ACCESS, "viewer": {}}
-    with pytest.raises(E2EError, match="viewer reaches no stage"):
-        _check(Polaris(data_access), data_access)
+def test_a_role_with_no_row_on_the_deployed_stages_is_checked_for_refusals_only() -> None:
+    # A DEV-only deployment: viewer reads PROD alone, which is not deployed.
+    polaris = Polaris()
+    person.check_person_decisions(["dev"], DATA_ACCESS, TABLES, polaris.run)
+    viewer = {(stage, sql) for role, stage, sql in polaris.calls if role == "viewer"}
+    assert ("dev", "SHOW SCHEMAS") in viewer
+    assert ("dev", "SELECT count(*) FROM sales_gold.revenue") in viewer
+
+
+def test_a_role_admitted_where_its_row_refuses_still_fails_on_a_single_stage() -> None:
+    with pytest.raises(E2EError, match="viewer on dev"):
+        person.check_person_decisions(
+            ["dev"], DATA_ACCESS, TABLES, Polaris(overrides={("viewer", "dev", "SHOW"): "ok"}).run
+        )
 
 
 @pytest.mark.parametrize(
