@@ -16,8 +16,9 @@ and data products with the caller's token forwarded. `olf jobs list`, `olf runs
 list|show`, `olf domain list` and `olf product list` read through it with the
 signed-in person's token. The local provider deploys it with `spec.identity`
 (`modules/access/platform-api`), from an image `olf` builds, since no release
-has published one to pin. The audit that decision 3 requires of state-changing
-operations is built; no route changes state yet.
+has published one to pin. Its first state-changing route launches a DEV run,
+audited as decision 3 says; the deployment does not yet mount the audit key, so
+the route answers 503 there until it does.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -356,3 +357,10 @@ copy is an object of its own, written before the API acts. The permission
 matrix marks an operation `changes_state`, and every such operation runs inside
 the audit; without an audit key it answers 503. No operation is marked yet: the
 first, launching a run, and the write-only key's deployment follow.
+Second part: `POST /api/v1/stages/{stage}/runs` launches a job as the
+signed-in person, at `data-engineer` and on DEV only, as #670 asks. Dagster
+checks nothing, so the row is the only control. The run is tagged with who asked
+for it and with the API's request id, by which a launch whose response was lost
+is found rather than launched twice. The job is looked up among the jobs the
+read endpoint lists, so an unknown name is answered at once instead of waiting
+on, and reloading, code locations as the e2e's launch does.
