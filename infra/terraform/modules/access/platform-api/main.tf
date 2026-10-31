@@ -22,6 +22,10 @@ locals {
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.
     audit_base_uri = var.audit_base_uri
+    # Each stage's Superset, reached in-cluster over F34 as the service user
+    # whose password is mounted below; the username is the same on every stage.
+    superset_urls     = var.superset_urls
+    superset_username = length(var.superset_service_users) == 0 ? null : local.superset_username
   }
 }
 
@@ -79,6 +83,22 @@ resource "kubernetes_deployment_v1" "platform_api" {
             content {
               secret_ref {
                 name = var.log_reader_secret_name
+              }
+            }
+          }
+
+          # Each stage's Superset service-user password, from the Secret the
+          # superset_users Job mints in this namespace; the API reads it by
+          # stage (openlakeforge_platform_api.settings.superset_password_env).
+          dynamic "env" {
+            for_each = local.superset_sources
+            content {
+              name = "OPENLAKEFORGE_SUPERSET_PASSWORD_${upper(replace(env.key, "/[^A-Za-z0-9]/", "_"))}"
+              value_from {
+                secret_key_ref {
+                  name = env.value
+                  key  = "password"
+                }
               }
             }
           }
@@ -179,6 +199,9 @@ resource "kubernetes_deployment_v1" "platform_api" {
       }
     }
   }
+
+  # The pod reads the Superset passwords at start; their Secrets exist once the Job has run.
+  depends_on = [kubernetes_job_v1.superset_users]
 }
 
 resource "kubernetes_service_v1" "platform_api" {

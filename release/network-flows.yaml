@@ -286,3 +286,8 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585] # domains and data products, with the caller's token forwarded (openmetadata_url)
     tag: T # needs a platform API read on a running cluster
+  - id: F34
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: stage}
+    ports: [8088] # each stage's Superset (superset_urls), as the service user olf-platform-api; the stage rule is namespace-wide
+    tag: T # needs a report import through the platform API on a running cluster
