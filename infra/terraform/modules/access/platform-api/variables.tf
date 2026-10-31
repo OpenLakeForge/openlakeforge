@@ -125,3 +125,9 @@ variable "bootstrap_job_image" {
   type        = string
   default     = null
 }
+
+variable "superset_urls" {
+  description = "Each stage's Superset base URL, reached in-cluster (F34). The API refuses to start on a stage outside `stages`; a stage without one has no report routes."
+  type        = map(string)
+  default     = {}
+}

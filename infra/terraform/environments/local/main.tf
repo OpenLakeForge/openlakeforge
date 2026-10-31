@@ -304,7 +304,12 @@ module "platform_api" {
   # One Superset service user per stage with Superset; this module mints each
   # password and copies it into the stage's namespace (ADR 0017, Exception E1).
   superset_service_users = { for name in keys(local.analytics_stages) : name => kubernetes_namespace_v1.stage[name].metadata[0].name }
-  bootstrap_job_image    = local.bootstrap_job_image
+  # Reached in-cluster over F34 (ADR 0017), as the service user above.
+  superset_urls = {
+    for name in keys(local.analytics_stages) :
+    name => "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}"
+  }
+  bootstrap_job_image = local.bootstrap_job_image
 }
 
 module "traefik" {
