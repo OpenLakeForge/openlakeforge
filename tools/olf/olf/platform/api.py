@@ -37,12 +37,27 @@ def post(instance: sessions.Instance, path: str, body: Mapping[str, Any]) -> Any
     return _send(instance, "POST", path, json=dict(body))
 
 
-def _send(instance: sessions.Instance, method: str, path: str, **request: Any) -> Any:
+def post_bytes(instance: sessions.Instance, path: str, content: bytes, content_type: str) -> Any:
+    """A state-changing call whose body is a file, such as a zipped report; never retried, like `post`."""
+    return _send(instance, "POST", path, data=content, content_type=content_type)
+
+
+def get_bytes(instance: sessions.Instance, path: str) -> bytes:
+    """A read whose answer is a file, such as an exported report."""
+    content: bytes = _send(instance, "GET", path, raw=True)
+    return content
+
+
+def _send(
+    instance: sessions.Instance, method: str, path: str, *, raw: bool = False, content_type: str = "", **request: Any
+) -> Any:
     url = f"{base_url(instance)}{path}"
     headers = {"Accept": "application/json"}
     token = sessions.bearer_token(instance)
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
+    if content_type:
+        headers["Content-Type"] = content_type
     try:
         response = sessions.send(method, url, headers=headers, timeout=60, **request)
     except requests.exceptions.SSLError as exc:
@@ -71,6 +86,8 @@ def _send(instance: sessions.Instance, method: str, path: str, **request: Any) -
         )
     if not 200 <= response.status_code < 300:
         raise sessions.PlatformError(f"the platform API answered HTTP {response.status_code}: {detail or 'no detail'}")
+    if raw:
+        return response.content
     try:
         return response.json()
     except ValueError as exc:
