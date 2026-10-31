@@ -44,7 +44,7 @@ for how a release is cut and verified.
 ### Changed
 
 - Floe 0.8, the Python core, runs inside the project-code image
-  (`floe-python` 0.8.6, `dagster-floe` 0.4.3). The code location builds the
+  (`floe-python` 0.8.8, `dagster-floe` 0.4.3). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
   renders for its own stage, and each domain runs as one Kubernetes Job on the
   same image, which receives that profile as text and runs plain `floe`: a
@@ -54,6 +54,11 @@ for how a release is cut and verified.
   room for Floe's 4 GB DuckDB cap. Its Silver lineage events name the Dagster
   run as their parent, and the Job and its pod carry a `dagster/run-id` label. There is no Floe runner image, no Job per
   entity, and no generated, published or versioned manifest (#533, ADR 0006).
+- A domain's Floe Job writes up to four entities at once (`parallel`
+  orchestration, `max_concurrent_entities: 4`) instead of one after another.
+  Floe never runs two entities that write the same table together, and runs
+  merge entities one at a time, so at most one DuckDB merge shares the Job's
+  memory. The same limit is each product job's step concurrency.
 - The Silver contracts are one Floe project: `lakehouse_code/silver/floe.yml`
   with named Bronze sources in `silver/sources.yml`, and per domain a
   `_domain.yml` of sink defaults plus one file per entity. `olf domain new`
