@@ -14,6 +14,7 @@ import io
 import secrets
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -23,6 +24,7 @@ from olf.common import log
 from olf.infra import k8s
 from olf.infra.e2e._identity_github import REQUEST_TIMEOUT, StubAuthorize, stub_host
 from olf.infra.e2e._shell import E2EConfig, E2EError
+from olf.platform.writes import zip_report
 
 CLI_CLIENT = "olf-cli"
 # Dagster has no authorization of its own, so a 2xx here is the perimeter's decision alone. `/graphql` is
@@ -38,6 +40,9 @@ LAUNCH_FLOOR = "data-engineer"
 LAUNCH_STAGES = ("dev",)
 # No stage has a job by this name, so a launch request for it never starts a run.
 ABSENT_JOB = "olf_e2e_no_such_job"
+# The report import route's row: data-engineer and above, DEV only.
+IMPORT_FLOOR = "data-engineer"
+IMPORT_STAGES = ("dev",)
 
 
 class _LoopbackRedirect(requests.adapters.BaseAdapter):
@@ -201,6 +206,18 @@ def check_bearer_tokens(
             stage=cfg.namespace.removeprefix("olf-"),
             precedence=identity["roles"]["precedence"],
         )
+        if cfg.inventory.dashboards:
+            report_dir = (
+                cfg.repo_root / min(cfg.inventory.dashboards, key=lambda d: d.report_source_dir).report_source_dir
+            )
+            check_report_import(
+                routes[PLATFORM_API_HOST_REF].rstrip("/"),
+                roles,
+                cli_token,
+                report_dir,
+                stage=cfg.namespace.removeprefix("olf-"),
+                precedence=identity["roles"]["precedence"],
+            )
     log.info("Not checking an expired token: it needs a wait past the 5 minute ID token lifetime.")
 
 
@@ -261,6 +278,42 @@ def check_launch_audit(
             hint = " (503: the audit record was not stored)" if reply.status_code == 503 else ""
             raise E2EError(
                 f"{role} launching {ABSENT_JOB} at {url}: expected HTTP {expected}, got {reply.status_code}{hint}"
+            )
+
+
+def check_report_import(
+    base_url: str,
+    roles: list[str],
+    cli_token: Callable[[str], str],
+    report_dir: Path,
+    *,
+    stage: str,
+    precedence: Sequence[str],
+) -> None:
+    """Each role imports the project's own report, zipped as `olf report import` zips it.
+
+    At or above the floor on DEV the import is a 200: the API stored the attempt, signed in to Superset as its
+    service user, found every schema the report reads already granted, and overwrote the assets the artifacts
+    phase imported with the same content. Below the floor, or on another stage, it is a 403 and nothing is sent
+    to Superset (ADR 0021, decision 3).
+    """
+    log.step(f"Checking report imports through the platform API with {report_dir.name}...")
+    url = f"{base_url}/api/v1/stages/{stage}/reports"
+    archive = zip_report(report_dir)
+    floor = precedence.index(IMPORT_FLOOR)
+    for role in roles:
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {cli_token(role)}",
+            "Content-Type": "application/zip",
+        }
+        reply = requests.post(url, headers=headers, data=archive, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+        permitted = stage in IMPORT_STAGES and precedence.index(role) <= floor
+        expected = 200 if permitted else 403
+        if reply.status_code != expected:
+            raise E2EError(
+                f"{role} importing {report_dir.name} at {url}: expected HTTP {expected}, "
+                f"got {reply.status_code} {reply.text[:300]}"
             )
 
 

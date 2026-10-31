@@ -53,9 +53,13 @@ def test_visible_infra_commands_live_under_olf_infra() -> None:
     assert misplaced == []
 
 
-# `olf query` is the platform command for a person's own queries (ADR 0019); its pre-2b alias to
-# `olf infra query` ended there, the one exception ADR 0020 names.
-@pytest.mark.parametrize("path", [p for p in PRE_2B_PATHS if p != ("query",)], ids=" ".join)
+# Pre-2b paths that are platform commands now, so their aliases to `olf infra ...` ended: `olf query`, a
+# person's own queries (ADR 0019), and `olf report import|export`, through the platform API (ADR 0021).
+# These are the exceptions ADR 0020 names.
+PLATFORM_NOW = [("query",), ("report", "import"), ("report", "export")]
+
+
+@pytest.mark.parametrize("path", [p for p in PRE_2B_PATHS if p not in PLATFORM_NOW], ids=" ".join)
 def test_pre_2b_path_reaches_its_new_home(path: tuple[str, ...]) -> None:
     assert path in BY_PATH
     home = ("infra", *path) if ("infra", *path) in BY_PATH else path
@@ -87,7 +91,7 @@ def _warning(path: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> str | No
     return None
 
 
-@pytest.mark.parametrize("path", [p for p in MOVED_PATHS if p != ("query",)], ids=" ".join)
+@pytest.mark.parametrize("path", [p for p in MOVED_PATHS if p not in PLATFORM_NOW], ids=" ".join)
 def test_old_path_warns_and_names_its_new_path(path: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> None:
     assert _warning(path, monkeypatch) == (
         f"this command moved to `olf infra {' '.join(path)}`; the old path will be removed in a later release"
@@ -131,3 +135,10 @@ def test_old_path_warns_on_stderr_and_behaves_like_the_new_one(old: str, new: st
 def test_olf_query_is_the_platform_command_and_olf_infra_query_the_workload_one() -> None:
     assert BY_PATH[("query",)].__module__ == "olf.platform.query"
     assert inspect.unwrap(BY_PATH[("infra", "query")]).__module__ == "olf.infra.commands.query"
+
+
+@pytest.mark.parametrize("name", ["import", "export"])
+def test_olf_report_import_and_export_are_platform_commands_and_the_infra_ones_stay(name: str) -> None:
+    assert ("report", name) not in HIDDEN and ("infra", "report", name) not in HIDDEN
+    assert BY_PATH[("report", name)].__module__ == "olf.platform.writes"
+    assert inspect.unwrap(BY_PATH[("infra", "report", name)]).__module__ == "olf.infra.commands.superset"
