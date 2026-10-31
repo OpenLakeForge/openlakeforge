@@ -22,7 +22,7 @@ locals {
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.
     audit_base_uri = var.audit_base_uri
-    # Each stage's Superset, reached in-cluster over F34 as the service user
+    # Each stage's Superset, reached in-cluster over F35 as the service user
     # whose password is mounted below; the username is the same on every stage.
     superset_urls     = var.superset_urls
     superset_username = length(var.superset_service_users) == 0 ? null : local.superset_username

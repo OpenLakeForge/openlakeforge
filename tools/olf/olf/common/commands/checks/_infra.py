@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import typer
 
 from olf.common.commands.checks._shared import _root
@@ -35,6 +38,9 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
             env=env,
         )
         tools.runner.run([terraform, f"-chdir={directory}", "validate"], env=env, stream_output=True)
+    module_tests = (root / "infra/terraform/modules").glob("**/tests/*.tftest.hcl")
+    for module in sorted({test.parent.parent for test in module_tests}):
+        _test_module(root, module, terraform=terraform, tools=tools, env=env)
     charts = (
         ("seaweedfs", "seaweedfs/seaweedfs", "4.48.0", "infra/helm/values/local/seaweedfs.yaml"),
         ("polaris", "polaris/polaris", "1.4.1", "infra/helm/values/local/polaris.yaml"),
@@ -79,6 +85,21 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         if release_name == "polaris" and "polaris.persistence.type=relational-jdbc" not in result.stdout:
             raise typer.Exit(code=fail("rendered Polaris chart is not configured for relational JDBC persistence"))
     typer.echo("Infrastructure checks passed.")
+
+
+def _test_module(root: Path, module: Path, *, terraform: str, tools: Toolkit, env: dict[str, str]) -> None:
+    """`terraform test` on a copy of the module carrying the local root's lock file.
+
+    Modules declare no provider version, so a bare init would test against the
+    newest release rather than the pin the stack applies with; the copy keeps
+    the init's `.terraform` and pruned lock out of the tree.
+    """
+    work = root / ".tmp/check-terraform-test" / module.relative_to(root / "infra/terraform/modules")
+    shutil.rmtree(work, ignore_errors=True)
+    shutil.copytree(module, work, ignore=shutil.ignore_patterns(".terraform", ".terraform.lock.hcl"))
+    shutil.copy2(root / "infra/terraform/environments/local/.terraform.lock.hcl", work / ".terraform.lock.hcl")
+    tools.terraform.init(work, extra_args=("-backend=false", "-input=false"), env=env)
+    tools.runner.run([terraform, f"-chdir={work}", "test"], env=env, stream_output=True)
 
 
 def _superset_template_overrides() -> list[str]:

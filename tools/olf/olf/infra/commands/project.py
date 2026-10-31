@@ -81,11 +81,13 @@ def image(
     """Build the project-code image and print the reference `olf infra project build --image` expects.
 
     The profile's own directory is the project root, matching `olf infra project
-    deploy`. Cloud pushes to the foundation's own registry; local pushes to
-    whatever `PROJECT_CODE_IMAGE_REPOSITORY` names (GHCR or Docker Hub by
-    default) and also loads the image into kind. `--no-push` is a local
-    inner-loop shortcut: it prints a tag, not a digest, so the result cannot
-    seed `olf infra project build`.
+    deploy`. Cloud pushes to the foundation's own registry. Local pushes to
+    the profile's `spec.project.image.repository`, else
+    `PROJECT_CODE_IMAGE_REPOSITORY` (GHCR or Docker Hub), and also loads the
+    image into kind; edited project code with neither is refused rather than
+    pushed over the public example. `--no-push` is a local inner-loop
+    shortcut: it prints a tag, not a digest, so the result cannot seed
+    `olf infra project build`.
     """
     from olf.common.deployment.errors import DeploymentError
     from olf.infra.project_revision import ProjectRevisionError, resolve_image_digest

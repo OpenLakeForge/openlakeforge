@@ -58,6 +58,30 @@ flow file.
 With `spec.identity.github.host` set to a GitHub Enterprise Server, Dex and the
 role sync reach that host over the same port-443 rule.
 
+## Source egress from run pods
+
+A Bronze source that reads an external API or database runs in the Dagster run
+pod of its product job. Run pods get no egress outside the cluster unless the
+stage's Deployment Profile declares the ports its sources need:
+
+```yaml
+spec:
+  stages:
+    dev:
+      source_egress:
+        ports: [443, 5432]
+```
+
+| Flow | From | To | Port |
+| --- | --- | --- | --- |
+| F34 | Run pods (`app.kubernetes.io/component=run_worker`) of that stage | Any address outside the cluster's pod and Service ranges | The declared ports, TCP |
+
+The rule is its own policy, `olf-flows-f34`, in that stage's namespace only;
+the other pods of the namespace and the other stages get nothing. Because
+stage pods carry labels user code controls, the label narrows the grant
+without isolating it (ADR 0017, decision 4). The cluster-side behaviour of F34
+is marked as to-verify.
+
 ## RBAC
 
 The kind kubeconfig is cluster-admin, and the operator and CI are trusted.
