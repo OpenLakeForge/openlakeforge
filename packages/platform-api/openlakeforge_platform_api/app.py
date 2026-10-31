@@ -89,16 +89,26 @@ def whoami(principal: Principal = Depends(_principal)) -> dict[str, Any]:  # noq
     }
 
 
-def _object_store(settings: Settings) -> ObjectStore:
-    """An S3 client for the log archive; creating one opens no connection, so the API starts without the store.
+def _object_store(settings: Settings) -> ObjectStore | None:
+    """An S3 client for the log archive, or None when there is no archive or no key to read it with.
 
-    The key is boto3's from the environment (the mounted Secret). Path-style
-    addressing because SeaweedFS serves buckets under one host.
+    The key is passed explicitly from the environment (the mounted Secret):
+    left to boto3's credential chain, a missing key falls through to the
+    instance metadata endpoint, which NetworkPolicy drops, so every request
+    would hang until that times out. Creating the client opens no connection,
+    so the API starts without the store. Path-style addressing because
+    SeaweedFS serves buckets under one host.
     """
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if not settings.log_archives or not access_key or not secret_key:
+        return None
     client: ObjectStore = boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint_url,
         region_name=settings.s3_region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
         config=Config(s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=30, retries={"max_attempts": 2}),
     )
     return client

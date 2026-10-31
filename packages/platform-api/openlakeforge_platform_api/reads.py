@@ -90,7 +90,10 @@ def list_logs(
     archive = request.app.state.settings.log_archives.get(stage)
     if archive is None:
         raise HTTPException(status_code=404, detail=f"no log archive is configured for stage {stage!r}")
-    reader = LogArchive(request.app.state.object_store, archive.base_uri)
+    store = request.app.state.object_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="the platform API holds no object-store key for the log archive")
+    reader = LogArchive(store, archive.base_uri)
     # The store's own message goes to the log: it can name the bucket, the key
     # or the endpoint, none of which the caller needs.
     try:
@@ -101,7 +104,8 @@ def list_logs(
     except BotoCoreError as exc:
         log.warning("the object store is unreachable for stage %s: %s", stage, exc)
         raise HTTPException(status_code=502, detail="the object store is unreachable") from exc
-    except (OSError, EOFError, zlib.error, ValueError) as exc:
+    # KeyError and TypeError: a record that is JSON but not the archiver's shape.
+    except (OSError, EOFError, zlib.error, ValueError, KeyError, TypeError) as exc:
         log.warning("stage %s's log archive is unreadable: %s", stage, exc)
         raise HTTPException(status_code=502, detail=f"stage {stage!r}'s log archive is unreadable") from exc
     # `truncated` tells a client that a narrower window or a higher limit would show more.
