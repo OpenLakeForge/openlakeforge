@@ -112,19 +112,27 @@ class LocalProvider:
         """Build the project-code image, optionally push it, and load it into kind.
 
         Local has no registry of its own, so a publishable revision depends on
-        an external one (GHCR, Docker Hub) named by
-        `PROJECT_CODE_IMAGE_REPOSITORY`. Pushing is what creates the registry
-        digest `olf infra project build` requires -- a kind-only image has just a
-        local config Id, which is not pullable. The kind load still happens
-        either way so the default `Never` pull policy keeps working.
+        an external one (GHCR, Docker Hub) named by the profile's
+        `spec.project.image.repository`, else `PROJECT_CODE_IMAGE_REPOSITORY`.
+        Pushing is what creates the registry digest `olf infra project build`
+        requires -- a kind-only image has just a local config Id, which is not
+        pullable. The kind load still happens either way so the default `Never`
+        pull policy keeps working.
 
         The unmodified example is already published by digest: that reference is the result, with no build.
         """
+        from olf.common.deployment.errors import DeploymentPreconditionError
         from olf.common.image_build import build_project_code_image
         from olf.infra.deployment.local import images
 
         if self.config.images.project_code_published:
             return self.config.images.project_code_image
+        if push and self.config.images.project_code_needs_repository:
+            raise DeploymentPreconditionError(
+                "this project names no image repository, and pushing would overwrite OpenLakeForge's example image "
+                f"{self.config.images.project_code_repository}. Set spec.project.image.repository in the "
+                "Deployment Profile (or export PROJECT_CODE_IMAGE_REPOSITORY), or pass --no-push."
+            )
         image = build_project_code_image(self.config, self.tools, env=self.env)
         if push:
             log.step(f"Pushing project-code image: {image}")

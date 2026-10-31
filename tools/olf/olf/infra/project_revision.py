@@ -78,24 +78,43 @@ _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 # `${DB_PASSWORD:-hunter2}`) would otherwise pass clean. A bare reference
 # with no default (`os.getenv("TOKEN")`, `${DB_PASSWORD}`) has nothing to
 # smuggle and still isn't flagged; a reference *with* one is.
+#
+# Python gets one more exemption: an unquoted identifier or attribute after
+# the noun (`password=password`, `password: str`, `token=self.token`) is a
+# variable, a parameter annotation, or a field -- the way a dlt connector
+# forwards a secret it read through `dlt.secrets.value` -- not a value. A
+# Python literal is always quoted, so a quoted value is still flagged --
+# including a prefixed one (`f"..."`, `rb"..."`), which is why the reference
+# form must not end at a quote and the literal form may start with a prefix.
+# YAML does not get this: there an unquoted scalar *is* the literal value.
 _CREDENTIAL_NOUN = (
     r"(?:password|passwd|token|secret|api[_-]?key|api[_-]?token|access[_-]?token|"
     r"client[_-]?secret|private[_-]?key)"
 )
-_FORBIDDEN_VALUE_PATTERNS = (
+_CREDENTIAL_ASSIGNMENT = rf"(?i)\b{_CREDENTIAL_NOUN}\b['\"]?\s*[:=]\s*"
+_RUNTIME_LOOKUP = r"\$|os\.environ|os\.getenv|[\w.]+\("
+_PYTHON_REFERENCE = r"[A-Za-z_][\w.]*(?![\w.'\"])"
+_LITERAL_VALUE = r"['\"]?[^\s'\"]{4,}"
+_PYTHON_LITERAL_VALUE = r"(?:[bfru]{1,2}(?=['\"]))?" + _LITERAL_VALUE
+_SMUGGLED_DEFAULT_PATTERN = re.compile(
+    _CREDENTIAL_ASSIGNMENT
+    + r"(?:[\w.]+\(\s*['\"][^'\"]+['\"]\s*,\s*['\"][^'\"]{4,}['\"]"  # call with a default argument
+    r"|\$\{?\w+\}?:-['\"]?[^\s'\"}]{4,})"  # ${VAR:-default} shell substitution
+)
+_ENDPOINT_PATTERNS = (
     re.compile(r"s3://", re.IGNORECASE),
     re.compile(r"http://"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(
-        rf"(?i)\b{_CREDENTIAL_NOUN}\b['\"]?\s*[:=]\s*"
-        r"(?!\$|os\.environ|os\.getenv|[\w.]+\()"
-        r"['\"]?[^\s'\"]{4,}"
-    ),
-    re.compile(
-        rf"(?i)\b{_CREDENTIAL_NOUN}\b['\"]?\s*[:=]\s*"
-        r"(?:[\w.]+\(\s*['\"][^'\"]+['\"]\s*,\s*['\"][^'\"]{4,}['\"]"  # call with a default argument
-        r"|\$\{?\w+\}?:-['\"]?[^\s'\"}]{4,})"  # ${VAR:-default} shell substitution
-    ),
+)
+_FORBIDDEN_VALUE_PATTERNS = (
+    *_ENDPOINT_PATTERNS,
+    re.compile(_CREDENTIAL_ASSIGNMENT + rf"(?!{_RUNTIME_LOOKUP})" + _LITERAL_VALUE),
+    _SMUGGLED_DEFAULT_PATTERN,
+)
+_PYTHON_FORBIDDEN_VALUE_PATTERNS = (
+    *_ENDPOINT_PATTERNS,
+    re.compile(_CREDENTIAL_ASSIGNMENT + rf"(?!{_RUNTIME_LOOKUP}|{_PYTHON_REFERENCE})" + _PYTHON_LITERAL_VALUE),
+    _SMUGGLED_DEFAULT_PATTERN,
 )
 
 
@@ -310,7 +329,8 @@ def _reject_runtime_bytes(relative_key: str, content: bytes) -> None:
     binary asset) cannot contain a matching text pattern either way.
     """
     text = content.decode("utf-8", errors="ignore")
-    for pattern in _FORBIDDEN_VALUE_PATTERNS:
+    patterns = _PYTHON_FORBIDDEN_VALUE_PATTERNS if relative_key.endswith(".py") else _FORBIDDEN_VALUE_PATTERNS
+    for pattern in patterns:
         match = pattern.search(text)
         if match:
             raise ProjectRevisionError(
