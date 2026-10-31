@@ -16,6 +16,8 @@ from .base import ServiceClientError, TransientServiceError
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 LAUNCH_RETRY_ATTEMPTS = 4
 LAUNCH_RETRY_DELAY_SECONDS = 3
+# The tag a launch is found by after an ambiguous response; the e2e's default.
+E2E_KEY_TAG = "openlakeforge/e2e-key"
 
 
 class DagsterTransientError(TransientServiceError):
@@ -78,10 +80,26 @@ class DagsterClient:
         self.expected_location_names = tuple(expected_location_names)
         self._request_json = request_json or self._requests_graphql
 
-    def launch(self, job_name: str, *, tags: Mapping[str, str] | None = None) -> str:
-        location_name, repository_name = self.wait_for_repository(job_name)
-        launch_key = f"openlakeforge-e2e-{job_name}-{uuid.uuid4().hex}"
-        run_tags = {**(tags or {}), "openlakeforge/e2e-key": launch_key}
+    def launch(
+        self,
+        job_name: str,
+        *,
+        tags: Mapping[str, str] | None = None,
+        repository: tuple[str, str] | None = None,
+        launch_key: str | None = None,
+        key_tag: str = E2E_KEY_TAG,
+    ) -> str:
+        """Launch `job_name` and return its run id.
+
+        The run carries `key_tag` = `launch_key`, so a launch whose response was
+        lost is found rather than launched twice. The defaults are the e2e's:
+        wait for the job's code location, and a fresh key under E2E_KEY_TAG. A
+        caller that must not block or reload code locations passes the
+        `repository` it found itself.
+        """
+        location_name, repository_name = repository or self.wait_for_repository(job_name)
+        launch_key = launch_key or f"openlakeforge-e2e-{job_name}-{uuid.uuid4().hex}"
+        run_tags = {**(tags or {}), key_tag: launch_key}
         variables = {
             "executionParams": {
                 "selector": {
@@ -115,7 +133,7 @@ class DagsterClient:
                 break
             except DagsterTransientError as exc:
                 last_error = exc
-                existing = self.find_run_by_tag(launch_key)
+                existing = self.find_run_by_tag(launch_key, key_tag=key_tag)
                 if existing:
                     return existing
                 if attempt + 1 == LAUNCH_RETRY_ATTEMPTS:
@@ -129,19 +147,19 @@ class DagsterClient:
             raise ServiceClientError(f"failed to launch {job_name}: {json.dumps(result, indent=2)}")
         return result["run"]["runId"]
 
-    def find_run_by_tag(self, launch_key: str) -> str | None:
+    def find_run_by_tag(self, launch_key: str, *, key_tag: str = E2E_KEY_TAG) -> str | None:
         """Find a run created before an ambiguous HTTP response."""
         try:
             result = self.graphql(
                 """
-                query ExistingRun($key: String!) {
-                  runsOrError(filter: {tags: [{key: "openlakeforge/e2e-key", value: $key}]}, limit: 1) {
+                query ExistingRun($tag: String!, $key: String!) {
+                  runsOrError(filter: {tags: [{key: $tag, value: $key}]}, limit: 1) {
                     __typename
                     ... on Runs { results { runId } }
                   }
                 }
                 """,
-                {"key": launch_key},
+                {"tag": key_tag, "key": launch_key},
             )["runsOrError"]
             runs = result.get("results", [])
             return str(runs[0]["runId"]) if runs else None

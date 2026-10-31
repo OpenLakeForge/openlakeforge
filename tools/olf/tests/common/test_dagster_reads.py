@@ -94,3 +94,54 @@ def test_get_run_reads_the_run() -> None:
     run = _client({"runOrError": {"__typename": "Run", **_RUN}}).get_run("run-1")
 
     assert run is not None and run.status == "STARTED" and run.ended_at is None
+
+
+def test_a_launch_with_its_repository_and_key_queries_no_workspace_and_tags_the_run_with_the_key() -> None:
+    queries: list[str] = []
+    sent: list[Mapping[str, Any] | None] = []
+
+    def request_json(query: str, variables: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        queries.append(query)
+        sent.append(variables)
+        launched = {"__typename": "LaunchRunSuccess", "run": {"runId": "run-9", "status": "QUEUED"}}
+        return {"data": {"launchRun": launched}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    run_id = client.launch(
+        "sales_order_revenue_pipeline",
+        tags={"openlakeforge/launched-by": "ada@example.com"},
+        repository=("sales-dagster", "__repository__"),
+        launch_key="req-1",
+        key_tag="openlakeforge/launch-key",
+    )
+
+    assert run_id == "run-9"
+    assert len(queries) == 1 and "launchRun" in queries[0]
+    params = sent[0]["executionParams"]  # type: ignore[index]
+    assert params["selector"]["repositoryLocationName"] == "sales-dagster"
+    assert params["executionMetadata"]["tags"] == [
+        {"key": "openlakeforge/launched-by", "value": "ada@example.com"},
+        {"key": "openlakeforge/launch-key", "value": "req-1"},
+    ]
+
+
+def test_a_lost_launch_response_is_found_by_the_callers_own_key_tag(monkeypatch: pytest.MonkeyPatch) -> None:
+    from openlakeforge_services import dagster as dagster_module
+    from openlakeforge_services.dagster import DagsterTransientError
+
+    lookups: list[Mapping[str, Any] | None] = []
+
+    def request_json(query: str, variables: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        if "ExistingRun" in query:
+            lookups.append(variables)
+            return {"data": {"runsOrError": {"__typename": "Runs", "results": [{"runId": "run-7"}]}}}
+        raise DagsterTransientError("connection reset")
+
+    monkeypatch.setattr(dagster_module, "LAUNCH_RETRY_DELAY_SECONDS", 0)
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    run_id = client.launch("job", repository=("loc", "repo"), launch_key="req-1", key_tag="openlakeforge/launch-key")
+
+    assert run_id == "run-7"
+    assert lookups == [{"tag": "openlakeforge/launch-key", "key": "req-1"}]
