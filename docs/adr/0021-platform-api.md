@@ -395,3 +395,16 @@ datasets, keeping every other owner, and grants `olf_platform_api` the report
 schemas in the step that grants `olf_data_access` them. An import keeps owners
 and adds the importer, so the user stays an owner across later imports; without
 the platform API there is no such user or role, and both steps do nothing.
+
+Build step 5, report routes (#670): `POST /api/v1/stages/{stage}/reports` takes a
+report directory zipped from its root and imports it into that stage's Superset
+as the service user, at `data-engineer` and on DEV only: the user co-owns every
+report asset, so an import elsewhere could overwrite any dashboard and bypass
+the repository and the artifacts phase. The upload's databases are dropped and
+the import is sparse, so it cannot replace a connection; a report reading a
+schema the report roles were not granted is refused with 409, since only the
+artifacts phase grants. It is audited like a launch.
+`GET /api/v1/stages/{stage}/reports/{dashboard}/export` returns one dashboard
+as a stage-neutral bundle, at `data-engineer` on every stage. The service user
+signs in with Superset's database provider, which the login endpoint honours
+whatever the AUTH_TYPE (Flask-AppBuilder 5.0.2), so OIDC sign-in does not stop it.
