@@ -2,7 +2,7 @@
 
 ## Status
 
-Decided, **build step 1 done, build step 3 begun**: `packages/lakehouse-services`
+Decided, **build step 1 done, build steps 3 and 4 begun**: `packages/lakehouse-services`
 holds every service client — the HTTP transport, Dagster, OpenMetadata and
 Superset — and the operations built on them: Superset report import and export
 (`openlakeforge_services.reports`) and OpenMetadata metadata deployment
@@ -11,9 +11,11 @@ endpoints and credentials from a deployment. The platform API in
 `packages/platform-api` has token validation, the permission matrix,
 `/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
 runs per stage, and OpenMetadata domains and data products with the caller's
-token forwarded. Archived logs are not served yet. The local provider deploys it
-with `spec.identity` (`modules/access/platform-api`), from an image `olf`
-builds, since no release has published one to pin.
+token forwarded. Archived logs are not served yet. `olf jobs list`, `olf runs
+list|show`, `olf domain list` and `olf product list` read through it with the
+signed-in person's token. The local provider deploys it with `spec.identity`
+(`modules/access/platform-api`), from an image `olf` builds, since no release
+has published one to pin.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -104,10 +106,12 @@ cannot accept the person's token. Per service:
 | Object store | Archived log reads | The platform API's read-only key for the log prefix | **The platform API** |
 
 A call that carries the person's token takes one of two routes. A CLI command
-calls the service's public route directly: `olf domain list` reads
-OpenMetadata through its route with the user's token (#536, PR 5), as
-`olf query` reaches Trino's `query_api` route. Or the platform API forwards
-the token unchanged, as the portal's query page does for Trino. Either way the
+may call the service's public route directly, as `olf query` reaches Trino's
+`query_api` route. Or the platform API forwards the token unchanged: `olf
+domain list` and `olf product list` read OpenMetadata through the API's
+`/api/v1/domains` and `/api/v1/data-products`, so the CLI and the portal share
+one client and one first-time-user remedy, and the portal's query page will
+reach Trino the same way. Either way the
 platform API holds no OpenMetadata credential to act on a person's behalf, and
 never reads table data with a stage principal: either would replace the
 service's per-user decision with its own.
@@ -130,8 +134,8 @@ Two conditions bind every caller on the OpenMetadata path:
   `openid email profile groups offline_access`.
 
 A person who has never opened OpenMetadata's UI has no user there, and a
-bearer request from them fails. #536 decides the remedy for `olf domain list`:
-it registers the caller once through `POST /v1/users`, which self-signup
+bearer request from them fails. The remedy (#536) registers the caller once
+through `POST /v1/users`, which self-signup
 (`enableSelfSignup = true`) allows for exactly the caller, then retries; the
 role sync assigns roles on its next run. A platform API endpoint that forwards
 a person's token to OpenMetadata does the same.
@@ -268,8 +272,8 @@ Each step is one pull request within AGENTS.md's size rule.
    credentials; OpenMetadata domains and products forwarding the person's
    token.
 4. `olf login`, `whoami`, `logout` and the read commands as clients of the API,
-   except where a command calls the service's route directly with the
-   person's token (`olf domain list`, #536 PR 5).
+   except where a command calls a service's route directly with the person's
+   token, as `olf query` does Trino's (step 6).
 5. State-changing endpoints — report export and import, launching a run — with
    audit records.
 6. Platform `olf query` on ADR 0019's person path (ADR 0020, Command
@@ -320,3 +324,10 @@ perimeter remain.
 Second part: the local root renders each stage's Dagster GraphQL URL and
 OpenMetadata's URL into the API's settings, and ADR 0017's F32 lets the API
 reach them.
+
+Build step 4, read commands (#669): `olf jobs list`, `olf runs list|show`,
+`olf domain list` and `olf product list` call the platform API with the stored
+session's token, and the API's refusal below a floor names the role it needs.
+`olf domain list` reads OpenMetadata through the API rather than OpenMetadata's
+own route, as decision 2 had planned, so the CLI and the portal share one client
+and one first-time-user remedy.
