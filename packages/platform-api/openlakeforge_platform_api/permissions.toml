@@ -50,3 +50,12 @@ stages = []
 [operations.list_logs]
 role = "data-engineer"
 stages = ["*"]
+
+# The first operation that changes state. Dagster checks nothing, so this row is
+# the only control on who launches what. DEV only (#670): a run on another stage
+# goes through Dagster's own UI and schedules until a per-stage floor is decided.
+# Audited: the API acts only once it has stored a record of the attempt.
+[operations.launch_run]
+role = "data-engineer"
+stages = ["dev"]
+changes_state = true
