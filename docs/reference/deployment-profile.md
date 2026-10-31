@@ -258,7 +258,11 @@ On `aws` and `azure` the same pin is deployed as it is, with the same conditions
 package, and nothing is built or pushed to ECR or ACR. Anything else builds and
 pushes to the provider registry. For the example, `olf infra project image` prints that
 pinned reference without building, so `olf infra project build` and `olf infra project deploy`
-promote one image digest through the stages.
+promote one image digest through the stages. On `local`, `olf infra project image`
+pushes to the resolved repository above; a `lakehouse_code/` that differs from
+the bundled one with neither `spec.project.image.repository` nor
+`PROJECT_CODE_IMAGE_REPOSITORY` is refused, never pushed to the public example's
+package.
 
 ```yaml
 # Local, your own image on GHCR (private: also name the pull secret).
