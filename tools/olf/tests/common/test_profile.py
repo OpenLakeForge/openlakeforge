@@ -789,3 +789,42 @@ def test_the_schema_agrees_with_the_parser_on_sizes(tmp_path) -> None:
         _with_sizes(_AWS, storage={"size": "small"}),
     ):
         assert _schema_errors(rejected, tmp_path)
+
+
+def _with_source_egress(source_egress: object, stage: str = "dev") -> dict:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["stages"].setdefault(stage, {"enabled": True})["source_egress"] = source_egress
+    return document
+
+
+def test_source_egress_ports_resolve_per_stage_and_default_closed(tmp_path: Path) -> None:
+    document = _with_source_egress({"ports": [5432, 443]})
+    document["spec"]["stages"]["prod"] = {"enabled": True}
+
+    topology = resolve_topology(validate_deployment_profile(document))
+
+    assert topology.stage(StageName.DEV).source_egress_ports == (443, 5432)
+    assert topology.stage(StageName.PROD).source_egress_ports == ()
+    rendered = {s["name"]: s["source_egress"] for s in json.loads(topology.render_json())["stages"]}
+    assert rendered["dev"] == {"ports": [443, 5432]} and rendered["prod"] == {"ports": []}
+    assert _schema_errors(document, tmp_path) == []
+
+
+def test_a_disabled_stage_opens_no_source_egress() -> None:
+    document = _with_source_egress({"ports": [443]}, stage="uat")
+    document["spec"]["stages"]["uat"]["enabled"] = False
+
+    assert resolve_topology(validate_deployment_profile(document)).stage(StageName.UAT).source_egress_ports == ()
+
+
+@pytest.mark.parametrize(
+    "source_egress",
+    [[443], {}, {"ports": []}, {"ports": [0]}, {"ports": [65536]}, {"ports": ["443"]}, {"ports": [True]},
+     {"ports": [443, 443]}, {"ports": [443], "hosts": ["example.com"]}],
+)
+def test_malformed_source_egress_is_rejected_by_the_validator_and_the_schema(source_egress, tmp_path) -> None:
+    document = _with_source_egress(source_egress)
+
+    with pytest.raises(DeploymentProfileError, match="source_egress"):
+        validate_deployment_profile(document)
+    assert _schema_errors(document, tmp_path) != []
