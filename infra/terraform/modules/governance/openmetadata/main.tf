@@ -95,7 +95,7 @@ locals {
     catalog_service_display_name  = local.catalog_service_display_name
     ingestion_bot_secret_name     = var.ingestion_bot_secret_name
     trino_lineage_namespace       = var.trino_lineage_namespace
-    trino_tls_lineage_namespace   = coalesce(var.trino_tls_lineage_namespace, "")
+    trino_tls_lineage_namespace   = var.trino_tls_lineage_namespace == null ? "" : var.trino_tls_lineage_namespace
     trino_host_port               = local.trino_host_port
     ingestion_bot_jwt_key         = var.ingestion_bot_jwt_key
     catalog_schema_names_json_b64 = local.catalog_schema_names_json_b64
