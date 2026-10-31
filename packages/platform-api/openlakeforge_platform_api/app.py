@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import reads, writes
+from openlakeforge_platform_api import reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.permissions import ANONYMOUS, Permission, PermissionMatrix
@@ -201,6 +201,18 @@ def create_app(
     )
     app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/reports",
+        report_routes.import_report,
+        methods=["POST"],
+        name="import_report",
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/reports/{dashboard}/export",
+        report_routes.export_report,
+        methods=["GET"],
+        name="export_report",
+    )
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app

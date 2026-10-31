@@ -6,6 +6,7 @@ release/component-catalog.yaml (`superset_base`).
 
 from __future__ import annotations
 
+import io
 import json
 import time
 from collections.abc import Mapping, Sequence
@@ -25,10 +26,16 @@ class SupersetClient(JsonHttpClient):
     username: str = "admin"
     password: str = "admin"
 
-    def login(self) -> None:
-        """Log in and set the bearer token, waiting out a Superset that is still starting."""
+    def login(self, *, attempts: int = 60) -> None:
+        """Log in and set the bearer token, waiting out a Superset that is still starting.
+
+        A deployment waits up to `attempts` tries two seconds apart; a request
+        handler passes 1, so a Superset that is down is answered at once.
+        """
         last_error: Exception | None = None
-        for _ in range(60):
+        for attempt in range(attempts):
+            if attempt:
+                time.sleep(2)
             try:
                 response = self.request(
                     "POST",
@@ -37,11 +44,11 @@ class SupersetClient(JsonHttpClient):
                 )
             except TransientServiceError as exc:
                 last_error = exc
-                time.sleep(2)
                 continue
             self.token = str(response["access_token"])
             return
-        raise ServiceClientError(f"Superset login failed: {last_error}")
+        # Only transient failures are retried, so the last one is; a caller can still tell "down" from "refused".
+        raise TransientServiceError(f"Superset login failed: {last_error}") from last_error
 
     def dashboards(self) -> list[Mapping[str, Any]]:
         """List all dashboards via the REST API."""
@@ -56,7 +63,7 @@ class SupersetClient(JsonHttpClient):
         dashboard_id = self.request("GET", f"/api/v1/dashboard/{quote(dashboard, safe='')}")["result"]["id"]
         return self.send("GET", "/api/v1/dashboard/export/", params={"q": f"!({int(dashboard_id)})"}).content
 
-    def import_assets(self, bundle: Path, *, database_password: str = "", sparse: bool = False) -> None:
+    def import_assets(self, bundle: Path | bytes, *, database_password: str = "", sparse: bool = False) -> None:
         """Import a `type: assets` bundle, overwriting every asset it carries.
 
         `/assets/import/` runs ImportAssetsCommand, which always overwrites and
@@ -77,20 +84,21 @@ class SupersetClient(JsonHttpClient):
         # Superset is served over HTTPS (WTF_CSRF_SSL_STRICT).
         csrf_token = self._csrf_token()
         form: dict[str, str] = {"sparse": "true"} if sparse else {}
+        # A path from a deployment, or bytes from a host with no writable filesystem (the platform API).
+        content, name = (bundle, "report.zip") if isinstance(bundle, bytes) else (bundle.read_bytes(), bundle.name)
         if database_password:
-            with ZipFile(bundle) as archive:
+            with ZipFile(io.BytesIO(content)) as archive:
                 names = [PurePosixPath(*PurePosixPath(n).parts[1:]).as_posix() for n in archive.namelist()]
             form["passwords"] = json.dumps(
                 {name: database_password for name in names if name.startswith("databases/")}
             )
-        with bundle.open("rb") as body:
-            self.send(
-                "POST",
-                "/api/v1/assets/import/",
-                files={"bundle": (bundle.name, body, "application/zip")},
-                data=form,
-                headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
-            )
+        self.send(
+            "POST",
+            "/api/v1/assets/import/",
+            files={"bundle": (name, content, "application/zip")},
+            data=form,
+            headers={"X-CSRFToken": csrf_token, "Referer": self.base_url},
+        )
 
     def _csrf_token(self) -> str:
         return str(self.request("GET", "/api/v1/security/csrf_token/")["result"])
