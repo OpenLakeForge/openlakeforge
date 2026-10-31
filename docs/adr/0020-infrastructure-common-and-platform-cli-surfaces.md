@@ -4,9 +4,10 @@
 
 Partly binding. **Binding today:** the `olf infra` group, the common top-level
 commands, and the hidden aliases that keep every earlier path working (#536,
-PR 2b), and the platform session commands `olf login`, `whoami` and `logout`
-(PR 4). **Decided, not built:** the remaining platform commands (`domain list`,
-`query`) and the non-interactive authentication contract below. Platform
+PR 2b), the platform session commands `olf login`, `whoami` and `logout`
+(PR 4), `olf query`, and the platform reads `olf jobs list`, `olf runs
+list|show`, `olf domain list` and `olf product list` (#669). **Decided, not
+built:** the non-interactive authentication contract below. Platform
 commands are clients of the platform API, decided in
 [ADR 0021](0021-platform-api.md) and not built either, except where a
 service accepts the person's token and the command calls its route directly.
@@ -29,7 +30,7 @@ needs decides its surface**, not who runs it.
 | --- | --- | --- | --- |
 | Needs | Cluster or cloud permissions | None | A Dex session, the same path as the UI |
 | Identity | Cloud IAM or SDK identity, kubeconfig and Kubernetes RBAC; workload or CI credentials | None | Human OIDC session; delegated user identity for local agents |
-| Reaches | Cloud and Kubernetes APIs, Terraform state, Helm, registry, object store | Local files, local Docker, public release metadata | The platform API ([ADR 0021](0021-platform-api.md)), and directly the public route of a service that authorizes the person's token: Trino's `query_api` for data-plane reads, OpenMetadata for `domain list` (ADR 0021, decision 2); never Kubernetes Secrets, exec or port-forward |
+| Reaches | Cloud and Kubernetes APIs, Terraform state, Helm, registry, object store | Local files, local Docker, public release metadata | The platform API ([ADR 0021](0021-platform-api.md)), and directly the public route of a service that authorizes the person's token: Trino's `query_api` for data-plane reads (ADR 0021, decision 2); never Kubernetes Secrets, exec or port-forward |
 
 Being `platform-admin` in the OpenLakeForge UI grants no Kubernetes or cloud
 rights. A platform command cannot reach a privileged operation through an infra
@@ -49,7 +50,7 @@ either command package.
 | --- | --- |
 | Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
 | Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
-| Platform | `login`, `whoami`, `logout`, `query`; `domain list` is planned |
+| Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show`, `domain list`, `product list` |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
@@ -141,3 +142,12 @@ authorizes the person's token, as `olf domain list` does with OpenMetadata.
 
 `olf query` is a platform command (ADR 0019, build step 7); its alias to `olf
 infra query` ended.
+
+The platform reads exist (#669): `olf jobs list`, `olf runs list|show`, `olf
+domain list` and `olf product list`, each a client of the platform API.
+`domain list` reads OpenMetadata through the API's `/api/v1/domains`, which
+forwards the person's token unchanged (ADR 0021, decision 2), instead of
+OpenMetadata's own route as planned: one client for the CLI and the portal, and
+one place for the first-time-user registration. Only `olf query` still calls a
+service's route directly. `domain list` and `product list` sit in the common
+`domain` and `product` groups beside `new`, on the platform surface.

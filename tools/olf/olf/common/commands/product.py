@@ -10,7 +10,7 @@ from olf.common.scaffold._commit import commit_plan
 from olf.common.scaffold._shared import ScaffoldError, parse_source_resource
 from olf.common.scaffold.product import plan_product_new
 
-app = typer.Typer(help="Product-owned Gold scaffolding.")
+app = typer.Typer(help="Product-owned Gold scaffolding, and the data products a deployment governs.")
 
 
 @app.command("new")
