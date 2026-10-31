@@ -65,6 +65,12 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }
     _run([sys.executable, "-m", "olf.common.project_code_check", str(project.root)], cwd=project.root, env=env)
+    # The image build runs the same two commands (#725). The install is the
+    # only step with network; the verify loads every extension with
+    # downloads disabled. Cached per DuckDB version, which is in the path.
+    extensions = str(site.parent / "duckdb-extensions")
+    for action in ("install", "verify"):
+        _run([sys.executable, "-m", "libs.duckdb_extensions", action, extensions], cwd=project.root, env=env)
     # The libs tests need Dagster, dlt and kubernetes, which only this
     # environment has; under the plain `pytest tools/olf/tests` gate they skip.
     libs_tests = project.distribution_root / "tools/olf/tests/libs"

@@ -30,6 +30,7 @@ These run your pipelines from the `project-code` image built from
 | [Floe](https://github.com/malon64/floe) | Validates Bronze against a domain contract and writes Silver Iceberg tables; rejected rows are quarantined | `floe-python` 0.8.8, `dagster-floe` 0.4.3 (in the project-code image) |
 | [dbt](https://www.getdbt.com/) with dbt-trino | Builds Gold models on Trino | dbt-core 1.11.12, dbt-trino 1.10.2 |
 | [Apache Iceberg](https://iceberg.apache.org/) | Table format of Silver and Gold | |
+| [DuckDB](https://duckdb.org/) | Runs Floe's merge write modes (`merge_scd1`, `merge_scd2`) against the Iceberg catalog; the `httpfs`, `aws`, `iceberg` and `avro` extensions are installed at image build, so a Floe Job downloads nothing | 1.5.6 (in the project-code image) |
 
 ## Service URLs
 

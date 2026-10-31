@@ -25,6 +25,13 @@ the stage's contract values, so the image carries no generated manifest and no
 stage binding for Floe. Floe itself runs in one Kubernetes Job per domain on
 this same image; dagster-floe passes that profile to the Job as text, so the
 Job runs plain `floe`. See [Floe validation](../../docs/architecture/floe-validation.md).
+Floe's merge write modes run through DuckDB, which loads its `httpfs`, `aws`,
+`iceberg` and `avro` extensions on first use and would download them from
+extensions.duckdb.org. Floe Job pods have no egress, so the build installs them
+for the locked DuckDB into the image user's `~/.duckdb/extensions/`, then
+`python -m libs.duckdb_extensions verify` loads them with downloads disabled; a
+missing extension fails the build. `olf check project-code` runs the same
+install and verify against its own environment.
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `olf infra deploy --provider aws --phase artifacts`.

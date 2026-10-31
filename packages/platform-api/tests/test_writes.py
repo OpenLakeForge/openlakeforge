@@ -231,3 +231,28 @@ def test_a_job_name_dagster_could_not_have_is_refused_before_anything_is_recorde
 
     assert response.status_code == 422
     assert dagster.launches == [] and store.objects == {}
+
+
+def test_a_job_name_two_code_locations_define_is_409_and_nothing_is_launched(
+    api: TestClient, mint: Mint, dagster: LaunchingDagster, store: AuditStore
+) -> None:
+    answer = dagster.answer
+
+    def two_locations(query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        found = answer(query, variables)
+        if "query Jobs" in query:
+            [repository] = found["repositoriesOrError"]["nodes"]
+            found["repositoriesOrError"]["nodes"].append({**repository, "location": {"name": "other-code"}})
+        return found
+
+    dagster.answer = two_locations  # type: ignore[method-assign]
+
+    response = _launch(api, _as(mint, "data-engineer"))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "job 'orders_job' is defined in more than one place in stage 'dev': "
+        "other-code/__repository__, project-code/__repository__"
+    )
+    assert dagster.launches == []
+    assert store.phases() == ["attempted", "failed"]
