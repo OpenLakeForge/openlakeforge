@@ -16,6 +16,8 @@ locals {
       stage.floe_credentials_secret_name,
       stage.deployer_credentials_secret_name,
     ]]),
+    # Each stage's Trino people catalog credential (ADR 0019), when people sign in.
+    values(local.people_secret_names),
   ))
   bootstrap_marker_names = [for name in local.bootstrap_secret_names : "${name}-bootstrap-pending"]
 }
