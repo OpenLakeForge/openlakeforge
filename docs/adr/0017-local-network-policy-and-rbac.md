@@ -202,6 +202,7 @@ port [D]).
 | F29 | Dex | the Dex e2e's stub GitHub pod (`olf-system`, label `openlakeforge.io/e2e=github-stub`, #405) | 8443 | the connector `hostName` is `olf-e2e-github.olf-system.svc`; F28 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port) | T; a flow-file row keyed on the label the e2e sets |
 | F30 | OpenMetadata role-sync CronJob (`openlakeforge.io/job=openmetadata-role-sync`) | any address outside the pod and Service ranges | 443 | the sync reads team members from `api.github.com` ([ADR 0014](0014-identity-and-authorization.md), "OpenMetadata role sync"); no FQDN selector, so the port on any address, on that Job's pods only. Its calls to OpenMetadata ride F13 | T |
 | F31 | the Trino coordinator | Dex (`olf-system`) | 5556 | the signing keys for people's tokens ([ADR 0019](0019-data-plane-authorization-deferral.md)), which Trino fetches at startup and cannot start without; Traefik is created after Trino, so F4 is not yet usable then. The Web UI's sign-in stays on F4 | T |
+| F32 | the platform API | Dagster webserver 80 (stage); OpenMetadata 8585 | 80, 8585 | its read endpoints ([ADR 0021](0021-platform-api.md)): each stage's GraphQL URL (`dagster_graphql_urls`), and OpenMetadata with the caller's token forwarded (`openmetadata_url`), both rendered by `modules/access/platform-api` | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -497,3 +498,8 @@ F31: the Trino coordinator reaches Dex's Service for the keys of people's
 tokens, because it fetches them at startup and Traefik, the F4 path, is created
 after Trino. Dex serves the same endpoints on 5556 to Traefik (F3), so the row
 adds no endpoint F4 sources could not already reach.
+
+F32 added (#668): the platform API's read endpoints reach each stage's Dagster
+webserver and OpenMetadata in-cluster. Dagster checks nothing, so this row and
+the API's permission matrix are the only controls on what reaches its GraphQL
+API (ADR 0021, decision 3).
