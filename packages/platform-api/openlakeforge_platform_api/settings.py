@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 class SettingsError(ValueError):
@@ -50,6 +51,10 @@ class Settings:
     log_archives: Mapping[str, LogArchiveSetting] = field(default_factory=dict)
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
+    # Where audit records are stored, s3://<bucket>/<prefix>/. The write-only key comes from the environment
+    # (OPENLAKEFORGE_AUDIT_ACCESS_KEY_ID, OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY). Without both, every operation
+    # that changes state answers 503: it is never run unaudited.
+    audit_base_uri: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -74,6 +79,7 @@ class Settings:
                 },
                 s3_endpoint_url=data.get("s3_endpoint_url") or None,
                 s3_region=str(data.get("s3_region") or "us-east-1"),
+                audit_base_uri=data.get("audit_base_uri") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -103,6 +109,12 @@ class Settings:
         stray = sorted(set(self.log_archives) - set(self.stages))
         if stray:
             raise SettingsError(f"log_archives names stages that are not enabled: {', '.join(stray)}")
+        if self.audit_base_uri is not None and not (
+            self.audit_base_uri.startswith("s3://")
+            and self.audit_base_uri.endswith("/")
+            and urlsplit(self.audit_base_uri).netloc
+        ):
+            raise SettingsError("audit_base_uri must be s3://<bucket>/<prefix>/, ending in /")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

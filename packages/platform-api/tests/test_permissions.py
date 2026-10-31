@@ -45,7 +45,7 @@ def test_every_shipped_route_has_exactly_one_row_and_every_row_a_route(settings:
     assert routes == set(app.state.permissions.operations)
 
 
-def test_the_shipped_app_serves_only_its_read_routes(settings: Settings) -> None:
+def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
     routes = [route for route in create_app(settings).routes if isinstance(route, APIRoute)]
 
     assert sorted((route.path, ",".join(sorted(route.methods or ()))) for route in routes) == [
@@ -58,6 +58,28 @@ def test_the_shipped_app_serves_only_its_read_routes(settings: Settings) -> None
         ("/api/v1/stages/{stage}/runs/{run_id}", "GET"),
         ("/api/v1/whoami", "GET"),
     ]
+
+
+def test_every_route_that_is_not_a_get_is_marked_as_changing_state_and_so_audited(settings: Settings) -> None:
+    app = create_app(settings)
+    operations = app.state.permissions.operations
+
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            assert operations[route.name].changes_state == (route.methods != {"GET"}), route.name
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"role": "viewer", "stages": [], "changes_state": "yes"}, "changes_state must be true or false"),
+        ({"role": "anonymous", "stages": [], "changes_state": True}, "anonymous operation cannot change state"),
+        ({"role": "viewer", "stages": [], "audited": True}, "keys other than role, stages and changes_state"),
+    ],
+)
+def test_a_malformed_changes_state_row_stops_the_matrix_loading(row: dict[str, object], message: str) -> None:
+    with pytest.raises(PermissionMatrixError, match=message):
+        PermissionMatrix.from_mapping({"operations": {"op": row}}, PRECEDENCE)
 
 
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json", "/api/docs", "/api/openapi.json"])
