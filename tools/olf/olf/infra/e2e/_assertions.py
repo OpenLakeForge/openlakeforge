@@ -18,7 +18,7 @@ from openlakeforge_services.superset import SupersetClient
 from olf.common import config, log
 from olf.infra import access, k8s, superset
 from olf.infra.contracts import CONTRACT_STAGE_ENV
-from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password, automation_token
 
@@ -125,7 +125,33 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             database_fqn=database_fqn,
         )
         gold_tables = [table for product in cfg.inventory.products for table in product_gold_tables(cfg, product)]
-        assert_openmetadata_stage_lineage(client, stage=stage, database_fqn=database_fqn, tables=gold_tables)
+        try:
+            assert_openmetadata_stage_lineage(client, stage=stage, database_fqn=database_fqn, tables=gold_tables)
+        except E2EError as exc:
+            # OpenMetadata answers an OpenLineage POST with 200 whatever it made of the events, and dbt-ol's
+            # own report is lost with the run pod; the server log names each dataset it could not resolve.
+            raise E2EError(f"{exc}\nOpenMetadata's OpenLineage log lines:\n{openmetadata_lineage_log(cfg)}") from exc
+
+
+# Lines the OpenMetadata 1.13 server writes for OpenLineage requests: the access log line of each POST and the
+# resolver's and lineage resource's warnings (could not resolve a dataset, failed to create a table or an edge).
+_LINEAGE_LOG_MARKERS = (
+    "openlineage",
+    "resolve input dataset",
+    "resolve output dataset",
+    "create table",
+    "lineage edge",
+)
+_LINEAGE_LOG_LINES = 80
+
+
+def openmetadata_lineage_log(cfg: E2EConfig) -> str:
+    try:
+        text = kubectl(cfg, ["logs", "-n", cfg.platform_namespace, "deploy/openmetadata"], capture=True)
+    except E2EError as exc:
+        return f"(cannot read the OpenMetadata log: {exc})"
+    lines = [line for line in text.splitlines() if any(marker in line.lower() for marker in _LINEAGE_LOG_MARKERS)]
+    return "\n".join(lines[-_LINEAGE_LOG_LINES:]) or "(none: no OpenLineage request reached OpenMetadata)"
 
 
 def assert_openmetadata_stage_lineage(

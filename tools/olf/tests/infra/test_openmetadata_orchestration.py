@@ -274,6 +274,9 @@ products:
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")
+    models = tmp_path / "gold" / "order_revenue" / "dbt" / "models" / "gold"
+    models.mkdir(parents=True)
+    (models / "mart_revenue_by_day.sql").write_text("select 1\n")
     cfg = om.OpenMetadataConfig.from_environment(
         {**APPLIED_DEV_CONTRACT, **(environ or {})},
         base_url="http://x",
@@ -310,6 +313,41 @@ def test_deploy_does_not_touch_the_unscoped_legacy_database(
     assert requests == []
 
 
+DEV = "polaris.lakehouse_dev"
+
+
+def test_deploy_registers_every_table_a_pipeline_writes_before_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OpenMetadata 1.13.6 drops lineage for a table it does not hold yet, so
+    each Silver (Floe entity) and Gold (dbt model) table is registered first,
+    and an existing table is never overwritten."""
+    deployer = _single_product_deployer(tmp_path)
+    tables: list[tuple[str, object, tuple[int, ...]]] = []
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
+
+    def request(method: str, path: str, **kwargs):
+        if path == "/api/v1/tables":
+            tables.append((method, kwargs.get("json_body"), kwargs.get("ok_statuses")))
+        if method == "GET":
+            return {"data": [{"id": "gold-table"}]}
+        return {}
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    deployer.deploy()
+
+    kept = (200, 201, 409)
+    assert tables == [
+        ("POST", {"name": "orders", "databaseSchema": f"{DEV}.sales_silver", "columns": []}, kept),
+        ("POST", {"name": "mart_revenue_by_day", "databaseSchema": f"{DEV}.order_revenue_gold", "columns": []}, kept),
+    ]
+
+
 def test_deploy_sets_the_domain_on_schemas_and_attaches_only_gold_tables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -337,7 +375,7 @@ def test_deploy_sets_the_domain_on_schemas_and_attaches_only_gold_tables(
         ("/api/v1/databaseSchemas", "sales_silver", ["sales"]),
         ("/api/v1/databaseSchemas", "order_revenue_gold", ["sales"]),
     ]
-    assert not [path for _, path, _ in writes if path.startswith("/api/v1/tables")]
+    assert [body["name"] for _, path, body in writes if path == "/api/v1/tables"] == ["orders", "mart_revenue_by_day"]
     assert writes[-1] == (
         "PUT",
         "/api/v1/dataProducts/order_revenue/assets/add",
