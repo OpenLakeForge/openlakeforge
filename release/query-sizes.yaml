@@ -18,12 +18,18 @@
 #   because Trino reserves 30% of it as headroom.
 # max_memory: query.max-memory, the per-query limit across the cluster.
 # max_memory_per_node: query.max-memory-per-node, the per-query limit on one node.
+# max_stage_count: query.max-stage-count. A query reads about two stages per
+#   table, so one Gold query reads at most max_stage_count / 2 tables (Trino's
+#   default of 150 stopped a 75-table union at 152 stages, #706). Each stage
+#   costs the coordinator scheduling work and memory, so the value follows its
+#   heap: the coordinator keeps the same 2G heap in every size, hence 300.
 sizes:
   small:
     workers: 0
     schedule_on_coordinator: true
     max_memory: 4GB
     max_memory_per_node: 1GB
+    max_stage_count: 300
     coordinator:
       heap: 2G
       cpu_request: 500m
@@ -36,6 +42,7 @@ sizes:
     schedule_on_coordinator: false
     max_memory: 2GB
     max_memory_per_node: 1GB
+    max_stage_count: 300
     coordinator:
       heap: 2G
       cpu_request: 500m
@@ -53,6 +60,7 @@ sizes:
     schedule_on_coordinator: false
     max_memory: 4GB
     max_memory_per_node: 1GB
+    max_stage_count: 300
     coordinator:
       heap: 2G
       cpu_request: 500m

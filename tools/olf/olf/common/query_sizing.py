@@ -20,7 +20,15 @@ from olf.common.profile import Size
 QUERY_SIZES_PATH = "release/query-sizes.yaml"
 
 _NODE_FIELDS = ("heap", "cpu_request", "memory_request", "memory_limit")
-_SIZE_FIELDS = {"workers", "schedule_on_coordinator", "max_memory", "max_memory_per_node", "coordinator", "worker"}
+_SIZE_FIELDS = {
+    "workers",
+    "schedule_on_coordinator",
+    "max_memory",
+    "max_memory_per_node",
+    "max_stage_count",
+    "coordinator",
+    "worker",
+}
 
 
 class QuerySizingError(RuntimeError):
@@ -42,6 +50,7 @@ class QuerySizing:
     schedule_on_coordinator: bool
     max_memory: str
     max_memory_per_node: str
+    max_stage_count: int
     coordinator: NodeResources
     worker: NodeResources | None
 
@@ -69,6 +78,9 @@ def load_query_sizing(distribution_root: Path, size: Size) -> QuerySizing:
         raise QuerySizingError(f"{where}.workers must be a non-negative integer")
     if (workers > 0) != ("worker" in entry):
         raise QuerySizingError(f"{where}: worker resources are required exactly when workers > 0")
+    stages = entry.get("max_stage_count")
+    if not isinstance(stages, int) or isinstance(stages, bool) or stages < 1:
+        raise QuerySizingError(f"{where}.max_stage_count must be a positive integer")
     schedule = entry.get("schedule_on_coordinator")
     if not isinstance(schedule, bool):
         raise QuerySizingError(f"{where}.schedule_on_coordinator must be a boolean")
@@ -80,6 +92,7 @@ def load_query_sizing(distribution_root: Path, size: Size) -> QuerySizing:
         schedule_on_coordinator=schedule,
         max_memory=_text(entry, "max_memory", where),
         max_memory_per_node=_text(entry, "max_memory_per_node", where),
+        max_stage_count=stages,
         coordinator=_node(entry.get("coordinator"), f"{where}.coordinator"),
         worker=_node(entry["worker"], f"{where}.worker") if workers > 0 else None,
     )

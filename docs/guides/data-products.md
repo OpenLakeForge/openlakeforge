@@ -143,6 +143,13 @@ hand:
    )
    ```
 
+Keep one model's reads to about 150 tables or fewer. Trino counts about two
+stages per table a query reads and stops at `max_stage_count` (300 in every
+`query.size`, see
+[the deployment profile](../reference/deployment-profile.md)) with
+`QUERY_HAS_TOO_MANY_STAGES`. A union over a whole domain should be split into
+staging models.
+
 ## Remove a product
 
 Delete its entry from `governance.yml`, its `gold/<product>/` directory and its

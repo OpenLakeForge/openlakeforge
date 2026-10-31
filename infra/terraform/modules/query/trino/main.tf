@@ -161,6 +161,10 @@ locals {
         { query = { maxMemoryPerNode = var.query_sizing.max_memory_per_node } },
         { for key, value in { nodeScheduler = { includeCoordinator = var.query_sizing.schedule_on_coordinator } } : key => value if role == "coordinator" },
       )
+      # The chart has no value for this property, and the top-level list is
+      # replaced wholesale by the TLS and auth values, so it rides in the
+      # coordinator's own list, which nothing else sets. Only the coordinator plans stages.
+      additionalConfigProperties = role == "coordinator" ? ["query.max-stage-count=${var.query_sizing.max_stage_count}"] : []
       resources = {
         requests = { cpu = node.cpu_request, memory = node.memory_request }
         limits   = { memory = node.memory_limit }
