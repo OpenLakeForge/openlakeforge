@@ -553,6 +553,9 @@ module "openmetadata" {
   # Read from module.trino, not the contract, so the bootstrap Job that runs
   # the first catalog crawl through Trino is created only once Trino is ready.
   trino_lineage_namespace = "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.http_port}"
+  # dbt connects on the HTTPS port when workload authentication is on, and
+  # names its lineage datasets by that port.
+  trino_tls_lineage_namespace = module.trino.tls_port == null ? null : "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.tls_port}"
 
   depends_on = [
     module.polaris,

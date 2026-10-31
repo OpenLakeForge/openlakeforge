@@ -113,6 +113,12 @@ variable "trino_lineage_namespace" {
   default     = "trino://trino:8080"
 }
 
+variable "trino_tls_lineage_namespace" {
+  description = "OpenLineage namespace of the query engine's HTTPS listener, mapped to the catalog service beside trino_lineage_namespace. dbt names its datasets by the port it connects to, which is the TLS port when workload authentication is on. null when Trino serves no TLS."
+  type        = string
+  default     = null
+}
+
 variable "ingestion_bot_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job containing the ingestion-bot JWT."
   type        = string

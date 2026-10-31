@@ -75,7 +75,9 @@ Floe and dbt-trino each emit OpenLineage events straight to OpenMetadata's
 - `openlineage-dbt` ships in the project-code image; Dagster sets the product job
   name around the dbt invocation so events carry stable logical identities.
 - The dataset namespace matches the catalog identity: `polaris` locally and on
-  Azure, `aws_glue` on AWS.
+  Azure, `aws_glue` on AWS. dbt-trino's namespace is the Trino URI it connects
+  to, so both of Trino's listeners are mapped to the catalog service: the HTTP
+  port, and the HTTPS port dbt uses once workload authentication is on.
 - OpenMetadata owns entity resolution and lineage persistence.
 
 ### Two rejected approaches, still rejected
@@ -147,6 +149,11 @@ no longer seeded; products attach their Gold tables only.
 2026-10-31: tables are registered at activation again, named from the Floe
 entities and dbt models, because OpenMetadata 1.13.6 cannot auto-create them
 and dropped every Gold edge without them.
+
+2026-10-31: Trino's HTTPS listener is mapped beside its HTTP one. dbt has
+reported its datasets under the TLS port since workload authentication;
+OpenMetadata 1.13.6 still resolved them by table name, but its main branch drops
+a dataset whose namespace is not mapped.
 
 2026-10-28 (#533): Floe emits lineage from one Kubernetes Job per domain, with
 the endpoint in the profile the code location renders and the JWT as a Secret
