@@ -432,7 +432,6 @@ class MetadataDeployer:
         domain_specs: list[tuple[Path, dict]] = []
         root = inventory.lakehouse_root
         for domain in lakehouse_document["domains"]:
-            name = domain["name"]
             products = []
             for product in domain["products"]:
                 bronze_entries = [
@@ -464,7 +463,7 @@ class MetadataDeployer:
                         "displayName": domain["displayName"],
                         "description": domain.get("description", ""),
                         "status": domain.get("status", ""),
-                        "silver_tables": [entity.name for entity in entities[name]],
+                        "silver_tables": [entity.name for entity in entities[domain["name"]]],
                         "data_products": products,
                     },
                 )

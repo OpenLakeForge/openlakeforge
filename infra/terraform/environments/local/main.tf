@@ -44,6 +44,8 @@ locals {
     ? abspath(pathexpand(var.helm_repository_config_path))
     : abspath("${path.root}/../../../../.tmp/helm/local/repositories.yaml")
   )
+  # OpenMetadata's Service; the platform API's settings name it without waiting for the release.
+  openmetadata_service  = { name = "openmetadata", port = 8585 }
   artifact_base_uri     = "s3://${var.ops_bucket_name}"
   log_base_uri          = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
@@ -286,7 +288,10 @@ module "platform_api" {
     for name in keys(local.enabled_stages) :
     name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
   }
-  openmetadata_url = local.governance_contract.endpoint
+  # Built from locals the OpenMetadata module is given too, never from its
+  # contract: that waits for OpenMetadata's release and bootstrap Job, and a
+  # governance failure must not hold back the API and its other routes.
+  openmetadata_url = local.governance_enabled ? "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}" : null
   # The archived-logs route (ADR 0021): read with the key the SeaweedFS
   # credentials Job mints, over F33 (ADR 0017).
   log_archives = {
@@ -507,6 +512,9 @@ module "openmetadata" {
   source = "../../modules/governance/openmetadata"
   count  = local.governance_enabled ? 1 : 0
 
+  release_name = local.openmetadata_service.name
+  om_http_port = local.openmetadata_service.port
+
   namespace               = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file        = "${path.root}/../../../helm/values/local/openmetadata.yaml"
   deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
@@ -707,6 +715,17 @@ locals {
       ports = [try(tonumber(regex("^(?i:https)://(?:\\[[^]]*\\]|[^/:?#]+):([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
       tag   = "T"
     }] : [],
+    # F34: a stage's run pods reach the external sources the profile declares
+    # for it (spec.stages.<stage>.source_egress.ports); nothing when it
+    # declares none.
+    [for stage, ports in var.stage_source_egress_ports : {
+      id     = "F34"
+      stages = [stage]
+      from   = { scope = "stage", pods = { "app.kubernetes.io/component" = "run_worker" } }
+      to     = { scope = "any" }
+      ports  = ports
+      tag    = "T"
+    } if length(ports) > 0],
   )
 }
 

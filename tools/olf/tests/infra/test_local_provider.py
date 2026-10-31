@@ -277,6 +277,34 @@ def test_the_image_command_returns_the_published_example_without_building(tmp_pa
     assert provider.build_project_image() == _PIN
 
 
+def test_edited_code_without_a_repository_is_never_pushed_to_the_example_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from _local_config_support import _published_config
+
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.infra.deployment.local import images
+
+    (tmp_path / "lakehouse_code").mkdir()
+    (tmp_path / "lakehouse_code" / "definitions.py").write_text("defs = 1\n")
+    project = tmp_path / "acme"
+    (project / "lakehouse_code").mkdir(parents=True)
+    (project / "lakehouse_code" / "definitions.py").write_text("acme = 1\n")
+    built: list[str] = []
+    monkeypatch.setattr(
+        "olf.common.image_build.build_project_code_image", lambda config, *a, **k: built.append("x") or "img:local"
+    )
+    monkeypatch.setattr(images, "load_image_into_kind", lambda *a, **k: None)
+    provider = LocalProvider.create(_published_config(tmp_path, project_root=project), toolkit=_toolkit(), environ={})
+    monkeypatch.setattr(provider.tools.docker, "push", lambda image, **k: pytest.fail(f"pushed {image}"))
+
+    with pytest.raises(DeploymentPreconditionError, match=r"spec\.project\.image\.repository"):
+        provider.build_project_image()
+    assert built == []
+
+    assert provider.build_project_image(push=False) == "img:local"
+
+
 def _github_provider(tmp_path: Path) -> LocalProvider:
     from dataclasses import replace
 

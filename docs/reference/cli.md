@@ -90,7 +90,7 @@ All `new` commands validate the result before writing and accept
 | Command | Does |
 | --- | --- |
 | `olf infra platform apply -f openlakeforge.yaml` | Create the cluster, shared services and every enabled stage, without your code. |
-| `olf infra project image -f openlakeforge.yaml` | Build and push the project-code image; prints a digest-pinned reference. For the unmodified public example it prints the release-pinned reference and builds nothing. |
+| `olf infra project image -f openlakeforge.yaml` | Build and push the project-code image; prints a digest-pinned reference. On `local` it pushes to `spec.project.image.repository`, else `PROJECT_CODE_IMAGE_REPOSITORY`; edited code with neither is refused rather than pushed over the public example. For the unmodified public example it prints the release-pinned reference and builds nothing. |
 | `olf infra project build --project . --image <ref>` | Build and publish an immutable revision; prints its id. |
 | `olf infra project deploy -f openlakeforge.yaml --stage <s> --revision <id>` | Activate a revision in a stage without rebuilding. |
 | `olf infra project status -f openlakeforge.yaml` | The revision active in each stage. |
@@ -197,7 +197,7 @@ needs.
 | `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` | unset | CA file `olf login` verifies the issuer against |
 | `OLF_TOOLCHAIN_MODE` | `managed` | `host` uses Terraform, Helm, kubectl and kind from `PATH` |
 | `OLF_PORT_FORWARD` | unset | `1` makes `olf` port-forward instead of using the local ingress |
-| `PROJECT_CODE_IMAGE_REPOSITORY`, `PROJECT_CODE_IMAGE_TAG` | `ghcr.io/openlakeforge/openlakeforge/project-code`, `local` | Where `olf infra project image` pushes on the local provider |
+| `PROJECT_CODE_IMAGE_REPOSITORY`, `PROJECT_CODE_IMAGE_TAG` | `ghcr.io/openlakeforge/openlakeforge/project-code`, `local` | Where `olf infra project image` pushes on the local provider when the profile has no `spec.project.image.repository` |
 | `AWS_*`, `AZURE_*` | | Cloud settings; see [Deploy to AWS](../guides/cloud/deploy-to-aws.md) and [Deploy to Azure](../guides/cloud/deploy-to-azure.md) |
 
 ## Contributor commands
