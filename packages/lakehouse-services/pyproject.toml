@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openlakeforge-lakehouse-services"
-version = "0.5.0a1"
+version = "0.6.0a1"
 description = "OpenLakeForge service clients and operations shared by olf and the platform API"
 requires-python = ">=3.12"
-dependencies = ["openlakeforge-domain-model==0.5.0a1", "PyYAML>=6,<7", "requests>=2.32,<3"]
+dependencies = ["openlakeforge-domain-model==0.6.0a1", "PyYAML>=6,<7", "requests>=2.32,<3"]
 
 [tool.setuptools.packages.find]
 include = ["openlakeforge_services*"]

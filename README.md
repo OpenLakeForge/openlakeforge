@@ -83,7 +83,7 @@ Deploy a local, single-stage Slim platform on Kubernetes in Docker. You need
 pinned Terraform, Helm, kubectl and kind.
 
 ```bash
-uv tool install "openlakeforge==0.5.0a1" --python 3.12
+uv tool install "openlakeforge==0.6.0a1" --python 3.12
 
 mkdir my-lakehouse && cd my-lakehouse
 olf init                      # writes openlakeforge.yaml and lakehouse_code/

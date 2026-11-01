@@ -154,7 +154,7 @@ permissions:
   id-token: write  # cloud credentials via OIDC
 
 env:
-  OLF_VERSION: "0.5.0a1"
+  OLF_VERSION: "0.6.0a1"
 
 jobs:
   build:
@@ -170,7 +170,7 @@ jobs:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
       - id: build
-        uses: OpenLakeForge/openlakeforge/.github/actions/build-revision@v0.5.0-alpha.1
+        uses: OpenLakeForge/openlakeforge/.github/actions/build-revision@v0.6.0-alpha.1
         with:
           # The platform's registry: an ECR repository on AWS, ACR on Azure.
           image-repository: ${{ vars.OLF_IMAGE_REPOSITORY }}
@@ -195,7 +195,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
-      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.5.0-alpha.1
+      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.6.0-alpha.1
         with:
           stage: dev
           revision: ${{ needs.build.outputs.revision }}
@@ -213,7 +213,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
-      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.5.0-alpha.1
+      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.6.0-alpha.1
         with:
           stage: uat
           revision: ${{ needs.build.outputs.revision }}
@@ -232,7 +232,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.OLF_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.OLF_AWS_REGION }}
-      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.5.0-alpha.1
+      - uses: OpenLakeForge/openlakeforge/.github/actions/deploy-stage@v0.6.0-alpha.1
         with:
           stage: prod
           revision: ${{ needs.build.outputs.revision }}
