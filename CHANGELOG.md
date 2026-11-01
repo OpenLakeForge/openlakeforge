@@ -99,6 +99,9 @@ for how a release is cut and verified.
 
 ### Fixed
 
+- dbt incremental models no longer fail on their second run with "Failed to
+  drop view '<model>__dbt_tmp'". Trino drops Iceberg views and tables as a
+  purge, which Polaris refused; its `DROP_WITH_PURGE_ENABLED` feature is now on.
 - dlt Bronze loads no longer fail on a platform deploy with "OPENLAKEFORGE_STAGE
   is not set". The Dagster module now exports the stage to its pods, as
   project activation already did, so `olf infra deploy --phase artifacts`
