@@ -8,13 +8,17 @@ import json
 import os
 import tarfile
 import tempfile
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.dagster import DagsterClient
 
 from olf.common import contract_state
 from olf.common.deployment.charts import prepare_chart
@@ -24,6 +28,7 @@ from olf.common.distribution import distribution_version_at
 from olf.common.profile import StageName
 from olf.common.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
 from olf.common.tooling import docker as docker_tooling
+from olf.infra import k8s
 from olf.infra.artifact_store import RevisionStore
 from olf.infra.deployment import contract_env
 from olf.infra.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
@@ -115,6 +120,14 @@ _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 # host (modules/orchestration/dagster/main.tf, local.workspace_servers).
 _CODE_SERVER_PORT = 3030
 _PULL_SECRET_TYPE = "kubernetes.io/dockerconfigjson"
+# The platform release's webserver Service (modules/orchestration/dagster has
+# no `release_name` override; each stage's namespace tells them apart).
+_WEBSERVER_SERVICE = f"{_PLATFORM_RELEASE}-dagster-webserver"
+# Long enough for the webserver to reconnect to a code server that has only
+# just passed readiness and load its definitions; short enough that a
+# webserver stuck on another image fails the deploy rather than hanging it.
+_LOCATION_RELOAD_TIMEOUT_SECONDS = 180.0
+_LOCATION_RELOAD_DELAY_SECONDS = 5.0
 
 
 class ActivationError(DeploymentPreconditionError):
@@ -600,6 +613,79 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
+def await_locations_serving(
+    client: DagsterClient,
+    code_locations: Sequence[CodeLocation],
+    image: str,
+    *,
+    timeout_seconds: float = _LOCATION_RELOAD_TIMEOUT_SECONDS,
+    delay_seconds: float = _LOCATION_RELOAD_DELAY_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Reload every contracted location in the webserver until each reports `image`'s digest.
+
+    The webserver caches each location's snapshot, and a run launched from it
+    takes its image and container context from that snapshot. Without a reload,
+    a webserver that loaded the location before the rollout keeps launching the
+    previous revision (#740). The daemon refreshes its own workspace on a timer
+    (dagster/_daemon/controller.py, RELOAD_WORKSPACE_INTERVAL), so only the
+    webserver has to be told.
+    """
+    digest = "@" + _image_parts(image)[1]
+    pending = {location.name for location in code_locations}
+    observed: dict[str, str] = {}
+    deadline = clock() + timeout_seconds
+    while True:
+        for name in sorted(pending):
+            try:
+                served = client.reload_location_image(name)
+            except ServiceClientError as exc:
+                observed[name] = str(exc)
+                continue
+            if served is not None and served.endswith(digest):
+                pending.discard(name)
+            else:
+                observed[name] = f"serves image {served or '<none reported>'}"
+        if not pending:
+            return
+        if clock() >= deadline:
+            break
+        sleep(delay_seconds)
+    detail = "; ".join(f"{name}: {observed[name]}" for name in sorted(pending))
+    raise ActivationError(
+        f"the Dagster webserver did not serve {image} within {timeout_seconds:.0f}s after the rollout "
+        f"({detail}). Runs launched now would use another revision's image; the activation was not made active. "
+        "Inspect the webserver and code-server logs, then rerun the deploy."
+    )
+
+
+def _verify_webserver(
+    *, namespace: str, code_locations: Sequence[CodeLocation], image: str, kube_context: str, log_prefix: str
+) -> None:
+    try:
+        with _stage_webserver(namespace, kube_context=kube_context, log_prefix=log_prefix) as client:
+            await_locations_serving(
+                client,
+                code_locations,
+                image,
+                timeout_seconds=_LOCATION_RELOAD_TIMEOUT_SECONDS,
+                delay_seconds=_LOCATION_RELOAD_DELAY_SECONDS,
+            )
+    except k8s.KubectlError as exc:
+        raise ActivationError(
+            f"could not reach the Dagster webserver in {namespace} to reload its code locations: {exc}"
+        ) from exc
+
+
+@contextmanager
+def _stage_webserver(namespace: str, *, kube_context: str, log_prefix: str) -> Iterator[DagsterClient]:
+    with k8s.port_forward(
+        _WEBSERVER_SERVICE, 80, namespace, log_path=f"{log_prefix}-activation-dagster.log", kube_context=kube_context
+    ) as port:
+        yield DagsterClient(f"http://127.0.0.1:{port}/graphql")
+
+
 class _RollbackUncapturable(ActivationError):
     """The live release's rollback target could not be read before an upgrade."""
 
@@ -909,8 +995,19 @@ def deploy_revision(
                 _RELEASE, chart, namespace=context.namespace, values=values, kube_context=kube_context, env=env
             )
             try:
+                # Before the pointer moves: a webserver still serving the
+                # previous snapshot is a stage whose runs do not run what
+                # ACTIVE.json would name, so it fails the activation the same
+                # way a pointer that will not commit does.
+                _verify_webserver(
+                    namespace=context.namespace,
+                    code_locations=code_locations,
+                    image=activation.project_code_image,
+                    kube_context=kube_context,
+                    log_prefix=str(context.paths.port_forward_log_prefix),
+                )
                 commit_active(store, activation)
-            except ProjectActivationError:
+            except (ProjectActivationError, ActivationError) as exc:
                 # `previous` is redundant with `rollback` -- the target is only
                 # read when a pointer exists -- but stating it lets the type
                 # checker see that the branch below has an activation.
@@ -923,8 +1020,8 @@ def deploy_revision(
                     # healthy, and let a retried deploy commit its pointer.
                     raise ProjectActivationError(
                         f"could not commit {activation.activation_revision} as {context.stage.value}'s active "
-                        "activation; the previous activation predates Floe 0.8 and cannot be restored, so the "
-                        "new release stays installed. Rerun the deploy to commit it."
+                        f"activation ({exc}); the previous activation predates Floe 0.8 and cannot be restored, "
+                        "so the new release stays installed. Rerun the deploy to commit it."
                     ) from None
                 if rollback is None or previous is None:
                     # Either nothing was active, or nothing was installed. In

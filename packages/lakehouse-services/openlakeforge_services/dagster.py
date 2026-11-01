@@ -279,6 +279,43 @@ class DagsterClient:
         except ServiceClientError:
             return
 
+    def reload_location_image(self, location_name: str) -> str | None:
+        """Reload one code location in this webserver and return the image it now reports.
+
+        The webserver keeps the snapshot it loaded at startup until something
+        reloads it, and a launched run takes its image and container context
+        from that snapshot, not from whatever the code server serves now. The
+        image is the code server's DAGSTER_CURRENT_IMAGE, which Dagster puts in
+        the entry's display metadata; None when the server reports none.
+        """
+        result = self.graphql(
+            """
+            mutation ReloadLocation($repositoryLocationName: String!) {
+              reloadRepositoryLocation(repositoryLocationName: $repositoryLocationName) {
+                __typename
+                ... on WorkspaceLocationEntry {
+                  displayMetadata { key value }
+                  locationOrLoadError { __typename ... on PythonError { message } }
+                }
+                ... on ReloadNotSupported { message }
+                ... on RepositoryLocationNotFound { message }
+                ... on UnauthorizedError { message }
+                ... on PythonError { message }
+              }
+            }
+            """,
+            {"repositoryLocationName": location_name},
+        )["reloadRepositoryLocation"]
+        if result.get("__typename") != "WorkspaceLocationEntry":
+            raise ServiceClientError(
+                f"Dagster could not reload code location {location_name}: {result.get('message', result)}"
+            )
+        loaded = result.get("locationOrLoadError") or {}
+        if loaded.get("__typename") == "PythonError":
+            raise ServiceClientError(f"code location {location_name} failed to load: {loaded.get('message')}")
+        metadata = {item["key"]: item["value"] for item in result.get("displayMetadata") or []}
+        return metadata.get("image")
+
     def try_reload_repository_locations(self) -> None:
         for location_name in self.expected_location_names:
             self.try_reload_repository_location(location_name)
