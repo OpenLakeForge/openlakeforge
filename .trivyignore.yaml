@@ -75,6 +75,7 @@ images:
   - {name: trino, owner: malon64, expired_at: 2026-12-15, statement: "115 fixable HIGH/CRITICAL findings at first scan"}
   - {name: project-code, owner: malon64, expired_at: 2026-12-15, statement: "built image, findings from the first release dry run"}
   - {name: superset, owner: malon64, expired_at: 2026-12-15, statement: "built image, findings from the first release dry run"}
+  - {name: platform-api, owner: malon64, expired_at: 2026-12-15, statement: "built image, 56 fixable HIGH/CRITICAL Debian findings from the python:3.12-slim base it shares with project-code, at its first release dry run"}
 
 # CodeQL alerts, keyed "<rule id>:<path>"; triage each as a fix or a dismissal in GitHub.
 codeql:
