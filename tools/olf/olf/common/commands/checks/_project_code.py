@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import sys
 import tomllib
 from pathlib import Path
 
 import typer
 
-from olf.common.commands.checks._shared import _check_cache_root, _distribution_root_for, _root, _run, _uv_pip_install
+from olf.common.commands.checks._shared import (
+    _check_cache_root,
+    _distribution_root_for,
+    _refuse_legacy_dbt_packages,
+    _root,
+    _run,
+    _uv_pip_install,
+)
 from olf.common.log import fail
 
 
@@ -26,6 +34,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
                 f"project-code check requires Python >=3.12,<3.13; found {sys.version_info[0]}.{sys.version_info[1]}"
             )
         )
+    _refuse_legacy_dbt_packages(project.gold_root)
     cache = _check_cache_root(project.root, project.distribution_root) / "project-code"
     project_digest = hashlib.sha256(
         (project.distribution_root / "images/project-code/pyproject.toml").read_bytes()
@@ -42,6 +51,11 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
             cwd=project.root,
         )
         (site / ".complete").touch()
+    # The distribution's baked profiles name only the products it was built
+    # with; loading the definitions renders this project's own here instead
+    # (#627). Emptied each run so a renamed or added product gets its profile.
+    dbt_profiles = cache / "dbt-profiles"
+    shutil.rmtree(dbt_profiles, ignore_errors=True)
     env = {
         "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
         "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{project.distribution_root}",
@@ -63,6 +77,8 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/artifacts",
         "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
+        "OPENLAKEFORGE_DBT_PROFILES_DIR": str(dbt_profiles),
+        "OPENLAKEFORGE_DBT_PACKAGES_DIR": str(project.distribution_root / "libs/dbt"),
     }
     _run([sys.executable, "-m", "olf.common.project_code_check", str(project.root)], cwd=project.root, env=env)
     # The image build runs the same two commands (#725). The install is the

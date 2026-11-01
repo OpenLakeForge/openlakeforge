@@ -11,7 +11,14 @@ from pathlib import Path
 
 import typer
 
-from olf.common.commands.checks._shared import _check_cache_root, _distribution_root_for, _root, _run, _uv_pip_install
+from olf.common.commands.checks._shared import (
+    _check_cache_root,
+    _distribution_root_for,
+    _refuse_legacy_dbt_packages,
+    _root,
+    _run,
+    _uv_pip_install,
+)
 from olf.common.log import fail
 
 
@@ -30,11 +37,12 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     for path in (str(project_spec.root), str(project_spec.distribution_root)):
         if path not in sys.path:
             sys.path.insert(0, path)
-    from libs.dbt.render_profiles import discover_project_dirs, write_profile
+    from libs.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
     projects = discover_project_dirs(project_spec.gold_root)
     if not projects:
         raise typer.Exit(code=fail("no product dbt projects found"))
+    _refuse_legacy_dbt_packages(project_spec.gold_root)
     cache = _check_cache_root(project_spec.root, project_spec.distribution_root) / "dbt"
     dependency_key = hashlib.sha256(b"dbt-trino==1.10.2\nopenlineage-dbt==1.45.0").hexdigest()[:16]
     site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{dependency_key}" / "site"
@@ -60,6 +68,7 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
         "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
         "OPENLAKEFORGE_DBT_TRINO_USER": "openlakeforge-dbt",
         "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+        **dbt_environment(),
     }
     for project in projects:
         # Rendered outside the checkout so the check never leaves a

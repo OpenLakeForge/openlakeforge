@@ -110,6 +110,26 @@ def test_a_manifest_already_there_is_used_as_is_and_still_gets_a_profile(
     assert "demo" in yaml.safe_load((tmp_path / "profiles/profiles.yml").read_text())
 
 
+def test_a_check_points_the_runtime_at_its_own_profiles_and_the_bake_at_the_distributions_package(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from libs.dbt import render_profiles
+
+    project = tmp_path / "gold/food_quality/dbt"
+    project.mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: food_quality\nprofile: food_quality\n")
+    monkeypatch.setenv(render_profiles.PROFILES_DIR_ENV, str(tmp_path / "check-profiles"))
+    monkeypatch.delenv(render_profiles.PACKAGES_DIR_ENV, raising=False)
+    parses: list[dict[str, str]] = []
+    monkeypatch.setattr(render_profiles.subprocess, "run", lambda argv, check, env: parses.append(env))
+
+    render_profiles.ensure_baked_manifest(project)
+
+    assert "food_quality" in yaml.safe_load((tmp_path / "check-profiles/profiles.yml").read_text())
+    assert {env[render_profiles.PACKAGES_DIR_ENV] for env in parses} == {str(REPO_ROOT / "libs/dbt")}
+    assert (REPO_ROOT / "libs/dbt/openlakeforge_dbt/dbt_project.yml").is_file()
+
+
 def test_products_sharing_a_profile_name_are_refused(tmp_path: Path) -> None:
     from libs.dbt.render_profiles import write_profiles
 

@@ -53,7 +53,7 @@ def parse(
             for path in (str(project_spec.root), str(project_spec.distribution_root)):
                 if path not in sys.path:
                     sys.path.insert(0, path)
-            from libs.dbt.render_profiles import discover_project_dirs, write_profile
+            from libs.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
             projects = (
                 [Path(project_dir).resolve()] if project_dir else discover_project_dirs(project_spec.gold_root)
@@ -71,7 +71,7 @@ def parse(
                         args = [dbt, command, "--project-dir", str(project)]
                         if command == "parse":
                             args += ["--profiles-dir", profiles_dir]
-                        tools.runner.run(args, cwd=project_spec.root, stream_output=True)
+                        tools.runner.run(args, cwd=project_spec.root, env=dbt_environment(), stream_output=True)
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 

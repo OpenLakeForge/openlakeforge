@@ -25,7 +25,7 @@ from floe_dagster.manifest import ManifestEntity
 
 import lakehouse_code
 from libs.bronze_csv import BronzeLoadResult
-from libs.dbt.render_profiles import BAKED_PROFILES_DIR, ensure_baked_manifest
+from libs.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
 from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
@@ -40,6 +40,11 @@ FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
 # name derives from the project's path and checksum, and every contract edit
 # would rename it, cutting the op off from its run history.
 _FLOE_MANIFEST_NAME = "openlakeforge"
+
+# Every dbt command renders packages.yml, which names the shared package
+# through this variable; a run's `dbt build` inherits it from this process.
+for _name, _value in dbt_environment().items():
+    os.environ.setdefault(_name, _value)
 
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
@@ -195,7 +200,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
     def _dbt_gold_assets(context):
         dbt = DbtCliResource(
             project_dir=str(spec.dbt_project_dir),
-            profiles_dir=str(BAKED_PROFILES_DIR),
+            profiles_dir=str(resolve_profiles_dir()),
             dbt_executable=os.environ.get("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol"),
         )
         previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
