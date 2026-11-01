@@ -14,13 +14,6 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-### Changed
-
-- The project-code image pins `floe-python` 0.8.9. A domain Job opens each
-  existing Iceberg table with one catalog call instead of three, lists its
-  entities' inputs on the worker pool, and no longer slows down as a table's
-  overwrite history grows (OpenLakeForge/floe#1129).
-
 ### Fixed
 
 - `olf check project-code --repo-root <project>` parses a customer
@@ -125,6 +118,10 @@ package, `openlakeforge-lakehouse-services`.
 
 ### Changed
 
+- The project-code image pins `floe-python` 0.8.9. A domain Job opens each
+  existing Iceberg table with one catalog call instead of three, lists its
+  entities' inputs on the worker pool, and no longer slows down as a table's
+  overwrite history grows (OpenLakeForge/floe#1129).
 - Commands that need cluster or cloud permissions live under `olf infra`
   (`deploy`, `destroy`, `doctor`, `forward`, `project build|deploy`,
   `report import|export` and the rest); commands that need none stay at the

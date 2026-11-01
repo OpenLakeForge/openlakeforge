@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -45,11 +46,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         site.mkdir(parents=True, exist_ok=True)
         pyproject = tomllib.loads((project.distribution_root / "images/project-code/pyproject.toml").read_text())
         _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=project.root)
-        _uv_pip_install(
-            target=site,
-            requirements=[str(project.distribution_root / "packages/domain-model")],
-            cwd=project.root,
-        )
+        _install_domain_model(project.distribution_root / "packages/domain-model", site, cwd=project.root)
         (site / ".complete").touch()
     # The distribution's baked profiles name only the products it was built
     # with; loading the definitions renders this project's own here instead
@@ -93,6 +90,27 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     if libs_tests.is_dir():
         pytest = [sys.executable, "-m", "pytest", str(libs_tests), "-q", "-p", "no:cacheprovider"]
         _run(pytest, cwd=project.root, env=env)
+
+
+def _install_domain_model(source: Path, site: Path, *, cwd: Path) -> None:
+    """Install the domain model from a writable copy of `source` (#626).
+
+    setuptools writes `egg-info` into the directory it builds, and an installed
+    `olf` payload under `OLF_HOME` is read-only (ADR 0009). Copying also keeps
+    build output out of a source checkout, where it would change the cache digest.
+    """
+    with tempfile.TemporaryDirectory(prefix="olf-domain-model-") as work:
+        copy = Path(work) / source.name
+        # copyfile, not copy2: the payload's read-only modes must not carry over.
+        shutil.copytree(
+            source,
+            copy,
+            copy_function=shutil.copyfile,
+            ignore=shutil.ignore_patterns("*.egg-info", "build", "__pycache__"),
+        )
+        for directory in (copy, *(path for path in copy.rglob("*") if path.is_dir())):
+            directory.chmod(0o755)
+        _uv_pip_install(target=site, requirements=[str(copy)], cwd=cwd)
 
 
 def _source_tree_digest(directory: Path) -> str:
