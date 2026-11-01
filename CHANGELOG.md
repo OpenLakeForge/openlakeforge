@@ -14,8 +14,65 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.5.1-alpha.1] - 2026-11-01
+
+The platform surface: a platform API, a Platform CLI that signs people in
+through Dex and acts as them, and per-person data access through Trino and
+Polaris. `olf` splits into infrastructure, common and platform commands
+(ADR 0020, ADR 0021), and the service clients move into a third published
+package, `openlakeforge-lakehouse-services`.
+
 ### Added
 
+- `olf login`, `olf whoami` and `olf logout`: the Platform CLI signs a person
+  in through the deployment's Dex (Authorization Code with PKCE and a
+  loopback listener) and keeps the session under `OLF_HOME`. The identity
+  contract gains the `olf-cli` public client, and the perimeter accepts its
+  bearer tokens (ADR 0020).
+- `olf query`: a person's own SQL through Trino's query route with their
+  token. Trino accepts people's Dex tokens, each stage gets a people catalog,
+  and Polaris maps each person to roles and grants from the role model's
+  per-person data-access matrix, so what a person reads and writes is decided
+  by Polaris (ADR 0019).
+- The platform API (`packages/platform-api`, image `platform-api`), deployed
+  behind the perimeter at `/api` on the local provider. It validates every
+  token itself and checks each route against a permission matrix kept as
+  data (ADR 0021):
+  - reads: a stage's Dagster jobs, runs and run (data-engineer and above),
+    its archived pod logs (data-engineer and above), and OpenMetadata domains
+    and data products with the caller's own token (viewer and above). A
+    person OpenMetadata has never seen is registered on first use;
+  - writes, DEV only: launching a run, and importing a report as a non-admin
+    Superset service user. Exporting a report works on every stage. Every
+    state-changing request stores an audit record with a write-only key
+    before it acts, and answers 503 without acting if it cannot;
+  - an upload never brings a database: the import is sparse, so a report
+    cannot replace or reconfigure a stage's Trino connection.
+- Platform CLI commands as clients of the platform API: `olf jobs list`,
+  `olf runs list|show|launch`, `olf logs`, `olf domain list`,
+  `olf product list` and `olf report import|export`. Each runs with no
+  kubeconfig and no infrastructure credential.
+- `openlakeforge-lakehouse-services`, a third PyPI package holding the
+  Dagster, OpenMetadata and Superset clients, report import and export,
+  governance deployment and the log-archive reader, shared by `olf` and the
+  platform API.
+- `query.size` and `storage.size` in the Deployment Profile: Trino workers
+  and memory follow `release/query-sizes.yaml`, and SeaweedFS volumes follow
+  `release/storage-sizes.yaml`, growing in place on expandable storage
+  classes.
+- A stage declares the ports its sources reach in
+  `spec.stages.<stage>.source_egress.ports`, and its run pods get egress to
+  them (#660).
+- `olf product run` and a run tag ask one run for a full refresh; a Bronze
+  full refresh rebuilds Silver.
+- Each Bronze resource declares its load mode in `source.yaml`
+  (`resources[].load`): `full`, the default, or `incremental` with a `cursor`
+  and a `primary_key`. `olf check contracts` rejects a Silver entity whose
+  Floe write mode does not fit it (#342, #343).
+- `libs.bronze_dlt.load_dlt_source` runs a dlt source as `source.yaml`
+  declares: a full resource replaces its Bronze files, an incremental one
+  appends only the rows past its cursor, and a load whose connector cursor is
+  not the declared one fails (#342).
 - Agent skills under `skills/`, in the open Agent Skills format, starting
   with `deploying-openlakeforge`: any coding agent that loads `SKILL.md`
   files can install `olf`, deploy, inspect, troubleshoot and tear down a
@@ -43,6 +100,22 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Commands that need cluster or cloud permissions live under `olf infra`
+  (`deploy`, `destroy`, `doctor`, `forward`, `project build|deploy`,
+  `report import|export` and the rest); commands that need none stay at the
+  top level. Each earlier top-level path still works as a hidden alias that
+  prints where the command moved (ADR 0020).
+- `governance.yml` is the only project descriptor; `lakehouse.yaml`, its
+  schema and its loader are gone, and `olf init` and the scaffold maintain
+  `governance.yml`.
+- Credentials are created in-cluster instead of in Terraform state: the
+  SeaweedFS S3 keys and auth config, the OpenMetadata admin password (no
+  longer the literal `admin`) and the AWS RDS credentials.
+- AWS and Azure deploy the pinned example project image, and an immutable
+  revision takes that published image as its input; the cloud Superset image
+  build and registry are gone.
+- A service client waits out a 429 (up to three times, honouring
+  `Retry-After`) instead of failing a deploy.
 - Floe 0.8, the Python core, runs inside the project-code image
   (`floe-python` 0.8.8, `dagster-floe` 0.4.3). The code location builds the
   Floe manifest in memory from the project's contracts and a profile it
@@ -102,10 +175,24 @@ for how a release is cut and verified.
 - dbt incremental models no longer fail on their second run with "Failed to
   drop view '<model>__dbt_tmp'". Trino drops Iceberg views and tables as a
   purge, which Polaris refused; its `DROP_WITH_PURGE_ENABLED` feature is now on.
+- Floe merge write modes no longer download DuckDB extensions at run time,
+  which failed in Floe Jobs with no egress: the project-code image ships
+  `httpfs`, `aws`, `iceberg` and `avro` for its DuckDB (#725).
+- `olf infra project build` no longer reads a Python secret passthrough
+  (`password=password`, `password: str`) as an embedded credential (#659).
+- On `local`, `olf infra project image` pushes to the profile's
+  `spec.project.image.repository`, and refuses to push edited project code
+  over OpenLakeForge's example image (#661).
 - dlt Bronze loads no longer fail on a platform deploy with "OPENLAKEFORGE_STAGE
   is not set". The Dagster module now exports the stage to its pods, as
   project activation already did, so `olf infra deploy --phase artifacts`
   gives run pods the stage that names each dlt pipeline and its state.
+- A run launched after `olf infra project deploy` no longer uses the previous
+  revision's image. Activation reloads every code location through the stage
+  webserver and waits until each reports the activated digest, restoring the
+  previous release if one does not (#740).
+- Floe Jobs get `AWS_REGION` and, on self-hosted storage, skip the EC2
+  metadata lookup, which had cost about 4 s per entity on kind.
 - Trino's `query.max-stage-count` now reaches `config.properties` from
   `release/query-sizes.yaml`. The Trino chart reads free-form properties only
   from its top-level list, so the coordinator-level list it was rendered into
@@ -127,6 +214,15 @@ for how a release is cut and verified.
 
 ### Migration
 
+- Call infrastructure commands as `olf infra <command>`. The old top-level
+  paths keep working for now and print the new one, except `olf query` and
+  `olf report import|export`, which are now platform commands that act as
+  the signed-in person: use `olf infra query` and
+  `olf infra report import|export` for the workload path.
+- Delete `lakehouse_code/lakehouse.yaml`; `governance.yml` must declare the
+  project's domains and products.
+- Register a PyPI trusted publisher for `openlakeforge-lakehouse-services`
+  (environment `pypi-lakehouse-services`) before publishing from a fork.
 - Move each domain's `<domain>.yml` into `_domain.yml` plus one file per
   entity, and declare its Bronze sources in `silver/sources.yml`; the seed
   `sales` and `supply_chain` domains show the shape. Delete
