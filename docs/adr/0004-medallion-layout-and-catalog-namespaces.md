@@ -81,6 +81,24 @@ either.
 Because the layer is implied by the bucket, table paths carry no `bronze/`,
 `silver/`, or `gold/` prefix.
 
+### Stage catalogs allow drop with purge
+
+Each stage catalog (`lakehouse_<stage>`) is created with the property
+`polaris.config.drop-with-purge.enabled=true`, and the Polaris bootstrap sets it
+on a catalog that already exists. Trino drops tables with purge, and Polaris
+drops a view only with purge; without the property Polaris answers both with
+HTTP 403. Every dbt incremental run after the first drops its
+`<model>__dbt_tmp` view, so with purge off every incremental Gold model failed
+on its second run (#741).
+
+The property is set per catalog rather than as the realm-wide
+`DROP_WITH_PURGE_ENABLED` feature, so it covers only the catalogs the bootstrap
+creates for stages. Purge deletes the dropped table's files. That stays inside
+one stage: a stage catalog's `allowedLocations` are that stage's own three
+buckets, and Polaris refuses a table or view located outside them, so a purge
+in `lakehouse_dev` cannot reach `lakehouse-prod-*`. Who may drop is unchanged:
+dropping still needs the catalog grants the stage's principals hold.
+
 ### Operational artifact prefixes
 
 `openlakeforge-ops` is outside the medallion split and uses stable prefixes:
@@ -135,3 +153,6 @@ became one multi-file Floe project.
 products only. A product no longer lists its Silver inputs or Gold tables; the
 schema (`<domain>_silver`, `<product>_gold`) decides which domain or product a
 table belongs to.
+
+2026-11-01 (#741): stage catalogs allow drop with purge, so a dbt incremental
+model's temporary view can be dropped.

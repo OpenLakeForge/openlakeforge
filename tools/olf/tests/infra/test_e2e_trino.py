@@ -190,14 +190,18 @@ def test_trino_query_uses_https_only_when_the_coordinator_serves_it(
         assert argv[argv.index("--truststore-path") + 1] == str(ca)
 
 
-def test_check_trino_write_appends_without_dropping(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_check_trino_write_appends_and_drops_a_dbt_temporary_view(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#741: an incremental model's second run drops `<model>__dbt_tmp`; the probe makes the same drop."""
     sql: list[str] = []
     monkeypatch.setattr(_trino, "trino_query", lambda _cfg, statement: sql.append(statement) or "")
 
     _trino.check_trino_write(e2e_cfg(tmp_path))
 
-    assert [s.split(" ")[0] for s in sql] == ["CREATE", "CREATE", "INSERT"]
+    assert [s.split(" ")[0] for s in sql] == ["CREATE", "CREATE", "INSERT", "CREATE", "DROP"]
     assert all("zz_olf_e2e_probe" in s for s in sql)
+    assert sql[-1].startswith("DROP VIEW ") and sql[-1].endswith("__dbt_tmp")
 
 
 def test_polaris_token_key_is_created_in_cluster_and_wired_by_name() -> None:

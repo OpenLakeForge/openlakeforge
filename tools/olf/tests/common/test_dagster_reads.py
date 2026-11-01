@@ -145,3 +145,47 @@ def test_a_lost_launch_response_is_found_by_the_callers_own_key_tag(monkeypatch:
 
     assert run_id == "run-7"
     assert lookups == [{"tag": "openlakeforge/launch-key", "key": "req-1"}]
+
+
+def _reload_entry(image: str | None, *, load_error: str | None = None) -> dict[str, Any]:
+    metadata = [{"key": "host", "value": "openlakeforge-dagster"}]
+    if image is not None:
+        metadata.append({"key": "image", "value": image})
+    loaded: dict[str, Any] = {"__typename": "RepositoryLocation"}
+    if load_error:
+        loaded = {"__typename": "PythonError", "message": load_error}
+    return {
+        "reloadRepositoryLocation": {
+            "__typename": "WorkspaceLocationEntry",
+            "displayMetadata": metadata,
+            "locationOrLoadError": loaded,
+        }
+    }
+
+
+def test_reloading_a_location_returns_the_image_its_code_server_reports() -> None:
+    sent: list[Mapping[str, Any] | None] = []
+    client = _client(_reload_entry("repo/project-code@sha256:abc"), sent)
+
+    assert client.reload_location_image("openlakeforge-dagster") == "repo/project-code@sha256:abc"
+    assert sent == [{"repositoryLocationName": "openlakeforge-dagster"}]
+
+
+def test_a_location_that_reports_no_image_reloads_to_none() -> None:
+    assert _client(_reload_entry(None)).reload_location_image("openlakeforge-dagster") is None
+
+
+def test_a_location_that_fails_to_load_after_the_reload_is_an_error() -> None:
+    client = _client(_reload_entry("repo/project-code@sha256:abc", load_error="ModuleNotFoundError: lakehouse_code"))
+
+    with pytest.raises(ServiceClientError, match="failed to load: ModuleNotFoundError"):
+        client.reload_location_image("openlakeforge-dagster")
+
+
+def test_reloading_a_location_the_webserver_does_not_know_is_an_error() -> None:
+    client = _client(
+        {"reloadRepositoryLocation": {"__typename": "RepositoryLocationNotFound", "message": "no such location"}}
+    )
+
+    with pytest.raises(ServiceClientError, match="could not reload code location sales-dagster: no such location"):
+        client.reload_location_image("sales-dagster")

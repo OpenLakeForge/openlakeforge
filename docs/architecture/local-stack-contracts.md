@@ -99,6 +99,8 @@ The catalog module owns:
 - product Gold namespaces such as `order_revenue_gold` with storage
   locations under `s3://lakehouse-dev-gold/<namespace>/`
 - allowed S3 locations `s3://lakehouse-dev-silver/` and `s3://lakehouse-dev-gold/`
+- `polaris.config.drop-with-purge.enabled=true` on the warehouse, so Trino can
+  drop tables and dbt's temporary views (ADR 0004)
 - the Trino service principal and role grants
 - Trino OAuth credentials in `polaris-trino-creds`
 - the Floe service principal and role grants

@@ -629,6 +629,7 @@ moved {
 module "dagster" {
   source   = "../../modules/orchestration/dagster"
   for_each = local.enabled_stages
+  stage    = each.key
 
   # Bare "dagster" (the module default), same as local/azure-poc - the
   # release's own namespace already disambiguates stages, and the artifact
