@@ -13,6 +13,28 @@ from olf.common.deployment.errors import DeploymentError
 from olf.common.log import fail
 from olf.common.tooling.toolkit import Toolkit
 
+# What `olf product new` wrote before #627. It resolves only where libs/ sits
+# beside lakehouse_code/ (the image, this repository), so a customer project
+# that still has it fails `dbt deps` with no hint why.
+_LEGACY_DBT_PACKAGE = "../../../../libs/dbt/openlakeforge_dbt"
+_DBT_PACKAGE = "\"{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt\""
+
+
+def _refuse_legacy_dbt_packages(gold_root: Path) -> None:
+    legacy = sorted(
+        path
+        for path in gold_root.glob("*/dbt/packages.yml")
+        if _LEGACY_DBT_PACKAGE in path.read_text(encoding="utf-8")
+    )
+    if legacy:
+        raise typer.Exit(
+            code=fail(
+                "these packages.yml files reach the OpenLakeForge dbt package by a path that resolves only "
+                f"in the image layout: {', '.join(str(path) for path in legacy)}. "
+                f"Replace `local: {_LEGACY_DBT_PACKAGE}` with `local: {_DBT_PACKAGE}`."
+            )
+        )
+
 
 def _root(repo_root: str) -> Path:
     return Path(repo_root or config.repo_root()).resolve()

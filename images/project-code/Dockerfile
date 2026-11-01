@@ -29,6 +29,11 @@ COPY libs ./libs
 # network-backed build environment for each provider image.
 RUN pip install --no-cache-dir --no-build-isolation --no-deps .
 
+# packages.yml reaches the shared dbt package through this variable, so a
+# product resolves it the same way here, in olf's checks and in a customer
+# repository with no libs/ beside lakehouse_code/.
+ENV OPENLAKEFORGE_DBT_PACKAGES_DIR=/opt/openlakeforge/libs/dbt
+
 # One dbt profile for every stage and provider, made only of env_var()
 # references the pod's stage environment fills at run time, plus a manifest per
 # product parsed once with placeholder values (libs/dbt/render_profiles.py), so

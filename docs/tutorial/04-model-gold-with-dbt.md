@@ -49,7 +49,10 @@ You do not edit most of it:
   replaced on each run, in the catalog of the stage being deployed. Do not
   hard-code Trino hosts or catalog settings in it: OpenLakeForge supplies one
   dbt profile whose connection comes from each stage's environment.
-- `packages.yml` pulls in the shared OpenLakeForge dbt package from `libs/`.
+- `packages.yml` pulls in the shared OpenLakeForge dbt package. It ships
+  with OpenLakeForge, not with your project, so the file names it through
+  `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which `olf` and the project-code image
+  set.
 - `models/sources.yml` declares the Silver table as a dbt source, in the
   `marketing_silver` schema. dbt reads the table Floe owns and does not build a
   second staging layer.

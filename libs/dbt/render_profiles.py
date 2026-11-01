@@ -12,6 +12,16 @@ PROFILE_TEMPLATE_DIR = Path(__file__).resolve().parent / "profiles"
 # Where the image bakes the profile and the code location reads it: outside
 # lakehouse_code/, so it never enters a project revision (#546).
 BAKED_PROFILES_DIR = REPO_ROOT / "generated" / "dbt-profiles"
+# A check of a customer project renders that project's profiles elsewhere:
+# the distribution's baked file names only the products it was built with.
+PROFILES_DIR_ENV = "OPENLAKEFORGE_DBT_PROFILES_DIR"
+# Each product's packages.yml names the shared openlakeforge_dbt package
+# through this variable, because a path relative to the product resolves only
+# where libs/ sits beside lakehouse_code/ (the image), not in a customer
+# repository (#627). Every dbt command renders packages.yml, so whatever runs
+# dbt sets it to this distribution's own.
+PACKAGES_DIR_ENV = "OPENLAKEFORGE_DBT_PACKAGES_DIR"
+DBT_PACKAGES_DIR = Path(__file__).resolve().parent
 # A template per query engine. Trino is the only one; a second engine (#547)
 # adds a template here, while the stage values stay env_var() references.
 DEFAULT_ADAPTER = "trino"
@@ -27,6 +37,15 @@ PARSE_PLACEHOLDERS = {
     "OPENLAKEFORGE_CATALOG_NAME": "stage_catalog",
     "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX": "",
 }
+
+
+def resolve_profiles_dir() -> Path:
+    return Path(os.environ.get(PROFILES_DIR_ENV) or BAKED_PROFILES_DIR)
+
+
+def dbt_environment() -> dict[str, str]:
+    """The variables a dbt invocation needs to resolve the distribution's package."""
+    return {PACKAGES_DIR_ENV: str(DBT_PACKAGES_DIR)}
 
 
 def discover_project_dirs(root: Path | None = None) -> list[Path]:
@@ -83,7 +102,7 @@ def write_profile(project_dir: Path, output_dir: Path, adapter: str = DEFAULT_AD
 
 def bake_manifest(project_dir: Path, profiles_dir: Path, dbt: str = "dbt") -> Path:
     """Parse a stage-neutral manifest into the project's target/."""
-    env = {**os.environ, **PARSE_PLACEHOLDERS}
+    env = {**dbt_environment(), **os.environ, **PARSE_PLACEHOLDERS}
     subprocess.run([dbt, "deps", "--project-dir", str(project_dir)], check=True, env=env)
     subprocess.run(
         [dbt, "parse", "--project-dir", str(project_dir), "--profiles-dir", str(profiles_dir), "--no-partial-parse"],
@@ -98,12 +117,13 @@ def bake_manifest(project_dir: Path, profiles_dir: Path, dbt: str = "dbt") -> Pa
     return project_dir / "target" / "manifest.json"
 
 
-def ensure_baked_manifest(project_dir: Path, profiles_dir: Path = BAKED_PROFILES_DIR) -> Path:
+def ensure_baked_manifest(project_dir: Path, profiles_dir: Path | None = None) -> Path:
     """Return the image's manifest, baking one where none was (a checkout).
 
     The profile is ensured either way: runs read it from `profiles_dir`, and a
     checkout can hold a manifest from `olf check dbt` without one.
     """
+    profiles_dir = profiles_dir or resolve_profiles_dir()
     if not (profiles_dir / "profiles.yml").is_file():
         write_profiles(discover_project_dirs(project_dir.parents[1]), profiles_dir)
     manifest_path = project_dir / "target" / "manifest.json"

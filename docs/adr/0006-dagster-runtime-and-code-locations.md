@@ -93,7 +93,10 @@ connection value in it (host, port, TLS, user, catalog, schema prefix) is an
 product's manifest once, with placeholder values
 (`libs/dbt/render_profiles.py`). Dagster reads that manifest for the asset
 graph. Its asset keys come from domain, product and node names, never from a
-catalog or schema, so the graph is the same in every stage.
+catalog or schema, so the graph is the same in every stage. Products reach
+the shared `openlakeforge_dbt` package through
+`OPENLAKEFORGE_DBT_PACKAGES_DIR`, which the image sets, never through a path
+relative to the project, so a customer repository resolves it too.
 
 Each `dbt build` gets its own target path from dagster-dbt and re-parses with
 the run pod's environment. The image ships no partial-parse state, so the SQL
@@ -216,3 +219,9 @@ pointer moves; a webserver restarted by a platform apply had kept launching
 the previous revision. The run launcher's `job_image`, which platform apply
 still rendered, is now rendered only for the deprecated `olf infra deploy`
 path, so the statement that the run launcher has no image holds again.
+
+2026-11-01 (#627): product `packages.yml` files name the shared dbt package
+through `OPENLAKEFORGE_DBT_PACKAGES_DIR` instead of `../../../../libs/dbt`,
+and the code location reads its profiles from `OPENLAKEFORGE_DBT_PROFILES_DIR`
+when set, so `olf check project-code` parses a customer repository's
+products against the distribution.

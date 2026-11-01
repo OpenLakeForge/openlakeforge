@@ -14,6 +14,24 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Fixed
+
+- `olf check project-code --repo-root <project>` parses a customer
+  repository's dbt products. Each `packages.yml` reaches the shared
+  `openlakeforge_dbt` package through `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which
+  olf and the project-code image set to the distribution's `libs/dbt`, and the
+  check renders the project's own dbt profiles into its cache instead of
+  reading the distribution's baked ones (#627).
+
+### Migration
+
+- In each `lakehouse_code/gold/<product>/dbt/packages.yml`, replace
+  `local: ../../../../libs/dbt/openlakeforge_dbt` with
+  `local: "{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt"`.
+  `olf check dbt` and `olf check project-code` refuse the old path and name
+  the files that still use it. A plain `dbt` run outside olf needs the
+  variable set to the distribution's `libs/dbt`.
+
 ## [0.5.1-alpha.1] - 2026-11-01
 
 The platform surface: a platform API, a Platform CLI that signs people in

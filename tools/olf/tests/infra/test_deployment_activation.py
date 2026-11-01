@@ -772,6 +772,10 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
     "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
     "OPENLAKEFORGE_DBT_EXECUTABLE": "Terraform runtime env",
+    # The image's ENV, or libs.product_dagster's default; never a stage value.
+    "OPENLAKEFORGE_DBT_PACKAGES_DIR": "project-code image",
+    # Only `olf check project-code` sets it; pods read the image's baked profile.
+    "OPENLAKEFORGE_DBT_PROFILES_DIR": "olf check project-code",
     # libs/floe_profile.py falls back to a default; no contract emits these yet.
     "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE": "unset, default applies",
     "OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT": "unset, default applies",

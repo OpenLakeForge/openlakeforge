@@ -8,6 +8,7 @@ import typer
 
 from olf.common import dashboard_checks
 from olf.common.commands.checks import _project_code, _shared, _structure
+from olf.common.scaffold import _templates
 
 
 def test_dashboard_validation_accepts_the_repository_assets() -> None:
@@ -71,6 +72,33 @@ def test_project_code_rejects_unsupported_python_before_building_cache(
 
     with pytest.raises(typer.Exit):
         _project_code.project_code(str(tmp_path))
+
+
+def test_a_product_reaching_the_dbt_package_by_a_relative_path_is_refused_with_its_replacement(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    legacy = tmp_path / "gold/food_quality/dbt/packages.yml"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("packages:\n  - local: ../../../../libs/dbt/openlakeforge_dbt\n")
+    current = tmp_path / "gold/rna_catalog/dbt/packages.yml"
+    current.parent.mkdir(parents=True)
+    current.write_text(_templates.render_dbt_packages_yml())
+
+    with pytest.raises(typer.Exit):
+        _shared._refuse_legacy_dbt_packages(tmp_path / "gold")
+
+    message = capsys.readouterr().err
+    assert str(legacy) in message and str(current) not in message
+    assert "env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR')" in message
+
+
+def test_the_reference_products_and_the_scaffold_reach_the_dbt_package_the_same_way() -> None:
+    gold = Path(__file__).resolve().parents[4] / "lakehouse_code/gold"
+    packages = sorted(gold.glob("*/dbt/packages.yml"))
+
+    assert packages
+    assert {path.read_text() for path in packages} == {_templates.render_dbt_packages_yml()}
+    _shared._refuse_legacy_dbt_packages(gold)
 
 
 def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:

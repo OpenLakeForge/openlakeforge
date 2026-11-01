@@ -1,2 +1,2 @@
 packages:
-  - local: ../../../../libs/dbt/openlakeforge_dbt
+  - local: "{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt"

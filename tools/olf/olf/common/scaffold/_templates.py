@@ -214,7 +214,9 @@ models:
 
 
 def render_dbt_packages_yml() -> str:
-    return "packages:\n  - local: ../../../../libs/dbt/openlakeforge_dbt\n"
+    # The package ships with the distribution, not the project; olf and the
+    # project-code image set the variable to where it is installed (#627).
+    return "packages:\n  - local: \"{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt\"\n"
 
 
 def render_dbt_sources_yml(*, domain: str, tables: tuple[tuple[str, str], ...]) -> str:
