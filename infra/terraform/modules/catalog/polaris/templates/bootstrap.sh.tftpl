@@ -53,12 +53,22 @@
     exit 1
   fi
 
+  # Trino drops tables with purge, and Polaris drops a view only with purge -
+  # the REST view DELETE carries no purge flag. Polaris answers either with
+  # 403 unless the catalog allows it, so every dbt incremental run after the
+  # first failed dropping its `<model>__dbt_tmp` view (#741). A stage
+  # catalog's tables and views can only live in its own stage's buckets
+  # (`allowedLocations`), so a purge cannot reach another stage's files
+  # (ADR 0004).
+  drop_with_purge="polaris.config.drop-with-purge.enabled"
+
 %{ for stage_name, stage in stage_catalogs ~}
   request POST "/catalogs" "201 409" "{
     \"name\": \"${stage.catalog_name}\",
     \"type\": \"INTERNAL\",
     \"properties\": {
-      \"default-base-location\": \"s3://${stage.silver_bucket_name}/\"
+      \"default-base-location\": \"s3://${stage.silver_bucket_name}/\",
+      \"$drop_with_purge\": \"true\"
     },
     \"storageConfigInfo\": {
       \"storageType\": \"S3\",
@@ -75,16 +85,22 @@
 %{ endif ~}
     }
   }"
-%{ if sts != null ~}
-  # Polaris refuses to add a role ARN to an existing catalog, so a catalog
-  # created before STS was configured keeps vending nothing (ADR 0019).
   if [ "$POLARIS_RESPONSE_CODE" = "409" ]; then
     request GET "/catalogs/${stage.catalog_name}" "200"
+%{ if sts != null ~}
+    # Polaris refuses to add a role ARN to an existing catalog, so a catalog
+    # created before STS was configured keeps vending nothing (ADR 0019).
     if ! grep -Eq '"stsUnavailable" *: *false' /tmp/polaris-body; then
       echo "Catalog ${stage.catalog_name} was created without STS and vends no credentials; a stack redeployed from scratch gets it." >&2
     fi
-  fi
 %{ endif ~}
+    # A catalog created before the property existed lacks it. Polaris
+    # replaces the whole property map on update, so the current one is kept.
+    if ! jq -e --arg key "$drop_with_purge" '.properties[$key] == "true"' /tmp/polaris-body >/dev/null; then
+      request PUT "/catalogs/${stage.catalog_name}" "200" "$(jq -c --arg key "$drop_with_purge" \
+        '{currentEntityVersion: .entityVersion, properties: ((.properties // {}) + {($key): "true"})}' /tmp/polaris-body)"
+    fi
+  fi
 %{ endfor ~}
 
   create_principal_secret() {
