@@ -175,14 +175,9 @@ package, `openlakeforge-lakehouse-services`.
 - dbt incremental models no longer fail on their second run with "Failed to
   drop view '<model>__dbt_tmp'". Trino drops Iceberg views and tables as a
   purge, which Polaris refused; its `DROP_WITH_PURGE_ENABLED` feature is now on.
-- A run launched right after `olf infra project deploy` runs the activated
-  revision. Activation reloads each code location in the stage's Dagster
-  webserver and fails if it does not report the new image; the webserver had
-  kept launching the previous revision (#740).
 - Floe merge write modes no longer download DuckDB extensions at run time,
   which failed in Floe Jobs with no egress: the project-code image ships
   `httpfs`, `aws`, `iceberg` and `avro` for its DuckDB (#725).
-- Floe Jobs get a region and skip the EC2 metadata lookup (#743).
 - `olf infra project build` no longer reads a Python secret passthrough
   (`password=password`, `password: str`) as an embedded credential (#659).
 - On `local`, `olf infra project image` pushes to the profile's
