@@ -99,6 +99,10 @@ for how a release is cut and verified.
 
 ### Fixed
 
+- dlt Bronze loads no longer fail on a platform deploy with "OPENLAKEFORGE_STAGE
+  is not set". The Dagster module now exports the stage to its pods, as
+  project activation already did, so `olf infra deploy --phase artifacts`
+  gives run pods the stage that names each dlt pipeline and its state.
 - Trino's `query.max-stage-count` now reaches `config.properties` from
   `release/query-sizes.yaml`. The Trino chart reads free-form properties only
   from its top-level list, so the coordinator-level list it was rendered into
