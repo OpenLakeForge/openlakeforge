@@ -162,6 +162,26 @@ def test_a_domain_job_runs_up_to_four_entities_at_once() -> None:
     assert profile["execution"]["orchestration"] == {"strategy": "parallel", "max_concurrent_entities": 4}
 
 
+def test_the_job_names_its_region_and_skips_the_metadata_service_on_self_hosted_storage() -> None:
+    environ = {**_STAGE, "AWS_REGION": "us-east-1"}
+
+    self_hosted = _runner({**environ, "OPENLAKEFORGE_STORAGE_ENDPOINT": "http://seaweedfs-s3.olf-system:8333"})
+    on_aws = _runner(
+        {
+            key: value
+            for key, value in environ.items()
+            if key not in ("OPENLAKEFORGE_STORAGE_ENDPOINT", "AWS_ENDPOINT_URL_S3")
+        }
+    )
+
+    assert self_hosted["env"] == {
+        "AWS_REGION": "us-east-1",
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "AWS_EC2_METADATA_DISABLED": "true",
+    }
+    assert on_aws["env"] == {"AWS_REGION": "us-east-1", "AWS_DEFAULT_REGION": "us-east-1"}
+
+
 def test_the_job_is_polled_often_enough_to_end_its_step_promptly() -> None:
     runner = _runner({**_STAGE, "AWS_REGION": "us-east-1"})
 
