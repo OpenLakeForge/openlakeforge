@@ -131,6 +131,8 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
         required,
         polaris_client=(client_id, client_secret) if catalog_type == "rest" else None,
         lineage=lineage_on,
+        region=region,
+        self_hosted_storage=bool(endpoint),
     )
     profile: dict[str, object] = {
         "apiVersion": "floe/v1",
@@ -171,6 +173,8 @@ def _job_runner(
     *,
     polaris_client: tuple[str, str] | None,
     lineage: bool,
+    region: str,
+    self_hosted_storage: bool,
 ) -> dict[str, object]:
     # The run pod's own image: its Floe project and entrypoint are the ones
     # this code location loaded. DAGSTER_CURRENT_IMAGE is set on code servers
@@ -215,7 +219,21 @@ def _job_runner(
         # cheap next to the time a slower poll adds to every Silver step.
         "poll_interval_seconds": 2,
         "secrets": secrets,
+        "env": _job_env(region, self_hosted_storage),
     }
+
+
+def _job_env(region: str, self_hosted_storage: bool) -> dict[str, str]:
+    # The Job's AWS SDKs (PyArrow's S3 filesystem under PyIceberg, boto3) look
+    # for a region in the environment before asking the EC2 metadata service.
+    # In a cluster that answers nothing on 169.254.169.254 (kind, with egress
+    # NetworkPolicies), each such lookup waits for a timeout. A self-hosted
+    # object store takes no credential from the metadata service either, so
+    # the lookup is switched off there; on AWS it stays, for instance profiles.
+    env = {"AWS_REGION": region, "AWS_DEFAULT_REGION": region}
+    if self_hosted_storage:
+        env["AWS_EC2_METADATA_DISABLED"] = "true"
+    return env
 
 
 def profile_path(directory: Path | None = None) -> Path:
