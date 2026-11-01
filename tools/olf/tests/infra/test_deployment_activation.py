@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_services.dagster import DagsterClient
 
 from olf.common.deployment.context import DeploymentContext
 from olf.common.distribution import distribution_version_at
@@ -111,6 +112,59 @@ class _Kubectl:
         self.account_secrets = [item["name"] for item in json.loads(patch)["imagePullSecrets"]]
 
 
+class _Webserver:
+    """A stage's Dagster webserver: a reload picks up what the code server now serves.
+
+    Answers the GraphQL the real client sends, so the client's own parsing is
+    part of what is exercised. `stale` stands in for a webserver that keeps
+    reporting another image however often it is reloaded.
+    """
+
+    def __init__(self, helm: _Helm) -> None:
+        self.helm = helm
+        self.reloads: list[tuple[str, str]] = []
+        self.stale: str | None = None
+        self.namespace = ""
+
+    def served(self, namespace: str, location: str) -> str | None:
+        for deployment in (self.helm.installed.get(namespace) or {}).get("deployments") or []:
+            if deployment["name"] == location:
+                image = deployment["image"]
+                return f"{image['repository']}@{image['digest']}"
+        return None
+
+    def client(self, namespace: str) -> DagsterClient:
+        def request_json(query: str, variables=None):  # noqa: ANN001, ANN202
+            assert "reloadRepositoryLocation" in query
+            name = (variables or {})["repositoryLocationName"]
+            self.reloads.append((namespace, name))
+            image = self.stale or self.served(namespace, name)
+            if image is None:
+                entry = {"__typename": "RepositoryLocationNotFound", "message": f"{name} not found"}
+            else:
+                entry = {
+                    "__typename": "WorkspaceLocationEntry",
+                    "displayMetadata": [{"key": "image", "value": image}, {"key": "host", "value": name}],
+                    "locationOrLoadError": {"__typename": "RepositoryLocation"},
+                }
+            return {"data": {"reloadRepositoryLocation": entry}}
+
+        return DagsterClient("http://dagster/graphql", request_json=request_json)
+
+
+def _install_webserver(monkeypatch: pytest.MonkeyPatch, helm: _Helm) -> _Webserver:
+    webserver = _Webserver(helm)
+
+    @contextmanager
+    def _stage_webserver(namespace, **_kwargs):  # noqa: ANN001, ANN003, ANN202
+        yield webserver.client(namespace)
+
+    monkeypatch.setattr(activation_module, "_stage_webserver", _stage_webserver)
+    monkeypatch.setattr(activation_module, "_LOCATION_RELOAD_TIMEOUT_SECONDS", 0.0)
+    monkeypatch.setattr(activation_module, "_LOCATION_RELOAD_DELAY_SECONDS", 0.0)
+    return webserver
+
+
 class _Provider:
     def __init__(self, context: DeploymentContext, helm: _Helm, kubectl: _Kubectl | None = None) -> None:
         self.context = context
@@ -143,6 +197,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     helm = _Helm()
     kubectl = _Kubectl()
+    webserver = _install_webserver(monkeypatch, helm)
     catalog_calls: list[str] = []
 
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *a, **k: contract)
@@ -184,6 +239,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         store=store,
         helm=helm,
         kubectl=kubectl,
+        webserver=webserver,
         manifest=manifest,
         image_calls=image_calls,
         providers=providers,
@@ -239,6 +295,7 @@ def _build_report_harness(
     target.write_text(yaml.safe_dump(document, sort_keys=False))
 
     helm = _Helm()
+    _install_webserver(monkeypatch, helm)
 
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *a, **k: contract)
     monkeypatch.setattr(activation_module, "_ensure_image", lambda provider, image, **k: None)
@@ -432,6 +489,46 @@ def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noq
     # Pulling the image (and on local, reloading it into kind) is a cluster
     # mutation, so it belongs after the gate, not before it.
     assert len(harness.image_calls) == 1
+
+
+def test_activation_reloads_every_contracted_location_in_the_stage_webserver(harness) -> None:  # noqa: ANN001
+    """A webserver restarted before the rollout keeps the previous snapshot until reloaded (#740)."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "sales-dagster", "definitions_module": "lakehouse_code.sales"},
+        {"name": "food-dagster", "definitions_module": "lakehouse_code.food"},
+    ]
+
+    activation = harness.deploy("dev")
+
+    assert sorted(harness.webserver.reloads) == [("olf-dev", "food-dagster"), ("olf-dev", "sales-dagster")]
+    assert project_activation.active(harness.store, stage=StageName.DEV) == activation
+
+
+def test_a_webserver_still_serving_the_previous_image_fails_the_activation(harness) -> None:  # noqa: ANN001
+    stale = "ghcr.io/openlakeforge/project-code@sha256:" + "f" * 64
+    harness.webserver.stale = stale
+
+    with pytest.raises(activation_module.ActivationError, match=r"did not serve .*openlakeforge-dagster: serves image"):
+        harness.deploy("dev")
+
+    # Nothing names an activation whose runs would launch another image, and
+    # the release that would have served it is not left behind.
+    assert project_activation.active(harness.store, stage=StageName.DEV) is None
+    assert harness.helm.uninstalled == ["olf-dev"]
+
+
+def test_a_stale_webserver_restores_the_previous_activation(harness) -> None:  # noqa: ANN001
+    active = harness.deploy("dev")
+    drifted = harness.helm.installed["olf-dev"]
+    drifted["deployments"][0]["deploymentLabels"]["openlakeforge.io/activation-revision"] = "sha256:" + "9" * 64
+    harness.webserver.stale = "ghcr.io/openlakeforge/project-code@sha256:" + "f" * 64
+
+    with pytest.raises(activation_module.ActivationError):
+        harness.deploy("dev")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) == active
+    labels = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentLabels"]
+    assert labels["openlakeforge.io/activation-revision"] == active.activation_revision
 
 
 def test_promoting_one_revision_to_another_stage_reuses_the_project_revision(harness) -> None:  # noqa: ANN001
@@ -1354,3 +1451,64 @@ def test_rollback_keeps_the_pull_secret_the_live_release_used(harness, monkeypat
         harness.deploy("dev", pull_secret="ghcr-pull")
 
     assert harness.helm.installed["olf-dev"]["imagePullSecrets"] == [{"name": "ghcr-pull"}]
+
+
+def _reloading_client(replies: list[object]) -> tuple[DagsterClient, list[str]]:
+    """Each reload answers with the next reply: an image, or an exception to raise."""
+    reloaded: list[str] = []
+
+    def request_json(_query: str, variables=None):  # noqa: ANN001, ANN202
+        reloaded.append((variables or {})["repositoryLocationName"])
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return {
+            "data": {
+                "reloadRepositoryLocation": {
+                    "__typename": "WorkspaceLocationEntry",
+                    "displayMetadata": [{"key": "image", "value": reply}],
+                    "locationOrLoadError": {"__typename": "RepositoryLocation"},
+                }
+            }
+        }
+
+    return DagsterClient("http://dagster/graphql", request_json=request_json), reloaded
+
+
+def test_the_wait_retries_until_the_webserver_reports_the_activated_digest() -> None:
+    from openlakeforge_services.dagster import DagsterTransientError
+
+    previous = "ghcr.io/openlakeforge/project-code@sha256:" + "f" * 64
+    client, reloaded = _reloading_client([DagsterTransientError("connection refused"), previous, _IMAGE])
+    now = [0.0]
+
+    activation_module.await_locations_serving(
+        client,
+        _DEFAULT_LOCATIONS,
+        _IMAGE,
+        timeout_seconds=60,
+        delay_seconds=5,
+        clock=lambda: now[0],
+        sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+    )
+
+    assert reloaded == ["openlakeforge-dagster"] * 3
+
+
+def test_the_wait_is_bounded_and_names_what_the_location_served() -> None:
+    previous = "ghcr.io/openlakeforge/project-code@sha256:" + "f" * 64
+    client, reloaded = _reloading_client([previous] * 10)
+    now = [0.0]
+
+    with pytest.raises(activation_module.ActivationError, match=f"openlakeforge-dagster: serves image {previous}"):
+        activation_module.await_locations_serving(
+            client,
+            _DEFAULT_LOCATIONS,
+            _IMAGE,
+            timeout_seconds=10,
+            delay_seconds=5,
+            clock=lambda: now[0],
+            sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        )
+
+    assert len(reloaded) == 3  # at 0s, 5s and 10s
