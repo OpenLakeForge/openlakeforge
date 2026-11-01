@@ -174,7 +174,6 @@ def test_the_job_names_its_region_and_skips_the_metadata_service_on_self_hosted_
         }
     )
 
-    # Without a region in its environment an AWS SDK asks the EC2 metadata service, which a kind cluster never answers.
     assert self_hosted["env"] == {
         "AWS_REGION": "us-east-1",
         "AWS_DEFAULT_REGION": "us-east-1",
