@@ -31,10 +31,22 @@ therefore reconcile infrastructure without resetting active user code.
 The control plane runs a digest-pinned upstream Dagster image from
 `release/component-catalog.yaml`: neither the webserver nor the daemon imports
 `lakehouse_code`, so pointing them at a project image made a platform apply
-depend on a project build having happened first. The K8sRunLauncher is given no
-image at all, so Dagster launches each run with its code location's own
-container image -- the digest that stage activation set. A value configured at
-platform-apply time would otherwise outrank every later promotion.
+depend on a project build having happened first. Where activation owns user
+code, the K8sRunLauncher is given no image at all (`modules/orchestration/dagster`
+renders no `job_image` when `manage_user_deployments` is false), so Dagster
+launches each run with its code location's own container image -- the digest
+that stage activation set. A value configured at platform-apply time would only
+name a build no stage activated. The deprecated single-stage `olf infra deploy`
+keeps a `job_image`, because its artifacts phase patches it in place.
+
+The webserver caches each code location's snapshot, and a launched run takes
+its image and container context from that snapshot rather than from the code
+server. Activation therefore does not end at the rollout: it reloads every
+contracted location through the stage webserver's GraphQL
+(`reloadRepositoryLocation`) and waits, for a bounded time, until each reports
+the activated digest as its image. A webserver that does not is an activation
+failure, handled like a pointer that will not commit. The daemon refreshes its
+own workspace every minute and needs no reload.
 
 Anything that does need project code rides the activation release instead. The
 compute-log archiver (`libs.k8s_log_archive`) is rendered into it through the
@@ -197,3 +209,10 @@ product run` launches a product with it.
 2026-10-30 (#342): a `bronze` refresh also carries dagster-floe 0.4.3's
 `floe/full_refresh` tag, so Floe rebuilds Silver in the same run instead of
 merging the reloaded Bronze onto the old table.
+
+2026-11-01 (#740): activation reloads each contracted code location in the
+stage webserver and requires it to report the activated digest before the
+pointer moves; a webserver restarted by a platform apply had kept launching
+the previous revision. The run launcher's `job_image`, which platform apply
+still rendered, is now rendered only for the deprecated `olf infra deploy`
+path, so the statement that the run launcher has no image holds again.

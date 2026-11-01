@@ -292,6 +292,12 @@ locals {
       name  = "OPENLAKEFORGE_KUBE_NAMESPACE"
       value = var.namespace
     },
+    # Names dlt's Bronze pipelines and their state (libs/bronze_dlt.py) and
+    # gates PROD-only schedules; project activation sets the same value.
+    {
+      name  = "OPENLAKEFORGE_STAGE"
+      value = var.stage
+    },
   ]
 
   # Each domain's Floe Job runs on the project-code image and references the

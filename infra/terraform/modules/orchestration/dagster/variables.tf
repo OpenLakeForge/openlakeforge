@@ -3,6 +3,11 @@ variable "namespace" {
   type        = string
 }
 
+variable "stage" {
+  description = "Stage this Dagster serves (dev, prod), exported to its pods as OPENLAKEFORGE_STAGE."
+  type        = string
+}
+
 variable "release_name" {
   description = "Helm release name."
   type        = string

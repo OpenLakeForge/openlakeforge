@@ -359,6 +359,7 @@ moved {
 module "dagster" {
   source   = "../../modules/orchestration/dagster"
   for_each = local.enabled_stages
+  stage    = each.key
 
   namespace                      = kubernetes_namespace_v1.stage[each.key].metadata[0].name
   base_values_file               = "${path.root}/../../../helm/values/local/dagster.yaml"

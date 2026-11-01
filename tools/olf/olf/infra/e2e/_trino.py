@@ -172,10 +172,11 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
 
 
 def check_trino_write(cfg: E2EConfig) -> None:
-    """Append a row to a scratch Iceberg table through the long-lived Trino coordinator.
+    """Append a row to a scratch Iceberg table through the long-lived Trino coordinator, then
+    create and drop the temporary view a dbt incremental merge builds and drops on every run
+    after its first (#741: Polaris refused that drop until stage catalogs allowed purge).
 
-    No DROP: Polaris refuses the purge Trino's DROP TABLE requests, and the scratch schema
-    keeps the table out of the Silver and Gold counts.
+    The scratch schema keeps the table out of the Silver and Gold counts.
     """
     catalog = stage_catalog_name(cfg)
     schema = f"{catalog}.{_glue_namespace_prefix(cfg)}{PROBE_SCHEMA}"
@@ -183,6 +184,8 @@ def check_trino_write(cfg: E2EConfig) -> None:
         trino_query(cfg, f"CREATE SCHEMA IF NOT EXISTS {schema}")
         trino_query(cfg, f"CREATE TABLE IF NOT EXISTS {schema}.probe (probe integer)")
         trino_query(cfg, f"INSERT INTO {schema}.probe VALUES (1)")
+        trino_query(cfg, f"CREATE OR REPLACE VIEW {schema}.probe__dbt_tmp AS SELECT probe FROM {schema}.probe")
+        trino_query(cfg, f"DROP VIEW {schema}.probe__dbt_tmp")
     except E2EError as exc:
         # The CLI's own stderr does not survive `kubectl exec`; the coordinator log names the cause.
         args = ["logs", "-n", cfg.platform_namespace, "deploy/trino-coordinator", "--tail=200"]

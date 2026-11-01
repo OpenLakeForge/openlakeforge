@@ -97,41 +97,50 @@ resource "helm_release" "dagster" {
       runLauncher = {
         type = "K8sRunLauncher"
         config = {
-          k8sRunLauncher = {
-            # `includeConfigInLaunchedRuns` on the code location means a
-            # launched run inherits that server's image, so this is only the
-            # fallback for a run whose origin carries none -- it never
-            # outranks an activated revision. The deprecated `olf infra deploy`
-            # path still patches this `job_image` in place, so it has to
-            # exist.
-            imagePullPolicy = var.project_code_image_pull_policy
-            image = {
-              repository = var.project_code_image_repository
-              tag        = var.project_code_image_tag
-              pullPolicy = var.project_code_image_pull_policy
-            }
-            jobNamespace        = var.namespace
-            loadInclusterConfig = true
-            failPodOnRunFailure = true
-            runK8sConfig = {
-              jobSpecConfig = {
-                ttlSecondsAfterFinished = 3600
-              }
-              podSpecConfig = {
-                serviceAccountName = "dagster"
-              }
-              containerConfig = {
-                env = local.runtime_env
-                envFrom = [
-                  for secret in local.runtime_env_secrets : {
-                    secretRef = {
-                      name = secret.name
+          k8sRunLauncher = merge(
+            {
+              imagePullPolicy     = var.project_code_image_pull_policy
+              jobNamespace        = var.namespace
+              loadInclusterConfig = true
+              failPodOnRunFailure = true
+              runK8sConfig = {
+                jobSpecConfig = {
+                  ttlSecondsAfterFinished = 3600
+                }
+                podSpecConfig = {
+                  serviceAccountName = "dagster"
+                }
+                containerConfig = {
+                  env = local.runtime_env
+                  envFrom = [
+                    for secret in local.runtime_env_secrets : {
+                      secretRef = {
+                        name = secret.name
+                      }
                     }
-                  }
-                ]
+                  ]
+                }
               }
-            }
-          }
+            },
+            # No `job_image` where activation owns user code (ADR 0006): every
+            # run then takes its code location's image through
+            # `includeConfigInLaunchedRuns`, and a platform-apply-time value
+            # would only name a build no stage activated. The chart renders
+            # `job_image` only when this key exists. The deprecated
+            # `olf infra deploy` path patches `job_image` in place
+            # (`olf infra k8s set-project-code-image`), so it keeps one. A
+            # filtered `for` rather than `? {image = ...} : {}`: Terraform
+            # cannot unify an object with attributes and one without.
+            {
+              for key, value in {
+                image = {
+                  repository = var.project_code_image_repository
+                  tag        = var.project_code_image_tag
+                  pullPolicy = var.project_code_image_pull_policy
+                }
+              } : key => value if var.manage_user_deployments
+            },
+          )
         }
       }
     }),

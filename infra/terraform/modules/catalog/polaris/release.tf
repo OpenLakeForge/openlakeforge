@@ -129,9 +129,15 @@ resource "helm_release" "polaris" {
       # Polaris's default hour, the least SeaweedFS's STS issues, so a person
       # removed from a team stops reading loaded tables soon after. A cached
       # credential is handed out with at least 10 minutes left.
+      #
+      # Trino drops an Iceberg view or table through the REST catalog as a
+      # purge, which Polaris refuses by default; dbt's incremental models drop
+      # their __dbt_tmp view on every run and failed with "Failed to drop
+      # view". Purge removes only the dropped object's own files.
       features = {
         STORAGE_CREDENTIAL_DURATION_SECONDS       = 900
         STORAGE_CREDENTIAL_CACHE_DURATION_SECONDS = 300
+        DROP_WITH_PURGE_ENABLED                   = true
       }
       authentication = {
         tokenBroker = {
