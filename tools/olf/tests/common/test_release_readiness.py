@@ -522,7 +522,7 @@ def test_check_actions_flags_unused_catalog_entry(tmp_path: Path) -> None:
 
 
 def test_run_release_check_passes_on_real_repo_catalog() -> None:
-    report = _readiness.run_release_check(ROOT, tag="v0.6.0-alpha.1")
+    report = _readiness.run_release_check(ROOT, tag="v0.5.1-alpha.1")
     assert report.ok, report.render()
 
 

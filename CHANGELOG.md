@@ -14,7 +14,7 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-## [0.6.0-alpha.1] - 2026-11-01
+## [0.5.1-alpha.1] - 2026-11-01
 
 The platform surface: a platform API, a Platform CLI that signs people in
 through Dex and acts as them, and per-person data access through Trino and
@@ -65,6 +65,14 @@ package, `openlakeforge-lakehouse-services`.
   them (#660).
 - `olf product run` and a run tag ask one run for a full refresh; a Bronze
   full refresh rebuilds Silver.
+- Each Bronze resource declares its load mode in `source.yaml`
+  (`resources[].load`): `full`, the default, or `incremental` with a `cursor`
+  and a `primary_key`. `olf check contracts` rejects a Silver entity whose
+  Floe write mode does not fit it (#342, #343).
+- `libs.bronze_dlt.load_dlt_source` runs a dlt source as `source.yaml`
+  declares: a full resource replaces its Bronze files, an incremental one
+  appends only the rows past its cursor, and a load whose connector cursor is
+  not the declared one fails (#342).
 - Agent skills under `skills/`, in the open Agent Skills format, starting
   with `deploying-openlakeforge`: any coding agent that loads `SKILL.md`
   files can install `olf`, deploy, inspect, troubleshoot and tear down a
@@ -167,6 +175,19 @@ package, `openlakeforge-lakehouse-services`.
 - dbt incremental models no longer fail on their second run with "Failed to
   drop view '<model>__dbt_tmp'". Trino drops Iceberg views and tables as a
   purge, which Polaris refused; its `DROP_WITH_PURGE_ENABLED` feature is now on.
+- A run launched right after `olf infra project deploy` runs the activated
+  revision. Activation reloads each code location in the stage's Dagster
+  webserver and fails if it does not report the new image; the webserver had
+  kept launching the previous revision (#740).
+- Floe merge write modes no longer download DuckDB extensions at run time,
+  which failed in Floe Jobs with no egress: the project-code image ships
+  `httpfs`, `aws`, `iceberg` and `avro` for its DuckDB (#725).
+- Floe Jobs get a region and skip the EC2 metadata lookup (#743).
+- `olf infra project build` no longer reads a Python secret passthrough
+  (`password=password`, `password: str`) as an embedded credential (#659).
+- On `local`, `olf infra project image` pushes to the profile's
+  `spec.project.image.repository`, and refuses to push edited project code
+  over OpenLakeForge's example image (#661).
 - dlt Bronze loads no longer fail on a platform deploy with "OPENLAKEFORGE_STAGE
   is not set". The Dagster module now exports the stage to its pods, as
   project activation already did, so `olf infra deploy --phase artifacts`
