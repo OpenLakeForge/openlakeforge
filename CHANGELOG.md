@@ -192,6 +192,12 @@ package, `openlakeforge-lakehouse-services`.
   is not set". The Dagster module now exports the stage to its pods, as
   project activation already did, so `olf infra deploy --phase artifacts`
   gives run pods the stage that names each dlt pipeline and its state.
+- A run launched after `olf infra project deploy` no longer uses the previous
+  revision's image. Activation reloads every code location through the stage
+  webserver and waits until each reports the activated digest, restoring the
+  previous release if one does not (#740).
+- Floe Jobs get `AWS_REGION` and, on self-hosted storage, skip the EC2
+  metadata lookup, which had cost about 4 s per entity on kind.
 - Trino's `query.max-stage-count` now reaches `config.properties` from
   `release/query-sizes.yaml`. The Trino chart reads free-form properties only
   from its top-level list, so the coordinator-level list it was rendered into
