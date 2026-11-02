@@ -416,6 +416,24 @@ def apply_manifest(manifest: dict) -> None:
         _kubectl(["apply", "-f", handle.name])
 
 
+def write_secret(name: str, namespace: str, data: dict[str, str], *, overwrite: bool = True) -> None:
+    """Store `data` as an Opaque Secret; with `overwrite=False`, fail if it already exists."""
+    manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": namespace},
+        "type": "Opaque",
+        "stringData": data,
+    }
+    if overwrite:
+        apply_manifest(manifest)
+        return
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+        json.dump(manifest, handle)
+        handle.flush()
+        _kubectl(["create", "-f", handle.name])
+
+
 def run_job(job: dict, *, timeout_seconds: int, poll_seconds: float = 5.0) -> None:
     """Replace the named Job (its spec is immutable) and wait for Complete or Failed.
 
