@@ -27,8 +27,10 @@ namespace.
 
 `olf infra deploy --provider local` runs a canary after the foundation. It proves a
 client and server pair connect with no policy, then requires an ingress-only
-and an egress-only deny to block it. The deploy fails if the cluster does not
-enforce NetworkPolicy. The canary runs in the deploy only. `olf e2e` runs
+and an egress-only deny to block it. Last, an ingress deny must block, adding a
+rule that allows the client must let it connect, and removing that rule must
+block it again. The deploy fails if the cluster does not enforce NetworkPolicy
+or does not admit what an allow rule permits. The canary runs in the deploy only. `olf e2e` runs
 `check_network_and_rbac` (flow probes and service-account RBAC checks) in the
 full suite, after the catalog, pipeline, restart-recovery and certificate
 checks.

@@ -402,6 +402,15 @@ was then run against the same pinned cluster (kind v0.32.0, kindnetd
 "NetworkPolicy is enforced.": kindnet blocks the pair for an ingress-only and an
 egress-only deny. Option A stands.
 
+Canary extended for allow rules (#622): after the two denies, an ingress deny
+must block, adding a rule that allows the client must connect, and removing it
+must block again. A reported cluster whose kindnet had been replaced with
+Calico blocked every deny but left an allow-rule selector set incomplete, so
+the deploy passed the gate and failed later as storage and DNS timeouts. The
+failure message no longer points at Calico, which was never built: it says a
+replaced CNI, or a host where kindnet does not enforce, is not supported. Not
+yet run against the pinned cluster.
+
 Slice 2 built: `release/network-flows.yaml` holds the stage rows of the flow
 table (F3 and F14 ingress, F5, F6, F9, F10, F12 and F20 egress), checked by
 `olf check flows` (in `olf check all`) for scope, ports, tag and that every id

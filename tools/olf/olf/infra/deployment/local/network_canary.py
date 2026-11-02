@@ -4,9 +4,9 @@ One server and one client. The pair must connect with no policy, which is the
 positive control: a pair that cannot connect for another reason would read as
 "blocked". Then an ingress-only and an egress-only deny are each applied to the
 same pair and must each block, because a dataplane can enforce one direction
-and not the other. Last, an ingress deny plus a rule allowing the client must
-connect, and must block again once the allow is removed: a dataplane can drop
-everything a policy selects and still fail to admit what it allows (#622).
+and not the other. Last, an ingress deny must block, adding a rule allowing
+the client must connect, and removing that rule must block again: a dataplane
+can drop everything a policy selects and still fail to admit what it allows (#622).
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ _DELAY_SECONDS = 5.0
 
 # kindnet is the only CNI the local provider is built and tested with (ADR 0017); Calico was never built.
 _UNSUPPORTED_HOST = (
-    "The local provider needs kind's default CNI (kindnet) on a host whose kernel enforces NetworkPolicy; "
-    "this host does not, so it is not supported (ADR 0017)."
+    "The local provider supports only kind's default CNI (kindnet), on a host that enforces NetworkPolicy with it. "
+    "A cluster whose CNI was replaced, or a host where kindnet does not enforce, is not supported (ADR 0017)."
 )
 
 Step = tuple[Callable[[], object], Callable[[], object]]
@@ -55,8 +55,8 @@ def verdict(
 ) -> None:
     """`denies` holds (direction, apply, remove). Each must turn a connecting pair into a blocked one.
 
-    `allow` is ((apply deny, remove deny), (apply allow, remove allow)): with both applied the pair must connect,
-    and with the allow removed it must block again.
+    `allow` is ((apply deny, remove deny), (apply allow, remove allow)): the deny alone must block, adding the
+    allow must connect, and removing the allow must block again.
     """
 
     def eventually(expected: bool) -> bool:
@@ -94,6 +94,13 @@ def verdict(
         )
     apply_deny()
     try:
+        # The deny must be seen to block first: a probe that ran before either policy was programmed would
+        # connect and pass the allow without proving anything.
+        if not eventually(False):
+            raise PolicyNotEnforcedError(
+                f"This cluster does not enforce ingress NetworkPolicy: the client still connected through a deny "
+                f"policy ({attempts} attempts). Default-deny policies would be inert. " + _UNSUPPORTED_HOST
+            )
         apply_allow()
         try:
             if not eventually(True):
@@ -107,7 +114,7 @@ def verdict(
         if not eventually(False):
             raise PolicyNotEnforcedError(
                 "This cluster kept admitting traffic after its NetworkPolicy allow rule was removed "
-                f"({attempts} attempts), so the earlier connection proved nothing about the allow. " + _UNSUPPORTED_HOST
+                f"({attempts} attempts), so the allow rule never took effect on its own. " + _UNSUPPORTED_HOST
             )
     finally:
         remove_deny()
