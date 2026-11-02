@@ -28,7 +28,9 @@ def _jwt(claims: dict[str, object]) -> str:
     return f"{part({'alg': 'RS256'})}.{part(claims)}.signature"
 
 
-TOKEN = _jwt({"exp": int(time.time()) + 300, "email": "de@example.com", "groups": ["acme:data-engineers"]})
+def _token() -> str:
+    # Minted per test: a module-level token is signed at collection and expires before a slow full run reaches it.
+    return _jwt({"exp": int(time.time()) + 300, "email": "de@example.com", "groups": ["acme:data-engineers"]})
 
 
 class SignIn:
@@ -37,12 +39,13 @@ class SignIn:
     def __init__(self) -> None:
         self.reached = threading.Event()
         self.urls: list[str] = []
+        self.token = _token()
 
     def login(self, instance: sessions.Instance, *, open_browser: bool, announce: Any) -> sessions.Session:
         assert not open_browser
         announce("Open this URL in a browser to sign in:\nhttps://auth.olf.localhost/auth?client_id=olf-cli")
         assert self.reached.wait(5)
-        session = sessions.Session(instance.issuer, TOKEN, "", "")
+        session = sessions.Session(instance.issuer, self.token, "", "")
         sessions.save(instance, session)
         return session
 
@@ -71,9 +74,9 @@ def sign_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SignIn:
     return fake
 
 
-def _api(role: str, status: int = 200) -> Any:
+def _api(token: str, role: str, status: int = 200) -> Any:
     def get(url: str, headers: dict[str, str], **_: Any) -> Any:
-        assert url == WHOAMI and headers["Authorization"] == f"Bearer {TOKEN}"
+        assert url == WHOAMI and headers["Authorization"] == f"Bearer {token}"
         return SimpleNamespace(status_code=status, json=lambda: {"role": role}, text="")
 
     return get
@@ -82,7 +85,7 @@ def _api(role: str, status: int = 200) -> Any:
 def test_login_whoami_and_logout_leave_no_session_and_never_touch_the_operators(
     sign_in: SignIn, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(cli.requests, "get", _api("data-engineer"))
+    monkeypatch.setattr(cli.requests, "get", _api(sign_in.token, "data-engineer"))
 
     cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", WHOAMI)
 
@@ -97,7 +100,7 @@ def test_the_instance_is_the_one_a_dex_profile_resolves() -> None:
 
 
 def test_a_stored_session_the_api_does_not_accept_fails(sign_in: SignIn, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli.requests, "get", _api("analyst"))
+    monkeypatch.setattr(cli.requests, "get", _api(sign_in.token, "analyst"))
 
     with pytest.raises(E2EError, match="with the stored session"):
         cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", WHOAMI)

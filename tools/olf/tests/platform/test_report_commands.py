@@ -9,7 +9,7 @@ from zipfile import ZipFile
 import pytest
 import test_reads
 from openlakeforge_services import reports
-from test_reads import ANSWERS, POST_ANSWERS, TOKEN, FakeAPI, _olf
+from test_reads import ANSWERS, POST_ANSWERS, FakeAPI, _olf
 
 from olf.platform import session as sessions
 from olf.platform import writes
@@ -59,7 +59,7 @@ def test_import_sends_metadata_and_the_assets_the_api_imports_and_never_the_data
     assert result.stdout == "Imported 1 dashboard(s) into dev's Superset.\n"
     [request] = fake.requests
     assert request["method"] == "POST" and request["path"] == "/api/v1/stages/dev/reports"
-    assert request["authorization"] == f"Bearer {TOKEN}"
+    assert request["authorization"] == f"Bearer {fake.token}"
     with ZipFile(io.BytesIO(request["body"])) as archive:
         assert sorted(archive.namelist()) == sorted(["metadata.yaml", "charts/Orders_by_day.yml", DASHBOARD, DATASET])
 
