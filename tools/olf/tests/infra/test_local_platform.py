@@ -425,6 +425,72 @@ def test_platform_up_retries_apply_and_cleans_up_polaris_jobs_each_attempt(tmp_p
     assert len(apply_calls) == 2  # first attempt failed, second succeeded
 
 
+_NULL_IDENTITY = {"api_version": None, "kind": None, "name": None, "namespace": None}
+
+
+def _deployment_state(identity: dict | None, *, index_key: object = 0) -> dict:
+    instance = {
+        "index_key": index_key,
+        "attributes": {"id": "olf-system/portal", "metadata": [{"name": "portal", "namespace": "olf-system"}]},
+    }
+    if identity is not None:
+        instance["identity"] = identity
+    return {
+        "resources": [
+            {
+                "module": "module.portal[0]",
+                "mode": "managed",
+                "type": "kubernetes_deployment_v1",
+                "name": "portal",
+                "instances": [instance],
+            }
+        ]
+    }
+
+
+def test_an_instance_left_with_a_null_identity_is_found_with_its_import_id() -> None:
+    found = platform.null_identity_instances(_deployment_state(_NULL_IDENTITY))
+
+    assert found == [("module.portal[0].kubernetes_deployment_v1.portal[0]", "olf-system/portal")]
+
+
+def test_a_string_index_key_is_quoted_in_the_address() -> None:
+    found = platform.null_identity_instances(_deployment_state(_NULL_IDENTITY, index_key="dev"))
+
+    assert found[0][0] == 'module.portal[0].kubernetes_deployment_v1.portal["dev"]'
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [None, {"api_version": "apps/v1", "kind": "Deployment", "name": "portal", "namespace": "olf-system"}],
+)
+def test_a_stored_or_absent_identity_is_left_alone(identity: dict | None) -> None:
+    assert platform.null_identity_instances(_deployment_state(identity)) == []
+
+
+def test_platform_up_reimports_a_null_identity_instance_before_applying(tmp_path: Path) -> None:
+    config = _config(tmp_path, profile=Profile.SLIM)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    state = _deployment_state(_NULL_IDENTITY)
+    state["resources"][0]["instances"][0].pop("index_key")
+    config.paths.platform_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.platform_state_path.write_text(json.dumps(state))
+    runner = _PlatformScriptedRunner(namespace_exists=False, seaweedfs_in_state=True)
+    tools = _toolkit(runner)
+
+    platform.platform_up(config, tools, env={})
+
+    address = "module.portal[0].kubernetes_deployment_v1.portal"
+    terraform = [c.argv for c in runner.calls if c.argv[0] == "terraform"]
+    removed = next(i for i, argv in enumerate(terraform) if argv[2:4] == ["state", "rm"] and address in argv)
+    imported = next(
+        i for i, argv in enumerate(terraform) if "import" in argv and argv[-2:] == [address, "olf-system/portal"]
+    )
+    applied = max(i for i, argv in enumerate(terraform) if "apply" in argv)
+    assert removed < imported < applied
+
+
 def _legacy_namespace_runner(*, legacy_namespace_exists: bool) -> RecordingRunner:
     """A runner whose `kubectl get namespace lakehouse` answers found/not-found."""
 
