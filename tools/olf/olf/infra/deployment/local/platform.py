@@ -665,6 +665,13 @@ def platform_up(
 
         images.prepare_platform_api_image(config, tools, env=env)
 
+    from olf.infra.deployment.local import images
+
+    # Before the apply creates the Dagster releases: with pullPolicy Never a pod
+    # whose image is not on the nodes yet cannot start, and the first deploy
+    # would fail its rollout waiting for the activation phase to load it (#758).
+    images.preload_project_code_image(config, tools, env=env)
+
     prepare_charts(config, tools, env=env)
 
     log.step("Initializing Terraform...")

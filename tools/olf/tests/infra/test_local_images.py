@@ -236,6 +236,37 @@ def test_prepare_project_code_image_builds_and_loads(tmp_path: Path) -> None:
     assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)
 
 
+def test_preload_project_code_image_builds_and_loads_before_the_platform_apply(tmp_path: Path) -> None:
+    """The platform phase must not create Dagster pods whose image is not on the nodes yet (#758)."""
+    config = _config(tmp_path)
+    runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
+    tools = _toolkit(runner)
+
+    images.preload_project_code_image(config, tools, env={})
+
+    argvs = [c.argv for c in runner.calls]
+    assert any(a[1] == "build" and a[a.index("-t") + 1] == config.images.project_code_image for a in argvs)
+    assert ["kind", "load", "docker-image", config.images.project_code_image, "--name", "openlakeforge-local"] in argvs
+
+
+def test_preload_project_code_image_skips_when_tag_is_not_local(tmp_path: Path) -> None:
+    config = _config(tmp_path, environ={"PROJECT_CODE_IMAGE_TAG": "v1"})
+    runner = _ScriptedRunner()
+    tools = _toolkit(runner)
+
+    images.preload_project_code_image(config, tools, env={})
+
+    assert runner.calls == []
+
+
+def test_preload_project_code_image_skips_the_published_example(tmp_path: Path) -> None:
+    runner = _ScriptedRunner()
+
+    images.preload_project_code_image(_published(tmp_path), _toolkit(runner), env={})
+
+    assert runner.calls == []
+
+
 _PIN = "ghcr.io/o/project-code:1.0.0-alpha.1@sha256:" + "a" * 64
 
 

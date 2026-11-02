@@ -146,3 +146,25 @@ def prepare_project_code_image(
     image = build_project_code_image(config, tools, env=env)
     log.step("Ensuring local project-code image is available to kind...")
     load_image_into_kind(image, config, tools, env=env)
+
+
+def preload_project_code_image(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    env: Mapping[str, str],
+) -> None:
+    """Build and load the local project-code image before the platform apply creates the Dagster releases.
+
+    The platform phase carries the project-image variables, and `pullPolicy:
+    Never` means a pod created before the image is on the nodes can neither
+    pull nor start — only wait in kubelet's backoff until the activation
+    phase loads the image minutes later (#758). Pre-building here is the
+    same `prepare_*` pattern the platform phase already uses for the local
+    Superset and platform API images. Activation builds again; the second
+    build hits the cache and the `kind load` of an unchanged image is a
+    no-op for the nodes that already hold it.
+    """
+    if config.images.project_code_published or config.images.project_code_tag != "local":
+        return
+    prepare_project_code_image(config, tools, env=env)

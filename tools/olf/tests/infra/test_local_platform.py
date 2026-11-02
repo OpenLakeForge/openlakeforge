@@ -335,6 +335,12 @@ class _PlatformScriptedRunner(RecordingRunner):
 
         if argv[0] == "kubectl" and "get-contexts" in argv:
             return _ok("kind-openlakeforge-local\n")
+        if argv[0] == "kind" and argv[1:3] == ["get", "clusters"]:
+            return _ok("openlakeforge-local\n")
+        if argv[0] == "kind" and argv[1:3] == ["get", "nodes"]:
+            return _ok("openlakeforge-local-control-plane\nopenlakeforge-local-worker\n")
+        if argv[0] == "docker" and argv[1:3] == ["image", "inspect"]:
+            return _ok('[{"Id": "sha256:0123456789abcdef0123"}]')
         if argv[0] == "kubectl" and "namespace" in argv and "get" in argv and "jsonpath" not in " ".join(argv):
             if "lakehouse" in argv:
                 return _ok() if self._legacy_namespace_exists else _fail()
@@ -392,6 +398,24 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: b
     # Dropping spec.access destroys the module that owns the Corefile key.
     restored = any("patch" in c.argv and "coredns" in c.argv for c in runner.calls)
     assert restored is not with_access
+
+
+def test_platform_up_loads_the_local_project_code_image_before_the_apply(tmp_path: Path) -> None:
+    """The Dagster releases the apply creates reference project-code:local with pullPolicy Never (#758)."""
+    config = _config(tmp_path, profile=Profile.SLIM)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    runner = _PlatformScriptedRunner(namespace_exists=False, seaweedfs_in_state=True)
+    tools = _toolkit(runner)
+
+    platform.platform_up(config, tools, env={})
+
+    argvs = [c.argv for c in runner.calls]
+    load = next(a for a in argvs if a[:3] == ["kind", "load", "docker-image"])
+    apply_call = next(a for a in argvs if a[0] == "terraform" and "apply" in a)
+    # The image is on the nodes before the apply can create pods that reference it.
+    assert argvs.index(load) < argvs.index(apply_call)
+    assert config.images.project_code_image in load
 
 
 def test_platform_up_recovers_from_drifted_state(tmp_path: Path) -> None:

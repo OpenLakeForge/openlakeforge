@@ -33,6 +33,12 @@ for how a release is cut and verified.
 
 ### Fixed
 
+- A first `olf deploy --provider local` with the default
+  `project_code_image_tag=local` builds and loads the project-code image
+  before the platform apply creates the Dagster releases, instead of leaving
+  the first deploy's pods in `ErrImageNeverPull` until the activation phase
+  loads the image minutes later (#758).
+
 - `olf check project-code --repo-root <project>` parses a customer
   repository's dbt products. Each `packages.yml` reaches the shared
   `openlakeforge_dbt` package through `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which
