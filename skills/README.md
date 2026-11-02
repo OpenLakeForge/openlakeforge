@@ -9,6 +9,7 @@ that loads that format can use them; nothing here is specific to one vendor.
 | Skill | Use it to |
 | --- | --- |
 | [`deploying-openlakeforge`](deploying-openlakeforge/SKILL.md) | Install `olf`, create a project, deploy, inspect, troubleshoot and tear down a stack |
+| [`exploring-openlakeforge`](exploring-openlakeforge/SKILL.md) | Query Trino and inspect governance, jobs, runs and logs as a signed-in user |
 
 ## Install
 
