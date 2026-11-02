@@ -7,15 +7,15 @@ from __future__ import annotations
 # config schema, and the launchpad and `olf infra product run` set it the same way.
 FULL_REFRESH_TAG = "openlakeforge/full_refresh"
 
-# `bronze` reloads Bronze from scratch, rebuilds Silver from it and rebuilds
-# Gold; `gold` rebuilds Gold alone and leaves Bronze and Silver as they are.
-# There is no Silver-only scope: incremental Bronze keeps each batch, so
-# Silver can only be rebuilt from a Bronze that was reloaded whole.
+# `bronze` re-ingests from Bronze: Silver is rebuilt from every Bronze file
+# already landed, then Gold from Silver. Nothing is extracted again, so the
+# sources and their cursors are untouched. `gold` rebuilds Gold alone and
+# leaves Silver as it is.
 FULL_REFRESH_SCOPES = ("bronze", "gold")
 
 # dagster-floe's own tag (0.4.3): it runs the job's Floe entities with
-# `floe run --full-refresh`. A `bronze` refresh must carry it, or Silver would
-# merge the new extract onto rows the source no longer has.
+# `floe run --full-refresh`, which reads every input rather than the pending
+# ones. A `bronze` refresh must carry it, or Silver would not be rebuilt.
 FLOE_FULL_REFRESH_TAG = "floe/full_refresh"
 
 

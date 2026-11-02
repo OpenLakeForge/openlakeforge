@@ -127,19 +127,25 @@ yourself in the Dagster launchpad:
 
 | Scope | Bronze | Silver | Gold |
 | --- | --- | --- | --- |
-| `bronze` | Files and cursors of the job's incremental resources dropped, then everything extracted | Rebuilt from the new extract (`floe run --full-refresh`) | `dbt build --full-refresh` |
+| `bronze` | Incremental, as on any run | Rebuilt from every Bronze file (`floe run --full-refresh`) | `dbt build --full-refresh` |
 | `gold` | Incremental | Incremental | `dbt build --full-refresh` |
+
+A full refresh re-ingests what Bronze already holds; it never extracts from a
+source again, so cursors and Bronze files are untouched. Incremental Bronze
+keeps every batch and Floe merges a repeated key from the latest file, so
+Silver rebuilt from all of them holds each row's newest version.
 
 A `bronze` refresh needs a second tag, `floe/full_refresh=true`, which makes
 dagster-floe run the job's Floe entities with `--full-refresh`.
-`olf infra product run` sets both. A run that carries only the first fails
-before it touches Bronze, so a row deleted at the source cannot survive a
-refresh in Silver.
-
-There is no Silver-only scope: incremental Bronze keeps every batch, so
-Silver can only be rebuilt from a Bronze reloaded in full.
+`olf infra product run` sets both. A run that carries only the first fails at
+its first step, before Silver or Gold change.
 
 Known limits:
+
+- A row deleted at the source never reaches Silver: incremental extraction
+  sees only rows that still exist, and a full refresh rebuilds from the same
+  Bronze. Removing it takes a source-specific step, such as reloading that
+  resource's Bronze.
 
 - Floe cannot rebuild a `merge_scd2` table's version history from its
   inputs, so a `bronze` refresh fails at a `merge_scd2` entity.

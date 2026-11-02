@@ -15,6 +15,7 @@ from libs.product_dagster import (  # noqa: E402
     build_source_definitions,
     build_stage_schedules,
 )
+from openlakeforge_domain import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 
 _SPEC = ProductDefinitionSpec(
     domain="sales",
@@ -87,6 +88,27 @@ def test_a_subset_run_loads_only_the_selected_resources(monkeypatch: pytest.Monk
     assert result.success
     assert loaded == [("orders",)]
     assert os.environ["DAGSTER_RUN_ID"] == "outer"
+
+
+def test_a_bronze_full_refresh_loads_incrementally_and_extracts_nothing_again() -> None:
+    """A full refresh re-ingests the Bronze already landed; the loader is not asked to start over."""
+    loaded: list[tuple[str, ...]] = []
+    assets = list(build_source_definitions(_source(loaded)).assets)
+
+    result = materialize(assets, tags=full_refresh_tags("bronze"))
+
+    assert result.success
+    assert loaded == [("orders", "customers")]
+
+
+def test_malformed_refresh_tags_fail_before_anything_loads() -> None:
+    loaded: list[tuple[str, ...]] = []
+    assets = list(build_source_definitions(_source(loaded)).assets)
+
+    result = materialize(assets, tags={FULL_REFRESH_TAG: "bronze"}, raise_on_error=False)
+
+    assert not result.success
+    assert loaded == []
 
 
 class _Log:

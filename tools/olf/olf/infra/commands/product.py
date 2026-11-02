@@ -17,8 +17,8 @@ def product_run(
     full_refresh: str = typer.Option(
         "",
         "--full-refresh",
-        help="Full refresh for this run: 'bronze' re-extracts incremental Bronze resources and rebuilds Gold, "
-        "'gold' rebuilds Gold only.",
+        help="Full refresh for this run: 'bronze' rebuilds Silver from every Bronze file, then Gold; "
+        "'gold' rebuilds Gold only. Nothing is extracted from the sources again.",
     ),
     profile_file: str = typer.Option(
         "openlakeforge.yaml", "--profile-file", "-f", help="Deployment Profile the deployment was applied from."

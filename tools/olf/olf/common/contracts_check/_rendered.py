@@ -62,7 +62,7 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
 
 # `append` is safe here because a `bronze` full refresh also runs Floe with
 # `--full-refresh` (`floe/full_refresh`), which rebuilds an appended table from
-# the reloaded Bronze instead of appending every row again.
+# every Bronze file instead of appending every row again.
 _INCREMENTAL_WRITE_MODES = ("merge_scd1", "merge_scd2", "append")
 
 

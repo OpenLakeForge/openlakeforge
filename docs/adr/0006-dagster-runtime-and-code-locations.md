@@ -146,14 +146,13 @@ whoever launches the run (the Dagster launchpad, or `olf infra product run
 --full-refresh`) and the project-code runtime; `openlakeforge_domain.runs`
 holds it. A tag reaches every asset of the job without each one declaring a
 config schema, including the Floe assets dagster-floe builds. Both scopes run
-`dbt build --full-refresh`. `bronze` also drops the files and dlt cursors of
-the job's incremental Bronze resources and extracts them again, and it
-carries dagster-floe's own tag, `floe/full_refresh=true`, so Floe rebuilds
-Silver from that extract. The runtime rejects a `bronze` run without the Floe
-tag before any load: Silver would otherwise merge the new extract onto rows
-the source no longer has. There is no Silver-only scope: incremental Bronze
-keeps every batch, so Silver can only be rebuilt from a Bronze reloaded in
-full.
+`dbt build --full-refresh`. `bronze` also carries dagster-floe's own tag,
+`floe/full_refresh=true`, so Floe rebuilds Silver from every Bronze file. A
+full refresh re-ingests Bronze and never re-extracts: the sources' cursors and
+files stay, so a refresh cannot lose history a source no longer serves, or
+depend on that source being reachable. The runtime rejects a `bronze` run
+without the Floe tag at its first step, since Silver would otherwise not be
+rebuilt.
 
 ### Kubernetes run launcher
 
@@ -225,3 +224,8 @@ through `OPENLAKEFORGE_DBT_PACKAGES_DIR` instead of `../../../../libs/dbt`,
 and the code location reads its profiles from `OPENLAKEFORGE_DBT_PROFILES_DIR`
 when set, so `olf check project-code` parses a customer repository's
 products against the distribution.
+
+2026-11-02 (#342): a `bronze` full refresh no longer drops and re-extracts
+incremental Bronze. It rebuilds Silver from every Bronze file and Gold from
+Silver. On the local stack, re-extraction had replaced a source's history with
+whatever its connector could still fetch, which was nothing in a quiet week.
