@@ -390,10 +390,9 @@ def _verify_bronze_dlt_load_modes() -> None:
     """`source.yaml` load modes drive what a dlt load writes to Bronze (#343).
 
     An incremental resource appends only the rows past its cursor, and a run
-    with nothing new writes nothing; a full resource replaces its files; a full
-    refresh drops an incremental resource's files and cursor and extracts it
-    all again. Newer batches must sort last, since Floe merges a repeated key
-    from the latest file in URI order.
+    with nothing new writes nothing; a full resource replaces its files. Newer
+    batches must sort last, since Floe merges a repeated key from the latest
+    file in URI order.
     """
     import dlt
 
@@ -423,13 +422,12 @@ def _verify_bronze_dlt_load_modes() -> None:
         (root / "bronze" / "mock_api").mkdir(parents=True)
         (root / "bronze" / "mock_api" / "source.yaml").write_text(_LOAD_MODES_SOURCE, encoding="utf-8")
 
-        def load(*, full_refresh: bool = False, cursor: str = "updated_at") -> dict[str, int]:
+        def load(*, cursor: str = "updated_at") -> dict[str, int]:
             with _environment({"OPENLAKEFORGE_STAGE": "dev"}):
                 results = bronze_dlt.load_dlt_source(
                     "mock_api",
                     source(cursor),
                     ("records", "lookups"),
-                    full_refresh=full_refresh,
                     bucket_url=bucket.as_uri(),
                     lakehouse_root=root,
                 )
@@ -453,10 +451,6 @@ def _verify_bronze_dlt_load_modes() -> None:
         newest = import_module("pyarrow.parquet").read_table(bucket / "mock_api" / "records" / batches[-1])
         if sorted(newest.column("id").to_pylist()) != [1, 3]:
             _fail(f"dlt load modes: the newest batch does not sort last in Bronze: {batches}")
-
-        refreshed = load(full_refresh=True)
-        if refreshed["records"] != 3 or len(files("records")) != 1:
-            _fail(f"dlt load modes: a full refresh loaded {refreshed['records']} row(s) into {files('records')}")
 
         try:
             load(cursor="v")

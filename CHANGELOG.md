@@ -14,6 +14,15 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Changed
+
+- A `bronze` full refresh re-ingests Bronze instead of re-extracting it: Floe
+  rebuilds Silver from every Bronze file and dbt rebuilds Gold, while the
+  sources' cursors and Bronze files are left as they are. Re-extraction had
+  replaced a source's history with whatever its connector could still fetch.
+  `libs.bronze_dlt.load_dlt_source` loses its `full_refresh` argument, and a
+  loader's contract is `load_<source>_entities_to_bronze(resources)`.
+
 ### Fixed
 
 - `olf check project-code --repo-root <project>` parses a customer
@@ -31,6 +40,9 @@ for how a release is cut and verified.
   `olf check dbt` and `olf check project-code` refuse the old path and name
   the files that still use it. A plain `dbt` run outside olf needs the
   variable set to the distribution's `libs/dbt`.
+- A Bronze loader that took `full_refresh` and passed it to
+  `load_dlt_source` drops the argument: the runtime calls
+  `load_<source>_entities_to_bronze(resources)` only.
 
 ## [0.5.1-alpha.1] - 2026-11-01
 

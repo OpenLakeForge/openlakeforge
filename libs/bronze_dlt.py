@@ -86,7 +86,6 @@ def load_dlt_source(
     dlt_source: Any,
     resources: Sequence[str],
     *,
-    full_refresh: bool = False,
     environ: Mapping[str, str] | None = None,
     bucket_url: str | None = None,
     lakehouse_root: Path | None = None,
@@ -96,11 +95,11 @@ def load_dlt_source(
     A `full` resource replaces its Bronze files on every run. An `incremental`
     one appends the rows past its cursor's last value as new files; the
     connector declares the cursor with `dlt.sources.incremental`, on the column
-    the descriptor names. `full_refresh` drops the resources' files and cursors
-    first, so the run extracts everything again.
+    the descriptor names. Nothing here drops Bronze: a full refresh rebuilds
+    Silver and Gold from the batches already landed, so the cursor and every
+    file survive it.
 
-    This is the loader contract for a source with incremental resources:
-    `load_<source>_entities_to_bronze(resources, *, full_refresh=False)`.
+    The loader contract is `load_<source>_entities_to_bronze(resources)`.
     """
     # The project imported as `lakehouse_code`: beside libs/ in the image, but a
     # separate root when olf checks a customer project against the distribution.
@@ -122,7 +121,7 @@ def load_dlt_source(
         resource.apply_hints(write_disposition="append", primary_key=list(load.primary_key))
 
     pipeline = bronze_pipeline(source, environ=environ, bucket_url=bucket_url)
-    info = pipeline.run(selected, loader_file_format="parquet", refresh="drop_resources" if full_refresh else None)
+    info = pipeline.run(selected, loader_file_format="parquet")
     row_counts = pipeline.last_trace.last_normalize_info.row_counts
     destination = pipeline.destination_client().config.bucket_url.rstrip("/")
     load_id = info.loads_ids[-1] if info.loads_ids else "none"
