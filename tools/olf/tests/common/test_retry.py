@@ -143,3 +143,51 @@ def test_unit_tests_never_actually_sleep() -> None:
         sleep_fn=lambda seconds: None,
     )
     assert result == "ok"
+
+
+def test_retry_on_custom_exception_logs_and_matches_legacy_behaviour(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins the behaviour of the removed olf.common.retry (retry_on + log messages)."""
+    from olf.common import log
+
+    warns: list[str] = []
+    errors: list[str] = []
+    monkeypatch.setattr(log, "warn", warns.append)
+    monkeypatch.setattr(log, "error", errors.append)
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        raise ValueError(f"boom{calls}")
+
+    sleeps: list[float] = []
+    with pytest.raises(ValueError, match="boom3"):
+        run_with_retry(
+            fn,
+            policy=RetryPolicy(max_attempts=3, delay_seconds=3.0),
+            retry_on=(ValueError,),
+            description="thing",
+            sleep_fn=sleeps.append,
+        )
+
+    assert calls == 3
+    assert sleeps == [3.0, 3.0]
+    assert warns == [
+        "thing failed on attempt 1/3 (boom1); retrying in 3s...",
+        "thing failed on attempt 2/3 (boom2); retrying in 3s...",
+    ]
+    assert errors == ["thing failed after 3 attempt(s)."]
+
+
+def test_exceptions_outside_retry_on_propagate_immediately() -> None:
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        raise KeyError("x")
+
+    with pytest.raises(KeyError):
+        run_with_retry(fn, policy=RetryPolicy(max_attempts=4), retry_on=(ValueError,), sleep_fn=lambda _s: None)
+
+    assert calls == 1

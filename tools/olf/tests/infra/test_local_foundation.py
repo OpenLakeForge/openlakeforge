@@ -402,7 +402,7 @@ class _FlakyClusterInfoRunner(_ScriptedRunner):
 
 
 def test_foundation_up_retries_the_reachability_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("olf.common.retry.time.sleep", lambda _s: None)
+    monkeypatch.setattr("olf.common.tooling.retry.time.sleep", lambda _s: None)
     runner = _FlakyClusterInfoRunner(failures=2)
 
     foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
@@ -411,7 +411,7 @@ def test_foundation_up_retries_the_reachability_check(tmp_path: Path, monkeypatc
 
 
 def test_foundation_up_gives_up_after_the_retry_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("olf.common.retry.time.sleep", lambda _s: None)
+    monkeypatch.setattr("olf.common.tooling.retry.time.sleep", lambda _s: None)
     runner = _FlakyClusterInfoRunner(failures=999)
 
     with pytest.raises(DeploymentPreconditionError, match="not reachable after applying the foundation"):

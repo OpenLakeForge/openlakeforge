@@ -10,12 +10,14 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
+from olf.common import log
 from olf.common.deployment.errors import CommandExecutionError
 
 # Receives the failing error and the 1-indexed attempt number that just
 # failed; returns whether another attempt should be made.
-RetryPredicate = Callable[[CommandExecutionError, int], bool]
+RetryPredicate = Callable[[Any, int], bool]
 
 
 @dataclass(frozen=True)
@@ -40,22 +42,33 @@ def run_with_retry[T](
     *,
     policy: RetryPolicy,
     retry_if: RetryPredicate | None = None,
-    sleep_fn: Callable[[float], None] = time.sleep,
+    retry_on: tuple[type[Exception], ...] = (CommandExecutionError,),
+    description: str | None = None,
+    sleep_fn: Callable[[float], None] | None = None,
 ) -> T:
-    """Run `fn`, retrying on `CommandExecutionError` per `policy`.
+    """Run `fn`, retrying on `retry_on` (default `CommandExecutionError`) per `policy`.
 
     Attempt 1 always runs immediately. No sleep happens after the final
     attempt. `retry_if`, when given, can veto a retry (e.g. only retry on
-    specific return codes/messages); by default every `CommandExecutionError`
-    is retryable up to `policy.max_attempts`.
+    specific return codes/messages); by default every `retry_on` error
+    is retryable up to `policy.max_attempts`. `description`, when given, logs a
+    warning per retry and an error when giving up.
     """
     attempt = 1
     while True:
         try:
             return fn()
-        except CommandExecutionError as exc:
+        except retry_on as exc:
             should_retry = retry_if(exc, attempt) if retry_if is not None else True
             if not should_retry or attempt >= policy.max_attempts:
+                if description:
+                    log.error(f"{description} failed after {attempt} attempt(s).")
                 raise
-            sleep_fn(policy.delay_for_attempt(attempt))
+            delay = policy.delay_for_attempt(attempt)
+            if description:
+                log.warn(
+                    f"{description} failed on attempt {attempt}/{policy.max_attempts} ({exc}); "
+                    f"retrying in {delay:g}s..."
+                )
+            (sleep_fn or time.sleep)(delay)
             attempt += 1
