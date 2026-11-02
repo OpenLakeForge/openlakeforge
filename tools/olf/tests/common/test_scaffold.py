@@ -70,6 +70,63 @@ def test_source_new_generates_the_documented_file_tree(tmp_path: Path) -> None:
     assert "marketing_platform" in inventory.source_names
 
 
+@pytest.mark.parametrize(
+    ("kind", "cursor", "helper", "config", "secrets"),
+    [
+        ("api", "updated_at", "newest_first_pages", ("base_url",), ("api_token",)),
+        ("sql", "id", "keyset_batches", ("host", "port", "database"), ("username", "password")),
+    ],
+)
+def test_source_new_kind_writes_an_incremental_connector(
+    tmp_path: Path, kind: str, cursor: str, helper: str, config: tuple[str, ...], secrets: tuple[str, ...]
+) -> None:
+    repo_root = _seed_repo(tmp_path)
+
+    commit_plan(
+        repo_root, plan_source_new(repo_root, source="shop", display_name=None, resources=("orders",), kind=kind)
+    )
+
+    shop = next(s for s in load_lakehouse_inventory(repo_root).sources if s.name == "shop")
+    load = shop.load_of("orders")
+    assert (load.incremental, load.cursor, load.primary_key) == (True, cursor, ("id",))
+    assert (shop.runtime_config, shop.runtime_secrets) == (config, secrets)
+    connector = (repo_root / "lakehouse_code/bronze/shop/dlt/shop.py").read_text(encoding="utf-8")
+    compile(connector, "shop.py", "exec")
+    assert f"from libs.bronze_incremental import {helper}" in connector
+    assert f'dlt.sources.incremental("{cursor}"' in connector
+    assert "def load_shop_entities_to_bronze(resources: Sequence[str])" in connector
+
+
+def test_an_incremental_source_gets_a_merging_parquet_silver_entity_that_checks(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+    commit_plan(
+        repo_root,
+        plan_source_new(
+            repo_root, source="shop", display_name=None, resources=("orders",), kind="api", primary_key="sku"
+        ),
+    )
+
+    plan = plan_domain_new(repo_root, domain="commerce", display_name=None, inputs=(("shop", "orders"),))
+    commit_plan(repo_root, plan)
+
+    entity = yaml.safe_load((repo_root / "lakehouse_code/silver/commerce/contracts/floe/orders.yml").read_text())
+    assert entity["incremental_mode"] == "file"
+    assert entity["sink"] == {"write_mode": "merge_scd1"}
+    assert entity["schema"]["primary_key"] == ["sku"]
+    sources = yaml.safe_load((repo_root / "lakehouse_code/silver/sources.yml").read_text())["sources"]
+    shop = next(source for source in sources if source["name"] == "shop")
+    assert (shop["format"], shop["options"]) == ("parquet", {"glob": "*.parquet"})
+    result = contracts_check._check_silver_load_modes(repo_root)
+    assert result.ok, result.detail
+
+
+def test_source_new_refuses_a_cursor_for_a_csv_source(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+
+    with pytest.raises(ScaffoldError, match="--cursor"):
+        plan_source_new(repo_root, source="shop", display_name=None, resources=("orders",), cursor="updated_at")
+
+
 def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Path) -> None:
     """The Bronze and Silver READMEs link back to docs/ with a relative
     path; that path must actually resolve from where the README lives."""
@@ -92,12 +149,6 @@ def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Pa
     assert (domain_readme.parent / domain_link).resolve() == (
         repo_root / "docs/adr/0004-medallion-layout-and-catalog-namespaces.md"
     )
-
-
-
-
-
-
 
 
 def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Path) -> None:
@@ -141,7 +192,6 @@ def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Pa
     ]
 
 
-
 def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None:
     """A literal newline in --display-name must not be silently folded into
     a space by YAML's plain-scalar rules; it has to be escaped so the exact
@@ -154,12 +204,6 @@ def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None
 
     source_doc = yaml.safe_load((repo_root / "lakehouse_code" / "bronze" / "workday" / "source.yaml").read_text())
     assert source_doc["displayName"] == tricky_name
-
-
-
-
-
-
 
 
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
@@ -415,10 +459,6 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     hr = next(d for d in inventory.domains if d.name == "hr")
     assert {e.name for e in inventory.floe_entities(hr)} == {"employees", "absences"}
     assert "headcount" in {p.id for p in hr.products}
-
-
-
-
 
 
 def test_product_new_rejects_when_domain_missing_and_no_input_given(tmp_path: Path) -> None:
@@ -699,8 +739,6 @@ def test_write_rolls_back_a_file_whose_own_write_partially_failed(
     assert "marketing_platform" in inventory.source_names
 
 
-
-
 # --------------------------------------------------------------------------
 # Cross-artifact consistency
 # --------------------------------------------------------------------------
@@ -750,7 +788,12 @@ def test_with_report_reuses_the_shared_superset_database_identity(tmp_path: Path
     repo_root = _seed_repo(tmp_path)
     shared_uuid = "8a87434c-559e-545d-badd-3575affe0185"
     existing_bundle = (
-        ROOT / "lakehouse_code" / "dashboards" / "superset" / "sales_order_revenue" / "databases"
+        ROOT
+        / "lakehouse_code"
+        / "dashboards"
+        / "superset"
+        / "sales_order_revenue"
+        / "databases"
         / "openlakeforge_trino.yaml"
     )
     assert yaml.safe_load(existing_bundle.read_text())["uuid"] == shared_uuid
@@ -784,9 +827,7 @@ def test_display_name_with_yaml_metacharacters_round_trips(tmp_path: Path, trick
 
     source_plan = plan_source_new(repo_root, source="workday", display_name=tricky_name, resources=("employees",))
     commit_plan(repo_root, source_plan)
-    domain_plan = plan_domain_new(
-        repo_root, domain="hr", display_name=tricky_name, inputs=(("workday", "employees"),)
-    )
+    domain_plan = plan_domain_new(repo_root, domain="hr", display_name=tricky_name, inputs=(("workday", "employees"),))
     commit_plan(repo_root, domain_plan)
     product_plan = plan_product_new(
         repo_root,
@@ -845,9 +886,13 @@ def test_cli_source_domain_product_new_are_registered() -> None:
 def test_cli_source_new_end_to_end(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     _run(
-        "source", "new", "marketing_platform",
-        "--resource", "campaigns",
-        "--repo-root", str(repo_root),
+        "source",
+        "new",
+        "marketing_platform",
+        "--resource",
+        "campaigns",
+        "--repo-root",
+        str(repo_root),
     )
     inventory = load_lakehouse_inventory(repo_root)
     assert "marketing_platform" in inventory.source_names

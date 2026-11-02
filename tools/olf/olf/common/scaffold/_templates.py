@@ -8,6 +8,7 @@ Jinja2/ruamel): the repository's dependency footprint stays what it is today.
 
 from __future__ import annotations
 
+import builtins
 import uuid
 from dataclasses import dataclass
 
@@ -37,8 +38,29 @@ def _deterministic_uuid(*parts: str) -> str:
 # --------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class IncrementalLoad:
+    """What `olf source new --kind api|sql` declares for every resource it scaffolds."""
+
+    kind: str  # "api" or "sql"
+    cursor: str
+    primary_key: str
+
+
+# The bindings each incremental kind's connector reads (`runtime` in source.yaml).
+RUNTIME_KEYS = {
+    "api": (("base_url",), ("api_token",)),
+    "sql": (("host", "port", "database"), ("username", "password")),
+}
+
+
 def render_source_yaml(
-    *, source: str, display_name: str, description: str, resources: tuple[tuple[str, str], ...]
+    *,
+    source: str,
+    display_name: str,
+    description: str,
+    resources: tuple[tuple[str, str], ...],
+    load: IncrementalLoad | None = None,
 ) -> str:
     lines = [
         "apiVersion: openlakeforge.io/v1alpha3",
@@ -52,7 +74,156 @@ def render_source_yaml(
     for name, resource_description in resources:
         lines.append(f"  - name: {name}")
         lines.append(f"    description: {yaml_dq(resource_description)}")
+        if load is not None:
+            lines.append(f"    load: {{ mode: incremental, cursor: {load.cursor}, primary_key: [{load.primary_key}] }}")
+    if load is not None:
+        config, secrets = RUNTIME_KEYS[load.kind]
+        lines += ["runtime:", f"  config: [{', '.join(config)}]", f"  secrets: [{', '.join(secrets)}]"]
     return "\n".join(lines) + "\n"
+
+
+def _cursor_argument(cursor: str) -> str:
+    # dlt reads the cursor from the resource's default argument, named after the
+    # column; a column named like a builtin (`id`) shadows it on purpose.
+    noqa = "A002, B008" if cursor in dir(builtins) else "B008"
+    return f'{cursor}: Any = dlt.sources.incremental("{cursor}", initial_value=0),  # noqa: {noqa}'
+
+
+def render_incremental_connector(
+    *, source: str, display_name: str, resources: tuple[str, ...], load: IncrementalLoad
+) -> str:
+    """A dlt connector on `libs.bronze_incremental`: newest-first API pages, or SQL keyset batches."""
+    names = ", ".join(f"{resource}_resource" for resource in resources)
+    if load.kind == "api":
+        resource_blocks = "".join(
+            f'''
+    @dlt.resource(name="{resource}", primary_key="{load.primary_key}")
+    def {resource}_resource(
+        {_cursor_argument(load.cursor)}
+    ) -> Iterator[Any]:
+        yield from newest_first_pages(
+            lambda page: fetch_page("{resource}", page),
+            {load.cursor},
+            cursor_field="{load.cursor}",
+            key="{load.primary_key}",
+            page_size=_PAGE_SIZE,
+            max_pages=max_pages,
+            interval_seconds=interval_seconds,
+        )
+'''
+            for resource in resources
+        )
+        return f'''"""{display_name}: resources read incrementally from an HTTP API.
+
+Scaffolded by `olf source new {source} --kind api`. Adapt `fetch_page` to the
+API: it must return one page of items sorted newest first by `{load.cursor}`.
+`initial_value=0` sits below every numeric cursor; for an ISO timestamp use a
+string such as "1970-01-01T00:00:00Z". The stage binds `base_url` and
+`api_token` (see source.yaml `runtime`).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
+
+import dlt
+from dlt.sources.helpers import requests
+from libs.bronze_csv import BronzeLoadResult
+from libs.bronze_dlt import load_dlt_source
+from libs.bronze_incremental import newest_first_pages
+
+_PAGE_SIZE = 100
+
+
+@dlt.source(name="{source}")
+def {source}(
+    base_url: str = dlt.config.value,
+    api_token: str = dlt.secrets.value,
+    max_pages: int = 10,
+    interval_seconds: float = 1.0,
+) -> Any:
+    def fetch_page(path: str, page: int) -> list[Mapping[str, Any]]:
+        response = requests.get(
+            f"{{base_url.rstrip('/')}}/{{path}}",
+            params={{"sort": "-{load.cursor}", "page": page, "per_page": _PAGE_SIZE}},
+            headers={{"Authorization": f"Bearer {{api_token}}"}},
+        )
+        response.raise_for_status()
+        return response.json()
+{resource_blocks}
+    return {names}
+
+
+def load_{source}_entities_to_bronze(resources: Sequence[str]) -> dict[str, BronzeLoadResult]:
+    return load_dlt_source("{source}", {source}(), resources)
+'''
+    resource_blocks = "".join(
+        f'''
+    @dlt.resource(name="{resource}", primary_key="{load.primary_key}")
+    def {resource}_resource(
+        {_cursor_argument(load.cursor)}
+    ) -> Iterator[Any]:
+        query = sa.text("select * from {resource} where {load.cursor} > :last order by {load.cursor} limit :limit")
+        with engine.connect() as connection:
+            yield from keyset_batches(
+                connection,
+                query,
+                {load.cursor},
+                cursor_field="{load.cursor}",
+                batch_size=batch_size,
+                max_rows=max_rows_per_run,
+            )
+'''
+        for resource in resources
+    )
+    return f'''"""{display_name}: tables read incrementally from a database.
+
+Scaffolded by `olf source new {source} --kind sql`. Each resource reads its
+table past `{load.cursor}`, an increasing column, at most `max_rows_per_run`
+rows a run. Adapt the queries and the driver (`postgresql+psycopg2` here). The
+stage binds `host`, `port`, `database`, `username` and `password` (see
+source.yaml `runtime`).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator, Sequence
+from typing import Any
+
+import dlt
+import sqlalchemy as sa
+from libs.bronze_csv import BronzeLoadResult
+from libs.bronze_dlt import load_dlt_source
+from libs.bronze_incremental import keyset_batches, sql_engine
+
+
+@dlt.source(name="{source}")
+def {source}(
+    host: str = dlt.config.value,
+    port: int = dlt.config.value,
+    database: str = dlt.config.value,
+    username: str = dlt.secrets.value,
+    password: str = dlt.secrets.value,
+    batch_size: int = 10_000,
+    max_rows_per_run: int = 100_000,
+) -> Any:
+    binding = {{"host": host, "port": port, "database": database, "username": username, "password": password}}
+    engine = sql_engine("postgresql+psycopg2", binding, connect_args={{"connect_timeout": 30}})
+{resource_blocks}
+    return {names}
+
+
+def load_{source}_entities_to_bronze(resources: Sequence[str]) -> dict[str, BronzeLoadResult]:
+    return load_dlt_source("{source}", {source}(), resources)
+'''
+
+
+def incremental_example_csv(load: IncrementalLoad) -> str:
+    """A one-row example whose columns seed the Silver contract `olf domain new` infers."""
+    columns = dict.fromkeys((load.primary_key, load.cursor, "name"))
+    values = {load.primary_key: "1", load.cursor: "1700000000", "name": "example"}
+    return ",".join(columns) + "\n" + ",".join(values[column] for column in columns) + "\n"
 
 
 def render_dlt_loader(*, source: str, resources: tuple[str, ...]) -> str:
@@ -90,7 +261,20 @@ def load_all_entities_to_bronze(raw_dir: Path | None = None) -> dict[str, Bronze
 '''
 
 
-def render_bronze_readme(*, source: str, display_name: str) -> str:
+def render_bronze_readme(*, source: str, display_name: str, kind: str = "csv") -> str:
+    if kind != "csv":
+        return f"""# {display_name}
+
+Scaffolded by `olf source new {source} --kind {kind}`.
+
+`dlt/{source}.py` reads each resource incrementally through
+`libs.bronze_incremental`; adapt its request or queries to the real source.
+The example CSV(s) under `examples/` are not loaded: they only seed the
+columns `olf domain new` writes into the Silver contract, so give them the
+real columns first. Each stage binds the keys `source.yaml` lists under
+`runtime`. See [Load an external source
+incrementally](../../../docs/guides/incremental-sources.md).
+"""
     return f"""# {display_name}
 
 Scaffolded by `olf source new {source}`.
@@ -115,6 +299,9 @@ class FloeEntitySpec:
     resource: str
     domain: str
     columns: tuple[InferredColumn, ...]
+    # From the resource's `load` in source.yaml; empty for a `full` resource.
+    primary_key: tuple[str, ...] = ()
+    incremental: bool = False
 
 
 def render_domain_readme(*, domain: str, display_name: str) -> str:
@@ -130,7 +317,7 @@ built on `{domain}` shares this one Silver namespace -- see
 """
 
 
-def _floe_column_lines(columns: tuple[InferredColumn, ...]) -> str:
+def _floe_column_lines(columns: tuple[InferredColumn, ...], primary_key: tuple[str, ...] = ()) -> str:
     if not columns:
         return (
             "  # TODO: no example CSV was available to infer columns from;\n"
@@ -138,20 +325,21 @@ def _floe_column_lines(columns: tuple[InferredColumn, ...]) -> str:
             "  columns: []\n"
         )
     rendered = "\n".join(
-        f"    - {{ name: {yaml_dq(column.name)}, type: \"{column.type}\", "
-        f"nullable: {str(column.nullable).lower()} }}"
+        f'    - {{ name: {yaml_dq(column.name)}, type: "{column.type}", nullable: {str(column.nullable).lower()} }}'
         for column in columns
     )
-    primary_key = columns[0].name
-    return f"  primary_key: [{yaml_dq(primary_key)}]\n  columns:\n{rendered}\n"
+    keys = ", ".join(yaml_dq(key) for key in primary_key or (columns[0].name,))
+    return f"  primary_key: [{keys}]\n  columns:\n{rendered}\n"
 
 
 def render_floe_entity(spec: FloeEntitySpec) -> str:
     """One entity file beside its domain's `_domain.yml`, which supplies every sink default."""
+    # An incremental resource lands only new rows: read the new files, merge on the key.
+    mode = 'incremental_mode: "file"\nsink: { write_mode: "merge_scd1" }\n' if spec.incremental else ""
     return f'''name: "{spec.table}"
 source: {{ ref: "{spec.source}", resource: "{spec.resource}" }}
-schema:
-{_floe_column_lines(spec.columns)}'''
+{mode}schema:
+{_floe_column_lines(spec.columns, spec.primary_key)}'''
 
 
 def render_floe_domain(*, domain: str) -> str:
@@ -172,8 +360,19 @@ defaults:
 '''
 
 
-def render_floe_source(*, source: str) -> str:
-    """A `sources.yml` entry for the CSV files a Bronze source lands under `<source>/<resource>`."""
+def render_floe_source(*, source: str, parquet: bool = False) -> str:
+    """A `sources.yml` entry for the files a Bronze source lands under `<source>/<resource>`.
+
+    CSV for the example loader; Parquet for a dlt connector, whose glob leaves
+    dlt's own `_dlt_*` bookkeeping beside the resources out.
+    """
+    if parquet:
+        return f'''  - name: "{source}"
+    format: "parquet"
+    path: "{source}/{{{{resource}}}}"
+    storage: "lakehouse_bronze"
+    options: {{ glob: "*.parquet" }}
+'''
     return f'''  - name: "{source}"
     format: "csv"
     path: "{source}/{{{{resource}}}}"
@@ -237,10 +436,10 @@ def render_dbt_sources_yml(*, domain: str, tables: tuple[tuple[str, str], ...]) 
 
 
 def render_gold_mart_sql(*, mart: str, first_silver_input: str) -> str:
-    return f'''-- TODO: replace this starter model with real aggregation logic.
+    return f"""-- TODO: replace this starter model with real aggregation logic.
 select *
 from {{{{ source('silver', '{first_silver_input}') }}}}
-'''
+"""
 
 
 def render_gold_schema_yml(*, gold_tables: tuple[tuple[str, str], ...]) -> str:
@@ -295,7 +494,7 @@ defs = build_product_definitions(
 
 
 def render_superset_database_yaml() -> str:
-    return f'''database_name: OpenLakeForge Trino
+    return f"""database_name: OpenLakeForge Trino
 sqlalchemy_uri: {STAGE_NEUTRAL_SQLALCHEMY_URI}
 cache_timeout: null
 expose_in_sqllab: true
@@ -312,12 +511,12 @@ extra:
 impersonate_user: false
 uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 version: 1.0.0
-'''
+"""
 
 
 def render_superset_dataset_yaml(*, dashboard: str, mart: str, gold_namespace: str, description: str) -> str:
     dataset_uuid = _deterministic_uuid("superset-dataset", dashboard, mart)
-    return f'''table_name: {mart}
+    return f"""table_name: {mart}
 main_dttm_col: null
 description: {yaml_dq(description)}
 schema: {gold_namespace}
@@ -326,7 +525,7 @@ metrics: []
 columns: []
 version: 1.0.0
 database_uuid: {_SUPERSET_TRINO_DATABASE_UUID}
-'''
+"""
 
 
 def render_superset_readme(*, display_name: str, report_source_dir: str) -> str:
