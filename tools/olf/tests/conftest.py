@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
-from openlakeforge_domain import inventory_for
+from openlakeforge_core import inventory_for
 
 from olf.common.profile import StageName
 from olf.infra.e2e._shell import E2EConfig, Environment, Suite

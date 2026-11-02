@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Callable
 
-from openlakeforge_domain import Domain, Product
+from openlakeforge_core import Domain, Product
 
 from olf.common import log
 from olf.infra import trino

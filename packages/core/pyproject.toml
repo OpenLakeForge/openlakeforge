@@ -3,18 +3,18 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openlakeforge-domain-model"
+name = "openlakeforge-core"
 version = "0.5.1a2"
 description = "Canonical provider-neutral domain model for OpenLakeForge"
 requires-python = ">=3.12"
 dependencies = ["PyYAML>=6.0,<7"]
 
 [tool.setuptools.packages.find]
-include = ["openlakeforge_domain*"]
+include = ["openlakeforge_core*"]
 
 # Every function in this package is annotated. Shipping the PEP 561 marker is
 # what makes those annotations visible to consumers -- without it, `olf` sees
 # the whole descriptor surface as `Any` and the contract boundary this package
 # exists to define goes unchecked.
 [tool.setuptools.package-data]
-openlakeforge_domain = ["py.typed"]
+openlakeforge_core = ["py.typed"]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from openlakeforge_domain import CatalogNamespace
+from openlakeforge_core import CatalogNamespace
 
 from olf.infra import catalog
 

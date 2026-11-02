@@ -11,8 +11,8 @@ def test_custom_project_context_uses_platform_assets_and_selected_project(tmp_pa
     project = tmp_path / "project"
     (distribution / "images/project-code").mkdir(parents=True)
     (distribution / "images/project-code/pyproject.toml").write_text("name = 'platform'\n")
-    (distribution / "packages/domain-model").mkdir(parents=True)
-    (distribution / "packages/domain-model/pyproject.toml").write_text("name = 'domain'\n")
+    (distribution / "packages/core").mkdir(parents=True)
+    (distribution / "packages/core/pyproject.toml").write_text("name = 'domain'\n")
     (distribution / "libs").mkdir()
     (distribution / "libs/platform.py").write_text("PLATFORM = True\n")
     (distribution / "lakehouse_code").mkdir()
@@ -30,7 +30,7 @@ def test_custom_project_context_uses_platform_assets_and_selected_project(tmp_pa
 
     with project_code_build_context(context.paths) as build_context:
         assert (build_context / "images/project-code/pyproject.toml").is_file()
-        assert (build_context / "packages/domain-model/pyproject.toml").is_file()
+        assert (build_context / "packages/core/pyproject.toml").is_file()
         assert (build_context / "libs/platform.py").is_file()
         assert (build_context / "lakehouse_code/custom.py").is_file()
         assert not (build_context / "lakehouse_code/demo.py").exists()

@@ -74,7 +74,7 @@ def _check_silver_load_modes(repo_root: Path) -> CheckResult:
     append them onto the rows it already has. A full resource lands its whole extract on
     every run, so appending it would duplicate every row.
     """
-    from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+    from openlakeforge_core import LakehouseDescriptorError, load_lakehouse_inventory
 
     name = "silver_load_modes"
     try:

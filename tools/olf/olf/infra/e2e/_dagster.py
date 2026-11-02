@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 
-from openlakeforge_domain import Product
+from openlakeforge_core import Product
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import (  # noqa: F401 - re-exported
     DagsterClient,

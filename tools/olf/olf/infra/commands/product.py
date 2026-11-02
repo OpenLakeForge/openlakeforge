@@ -29,7 +29,7 @@ def product_run(
     The run loads Bronze as each resource's `source.yaml` load mode declares,
     and dbt builds Gold. A full refresh applies to this one run only.
     """
-    from openlakeforge_domain import FULL_REFRESH_SCOPES, full_refresh_tags
+    from openlakeforge_core import FULL_REFRESH_SCOPES, full_refresh_tags
 
     from olf.common.deployment.errors import DeploymentError
     from olf.common.provider_contracts import ProviderContractError

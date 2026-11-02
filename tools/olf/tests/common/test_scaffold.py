@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_core import load_lakehouse_inventory
 from typer.testing import CliRunner
 
 from olf.cli import app

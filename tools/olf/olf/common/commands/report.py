@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typer
-from openlakeforge_domain import inventory_for
+from openlakeforge_core import inventory_for
 
 from olf.common.log import fail
 

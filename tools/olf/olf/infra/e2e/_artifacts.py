@@ -7,7 +7,7 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
-from openlakeforge_domain import LakehouseInventory
+from openlakeforge_core import LakehouseInventory
 
 from olf.common import log
 from olf.infra import k8s

@@ -198,7 +198,7 @@ For those calls it therefore:
 
 The service clients and operations move out of `olf` into a
 library package, `packages/lakehouse-services/`, following the
-`packages/domain-model` precedent. Its rule is **inject, don't fetch**: an
+`packages/core` precedent. Its rule is **inject, don't fetch**: an
 operation takes a client and credentials and never resolves them itself — no
 `typer`, no `os.environ`, no `k8s.secret_value`, no port-forward. Each host
 supplies its own resolver:

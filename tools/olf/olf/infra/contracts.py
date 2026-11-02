@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from openlakeforge_domain import inventory_for
+from openlakeforge_core import inventory_for
 
 from olf.common.contract_validation import V2_SCHEMA_VERSION
 from olf.common.profile import DeploymentTopology, StageName

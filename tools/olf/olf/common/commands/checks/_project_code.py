@@ -40,13 +40,13 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     project_digest = hashlib.sha256(
         (project.distribution_root / "images/project-code/pyproject.toml").read_bytes()
     ).hexdigest()[:16]
-    domain_digest = _source_tree_digest(project.distribution_root / "packages/domain-model")
+    domain_digest = _source_tree_digest(project.distribution_root / "packages/core")
     site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{project_digest}-{domain_digest}" / "site"
     if not (site / ".complete").is_file():
         site.mkdir(parents=True, exist_ok=True)
         pyproject = tomllib.loads((project.distribution_root / "images/project-code/pyproject.toml").read_text())
         _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=project.root)
-        _install_domain_model(project.distribution_root / "packages/domain-model", site, cwd=project.root)
+        _install_core(project.distribution_root / "packages/core", site, cwd=project.root)
         (site / ".complete").touch()
     # The distribution's baked profiles name only the products it was built
     # with; loading the definitions renders this project's own here instead
@@ -92,14 +92,14 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         _run(pytest, cwd=project.root, env=env)
 
 
-def _install_domain_model(source: Path, site: Path, *, cwd: Path) -> None:
+def _install_core(source: Path, site: Path, *, cwd: Path) -> None:
     """Install the domain model from a writable copy of `source` (#626).
 
     setuptools writes `egg-info` into the directory it builds, and an installed
     `olf` payload under `OLF_HOME` is read-only (ADR 0009). Copying also keeps
     build output out of a source checkout, where it would change the cache digest.
     """
-    with tempfile.TemporaryDirectory(prefix="olf-domain-model-") as work:
+    with tempfile.TemporaryDirectory(prefix="olf-core-") as work:
         copy = Path(work) / source.name
         # copyfile, not copy2: the payload's read-only modes must not carry over.
         shutil.copytree(

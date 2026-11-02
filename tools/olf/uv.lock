@@ -761,7 +761,7 @@ dependencies = [
     { name = "boto3" },
     { name = "cryptography" },
     { name = "jsonschema" },
-    { name = "openlakeforge-domain-model" },
+    { name = "openlakeforge-core" },
     { name = "openlakeforge-lakehouse-services" },
     { name = "python-hcl2" },
     { name = "pyyaml" },
@@ -789,7 +789,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.34,<2" },
     { name = "cryptography", specifier = ">=43" },
     { name = "jsonschema", specifier = ">=4.23,<5" },
-    { name = "openlakeforge-domain-model", directory = "../../packages/domain-model" },
+    { name = "openlakeforge-core", directory = "../../packages/core" },
     { name = "openlakeforge-lakehouse-services", directory = "../../packages/lakehouse-services" },
     { name = "python-hcl2", specifier = ">=6,<7" },
     { name = "pyyaml", specifier = ">=6,<7" },
@@ -810,9 +810,9 @@ dev = [
 ]
 
 [[package]]
-name = "openlakeforge-domain-model"
+name = "openlakeforge-core"
 version = "0.5.1a2"
-source = { directory = "../../packages/domain-model" }
+source = { directory = "../../packages/core" }
 dependencies = [
     { name = "pyyaml" },
 ]
@@ -825,14 +825,14 @@ name = "openlakeforge-lakehouse-services"
 version = "0.5.1a2"
 source = { directory = "../../packages/lakehouse-services" }
 dependencies = [
-    { name = "openlakeforge-domain-model" },
+    { name = "openlakeforge-core" },
     { name = "pyyaml" },
     { name = "requests" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "openlakeforge-domain-model", specifier = "==0.5.1a2" },
+    { name = "openlakeforge-core", specifier = "==0.5.1a2" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "requests", specifier = ">=2.32,<3" },
 ]

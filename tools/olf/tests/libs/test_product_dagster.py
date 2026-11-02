@@ -15,7 +15,7 @@ from libs.product_dagster import (  # noqa: E402
     build_source_definitions,
     build_stage_schedules,
 )
-from openlakeforge_domain import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
+from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 
 _SPEC = ProductDefinitionSpec(
     domain="sales",

@@ -20,7 +20,7 @@ the user should never edit) and the project (which is entirely theirs).
 ### Three published distributions
 
 `openlakeforge` owns the `olf` console command and pins
-`openlakeforge-domain-model` and `openlakeforge-lakehouse-services` exactly.
+`openlakeforge-core` and `openlakeforge-lakehouse-services` exactly.
 The second holds the service clients `olf` shares with the platform API
 (ADR 0021). `release/component-catalog.yaml` is the
 canonical release identity; its alpha form (`0.2.0-alpha.1`) maps to PEP 440

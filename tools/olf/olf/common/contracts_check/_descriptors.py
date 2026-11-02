@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jsonschema
 import yaml
-from openlakeforge_domain import (
+from openlakeforge_core import (
     LakehouseDescriptorError,
     load_governance_descriptor,
     load_source_descriptor,

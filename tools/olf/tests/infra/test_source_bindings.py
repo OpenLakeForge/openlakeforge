@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from openlakeforge_domain.inventory import Source
+from openlakeforge_core.inventory import Source
 
 from olf.infra.deployment.source_bindings import missing_source_bindings
 

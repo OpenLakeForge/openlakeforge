@@ -9,7 +9,7 @@ from pkgutil import iter_modules
 import lakehouse_code.pipelines.dagster as dagster_pipelines
 from dagster import Definitions
 from libs.product_dagster import SourceDefinitionSpec, build_silver_definitions, build_source_definitions
-from openlakeforge_domain import LakehouseInventory, load_lakehouse_inventory
+from openlakeforge_core import LakehouseInventory, load_lakehouse_inventory
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parent
 

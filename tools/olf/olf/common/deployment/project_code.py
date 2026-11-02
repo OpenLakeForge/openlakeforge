@@ -31,7 +31,7 @@ def project_code_build_context(paths: DeploymentPaths) -> Iterator[Path]:
     paths.work_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="project-code-context-", dir=paths.work_root) as temporary:
         root = Path(temporary)
-        for relative in ("images/project-code", "packages/domain-model", "libs"):
+        for relative in ("images/project-code", "packages/core", "libs"):
             shutil.copytree(paths.distribution_root / relative, root / relative)
         shutil.copytree(paths.project.code_root, root / "lakehouse_code")
         yield root

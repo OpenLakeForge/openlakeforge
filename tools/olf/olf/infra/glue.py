@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from openlakeforge_domain import CatalogNamespace
+from openlakeforge_core import CatalogNamespace
 
 from olf.infra.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 

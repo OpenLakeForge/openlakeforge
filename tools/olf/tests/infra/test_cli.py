@@ -315,7 +315,7 @@ def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
 def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from openlakeforge_domain import inventory_for
+    from openlakeforge_core import inventory_for
 
     from olf.common import config
 
@@ -340,7 +340,7 @@ def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
 
 
 def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
-    from openlakeforge_domain import inventory_for
+    from openlakeforge_core import inventory_for
 
     from olf.common import config
 
@@ -621,7 +621,7 @@ def test_superset_export_reports_accepts_a_legitimate_override_with_declared_das
 ) -> None:
     """A relative override naming a real, in-tree bundle must keep working --
     declared or not -- once the containment guard is in place."""
-    from openlakeforge_domain import inventory_for
+    from openlakeforge_core import inventory_for
 
     from olf.common import config
 

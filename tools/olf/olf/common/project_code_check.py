@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
 
-    from openlakeforge_domain import FloeEntity, LakehouseInventory, Product
+    from openlakeforge_core import FloeEntity, LakehouseInventory, Product
 
 
 # Dagster, Floe and the project's `libs` package are untyped or not importable
@@ -69,7 +69,7 @@ def validate(root: Path) -> None:
     """Validate product selection, Floe-derived Silver assets, and their Bronze edges."""
     from dagster import Definitions
     from dagster._core.workspace.autodiscovery import loadable_targets_from_python_module
-    from openlakeforge_domain import load_lakehouse_inventory
+    from openlakeforge_core import load_lakehouse_inventory
 
     # Imported by name so mypy does not follow into the user project's tree.
     merged_defs = import_module("lakehouse_code.definitions").defs

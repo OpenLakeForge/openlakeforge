@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import dlt
-from openlakeforge_domain import load_source
+from openlakeforge_core import load_source
 
 from libs.bronze_csv import BronzeLoadResult
 

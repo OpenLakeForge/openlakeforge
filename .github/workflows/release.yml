@@ -239,10 +239,10 @@ jobs:
           assert a["sha256"] == b["sha256"], (a, b)
           '
 
-      - name: Build domain-model, lakehouse-services and olf distributions
+      - name: Build core, lakehouse-services and olf distributions
         run: |
           set -euo pipefail
-          uv build --out-dir dist/python/domain-model packages/domain-model
+          uv build --out-dir dist/python/core packages/core
           uv build --out-dir dist/python/lakehouse-services packages/lakehouse-services
           uv build --out-dir dist/python/openlakeforge tools/olf
 
@@ -256,17 +256,17 @@ jobs:
           package_version="${{ needs.prepare.outputs.version }}"
           package_version="${package_version/-alpha./a}"
           UV_TOOL_DIR="${tool_root}" UV_TOOL_BIN_DIR="${tool_bin}" \
-            uv tool install --find-links dist/python/domain-model --find-links dist/python/lakehouse-services \
+            uv tool install --find-links dist/python/core --find-links dist/python/lakehouse-services \
               --find-links dist/python/openlakeforge "openlakeforge==${package_version}" --python 3.12
           cd "${work_dir}"
           OLF_HOME="${olf_home}" "${tool_bin}/olf" version --json
           OLF_HOME="${olf_home}" "${tool_bin}/olf" distribution verify
 
-      - name: Upload domain-model distribution
+      - name: Upload core distribution
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: domain-model-distribution-${{ needs.prepare.outputs.version }}
-          path: dist/python/domain-model
+          name: core-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/python/core
           if-no-files-found: error
 
       - name: Upload lakehouse-services distribution
@@ -293,8 +293,8 @@ jobs:
   # here - the two publishes have no ordering dependency on each other
   # (PyPI publish doesn't resolve dependencies), so running them as
   # parallel jobs is also strictly faster than the old sequential steps.
-  publish-pypi-domain-model:
-    name: Publish openlakeforge-domain-model to PyPI
+  publish-pypi-core:
+    name: Publish openlakeforge-core to PyPI
     # Every fallible release step (image build/sign/attest) must finish
     # before either package reaches PyPI: PyPI publication is irreversible
     # (no re-upload of the same filenames), while an image or bundle
@@ -304,13 +304,13 @@ jobs:
     # `[prepare, python-packages]`.
     needs: [prepare, python-packages, build]
     runs-on: ubuntu-latest
-    environment: pypi-domain-model
+    environment: pypi-core
     steps:
-      - name: Download domain-model distribution
+      - name: Download core distribution
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: domain-model-distribution-${{ needs.prepare.outputs.version }}
-          path: dist/domain-model
+          name: core-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/core
 
       # PyPI Trusted Publishing must be configured for this workflow,
       # environment, and project before the first tagged release. The
@@ -322,16 +322,16 @@ jobs:
       # but a later job in the workflow failed), PyPI's rejection of the
       # already-published filenames is treated as success instead of
       # failing the rerun.
-      - name: Publish openlakeforge-domain-model to PyPI
+      - name: Publish openlakeforge-core to PyPI
         if: needs.prepare.outputs.dry_run == 'false'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
         with:
-          packages-dir: dist/domain-model
+          packages-dir: dist/core
           attestations: true
           skip-existing: true
 
   # Its own job and environment for the same Trusted Publisher reason as
-  # domain-model above, and gated on `build` for the same irreversibility one.
+  # core above, and gated on `build` for the same irreversibility one.
   publish-pypi-lakehouse-services:
     name: Publish openlakeforge-lakehouse-services to PyPI
     needs: [prepare, python-packages, build]
@@ -534,7 +534,7 @@ jobs:
 
   bundle:
     name: Assemble and publish the release bundle
-    needs: [prepare, python-packages, publish-pypi-domain-model, publish-pypi-lakehouse-services, publish-pypi-openlakeforge, build]
+    needs: [prepare, python-packages, publish-pypi-core, publish-pypi-lakehouse-services, publish-pypi-openlakeforge, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

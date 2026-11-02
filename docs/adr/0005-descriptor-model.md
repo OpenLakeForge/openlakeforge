@@ -57,9 +57,9 @@ Silver's mode stays in the Floe contract and Gold's in the dbt model, because
 Floe and dbt own those layers. `olf check contracts` checks that the Bronze
 and Silver modes fit together.
 
-### `openlakeforge-domain-model` is the only implementation
+### `openlakeforge-core` is the only implementation
 
-The `packages/domain-model/` distribution, imported as `openlakeforge_domain`,
+The `packages/core/` distribution, imported as `openlakeforge_core`,
 owns descriptor constants, loading, validation, the provider-neutral value
 objects (`Source`, `Domain`, `Product`, `Table`, `FloeEntity`, `Dashboard`,
 `LakehouseInventory`), logical-to-physical name derivation, and artifact-path
@@ -109,7 +109,7 @@ process are free.
 ## History
 
 Merges the decisions previously recorded as ADR 0021 (the inventory-required
-descriptor shape), 0024 (the canonical domain-model package), 0026's descriptor
+descriptor shape), 0024 (the canonical core package), 0026's descriptor
 half, and 0032's transitional-project rule. ADR 0026 previously required keeping
 the v1alpha1/v1alpha2 parsers for migration diagnostics; that requirement is
 withdrawn here.

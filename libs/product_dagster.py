@@ -30,7 +30,7 @@ from libs.floe_profile import write_profile
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import upload_file_to_base_uri
 from libs.source_bindings import source_binding_tags
-from openlakeforge_domain import full_refresh_scope, inventory_for
+from openlakeforge_core import full_refresh_scope, inventory_for
 
 # The project imported as `lakehouse_code`: beside libs/ in the image, but a
 # separate root when olf checks a customer project against the distribution.

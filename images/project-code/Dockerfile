@@ -8,12 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /opt/openlakeforge
 
 COPY images/project-code/pyproject.toml images/project-code/requirements.lock ./
-COPY packages/domain-model ./packages/domain-model
+COPY packages/core ./packages/core
 
 # The lock contains the complete transitive set.  Avoid resolver re-evaluation
 # of upstream metadata ranges (for example SQLAlchemy's greenlet constraint).
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
-RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/domain-model
+RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/core
 
 # Floe's merge write modes load DuckDB extensions, which DuckDB would otherwise
 # download at run time; Floe Job pods have no egress (#725). Installed here for

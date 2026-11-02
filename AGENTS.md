@@ -68,7 +68,7 @@ labels expressing intended sequence within a milestone.
 | `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
 | `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
 | `libs/` | Shared runtime Python imported by the project-code image |
-| `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
+| `packages/core/` | Canonical provider-neutral descriptor and inventory package |
 | `packages/lakehouse-services/` | Service clients and operations shared by `olf` and the platform API (ADR 0021); callers pass endpoints and credentials in |
 | `packages/platform-api/` | The platform API (ADR 0021): token validation, the permission matrix (`permissions.toml`), its own `uv.lock` and tests |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |

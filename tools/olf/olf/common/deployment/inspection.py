@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
-from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+from openlakeforge_core import LakehouseDescriptorError, load_lakehouse_inventory
 
 from olf.common.deployment.errors import DeploymentError, ExecutableNotFoundError, ToolchainError
 from olf.common.tooling.resolver import ManagedExecutableResolver

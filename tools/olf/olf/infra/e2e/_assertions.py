@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from openlakeforge_domain import LakehouseInventory
+from openlakeforge_core import LakehouseInventory
 from openlakeforge_services import reports
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
