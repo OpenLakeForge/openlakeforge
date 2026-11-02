@@ -147,9 +147,16 @@ or Job wait that timed out) can be stored with an empty identity. Every later
 apply then stops with `Error: Unexpected Identity Change`. `olf infra deploy`
 re-imports such `kubernetes_*` resources before each apply and keeps them
 tainted, so running it again is the fix. With an `olf` that predates this, or
-for a resource it skips (it says so in a warning), remove the resource from
-`~/.openlakeforge/state/local/platform.tfstate` with `terraform state rm` and
-import it again. Terraform 1.12 and later keep the identity on each instance
+for a resource it skips (it says so in a warning), remove the resource named in
+the error from the state and import it again. Run both from the platform root
+`olf` applies, with the same `-var-file` and `-var` values for the import:
+
+```bash
+terraform state rm -state="$HOME/.openlakeforge/state/local/platform.tfstate" '<address>'
+terraform import -state="$HOME/.openlakeforge/state/local/platform.tfstate" '<address>' '<namespace>/<name>'
+```
+
+Terraform 1.12 and later keep the identity on each instance
 (`instances[].identity`), not in `attributes`, so editing only `attributes`
 does not clear the error.
 

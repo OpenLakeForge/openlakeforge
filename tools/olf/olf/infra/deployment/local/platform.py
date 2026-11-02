@@ -283,10 +283,10 @@ def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     )
 
 
-# What `terraform output` says when the root has never been applied, or was
-# applied before this output existed. Anything else is a real failure.
 # What `terraform import` prints when the object it was asked to adopt does not exist.
 _NON_EXISTENT_IMPORT = "Cannot import non-existent remote object"
+# What `terraform output` says when the root has never been applied, or was
+# applied before this output existed. Anything else is a real failure.
 _NO_APPLIED_OUTPUT_MARKERS = (
     "no outputs found",
     "output variable requested could not be found",
