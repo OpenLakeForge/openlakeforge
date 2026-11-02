@@ -118,3 +118,46 @@ def test_selected_stage_survives_into_the_contract_environment(
         **_kwargs(tmp_path), environ=context.command_env()
     ) as env:
         assert env["OPENLAKEFORGE_STAGE"] == "dev"
+
+
+def _docker_config_seen_by_pull(tmp_path: Path, provider_env: dict[str, str]) -> str | None:
+    """`DOCKER_CONFIG` as a real docker subprocess receives it from a pull issued the way activation does."""
+    import json
+
+    from _tooling_support import write_fake_executable
+
+    from olf.common.tooling.docker import Docker, ambient_registry_env
+    from olf.common.tooling.process import ProcessRunner
+    from olf.common.tooling.resolver import PathExecutableResolver
+
+    fake = write_fake_executable(tmp_path / "docker", env_keys=["DOCKER_CONFIG"])
+    docker = Docker(ProcessRunner(), PathExecutableResolver(overrides={"docker": fake}))
+    with contract_env.applied_contract_environment(**_kwargs(tmp_path), environ=provider_env):
+        result = docker.pull("ghcr.io/acme/code@sha256:abc", env=ambient_registry_env(provider_env))
+    seen: str | None = json.loads(result.stdout)["env"]["DOCKER_CONFIG"]
+    return seen
+
+
+@pytest.fixture
+def no_contract_exports(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda terraform_dir, **_: None)
+    monkeypatch.setattr(contracts_module, "build_contract_env", lambda base, value, **_: ({}, []))
+
+
+@pytest.mark.usefixtures("no_contract_exports")
+def test_pull_in_the_contract_environment_runs_without_docker_config_when_none_is_ambient(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("DOCKER_CONFIG", raising=False)
+
+    assert _docker_config_seen_by_pull(tmp_path, {"DOCKER_CONFIG": str(tmp_path / "olf-scoped")}) is None
+
+
+@pytest.mark.usefixtures("no_contract_exports")
+def test_pull_in_the_contract_environment_uses_the_developers_docker_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DOCKER_CONFIG", "/home/dev/.docker")
+
+    assert _docker_config_seen_by_pull(tmp_path, {"DOCKER_CONFIG": str(tmp_path / "olf-scoped")}) == "/home/dev/.docker"
+    assert os.environ["DOCKER_CONFIG"] == "/home/dev/.docker"
