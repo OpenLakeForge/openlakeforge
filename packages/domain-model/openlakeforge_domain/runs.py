@@ -13,7 +13,7 @@ FULL_REFRESH_TAG = "openlakeforge/full_refresh"
 # leaves Silver as it is.
 FULL_REFRESH_SCOPES = ("bronze", "gold")
 
-# dagster-floe's own tag (0.4.3): it runs the job's Floe entities with
+# dagster-floe's own tag (0.5.0): it runs the job's Floe entities with
 # `floe run --full-refresh`, which reads every input rather than the pending
 # ones. A `bronze` refresh must carry it, or Silver would not be rebuilt.
 FLOE_FULL_REFRESH_TAG = "floe/full_refresh"
