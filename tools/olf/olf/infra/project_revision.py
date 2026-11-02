@@ -54,7 +54,7 @@ _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 # location (ADR 0004: object-store names never appear in project source).
 # `http://` (not `https://`) is this codebase's own convention for every
 # in-cluster stage endpoint (`http://seaweedfs-s3:8333`,
-# `http://polaris:8181/...`; see `olf/floe.py`), so it is a strong signal
+# `http://polaris:8181/...`), so it is a strong signal
 # without rejecting legitimate external HTTPS API references a Bronze
 # source might declare. `AKIA...` is the fixed-format AWS access key ID
 # prefix -- a real credential value, not a name. The assignment pattern
