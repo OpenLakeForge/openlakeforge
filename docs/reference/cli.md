@@ -82,7 +82,7 @@ All `new` commands validate the result before writing and accept
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
 | `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
-| `olf check dbt` | Every product's dbt project compiles |
+| `olf check dbt` | Every product's dbt project parses and compiles, and its models and sources sit in the schemas the descriptors name. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
 | `olf check security` | Every entry in `.trivyignore.yaml` has an owner and an unexpired date within 90 days; not part of `olf check all` |
 | `olf report validate [<dashboard>]` | Superset bundles are promotable; needs no cluster or cloud credentials |
 | `olf infra e2e run --env local\|aws\|azure` | The deployed platform end to end. `--suite smoke` runs the preflight checks only; `--stage` and `-f <profile>` select what to check. |

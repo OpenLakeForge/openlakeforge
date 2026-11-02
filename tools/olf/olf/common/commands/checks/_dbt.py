@@ -1,4 +1,4 @@
-"""`olf check dbt`: compile every dbt product and check its relation contract."""
+"""`olf check dbt`: parse and compile every dbt product and check its relation contract."""
 
 from __future__ import annotations
 
@@ -75,28 +75,34 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
         # profiles.yml behind for the next `olf infra project build` (#546).
         with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
             write_profile(project, output_dir=Path(profiles_dir))
-            _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=project_spec.root, env=env)
-            _run(
-                [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", profiles_dir],
-                cwd=project_spec.root,
-                env=env,
-            )
-            _run(
-                [
-                    dbt_bin,
-                    "compile",
-                    "--project-dir",
-                    str(project),
-                    "--profiles-dir",
-                    profiles_dir,
-                    "--no-introspect",
-                    "--no-populate-cache",
-                ],
-                cwd=project_spec.root,
-                env=env,
-            )
+            _check_product(dbt_bin, project, profiles_dir=profiles_dir, cwd=project_spec.root, env=env)
         _validate_dbt_relation_contract(project, root=project_spec.root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
     typer.echo("dbt projects compiled and relation contracts are valid.")
+
+
+def _check_product(dbt_bin: str, project: Path, *, profiles_dir: str, cwd: Path, env: dict[str, str]) -> None:
+    _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=cwd, env=env)
+    _run([dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", profiles_dir], cwd=cwd, env=env)
+    # `is_incremental()` asks the adapter whether `{{ this }}` exists, and this
+    # check has no warehouse: compiling an incremental model fails with
+    # "connection never acquired for thread" (#752). Those models are covered
+    # by `parse` (Jinja, refs, sources) but their SQL is never rendered here.
+    _run(
+        [
+            dbt_bin,
+            "compile",
+            "--project-dir",
+            str(project),
+            "--profiles-dir",
+            profiles_dir,
+            "--no-introspect",
+            "--no-populate-cache",
+            "--exclude",
+            "config.materialized:incremental",
+        ],
+        cwd=cwd,
+        env=env,
+    )
 
 
 def _validate_dbt_relation_contract(project: Path, *, root: Path, catalog: str) -> None:
