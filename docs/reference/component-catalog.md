@@ -2,7 +2,7 @@
 
 `release/component-catalog.yaml` is the release input inventory. It records the
 distribution version, tracked Terraform providers, the managed CLI toolchain
-(Terraform, Helm, kubectl, kind), Python lockfiles, container digests, and
+(Terraform, Helm, kubectl, kind), Python lockfiles, the Floe versions pinned in the project-code image, container digests, and
 GitHub Action commits used by a release.
 
 Release tags are create-only semantic-version tags. Development tags may move,
@@ -18,7 +18,8 @@ for the matrix rendered from it. `olf check all` is the release-readiness
 gate. It runs `olf release check` (fails if the tag doesn't match
 `distribution.version`, if any catalog image is missing its `@sha256` digest,
 if any workflow action isn't SHA-pinned and recorded under
-`components.actions`, if an action catalog entry is unused, if a Dockerfile
+`components.actions`, if an action catalog entry is unused, if `components.floe` differs from the `floe-python` and `dagster-floe` pins
+in `images/project-code/pyproject.toml`, if a Dockerfile
 base image is unpinned, or if `components.toolchain` is missing a tool, uses
 `latest` instead of a concrete version, or is missing a digest for any
 supported platform) and `olf check lockfiles` (reads every lockfile declared

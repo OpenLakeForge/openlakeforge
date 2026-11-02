@@ -86,6 +86,24 @@ def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> 
     return CheckResult("Python package versions match catalog", True, expected)
 
 
+def _check_floe_pins(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """The project-code image installs exactly the Floe versions the catalog records."""
+    pyproject = repo_root / "images/project-code/pyproject.toml"
+    dependencies = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["dependencies"]
+    pinned = {m[1]: m[2] for d in dependencies if (m := re.fullmatch(r"([\w.-]+)(?:\[[^\]]*\])?==(.+)", d))}
+    recorded = (catalog.get("components") or {}).get("floe") or {}
+    problems = [
+        f"{name}: catalog {version!r}, {pyproject.relative_to(repo_root)} {pinned.get(name)!r}"
+        for name, version in recorded.items()
+        if pinned.get(name) != version
+    ]
+    if not recorded:
+        problems.append("components.floe is missing")
+    if problems:
+        return CheckResult("Floe pins match catalog", False, "; ".join(problems))
+    return CheckResult("Floe pins match catalog", True, ", ".join(f"{n}=={v}" for n, v in recorded.items()))
+
+
 def _check_catalog_charts(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     """Every deployed chart has an immutable catalog entry matching Terraform."""
     charts = ((catalog.get("components") or {}).get("helm") or {}).get("charts")
@@ -583,6 +601,7 @@ def run_release_check(
     report = ReleaseCheckReport()
     report.results.append(_check_version_matches_tag(catalog, tag))
     report.results.append(_check_python_package_versions(root, catalog))
+    report.results.append(_check_floe_pins(root, catalog))
     report.results.append(_check_images_digest_pinned(catalog))
     report.results.append(_check_toolchain_pinned(catalog))
     report.results.append(_check_images_match_deployment_sources(root, catalog))
