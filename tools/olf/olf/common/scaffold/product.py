@@ -132,9 +132,7 @@ def plan_product_new(
 
     gold_dir = f"lakehouse_code/gold/{product}"
     dbt_sources = tuple((name, f"Validated {name.replace('_', ' ')}.") for name in all_silver_inputs)
-    gold_schema = tuple(
-        (name, "Generated Gold mart; describe its grain and metrics here.") for name in gold_tables
-    )
+    gold_schema = tuple((name, "Generated Gold mart; describe its grain and metrics here.") for name in gold_tables)
     bronze_inputs = tuple(bronze_inputs_by_table[name] for name in all_silver_inputs)
 
     product_files = [
@@ -201,9 +199,7 @@ def plan_product_new(
         product_files.append(
             ScaffoldFile(
                 f"{dashboard_dir}/README.md",
-                _templates.render_superset_readme(
-                    display_name=resolved_display_name, report_source_dir=dashboard_dir
-                ),
+                _templates.render_superset_readme(display_name=resolved_display_name, report_source_dir=dashboard_dir),
             )
         )
 

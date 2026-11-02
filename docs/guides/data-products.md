@@ -53,9 +53,9 @@ from that file at creation time.
 
 > [!NOTE]
 > The scaffold loads CSV files from `examples/`, which gives the same result
-> on every run. dlt can extract from APIs and databases, and Floe reads
-> Parquet, JSON, Avro and other formats; scaffolding for those sources is
-> tracked in [#110](https://github.com/OpenLakeForge/openlakeforge/issues/110).
+> on every run. For an API or a database, `--kind api` or `--kind sql` writes
+> an incremental dlt connector instead; see [Load an external source
+> incrementally](incremental-sources.md).
 
 ## Add a domain
 

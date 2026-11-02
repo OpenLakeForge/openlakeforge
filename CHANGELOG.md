@@ -23,6 +23,11 @@ for how a release is cut and verified.
   for a table with an increasing key (a bounded slice per run), and
   `sql_engine` for a database source's bindings. A new guide, *Load an
   external source incrementally*, walks through a connector built on them.
+- `olf source new --kind api|sql` scaffolds an incremental source: each
+  resource declared `load: incremental` (`--cursor`, `--primary-key`), the
+  `runtime` keys the kind reads, and a connector on `libs.bronze_incremental`.
+  `olf domain new` gives an incremental input a Parquet `sources.yml` entry and
+  an entity that reads new files and merges them on the primary key.
 
 ### Changed
 

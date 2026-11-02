@@ -10,6 +10,26 @@ guide applies.
 The examples use a source `shop` with an HTTP API resource `products` and a
 database resource `orders`, in a domain `sales`.
 
+## Start from the scaffold
+
+```bash
+olf source new shop --kind api --resource products --cursor updated_at --primary-key sku
+```
+
+`--kind api` (or `--kind sql`) writes everything the rest of this guide
+describes for one source: `source.yaml` with each resource incremental and its
+`runtime` keys, a connector on `libs.bronze_incremental`, and an example CSV per
+resource. The example is not loaded; give it the real columns, because
+
+```bash
+olf domain new sales --input shop/products
+```
+
+infers the Silver contract's columns from it, and writes the entity with
+`incremental_mode: file`, `merge_scd1` on the declared primary key, and a
+Parquet entry in `silver/sources.yml`. The sections below explain each piece,
+for adapting the scaffold or writing a source by hand.
+
 ## Declare the source
 
 In `lakehouse_code/bronze/shop/source.yaml`, give each resource its load mode

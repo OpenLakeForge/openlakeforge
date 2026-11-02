@@ -42,20 +42,30 @@ def example_csv_text(repo_root: Path, source: str, resource: str) -> str | None:
 _FLOE_SOURCES = "lakehouse_code/silver/sources.yml"
 
 
-def floe_entity_files(
-    repo_root: Path, *, domain: str, inputs: tuple[tuple[str, str], ...]
-) -> tuple[ScaffoldFile, ...]:
-    """One Floe entity file per `source/resource` input, columns inferred from its example CSV."""
+def floe_entity_files(repo_root: Path, *, domain: str, inputs: tuple[tuple[str, str], ...]) -> tuple[ScaffoldFile, ...]:
+    """One Floe entity file per `source/resource` input, columns inferred from its example CSV.
+
+    An incremental resource's entity reads new files and merges them on the
+    `primary_key` its `load` declares, the mode `olf check contracts` requires.
+    """
+    sources = {source.name: source for source in load_transitional_lakehouse_inventory(repo_root).sources}
     files = []
     for source, resource in inputs:
         csv_text = example_csv_text(repo_root, source, resource)
         columns = infer_columns(csv_text) if csv_text is not None else ()
+        load = sources[source].load_of(resource)
+        spec = FloeEntitySpec(
+            table=resource,
+            source=source,
+            resource=resource,
+            domain=domain,
+            columns=columns,
+            primary_key=load.primary_key,
+            incremental=load.incremental,
+        )
         files.append(
             ScaffoldFile(
-                f"lakehouse_code/silver/{domain}/contracts/floe/{resource}.yml",
-                _templates.render_floe_entity(
-                    FloeEntitySpec(table=resource, source=source, resource=resource, domain=domain, columns=columns)
-                ),
+                f"lakehouse_code/silver/{domain}/contracts/floe/{resource}.yml", _templates.render_floe_entity(spec)
             )
         )
     return tuple(files)
@@ -71,7 +81,16 @@ def floe_sources_edit(repo_root: Path, inputs: tuple[tuple[str, str], ...]) -> S
     missing = sorted({source for source, _resource in inputs} - declared)
     if not missing:
         return None
-    addition = "".join(_templates.render_floe_source(source=source) for source in missing)
+    # Only a dlt connector loads incrementally, and it lands Parquet; the
+    # example loader is full-only and lands CSV.
+    dlt_sources = {
+        source.name
+        for source in load_transitional_lakehouse_inventory(repo_root).sources
+        if any(table.load.incremental for table in source.resources)
+    }
+    addition = "".join(
+        _templates.render_floe_source(source=source, parquet=source in dlt_sources) for source in missing
+    )
     return ScaffoldFile(
         _FLOE_SOURCES,
         _yaml_edit.append_to_top_level_list(text, "sources", addition, source_label=_FLOE_SOURCES),
