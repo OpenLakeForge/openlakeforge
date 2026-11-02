@@ -55,6 +55,7 @@ from olf.infra.commands import diagnostics as infra_diagnostics
 from olf.infra.commands import images as infra_images
 from olf.infra.commands import product as infra_product
 from olf.infra.commands import project as infra_project
+from olf.infra.commands import source as infra_source
 from olf.platform import commands as platform_commands
 from olf.platform import query as platform_query
 from olf.platform import reads as platform_reads
@@ -169,6 +170,8 @@ _infra_group(smoke.app, "smoke")
 _infra_group(infra_product.app, "product", common=product.app)
 _infra_group(infra_project.app, "project", common=project.app)
 _infra_group(platform.app, "platform")
+# Born after the 2b move: there is no pre-2b top-level path to alias.
+infra_app.add_typer(infra_source.app, name="source")
 
 _infra_command("deploy", deployment.deploy)
 _infra_command("plan", deployment.plan)
