@@ -29,7 +29,9 @@ def _jwt(claims: dict[str, object]) -> str:
     return f"{part({'alg': 'RS256'})}.{part(claims)}.signature-not-checked"
 
 
-TOKEN = _jwt({"exp": int(time.time()) + 300, "email": "ada@example.com", "groups": ["acme:data-engineers"]})
+def _token() -> str:
+    # Minted per test: a module-level token is signed at collection and expires before a slow full run reaches it.
+    return _jwt({"exp": int(time.time()) + 300, "email": "ada@example.com", "groups": ["acme:data-engineers"]})
 
 RUN = {
     "run_id": "6c1f3a5e-0000-4000-8000-000000000001",
@@ -87,6 +89,7 @@ class FakeAPI:
         self.requests: list[dict[str, Any]] = []
         self.status = 200
         self.body: bytes | None = None
+        self.token = _token()
         api_ = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -145,7 +148,7 @@ def fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[FakeAPI]:
     threading.Thread(target=server.server.serve_forever, daemon=True).start()
     monkeypatch.setattr(api, "base_url", lambda instance: server.url)
     instance = sessions.resolve_instance(GITHUB_PROFILE)
-    sessions.save(instance, sessions.Session(instance.issuer, TOKEN, "", "refresh"))
+    sessions.save(instance, sessions.Session(instance.issuer, server.token, "", "refresh"))
     yield server
     server.server.shutdown()
 
@@ -170,7 +173,7 @@ def test_each_command_sends_the_session_token_and_nothing_else(fake: FakeAPI, co
     result = _olf(*command)
 
     assert result.exit_code == 0, result.output
-    assert [request["authorization"] for request in fake.requests] == [f"Bearer {TOKEN}"]
+    assert [request["authorization"] for request in fake.requests] == [f"Bearer {fake.token}"]
 
 
 def test_jobs_list_renders_a_table(fake: FakeAPI) -> None:
@@ -231,7 +234,7 @@ def test_a_refused_session_says_run_olf_login(fake: FakeAPI, command: tuple[str,
 
     assert result.exit_code == 1
     assert "run `olf login`" in result.stderr
-    assert TOKEN not in result.output
+    assert fake.token not in result.output
 
 
 @pytest.mark.parametrize("command", COMMANDS)

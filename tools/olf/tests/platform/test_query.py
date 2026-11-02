@@ -29,14 +29,16 @@ def _jwt(claims: dict[str, object]) -> str:
     return f"{part({'alg': 'RS256'})}.{part(claims)}.signature-not-checked"
 
 
-TOKEN = _jwt(
-    {
-        "exp": int(time.time()) + 300,
-        "email": EMAIL,
-        "groups": ["acme:analysts"],
-        "federated_claims": {"connector_id": "github"},
-    }
-)
+def _token() -> str:
+    # Minted per test: a module-level token is signed at collection and expires before a slow full run reaches it.
+    return _jwt(
+        {
+            "exp": int(time.time()) + 300,
+            "email": EMAIL,
+            "groups": ["acme:analysts"],
+            "federated_claims": {"connector_id": "github"},
+        }
+    )
 
 
 class FakeTrino:
@@ -48,6 +50,7 @@ class FakeTrino:
         self.error: dict[str, Any] | None = None
         self.columns = ["id", "name"]
         self.url = ""
+        self.token = _token()
         trino = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -92,7 +95,7 @@ def trino(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[FakeTrino
     fake.server.shutdown()
 
 
-def _sign_in(token: str = TOKEN) -> None:
+def _sign_in(token: str) -> None:
     instance = sessions.resolve_instance(GITHUB_PROFILE)
     sessions.save(instance, sessions.Session(instance.issuer, token, "", "refresh"))
 
@@ -102,7 +105,7 @@ def _query(*args: str) -> Any:
 
 
 def test_a_query_carries_the_person_token_twice_and_their_email_and_stage(trino: FakeTrino) -> None:
-    _sign_in()
+    _sign_in(trino.token)
 
     result = _query("--stage", "prod", "SELECT * FROM sales_gold.orders")
 
@@ -110,22 +113,22 @@ def test_a_query_carries_the_person_token_twice_and_their_email_and_stage(trino:
     assert result.stdout == "id | name\n---+-----\n1  | a   \n2  | NULL\n(2 rows)\n"
     first = trino.requests[0]
     assert first["sql"] == "SELECT * FROM sales_gold.orders"
-    assert first["headers"]["Authorization"] == f"Bearer {TOKEN}"
-    assert first["headers"]["X-Trino-Extra-Credential"] == f"token={TOKEN}"
+    assert first["headers"]["Authorization"] == f"Bearer {trino.token}"
+    assert first["headers"]["X-Trino-Extra-Credential"] == f"token={trino.token}"
     assert first["headers"]["X-Trino-User"] == EMAIL
     assert first["headers"]["X-Trino-Catalog"] == "prod"
-    assert trino.requests[1]["headers"]["Authorization"] == f"Bearer {TOKEN}"
+    assert trino.requests[1]["headers"]["Authorization"] == f"Bearer {trino.token}"
 
 
 def test_a_query_needs_no_cluster_access(trino: FakeTrino, monkeypatch: pytest.MonkeyPatch) -> None:
     # #671: the platform path reaches Trino's public route with the person's token, never kubectl.
     monkeypatch.setenv("KUBECONFIG", "/nonexistent")
-    _sign_in()
+    _sign_in(trino.token)
 
     result = _query("SELECT 1")
 
     assert result.exit_code == 0, result.output
-    assert trino.requests[0]["headers"]["Authorization"] == f"Bearer {TOKEN}"
+    assert trino.requests[0]["headers"]["Authorization"] == f"Bearer {trino.token}"
 
 
 @pytest.mark.parametrize(
@@ -136,7 +139,7 @@ def test_a_query_needs_no_cluster_access(trino: FakeTrino, monkeypatch: pytest.M
     ],
 )
 def test_csv_and_json_output(trino: FakeTrino, output_format: str, expected: str) -> None:
-    _sign_in()
+    _sign_in(trino.token)
 
     result = _query("--format", output_format, "SELECT 1")
 
@@ -172,7 +175,7 @@ def _failure(*messages: str) -> dict[str, Any]:
     ],
 )
 def test_a_refusal_is_explained_from_the_cause_chain(trino: FakeTrino, error: dict[str, Any], expected: str) -> None:
-    _sign_in()
+    _sign_in(trino.token)
     trino.error = error
 
     result = _query("SELECT 1")
@@ -188,7 +191,7 @@ def test_a_refusal_is_explained_from_the_cause_chain(trino: FakeTrino, error: di
 def test_the_perimeter_or_trino_refusing_the_request_says_what_to_do(
     trino: FakeTrino, status: int, expected: str
 ) -> None:
-    _sign_in()
+    _sign_in(trino.token)
     trino.status = status
 
     result = _query("SELECT 1")
@@ -224,7 +227,7 @@ def test_a_deployment_without_github_sign_in_points_to_the_workload_path(tmp_pat
 
 
 def test_json_keeps_every_value_of_a_repeated_column_name(trino: FakeTrino) -> None:
-    _sign_in()
+    _sign_in(trino.token)
     trino.columns = ["id", "id"]
 
     result = _query("--format", "json", "SELECT 1 AS id, 'a' AS id")
