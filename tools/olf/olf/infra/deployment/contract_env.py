@@ -25,6 +25,13 @@ if TYPE_CHECKING:
     from olf.common.profile import DeploymentTopology, StageName
 
 
+# The provider's command environment scopes DOCKER_CONFIG to an OLF-owned
+# directory. Applying it to os.environ would make it indistinguishable from the
+# developer's own, so `ambient_registry_env` would hand it to a pull from a
+# private registry and the pull would run without their `docker login`.
+_PROVIDER_SCOPED = frozenset({"DOCKER_CONFIG"})
+
+
 @contextmanager
 def applied_contract_environment(
     *,
@@ -67,7 +74,7 @@ def applied_contract_environment(
     }
 
     previous: dict[str, str | None] = {}
-    applied = {**base, **exports, **extra}
+    applied = {key: value for key, value in {**base, **exports, **extra}.items() if key not in _PROVIDER_SCOPED}
     for name, value in applied.items():
         previous[name] = os.environ.get(name)
         os.environ[name] = value
