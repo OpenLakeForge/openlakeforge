@@ -426,38 +426,39 @@ def test_platform_up_retries_apply_and_cleans_up_polaris_jobs_each_attempt(tmp_p
 
 
 _NULL_IDENTITY = {"api_version": None, "kind": None, "name": None, "namespace": None}
+_PORTAL = "module.portal[0].kubernetes_deployment_v1.portal"
 
 
-def _deployment_state(identity: dict | None, *, index_key: object = 0) -> dict:
-    instance = {
+def _deployment_state(
+    identity: dict | None, *, index_key: object = 0, kind: str = "kubernetes_deployment_v1", tainted: bool = False
+) -> dict:
+    instance: dict = {
         "index_key": index_key,
         "attributes": {"id": "olf-system/portal", "metadata": [{"name": "portal", "namespace": "olf-system"}]},
     }
+    if index_key is None:
+        instance.pop("index_key")
     if identity is not None:
         instance["identity"] = identity
+    if tainted:
+        instance["status"] = "tainted"
     return {
         "resources": [
-            {
-                "module": "module.portal[0]",
-                "mode": "managed",
-                "type": "kubernetes_deployment_v1",
-                "name": "portal",
-                "instances": [instance],
-            }
+            {"module": "module.portal[0]", "mode": "managed", "type": kind, "name": "portal", "instances": [instance]}
         ]
     }
 
 
 def test_an_instance_left_with_a_null_identity_is_found_with_its_import_id() -> None:
-    found = platform.null_identity_instances(_deployment_state(_NULL_IDENTITY))
+    found = platform.null_identity_instances(_deployment_state(_NULL_IDENTITY, tainted=True))
 
-    assert found == [("module.portal[0].kubernetes_deployment_v1.portal[0]", "olf-system/portal")]
+    assert found == [platform.NullIdentityInstance(f"{_PORTAL}[0]", "olf-system/portal", tainted=True)]
 
 
 def test_a_string_index_key_is_quoted_in_the_address() -> None:
     found = platform.null_identity_instances(_deployment_state(_NULL_IDENTITY, index_key="dev"))
 
-    assert found[0][0] == 'module.portal[0].kubernetes_deployment_v1.portal["dev"]'
+    assert found[0].address == f'{_PORTAL}["dev"]'
 
 
 @pytest.mark.parametrize(
@@ -468,27 +469,100 @@ def test_a_stored_or_absent_identity_is_left_alone(identity: dict | None) -> Non
     assert platform.null_identity_instances(_deployment_state(identity)) == []
 
 
-def test_platform_up_reimports_a_null_identity_instance_before_applying(tmp_path: Path) -> None:
+def test_a_helm_release_is_left_alone_because_its_import_id_is_not_its_stored_id() -> None:
+    assert platform.null_identity_instances(_deployment_state(_NULL_IDENTITY, kind="helm_release")) == []
+
+
+class _StateRunner(_PlatformScriptedRunner):
+    """`state rm` empties the state file; `import` fails with `import_error` when it is set."""
+
+    def __init__(self, state_path: Path, *, import_error: str = "") -> None:
+        super().__init__(namespace_exists=False, seaweedfs_in_state=True)
+        self._state_path, self._import_error = state_path, import_error
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        if argv[0] == "terraform" and argv[2:4] == ["state", "rm"]:
+            self._state_path.write_text('{"resources": []}')
+        if argv[0] == "terraform" and "import" in argv and self._import_error:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            raise CommandExecutionError(argv, 1, stderr=self._import_error)
+        return super().run(command, **kwargs)
+
+
+def _with_platform_state(tmp_path: Path, state: dict) -> LocalDeploymentConfig:
     config = _config(tmp_path, profile=Profile.SLIM)
     config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.foundation_state_path.write_text("{}")
-    state = _deployment_state(_NULL_IDENTITY)
-    state["resources"][0]["instances"][0].pop("index_key")
     config.paths.platform_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.platform_state_path.write_text(json.dumps(state))
-    runner = _PlatformScriptedRunner(namespace_exists=False, seaweedfs_in_state=True)
-    tools = _toolkit(runner)
+    return config
 
-    platform.platform_up(config, tools, env={})
 
-    address = "module.portal[0].kubernetes_deployment_v1.portal"
-    terraform = [c.argv for c in runner.calls if c.argv[0] == "terraform"]
-    removed = next(i for i, argv in enumerate(terraform) if argv[2:4] == ["state", "rm"] and address in argv)
+def _terraform_calls(runner: RecordingRunner) -> list[list[str]]:
+    return [c.argv for c in runner.calls if c.argv[0] == "terraform"]
+
+
+def test_platform_up_reimports_a_null_identity_instance_before_applying(tmp_path: Path) -> None:
+    config = _with_platform_state(tmp_path, _deployment_state(_NULL_IDENTITY, index_key=None))
+    runner = _StateRunner(config.paths.platform_state_path)
+
+    platform.platform_up(config, _toolkit(runner), env={})
+
+    terraform = _terraform_calls(runner)
+    removed = next(i for i, argv in enumerate(terraform) if argv[2:4] == ["state", "rm"] and _PORTAL in argv)
     imported = next(
-        i for i, argv in enumerate(terraform) if "import" in argv and argv[-2:] == [address, "olf-system/portal"]
+        i for i, argv in enumerate(terraform) if "import" in argv and argv[-2:] == [_PORTAL, "olf-system/portal"]
     )
     applied = max(i for i, argv in enumerate(terraform) if "apply" in argv)
     assert removed < imported < applied
+    assert not any("taint" in argv for argv in terraform)
+
+
+def test_a_tainted_instance_is_tainted_again_after_its_import(tmp_path: Path) -> None:
+    config = _with_platform_state(tmp_path, _deployment_state(_NULL_IDENTITY, index_key=None, tainted=True))
+    runner = _StateRunner(config.paths.platform_state_path)
+
+    platform.reimport_null_identity_instances(config, _toolkit(runner), var_files=(), variables={}, env={})
+
+    terraform = _terraform_calls(runner)
+    imported = next(i for i, argv in enumerate(terraform) if "import" in argv)
+    tainted = next(i for i, argv in enumerate(terraform) if argv[2:3] == ["taint"] and argv[-1] == _PORTAL)
+    assert imported < tainted
+
+
+def test_a_failed_import_puts_the_instance_back_in_state(tmp_path: Path) -> None:
+    state = _deployment_state(_NULL_IDENTITY, index_key=None)
+    config = _with_platform_state(tmp_path, state)
+    runner = _StateRunner(config.paths.platform_state_path, import_error="Error: connection refused")
+
+    with pytest.raises(CommandExecutionError):
+        platform.reimport_null_identity_instances(config, _toolkit(runner), var_files=(), variables={}, env={})
+
+    assert json.loads(config.paths.platform_state_path.read_text()) == state
+
+
+def test_an_object_that_is_gone_stays_out_of_state_for_the_apply_to_create(tmp_path: Path) -> None:
+    config = _with_platform_state(tmp_path, _deployment_state(_NULL_IDENTITY, index_key=None, tainted=True))
+    runner = _StateRunner(
+        config.paths.platform_state_path, import_error="Error: Cannot import non-existent remote object"
+    )
+
+    platform.reimport_null_identity_instances(config, _toolkit(runner), var_files=(), variables={}, env={})
+
+    assert json.loads(config.paths.platform_state_path.read_text()) == {"resources": []}
+    assert not any("taint" in argv for argv in _terraform_calls(runner))
+
+
+def test_an_instance_without_an_import_id_is_skipped(tmp_path: Path) -> None:
+    state = _deployment_state(_NULL_IDENTITY, index_key=None)
+    state["resources"][0]["instances"][0]["attributes"] = {}
+    config = _with_platform_state(tmp_path, state)
+    runner = _StateRunner(config.paths.platform_state_path)
+
+    platform.reimport_null_identity_instances(config, _toolkit(runner), var_files=(), variables={}, env={})
+
+    assert not any("state" in argv or "import" in argv for argv in _terraform_calls(runner))
 
 
 def _legacy_namespace_runner(*, legacy_namespace_exists: bool) -> RecordingRunner:

@@ -208,6 +208,9 @@ class Terraform:
     ) -> CommandResult:
         return self._run(terraform_dir, ["state", "rm", resource_addr], env=env)
 
+    def taint(self, terraform_dir: Path, resource_addr: str, *, env: Mapping[str, str] | None = None) -> CommandResult:
+        return self._run(terraform_dir, ["taint", resource_addr], env=env)
+
     def import_resource(
         self,
         terraform_dir: Path,
