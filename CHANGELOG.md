@@ -14,66 +14,16 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-### Added
-
-- `libs.bronze_incremental`, the read side of an incremental connector:
-  `newest_first_pages` for an API that sorts by modification time but cannot
-  filter on it (stops at the cursor, backfills its page budget on a first run,
-  fails rather than skip items when the budget runs out), `keyset_batches`
-  for a table with an increasing key (a bounded slice per run), and
-  `sql_engine` for a database source's bindings. A new guide, *Load an
-  external source incrementally*, walks through a connector built on them.
-- `olf source new --kind api|sql` scaffolds an incremental source: each
-  resource declared `load: incremental` (`--cursor`, `--primary-key`), the
-  `runtime` keys the kind reads, and a connector on `libs.bronze_incremental`.
-  `olf domain new` gives an incremental input a Parquet `sources.yml` entry and
-  an entity that reads new files and merges them on the primary key.
-
-### Changed
-
-- The project-code image pins `floe-python` 0.9.0 and `dagster-floe` 0.5.0.
-  For entities with `incremental_mode: file`, an empty source prefix now
-  finishes with nothing pending instead of failing the run, and with
-  `source.partitioning` the state file no longer grows with every ingested
-  file (OpenLakeForge/floe#1139, #949). The manifests dagster-floe builds move
-  to `spec_version: "0.9"`; `floe.yml` files at `version: "0.8"` load
-  unchanged.
-
-- A `bronze` full refresh re-ingests Bronze instead of re-extracting it: Floe
-  rebuilds Silver from every Bronze file and dbt rebuilds Gold, while the
-  sources' cursors and Bronze files are left as they are. Re-extraction had
-  replaced a source's history with whatever its connector could still fetch.
-  `libs.bronze_dlt.load_dlt_source` loses its `full_refresh` argument, and a
-  loader's contract is `load_<source>_entities_to_bronze(resources)`.
-
-### Fixed
-
-- `olf check project-code --repo-root <project>` parses a customer
-  repository's dbt products. Each `packages.yml` reaches the shared
-  `openlakeforge_dbt` package through `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which
-  olf and the project-code image set to the distribution's `libs/dbt`, and the
-  check renders the project's own dbt profiles into its cache instead of
-  reading the distribution's baked ones (#627).
-
-### Migration
-
-- In each `lakehouse_code/gold/<product>/dbt/packages.yml`, replace
-  `local: ../../../../libs/dbt/openlakeforge_dbt` with
-  `local: "{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt"`.
-  `olf check dbt` and `olf check project-code` refuse the old path and name
-  the files that still use it. A plain `dbt` run outside olf needs the
-  variable set to the distribution's `libs/dbt`.
-- A Bronze loader that took `full_refresh` and passed it to
-  `load_dlt_source` drops the argument: the runtime calls
-  `load_<source>_entities_to_bronze(resources)` only.
-
-## [0.5.1-alpha.1] - 2026-11-01
+## [0.5.1-alpha.2] - 2026-11-02
 
 The platform surface: a platform API, a Platform CLI that signs people in
 through Dex and acts as them, and per-person data access through Trino and
 Polaris. `olf` splits into infrastructure, common and platform commands
 (ADR 0020, ADR 0021), and the service clients move into a third published
 package, `openlakeforge-lakehouse-services`.
+
+0.5.1-alpha.1 was tagged in error and never published; this is the
+first 0.5.1 release, and its notes include everything listed for it.
 
 ### Added
 
@@ -150,6 +100,18 @@ package, `openlakeforge-lakehouse-services`.
   pinned to 1.43.117, the newest `botocore` that `s3fs`'s `aiobotocore`
   accepts. `aiohttp`, which `s3fs` brings in, is held at 3.14.4 or later
   for CVE-2026-111064, CVE-2026-111066 and GHSA-2g87-pp6c-29x5.
+- `libs.bronze_incremental`, the read side of an incremental connector:
+  `newest_first_pages` for an API that sorts by modification time but cannot
+  filter on it (stops at the cursor, backfills its page budget on a first run,
+  fails rather than skip items when the budget runs out), `keyset_batches`
+  for a table with an increasing key (a bounded slice per run), and
+  `sql_engine` for a database source's bindings. A new guide, *Load an
+  external source incrementally*, walks through a connector built on them.
+- `olf source new --kind api|sql` scaffolds an incremental source: each
+  resource declared `load: incremental` (`--cursor`, `--primary-key`), the
+  `runtime` keys the kind reads, and a connector on `libs.bronze_incremental`.
+  `olf domain new` gives an incremental input a Parquet `sources.yml` entry and
+  an entity that reads new files and merges them on the primary key.
 
 ### Changed
 
@@ -226,6 +188,20 @@ package, `openlakeforge-lakehouse-services`.
   from the activation itself. Bronze loads read
   `OPENLAKEFORGE_STORAGE_BRONZE_BUCKET`, with no `lakehouse-bronze` fallback
   (#546).
+- The project-code image pins `floe-python` 0.9.0 and `dagster-floe` 0.5.0.
+  For entities with `incremental_mode: file`, an empty source prefix now
+  finishes with nothing pending instead of failing the run, and with
+  `source.partitioning` the state file no longer grows with every ingested
+  file (OpenLakeForge/floe#1139, #949). The manifests dagster-floe builds move
+  to `spec_version: "0.9"`; `floe.yml` files at `version: "0.8"` load
+  unchanged.
+
+- A `bronze` full refresh re-ingests Bronze instead of re-extracting it: Floe
+  rebuilds Silver from every Bronze file and dbt rebuilds Gold, while the
+  sources' cursors and Bronze files are left as they are. Re-extraction had
+  replaced a source's history with whatever its connector could still fetch.
+  `libs.bronze_dlt.load_dlt_source` loses its `full_refresh` argument, and a
+  loader's contract is `load_<source>_entities_to_bronze(resources)`.
 
 ### Fixed
 
@@ -254,6 +230,35 @@ package, `openlakeforge-lakehouse-services`.
   `release/query-sizes.yaml`. The Trino chart reads free-form properties only
   from its top-level list, so the coordinator-level list it was rendered into
   was ignored and the server kept the default of 150 stages (#706).
+- `olf check project-code --repo-root <project>` parses a customer
+  repository's dbt products. Each `packages.yml` reaches the shared
+  `openlakeforge_dbt` package through `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which
+  olf and the project-code image set to the distribution's `libs/dbt`, and the
+  check renders the project's own dbt profiles into its cache instead of
+  reading the distribution's baked ones (#627).
+- The reference CSV Bronze loader streams each file to the Bronze bucket
+  with a managed multipart upload instead of parsing every row into memory
+  and rebuilding the file; it counts rows in one pass. The object is now the
+  source file byte for byte, so original line endings are kept (#756).
+- The Trino coordinator's memory limit is 4Gi in every query size, with the
+  2G heap unchanged: at 3Gi the kernel OOM-killed it during a large Gold
+  rebuild, because off-heap memory did not fit beside the heap (#755).
+- `olf check dbt` passes on products with incremental models: they are
+  parsed (refs, sources, Jinja) but no longer compiled, because
+  `is_incremental()` needs a warehouse connection the check does not have
+  (#752).
+- `olf infra project deploy` on `local` pulls a private project image with
+  the developer's own Docker credentials: OLF's scoped `DOCKER_CONFIG` no
+  longer leaks into the environment the pull reads (#754).
+- Pre-loading digest-pinned images into kind no longer fails on hosts whose
+  kind nodes have no egress: the imported image is tagged with its digest
+  name instead of re-pulled with `crictl pull` (#757).
+- A platform apply re-imports Kubernetes resources that a failed create left
+  in state with a null identity, which made every later refresh abort with
+  "Unexpected Identity Change" (#759).
+- The local NetworkPolicy canary also requires an allow rule to admit
+  traffic, so a dataplane that only drops is refused up front instead of
+  surfacing later as storage and DNS timeouts (#622).
 
 ### Removed
 
@@ -292,6 +297,15 @@ package, `openlakeforge-lakehouse-services`.
   stays under the old keys.
 - Delete any `lakehouse_code/gold/<product>/dbt/profiles.yml` from version
   control; OpenLakeForge renders it for each stage.
+- In each `lakehouse_code/gold/<product>/dbt/packages.yml`, replace
+  `local: ../../../../libs/dbt/openlakeforge_dbt` with
+  `local: "{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt"`.
+  `olf check dbt` and `olf check project-code` refuse the old path and name
+  the files that still use it. A plain `dbt` run outside olf needs the
+  variable set to the distribution's `libs/dbt`.
+- A Bronze loader that took `full_refresh` and passed it to
+  `load_dlt_source` drops the argument: the runtime calls
+  `load_<source>_entities_to_bronze(resources)` only.
 
 ## [0.5.0-alpha.1] - 2026-10-23
 
