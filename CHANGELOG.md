@@ -14,6 +14,19 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Changed
+
+- The domain model package is renamed: the PyPI distribution
+  `openlakeforge-domain-model` is now `openlakeforge-core`, and its import
+  package `openlakeforge_domain` is now `openlakeforge_core`. The old
+  distribution stays on PyPI at `0.5.1a2` and receives no further releases.
+
+### Migration
+
+- In a project's `lakehouse_code/` (for example `definitions.py`), replace
+  `openlakeforge_domain` with `openlakeforge_core` in every import.
+- A requirement on `openlakeforge-domain-model` becomes `openlakeforge-core`.
+
 ## [0.5.1-alpha.2] - 2026-11-02
 
 The platform surface: a platform API, a Platform CLI that signs people in
