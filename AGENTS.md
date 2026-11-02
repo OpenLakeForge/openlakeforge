@@ -67,7 +67,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/governance.yml` | Canonical domain/product business metadata descriptor; tables belong to a domain or product by schema, not by a list |
 | `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
 | `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
-| `libs/` | Shared runtime Python imported by the project-code image |
+| `packages/runtime/` | Project-code runtime package (`openlakeforge_runtime`): Dagster, dlt, dbt and Floe glue imported by `lakehouse_code` and the project-code image |
 | `packages/core/` | Canonical provider-neutral descriptor and inventory package |
 | `packages/lakehouse-services/` | Service clients and operations shared by `olf` and the platform API (ADR 0021); callers pass endpoints and credentials in |
 | `packages/platform-api/` | The platform API (ADR 0021): token validation, the permission matrix (`permissions.toml`), its own `uv.lock` and tests |
@@ -310,7 +310,7 @@ confirms ops-bucket artifacts exist.
 - Never commit to `main`. Branch, then open a pull request.
 - Never put a stage binding -- a bucket, endpoint, namespace or Secret name --
   in the Floe project under `lakehouse_code/silver/`. Storages and the catalog
-  come from the profile `libs/floe_profile.py` renders on the pod.
+  come from the profile `packages/runtime/openlakeforge_runtime/floe_profile.py` renders on the pod.
 - Never unpin an image or chart to make something work.
 - Never widen scope beyond the issue. Note adjacent problems in the pull request
   body instead of fixing them silently.

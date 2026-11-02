@@ -2,7 +2,7 @@ import json
 import logging
 
 import pytest
-from libs.openlakeforge_logging import log_event
+from openlakeforge_runtime.openlakeforge_logging import log_event
 
 
 def _emit(caplog: pytest.LogCaptureFixture, **kwargs: object) -> dict:

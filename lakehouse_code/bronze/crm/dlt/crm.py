@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from libs.bronze_csv import BronzeLoadResult, load_entities_to_bronze
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult, load_entities_to_bronze
 
 CRM_ENTITIES = (
     "accounts",

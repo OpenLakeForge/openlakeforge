@@ -95,7 +95,7 @@ credential should never appear in them to begin with.
 ### Stage binding happens on the pod
 
 Nothing a revision freezes names a stage. The Floe project's storages and
-catalog are filled in when the code location loads: `libs/floe_profile.py`
+catalog are filled in when the code location loads: `openlakeforge_runtime/floe_profile.py`
 renders the EnvironmentProfile from the provider-contract values the
 activation release sets on the pod, and dagster-floe builds the manifest in
 memory from that profile and the frozen contracts. One project-code image
@@ -104,7 +104,7 @@ artifact of its own.
 
 dbt and dlt bind the same way (#546):
 
-- **dbt.** The image carries one profile, `libs/dbt/profiles/trino.yml`,
+- **dbt.** The image carries one profile, `openlakeforge_runtime/dbt/profiles/trino.yml`,
   whose host, port, user and catalog are `env_var()` references with no
   default, so a pod missing one fails instead of reaching another stage.
   The image bakes a manifest parsed with placeholder values that no stage

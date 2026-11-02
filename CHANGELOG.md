@@ -20,12 +20,20 @@ for how a release is cut and verified.
   `openlakeforge-domain-model` is now `openlakeforge-core`, and its import
   package `openlakeforge_domain` is now `openlakeforge_core`. The old
   distribution stays on PyPI at `0.5.1a2` and receives no further releases.
+- The project-code runtime that lived in the repository's `libs/` directory is
+  now the `openlakeforge-runtime` package under `packages/runtime/`, imported
+  as `openlakeforge_runtime`. It is built and attached to each release like
+  the other packages; it is not published to PyPI.
 
 ### Migration
 
 - In a project's `lakehouse_code/` (for example `definitions.py`), replace
   `openlakeforge_domain` with `openlakeforge_core` in every import.
 - A requirement on `openlakeforge-domain-model` becomes `openlakeforge-core`.
+- In a project's `lakehouse_code/`, replace `libs` with `openlakeforge_runtime`
+  in every import (`from libs.product_dagster import ...` becomes
+  `from openlakeforge_runtime.product_dagster import ...`), and likewise in any
+  `python -m libs.<module>` command.
 
 ## [0.5.1-alpha.2] - 2026-11-02
 

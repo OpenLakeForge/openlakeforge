@@ -104,7 +104,7 @@ def test_uses_the_scoped_environment_for_contract_terraform(monkeypatch: pytest.
 def test_selected_stage_survives_into_the_contract_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`libs.product_dagster.build_stage_schedules` reads OPENLAKEFORGE_STAGE in the code-server
+    """`openlakeforge_runtime.product_dagster.build_stage_schedules` reads OPENLAKEFORGE_STAGE in the code-server
     pod, and the only thing that puts it there is this environment: activation forwards every
     `OPENLAKEFORGE_*` key it yields onto the container. A contract that dropped the key would
     silently give PROD the unrecognised-stage behaviour, which is no schedules at all."""

@@ -8,7 +8,7 @@ from pkgutil import iter_modules
 
 import lakehouse_code.pipelines.dagster as dagster_pipelines
 from dagster import Definitions
-from libs.product_dagster import (
+from openlakeforge_runtime.product_dagster import (
     SourceDefinitionSpec,
     build_maintenance_definitions,
     build_silver_definitions,

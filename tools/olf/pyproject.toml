@@ -76,7 +76,7 @@ warn_redundant_casts = true
 warn_unreachable = true
 
 # Dagster, Floe and dlt are installed only in the project-code environment
-# `olf check project-code` builds, and `lakehouse_code`/`libs` are user-project
+# `olf check project-code` builds, and `lakehouse_code`/`openlakeforge_runtime` are user-project
 # roots that are not importable from the CLI package.
 [[tool.mypy.overrides]]
 module = [
@@ -85,14 +85,15 @@ module = [
   "dlt.*",
   "floe_dagster.*",
   "lakehouse_code.*",
-  "libs.*",
+  "openlakeforge_runtime.*",
 ]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# `libs` is the project-code image's package at the repository root, beside the CLI.
-pythonpath = ["../.."]
+# `lakehouse_code` sits at the repository root and `openlakeforge_runtime` under packages/runtime,
+# both beside the CLI rather than installed into it.
+pythonpath = ["../..", "../../packages/runtime"]
 
 [tool.coverage.run]
 # The service clients moved out of `olf` (ADR 0021) are still tested here.

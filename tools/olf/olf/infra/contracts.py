@@ -493,7 +493,7 @@ def build_contract_env(
         # default before the stage's real storage.endpoint/path_style_access
         # applied, and env.default() (used for both names below) will not
         # move an already-set value. A stage with a non-default endpoint
-        # would otherwise leave consumers like libs/bronze_csv.py connecting
+        # would otherwise leave consumers like openlakeforge_runtime/bronze_csv.py connecting
         # to the wrong SeaweedFS host or using the wrong addressing style.
         # The storage.aws_s3 block above already re-derives both correctly
         # (unconditional unset/default run after the resolved implementation
@@ -558,7 +558,7 @@ def build_contract_env(
             "OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON",
             json.dumps(schema_fqn_physical.gold_namespaces, separators=(",", ":")),
         )
-    # The dbt profile (libs/dbt/profiles/trino.yml) bakes its bare
+    # The dbt profile (openlakeforge_runtime/dbt/profiles/trino.yml) bakes its bare
     # `{{GOLD_SCHEMA}}` (e.g. "order_revenue_gold") at project-code image
     # BUILD time - the image is provider/stage-agnostic ("one image digest
     # deploys to every stage"), so it cannot know this account's

@@ -36,7 +36,7 @@ them into Silver. `olf domain new` and `olf product new` write these files and
 declare a Bronze source in `sources.yml` the first time an entity reads it.
 
 Storages and the catalog are not in the project. They are stage bindings:
-when the code location loads, `libs/floe_profile.py` renders a Floe
+when the code location loads, `openlakeforge_runtime/floe_profile.py` renders a Floe
 EnvironmentProfile from the provider-contract values the stage activation
 puts on the pod — buckets, the object-store endpoint, the Polaris REST
 catalog and its credential Secret keys, and the OpenLineage endpoint. One
@@ -47,7 +47,7 @@ baked into it.
 
 dagster-floe builds the manifest in memory from the project and the rendered
 profile (`manifest_from_config`); no manifest is generated, published or
-versioned. [The Dagster integration](../../libs/product_dagster.py) loads one
+versioned. [The Dagster integration](../../packages/runtime/openlakeforge_runtime/product_dagster.py) loads one
 subsettable asset per domain and points each Silver table at the Bronze
 resource its entity reads, `<source.ref>/<source.resource>`, through
 dagster-floe's `source_key_fn`; left alone, dagster-floe would key every entity
@@ -101,7 +101,8 @@ page makes no performance or general-superiority claim.
 
 Silver tables accumulate snapshots, and failed or replaced writes leave
 unreferenced files behind. The `silver_maintenance` Dagster job
-([`libs/product_dagster.py`](../../libs/product_dagster.py)) runs Floe's own
+([runtime code](../../packages/runtime/openlakeforge_runtime/product_dagster.py))
+runs Floe's own
 maintenance (`floe.maintain`, the Python form of `floe maintain`) over every
 Iceberg table the Floe project writes, with the stage's rendered profile. It
 exists on every stage; its `silver_maintenance_weekly` schedule exists only on

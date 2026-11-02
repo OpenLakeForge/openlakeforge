@@ -1,4 +1,4 @@
-"""Read the Kubernetes log archive that `libs/k8s_log_archive.py` writes.
+"""Read the Kubernetes log archive that `openlakeforge_runtime/k8s_log_archive.py` writes.
 
 The archive is gzipped NDJSON under
 `<base>/k8s/namespace=<ns>/date=<YYYY-MM-DD>/hour=<HH>/k8s-logs-<stamp>.ndjson.gz`,

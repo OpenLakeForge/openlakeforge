@@ -296,7 +296,7 @@ activated.
 | --- | --- | --- | --- |
 | Code-location server | The contract values the runtime reads (`_RUNTIME_ENV` in `tools/olf/olf/infra/deployment/activation.py`), `OPENLAKEFORGE_STAGE`, and the storage, Floe-catalog and lineage Secrets | The stage's provider contract, through the activation's Helm release | The value is absent. The allowlist test fails when runtime code reads a name nothing sets. |
 | Run pod | Everything the server has (`includeConfigInLaunchedRuns`), plus the source bindings of its job | The release, plus the job's `dagster-k8s/config` tag | Kubernetes does not start a pod whose ConfigMap or Secret key is absent |
-| Floe Job | The contract values the run pod forwards to it | dagster-floe | `libs/floe_profile.py` raises naming the variable |
+| Floe Job | The contract values the run pod forwards to it | dagster-floe | `openlakeforge_runtime/floe_profile.py` raises naming the variable |
 | dbt in a run pod | `OPENLAKEFORGE_QUERY_TRINO_*`, `OPENLAKEFORGE_DBT_TRINO_*`, `OPENLAKEFORGE_CATALOG_NAME` and `_SCHEMA_PREFIX` | The run pod's env, through the profile's `env_var()` | dbt fails to render the profile |
 | dlt loader in a run pod | `SOURCES__<ID>__<KEY>` for each key in `source.yaml` `runtime`, and the stage's Bronze bucket and S3 settings | ConfigMap `olf-source-<id>` and Secret `olf-source-<id>-credentials` in the stage namespace | dlt raises its missing-config error; `bronze_pipeline` raises if the stage or bucket is unset |
 

@@ -246,7 +246,7 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
     @contextmanager
     def fake_provider_contract_environment(**kwargs):  # noqa: ANN003, ANN202
         monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", kwargs["project_root"])
-        # The selected project root holds no `libs`, which stays
+        # The selected project root holds no `openlakeforge_runtime`, which stays
         # distribution-owned; without this the render_profiles import below
         # resolves against the project root and fails.
         monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(Path(__file__).resolve().parents[4]))
@@ -262,14 +262,14 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
     assert str(project) in commands[-1]
 
 
-def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
+def test_dbt_parse_imports_runtime_from_the_distribution_not_the_project_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`libs` is distribution-owned, not project-owned.
+    """`openlakeforge_runtime` is distribution-owned, not project-owned.
 
     A --project-root selection built per the image-build contract (only
-    lakehouse_code, libs supplied by the distribution) must still resolve
-    `from libs.dbt.render_profiles import ...` - only inserting the
+    lakehouse_code, openlakeforge_runtime supplied by the distribution) must still resolve
+    `from openlakeforge_runtime.dbt.render_profiles import ...` - only inserting the
     project root on sys.path leaves that import unresolvable.
     """
     distribution_root = Path(__file__).resolve().parents[4]

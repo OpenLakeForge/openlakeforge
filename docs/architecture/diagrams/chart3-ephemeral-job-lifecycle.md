@@ -131,9 +131,9 @@ completion.
 
 ## Source of truth
 
-- [libs/product_dagster.py](../../../libs/product_dagster.py) — asset graph assembly from the Floe project
-- [libs/floe_profile.py](../../../libs/floe_profile.py) — the stage's Floe profile: storages, catalog, lineage, the per-domain `kubernetes_job` runner, parallel orchestration
+- [openlakeforge_runtime/product_dagster.py](../../../packages/runtime/openlakeforge_runtime/product_dagster.py) — asset graph assembly from the Floe project
+- [openlakeforge_runtime/floe_profile.py](../../../packages/runtime/openlakeforge_runtime/floe_profile.py) — the stage's Floe profile: storages, catalog, lineage, the per-domain `kubernetes_job` runner, parallel orchestration
 - [lakehouse_code/silver/floe.yml](../../../lakehouse_code/silver/floe.yml) — the Floe project
 - [infra/terraform/modules/orchestration/dagster/main.tf](../../../infra/terraform/modules/orchestration/dagster/main.tf) — `K8sRunLauncher`, `ttlSecondsAfterFinished`, runtime env
-- [libs/dbt/profiles/](../../../libs/dbt/profiles/) — the dbt profile template, one per query engine (`trino.yml`); every stage value is an `env_var()` reference
+- [openlakeforge_runtime/dbt/profiles/](../../../packages/runtime/openlakeforge_runtime/dbt/profiles/) — the dbt profile template, one per query engine (`trino.yml`); every stage value is an `env_var()` reference
 - [ADR 0006](../../adr/0006-dagster-runtime-and-code-locations.md), [ADR 0001](../../adr/0001-platform-baseline-and-component-stack.md)

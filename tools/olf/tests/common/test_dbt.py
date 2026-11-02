@@ -6,14 +6,14 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "packages/runtime"))
 PROJECTS = sorted(REPO_ROOT.glob("lakehouse_code/gold/*/dbt"))
 # No default: an unset stage catalog fails the run instead of reaching DEV.
 STAGE_CATALOG = "\"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\""
 
 
 def test_every_product_profile_takes_its_stage_from_the_environment() -> None:
-    from libs.dbt.render_profiles import render_profile
+    from openlakeforge_runtime.dbt.render_profiles import render_profile
 
     assert len(PROJECTS) == 3
     for project in PROJECTS:
@@ -34,7 +34,7 @@ def test_every_product_profile_takes_its_stage_from_the_environment() -> None:
 
 
 def test_every_gold_session_may_plan_a_75_table_union() -> None:
-    from libs.dbt.render_profiles import render_profile
+    from openlakeforge_runtime.dbt.render_profiles import render_profile
 
     output = yaml.safe_load(render_profile(PROJECTS[0]))[PROJECTS[0].parent.name]["outputs"]["runtime"]
 
@@ -43,7 +43,7 @@ def test_every_gold_session_may_plan_a_75_table_union() -> None:
 
 
 def test_profile_reaches_trino_over_https_only_when_the_pod_is_given_the_ca() -> None:
-    from libs.dbt.render_profiles import render_profile
+    from openlakeforge_runtime.dbt.render_profiles import render_profile
 
     profile = render_profile(PROJECTS[0])
 
@@ -53,14 +53,14 @@ def test_profile_reaches_trino_over_https_only_when_the_pod_is_given_the_ca() ->
 
 
 def test_an_unknown_adapter_is_refused() -> None:
-    from libs.dbt.render_profiles import render_profile
+    from openlakeforge_runtime.dbt.render_profiles import render_profile
 
     with pytest.raises(ValueError, match="Unsupported dbt adapter 'duckdb'"):
         render_profile(PROJECTS[0], adapter="duckdb")
 
 
 def test_one_profiles_file_serves_every_product(tmp_path: Path) -> None:
-    from libs.dbt.render_profiles import write_profiles
+    from openlakeforge_runtime.dbt.render_profiles import write_profiles
 
     profiles = yaml.safe_load(write_profiles(PROJECTS, tmp_path).read_text(encoding="utf-8"))
 
@@ -71,7 +71,7 @@ def test_one_profiles_file_serves_every_product(tmp_path: Path) -> None:
 def test_the_baked_manifest_is_parsed_with_placeholders_not_the_callers_stage(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from libs.dbt import render_profiles
+    from openlakeforge_runtime.dbt import render_profiles
 
     project = tmp_path / "gold/demo/dbt"
     (project / "target").mkdir(parents=True)
@@ -94,7 +94,7 @@ def test_the_baked_manifest_is_parsed_with_placeholders_not_the_callers_stage(
 def test_a_manifest_already_there_is_used_as_is_and_still_gets_a_profile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from libs.dbt import render_profiles
+    from openlakeforge_runtime.dbt import render_profiles
 
     project = tmp_path / "gold/demo/dbt"
     (project / "target").mkdir(parents=True)
@@ -113,7 +113,7 @@ def test_a_manifest_already_there_is_used_as_is_and_still_gets_a_profile(
 def test_a_check_points_the_runtime_at_its_own_profiles_and_the_bake_at_the_distributions_package(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from libs.dbt import render_profiles
+    from openlakeforge_runtime.dbt import render_profiles
 
     project = tmp_path / "gold/food_quality/dbt"
     project.mkdir(parents=True)
@@ -126,12 +126,13 @@ def test_a_check_points_the_runtime_at_its_own_profiles_and_the_bake_at_the_dist
     render_profiles.ensure_baked_manifest(project)
 
     assert "food_quality" in yaml.safe_load((tmp_path / "check-profiles/profiles.yml").read_text())
-    assert {env[render_profiles.PACKAGES_DIR_ENV] for env in parses} == {str(REPO_ROOT / "libs/dbt")}
-    assert (REPO_ROOT / "libs/dbt/openlakeforge_dbt/dbt_project.yml").is_file()
+    package_dir = REPO_ROOT / "packages/runtime/openlakeforge_runtime/dbt"
+    assert {env[render_profiles.PACKAGES_DIR_ENV] for env in parses} == {str(package_dir)}
+    assert (package_dir / "openlakeforge_dbt/dbt_project.yml").is_file()
 
 
 def test_products_sharing_a_profile_name_are_refused(tmp_path: Path) -> None:
-    from libs.dbt.render_profiles import write_profiles
+    from openlakeforge_runtime.dbt.render_profiles import write_profiles
 
     projects = []
     for product in ("orders", "returns"):

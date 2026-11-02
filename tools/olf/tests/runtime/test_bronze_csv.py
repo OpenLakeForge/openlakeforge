@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from libs import bronze_csv
+from openlakeforge_runtime import bronze_csv
 
 
 class _FakeS3:

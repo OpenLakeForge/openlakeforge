@@ -15,8 +15,8 @@ the way Floe's statements do, with autoinstall off and the repository pointed
 at an address that refuses connections, so a missing or mismatched extension
 fails the build instead of a Job.
 
-    python -m libs.duckdb_extensions install [DIRECTORY]
-    python -m libs.duckdb_extensions verify [DIRECTORY]
+    python -m openlakeforge_runtime.duckdb_extensions install [DIRECTORY]
+    python -m openlakeforge_runtime.duckdb_extensions verify [DIRECTORY]
 
 DIRECTORY defaults to DuckDB's own default extension directory.
 """
@@ -88,7 +88,7 @@ def verify(directory: str | None = None) -> None:
 def main(argv: list[str]) -> None:
     if len(argv) not in (1, 2) or argv[0] not in ("install", "verify"):
         raise SystemExit(
-            "usage: python -m libs.duckdb_extensions install|verify [DIRECTORY]"
+            "usage: python -m openlakeforge_runtime.duckdb_extensions install|verify [DIRECTORY]"
         )
     directory = argv[1] if len(argv) == 2 else None
     try:

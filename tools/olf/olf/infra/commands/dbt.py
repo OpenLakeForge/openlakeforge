@@ -44,16 +44,16 @@ def parse(
             # OPENLAKEFORGE_REPO_ROOT/OLF_DISTRIBUTION_ROOT from
             # --project-root in the first place, so reading these before
             # entering it always resolved the ambient/default roots
-            # instead. `libs` is distribution-owned, not project-owned -
+            # instead. `openlakeforge_runtime` is distribution-owned, not project-owned -
             # a --project-root selection containing only lakehouse_code
-            # (per the image-build contract) has no `libs` of its own, so
-            # the distribution root must be on sys.path too, not just the
+            # (per the image-build contract) has no `openlakeforge_runtime` of its own, so
+            # the distribution's runtime package root must be on sys.path too, not just the
             # project root.
             project_spec = config.project_spec()
-            for path in (str(project_spec.root), str(project_spec.distribution_root)):
+            for path in (str(project_spec.root), str(project_spec.distribution_root / "packages/runtime")):
                 if path not in sys.path:
                     sys.path.insert(0, path)
-            from libs.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
+            from openlakeforge_runtime.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
             projects = (
                 [Path(project_dir).resolve()] if project_dir else discover_project_dirs(project_spec.gold_root)

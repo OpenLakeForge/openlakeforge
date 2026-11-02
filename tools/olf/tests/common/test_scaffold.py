@@ -92,7 +92,7 @@ def test_source_new_kind_writes_an_incremental_connector(
     assert (shop.runtime_config, shop.runtime_secrets) == (config, secrets)
     connector = (repo_root / "lakehouse_code/bronze/shop/dlt/shop.py").read_text(encoding="utf-8")
     compile(connector, "shop.py", "exec")
-    assert f"from libs.bronze_incremental import {helper}" in connector
+    assert f"from openlakeforge_runtime.bronze_incremental import {helper}" in connector
     assert f'dlt.sources.incremental("{cursor}"' in connector
     assert "def load_shop_entities_to_bronze(resources: Sequence[str])" in connector
 

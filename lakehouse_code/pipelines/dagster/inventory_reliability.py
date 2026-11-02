@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
+from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
 
 INVENTORY_RELIABILITY_SILVER_INPUTS = (
     "warehouses",

@@ -11,8 +11,13 @@ pytest.importorskip("dlt")
 sa = pytest.importorskip("sqlalchemy")
 
 import dlt  # noqa: E402
-from libs.bronze_dlt import load_dlt_source  # noqa: E402
-from libs.bronze_incremental import CursorNotReached, keyset_batches, newest_first_pages, sql_engine  # noqa: E402
+from openlakeforge_runtime.bronze_dlt import load_dlt_source  # noqa: E402
+from openlakeforge_runtime.bronze_incremental import (  # noqa: E402
+    CursorNotReached,
+    keyset_batches,
+    newest_first_pages,
+    sql_engine,
+)
 
 
 def _cursor(start: int, initial: int = 0) -> SimpleNamespace:

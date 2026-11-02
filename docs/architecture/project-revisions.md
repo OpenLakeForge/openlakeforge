@@ -59,7 +59,7 @@ remain equal across stages; only activations differ.
 ## Schedules are not a promotion side effect
 
 The same revision is deployed to every stage, so nothing about a schedule can
-be decided at build time. `libs.product_dagster.build_stage_schedules` decides
+be decided at build time. `openlakeforge_runtime.product_dagster.build_stage_schedules` decides
 it at load time from `OPENLAKEFORGE_STAGE`, which activation puts on the
 code-server container. `_user_values` takes it from the activation record's own
 stage, not from the operator's shell. Beside it, the deployment carries only
@@ -141,7 +141,7 @@ every component, reports included, by the revision's own scan.
   location renders the profile for its own stage when it loads, and builds
   the Floe manifest in memory from it and the frozen `floe` component.
 - dbt `profiles.yml`, wherever it sits. The image carries one, rendered by
-  `libs/dbt/render_profiles.py` outside `lakehouse_code/`, whose connection
+  `openlakeforge_runtime/dbt/render_profiles.py` outside `lakehouse_code/`, whose connection
   values the run pod's stage environment supplies.
 - Source bindings and dlt state. A `source.yaml` names the keys its loader
   reads; their values live in the stage's `olf-source-<id>` ConfigMap and

@@ -9,7 +9,7 @@ The backend the portal, `olf`'s platform commands and agents share
 | `GET /api/v1/stages/{stage}/jobs` | The stage's Dagster jobs, without Dagster's implicit asset jobs | None: Dagster checks nothing, so the matrix row is the only check |
 | `GET /api/v1/stages/{stage}/runs?job=&limit=` | The stage's most recent runs, newest first; `limit` 1 to 100, default 20 | As above |
 | `GET /api/v1/stages/{stage}/runs/{run_id}` | One run's status and times | As above |
-| `GET /api/v1/stages/{stage}/logs?date=&hour=&pod=&container=&limit=` | The stage's archived pod log lines (`libs/k8s_log_archive.py`) for a day or one hour of it, oldest archive first; `limit` 1 to 5000, default 500, and `truncated` when it was reached | The API's read-only object-store key for the log prefix, from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the matrix row decides who reads |
+| `GET /api/v1/stages/{stage}/logs?date=&hour=&pod=&container=&limit=` | The stage's archived pod log lines (`openlakeforge_runtime/k8s_log_archive.py`) for a day or one hour of it, oldest archive first; `limit` 1 to 5000, default 500, and `truncated` when it was reached | The API's read-only object-store key for the log prefix, from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the matrix row decides who reads |
 | `GET /api/v1/domains` | OpenMetadata domains | The caller's bearer token, forwarded unchanged; OpenMetadata authorizes by the person's own roles |
 | `GET /api/v1/data-products` | OpenMetadata data products and their domains | As above |
 

@@ -1,4 +1,4 @@
-# Runs `libs.k8s_log_archive` from the project-code image, so it belongs
+# Runs `openlakeforge_runtime.k8s_log_archive` from the project-code image, so it belongs
 # wherever user code does (ADR 0002). When activation owns user code it is
 # rendered into the openlakeforge-project release instead, which also keeps it
 # on the digest that stage actually activated.
@@ -49,7 +49,7 @@ resource "kubernetes_cron_job_v1" "kubernetes_log_archive" {
               name              = "archive-k8s-logs"
               image             = "${var.project_code_image_repository}:${var.project_code_image_tag}"
               image_pull_policy = var.project_code_image_pull_policy
-              command           = ["python", "-m", "libs.k8s_log_archive"]
+              command           = ["python", "-m", "openlakeforge_runtime.k8s_log_archive"]
 
               dynamic "env" {
                 for_each = local.log_archive_env

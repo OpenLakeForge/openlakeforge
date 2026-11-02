@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("duckdb")
 
-from libs import duckdb_extensions  # noqa: E402
+from openlakeforge_runtime import duckdb_extensions  # noqa: E402
 
 
 def test_floe_merge_extensions_include_the_one_iceberg_loads_itself() -> None:

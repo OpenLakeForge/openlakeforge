@@ -39,7 +39,7 @@ def test_project_spec_keeps_project_paths_under_a_shared_root(tmp_path: Path) ->
 def test_external_project_contains_no_distribution_assets(external_project: Path) -> None:
     assert (external_project / "openlakeforge.yaml").is_file()
     assert (external_project / "lakehouse_code").is_dir()
-    for path in (".git", "infra", "images", "libs", "packages", "infra/helm", "infra/terraform"):
+    for path in (".git", "infra", "images", "packages", "infra/helm", "infra/terraform"):
         assert not (external_project / path).exists()
 
 
@@ -144,7 +144,7 @@ def test_project_code_check_uses_external_code_and_distribution_dependencies(
     argv, cwd, env = next(call for call in calls if "olf.common.project_code_check" in call[0])
     assert argv[-1] == str(external_project)
     assert cwd == external_project
-    assert env["PYTHONPATH"].split(os.pathsep)[-2:] == [str(external_project), str(distribution)]
-    # The libs tests live in the distribution, so they run against it whatever project is checked.
-    assert any(str(distribution / "tools/olf/tests/libs") in argv for argv, _cwd, _env in calls)
+    assert env["PYTHONPATH"].split(os.pathsep)[-2:] == [str(external_project), str(distribution / "packages/runtime")]
+    # The runtime tests live in the distribution, so they run against it whatever project is checked.
+    assert any(str(distribution / "tools/olf/tests/runtime") in argv for argv, _cwd, _env in calls)
     assert not (external_project / ".cache").exists()

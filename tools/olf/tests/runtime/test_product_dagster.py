@@ -7,15 +7,15 @@ import pytest
 pytest.importorskip("dagster")
 
 from dagster import DefaultScheduleStatus, materialize  # noqa: E402
-from libs import product_dagster  # noqa: E402
-from libs.bronze_csv import BronzeLoadResult  # noqa: E402
-from libs.product_dagster import (  # noqa: E402
+from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
+from openlakeforge_runtime import product_dagster  # noqa: E402
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
+from openlakeforge_runtime.product_dagster import (  # noqa: E402
     ProductDefinitionSpec,
     SourceDefinitionSpec,
     build_source_definitions,
     build_stage_schedules,
 )
-from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 
 _SPEC = ProductDefinitionSpec(
     domain="sales",

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from kubernetes import client, config
 
-from libs.s3_artifacts import s3_client, split_s3_uri
+from openlakeforge_runtime.s3_artifacts import s3_client, split_s3_uri
 
 
 def main() -> None:

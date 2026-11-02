@@ -22,7 +22,7 @@ def plan_source_new(
     primary_key: str = "id",
 ) -> ScaffoldPlan:
     """`csv` writes the example-file loader; `api` and `sql` write an incremental dlt
-    connector on `libs.bronze_incremental`, one `load: incremental` resource each."""
+    connector on `openlakeforge_runtime.bronze_incremental`, one `load: incremental` resource each."""
     require_identifier(source, field="source")
     if not resources:
         raise ScaffoldError("source new: at least one --resource is required")

@@ -239,11 +239,12 @@ jobs:
           assert a["sha256"] == b["sha256"], (a, b)
           '
 
-      - name: Build core, lakehouse-services and olf distributions
+      - name: Build core, lakehouse-services, runtime and olf distributions
         run: |
           set -euo pipefail
           uv build --out-dir dist/python/core packages/core
           uv build --out-dir dist/python/lakehouse-services packages/lakehouse-services
+          uv build --out-dir dist/python/runtime packages/runtime
           uv build --out-dir dist/python/openlakeforge tools/olf
 
       - name: Install the built wheel outside the checkout
@@ -274,6 +275,13 @@ jobs:
         with:
           name: lakehouse-services-distribution-${{ needs.prepare.outputs.version }}
           path: dist/python/lakehouse-services
+          if-no-files-found: error
+
+      - name: Upload runtime distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/python/runtime
           if-no-files-found: error
 
       - name: Upload openlakeforge distribution

@@ -17,7 +17,7 @@ BAKED_PROFILES_DIR = REPO_ROOT / "generated" / "dbt-profiles"
 PROFILES_DIR_ENV = "OPENLAKEFORGE_DBT_PROFILES_DIR"
 # Each product's packages.yml names the shared openlakeforge_dbt package
 # through this variable, because a path relative to the product resolves only
-# where libs/ sits beside lakehouse_code/ (the image), not in a customer
+# where openlakeforge_runtime/ sits beside lakehouse_code/ (the image), not in a customer
 # repository (#627). Every dbt command renders packages.yml, so whatever runs
 # dbt sets it to this distribution's own.
 PACKAGES_DIR_ENV = "OPENLAKEFORGE_DBT_PACKAGES_DIR"
