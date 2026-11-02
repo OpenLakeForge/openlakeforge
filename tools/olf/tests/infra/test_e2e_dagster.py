@@ -404,6 +404,28 @@ def test_dagster_poll_failure_names_the_failed_steps_error() -> None:
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
 
 
+@pytest.mark.parametrize(
+    "event",
+    [
+        {
+            "stepKey": "crm_floe",
+            "error": {"message": "Floe job failed: OOMKilled (exit_code=137)", "cause": None},
+        },
+        {"message": "Run worker pod terminated with exit code 137"},
+    ],
+)
+def test_dagster_poll_failure_diagnoses_out_of_memory(event: dict[str, Any]) -> None:
+    def request_json(query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        if "logsForRun" in query:
+            return {"data": {"logsForRun": {"events": [event]}}}
+        return {"data": {"runOrError": {"__typename": "Run", "status": "FAILURE"}}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    with pytest.raises(ServiceClientError, match=r"(?s)out of memory.*Floe profile.*run_pod_resources"):
+        client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
+
+
 def test_dagster_poll_retries_transient_graphql_errors() -> None:
     responses: list[Exception | dict[str, Any]] = [
         DagsterTransientError("read timeout"),
