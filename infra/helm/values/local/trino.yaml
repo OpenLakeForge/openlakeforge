@@ -40,7 +40,7 @@ coordinator:
       cpu: 500m
       memory: 2Gi
     limits:
-      memory: 3Gi
+      memory: 4Gi
 
 service:
   type: ClusterIP
