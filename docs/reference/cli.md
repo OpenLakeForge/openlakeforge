@@ -50,7 +50,7 @@ validated with the same flag: `olf infra e2e run --env local --profile slim`.
 | Command | Does |
 | --- | --- |
 | `olf init` | Write `openlakeforge.yaml` and `lakehouse_code/` with the demo products. Options: `--stages dev,prod`, `--preset full`, `--name`, `--empty`, `--profile-only`. |
-| `olf source new <source> --resource <r>` | Scaffold a Bronze source: `source.yaml`, a dlt loader and a placeholder CSV per resource. |
+| `olf source new <source> --resource <r>` | Scaffold a Bronze source: `source.yaml`, a dlt loader and a placeholder CSV per resource. `--kind api\|sql` writes an incremental connector instead (`--cursor`, `--primary-key`). |
 | `olf domain new <domain> --input <source>/<resource>` | Scaffold a domain and its Floe contract, one Silver table per `--input`. |
 | `olf product new <domain>/<product> --gold-table <mart>` | Scaffold a dbt project and Dagster module. Inputs: `--silver-input <table>` or `--input <source>/<resource>`; `--with-report` adds a Superset draft. |
 

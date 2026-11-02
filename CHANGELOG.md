@@ -100,6 +100,18 @@ first 0.5.1 release, and its notes include everything listed for it.
   pinned to 1.43.117, the newest `botocore` that `s3fs`'s `aiobotocore`
   accepts. `aiohttp`, which `s3fs` brings in, is held at 3.14.4 or later
   for CVE-2026-111064, CVE-2026-111066 and GHSA-2g87-pp6c-29x5.
+- `libs.bronze_incremental`, the read side of an incremental connector:
+  `newest_first_pages` for an API that sorts by modification time but cannot
+  filter on it (stops at the cursor, backfills its page budget on a first run,
+  fails rather than skip items when the budget runs out), `keyset_batches`
+  for a table with an increasing key (a bounded slice per run), and
+  `sql_engine` for a database source's bindings. A new guide, *Load an
+  external source incrementally*, walks through a connector built on them.
+- `olf source new --kind api|sql` scaffolds an incremental source: each
+  resource declared `load: incremental` (`--cursor`, `--primary-key`), the
+  `runtime` keys the kind reads, and a connector on `libs.bronze_incremental`.
+  `olf domain new` gives an incremental input a Parquet `sources.yml` entry and
+  an entity that reads new files and merges them on the primary key.
 
 ### Changed
 

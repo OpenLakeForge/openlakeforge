@@ -11,6 +11,8 @@ Appropriate examples include:
 - Dagster resource helpers
 - OpenLineage naming conventions
 - logging and observability helpers
+- Bronze loading: `bronze_dlt` runs a dlt source as `source.yaml` declares,
+  and `bronze_incremental` holds the read patterns incremental connectors share
 
 Business logic stays under `lakehouse_code/` (bronze/silver/gold/dashboards/
 pipelines); `libs/` contains reusable platform glue shared across that code.
