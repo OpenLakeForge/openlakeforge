@@ -10,6 +10,7 @@ that loads that format can use them; nothing here is specific to one vendor.
 | --- | --- |
 | [`deploying-openlakeforge`](deploying-openlakeforge/SKILL.md) | Install `olf`, create a project, deploy, inspect, troubleshoot and tear down a stack |
 | [`exploring-openlakeforge`](exploring-openlakeforge/SKILL.md) | Query Trino and inspect governance, jobs, runs and logs as a signed-in user |
+| [`building-openlakeforge-pipelines`](building-openlakeforge-pipelines/SKILL.md) | Build dlt → Floe → dbt data products, Dagster jobs, governance and Superset dashboards |
 
 ## Install
 
