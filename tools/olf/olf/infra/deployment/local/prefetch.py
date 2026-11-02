@@ -2,9 +2,8 @@
 
 Port of `scripts/local/cluster/prefetch-images.sh`: pre-pulls heavy images
 directly into every kind node's containerd store so Helm releases don't time
-out on first deploy. Preserves the digest/containerd/CRI handling verbatim -
-see `_load_image_into_kind_nodes` for the `docker save`/`ctr import`/
-`crictl pull` dance and why it exists.
+out on first deploy. A digest-pinned image is saved under its tag and given
+its digest name in each node with `ctr images tag` - see `_prefetch_one_image`.
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local.images import containerd_name, split_digest_reference
 
 # arch -> (polaris image, polaris-admin-tool image), verbatim from
 # scripts/local/cluster/prefetch-images.sh. The fallback branch's Polaris
@@ -204,6 +204,9 @@ def _prefetch_one_image(
     tools.docker.save(archive_image, output_path=archive, env=env)
 
     errors: list[BaseException] = []
+    if archive_image != image:
+        repository, digest = split_digest_reference(image)
+        digest_names = [containerd_name(archive_image), containerd_name(f"{repository}@{digest}")]
 
     def load(node: str) -> None:
         try:
@@ -217,8 +220,11 @@ def _prefetch_one_image(
                 env=env,
             )
             if archive_image != image:
-                # Only resolves the registry manifest: the layers are already in the node from the import.
-                tools.docker.exec_(node, ["crictl", "pull", image], env=env)
+                # The import names only the tag. `crictl pull` would add the digest name too, but it resolves
+                # the digest against the registry first, which fails on a node with no egress (#757).
+                tools.docker.exec_(
+                    node, ["ctr", "--namespace=k8s.io", "images", "tag", "--force", *digest_names], env=env
+                )
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread below
             errors.append(exc)
 

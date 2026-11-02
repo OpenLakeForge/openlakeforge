@@ -32,7 +32,7 @@ def load_image_into_kind(image: str, config: LocalDeploymentConfig, tools: Toolk
     log.step(f"Loaded {image}")
 
 
-def _containerd_name(reference: str) -> str:
+def containerd_name(reference: str) -> str:
     """The fully qualified name containerd and the CRI record for a Docker reference."""
     head, _, rest = reference.partition("/")
     if not rest:
@@ -42,6 +42,14 @@ def _containerd_name(reference: str) -> str:
     if "." in head or ":" in head or head == "localhost":
         return reference
     return f"docker.io/{reference}"
+
+
+def split_digest_reference(image: str) -> tuple[str, str]:
+    """`repo[:tag]@sha256:...` -> (`repo`, `sha256:...`). Kubelet drops the tag of a reference that has both."""
+    repository, digest = image.split("@", 1)
+    prefix, _, name = repository.rpartition("/")
+    repository = f"{prefix}/{name.split(':', 1)[0]}" if prefix else name.split(":", 1)[0]
+    return repository, digest
 
 
 def load_digest_image_into_kind(
@@ -57,13 +65,11 @@ def load_digest_image_into_kind(
     the result after the digest in each node's containerd closes that gap
     without handing registry credentials to the cluster.
     """
-    repository, digest = image.split("@", 1)
-    prefix, _, name = repository.rpartition("/")
-    repository = f"{prefix}/{name.split(':', 1)[0]}" if prefix else name.split(":", 1)[0]
+    repository, digest = split_digest_reference(image)
     tagged = f"{repository}:{digest.replace(':', '-')}"
     tools.docker.tag(image, tagged, env=env)
     load_image_into_kind(tagged, config, tools, env=env)
-    source, target = _containerd_name(tagged), _containerd_name(f"{repository}@{digest}")
+    source, target = containerd_name(tagged), containerd_name(f"{repository}@{digest}")
     for node in tools.kind.get_nodes(config.cluster.name, env=env):
         tools.docker.exec_(
             node, ["ctr", "--namespace=k8s.io", "images", "tag", "--force", source, target], env=env
