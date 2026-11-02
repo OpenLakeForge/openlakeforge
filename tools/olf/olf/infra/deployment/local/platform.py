@@ -12,8 +12,9 @@ import json
 import os
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from olf.common import log
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
@@ -282,6 +283,8 @@ def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     )
 
 
+# What `terraform import` prints when the object it was asked to adopt does not exist.
+_NON_EXISTENT_IMPORT = "Cannot import non-existent remote object"
 # What `terraform output` says when the root has never been applied, or was
 # applied before this output existed. Anything else is a real failure.
 _NO_APPLIED_OUTPUT_MARKERS = (
@@ -475,6 +478,83 @@ def apply_targets(
     )
 
 
+@dataclass(frozen=True)
+class NullIdentityInstance:
+    address: str
+    import_id: str | None
+    tainted: bool
+
+
+def null_identity_instances(state: Mapping[str, Any]) -> list[NullIdentityInstance]:
+    """Every `kubernetes_*` resource instance stored with an identity whose fields are all null.
+
+    hashicorp/kubernetes 2.38 records an identity per resource, and a create that fails after the object exists
+    (a rollout wait that times out) stores it with every field null. The next refresh reads the real identity,
+    Terraform rejects it as an "Unexpected Identity Change", and every later apply aborts before planning (#759).
+    Terraform accepts a refreshed identity when none was stored, so a re-import clears it. The import id of a
+    `kubernetes_*` resource is its `namespace/name` id; other providers' ids differ (helm_release imports as
+    `namespace/name` but stores the bare name), so they are left alone.
+    """
+    found = []
+    for resource in state.get("resources", []):
+        if resource.get("mode") != "managed" or not resource["type"].startswith("kubernetes_"):
+            continue
+        base = ".".join(part for part in (resource.get("module"), resource["type"], resource["name"]) if part)
+        for instance in resource.get("instances", []):
+            identity = instance.get("identity")
+            if not isinstance(identity, dict) or any(value is not None for value in identity.values()):
+                continue
+            attributes = instance.get("attributes") or {}
+            metadata = (attributes.get("metadata") or [{}])[0]
+            import_id = attributes.get("id") or "/".join(
+                part for part in (metadata.get("namespace"), metadata.get("name")) if part
+            )
+            key = instance.get("index_key")
+            address = base if key is None else f"{base}[{json.dumps(key)}]"
+            found.append(NullIdentityInstance(address, import_id or None, instance.get("status") == "tainted"))
+    return found
+
+
+def reimport_null_identity_instances(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    var_files: tuple[str, ...],
+    variables: Mapping[str, str],
+    env: Mapping[str, str],
+) -> None:
+    state_path = config.paths.platform_state_path
+    if not state_path.is_file():
+        return
+    platform_dir = config.paths.platform_terraform_dir
+    for instance in null_identity_instances(json.loads(state_path.read_text() or "{}")):
+        if instance.import_id is None:
+            log.warn(
+                f"{instance.address} is stored with a null identity but has no id to re-import it by; the apply "
+                "will fail with 'Unexpected Identity Change' until it is removed from state by hand."
+            )
+            continue
+        log.warn(f"{instance.address} is stored with a null identity after an interrupted create; re-importing it...")
+        before = state_path.read_bytes()
+        tools.terraform.state_rm(platform_dir, instance.address, env=env)
+        try:
+            tools.terraform.import_resource(
+                platform_dir, instance.address, instance.import_id, var_files=var_files, variables=variables, env=env
+            )
+        except CommandExecutionError as exc:
+            if _NON_EXISTENT_IMPORT in exc.stderr:
+                # The failed object is gone (an unhealthy release or failed Job cleaned up above): the apply
+                # creates it again, which is what removing it from state is for.
+                continue
+            # Out of state while the object exists, every later apply would fail "already exists".
+            state_path.write_bytes(before)
+            raise
+        if instance.tainted:
+            # A create that failed left it tainted so the next apply replaces it and waits again; the import
+            # alone would adopt a Job that never completed or a Deployment that never rolled out.
+            tools.terraform.taint(platform_dir, instance.address, env=env)
+
+
 def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
     platform_dir = config.paths.platform_terraform_dir
     if not kube_ops.namespace_exists(
@@ -656,6 +736,7 @@ def platform_up(
                 kubeconfig=config.paths.kubeconfig_path,
                 env=env,
             )
+        reimport_null_identity_instances(config, tools, var_files=var_files, variables=variables, env=env)
         tools.terraform.apply(platform_dir, var_files=var_files, variables=variables, env=env)
 
     grow_seaweedfs_volumes(config, tools, kube_context=config.kube_context, env=env)
