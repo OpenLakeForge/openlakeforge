@@ -16,6 +16,13 @@ for how a release is cut and verified.
 
 ### Changed
 
+- The project-code image pins `floe-python` 0.9.0 and `dagster-floe` 0.5.0.
+  An incremental Silver entity whose Bronze is still empty now finishes with
+  nothing pending instead of failing its domain's run
+  (OpenLakeForge/floe#1139). File-mode state stops growing with every
+  ingested file (OpenLakeForge/floe#949), and a full refresh replays same-day
+  batches in their original order (OpenLakeForge/floe#939). In-process runs
+  log Floe events as they happen.
 - A `bronze` full refresh re-ingests Bronze instead of re-extracting it: Floe
   rebuilds Silver from every Bronze file and dbt rebuilds Gold, while the
   sources' cursors and Bronze files are left as they are. Re-extraction had
