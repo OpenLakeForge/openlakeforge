@@ -4,7 +4,9 @@ One server and one client. The pair must connect with no policy, which is the
 positive control: a pair that cannot connect for another reason would read as
 "blocked". Then an ingress-only and an egress-only deny are each applied to the
 same pair and must each block, because a dataplane can enforce one direction
-and not the other.
+and not the other. Last, an ingress deny plus a rule allowing the client must
+connect, and must block again once the allow is removed: a dataplane can drop
+everything a policy selects and still fail to admit what it allows (#622).
 """
 
 from __future__ import annotations
@@ -29,6 +31,15 @@ _ATTEMPTS = 6
 _DELAY_SECONDS = 5.0
 
 
+# kindnet is the only CNI the local provider is built and tested with (ADR 0017); Calico was never built.
+_UNSUPPORTED_HOST = (
+    "The local provider needs kind's default CNI (kindnet) on a host whose kernel enforces NetworkPolicy; "
+    "this host does not, so it is not supported (ADR 0017)."
+)
+
+Step = tuple[Callable[[], object], Callable[[], object]]
+
+
 class PolicyNotEnforcedError(DeploymentPreconditionError):
     pass
 
@@ -36,12 +47,17 @@ class PolicyNotEnforcedError(DeploymentPreconditionError):
 def verdict(
     connects: Callable[[], bool],
     denies: Sequence[tuple[str, Callable[[], object], Callable[[], object]]],
+    allow: tuple[Step, Step] | None = None,
     *,
     attempts: int = _ATTEMPTS,
     delay: float = _DELAY_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """`denies` holds (direction, apply, remove). Each must turn a connecting pair into a blocked one."""
+    """`denies` holds (direction, apply, remove). Each must turn a connecting pair into a blocked one.
+
+    `allow` is ((apply deny, remove deny), (apply allow, remove allow)): with both applied the pair must connect,
+    and with the allow removed it must block again.
+    """
 
     def eventually(expected: bool) -> bool:
         # Removing a policy is as asynchronous as applying one.
@@ -63,11 +79,38 @@ def verdict(
             if not eventually(False):
                 raise PolicyNotEnforcedError(
                     f"This cluster does not enforce {direction} NetworkPolicy: the client still connected "
-                    f"through a deny policy ({attempts} attempts). Default-deny policies would be inert "
-                    "(ADR 0017, Option B: install Calico)."
+                    f"through a deny policy ({attempts} attempts). Default-deny policies would be inert. "
+                    + _UNSUPPORTED_HOST
                 )
         finally:
             remove()
+
+    if allow is None:
+        return
+    (apply_deny, remove_deny), (apply_allow, remove_allow) = allow
+    if not eventually(True):
+        raise PolicyNotEnforcedError(
+            "NetworkPolicy canary is inconclusive: the pair could not connect before the allow policy."
+        )
+    apply_deny()
+    try:
+        apply_allow()
+        try:
+            if not eventually(True):
+                raise PolicyNotEnforcedError(
+                    "This cluster blocks traffic a NetworkPolicy allows: the client could not connect through an "
+                    f"ingress deny plus a rule allowing it ({attempts} attempts). Services behind the platform's "
+                    "policies would be unreachable. " + _UNSUPPORTED_HOST
+                )
+        finally:
+            remove_allow()
+        if not eventually(False):
+            raise PolicyNotEnforcedError(
+                "This cluster kept admitting traffic after its NetworkPolicy allow rule was removed "
+                f"({attempts} attempts), so the earlier connection proved nothing about the allow. " + _UNSUPPORTED_HOST
+            )
+    finally:
+        remove_deny()
 
 
 def _deny(direction: str) -> str:
@@ -78,6 +121,21 @@ def _deny(direction: str) -> str:
             "kind": "NetworkPolicy",
             "metadata": {"name": f"deny-{direction}", "namespace": _NAMESPACE},
             "spec": {"podSelector": {"matchLabels": {"app": pod}}, "policyTypes": [direction.capitalize()]},
+        }
+    )
+
+
+def _allow_client() -> str:
+    return yaml.safe_dump(
+        {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {"name": "allow-client", "namespace": _NAMESPACE},
+            "spec": {
+                "podSelector": {"matchLabels": {"app": "server"}},
+                "policyTypes": ["Ingress"],
+                "ingress": [{"from": [{"podSelector": {"matchLabels": {"app": "client"}}}]}],
+            },
         }
     )
 
@@ -130,7 +188,12 @@ def require_policy_enforcement(config: LocalDeploymentConfig, tools: Toolkit, *,
                 lambda: kubectl.delete("networkpolicy", f"deny-{direction}", namespace=_NAMESPACE, **target),
             )
 
-        verdict(connects, [deny("ingress"), deny("egress")])
+        _, apply_deny, remove_deny = deny("ingress")
+        allow = (
+            lambda: kubectl.create_from_manifest(_allow_client(), **target),
+            lambda: kubectl.delete("networkpolicy", "allow-client", namespace=_NAMESPACE, **target),
+        )
+        verdict(connects, [deny("ingress"), deny("egress")], ((apply_deny, remove_deny), allow))
     finally:
         kubectl.delete("namespace", _NAMESPACE, **target)
     log.step("NetworkPolicy is enforced.")

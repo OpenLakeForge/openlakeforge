@@ -8,9 +8,19 @@ from olf.infra.deployment.local.network_canary import PolicyNotEnforcedError, ve
 class _Pair:
     """A pod pair whose reachability depends on which deny policy is applied and which the cluster enforces."""
 
-    def __init__(self, *, enforces: set[str], broken: bool = False, late: int = 0, lingers: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        enforces: set[str],
+        broken: bool = False,
+        late: int = 0,
+        lingers: int = 0,
+        honours_allow: bool = True,
+        allow_lingers: bool = False,
+    ) -> None:
         self.enforces, self.broken, self.late, self.lingers = enforces, broken, late, lingers
-        self.applied: str | None = None
+        self.honours_allow, self.allow_lingers = honours_allow, allow_lingers
+        self.applied: set[str] = set()
         self.lingering = 0
 
     def connects(self) -> bool:
@@ -19,23 +29,34 @@ class _Pair:
         if self.lingering > 0:
             self.lingering -= 1
             return False
-        if self.applied in self.enforces:
+        if "allow" in self.applied and self.honours_allow:
+            return True
+        if self.applied & self.enforces:
             if self.late > 0:
                 self.late -= 1
                 return True
             return False
         return True
 
-    def deny(self, direction: str):  # noqa: ANN201
-        return (direction, lambda: setattr(self, "applied", direction), self._remove)
+    def _policy(self, name: str):  # noqa: ANN202
+        def remove() -> None:
+            if name in self.enforces:
+                self.lingering = self.lingers
+            if not (name == "allow" and self.allow_lingers):
+                self.applied.discard(name)
 
-    def _remove(self) -> None:
-        if self.applied in self.enforces:
-            self.lingering = self.lingers
-        self.applied = None
+        return lambda: self.applied.add(name), remove
+
+    def deny(self, direction: str):  # noqa: ANN201
+        return (direction, *self._policy(direction))
 
     def run(self) -> None:
-        verdict(self.connects, [self.deny("ingress"), self.deny("egress")], sleep=lambda _: None)
+        verdict(
+            self.connects,
+            [self.deny("ingress"), self.deny("egress")],
+            (self._policy("ingress"), self._policy("allow")),
+            sleep=lambda _: None,
+        )
 
 
 def test_both_directions_blocked_passes() -> None:
@@ -69,4 +90,28 @@ def test_policy_is_removed_even_when_it_fails() -> None:
     pair = _Pair(enforces=set())
     with pytest.raises(PolicyNotEnforcedError):
         pair.run()
-    assert pair.applied is None
+    assert not pair.applied
+
+
+def test_deny_enforced_but_allow_ignored_fails() -> None:
+    with pytest.raises(PolicyNotEnforcedError, match="blocks traffic a NetworkPolicy allows"):
+        _Pair(enforces={"ingress", "egress"}, honours_allow=False).run()
+
+
+def test_allow_that_outlives_its_removal_fails() -> None:
+    with pytest.raises(PolicyNotEnforcedError, match="after its NetworkPolicy allow rule was removed"):
+        _Pair(enforces={"ingress", "egress"}, allow_lingers=True).run()
+
+
+def test_allow_check_removes_its_policies_when_it_fails() -> None:
+    pair = _Pair(enforces={"ingress", "egress"}, honours_allow=False)
+    with pytest.raises(PolicyNotEnforcedError):
+        pair.run()
+    assert not pair.applied
+
+
+def test_failure_no_longer_points_at_calico() -> None:
+    with pytest.raises(PolicyNotEnforcedError) as raised:
+        _Pair(enforces=set()).run()
+    assert "Calico" not in str(raised.value)
+    assert "not supported" in str(raised.value)
