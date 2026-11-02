@@ -206,7 +206,9 @@ def _prefetch_one_image(
     errors: list[BaseException] = []
     if archive_image != image:
         repository, digest = split_digest_reference(image)
-        digest_names = [containerd_name(archive_image), containerd_name(f"{repository}@{digest}")]
+        # `docker save` of a reference with no tag names the image `:latest`, as `docker tag` did.
+        tagged = archive_image if ":" in archive_image.rsplit("/", 1)[-1] else f"{archive_image}:latest"
+        digest_names = [containerd_name(tagged), containerd_name(f"{repository}@{digest}")]
 
     def load(node: str) -> None:
         try:

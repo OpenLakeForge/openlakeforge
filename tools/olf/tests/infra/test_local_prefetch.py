@@ -197,7 +197,9 @@ class _OfflineNodeRunner(_ScriptedRunner):
             present = self._cri_name(argv[-1]) in self.node_images
             return CommandResult(argv=(), returncode=0 if present else 1, stdout="", stderr="", duration_seconds=0.0)
         elif "ctr" in argv and "import" in argv:
-            self.node_images.add(containerd_name(self._saved))
+            # `docker save` of an untagged name archives it as `:latest`, the name the import then records.
+            saved = self._saved if ":" in self._saved.rsplit("/", 1)[-1] else f"{self._saved}:latest"
+            self.node_images.add(containerd_name(saved))
         elif "ctr" in argv and "tag" in argv:
             source, target = argv[-2:]
             if source not in self.node_images:
@@ -215,9 +217,23 @@ def test_digest_pinned_prefetch_needs_no_registry_from_the_node(tmp_path: Path) 
 
     polaris_image = prefetch.polaris_images("amd64", _CATALOG)[0]
     assert prefetch.image_present_on_all_nodes(tools.docker, polaris_image, ["node-a"], env={})
+    # The names containerd records for the import and CRI resolves for the pin, written out rather than derived.
+    digest = polaris_image.split("@", 1)[1]
+    assert {"docker.io/apache/polaris:1.4.0", f"docker.io/apache/polaris@{digest}"} <= runner.node_images
 
 
-def test_prefetch_images_skips_crictl_pull_for_undigested_images(tmp_path: Path) -> None:
+def test_a_digest_only_pin_is_tagged_from_the_latest_name_docker_gave_it(tmp_path: Path) -> None:
+    config = _config(tmp_path, profile=Profile.SLIM)
+    runner = _OfflineNodeRunner()
+    tools = _toolkit(runner)
+    image = "busybox@sha256:" + "a" * 64
+
+    prefetch.load_image_into_nodes(config, tools, image, env={})
+
+    assert f"docker.io/library/busybox@sha256:{'a' * 64}" in runner.node_images
+
+
+def test_prefetch_images_does_not_retag_undigested_images(tmp_path: Path) -> None:
     config = _config(tmp_path, profile=Profile.SLIM)
     runner = _ScriptedRunner(image_already_present=set())
     tools = _toolkit(runner)

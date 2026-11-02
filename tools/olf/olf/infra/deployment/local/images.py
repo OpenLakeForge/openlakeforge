@@ -45,7 +45,7 @@ def containerd_name(reference: str) -> str:
 
 
 def split_digest_reference(image: str) -> tuple[str, str]:
-    """`repo[:tag]@sha256:...` -> (`repo`, `sha256:...`). Kubelet drops the tag of a reference that has both."""
+    """`repo[:tag]@sha256:...` -> (`repo`, `sha256:...`). containerd's CRI drops the tag of a reference with both."""
     repository, digest = image.split("@", 1)
     prefix, _, name = repository.rpartition("/")
     repository = f"{prefix}/{name.split(':', 1)[0]}" if prefix else name.split(":", 1)[0]
