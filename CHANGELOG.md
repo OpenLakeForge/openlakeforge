@@ -14,6 +14,16 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Added
+
+- `libs.bronze_incremental`, the read side of an incremental connector:
+  `newest_first_pages` for an API that sorts by modification time but cannot
+  filter on it (stops at the cursor, backfills its page budget on a first run,
+  fails rather than skip items when the budget runs out), `keyset_batches`
+  for a table with an increasing key (a bounded slice per run), and
+  `sql_engine` for a database source's bindings. A new guide, *Load an
+  external source incrementally*, walks through a connector built on them.
+
 ### Changed
 
 - The project-code image pins `floe-python` 0.9.0 and `dagster-floe` 0.5.0.

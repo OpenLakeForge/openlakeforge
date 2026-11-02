@@ -16,6 +16,7 @@ run the [Quickstart](get-started/quickstart.md), then follow the
 | Learn the vocabulary | [Concepts](get-started/concepts.md) |
 | Build my first data product | [Tutorial](tutorial/01-tour-the-platform.md) |
 | Add sources, domains and products | [Build and manage data products](guides/data-products.md) |
+| Load an API or a database incrementally | [Load an external source incrementally](guides/incremental-sources.md) |
 | Configure a local install | [Install and configure a local deployment](guides/local-installation.md) |
 | Deploy to a cloud | [AWS](guides/cloud/deploy-to-aws.md) or [Azure](guides/cloud/deploy-to-azure.md) |
 | Control who can sign in | [Connect GitHub](guides/identity/connect-github.md) |
