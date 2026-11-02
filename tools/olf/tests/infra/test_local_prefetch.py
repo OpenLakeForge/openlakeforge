@@ -15,6 +15,7 @@ from olf.common.tooling.process import CommandResult
 from olf.common.tooling.resolver import PathExecutableResolver
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment.local import prefetch
+from olf.infra.deployment.local.images import containerd_name, split_digest_reference
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _CATALOG = load_catalog(_REPO_ROOT / "release" / "component-catalog.yaml")["components"]["images"]
@@ -167,13 +168,72 @@ def test_prefetch_images_pulls_saves_and_imports_digest_pinned_image(tmp_path: P
     assert import_calls  # loaded onto the single node
     assert import_calls[0].argv[1:4] == ["exec", "--privileged", "-i"]
 
-    crictl_pull_calls = [
-        c for c in runner.calls if c.argv[:2] == ["docker", "exec"] and c.argv[3:5] == ["crictl", "pull"]
-    ]
-    assert any(c.argv[-1] == polaris_image for c in crictl_pull_calls)
+
+class _OfflineNodeRunner(_ScriptedRunner):
+    """A kind node with no egress: `crictl pull` fails, and only what was imported or tagged is resolvable."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.node_images: set[str] = set()
+        self._saved = ""
+
+    @staticmethod
+    def _cri_name(reference: str) -> str:
+        if "@" in reference:
+            repository, digest = split_digest_reference(reference)
+            return containerd_name(f"{repository}@{digest}")
+        return containerd_name(reference)
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        fail = CommandResult(argv=(), returncode=1, stdout="", stderr="EOF", duration_seconds=0.0)
+        if argv[1:2] == ["save"]:
+            self._saved = argv[2]
+        elif "crictl" in argv and "pull" in argv:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            return fail
+        elif "inspecti" in argv:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            present = self._cri_name(argv[-1]) in self.node_images
+            return CommandResult(argv=(), returncode=0 if present else 1, stdout="", stderr="", duration_seconds=0.0)
+        elif "ctr" in argv and "import" in argv:
+            # `docker save` of an untagged name archives it as `:latest`, the name the import then records.
+            saved = self._saved if ":" in self._saved.rsplit("/", 1)[-1] else f"{self._saved}:latest"
+            self.node_images.add(containerd_name(saved))
+        elif "ctr" in argv and "tag" in argv:
+            source, target = argv[-2:]
+            if source not in self.node_images:
+                return fail
+            self.node_images.add(target)
+        return super().run(command, **kwargs)
 
 
-def test_prefetch_images_skips_crictl_pull_for_undigested_images(tmp_path: Path) -> None:
+def test_digest_pinned_prefetch_needs_no_registry_from_the_node(tmp_path: Path) -> None:
+    config = _config(tmp_path, profile=Profile.SLIM)
+    runner = _OfflineNodeRunner()
+    tools = _toolkit(runner)
+
+    prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
+
+    polaris_image = prefetch.polaris_images("amd64", _CATALOG)[0]
+    assert prefetch.image_present_on_all_nodes(tools.docker, polaris_image, ["node-a"], env={})
+    # The names containerd records for the import and CRI resolves for the pin, written out rather than derived.
+    digest = polaris_image.split("@", 1)[1]
+    assert {"docker.io/apache/polaris:1.4.0", f"docker.io/apache/polaris@{digest}"} <= runner.node_images
+
+
+def test_a_digest_only_pin_is_tagged_from_the_latest_name_docker_gave_it(tmp_path: Path) -> None:
+    config = _config(tmp_path, profile=Profile.SLIM)
+    runner = _OfflineNodeRunner()
+    tools = _toolkit(runner)
+    image = "busybox@sha256:" + "a" * 64
+
+    prefetch.load_image_into_nodes(config, tools, image, env={})
+
+    assert f"docker.io/library/busybox@sha256:{'a' * 64}" in runner.node_images
+
+
+def test_prefetch_images_does_not_retag_undigested_images(tmp_path: Path) -> None:
     config = _config(tmp_path, profile=Profile.SLIM)
     runner = _ScriptedRunner(image_already_present=set())
     tools = _toolkit(runner)
