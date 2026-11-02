@@ -34,6 +34,7 @@ sections:
     items:
       - docs/guides/local-installation.md
       - docs/guides/data-products.md
+      - docs/guides/incremental-sources.md
       - docs/guides/dashboards-as-code.md
       - docs/guides/cloud/deploy-to-aws.md
       - docs/guides/cloud/deploy-to-azure.md

@@ -90,6 +90,10 @@ A loader that is a real dlt source runs it through
 - `olf check project-code` proves this with a mocked API source run as DEV
   and as PROD.
 
+`libs.bronze_incremental` provides the read side of an incremental connector
+for an API or a database; [Load an external source
+incrementally](../guides/incremental-sources.md) walks through one.
+
 ### Load modes
 
 Each layer declares its load mode where its owner keeps it:
