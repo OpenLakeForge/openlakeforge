@@ -23,6 +23,9 @@
 #   default of 150 stopped a 75-table union at 152 stages, #706). Each stage
 #   costs the coordinator scheduling work and memory, so the value follows its
 #   heap: the coordinator keeps the same 2G heap in every size, hence 300.
+# coordinator memory_limit: 4Gi for the 2G heap. At 3Gi the kernel OOM-killed
+#   the coordinator under a 41M-row Gold rebuild (#755): direct buffers for
+#   Parquet/S3 I/O, metaspace and thread stacks need more than 1Gi beside the heap.
 sizes:
   small:
     workers: 0
@@ -34,8 +37,8 @@ sizes:
       heap: 2G
       cpu_request: 500m
       memory_request: 2Gi
-      memory_limit: 3Gi
-  # Coordinator plus 2 workers. Needs about 6Gi of requested memory (9Gi at the
+      memory_limit: 4Gi
+  # Coordinator plus 2 workers. Needs about 6Gi of requested memory (10Gi at the
   # limit) and 1.5 CPU for Trino alone, on top of the rest of the stack.
   medium:
     workers: 2
@@ -47,13 +50,13 @@ sizes:
       heap: 2G
       cpu_request: 500m
       memory_request: 2Gi
-      memory_limit: 3Gi
+      memory_limit: 4Gi
     worker:
       heap: 2G
       cpu_request: 500m
       memory_request: 2Gi
       memory_limit: 3Gi
-  # Coordinator plus 4 workers. Needs about 10Gi of requested memory (15Gi at
+  # Coordinator plus 4 workers. Needs about 10Gi of requested memory (16Gi at
   # the limit) and 2.5 CPU for Trino alone, on top of the rest of the stack.
   large:
     workers: 4
@@ -65,7 +68,7 @@ sizes:
       heap: 2G
       cpu_request: 500m
       memory_request: 2Gi
-      memory_limit: 3Gi
+      memory_limit: 4Gi
     worker:
       heap: 2G
       cpu_request: 500m

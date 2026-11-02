@@ -148,7 +148,7 @@ and nothing here has measured how much data a host or cluster needs for them.
 
 | Size | Trino (`release/query-sizes.yaml`) | SeaweedFS volume server | Master / filer metadata | Aimed at (provisional) | Available |
 | --- | --- | --- | --- | --- | --- |
-| `small` | Coordinator only (`workers: 0`), 2G heap, 3Gi memory limit | 20Gi, 80 slots | 1Gi / 5Gi | Tens of GB: laptop, evaluation | Yes |
+| `small` | Coordinator only (`workers: 0`), 2G heap, 4Gi memory limit | 20Gi, 80 slots | 1Gi / 5Gi | Tens of GB: laptop, evaluation | Yes |
 | `medium` | Row defined (coordinator plus 2 workers), not yet selectable | 300Gi, 380 slots | 2Gi / 20Gi | A few hundred GB: one team, one or two domains | Storage only; Trino: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324) |
 | `large` | Row defined (coordinator plus 4 workers), not yet selectable | 2Ti, 2128 slots | 5Gi / 50Gi | 1-5 TB: several domains of about 100 tables each | Storage only; Trino: [#324](https://github.com/OpenLakeForge/openlakeforge/issues/324) |
 
