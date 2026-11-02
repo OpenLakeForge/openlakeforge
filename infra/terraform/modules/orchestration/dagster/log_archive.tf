@@ -67,6 +67,16 @@ resource "kubernetes_cron_job_v1" "kubernetes_log_archive" {
                   }
                 }
               }
+
+              resources {
+                requests = {
+                  cpu    = "50m"
+                  memory = "128Mi"
+                }
+                limits = {
+                  memory = "256Mi"
+                }
+              }
             }
           }
         }

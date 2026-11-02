@@ -78,6 +78,16 @@ resource "kubernetes_job_v1" "token_broker_key" {
               }
             }
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }
