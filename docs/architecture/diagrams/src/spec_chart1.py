@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Chart 1 — Cluster Pod Census. Verified via `helm template` with the
-project's own values files: 20 pods at rest (14 Deployments, 6 StatefulSets)."""
+project's own values files: 20 pods at rest for one stage (14 Deployments,
+6 StatefulSets); Dagster and Superset repeat per further stage."""
 from pathlib import Path
 from k8ssvg import Chart
 

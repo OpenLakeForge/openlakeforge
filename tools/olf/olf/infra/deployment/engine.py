@@ -82,8 +82,8 @@ class DeploymentProvider(Protocol):
     """A provider's granular lifecycle operations.
 
     Each method is the shared, directly-callable primitive behind both the
-    combined `olf infra deploy`/`olf infra destroy` verbs and the granular Make target
-    delegates (`--phase foundation`, `--phase platform`, ...) - nothing is
+    combined `olf infra deploy`/`olf infra destroy` verbs and the granular
+    `--phase foundation`, `--phase platform`, ... selections - nothing is
     duplicated between the two call paths.
     """
 

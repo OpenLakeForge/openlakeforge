@@ -16,7 +16,7 @@ CSV → Bronze → Floe validation → Silver Iceberg through Polaris → dbt-tr
 The audience is small data teams self-hosting a complete lakehouse. Runtime
 footprint, onboarding friction, and recoverability are product features here,
 not polish — a team without a platform engineer cannot absorb a stack that needs
-one. `v0.2-alpha` is scoped around exactly that; see the roadmap.
+one. The milestones are scoped around exactly that; see the roadmap.
 
 ## Non-goals
 
@@ -321,9 +321,9 @@ confirms ops-bucket artifacts exist.
 
 ## Known gaps
 
-Governance artifacts — `CONTRIBUTING`, `SECURITY`, `SUPPORT`, `GOVERNANCE`, and
-`CODEOWNERS` — do not exist yet, and there is no dependency-update automation.
+Governance artifacts — `SECURITY`, `SUPPORT`, `GOVERNANCE`, and `CODEOWNERS` —
+do not exist yet, and there is no dependency-update automation.
 `main` itself is protected; see "Gates" for what that ruleset enforces.
 Tracked in
 [#37](https://github.com/OpenLakeForge/openlakeforge/issues/37). Until they land, this
-file is the contribution guide.
+file and `CONTRIBUTING.md` are the contribution guide.

@@ -56,9 +56,6 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-# The rendered Floe profile YAML embeds credential template lines that must
-# stay byte-identical to the schema Floe expects.
-"olf/floe.py" = ["E501"]
 # Typer resolves repeatable options (`list[str]`) via `typer.Option(...)`
 # called directly in the parameter default; that is Typer's documented API,
 # not the mutable-default-argument pitfall B008 otherwise guards against.

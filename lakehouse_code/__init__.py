@@ -6,8 +6,9 @@ data teams and the OpenLakeForge platform:
 - ``governance.yml`` — the ``Governance`` descriptor: domains, and the data products naming them.
 - ``bronze/<source>/source.yaml`` — per-source ``Source`` descriptors and the
   dlt extract code that lands each source's resources in Bronze.
-- ``silver/<domain>/contracts/floe/`` — Floe validation contracts and their
-  generated manifests.
+- ``silver/floe.yml``, ``silver/sources.yml`` and
+  ``silver/<domain>/contracts/floe/`` — the Floe project, its Bronze sources,
+  and the per-domain Floe contracts.
 - ``gold/<product>/dbt/`` — product dbt projects.
 - ``dashboards/superset/<product>/`` — Superset report bundles.
 - ``pipelines/dagster/<product>.py`` — user-authored Dagster pipeline modules.
