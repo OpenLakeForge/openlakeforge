@@ -298,6 +298,16 @@ resource "kubernetes_job_v1" "credentials" {
           image   = var.bootstrap_job_image
           command = ["/bin/sh", "-ec"]
           args    = [local.credentials_script]
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

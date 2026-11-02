@@ -276,6 +276,16 @@ resource "kubernetes_job_v1" "bootstrap" {
             name       = "master"
             mount_path = "/master"
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
 
         container {
@@ -337,6 +347,16 @@ resource "kubernetes_job_v1" "bootstrap" {
                   key  = "postgresql-password"
                 }
               }
+            }
+          }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
             }
           }
         }

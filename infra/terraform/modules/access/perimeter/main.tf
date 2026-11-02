@@ -236,6 +236,16 @@ resource "kubernetes_job_v1" "cookie_secret" {
               }
             }
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }
