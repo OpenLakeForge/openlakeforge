@@ -166,7 +166,7 @@ so on a deployed stage treat it as a data migration, not an edit.
 | --- | --- |
 | `olf check contracts` | Each descriptor against its schema: identifiers, duplicates, a domain or product without its directory; each Floe domain writes its own `<domain>_silver` namespace |
 | `olf check project-code` | The whole inventory loads in Dagster, including references between descriptors |
-| `olf check dbt` | Every product's dbt project compiles |
+| `olf check dbt` | Every product's dbt project parses and compiles, and its models and sources sit in the schemas the descriptors name. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
 
 Then deploy only the artifacts phase, which covers everything derived from
 `lakehouse_code/`:
