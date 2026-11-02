@@ -111,7 +111,8 @@ resource "helm_release" "dagster" {
                   serviceAccountName = "dagster"
                 }
                 containerConfig = {
-                  env = local.runtime_env
+                  resources = var.run_pod_resources
+                  env       = local.runtime_env
                   envFrom = [
                     for secret in local.runtime_env_secrets : {
                       secretRef = {
