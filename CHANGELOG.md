@@ -16,6 +16,14 @@ for how a release is cut and verified.
 
 ### Changed
 
+- The project-code image pins `floe-python` 0.9.0 and `dagster-floe` 0.5.0.
+  For entities with `incremental_mode: file`, an empty source prefix now
+  finishes with nothing pending instead of failing the run, and with
+  `source.partitioning` the state file no longer grows with every ingested
+  file (OpenLakeForge/floe#1139, #949). The manifests dagster-floe builds move
+  to `spec_version: "0.9"`; `floe.yml` files at `version: "0.8"` load
+  unchanged.
+
 - A `bronze` full refresh re-ingests Bronze instead of re-extracting it: Floe
   rebuilds Silver from every Bronze file and dbt rebuilds Gold, while the
   sources' cursors and Bronze files are left as they are. Re-extraction had
