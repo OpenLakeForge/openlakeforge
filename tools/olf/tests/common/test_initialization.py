@@ -123,7 +123,7 @@ def test_empty_init_has_no_demo_entities_and_scaffolds_to_a_strict_project(tmp_p
     )
     commit_plan(layout.project_root, product_plan, schema_root=schema_root)
 
-    from openlakeforge_domain import load_lakehouse_inventory
+    from openlakeforge_core import load_lakehouse_inventory
 
     assert [product.id for product in load_lakehouse_inventory(layout.project_root).products] == ["accounts_report"]
 

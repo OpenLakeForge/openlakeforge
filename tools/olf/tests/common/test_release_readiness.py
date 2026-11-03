@@ -569,7 +569,7 @@ def test_check_python_package_versions_passes_on_real_repo() -> None:
 def test_check_python_package_versions_names_every_drifted_distribution(tmp_path: Path) -> None:
     published = {
         "tools/olf": ("openlakeforge", "0.5.0a1"),
-        "packages/domain-model": ("openlakeforge-domain-model", "0.5.0a1"),
+        "packages/core": ("openlakeforge-core", "0.5.0a1"),
         "packages/lakehouse-services": ("openlakeforge-lakehouse-services", "0.4.0a1"),
     }
     for directory, (name, version) in published.items():

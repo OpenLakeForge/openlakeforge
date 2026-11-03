@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from openlakeforge_domain import FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
+from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 from typer.testing import CliRunner
 
 from olf.cli import app

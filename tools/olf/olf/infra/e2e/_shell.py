@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from openlakeforge_domain import LakehouseInventory
+from openlakeforge_core import LakehouseInventory
 
 from olf.common import contract_state, log
 from olf.common.tooling.resolver import build_resolver

@@ -31,7 +31,7 @@ def graph(
     project: str = typer.Option(..., "--project", help="Explicit writable project root."),
 ) -> None:
     """Print the Source -> Domain -> Product -> Dashboard lineage as a Mermaid flowchart."""
-    from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+    from openlakeforge_core import LakehouseDescriptorError, load_lakehouse_inventory
 
     from olf.common.lineage_graph import render_lineage_graph
 

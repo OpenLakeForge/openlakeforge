@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from openlakeforge_domain import LakehouseDescriptorError, LakehouseInventory, load_lakehouse_inventory
+from openlakeforge_core import LakehouseDescriptorError, LakehouseInventory, load_lakehouse_inventory
 
 if TYPE_CHECKING:
     from olf.common.distribution import RuntimeLayout

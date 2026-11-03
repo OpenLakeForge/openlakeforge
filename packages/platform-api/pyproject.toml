@@ -12,14 +12,14 @@ dependencies = [
   "fastapi>=0.115,<1",
   # Direct so its path source applies: uv reads [tool.uv.sources] for direct
   # dependencies only, and the library depends on it.
-  "openlakeforge-domain-model==0.5.1a2",
+  "openlakeforge-core==0.5.1a2",
   "openlakeforge-lakehouse-services==0.5.1a2",
   "pyjwt[crypto]>=2.10,<3",
   "uvicorn>=0.30,<1",
 ]
 
 [tool.uv.sources]
-openlakeforge-domain-model = { path = "../domain-model" }
+openlakeforge-core = { path = "../core" }
 openlakeforge-lakehouse-services = { path = "../lakehouse-services" }
 
 [dependency-groups]

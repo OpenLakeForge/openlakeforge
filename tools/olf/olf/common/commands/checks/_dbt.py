@@ -107,7 +107,7 @@ def _check_product(dbt_bin: str, project: Path, *, profiles_dir: str, cwd: Path,
 
 def _validate_dbt_relation_contract(project: Path, *, root: Path, catalog: str) -> None:
     """Assert compiled Gold models consume only their descriptor-owned Silver schema."""
-    from openlakeforge_domain import load_lakehouse_inventory
+    from openlakeforge_core import load_lakehouse_inventory
 
     manifest_path = project / "target/manifest.json"
     if not manifest_path.is_file():

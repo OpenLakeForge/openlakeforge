@@ -18,7 +18,7 @@ has to understand.
 A project image carries everything Dagster needs to load and run user code:
 Dagster definitions, the `dagster-floe` and `dagster-dbt`
 connectors, the Floe Python core (`floe-python`), dlt pipelines, the dbt
-projects, the Floe project, the `openlakeforge-domain-model` package, and the
+projects, the Floe project, the `openlakeforge-core` package, and the
 shared `libs/`.
 
 The Terraform-owned Dagster control plane owns the webserver, daemon, database,
@@ -143,7 +143,7 @@ Terraform local it passes to the Dagster module, and read back by `olf` through
 A full refresh is a property of one run, not of a descriptor. The run tag
 `openlakeforge/full_refresh` (`bronze` or `gold`) is the contract between
 whoever launches the run (the Dagster launchpad, or `olf infra product run
---full-refresh`) and the project-code runtime; `openlakeforge_domain.runs`
+--full-refresh`) and the project-code runtime; `openlakeforge_core.runs`
 holds it. A tag reaches every asset of the job without each one declaring a
 config schema, including the Floe assets dagster-floe builds. Both scopes run
 `dbt build --full-refresh`. `bronze` also carries dagster-floe's own tag,

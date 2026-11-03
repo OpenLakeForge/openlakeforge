@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from openlakeforge_domain import (
+from openlakeforge_core import (
     LakehouseDescriptorError,
     LakehouseInventory,
     load_lakehouse_inventory,

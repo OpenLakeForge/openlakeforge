@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import boto3
 from botocore.stub import Stubber
-from openlakeforge_domain import CatalogNamespace
+from openlakeforge_core import CatalogNamespace
 
 from olf.infra import auth, glue
 from olf.infra.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState

@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openlakeforge_domain import LakehouseInventory
+    from openlakeforge_core import LakehouseInventory
 
 _UNSAFE_ID_CHARACTERS = re.compile(r"[^A-Za-z0-9_]")
 # '#' goes first: Mermaid reads '#...;' as an entity, so escaping it later would mangle the other escapes.

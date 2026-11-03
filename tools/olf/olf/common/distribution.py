@@ -32,7 +32,7 @@ _PAYLOAD_ROOTS = (
     "infra/helm/values",
     "infra/kind",
     "images",
-    "packages/domain-model",
+    "packages/core",
     "packages/lakehouse-services",
     "packages/platform-api",
     "libs",

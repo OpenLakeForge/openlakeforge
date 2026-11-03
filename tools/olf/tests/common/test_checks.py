@@ -43,26 +43,26 @@ def test_project_code_cache_digest_includes_source_paths_and_contents(tmp_path: 
     assert _project_code._source_tree_digest(source.parent) != first
 
 
-def test_project_code_installs_the_domain_model_from_a_read_only_payload(tmp_path: Path) -> None:
+def test_project_code_installs_core_from_a_read_only_payload(tmp_path: Path) -> None:
     """An installed `olf` payload is read-only; the build must not write into it (#626)."""
     repo = Path(__file__).resolve().parents[4]
-    payload = tmp_path / "payload" / "domain-model"
+    payload = tmp_path / "payload" / "core"
     ignore = shutil.ignore_patterns("__pycache__", "*.egg-info", "build")
-    shutil.copytree(repo / "packages/domain-model", payload, ignore=ignore)
+    shutil.copytree(repo / "packages/core", payload, ignore=ignore)
     for path in sorted(payload.rglob("*"), reverse=True):
         path.chmod(0o555 if path.is_dir() else 0o444)
     payload.chmod(0o555)
     before = sorted(path.relative_to(payload) for path in payload.rglob("*"))
     site = tmp_path / "site"
     try:
-        _project_code._install_domain_model(payload, site, cwd=tmp_path)
+        _project_code._install_core(payload, site, cwd=tmp_path)
     finally:
         for path in (payload, *payload.rglob("*")):
             if path.is_dir():
                 path.chmod(0o755)
 
     assert sorted(path.relative_to(payload) for path in payload.rglob("*")) == before
-    assert (site / "openlakeforge_domain" / "inventory.py").is_file()
+    assert (site / "openlakeforge_core" / "inventory.py").is_file()
 
 
 def test_project_code_rejects_unsupported_python_before_building_cache(
@@ -112,7 +112,7 @@ def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
         "infra/terraform/foundations/aws-eks/outputs.tf",
         "lakehouse_code/silver/sales/contracts/floe/_domain.yml",
         "tools/olf/uv.lock",
-        "packages/domain-model/openlakeforge_domain/inventory.py",
+        "packages/core/openlakeforge_core/inventory.py",
     }
 
     assert required <= set(_structure.REQUIRED_PATHS)

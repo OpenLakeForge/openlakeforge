@@ -513,7 +513,7 @@ def build_project_revision(
     declared asset, or that freezes a broken descriptor, is worse than no
     revision at all.
     """
-    from openlakeforge_domain import load_lakehouse_inventory
+    from openlakeforge_core import load_lakehouse_inventory
 
     report = validate_project(project)
     if not report.ok:

@@ -54,9 +54,9 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 0. **Before the first tagged release only**: register a PyPI [pending
    trusted publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
-   for each of `openlakeforge-domain-model`, `openlakeforge-lakehouse-services`
+   for each of `openlakeforge-core`, `openlakeforge-lakehouse-services`
    and `openlakeforge`, pointed at this repo's `release.yml`. Each must use a
-   **distinct GitHub Environment name** (`pypi-domain-model`,
+   **distinct GitHub Environment name** (`pypi-core`,
    `pypi-lakehouse-services` and `pypi-openlakeforge`, matching the
    `environment:` key on each `publish-pypi-*` job) — PyPI keys a pending
    publisher by `(owner, repo, workflow, environment)`, and the jobs

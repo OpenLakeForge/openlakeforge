@@ -2,7 +2,7 @@
 
 A domain may be created (and validated) before any product consumes its
 Silver tables -- see the plan's "product-less domains" section and the
-canonical-model relaxation in `packages/domain-model`.
+canonical-model relaxation in `packages/core`.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from openlakeforge_domain import LakehouseInventory, load_transitional_lakehouse_inventory
+from openlakeforge_core import LakehouseInventory, load_transitional_lakehouse_inventory
 
 from olf.common.scaffold import _templates, _yaml_edit
 from olf.common.scaffold._csv import infer_columns

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
-from openlakeforge_domain import inventory_for
+from openlakeforge_core import inventory_for
 
 from olf.common import config, log
 from olf.common.log import fail
@@ -139,7 +139,7 @@ def report_export(
 def export_superset_reports(stage: str = "") -> None:
     """Export a live Superset dashboard back into a source-controlled bundle."""
     import yaml
-    from openlakeforge_domain import Dashboard
+    from openlakeforge_core import Dashboard
     from openlakeforge_services import reports
 
     from olf.infra import superset

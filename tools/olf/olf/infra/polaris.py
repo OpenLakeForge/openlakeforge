@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-from openlakeforge_domain import CatalogNamespace
+from openlakeforge_core import CatalogNamespace
 
 from olf.infra.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 

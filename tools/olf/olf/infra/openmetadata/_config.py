@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from openlakeforge_domain import load_lakehouse_inventory_from_descriptors
+from openlakeforge_core import load_lakehouse_inventory_from_descriptors
 from openlakeforge_services.governance import MetadataConfig
 from openlakeforge_services.openmetadata import OpenMetadataError
 

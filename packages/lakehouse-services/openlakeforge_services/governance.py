@@ -15,7 +15,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from openlakeforge_domain import (
+from openlakeforge_core import (
     LakehouseDescriptorError,
     load_governance_lakehouse_document,
     load_lakehouse_inventory_from_descriptors,

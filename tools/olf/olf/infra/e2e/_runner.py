@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from openlakeforge_domain import inventory_for
+from openlakeforge_core import inventory_for
 
 from olf.common import log
 from olf.common.project import ProjectSpec

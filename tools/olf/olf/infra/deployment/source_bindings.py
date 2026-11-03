@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from openlakeforge_domain.inventory import Source
+from openlakeforge_core.inventory import Source
 
 from olf.common.tooling.kubectl import Kubectl
 

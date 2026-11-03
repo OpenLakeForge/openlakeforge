@@ -67,7 +67,7 @@ def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> 
     expected = _pep440_release_version(catalog_version(catalog))
     paths = {
         "openlakeforge": repo_root / "tools/olf/pyproject.toml",
-        "openlakeforge-domain-model": repo_root / "packages/domain-model/pyproject.toml",
+        "openlakeforge-core": repo_root / "packages/core/pyproject.toml",
         "openlakeforge-lakehouse-services": repo_root / "packages/lakehouse-services/pyproject.toml",
     }
     problems: list[str] = []

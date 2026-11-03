@@ -9,7 +9,7 @@ import urllib.error
 from pathlib import Path
 
 import pytest
-from openlakeforge_domain import CatalogNamespace
+from openlakeforge_core import CatalogNamespace
 
 from olf.infra import catalog, polaris
 from olf.infra.commands.catalog import reconcile_polaris

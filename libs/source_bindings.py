@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
-from openlakeforge_domain.inventory import Source
+from openlakeforge_core.inventory import Source
 
 # dagster-k8s appends this container env to the run pod the run launcher
 # creates for a job, after the code location's own env.

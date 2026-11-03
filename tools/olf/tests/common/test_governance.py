@@ -7,7 +7,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 import yaml
-from openlakeforge_domain import LakehouseDescriptorError, load_governance_descriptor
+from openlakeforge_core import LakehouseDescriptorError, load_governance_descriptor
 
 from olf.common.contracts_check._governance import _check_governance_conformance
 

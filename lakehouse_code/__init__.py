@@ -15,5 +15,5 @@ data teams and the OpenLakeForge platform:
 - ``definitions.py`` — aggregates every product pipeline module into one
   Dagster code location.
 
-The canonical inventory loader is ``openlakeforge_domain.load_lakehouse_inventory``.
+The canonical inventory loader is ``openlakeforge_core.load_lakehouse_inventory``.
 """

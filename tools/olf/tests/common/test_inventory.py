@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from openlakeforge_domain import (
+from openlakeforge_core import (
     LakehouseDescriptorError,
     inventory_for,
     load_lakehouse_inventory,
@@ -309,7 +309,7 @@ def test_a_source_with_runtime_keys_needs_a_name_that_maps_to_valid_bindings(tmp
 
 
 def test_binding_names_are_valid_kubernetes_names_for_an_underscored_source() -> None:
-    from openlakeforge_domain.inventory import Source
+    from openlakeforge_core.inventory import Source
 
     source = Source(descriptor_path=Path("source.yaml"), name="marketing_platform", display_name="M", resources=())
 

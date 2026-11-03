@@ -18,7 +18,7 @@ Business logic stays under `lakehouse_code/` (bronze/silver/gold/dashboards/
 pipelines); `libs/` contains reusable platform glue shared across that code.
 
 The provider-neutral descriptor and inventory model is deliberately not in
-`libs/`: it is the `openlakeforge_domain` package under `packages/domain-model/`
+`libs/`: it is the `openlakeforge_core` package under `packages/core/`
 so `olf` and project-code install the identical implementation.
 
 The dbt profile template lives under `libs/dbt/profiles/`, one file per query

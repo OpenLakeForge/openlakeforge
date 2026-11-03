@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
-from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_core import load_lakehouse_inventory
 from openlakeforge_services.dagster import DagsterClient
 
 from olf.common.deployment.context import DeploymentContext
@@ -786,7 +786,7 @@ def _names_runtime_code_reads() -> set[str]:
     import re
 
     pattern = re.compile(r"OPENLAKEFORGE_[A-Z0-9_]+")
-    roots = [ROOT / "libs", ROOT / "lakehouse_code", ROOT / "packages/domain-model/openlakeforge_domain"]
+    roots = [ROOT / "libs", ROOT / "lakehouse_code", ROOT / "packages/core/openlakeforge_core"]
     return {
         name
         for root in roots
@@ -1342,7 +1342,7 @@ def test_a_revision_whose_source_is_not_bound_in_the_stage_is_not_rolled_out(
     harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # noqa: ANN001
     """A missing stage binding would surface only as a run pod that cannot start."""
-    from openlakeforge_domain.inventory import Source
+    from openlakeforge_core.inventory import Source
 
     real = activation_module.load_lakehouse_inventory
 

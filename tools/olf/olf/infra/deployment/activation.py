@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_core import load_lakehouse_inventory
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 

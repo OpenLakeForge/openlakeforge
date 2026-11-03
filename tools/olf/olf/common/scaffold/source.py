@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openlakeforge_domain import load_transitional_lakehouse_inventory
+from openlakeforge_core import load_transitional_lakehouse_inventory
 
 from olf.common.scaffold import _templates
 from olf.common.scaffold._csv import placeholder_example_csv
