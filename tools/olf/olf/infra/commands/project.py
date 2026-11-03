@@ -5,20 +5,20 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
 
 from olf.common.log import fail
-from olf.common.project import ProjectSpec
 from olf.infra.commands._shared import deployment_context_for_profile
+from olf.infra.deployment.revision_build import LOCAL_TRANSPORT, provider_revision_store
+from olf.infra.deployment.revision_build import artifact_transport as _artifact_transport
+from olf.infra.deployment.revision_build import revision_store as _revision_store
 
 if TYPE_CHECKING:
     from olf.infra.artifact_store import RevisionStore
-
-_LOCAL_TRANSPORT = "port-forward"
 
 app = typer.Typer(help="Build, deploy and verify writable OpenLakeForge data projects.")
 
@@ -55,16 +55,14 @@ def build(
     json_output: bool = typer.Option(False, "--json", help="Print the full manifest instead of the revision id."),
 ) -> None:
     """Build and publish the immutable ProjectRevision for one writable project."""
-    from olf.common.commands._project import writable_project_layout
     from olf.infra.artifact_store import ArtifactStoreError
-    from olf.infra.project_revision import ProjectRevisionError, build_project_revision, publish
+    from olf.infra.deployment.revision_build import publish_project_revision
+    from olf.infra.project_revision import ProjectRevisionError
 
-    layout = writable_project_layout(project)
-    spec = ProjectSpec(root=layout.project_root, distribution_root=layout.distribution_root)
     try:
-        manifest = build_project_revision(spec, image=image, distribution_version=layout.distribution_version)
-        with _build_store_for_project(layout.project_root, via=via, output=output) as store:
-            publish(store, manifest, spec)
+        manifest = publish_project_revision(
+            project, image=image, open_store=lambda root: _build_store_for_project(root, via=via, output=output)
+        )
     except (ProjectRevisionError, ArtifactStoreError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(manifest.to_json() if json_output else manifest.revision)
@@ -341,34 +339,6 @@ def revision_verify(
 
 
 @contextmanager
-def _revision_store(*, via: str, output: str) -> Iterator[RevisionStore]:
-    from olf.infra.artifact_store import (
-        FilesystemRevisionStore,
-        S3RevisionStore,
-        artifact_bucket,
-        artifact_storage_client,
-    )
-
-    if output:
-        yield FilesystemRevisionStore(Path(output))
-        return
-    bucket = artifact_bucket()
-    with artifact_storage_client(via, bucket) as client:
-        yield S3RevisionStore(client, bucket)
-
-
-def _artifact_transport(provider: object) -> str:
-    """The `--via` mode this provider's backend prescribes.
-
-    AWS deliberately blanks the S3 service fields in its contract because its
-    store requires direct S3, so a blanket `port-forward` default fails while
-    resolving an empty service port instead of publishing the revision.
-    """
-    backend = getattr(provider, "backend", None)
-    return backend.artifact_transport() if backend is not None else _LOCAL_TRANSPORT
-
-
-@contextmanager
 def _build_store_for_project(project_root: Path, *, via: str, output: str, stage: str = "") -> Iterator[RevisionStore]:
     """Open the build store under the profile contract when one is available.
 
@@ -381,45 +351,10 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str, stage
     project command: only an explicit `--via` overrides it.
     """
     if output or not (project_root / "openlakeforge.yaml").is_file():
-        with _revision_store(via=via or _LOCAL_TRANSPORT, output=output) as store:
+        with _revision_store(via=via or LOCAL_TRANSPORT, output=output) as store:
             yield store
         return
-    from olf.common.deployment.errors import DeploymentError
-    from olf.common.provider_contracts import ProviderContractError
-    from olf.infra.artifact_store import ArtifactStoreError
-    from olf.infra.deployment.contract_env import applied_contract_environment
-    from olf.infra.k8s import KubectlError
-
     context = deployment_context_for_profile(str(project_root / "openlakeforge.yaml"), stage=stage)
     provider = _profile_provider(context)
-    contract_dir = Path(
-        provider.env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)
-    ).resolve()
-    with ExitStack() as stack:
-        try:
-            # Building against an unreachable platform is the same outcome as
-            # building with no bucket resolved, and `olf infra project build` already
-            # fails closed on that. Reaching the caller as a raw kubectl or
-            # Terraform error would instead surface a traceback. Only opening
-            # the store is wrapped: a failure in the body belongs to whatever
-            # the caller is doing with it, and reporting that as an artifact
-            # store problem would misname it.
-            stack.enter_context(
-                applied_contract_environment(
-                    contract_terraform_dir=contract_dir,
-                    repo_root=project_root,
-                    namespace=context.namespace,
-                    kube_context=provider.env.get("KUBE_CONTEXT") or context.kube_context,
-                    kubeconfig_path=context.paths.kubeconfig_path,
-                    port_forward_log_prefix=context.paths.port_forward_log_prefix,
-                    environ=provider.env,
-                    topology=context.topology,
-                    stage=context.stage,
-                )
-            )
-            store = stack.enter_context(_revision_store(via=via or _artifact_transport(provider), output=output))
-        except (DeploymentError, KubectlError, ProviderContractError) as exc:
-            raise ArtifactStoreError(
-                f"could not resolve the artifact store from the {context.provider.value} platform contract: {exc}"
-            ) from exc
+    with provider_revision_store(provider, context, project_root, via=via, output=output) as store:
         yield store

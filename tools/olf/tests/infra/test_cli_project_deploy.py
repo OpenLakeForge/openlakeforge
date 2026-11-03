@@ -70,7 +70,7 @@ def test_prod_activation_sees_prods_openmetadata_catalog(monkeypatch: pytest.Mon
 
     monkeypatch.setattr(project_cmd, "deployment_context_for_profile", context_for)
     monkeypatch.setattr(project_cmd, "_profile_provider", lambda *_a, **_k: SimpleNamespace(env={}))
-    monkeypatch.setattr(project_cmd, "_revision_store", store)
+    monkeypatch.setattr("olf.infra.deployment.revision_build.revision_store", store)
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: contract)
     monkeypatch.setattr("olf.common.profile.load_deployment_profile", lambda _path, **_k: _PROFILE)
     monkeypatch.setattr(activation_module, "deploy_revision", deploy_revision)
