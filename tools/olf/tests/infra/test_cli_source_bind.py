@@ -47,7 +47,11 @@ class FakeCluster(ProcessRunner):
         elif verb == "get":
             name = argv[argv.index("get") + 2]
             if name in self.objects:
-                stdout = json.dumps(self.objects[name])
+                output = argv[argv.index("-o") + 1]
+                if output.startswith("go-template="):
+                    stdout = "\n".join(self.objects[name].get("data", {}))
+                else:
+                    stdout = json.dumps(self.objects[name])
             else:
                 code, stderr = 1, f'Error from server (NotFound): "{name}" not found'
         else:
@@ -322,3 +326,26 @@ def test_admission_failure_does_not_echo_secret_values(
     assert "could not apply secret olf-source-open-food-credentials" in result.output
     assert PASSWORD not in result.output
     assert base64.b64encode(PASSWORD.encode()).decode() not in result.output
+
+
+def test_bindings_reports_absent_missing_extra_and_bound_keys(cluster: FakeCluster) -> None:
+    args = ["infra", "source", "bindings", "-f", "p.yaml", "--stage", "prod"]
+    absent = runner.invoke(app, args)
+    assert absent.exit_code == 1
+    assert absent.output.count("missing or unreadable") == 2
+
+    _bind()
+    cluster.objects["olf-source-open-food"]["data"]["old_key"] = "private-url"
+    warning = runner.invoke(app, args)
+    assert warning.exit_code == 0, warning.output
+    assert warning.output.count(": bound") == 2
+    assert "warning: configmap olf-source-open-food has extra keys: old_key" in warning.output
+
+    del cluster.objects["olf-source-open-food-credentials"]["data"]["token"]
+    missing = runner.invoke(app, args)
+    assert missing.exit_code == 1
+    assert "has no key token" in missing.output
+    assert "private-url" not in warning.output
+    assert PASSWORD not in missing.output
+    status_calls = [argv for argv, _ in cluster.calls if "get" in argv and any("go-template=" in p for p in argv)]
+    assert len(status_calls) == 6

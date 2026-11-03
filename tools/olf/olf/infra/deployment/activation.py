@@ -33,7 +33,7 @@ from olf.infra.artifact_store import RevisionStore
 from olf.infra.deployment import contract_env
 from olf.infra.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
 from olf.infra.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
-from olf.infra.deployment.source_bindings import missing_source_bindings
+from olf.infra.deployment.source_bindings import source_binding_status
 from olf.infra.project_activation import ProjectActivation, ProjectActivationError, commit_active
 from olf.infra.project_activation import active as active_activation
 from olf.infra.project_activation import publish as publish_activation
@@ -410,7 +410,7 @@ def _require_source_bindings(
     bound = [source for source in sources if source.runtime_config or source.runtime_secrets]
     if not bound:
         return
-    problems = missing_source_bindings(
+    statuses = source_binding_status(
         bound,
         kubectl=provider.tools.kubectl,
         namespace=namespace,
@@ -418,10 +418,19 @@ def _require_source_bindings(
         kubeconfig=provider.context.paths.kubeconfig_path,
         env=env,
     )
+    problems = [status.problem for status in statuses if status.problem]
     if problems:
+        commands = [
+            f"olf infra source bind {source.name} --stage {provider.context.stage.value} -f <profile>"
+            for source in bound
+            if any(status.problem and status.source == source.name for status in statuses)
+        ]
         raise ActivationError(
-            "the revision's sources need stage bindings this stage does not have; create them, then redeploy:\n  "
+            "the revision's sources need stage bindings this stage does not have; "
+            "bind them, then redeploy:\n  "
             + "\n  ".join(problems)
+            + "\nRun these commands with --set KEY=VALUE and --secret-from-env KEY=VAR as declared by each source:\n  "
+            + "\n  ".join(commands)
         )
 
 

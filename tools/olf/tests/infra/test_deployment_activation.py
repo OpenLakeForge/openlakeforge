@@ -1364,9 +1364,10 @@ def test_a_revision_whose_source_is_not_bound_in_the_stage_is_not_rolled_out(
 
     monkeypatch.setattr(activation_module, "load_lakehouse_inventory", with_a_bound_source)
 
-    with pytest.raises(activation_module.ActivationError, match="olf-source-crm-api-credentials"):
+    with pytest.raises(activation_module.ActivationError, match="olf-source-crm-api-credentials") as refused:
         harness.deploy("dev")
 
+    assert "olf infra source bind crm_api --stage dev -f <profile>" in str(refused.value)
     assert harness.helm.rollouts == []
     assert project_activation.active(harness.store, stage=StageName.DEV) is None
 

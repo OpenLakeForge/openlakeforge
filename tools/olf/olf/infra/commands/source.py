@@ -51,7 +51,7 @@ def _stdin_is_tty() -> bool:
     return sys.stdin.isatty()
 
 
-def _load(profile_file: str, stage: str, source_id: str):  # noqa: ANN202
+def _load_stage(profile_file: str, stage: str):  # noqa: ANN202
     from openlakeforge_core import load_lakehouse_inventory
 
     from olf.infra.commands._shared import deployment_context_for_profile
@@ -59,10 +59,6 @@ def _load(profile_file: str, stage: str, source_id: str):  # noqa: ANN202
 
     context = deployment_context_for_profile(profile_file, stage=stage)
     sources = load_lakehouse_inventory(Path(profile_file).resolve().parent / "lakehouse_code").sources
-    source = next((candidate for candidate in sources if candidate.name == source_id), None)
-    if source is None:
-        known = ", ".join(sorted(candidate.name for candidate in sources))
-        raise SourceBindingError(f"unknown source {source_id!r}; this project has: {known}.")
     provider = _profile_provider(context)
     cluster = StageCluster(
         kubectl=provider.tools.kubectl,
@@ -71,7 +67,43 @@ def _load(profile_file: str, stage: str, source_id: str):  # noqa: ANN202
         kubeconfig=context.paths.kubeconfig_path,
         env=provider.env,
     )
+    return sources, cluster
+
+
+def _load(profile_file: str, stage: str, source_id: str):  # noqa: ANN202
+    sources, cluster = _load_stage(profile_file, stage)
+    source = next((candidate for candidate in sources if candidate.name == source_id), None)
+    if source is None:
+        known = ", ".join(sorted(candidate.name for candidate in sources))
+        raise SourceBindingError(f"unknown source {source_id!r}; this project has: {known}.")
     return source, cluster
+
+
+@app.command("bindings")
+def bindings(profile_file: str = _PROFILE, stage: str = _STAGE) -> None:
+    """Report bound, missing and extra runtime keys without reading Secret values."""
+    from olf.infra.deployment.source_bindings import source_binding_status
+
+    sources, cluster = _load_stage(profile_file, stage)
+    statuses = source_binding_status(
+        sources,
+        kubectl=cluster.kubectl,
+        namespace=cluster.namespace,
+        context=cluster.context,
+        kubeconfig=cluster.kubeconfig,
+        env=cluster.env,
+    )
+    if not statuses:
+        typer.echo(f"No sources need runtime bindings in {cluster.namespace}.")
+    for status in statuses:
+        if status.problem:
+            typer.echo(status.problem)
+        else:
+            typer.echo(f"source {status.source!r}: {status.kind} {status.name} in {status.namespace}: bound")
+        if status.extra:
+            typer.echo(f"warning: {status.kind} {status.name} has extra keys: {', '.join(status.extra)}")
+    if any(status.problem for status in statuses):
+        raise typer.Exit(code=1)
 
 
 @app.command("bind")
