@@ -266,13 +266,15 @@ Actions access** settings.
 
 | Step | Credential | Lifetime |
 | --- | --- | --- |
-| Push the image (`build-revision`) | `GITHUB_TOKEN` with `packages: write` and the package's Actions access | The run |
-| Read the image on a runner (`deploy-stage`) | `GITHUB_TOKEN` with `packages: read` | The run |
+| Push the image (`build-revision`) | `GITHUB_TOKEN` with `packages: write` and the package's Actions access | The job |
+| Read the image on a runner (`deploy-stage`) | `GITHUB_TOKEN` with `packages: read` | The job |
 | Pull in the cluster (code servers, Dagster run pods, the log-archive CronJob) | The Secret named by `spec.project.image.pull_secret_ref`, created by you in each stage namespace from a read-only token | Until you rotate it |
 | Public image | None | n/a |
 
-Never copy `GITHUB_TOKEN` into a Kubernetes Secret: it expires when the run
-ends, so pods would fail to pull after a reschedule. `olf` never creates the
+Never copy `GITHUB_TOKEN` into a Kubernetes Secret: it expires when the job
+ends, so pods would fail to pull after a reschedule. See GitHub's
+[token lifetime documentation](https://docs.github.com/en/actions/concepts/security/github_token).
+`olf` never creates the
 pull Secret;
 [Pulling a private image](../reference/deployment-profile.md#pulling-a-private-image)
 shows how, and activation refuses to start when the Secret is missing, of the
