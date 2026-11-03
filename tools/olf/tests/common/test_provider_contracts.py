@@ -1824,3 +1824,38 @@ def test_a_credential_secret_requires_valid_tls_fields(field: str, value: object
 
     with pytest.raises(ProviderContractError, match=field):
         parse_provider_contracts(contract, topology)
+
+
+def test_artifact_registry_keeps_the_existing_binding_fields() -> None:
+    document = _fixture("local-provider-contracts-v3.json")
+    document["shared"]["artifact_registry"].update(
+        endpoint="https://registry.example.org", bucket_name="bucket", artifact_base_uri="s3://bucket",
+        access_mode="private", local_upload_access_mode="private",
+    )
+
+    jsonschema.validate(document, SCHEMA)
+    parse_provider_contracts(document, _topology(document))
+
+
+@pytest.mark.parametrize("repository", ["localhost:5001/project-code", "registry.example.org/team/code"])
+def test_artifact_registry_can_offer_a_provider_owned_repository(repository: str) -> None:
+    document = _fixture("local-provider-contracts-v3.json")
+    document["shared"]["artifact_registry"]["image_repository"] = repository
+
+    jsonschema.validate(document, SCHEMA)
+    parsed = parse_provider_contracts(document, _topology(document))
+
+    assert parsed.shared.values["artifact_registry"]["image_repository"] == repository
+
+
+@pytest.mark.parametrize(
+    "repository",
+    ["", "https://registry.example.org/code", "registry.example.org/code:latest",
+     "registry.example.org/code@sha256:" + "a" * 64, "user:password@registry.example.org/code", "team/code", 42],
+)
+def test_artifact_registry_rejects_an_ambiguous_or_credentialed_repository(repository: object) -> None:
+    document = _fixture("local-provider-contracts-v3.json")
+    document["shared"]["artifact_registry"]["image_repository"] = repository
+
+    with pytest.raises(ProviderContractError, match="artifact_registry.image_repository"):
+        parse_provider_contracts(document, _topology(document))

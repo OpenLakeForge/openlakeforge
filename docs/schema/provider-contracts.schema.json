@@ -35,6 +35,26 @@
         "local_upload_access_mode": {"$ref": "#/definitions/nonEmptyString"}
       }
     },
+    "artifactRegistryBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "implementation"],
+      "properties": {
+        "ref": {"$ref": "#/definitions/nonEmptyString"},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint": {"$ref": "#/definitions/nonEmptyString"},
+        "bucket_name": {"$ref": "#/definitions/nonEmptyString"},
+        "artifact_base_uri": {"$ref": "#/definitions/nonEmptyString"},
+        "access_mode": {"$ref": "#/definitions/nonEmptyString"},
+        "local_upload_access_mode": {"$ref": "#/definitions/nonEmptyString"},
+        "image_repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Provider-owned fallback repository, without a tag, digest or credentials. Explicit project repositories take precedence; Python validation enforces the repository grammar."
+        }
+      }
+    },
     "oidcClient": {
       "type": "object",
       "additionalProperties": false,
@@ -219,7 +239,7 @@
         "kubernetes_platform": {"$ref": "#/definitions/binding"},
         "metadata_database": {"$ref": "#/definitions/binding"},
         "query": {"$ref": "#/definitions/binding"},
-        "artifact_registry": {"$ref": "#/definitions/binding"},
+        "artifact_registry": {"$ref": "#/definitions/artifactRegistryBinding"},
         "ops_storage": {"$ref": "#/definitions/binding"},
         "secrets": {"$ref": "#/definitions/binding"},
         "identity": {"$ref": "#/definitions/identityBinding"},

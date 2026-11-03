@@ -88,7 +88,18 @@ covers the current Terraform v3 surface, structured HCL, and rendered
 profile/Floe output. The architecture guide records the field families and
 migration boundary.
 
+The optional `shared.artifact_registry.image_repository` advertises a
+provider-owned fallback for project images. It never includes a tag, digest or
+credentials. Explicit project repositories retain precedence, and existing
+contracts can omit the field. The adapter that offers it owns publishing and
+workload availability; project descriptors remain provider-neutral.
+
 ## History
+
+2026-11-03: Added the optional image repository contract before the local
+registry adapter (#558), preserving the local workflow without an external
+registry account.
+
 
 2026-08-31: Every root (local, AWS, Azure) now emits v3 natively; the v2
 adapter is compatibility-only. Documented that AWS's `lakehouse_<stage>`
