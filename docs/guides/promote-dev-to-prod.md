@@ -238,14 +238,81 @@ jobs:
           revision: ${{ needs.build.outputs.revision }}
 ```
 
-On a local platform with a GHCR registry, give the build job
-`packages: write` and every stage job `packages: read`, and add this step to
-each job before its OpenLakeForge action, so each one can push or pull the
-image on any runner:
+## Publish to GHCR from the workflow
+
+A local platform has no registry of its own, so a customer project publishes to
+GHCR. Declare the repository in `spec.project.image.repository` (see
+[`spec.project`](../reference/deployment-profile.md#specproject)) or set
+`image-repository` on `build-revision`; it must be lowercase. In the example
+workflow above, drop the cloud-credentials step, set `e2e-env: local`, give the
+build job `packages: write` and every stage job `packages: read`, and add this
+step to each job before its OpenLakeForge action, so each one can push or pull
+the image on any runner:
 
 ```yaml
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 ```
+
+`build-revision` pushes the image, resolves its registry digest and freezes
+that digest into the revision, so DEV and PROD activate the same image without
+a rebuild. The repository's own nightly (`.github/workflows/local-full-e2e.yml`)
+runs this path, build then DEV then PROD, against GHCR on kind.
+
+A package the workflow creates is private. If the repository cannot write to
+it on a later run, grant the repository access under the package's **Manage
+Actions access** settings.
+
+### Who authenticates, and with what
+
+| Step | Credential | Lifetime |
+| --- | --- | --- |
+| Push the image (`build-revision`) | `GITHUB_TOKEN` with `packages: write` and the package's Actions access | The job |
+| Read the image on a runner (`deploy-stage`) | `GITHUB_TOKEN` with `packages: read` | The job |
+| Pull in the cluster (code servers, Dagster run pods, the log-archive CronJob) | The Secret named by `spec.project.image.pull_secret_ref`, created by you in each stage namespace from a read-only token | Until you rotate it |
+| Public image | None | n/a |
+
+Never copy `GITHUB_TOKEN` into a Kubernetes Secret: it expires when the job
+ends, so pods would fail to pull after a reschedule. See GitHub's
+[token lifetime documentation](https://docs.github.com/en/actions/concepts/security/github_token).
+`olf` never creates the
+pull Secret;
+[Pulling a private image](../reference/deployment-profile.md#pulling-a-private-image)
+shows how, and activation refuses to start when the Secret is missing, of the
+wrong type or lacks the image's registry.
+
+### When no registry is configured
+
+| Project | Registry |
+| --- | --- |
+| No `spec.project` | The release's public example image; nothing is built or pushed |
+| Customer project on `aws` or `azure`, no `image.repository` | The platform's ECR or ACR |
+| Customer project on `local`, no `image.repository` and no `PROJECT_CODE_IMAGE_REPOSITORY` | Refused: declare a registry; the pipeline never publishes to the public example's package |
+
+### A failed run does not move a stage
+
+Only `olf infra project deploy` writes a stage's `ACTIVE.json`, and only after
+the rollout succeeded; a failed push or `project build` never reaches it.
+`deploy-stage` also fails unless `olf infra project status` then records
+exactly the revision it was given. These tests in
+`tools/olf/tests/infra/test_deployment_activation.py` cover the pointer:
+`test_failed_rollout_leaves_the_previous_revision_active`,
+`test_a_pointer_that_will_not_commit_restores_the_previous_activation` and
+`test_an_unusable_pull_secret_stops_the_activation_before_any_rollout`.
+
+### Not on a code-only change
+
+The pipeline runs only `olf infra project image`, `build` and `deploy`. It never
+runs `olf infra deploy` or `olf infra platform apply`, so a dbt, Floe or Dagster
+change never runs Terraform. Run those separately, when the platform itself
+changes.
+
+### Later: ECR and ACR from CI
+
+Not shipped, and not needed for a local platform. The planned shape is
+provider-native federation instead of stored secrets: GitHub OIDC to an AWS role
+that pushes to ECR, and Azure workload identity federation to ACR. Until then
+the AWS example above, an OIDC role on a self-hosted runner that holds
+`OLF_HOME`, is the supported cloud path.
 
 ## Protect the `prod` environment
 
