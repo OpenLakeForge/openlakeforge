@@ -145,6 +145,16 @@ resource "kubernetes_job_v1" "oidc_secret" {
             name  = "TARGET"
             value = var.namespace
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

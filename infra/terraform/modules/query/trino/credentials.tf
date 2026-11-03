@@ -162,6 +162,16 @@ resource "kubernetes_job_v1" "credentials" {
               }
             }
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

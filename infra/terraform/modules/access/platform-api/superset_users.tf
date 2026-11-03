@@ -143,6 +143,16 @@ resource "kubernetes_job_v1" "superset_users" {
           image   = var.bootstrap_job_image
           command = ["/bin/sh", "-ec"]
           args    = [local.superset_users_script]
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

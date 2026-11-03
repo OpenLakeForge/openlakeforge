@@ -173,6 +173,16 @@ resource "kubernetes_job_v1" "publish_ca" {
             name  = "TRUST_NAMESPACES"
             value = join(" ", local.trust_namespaces)
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }
