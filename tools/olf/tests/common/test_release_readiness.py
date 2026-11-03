@@ -580,3 +580,37 @@ def test_check_python_package_versions_names_every_drifted_distribution(tmp_path
 
     assert not result.ok
     assert result.detail == "packages/lakehouse-services/pyproject.toml version '0.4.0a1', expected '0.5.0a1'"
+
+
+_FLOE_CATALOG = {"components": {"floe": {"floe-python": "0.9.0", "dagster-floe": "0.5.0"}}}
+
+
+def _floe_fixture(tmp_path: Path, *, pinned: str) -> None:
+    (tmp_path / "images/project-code").mkdir(parents=True)
+    (tmp_path / "images/project-code/pyproject.toml").write_text(
+        '[project]\nname = "x"\n'
+        f'dependencies = ["dagster-floe[floe]==0.5.0", "floe-python=={pinned}", "dagster==1.13.7"]\n'
+    )
+
+
+def test_check_floe_pins_passes_when_image_matches_catalog(tmp_path: Path) -> None:
+    _floe_fixture(tmp_path, pinned="0.9.0")
+    assert _readiness._check_floe_pins(tmp_path, _FLOE_CATALOG).ok
+
+
+def test_check_floe_pins_fails_when_image_pins_another_version(tmp_path: Path) -> None:
+    _floe_fixture(tmp_path, pinned="0.8.1")
+    result = _readiness._check_floe_pins(tmp_path, _FLOE_CATALOG)
+    assert not result.ok
+    assert result.detail == "floe-python: catalog '0.9.0', images/project-code/pyproject.toml '0.8.1'"
+
+
+@pytest.mark.parametrize("missing", ["floe-python", "dagster-floe"])
+def test_check_floe_pins_requires_both_catalog_entries(tmp_path: Path, missing: str) -> None:
+    _floe_fixture(tmp_path, pinned="0.9.0")
+    catalog = {"components": {"floe": {k: v for k, v in _FLOE_CATALOG["components"]["floe"].items() if k != missing}}}
+
+    result = _readiness._check_floe_pins(tmp_path, catalog)
+
+    assert not result.ok
+    assert f"components.floe.{missing} is missing" in result.detail

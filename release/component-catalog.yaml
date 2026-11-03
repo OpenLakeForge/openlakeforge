@@ -95,6 +95,9 @@ components:
   python:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock
+  floe:
+    floe-python: 0.9.0
+    dagster-floe: 0.5.0
   images:
     k8s_bootstrap: alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e
     dagster_control_plane: docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee
