@@ -52,7 +52,7 @@ def _stdin_is_tty() -> bool:
 
 
 def _load(profile_file: str, stage: str, source_id: str):  # noqa: ANN202
-    from openlakeforge_domain import load_lakehouse_inventory
+    from openlakeforge_core import load_lakehouse_inventory
 
     from olf.infra.commands._shared import deployment_context_for_profile
     from olf.infra.commands.project import _profile_provider

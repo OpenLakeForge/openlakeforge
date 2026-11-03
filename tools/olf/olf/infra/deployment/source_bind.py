@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from openlakeforge_domain.inventory import Source
+from openlakeforge_core.inventory import Source
 
 from olf.common.deployment.errors import ToolingError
 from olf.common.tooling.kubectl import Kubectl

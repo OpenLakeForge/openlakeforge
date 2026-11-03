@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from openlakeforge_domain.inventory import Source
+from openlakeforge_core.inventory import Source
 from typer.testing import CliRunner
 
 from olf.cli import app
@@ -85,7 +85,7 @@ def cluster(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeCluster:
     monkeypatch.setattr("olf.infra.commands._shared.deployment_context_for_profile", lambda *_a, **_k: context)
     monkeypatch.setattr("olf.infra.commands.project._profile_provider", lambda *_a, **_k: provider)
     monkeypatch.setattr(
-        "openlakeforge_domain.load_lakehouse_inventory", lambda _path: SimpleNamespace(sources=[source, plain])
+        "openlakeforge_core.load_lakehouse_inventory", lambda _path: SimpleNamespace(sources=[source, plain])
     )
     monkeypatch.setattr(source_cmd, "_stdin_is_tty", lambda: False)
     monkeypatch.setenv("OFF_PASSWORD", PASSWORD)
