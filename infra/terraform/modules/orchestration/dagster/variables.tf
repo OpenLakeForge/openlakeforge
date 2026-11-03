@@ -61,6 +61,18 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
+variable "run_pod_resources" {
+  description = "Requests and limits for every Dagster run pod, which also runs the dlt Bronze extract and dbt. No CPU limit, so a run is never throttled; the memory limit turns a runaway extract into an OOMKilled run pod rather than node pressure on its neighbours."
+  type = object({
+    requests = map(string)
+    limits   = map(string)
+  })
+  default = {
+    requests = { cpu = "250m", memory = "512Mi" }
+    limits   = { memory = "2Gi" }
+  }
+}
+
 variable "kubernetes_log_archive_schedule" {
   description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
   type        = string

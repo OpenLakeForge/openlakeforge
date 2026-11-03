@@ -159,6 +159,13 @@ rebuilt.
 Runs execute in isolated pods using the project-code image, so a run's
 dependencies and failures are contained.
 
+Every run pod carries the same requests and limits, set in
+`modules/orchestration/dagster` (`run_pod_resources`): 250m CPU and 512Mi memory
+requested, a 2Gi memory limit, no CPU limit. The dlt Bronze extract and dbt run
+inside that pod, so this also sizes them. The values are a safe default for the
+Slim footprint, not a measurement; a run that outgrows the limit is OOMKilled.
+Floe Jobs are sized by their own runner, not here.
+
 Locally the image is loaded into kind with `imagePullPolicy: Never`, which means
 Kubernetes never pulls a new image on pod creation. The artifacts phase
 therefore performs an explicit coordinated rollout
@@ -229,3 +236,6 @@ products against the distribution.
 incremental Bronze. It rebuilds Silver from every Bronze file and Gold from
 Silver. On the local stack, re-extraction had replaced a source's history with
 whatever its connector could still fetch, which was nothing in a quiet week.
+
+2026-11-02 (#325): run pods get default requests and limits through the
+launcher's `runK8sConfig.containerConfig.resources`; they had none.
