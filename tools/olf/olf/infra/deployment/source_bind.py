@@ -14,6 +14,7 @@ from pathlib import Path
 
 from openlakeforge_domain.inventory import Source
 
+from olf.common.deployment.errors import ToolingError
 from olf.common.tooling.kubectl import Kubectl
 
 
@@ -125,12 +126,19 @@ def bind(
         changed = stored is None or any(stored.get(key) != value for key, value in data.items())
         verb = "unchanged" if not changed else "create" if stored is None else "update"
         if changed and not dry_run:
-            cluster.kubectl.apply_from_manifest(
-                _manifest(obj, source, cluster.namespace, data),
-                context=cluster.context,
-                kubeconfig=cluster.kubeconfig,
-                env=cluster.env,
-            )
+            try:
+                cluster.kubectl.apply_from_manifest(
+                    _manifest(obj, source, cluster.namespace, data),
+                    context=cluster.context,
+                    kubeconfig=cluster.kubeconfig,
+                    env=cluster.env,
+                )
+            except ToolingError:
+                # Admission errors can echo the submitted Secret's data.
+                raise SourceBindingError(
+                    f"could not apply {obj.resource} {obj.name} in {cluster.namespace}; "
+                    "check cluster permissions and policy"
+                ) from None
         outcome = verb if verb == "unchanged" else f"would {verb}" if dry_run else f"{verb}d"
         lines.append(f"{obj.resource} {obj.name}: {', '.join(data)} ({outcome})")
     return lines

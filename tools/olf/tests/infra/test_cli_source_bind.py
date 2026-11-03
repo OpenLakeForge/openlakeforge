@@ -285,3 +285,26 @@ def test_unbind_deletes_both_objects_and_is_repeatable(cluster: FakeCluster) -> 
     ]
     assert second.stdout.count("absent") == 2
     assert cluster.objects == {}
+
+
+def test_admission_failure_does_not_echo_secret_values(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.common.deployment.errors import CommandExecutionError
+
+    original = cluster.run
+
+    def reject(command: Any, **kwargs: Any) -> CommandResult:
+        if "apply" in command and '"kind": "Secret"' in kwargs.get("input_text", ""):
+            raise CommandExecutionError(
+                command, 1, stderr=f"admission rejected: {PASSWORD} {base64.b64encode(PASSWORD.encode()).decode()}"
+            )
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(cluster, "run", reject)
+    result = _bind()
+
+    assert result.exit_code == 1
+    assert "could not apply secret olf-source-open-food-credentials" in result.output
+    assert PASSWORD not in result.output
+    assert base64.b64encode(PASSWORD.encode()).decode() not in result.output
