@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -19,9 +18,8 @@ LAUNCH_RETRY_ATTEMPTS = 4
 LAUNCH_RETRY_DELAY_SECONDS = 3
 # The tag a launch is found by after an ambiguous response; the e2e's default.
 E2E_KEY_TAG = "openlakeforge/e2e-key"
-# Floe reports a killed Job as "OOMKilled (exit_code=137)"; a killed Dagster run pod
-# only surfaces exit code 137 (SIGKILL) in the run's failure message.
-_OOM_KILLED = re.compile(r"OOMKilled|exit[ _]code[= ]+137", re.IGNORECASE)
+# Exit code 137 also occurs for other SIGKILLs; only Kubernetes' termination
+# reason establishes that the container exceeded its memory limit.
 _OOM_HINT = (
     "\n  out of memory: the pod was killed for exceeding its memory limit."
     " Floe job: raise the runner `resources` of the stage's rendered Floe profile."
@@ -338,6 +336,7 @@ class DagsterClient:
         delay: float = 10.0,
         attempts: int | None = None,
         on_status: Callable[[str], None] | None = None,
+        failure_details: Callable[[str], str] | None = None,
     ) -> None:
         terminal = {"SUCCESS", "FAILURE", "CANCELED"}
         last_error: Exception | None = None
@@ -376,7 +375,9 @@ class DagsterClient:
             if status in terminal:
                 if status != "SUCCESS":
                     failures = self._step_failures(run_id)
-                    if _OOM_KILLED.search(failures):
+                    if failure_details is not None:
+                        failures += failure_details(run_id)
+                    if "oomkilled" in failures.lower():
                         failures += _OOM_HINT
                     raise ServiceClientError(f"{job_name} run {run_id} ended with {status}{failures}")
                 return

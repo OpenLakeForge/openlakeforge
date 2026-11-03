@@ -63,9 +63,42 @@ def launch_and_poll_dagster_jobs(
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
             try:
-                client.poll(job, run_id, timeout_seconds=timeout_seconds, on_status=log.info)
+                client.poll(
+                    job,
+                    run_id,
+                    timeout_seconds=timeout_seconds,
+                    on_status=log.info,
+                    failure_details=lambda failed_run: run_pod_failure_details(cfg, failed_run),
+                )
             except ServiceClientError as exc:
                 raise E2EError(str(exc)) from exc
+
+
+def run_pod_failure_details(cfg: E2EConfig, run_id: str) -> str:
+    # Dagster's worker health event says only "K8s job failed"; the pod's
+    # termination reason distinguishes an OOM from another worker failure.
+    try:
+        payload = json.loads(
+            kubectl(
+                cfg,
+                ["get", "pods", "-n", cfg.namespace, "-l", f"dagster/run-id={run_id}", "-o", "json"],
+                capture=True,
+            )
+        )
+    except (E2EError, json.JSONDecodeError):
+        return ""
+    lines = []
+    for pod in payload.get("items", []):
+        status = pod.get("status", {})
+        for container in [*status.get("initContainerStatuses", []), *status.get("containerStatuses", [])]:
+            for state in (container.get("state", {}), container.get("lastState", {})):
+                terminated = state.get("terminated")
+                if terminated and terminated.get("exitCode", 0) != 0:
+                    lines.append(
+                        f"\n  pod {pod['metadata']['name']}, container {container['name']}: "
+                        f"{terminated.get('reason', 'terminated')} (exit code {terminated.get('exitCode')})"
+                    )
+    return "".join(lines)
 
 
 def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> list[str]:
