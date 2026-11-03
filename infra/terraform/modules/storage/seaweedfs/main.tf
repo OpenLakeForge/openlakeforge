@@ -158,6 +158,16 @@ resource "kubernetes_job_v1" "bucket" {
             fi
           SCRIPT
           ]
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

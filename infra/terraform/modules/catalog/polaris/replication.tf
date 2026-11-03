@@ -56,6 +56,16 @@ resource "kubernetes_job_v1" "credential_replication" {
             name  = "WORKLOAD_NAMESPACES"
             value = join(" ", var.workload_namespaces)
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

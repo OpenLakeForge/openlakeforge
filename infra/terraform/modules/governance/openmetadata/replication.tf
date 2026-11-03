@@ -49,6 +49,16 @@ resource "kubernetes_job_v1" "credential_replication" {
             name  = "REVOKED_NAMESPACES"
             value = join(" ", var.revoked_namespaces)
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

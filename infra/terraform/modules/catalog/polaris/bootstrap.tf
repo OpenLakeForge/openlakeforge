@@ -99,6 +99,16 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
               }
             }
           }
+
+          resources {
+            requests = {
+              cpu    = "100m"
+              memory = "256Mi"
+            }
+            limits = {
+              memory = "512Mi"
+            }
+          }
         }
       }
     }
@@ -179,6 +189,16 @@ resource "kubernetes_job_v1" "bootstrap" {
                 name = var.bootstrap_secret_name
                 key  = "ROOT_CLIENT_SECRET"
               }
+            }
+          }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
             }
           }
         }

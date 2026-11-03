@@ -176,6 +176,16 @@ resource "kubernetes_job_v1" "fernet_key" {
               }
             }
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
       }
     }

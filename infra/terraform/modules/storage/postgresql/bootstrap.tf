@@ -105,6 +105,16 @@ resource "kubernetes_job_v1" "bootstrap" {
             mount_path = "/bootstrap"
             read_only  = true
           }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
         }
 
         volume {
