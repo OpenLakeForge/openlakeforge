@@ -15,8 +15,8 @@ from collections.abc import Mapping
 from olf.common import log
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
 from olf.common.deployment.local.config import LocalDeploymentConfig
-from olf.common.retry import run_with_retry
 from olf.common.tooling.kubectl import KubeContextUnreachableError
+from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.access import LOCAL_CA_ISSUER
 from olf.infra.deployment import kube_ops
@@ -68,13 +68,12 @@ def foundation_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
     try:
         # The API server can answer before its RBAC caches sync (Forbidden), so poll: 3 s x 21 tries ~ 60 s.
         run_with_retry(
-            "Kubernetes reachability check",
             lambda: tools.kubectl.require_context_reachable(
                 config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
             ),
-            max_attempts=21,
-            delay_seconds=3.0,
+            policy=RetryPolicy(max_attempts=21, delay_seconds=3.0),
             retry_on=(KubeContextUnreachableError,),
+            description="Kubernetes reachability check",
         )
     except KubeContextUnreachableError as exc:
         raise DeploymentPreconditionError(
