@@ -287,6 +287,20 @@ def test_unbind_deletes_both_objects_and_is_repeatable(cluster: FakeCluster) -> 
     assert cluster.objects == {}
 
 
+def test_unbind_cleans_up_objects_after_runtime_is_removed(cluster: FakeCluster) -> None:
+    cluster.objects["olf-source-plain"] = {"data": {"retired_url": "old"}}
+    cluster.objects["olf-source-plain-credentials"] = {"data": {"retired_token": TOKEN}}
+
+    result = runner.invoke(app, ["infra", "source", "unbind", "plain", "-f", "p.yaml"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "configmap olf-source-plain: deleted",
+        "secret olf-source-plain-credentials: deleted",
+    ]
+    assert cluster.objects == {}
+
+
 def test_admission_failure_does_not_echo_secret_values(
     cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:

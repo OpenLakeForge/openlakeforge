@@ -146,16 +146,17 @@ def bind(
 
 def unbind(source: Source, cluster: StageCluster) -> list[str]:
     lines = []
-    for obj in _objects(source, {}, {}):
+    # Retired runtime keys must not leave credentials that this command cannot remove.
+    for resource, name in (("configmap", source.config_map_name), ("secret", source.credentials_secret_name)):
         result = cluster.kubectl.delete(
-            obj.resource,
-            obj.name,
+            resource,
+            name,
             namespace=cluster.namespace,
             context=cluster.context,
             kubeconfig=cluster.kubeconfig,
             env=cluster.env,
         )
-        lines.append(f"{obj.resource} {obj.name}: {'deleted' if result.stdout.strip() else 'absent'}")
+        lines.append(f"{resource} {name}: {'deleted' if result.stdout.strip() else 'absent'}")
     return lines
 
 
