@@ -603,3 +603,14 @@ def test_check_floe_pins_fails_when_image_pins_another_version(tmp_path: Path) -
     result = _readiness._check_floe_pins(tmp_path, _FLOE_CATALOG)
     assert not result.ok
     assert result.detail == "floe-python: catalog '0.9.0', images/project-code/pyproject.toml '0.8.1'"
+
+
+@pytest.mark.parametrize("missing", ["floe-python", "dagster-floe"])
+def test_check_floe_pins_requires_both_catalog_entries(tmp_path: Path, missing: str) -> None:
+    _floe_fixture(tmp_path, pinned="0.9.0")
+    catalog = {"components": {"floe": {k: v for k, v in _FLOE_CATALOG["components"]["floe"].items() if k != missing}}}
+
+    result = _readiness._check_floe_pins(tmp_path, catalog)
+
+    assert not result.ok
+    assert f"components.floe.{missing} is missing" in result.detail

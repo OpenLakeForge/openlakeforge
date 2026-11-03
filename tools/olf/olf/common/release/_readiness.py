@@ -93,12 +93,15 @@ def _check_floe_pins(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     pinned = {m[1]: m[2] for d in dependencies if (m := re.fullmatch(r"([\w.-]+)(?:\[[^\]]*\])?==(.+)", d))}
     recorded = (catalog.get("components") or {}).get("floe") or {}
     problems = [
+        f"components.floe.{name} is missing"
+        for name in ("floe-python", "dagster-floe")
+        if name not in recorded
+    ]
+    problems.extend(
         f"{name}: catalog {version!r}, {pyproject.relative_to(repo_root)} {pinned.get(name)!r}"
         for name, version in recorded.items()
         if pinned.get(name) != version
-    ]
-    if not recorded:
-        problems.append("components.floe is missing")
+    )
     if problems:
         return CheckResult("Floe pins match catalog", False, "; ".join(problems))
     return CheckResult("Floe pins match catalog", True, ", ".join(f"{n}=={v}" for n, v in recorded.items()))
