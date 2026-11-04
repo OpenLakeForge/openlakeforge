@@ -27,11 +27,7 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
-    # The user project root carries `lakehouse_code`, which is not installed; the runtime
-    # package `openlakeforge_runtime` is an installed dependency of `olf`.
     project_spec = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
-    if str(project_spec.root) not in sys.path:
-        sys.path.insert(0, str(project_spec.root))
     from openlakeforge_runtime.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
     projects = discover_project_dirs(project_spec.gold_root)

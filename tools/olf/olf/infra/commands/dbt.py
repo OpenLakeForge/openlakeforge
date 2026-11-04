@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 
@@ -44,10 +43,8 @@ def parse(
             # OPENLAKEFORGE_REPO_ROOT/OLF_DISTRIBUTION_ROOT from
             # --project-root in the first place, so reading these before
             # entering it always resolved the ambient/default roots
-            # instead. The project root carries `lakehouse_code`, which is not installed.
+            # instead.
             project_spec = config.project_spec()
-            if str(project_spec.root) not in sys.path:
-                sys.path.insert(0, str(project_spec.root))
             from openlakeforge_runtime.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
             projects = (
