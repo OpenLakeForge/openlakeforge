@@ -258,9 +258,9 @@ s3://openlakeforge-ops/
 The dbt run-artifacts are keyed by Dagster run ID (`run-artifacts/dbt/{domain}/
 {product}/{dagster_run_id}/`) and each Floe Job writes its reports under its own
 `floe/reports/{domain}/run_{id}/` (the project's `report.path` beneath the stage's
-artifact prefix, `libs/floe_profile.py`), so both stay isolable per run after the pods
+artifact prefix, `openlakeforge_runtime/floe_profile.py`), so both stay isolable per run after the pods
 are gone. The archived Kubernetes pod logs are partitioned only by namespace / date /
-hour (`libs/k8s_log_archive.py`), so isolating a single run from raw pod logs needs a
+hour (`openlakeforge_runtime/k8s_log_archive.py`), so isolating a single run from raw pod logs needs a
 timestamp, not just a prefix.
 
 ## Medallion-oriented code structure — the dynamic code

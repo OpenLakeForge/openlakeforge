@@ -106,7 +106,7 @@ def assert_ops_artifacts(
     # run-artifacts, Dagster compute logs, and k8s logs are all written
     # beneath this stage's own activations/<stage> prefix (see
     # OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI / OPENLAKEFORGE_LOG_BASE_URI).
-    # Floe reports follow OPENLAKEFORGE_ARTIFACT_BASE_URI (libs/floe_profile.py):
+    # Floe reports follow OPENLAKEFORGE_ARTIFACT_BASE_URI (openlakeforge_runtime/floe_profile.py):
     # bucket-root under `olf infra deploy`, whose v2 contract exports that base URI,
     # but stage-scoped once `olf infra project deploy` activates a revision.
     activation_prefix = f"activations/{namespace.removeprefix('olf-')}"

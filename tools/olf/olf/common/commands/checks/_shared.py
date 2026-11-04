@@ -71,7 +71,7 @@ def _distribution_root_for(root: Path) -> Path:
 
     An explicit `--repo-root` can point at a complete, separate checkout —
     one with its own `infra/terraform` — and that checkout's own Terraform,
-    Helm, schema, and `libs/` must be what gets checked, not the executing
+    Helm, schema, and `openlakeforge_runtime` must be what gets checked, not the executing
     `olf`'s. Only an installed-project-shaped root (`lakehouse_code/` only,
     no `infra/terraform` of its own) falls back to the runtime payload.
     """

@@ -47,8 +47,8 @@ _ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
 # produced its manifests is not known here, and stamping the current one would
 # make the next attempt mistake the rolled-back release for an up-to-date one
 # and skip the regeneration the retry exists to perform.
-# Everything `libs.k8s_log_archive` reads, directly or through
-# `libs.s3_artifacts.s3_client`, and nothing else. Handing it the code server's
+# Everything `openlakeforge_runtime.k8s_log_archive` reads, directly or through
+# `openlakeforge_runtime.s3_artifacts.s3_client`, and nothing else. Handing it the code server's
 # environment would give a log-processing container the governance JWT and the
 # catalog settings it has no use for.
 _ARCHIVE_ENV = (
@@ -59,7 +59,7 @@ _ARCHIVE_ENV = (
     "AWS_DEFAULT_REGION",
 )
 # Contract-derived runtime settings that deliberately carry no OPENLAKEFORGE_
-# prefix because the libraries reading them are not ours: libs.s3_artifacts
+# prefix because the libraries reading them are not ours: openlakeforge_runtime.s3_artifacts
 # resolves the object store through AWS_ENDPOINT_URL_S3, so a local or Azure
 # stage that loses these reaches public S3 instead of its contracted endpoint.
 # Terraform passed exactly this set to the code server. Credential *values*
@@ -75,7 +75,7 @@ _RUNTIME_ALIASES = (
     "OPENLINEAGE_NAMESPACE",
     "OPENLINEAGE_URL",
 )
-# The stage contract values the project-code runtime reads (libs/, the dbt
+# The stage contract values the project-code runtime reads (openlakeforge_runtime/, the dbt
 # profile and projects, lakehouse_code/), and nothing else. Forwarding every
 # OPENLAKEFORGE_* name in the operator's process also shipped workstation
 # paths, deployer Secret names and settings no workload reads (#546). The
@@ -233,7 +233,7 @@ def _log_archive_manifest(
 ) -> dict[str, object]:
     """The compute-log archiver, rendered into the activation release.
 
-    It runs `libs.k8s_log_archive`, which only exists inside the project-code
+    It runs `openlakeforge_runtime.k8s_log_archive`, which only exists inside the project-code
     image, so ADR 0002 puts it here rather than in a platform apply. Riding the
     activation release also keeps it on the digest the stage actually runs
     instead of whatever tag a platform apply last captured.
@@ -267,7 +267,7 @@ def _log_archive_manifest(
                                     "name": "archive-k8s-logs",
                                     "image": activation.project_code_image,
                                     "imagePullPolicy": "IfNotPresent",
-                                    "command": ["python", "-m", "libs.k8s_log_archive"],
+                                    "command": ["python", "-m", "openlakeforge_runtime.k8s_log_archive"],
                                     "env": env,
                                     "envFrom": [{"secretRef": {"name": secret}} for secret in secrets],
                                 }
@@ -302,9 +302,9 @@ def _user_values(
         {"name": "OPENLAKEFORGE_PROJECT_REVISION", "value": activation.project_revision},
     ]
     # Each domain's Floe Job runs on this same image in this namespace
-    # (libs/floe_profile.py); the contract's namespace default is a
+    # (openlakeforge_runtime/floe_profile.py); the contract's namespace default is a
     # single-stage leftover, so the activation's own stage wins. The stage
-    # gates PROD-only schedules (libs/product_dagster.py), so it comes from
+    # gates PROD-only schedules (openlakeforge_runtime/product_dagster.py), so it comes from
     # the activation record rather than whatever the operator's shell held.
     stage_env = {
         "OPENLAKEFORGE_KUBE_NAMESPACE": namespace,
@@ -339,7 +339,7 @@ def _user_values(
         - {""}
     )
     # The CA that signs Trino's certificate, for dbt in the run pods; the
-    # profile reads these names (libs/dbt/profiles/trino.yml).
+    # profile reads these names (openlakeforge_runtime/dbt/profiles/trino.yml).
     ca_configmap = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", "")
     tls_pod: dict[str, Any] = {}
     if ca_configmap and contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"):
@@ -366,7 +366,7 @@ def _user_values(
                 activation,
                 namespace=namespace,
                 env=_archive_env(contract_environ, namespace=namespace),
-                # `libs.k8s_log_archive` reads the object store and nothing
+                # `openlakeforge_runtime.k8s_log_archive` reads the object store and nothing
                 # else, and the Terraform CronJob it replaces mounted only
                 # this Secret. Handing it catalog and governance credentials
                 # would widen what a compromised log container reaches.
@@ -545,7 +545,7 @@ def _link_pull_secret(provider: DeploymentProvider, name: str, *, namespace: str
     """Add the Secret to the `dagster` ServiceAccount, keeping what it already lists.
 
     Floe Jobs are created by dagster-floe, which has no pull-secret option, and
-    run as this account (libs/floe_profile.py), so the account is the only place
+    run as this account (openlakeforge_runtime/floe_profile.py), so the account is the only place
     they can inherit it from. Every other project-code pod names the Secret
     itself; this also covers them after a Helm release is reinstalled.
     """

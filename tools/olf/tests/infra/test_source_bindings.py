@@ -10,9 +10,9 @@ from openlakeforge_core.inventory import Source
 from olf.infra.deployment.source_bindings import missing_source_bindings
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "packages/runtime"))
 
-from libs.source_bindings import K8S_CONFIG_TAG, source_binding_tags  # noqa: E402
+from openlakeforge_runtime.source_bindings import K8S_CONFIG_TAG, source_binding_tags  # noqa: E402
 
 _API = Source(
     descriptor_path=Path("source.yaml"),

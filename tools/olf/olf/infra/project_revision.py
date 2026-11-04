@@ -6,7 +6,7 @@ assets when present, the project-code image digest, and the distribution
 version. It intentionally excludes `openlakeforge.yaml` (deployment intent,
 not project content). The Floe profile is not project content either: it
 binds physical bucket names, namespaces and secret references, so each stage
-renders its own on the pod (libs/floe_profile.py). See ADR 0012.
+renders its own on the pod (openlakeforge_runtime/floe_profile.py). See ADR 0012.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _ALL_COMPONENT_NAMES = _REQUIRED_COMPONENT_NAMES | {"reports"}
 # produces a different revision depending on whether dbt happened to run
 # locally first, and a local log file could spuriously trip the forbidden-
 # value scan. `profiles.yml` is the stage's connection, rendered by
-# libs/dbt/render_profiles.py: excluding it keeps one revision promotable
+# openlakeforge_runtime/dbt/render_profiles.py: excluding it keeps one revision promotable
 # across stages and providers whatever profile a local run left behind.
 _EXCLUDED_DIR_NAMES = frozenset({"target", "dbt_packages", "logs", "__pycache__", ".venv", ".pytest_cache"})
 _EXCLUDED_FILE_NAMES = frozenset({".user.yml", "package-lock.yml", "profiles.yml"})

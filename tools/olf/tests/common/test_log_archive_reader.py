@@ -75,7 +75,7 @@ def writer(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
         stand_in.client = NS(CoreV1Api=None)  # type: ignore[attr-defined]
         stand_in.config = NS(load_incluster_config=None, load_kube_config=None, ConfigException=Exception)  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "kubernetes", stand_in)
-    return importlib.import_module("libs.k8s_log_archive")
+    return importlib.import_module("openlakeforge_runtime.k8s_log_archive")
 
 
 Archive = Callable[[datetime, dict[tuple[str, str], "str | Exception"], str], None]

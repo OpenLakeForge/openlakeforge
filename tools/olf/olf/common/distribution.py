@@ -35,7 +35,7 @@ _PAYLOAD_ROOTS = (
     "packages/core",
     "packages/lakehouse-services",
     "packages/platform-api",
-    "libs",
+    "packages/runtime",
     "docs/schema",
     "lakehouse_code",
 )

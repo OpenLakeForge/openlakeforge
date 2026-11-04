@@ -18,7 +18,7 @@ olf source new shop --kind api --resource products --cursor updated_at --primary
 
 `--kind api` (or `--kind sql`) writes everything the rest of this guide
 describes for one source: `source.yaml` with each resource incremental and its
-`runtime` keys, a connector on `libs.bronze_incremental`, and an example CSV per
+`runtime` keys, a connector on `openlakeforge_runtime.bronze_incremental`, and an example CSV per
 resource. The example is not loaded; give it the real columns, because
 
 ```bash
@@ -61,10 +61,10 @@ stays `full` and is replaced on every run.
 The connector lives in `lakehouse_code/bronze/shop/dlt/shop.py`. It is a dlt
 source whose incremental resources declare their cursor with
 `dlt.sources.incremental`, on the column `source.yaml` names. A loader runs it
-through `libs.bronze_dlt.load_dlt_source`, which applies the declared modes and
+through `openlakeforge_runtime.bronze_dlt.load_dlt_source`, which applies the declared modes and
 refuses a cursor that differs from the descriptor.
 
-`libs.bronze_incremental` holds the two read patterns most sources fit, so the
+`openlakeforge_runtime.bronze_incremental` holds the two read patterns most sources fit, so the
 connector keeps only the request, the query and the row shape:
 
 | Helper | For | What it guarantees |
@@ -80,9 +80,9 @@ from typing import Any
 import dlt
 import sqlalchemy as sa
 from dlt.sources.helpers import requests
-from libs.bronze_csv import BronzeLoadResult
-from libs.bronze_dlt import load_dlt_source
-from libs.bronze_incremental import keyset_batches, newest_first_pages, sql_engine
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult
+from openlakeforge_runtime.bronze_dlt import load_dlt_source
+from openlakeforge_runtime.bronze_incremental import keyset_batches, newest_first_pages, sql_engine
 
 _ORDERS = sa.text("select id, sku, quantity, placed_at from orders where id > :last order by id limit :limit")
 
@@ -198,7 +198,7 @@ real connector against a controlled server or a temporary database and assert
 on the Parquet it lands:
 
 ```python
-from libs.bronze_dlt import load_dlt_source
+from openlakeforge_runtime.bronze_dlt import load_dlt_source
 
 
 def test_a_second_run_with_no_change_loads_nothing(tmp_path, monkeypatch):

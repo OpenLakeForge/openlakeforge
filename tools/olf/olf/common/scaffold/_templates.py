@@ -92,7 +92,7 @@ def _cursor_argument(cursor: str) -> str:
 def render_incremental_connector(
     *, source: str, display_name: str, resources: tuple[str, ...], load: IncrementalLoad
 ) -> str:
-    """A dlt connector on `libs.bronze_incremental`: newest-first API pages, or SQL keyset batches."""
+    """A dlt connector on `openlakeforge_runtime.bronze_incremental`: newest-first API pages, or SQL keyset batches."""
     names = ", ".join(f"{resource}_resource" for resource in resources)
     if load.kind == "api":
         resource_blocks = "".join(
@@ -129,9 +129,9 @@ from typing import Any
 
 import dlt
 from dlt.sources.helpers import requests
-from libs.bronze_csv import BronzeLoadResult
-from libs.bronze_dlt import load_dlt_source
-from libs.bronze_incremental import newest_first_pages
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult
+from openlakeforge_runtime.bronze_dlt import load_dlt_source
+from openlakeforge_runtime.bronze_incremental import newest_first_pages
 
 _PAGE_SIZE = 100
 
@@ -193,9 +193,9 @@ from typing import Any
 
 import dlt
 import sqlalchemy as sa
-from libs.bronze_csv import BronzeLoadResult
-from libs.bronze_dlt import load_dlt_source
-from libs.bronze_incremental import keyset_batches, sql_engine
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult
+from openlakeforge_runtime.bronze_dlt import load_dlt_source
+from openlakeforge_runtime.bronze_incremental import keyset_batches, sql_engine
 
 
 @dlt.source(name="{source}")
@@ -234,7 +234,7 @@ def render_dlt_loader(*, source: str, resources: tuple[str, ...]) -> str:
 
 from pathlib import Path
 
-from libs.bronze_csv import BronzeLoadResult, load_entities_to_bronze
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult, load_entities_to_bronze
 
 {source.upper()}_ENTITIES = ({entities_tuple})
 
@@ -268,7 +268,7 @@ def render_bronze_readme(*, source: str, display_name: str, kind: str = "csv") -
 Scaffolded by `olf source new {source} --kind {kind}`.
 
 `dlt/{source}.py` reads each resource incrementally through
-`libs.bronze_incremental`; adapt its request or queries to the real source.
+`openlakeforge_runtime.bronze_incremental`; adapt its request or queries to the real source.
 The example CSV(s) under `examples/` are not loaded: they only seed the
 columns `olf domain new` writes into the Silver contract, so give them the
 real columns first. Each stage binds the keys `source.yaml` lists under
@@ -470,7 +470,7 @@ def render_dagster_product_module(
         gold_tuple += ","
     return f'''from __future__ import annotations
 
-from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
+from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
 
 {const_prefix}_SILVER_INPUTS = ({silver_tuple})
 

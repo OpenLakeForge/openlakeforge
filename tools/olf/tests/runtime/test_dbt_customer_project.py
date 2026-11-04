@@ -1,6 +1,6 @@
 """A customer project's dbt products parse against the distribution (#627).
 
-The project sits in its own repository: no `libs/` beside `lakehouse_code/`,
+The project sits in its own repository: no `openlakeforge_runtime/` beside `lakehouse_code/`,
 and product names the distribution's baked profiles have never seen. Only
 `olf check project-code` installs dbt, so the plain test gate skips this.
 """
@@ -15,7 +15,7 @@ import yaml
 if shutil.which("dbt") is None:
     pytest.skip("dbt is installed only in the project-code check environment", allow_module_level=True)
 
-from libs.dbt import render_profiles  # noqa: E402
+from openlakeforge_runtime.dbt import render_profiles  # noqa: E402
 
 from olf.common.scaffold import _templates  # noqa: E402
 
@@ -51,7 +51,7 @@ def test_a_customer_project_parses_with_the_distributions_package_and_its_own_pr
     monkeypatch.setenv(render_profiles.PROFILES_DIR_ENV, str(profiles))
     # Nothing but the bake itself may point dbt at the package.
     monkeypatch.delenv(render_profiles.PACKAGES_DIR_ENV, raising=False)
-    assert not (repository / "libs").exists()
+    assert not (repository / "openlakeforge_runtime").exists()
 
     for project in projects:
         manifest = json.loads(render_profiles.ensure_baked_manifest(project).read_text(encoding="utf-8"))

@@ -68,7 +68,7 @@ the project-code image install it.
 
 The package has no Dagster, Terraform, or provider dependency. Dagster-specific
 discovery — importing product modules and merging their `Definitions` — is a
-runtime adapter in `libs/`, not part of the model.
+runtime adapter in `openlakeforge_runtime/`, not part of the model.
 
 ### v1alpha1 and v1alpha2 are removed
 

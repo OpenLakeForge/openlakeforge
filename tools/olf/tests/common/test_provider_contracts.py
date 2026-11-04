@@ -404,7 +404,7 @@ def test_non_default_s3_endpoint_does_not_leak_the_generic_local_default() -> No
     them from the generic local endpoint default before the stage's real
     storage.endpoint/path_style_access apply, and env.default() (used for
     both in the non-aws_s3 branch) will not move an already-set value.
-    Consumers like libs/bronze_csv.py would otherwise connect to the wrong
+    Consumers like openlakeforge_runtime/bronze_csv.py would otherwise connect to the wrong
     SeaweedFS host or use the wrong addressing style for a stage with a
     genuinely different endpoint."""
     contract = _fixture("local-provider-contracts-v3.json")
@@ -595,7 +595,7 @@ def test_catalog_token_uri_must_not_embed_credentials() -> None:
 def test_storage_endpoint_must_be_a_valid_absolute_uri(endpoint, match: str) -> None:
     """storage.endpoint was accepted unchanged and synchronized into
     AWS_ENDPOINT_URL_S3; a bare host:port or non-string value would hand
-    boto3 an invalid endpoint in libs/bronze_csv.py instead of the contract
+    boto3 an invalid endpoint in openlakeforge_runtime/bronze_csv.py instead of the contract
     failing closed here."""
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)

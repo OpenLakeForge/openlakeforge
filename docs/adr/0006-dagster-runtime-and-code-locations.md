@@ -19,7 +19,7 @@ A project image carries everything Dagster needs to load and run user code:
 Dagster definitions, the `dagster-floe` and `dagster-dbt`
 connectors, the Floe Python core (`floe-python`), dlt pipelines, the dbt
 projects, the Floe project, the `openlakeforge-core` package, and the
-shared `libs/`.
+shared `openlakeforge_runtime/`.
 
 The Terraform-owned Dagster control plane owns the webserver, daemon, database,
 RBAC, and a stable external gRPC workspace. It does not own a project image
@@ -49,7 +49,7 @@ failure, handled like a pointer that will not commit. The daemon refreshes its
 own workspace every minute and needs no reload.
 
 Anything that does need project code rides the activation release instead. The
-compute-log archiver (`libs.k8s_log_archive`) is rendered into it through the
+compute-log archiver (`openlakeforge_runtime.k8s_log_archive`) is rendered into it through the
 user-deployments subchart's `extraManifests`, which also keeps it on the digest
 its stage actually runs.
 
@@ -58,7 +58,7 @@ its stage actually runs.
 Floe 0.8 is a Python library, and the project-code image installs it. The code
 location builds the Floe manifest in memory from the Floe project under
 `lakehouse_code/silver/` and an EnvironmentProfile it renders for its own
-stage (`libs/floe_profile.py`). No manifest is generated, published or
+stage (`openlakeforge_runtime/floe_profile.py`). No manifest is generated, published or
 versioned, and there is no separate Floe runner image.
 
 The profile's runner is `kubernetes_job` with `job_scope: domain`: dagster-floe
@@ -87,11 +87,11 @@ catalogs Floe 0.8 supports.
 ### dbt reads its stage from the pod environment
 
 The image holds one dbt profile, rendered at build from
-`libs/dbt/profiles/trino.yml` into `generated/dbt-profiles/`. Every
+`openlakeforge_runtime/dbt/profiles/trino.yml` into `generated/dbt-profiles/`. Every
 connection value in it (host, port, TLS, user, catalog, schema prefix) is an
 `env_var()` reference with no stage default. The build also parses each
 product's manifest once, with placeholder values
-(`libs/dbt/render_profiles.py`). Dagster reads that manifest for the asset
+(`openlakeforge_runtime/dbt/render_profiles.py`). Dagster reads that manifest for the asset
 graph. Its asset keys come from domain, product and node names, never from a
 catalog or schema, so the graph is the same in every stage. Products reach
 the shared `openlakeforge_dbt` package through

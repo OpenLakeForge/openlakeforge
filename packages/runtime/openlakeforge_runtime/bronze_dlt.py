@@ -1,7 +1,7 @@
 """A dlt pipeline that loads one source into the stage's own Bronze bucket.
 
 For sources that are real dlt sources (an API, a database) rather than the
-CSV fixtures `libs.bronze_csv` uploads. dlt keeps a pipeline's incremental
+CSV fixtures `openlakeforge_runtime.bronze_csv` uploads. dlt keeps a pipeline's incremental
 state in its destination, so state lives in the stage's own bucket under a
 stage-named pipeline: a DEV run can never move PROD's cursor (#546). The
 working directory is fresh on every run; the state is restored from the
@@ -21,7 +21,7 @@ from typing import Any
 import dlt
 from openlakeforge_core import load_source
 
-from libs.bronze_csv import BronzeLoadResult
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 
 
 def _declared_cursor(resource: Any) -> str | None:
@@ -101,7 +101,7 @@ def load_dlt_source(
 
     The loader contract is `load_<source>_entities_to_bronze(resources)`.
     """
-    # The project imported as `lakehouse_code`: beside libs/ in the image, but a
+    # The project imported as `lakehouse_code`: beside openlakeforge_runtime/ in the image, but a
     # separate root when olf checks a customer project against the distribution.
     root = lakehouse_root or Path(import_module("lakehouse_code").__file__).resolve().parent
     declared = load_source(root / "bronze" / source / "source.yaml")

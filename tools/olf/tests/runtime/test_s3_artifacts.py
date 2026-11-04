@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from libs import s3_artifacts
+from openlakeforge_runtime import s3_artifacts
 
 
 class _FakeS3:

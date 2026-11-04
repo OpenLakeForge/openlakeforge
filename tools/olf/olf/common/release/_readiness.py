@@ -69,6 +69,7 @@ def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> 
         "openlakeforge": repo_root / "tools/olf/pyproject.toml",
         "openlakeforge-core": repo_root / "packages/core/pyproject.toml",
         "openlakeforge-lakehouse-services": repo_root / "packages/lakehouse-services/pyproject.toml",
+        "openlakeforge-runtime": repo_root / "packages/runtime/pyproject.toml",
     }
     problems: list[str] = []
     for name, path in paths.items():

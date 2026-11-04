@@ -1,6 +1,6 @@
 """Building blocks for incremental dlt connectors (#342).
 
-A connector reads its source, and `libs.bronze_dlt.load_dlt_source` lands
+A connector reads its source, and `openlakeforge_runtime.bronze_dlt.load_dlt_source` lands
 what it reads in Bronze as `source.yaml` declares. These helpers cover the two
 read patterns most sources fit, so a connector keeps only what is specific to
 its source: the request or query, and the row shape.

@@ -793,9 +793,9 @@ def test_each_stage_renders_a_floe_profile_bound_to_its_own_contract(provider: P
     Floe input the runtime allowlist drops, or one stage's value reaching
     another stage's profile, fails here rather than in a run.
     """
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
-    from libs.floe_profile import render_profile
+    if str(REPO_ROOT / "packages/runtime") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "packages/runtime"))
+    from openlakeforge_runtime.floe_profile import render_profile
 
     contract = _contract(provider)
     topology = _topology_of(contract)
@@ -824,9 +824,9 @@ def test_each_aws_stage_writes_silver_into_its_own_glue_databases() -> None:
     """The account's one Glue catalog is shared by every stage, so each stage's
     profile must name its own prefixed database per domain -- the one
     `olf infra catalog sync-namespaces` creates -- from what activation puts on the pod."""
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
-    from libs.floe_profile import render_profile
+    if str(REPO_ROOT / "packages/runtime") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "packages/runtime"))
+    from openlakeforge_runtime.floe_profile import render_profile
 
     contract = _contract(Provider.AWS)
     topology = _topology_of(contract)

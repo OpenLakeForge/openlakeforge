@@ -75,7 +75,7 @@ The Glue catalog contract uses `catalog_type = "glue"` and
   uses the product Silver layer as the Glue database, so writes resolve as
   `lakehouse_dev.<product_layer_database>.<table>` in SQL engines.
 - dbt-trino uses the same profile as every provider
-  (`libs/dbt/profiles/trino.yml`). Its Gold schema carries the stage prefix
+  (`openlakeforge_runtime/dbt/profiles/trino.yml`). Its Gold schema carries the stage prefix
   from `OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX`, and it reaches the Glue Iceberg
   catalog through Trino, so transformation pods carry no direct catalog
   credentials.

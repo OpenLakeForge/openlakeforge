@@ -1,4 +1,4 @@
-"""`olf check project-code`: load merged Dagster definitions and run the libs tests."""
+"""`olf check project-code`: load merged Dagster definitions and run the runtime tests."""
 
 from __future__ import annotations
 
@@ -55,8 +55,8 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     shutil.rmtree(dbt_profiles, ignore_errors=True)
     env = {
         "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
-        "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{project.distribution_root}",
-        # The stage binding libs.floe_profile renders the Floe profile from;
+        "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{project.distribution_root / 'packages/runtime'}",
+        # The stage binding openlakeforge_runtime.floe_profile renders the Floe profile from;
         # the check only builds definitions, so none of these is contacted.
         "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "lakehouse-dev-bronze",
         "OPENLAKEFORGE_STORAGE_SILVER_BUCKET": "lakehouse-dev-silver",
@@ -75,7 +75,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
         "OPENLAKEFORGE_DBT_PROFILES_DIR": str(dbt_profiles),
-        "OPENLAKEFORGE_DBT_PACKAGES_DIR": str(project.distribution_root / "libs/dbt"),
+        "OPENLAKEFORGE_DBT_PACKAGES_DIR": str(project.distribution_root / "packages/runtime/openlakeforge_runtime/dbt"),
     }
     _run([sys.executable, "-m", "olf.common.project_code_check", str(project.root)], cwd=project.root, env=env)
     # The image build runs the same two commands (#725). The install is the
@@ -83,12 +83,13 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     # downloads disabled. Cached per DuckDB version, which is in the path.
     extensions = str(site.parent / "duckdb-extensions")
     for action in ("install", "verify"):
-        _run([sys.executable, "-m", "libs.duckdb_extensions", action, extensions], cwd=project.root, env=env)
-    # The libs tests need Dagster, dlt and kubernetes, which only this
+        argv = [sys.executable, "-m", "openlakeforge_runtime.duckdb_extensions", action, extensions]
+        _run(argv, cwd=project.root, env=env)
+    # The runtime tests need Dagster, dlt and kubernetes, which only this
     # environment has; under the plain `pytest tools/olf/tests` gate they skip.
-    libs_tests = project.distribution_root / "tools/olf/tests/libs"
-    if libs_tests.is_dir():
-        pytest = [sys.executable, "-m", "pytest", str(libs_tests), "-q", "-p", "no:cacheprovider"]
+    runtime_tests = project.distribution_root / "tools/olf/tests/runtime"
+    if runtime_tests.is_dir():
+        pytest = [sys.executable, "-m", "pytest", str(runtime_tests), "-q", "-p", "no:cacheprovider"]
         _run(pytest, cwd=project.root, env=env)
 
 

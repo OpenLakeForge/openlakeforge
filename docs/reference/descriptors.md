@@ -80,7 +80,7 @@ Where they apply:
   ([reference](deployment-profile.md#specstages)).
 
 A loader that is a real dlt source runs it through
-`libs.bronze_dlt.bronze_pipeline(<source>)`:
+`openlakeforge_runtime.bronze_dlt.bronze_pipeline(<source>)`:
 
 - Files land at `<stage Bronze bucket>/<source>/<resource>/`, the path Floe
   reads Bronze from.
@@ -90,7 +90,7 @@ A loader that is a real dlt source runs it through
 - `olf check project-code` proves this with a mocked API source run as DEV
   and as PROD.
 
-`libs.bronze_incremental` provides the read side of an incremental connector
+`openlakeforge_runtime.bronze_incremental` provides the read side of an incremental connector
 for an API or a database; [Load an external source
 incrementally](../guides/incremental-sources.md) walks through one.
 
@@ -111,7 +111,7 @@ entity reading a full resource cannot use `append`, which would add every row
 again on each run.
 
 A loader with an incremental resource runs its dlt source through
-`libs.bronze_dlt.load_dlt_source`. The connector declares the cursor with
+`openlakeforge_runtime.bronze_dlt.load_dlt_source`. The connector declares the cursor with
 `dlt.sources.incremental` on the column `load.cursor` names, and the load
 fails if the two differ. A run with nothing new past the cursor writes no
 Bronze file, so Floe has no new file to read either. The CSV loader has no

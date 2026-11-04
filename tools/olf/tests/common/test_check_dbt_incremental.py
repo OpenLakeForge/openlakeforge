@@ -15,7 +15,7 @@ DBT = shutil.which("dbt")
 if DBT is None:
     pytest.skip("dbt is installed only in the check environment", allow_module_level=True)
 
-from libs.dbt import render_profiles  # noqa: E402
+from openlakeforge_runtime.dbt import render_profiles  # noqa: E402
 
 from olf.common.commands.checks import _dbt  # noqa: E402
 from olf.common.scaffold import _templates  # noqa: E402

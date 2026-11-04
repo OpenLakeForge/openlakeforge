@@ -48,7 +48,7 @@ checked, not that the bytes ship in the wheel.
 
 | Root | Holds | Mutability |
 | --- | --- | --- |
-| `distribution_root` | Terraform, Helm values, schemas, Dockerfiles, `libs/`, release catalog | Immutable, shared between projects |
+| `distribution_root` | Terraform, Helm values, schemas, Dockerfiles, `openlakeforge_runtime/`, release catalog | Immutable, shared between projects |
 | `project_root` | `openlakeforge.yaml` and `lakehouse_code/` — descriptors, Floe contracts, dashboards, pipelines | The user's, writable |
 | state / work / cache roots | Terraform state and data, generated artifacts, Docker staging, Helm downloads | Derived |
 

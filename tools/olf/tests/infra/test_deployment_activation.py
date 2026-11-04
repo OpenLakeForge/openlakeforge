@@ -658,7 +658,7 @@ def test_reapplying_repairs_a_release_that_drifted_to_another_activation(harness
 
 
 def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
-    """Non-prefixed aliases reach the pod: libs.s3_artifacts reads AWS_ENDPOINT_URL_S3 itself."""
+    """Non-prefixed aliases reach the pod: openlakeforge_runtime.s3_artifacts reads AWS_ENDPOINT_URL_S3 itself."""
     from olf.infra.deployment.activation import _user_values
     from olf.infra.project_activation import ProjectActivation
 
@@ -768,15 +768,15 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_QUERY_TRINO_CA": "activation, only with the Trino CA",
     "OPENLAKEFORGE_DBT_TRINO_METHOD": "activation, only with a Trino credential",
     "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "activation, by secretKeyRef",
-    # libs.k8s_log_archive runs in its own CronJob (`_archive_env`).
+    # openlakeforge_runtime.k8s_log_archive runs in its own CronJob (`_archive_env`).
     "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
     "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
     "OPENLAKEFORGE_DBT_EXECUTABLE": "Terraform runtime env",
-    # The image's ENV, or libs.product_dagster's default; never a stage value.
+    # The image's ENV, or openlakeforge_runtime.product_dagster's default; never a stage value.
     "OPENLAKEFORGE_DBT_PACKAGES_DIR": "project-code image",
     # Only `olf check project-code` sets it; pods read the image's baked profile.
     "OPENLAKEFORGE_DBT_PROFILES_DIR": "olf check project-code",
-    # libs/floe_profile.py falls back to a default; no contract emits these yet.
+    # openlakeforge_runtime/floe_profile.py falls back to a default; no contract emits these yet.
     "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE": "unset, default applies",
     "OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT": "unset, default applies",
 }
@@ -786,7 +786,11 @@ def _names_runtime_code_reads() -> set[str]:
     import re
 
     pattern = re.compile(r"OPENLAKEFORGE_[A-Z0-9_]+")
-    roots = [ROOT / "libs", ROOT / "lakehouse_code", ROOT / "packages/core/openlakeforge_core"]
+    roots = [
+        ROOT / "packages/runtime/openlakeforge_runtime",
+        ROOT / "lakehouse_code",
+        ROOT / "packages/core/openlakeforge_core",
+    ]
     return {
         name
         for root in roots

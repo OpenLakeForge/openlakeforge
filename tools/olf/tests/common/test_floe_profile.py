@@ -5,9 +5,9 @@ from typing import Any
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "packages/runtime"))
 
-from libs.floe_profile import FloeProfileError, render_profile  # noqa: E402
+from openlakeforge_runtime.floe_profile import FloeProfileError, render_profile  # noqa: E402
 
 _STAGE = {
     "OPENLAKEFORGE_STAGE": "dev",

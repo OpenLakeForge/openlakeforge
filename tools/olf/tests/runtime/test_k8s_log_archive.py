@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("kubernetes")
 
-from libs import k8s_log_archive  # noqa: E402
+from openlakeforge_runtime import k8s_log_archive  # noqa: E402
 
 
 class _Core:

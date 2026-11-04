@@ -33,4 +33,4 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["lakehouse_code*", "libs*"]
+include = ["lakehouse_code*", "openlakeforge_runtime*"]

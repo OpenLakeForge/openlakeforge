@@ -27,17 +27,17 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
-    # `libs` is distribution-owned, not project-owned (ADR 0009): an
+    # `openlakeforge_runtime` is distribution-owned, not project-owned (ADR 0009): an
     # installed project's root has only `lakehouse_code/`, so the
-    # distribution root must be on sys.path too, not just the project root.
+    # distribution's packages/runtime must be on sys.path too, not just the project root.
     # Mirrors `olf infra dbt parse`'s identical fix. `_distribution_root_for`
     # prefers `root` itself when `--repo-root` selects a complete, separate
-    # checkout, so that checkout's own `libs/dbt/render_profiles` wins.
+    # checkout, so that checkout's own `openlakeforge_runtime/dbt/render_profiles` wins.
     project_spec = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
-    for path in (str(project_spec.root), str(project_spec.distribution_root)):
+    for path in (str(project_spec.root), str(project_spec.distribution_root / "packages/runtime")):
         if path not in sys.path:
             sys.path.insert(0, path)
-    from libs.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
+    from openlakeforge_runtime.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
     projects = discover_project_dirs(project_spec.gold_root)
     if not projects:

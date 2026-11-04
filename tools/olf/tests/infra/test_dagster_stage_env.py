@@ -1,6 +1,6 @@
 """Dagster's pods name their stage on every deploy path, not only after `olf project` activation.
 
-libs/bronze_dlt.py refuses to load without OPENLAKEFORGE_STAGE, which names each dlt pipeline and its
+openlakeforge_runtime/bronze_dlt.py refuses to load without OPENLAKEFORGE_STAGE, which names each dlt pipeline and its
 state. Project activation set it, but the Dagster module's own environment did not, so a platform deploy
 (`olf infra deploy --phase artifacts`) failed every dlt Bronze load with "OPENLAKEFORGE_STAGE is not set".
 """

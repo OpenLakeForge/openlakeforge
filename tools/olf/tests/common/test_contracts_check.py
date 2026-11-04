@@ -421,7 +421,7 @@ def test_run_contracts_check_passes_against_real_repo() -> None:
 
 def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Path) -> None:
     """An installed project's root carries only `openlakeforge.yaml` and
-    `lakehouse_code/` (ADR 0009) -- `docs/schema`, `infra/`, and `libs/` all
+    `lakehouse_code/` (ADR 0009) -- `docs/schema`, `infra/`, and `openlakeforge_runtime/` all
     live in the separate, immutable distribution root instead.
     Copying the real repo's `lakehouse_code/` (which carries real Floe
     contracts under `silver/*/contracts/floe/`) and `openlakeforge.yaml` into

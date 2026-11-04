@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openlakeforge-runtime"
+version = "0.5.1a2"
+description = "OpenLakeForge project-code runtime: Dagster, dlt, dbt and Floe glue imported by lakehouse code"
+requires-python = ">=3.12"
+# Dagster, dlt, dbt and Floe come from the project-code image's hashed lock
+# (images/project-code), not from here; the image installs with --no-deps.
+dependencies = ["openlakeforge-core==0.5.1a2"]
+
+[tool.setuptools.packages.find]
+include = ["openlakeforge_runtime*"]
+
+[tool.setuptools.package-data]
+openlakeforge_runtime = ["py.typed", "dbt/**/*.yml", "dbt/**/*.sql"]

@@ -28,15 +28,15 @@ from floe_dagster.definitions import build_job_run_config_from_manifest, build_r
 from floe_dagster.manifest import ManifestEntity
 
 import lakehouse_code
-from libs.bronze_csv import BronzeLoadResult
-from libs.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
-from libs.floe_profile import write_profile
-from libs.openlakeforge_logging import log_event
-from libs.s3_artifacts import upload_file_to_base_uri
-from libs.source_bindings import source_binding_tags
+from openlakeforge_runtime.bronze_csv import BronzeLoadResult
+from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
+from openlakeforge_runtime.floe_profile import write_profile
+from openlakeforge_runtime.openlakeforge_logging import log_event
+from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
+from openlakeforge_runtime.source_bindings import source_binding_tags
 from openlakeforge_core import full_refresh_scope, inventory_for
 
-# The project imported as `lakehouse_code`: beside libs/ in the image, but a
+# The project imported as `lakehouse_code`: beside openlakeforge_runtime/ in the image, but a
 # separate root when olf checks a customer project against the distribution.
 _LAKEHOUSE_CODE_ROOT = Path(lakehouse_code.__file__).resolve().parent
 FLOE_PROJECT = _LAKEHOUSE_CODE_ROOT / "silver" / "floe.yml"
@@ -305,7 +305,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
 
 
 def _bronze_source_binding_tags(spec: ProductDefinitionSpec) -> dict[str, str]:
-    """The stage bindings of the sources this job loads, for its run pod (libs/source_bindings.py)."""
+    """The stage bindings of the sources this job loads, for its run pod (openlakeforge_runtime/source_bindings.py)."""
     loaded = {source for source, _ in spec.bronze_inputs}
     sources = [source for source in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if source.name in loaded]
     return source_binding_tags(sources)

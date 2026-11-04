@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("dlt")
 
-from libs.bronze_dlt import bronze_pipeline  # noqa: E402
+from openlakeforge_runtime.bronze_dlt import bronze_pipeline  # noqa: E402
 
 _STAGE = {"OPENLAKEFORGE_STAGE": "prod", "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "lakehouse-prod-bronze"}
 

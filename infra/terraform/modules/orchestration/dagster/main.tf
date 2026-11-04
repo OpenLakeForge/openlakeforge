@@ -149,7 +149,7 @@ locals {
       # This account's shared default Glue catalog has no per-stage catalog
       # (#114 AWS fallback), so physical Gold schema names carry this same
       # stage prefix as Silver's databases. The dbt profile baked into the
-      # project-code image (libs/dbt/profiles/trino.yml) is stage-neutral
+      # project-code image (openlakeforge_runtime/dbt/profiles/trino.yml) is stage-neutral
       # and reads this at run time via `env_var(...)` to prefix its bare
       # `<product>_gold` schema name.
       name  = "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"
@@ -292,7 +292,7 @@ locals {
       name  = "OPENLAKEFORGE_KUBE_NAMESPACE"
       value = var.namespace
     },
-    # Names dlt's Bronze pipelines and their state (libs/bronze_dlt.py) and
+    # Names dlt's Bronze pipelines and their state (openlakeforge_runtime/bronze_dlt.py) and
     # gates PROD-only schedules; project activation sets the same value.
     {
       name  = "OPENLAKEFORGE_STAGE"
@@ -301,7 +301,7 @@ locals {
   ]
 
   # Each domain's Floe Job runs on the project-code image and references the
-  # Secrets below by name (libs/floe_profile.py); names only, never values.
+  # Secrets below by name (openlakeforge_runtime/floe_profile.py); names only, never values.
   # `olf infra deploy`'s image bump keeps OPENLAKEFORGE_PROJECT_CODE_IMAGE in step
   # with the container image (olf/infra/k8s.py).
   floe_job_env = concat(

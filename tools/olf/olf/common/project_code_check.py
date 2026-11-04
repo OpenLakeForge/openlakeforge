@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from openlakeforge_core import FloeEntity, LakehouseInventory, Product
 
 
-# Dagster, Floe and the project's `libs` package are untyped or not importable
+# Dagster, Floe and the project's `openlakeforge_runtime` package are untyped or not importable
 # from the CLI package, so these protocols name the surface this check relies on.
 class _Job(Protocol):
     run_config: Mapping[str, Any]
@@ -36,7 +36,7 @@ class _Schedule(Protocol):
 
 
 class _ProductDagsterLibrary(Protocol):
-    """The `libs.product_dagster` members this check calls or patches."""
+    """The `openlakeforge_runtime.product_dagster` members this check calls or patches."""
 
     ProductDefinitionSpec: Callable[..., object]
 
@@ -73,9 +73,9 @@ def validate(root: Path) -> None:
 
     # Imported by name so mypy does not follow into the user project's tree.
     merged_defs = import_module("lakehouse_code.definitions").defs
-    product_dagster_lib = cast(_ProductDagsterLibrary, import_module("libs.product_dagster"))
+    product_dagster_lib = cast(_ProductDagsterLibrary, import_module("openlakeforge_runtime.product_dagster"))
 
-    floe_profile = import_module("libs.floe_profile")
+    floe_profile = import_module("openlakeforge_runtime.floe_profile")
     execution = floe_profile.render_profile(os.environ)["execution"]
     runner = execution["runner"]
     job_concurrency = _floe_job_concurrency(execution.get("orchestration"))
@@ -305,7 +305,7 @@ def _verify_bronze_dlt_stage_state() -> None:
     """
     import dlt
 
-    bronze_dlt = import_module("libs.bronze_dlt")
+    bronze_dlt = import_module("openlakeforge_runtime.bronze_dlt")
     api = {
         "https://api.dev.example": [{"id": 1, "updated_at": 1}, {"id": 2, "updated_at": 2}],
         "https://api.prod.example": [{"id": 10, "updated_at": 1}],
@@ -396,7 +396,7 @@ def _verify_bronze_dlt_load_modes() -> None:
     """
     import dlt
 
-    bronze_dlt = import_module("libs.bronze_dlt")
+    bronze_dlt = import_module("openlakeforge_runtime.bronze_dlt")
     records = [{"id": 1, "updated_at": 1, "v": "a"}, {"id": 2, "updated_at": 2, "v": "b"}]
 
     def source(cursor: str = "updated_at") -> object:
