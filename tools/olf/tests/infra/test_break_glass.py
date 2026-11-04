@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -111,3 +112,36 @@ def test_trino_falls_back_to_plain_http_without_a_tls_port() -> None:
     argvs: list[list[str]] = []
     break_glass.open_session(cluster, "trino", "r", 1, tls_port=tls, run=lambda argv, **_: argvs.append(argv))
     assert "8080:8080" in argvs[0]
+
+
+def test_default_attach_inherits_stdin_and_ignores_the_exit_status(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    script = tmp_path / "fake"
+    script.write_text(f'#!/bin/sh\nread line\necho "$line $OLF_BG" > {out}\nexit 3\n')
+    script.chmod(0o755)
+    read_end, write_end = os.pipe()
+    os.write(write_end, b"typed\n")
+    os.close(write_end)
+    saved = os.dup(0)
+    os.dup2(read_end, 0)
+    try:
+        break_glass._attach([str(script)], timeout=10, env={"OLF_BG": "set"})
+    finally:
+        os.dup2(saved, 0)
+        os.close(saved)
+        os.close(read_end)
+
+    assert out.read_text().strip() == "typed set"
+
+
+def test_default_attach_kills_the_child_when_the_ttl_passes(tmp_path: Path) -> None:
+    pidfile = tmp_path / "pid"
+    script = tmp_path / "fake"
+    script.write_text(f"#!/bin/sh\necho $$ > {pidfile}\nexec sleep 60\n")
+    script.chmod(0o755)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        break_glass._attach([str(script)], timeout=1, env={})
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pidfile.read_text()), 0)
