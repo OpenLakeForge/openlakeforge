@@ -88,18 +88,15 @@ def send(method: str, url: str, **kwargs: Any) -> requests.Response:
     def getaddrinfo(name: Any, *args: Any, **rest: Any) -> Any:
         return resolver("127.0.0.1" if local and name == host else name, *args, **rest)
 
-    previous = os.environ.get("NO_PROXY")
     if local:
+        # `proxies["no_proxy"]` overrides the environment's NO_PROXY for this request only.
+        no_proxy = ",".join(filter(None, [host, os.environ.get("NO_PROXY")]))
+        kwargs["proxies"] = {**kwargs.get("proxies", {}), "no_proxy": no_proxy}
         socket.getaddrinfo = getaddrinfo  # type: ignore[assignment]  # typeshed pins the stdlib signature
-        os.environ["NO_PROXY"] = ",".join(filter(None, [host, previous]))
     try:
         return requests.request(method, url, verify=verify(), **kwargs)
     finally:
         socket.getaddrinfo = resolver
-        if previous is None:
-            os.environ.pop("NO_PROXY", None)
-        else:
-            os.environ["NO_PROXY"] = previous
 
 
 def discover(instance: Instance) -> Mapping[str, Any]:

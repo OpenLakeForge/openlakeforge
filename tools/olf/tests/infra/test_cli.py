@@ -942,9 +942,7 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
 ) -> None:
     """A toolchain failure or a state Terraform cannot read is a clean CLI
     error naming the cause, not a traceback and not "run apply first"."""
-    import subprocess
-
-    from olf.common.deployment.errors import ToolchainError
+    from olf.common.deployment.errors import CommandExecutionError, ToolchainError
     from olf.common.tooling.resolver import ExecutableResolver
     from olf.infra.commands import platform as platform_module
 
@@ -967,11 +965,11 @@ def test_platform_contract_fails_cleanly_when_the_contract_cannot_be_read(
         def resolve(self, tool: str):  # noqa: ANN001, ANN202
             return Path("/usr/local/bin/terraform")
 
-    def _corrupt_state(argv, **_kwargs):  # noqa: ANN001, ANN202
-        raise subprocess.CalledProcessError(1, argv, output="", stderr="Error: Unsupported state file format")
+    def _corrupt_state(_self, argv, **_kwargs):  # noqa: ANN001, ANN202
+        raise CommandExecutionError(argv, 1, stderr="Error: Unsupported state file format")
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Terraform())
-    monkeypatch.setattr("olf.common.contract_state.subprocess.run", _corrupt_state)
+    monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _corrupt_state)
     result = runner.invoke(app, ["infra", "platform", "contract", "-f", "openlakeforge.yaml"])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit)
