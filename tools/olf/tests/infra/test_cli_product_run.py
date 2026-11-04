@@ -24,7 +24,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: None)
     monkeypatch.setattr("olf.infra.contracts.build_contract_env", lambda *_a, **_k: ({}, []))
-    monkeypatch.setattr("olf.infra.e2e._runner.prepare_kube_context", lambda _cfg: None)
+    monkeypatch.setattr("olf.infra.e2e._runner.prepare_kube_context", lambda _cfg, _kubeconfig: None)
     return profile
 
 

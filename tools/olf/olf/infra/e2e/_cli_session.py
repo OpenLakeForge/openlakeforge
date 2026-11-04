@@ -6,17 +6,16 @@ is what `olf whoami` reads, and `session.delete` is what `olf logout` does. Only
 Typer wrapper and the Deployment Profile lookup are left out: the instance comes from
 the applied identity contract, which the profile rendered. The stub GitHub user signs
 in where a person would use a browser, and the redirect reaches the CLI's listener for
-real. Sessions are written under a temporary OLF_HOME, never the operator's.
+real. Sessions are written under a temporary home, never the operator's.
 """
 
 from __future__ import annotations
 
-import os
 import queue
 import tempfile
 import threading
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -33,20 +32,6 @@ CLI_CLIENT = "olf-cli"
 SIGN_IN_SECONDS = 120
 
 
-@contextmanager
-def _olf_home() -> Iterator[None]:
-    previous = os.environ.get("OLF_HOME")
-    with tempfile.TemporaryDirectory(prefix="olf-e2e-home-") as home:
-        os.environ["OLF_HOME"] = home
-        try:
-            yield
-        finally:
-            if previous is None:
-                os.environ.pop("OLF_HOME", None)
-            else:
-                os.environ["OLF_HOME"] = previous
-
-
 def cli_instance(identity: Mapping[str, Any]) -> sessions.Instance:
     """The instance `olf login -f <profile>` resolves on a Dex deployment: issuer `auth.<base_domain>`."""
     issuer = str(identity["issuer_url"]).rstrip("/")
@@ -61,14 +46,15 @@ def check_cli_session(
     """Sign in as `login` with the CLI's own flow, show who is signed in, sign out, and show nobody is."""
     log.step(f"Checking olf login, whoami and logout as {role}...")
     instance = cli_instance(identity)
-    with _olf_home():
-        session = _sign_in(cfg, instance, login)
-        who = sessions.claims(sessions.active_session(instance).id_token)
+    with tempfile.TemporaryDirectory(prefix="olf-e2e-home-") as tmp:
+        home = Path(tmp)
+        session = _sign_in(cfg, instance, login, home)
+        who = sessions.claims(sessions.active_session(instance, home).id_token)
         if who.get("email") != sessions.claims(session.id_token).get("email") or not who.get("groups"):
             raise E2EError(f"olf whoami after olf login as {login} shows {who.get('email')} in {who.get('groups')}")
         if whoami_url:
             # The stored session is the one every platform command sends.
-            token = sessions.bearer_token(instance)
+            token = sessions.bearer_token(instance, home)
             reply = requests.get(
                 whoami_url,
                 headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
@@ -76,10 +62,10 @@ def check_cli_session(
             )
             if reply.status_code != 200 or reply.json().get("role") != role:
                 raise E2EError(f"{whoami_url} with the stored session: HTTP {reply.status_code} {reply.text[:200]}")
-        if not sessions.delete(instance):
+        if not sessions.delete(instance, home):
             raise E2EError("olf logout found no session to delete after olf login")
         try:
-            sessions.active_session(instance)
+            sessions.active_session(instance, home)
         except sessions.PlatformError as exc:
             if "olf login" not in str(exc):
                 raise E2EError(f"olf whoami after olf logout: {exc}") from exc
@@ -87,13 +73,13 @@ def check_cli_session(
             raise E2EError("olf whoami after olf logout still shows a session")
 
 
-def _sign_in(cfg: E2EConfig, instance: sessions.Instance, login: str) -> sessions.Session:
+def _sign_in(cfg: E2EConfig, instance: sessions.Instance, login: str, home: Path) -> sessions.Session:
     announced: queue.Queue[str] = queue.Queue()
     outcome: dict[str, Any] = {}
 
     def run() -> None:
         try:
-            outcome["session"] = login_flow.login(instance, open_browser=False, announce=announced.put)
+            outcome["session"] = login_flow.login(instance, open_browser=False, announce=announced.put, home=home)
         except Exception as exc:  # noqa: BLE001 - reported in the caller's thread
             outcome["error"] = exc
 
