@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -193,3 +194,14 @@ def test_stage_schedules_accept_a_stopped_daily_scaffold_in_prod_only() -> None:
 def test_stage_schedules_reject_anything_a_promotion_could_start(overrides: dict, message: str) -> None:
     with pytest.raises(RuntimeError, match=message):
         project_code_check._verify_stage_schedules(_inventory(), _schedule_library(**overrides))
+
+
+def test_environment_exports_values_to_the_reader_and_restores_os_environ(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SOURCES__X__KEPT", "before")
+    monkeypatch.delenv("SOURCES__X__NEW", raising=False)
+    snapshot = dict(os.environ)
+
+    with project_code_check._environment({"SOURCES__X__KEPT": "inside", "SOURCES__X__NEW": "inside"}):
+        assert os.environ["SOURCES__X__KEPT"] == os.environ["SOURCES__X__NEW"] == "inside"
+
+    assert dict(os.environ) == snapshot
