@@ -187,16 +187,17 @@ def run_sql(
     output_format: str,
     kubectl: str,
     runner: Runner | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> str:
     """Run `sql` once and return Trino's output; raise `TrinoQueryError` with an explanation on failure."""
     base = [kubectl, "--context", target.kube_context]
-    run = runner or _subprocess_runner
+    run = runner or (lambda command, stdin: _subprocess_runner(command, stdin, environ=environ))
     try:
         # Only a contract that names a credential has a password to send; an unauthenticated
         # coordinator is queried with no Secret read and no stdin.
         password = ""
         stdin = ""
-        if os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
+        if (os.environ if environ is None else environ).get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
             lookup = run([*base, *password_args(target)], "")
             if lookup.returncode != 0:
                 raise TrinoQueryError(
@@ -214,5 +215,7 @@ def run_sql(
     return result.stdout
 
 
-def _subprocess_runner(command: Sequence[str], stdin: str) -> CommandResult:
-    return ProcessRunner().run(command, input_text=stdin, check=False)
+def _subprocess_runner(
+    command: Sequence[str], stdin: str, *, environ: Mapping[str, str] | None = None
+) -> CommandResult:
+    return ProcessRunner().run(command, input_text=stdin, check=False, env=environ)
