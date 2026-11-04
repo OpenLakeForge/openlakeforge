@@ -32,7 +32,7 @@ product-local model code and schema defaults.
 Each product's `packages.yml` reaches the shared `openlakeforge_dbt` package
 as `{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt`. A
 path relative to the product would resolve only where `openlakeforge_runtime/` sits beside
-`lakehouse_code/`, which a customer repository does not have. The image sets
-the variable to `/opt/openlakeforge/openlakeforge_runtime/dbt`; `olf check dbt`,
-`olf check project-code` and `olf infra dbt parse` set it to the
-distribution's `openlakeforge_runtime/dbt`.
+`lakehouse_code/`, which a customer repository does not have. The installed
+runtime sets the variable to its own `dbt/` directory (`render_profiles.dbt_environment()`,
+applied when `product_dagster` is imported); `olf check dbt`,
+`olf check project-code` and `olf infra dbt parse` set it the same way.
