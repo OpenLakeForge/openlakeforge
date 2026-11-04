@@ -33,7 +33,7 @@ The control plane runs a digest-pinned upstream Dagster image from
 `lakehouse_code`, so pointing them at a project image made a platform apply
 depend on a project build having happened first. Where activation owns user
 code, the K8sRunLauncher is given no image at all (`modules/orchestration/dagster`
-renders no `job_image` when `manage_user_deployments` is false), so Dagster
+renders no `job_image`), so Dagster
 launches each run with its code location's own container image -- the digest
 that stage activation set. A value configured at platform-apply time would only
 name a build no stage activated. `olf infra deploy` takes the same path: its
@@ -227,10 +227,9 @@ path, so the statement that the run launcher has no image holds again.
 
 2026-11-04 (#558): the artifacts phase of `olf infra deploy` builds a
 ProjectRevision and activates it through `deploy_revision`, and Terraform no
-longer owns the Dagster user deployments for any entry point
-(`manage_user_deployments` defaults to false). A stack applied before this keeps
-its Terraform-owned code location until the next platform apply removes it, then
-the artifacts phase installs `openlakeforge-project`.
+longer owns the Dagster user deployments for any entry point. A stack applied
+before this keeps its Terraform-owned code location until the next platform
+apply removes it, then the artifacts phase installs `openlakeforge-project`.
 
 2026-11-01 (#627): product `packages.yml` files name the shared dbt package
 through `OPENLAKEFORGE_DBT_PACKAGES_DIR` instead of `../../../../libs/dbt`,

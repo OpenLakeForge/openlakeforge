@@ -33,29 +33,25 @@ resource "helm_release" "dagster" {
       # what makes the parent chart render workspace.yaml at all, and turning
       # it off while the subchart condition is still true trips the chart's
       # own "subchart cannot be enabled if workspace.yaml is not created"
-      # guard. Only `enableSubchart` moves the deployments themselves out.
+      # guard. Only `enableSubchart` moves the deployments themselves out:
+      # `deploy_revision` owns every code location (ADR 0006).
       "dagster-user-deployments" = {
         enabled        = true
-        enableSubchart = var.manage_user_deployments
+        enableSubchart = false
         serviceAccount = {
           annotations = var.service_account_annotations
         }
-        # Empty when activation owns user code; the subchart renders nothing
-        # from it either way once `enableSubchart` is false.
-        deployments = local.code_location_deployments
+        deployments = []
       }
 
       # The webserver and daemon images stay where the catalog pins them, in
       # `base_values_file`: overriding them with a project-code reference here
       # is what made a platform apply depend on a project build existing.
       dagsterWebserver = {
-        # Only when activation owns user code: the parent chart otherwise
-        # derives workspace.yaml from the subchart's own deployments, and
-        # setting both is rejected. dagster-user-deployments names each
-        # Service after its deployment, so the contract's code-location name
-        # is also its in-cluster host.
+        # The contract's code-location name is also its in-cluster host:
+        # dagster-user-deployments names each Service after its deployment.
         workspace = {
-          enabled = !var.manage_user_deployments
+          enabled = true
           servers = local.workspace_servers
         }
         env        = local.runtime_env
@@ -97,74 +93,33 @@ resource "helm_release" "dagster" {
       runLauncher = {
         type = "K8sRunLauncher"
         config = {
-          k8sRunLauncher = merge(
-            {
-              imagePullPolicy     = var.project_code_image_pull_policy
-              jobNamespace        = var.namespace
-              loadInclusterConfig = true
-              failPodOnRunFailure = true
-              runK8sConfig = {
-                jobSpecConfig = {
-                  ttlSecondsAfterFinished = 3600
-                }
-                podSpecConfig = {
-                  serviceAccountName = "dagster"
-                }
-                containerConfig = {
-                  resources = var.run_pod_resources
-                  env       = local.runtime_env
-                  envFrom = [
-                    for secret in local.runtime_env_secrets : {
-                      secretRef = {
-                        name = secret.name
-                      }
-                    }
-                  ]
-                }
+          k8sRunLauncher = {
+            imagePullPolicy     = var.project_code_image_pull_policy
+            jobNamespace        = var.namespace
+            loadInclusterConfig = true
+            failPodOnRunFailure = true
+            runK8sConfig = {
+              jobSpecConfig = {
+                ttlSecondsAfterFinished = 3600
               }
-            },
-            # No `job_image` where activation owns user code (ADR 0006): every
-            # run then takes its code location's image through
-            # `includeConfigInLaunchedRuns`, and a platform-apply-time value
-            # would only name a build no stage activated. The chart renders
-            # `job_image` only when this key exists. Only the Terraform-owned
-            # user code lifecycle, which nothing in olf selects any more,
-            # keeps one. A filtered `for` rather than `? {image = ...} : {}`: Terraform
-            # cannot unify an object with attributes and one without.
-            {
-              for key, value in {
-                image = {
-                  repository = var.project_code_image_repository
-                  tag        = var.project_code_image_tag
-                  pullPolicy = var.project_code_image_pull_policy
-                }
-              } : key => value if var.manage_user_deployments
-            },
-          )
+              podSpecConfig = {
+                serviceAccountName = "dagster"
+              }
+              containerConfig = {
+                resources = var.run_pod_resources
+                env       = local.runtime_env
+                envFrom = [
+                  for secret in local.runtime_env_secrets : {
+                    secretRef = {
+                      name = secret.name
+                    }
+                  }
+                ]
+              }
+            }
+          }
         }
       }
     }),
-
-    # The Terraform-owned user code lifecycle runs the control plane on the
-    # project-code image, so it also needs that image's pull policy -- `Never`
-    # locally, where the image only ever exists inside kind. The catalog-pinned
-    # control plane in `base_values_file` applies where activation owns user
-    # code and nothing patches these deployments.
-    var.manage_user_deployments ? yamlencode({
-      dagsterWebserver = {
-        image = {
-          repository = var.project_code_image_repository
-          tag        = var.project_code_image_tag
-          pullPolicy = var.project_code_image_pull_policy
-        }
-      }
-      dagsterDaemon = {
-        image = {
-          repository = var.project_code_image_repository
-          tag        = var.project_code_image_tag
-          pullPolicy = var.project_code_image_pull_policy
-        }
-      }
-    }) : "",
   ])
 }

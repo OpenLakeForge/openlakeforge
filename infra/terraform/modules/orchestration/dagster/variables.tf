@@ -73,12 +73,6 @@ variable "run_pod_resources" {
   }
 }
 
-variable "kubernetes_log_archive_schedule" {
-  description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
-  type        = string
-  default     = "*/15 * * * *"
-}
-
 variable "code_locations" {
   description = "Dagster user-code deployments and Python modules exposing Definitions. A merged location saves pods but a load failure affects every domain; split locations isolate load and restart failures at one pod per domain."
   type = list(object({
@@ -226,10 +220,4 @@ variable "service_account_annotations" {
   description = "Optional annotations for Dagster service accounts, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
-}
-
-variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. True is the Terraform-owned subchart that predates activation, where the subchart carries user code and the workspace is derived from it. False is the activation lifecycle: `deploy_revision` owns a separate openlakeforge-project release, and this root only publishes a stable workspace endpoint pointing at it."
-  type        = bool
-  default     = false
 }
