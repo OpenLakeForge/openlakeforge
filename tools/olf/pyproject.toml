@@ -62,6 +62,7 @@ select = ["E", "F", "W", "I", "UP", "B"]
 "olf/common/commands/domain.py" = ["B008"]
 "olf/common/commands/product.py" = ["B008"]
 "olf/common/commands/source.py" = ["B008"]
+"olf/infra/commands/source.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
