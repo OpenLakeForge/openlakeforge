@@ -6,6 +6,7 @@ import html
 import json
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -241,21 +242,27 @@ def test_an_unreadable_key_or_network_failure_is_unknown_not_an_error(monkeypatc
     ],
 )
 def test_open_browser_uses_explorer_on_wsl_and_webbrowser_elsewhere(
-    monkeypatch: pytest.MonkeyPatch, release: str, explorer: str | None, expected: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, release: str, explorer: str | None, expected: str
 ) -> None:
     opened: list[str] = []
+    record = tmp_path / "explorer-args"
+    fixture = tmp_path / "explorer.exe"
+    fixture.write_text(f'#!/bin/sh\necho "$1" >> {record}; echo noise; echo noise >&2\n')
+    fixture.chmod(0o755)
     monkeypatch.setattr(github_app.platform, "release", lambda: release)
-    monkeypatch.setattr(github_app.shutil, "which", lambda _name: explorer)
-    monkeypatch.setattr(github_app.subprocess, "Popen", lambda argv, **k: opened.append(f"explorer {argv[1]}"))
+    monkeypatch.setattr(github_app.shutil, "which", lambda _name: str(fixture) if explorer else None)
     monkeypatch.setattr(github_app.webbrowser, "open", lambda url: opened.append(f"webbrowser {url}"))
 
     github_app.open_browser("http://127.0.0.1:1/")
 
-    assert opened == {
-        "explorer": ["explorer http://127.0.0.1:1/"],
-        "nothing": [],
-        "webbrowser": ["webbrowser http://127.0.0.1:1/"],
-    }[expected]
+    if expected == "explorer":
+        deadline = time.monotonic() + 5
+        while not record.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert record.read_text().strip() == "http://127.0.0.1:1/"
+    else:
+        assert not record.exists()
+    assert opened == (["webbrowser http://127.0.0.1:1/"] if expected == "webbrowser" else [])
     opened.clear()
     github_app.open_browser("http://127.0.0.1:1/", no_browser=True)
     assert opened == []
