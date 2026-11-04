@@ -64,7 +64,7 @@ def test_port_forward_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch
     process = Mock()
     process.poll.return_value = 0
     popen = Mock(return_value=process)
-    monkeypatch.setattr(k8s.subprocess, "Popen", popen)
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", popen)
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
     # Executable resolution (#127) is covered by test_toolchain_resolver.py;
     # here only the argv shape matters.
@@ -141,7 +141,7 @@ def test_wait_for_port_forward_times_out_and_reports_the_log(monkeypatch: pytest
 def test_port_forward_cleans_up_after_readiness_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     process = Mock()
     process.poll.return_value = 0
-    monkeypatch.setattr(k8s.subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", Mock(return_value=process))
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock(side_effect=k8s.KubectlError("not ready")))
     monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
 
@@ -213,3 +213,43 @@ def test_write_secret_sends_credentials_on_stdin(
     assert manifest["stringData"] == {"password": "private-password"}
     if overwrite:
         assert "--server-side" in argv
+
+
+@pytest.fixture
+def fake_kubectl(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A kubectl stand-in: echoes its argv on stdout, `err` on stderr, exits with $FAKE_KUBECTL_RC."""
+    script = tmp_path / "kubectl"
+    script.write_text('#!/bin/sh\necho "args: $*"\necho err >&2\nexit "${FAKE_KUBECTL_RC:-0}"\n')
+    script.chmod(0o755)
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: str(script))
+    return script
+
+
+def test_kubectl_captures_output_and_raises_with_stderr_on_failure(
+    monkeypatch: pytest.MonkeyPatch, fake_kubectl: Path
+) -> None:
+    assert k8s._kubectl(["get", "pods"], capture=True, kube_context="ctx") == "args: --context ctx get pods\n"
+
+    monkeypatch.setenv("FAKE_KUBECTL_RC", "1")
+    with pytest.raises(k8s.KubectlError, match=r"--context ctx get pods failed: err$"):
+        k8s._kubectl(["get", "pods"], capture=True, kube_context="ctx")
+
+
+def test_kubectl_uncaptured_output_reaches_the_terminal(
+    capfd: pytest.CaptureFixture[str], fake_kubectl: Path
+) -> None:
+    assert k8s._kubectl(["apply", "-f", "x"], kube_context="ctx") == ""
+
+    out, err = capfd.readouterr()
+    assert "args: --context ctx apply -f x" in out
+    assert "err" in err
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_exec_succeeds_reflects_the_exit_code(
+    monkeypatch: pytest.MonkeyPatch, fake_kubectl: Path, returncode: int
+) -> None:
+    monkeypatch.setenv("KUBE_CONTEXT", "ctx")
+    monkeypatch.setenv("FAKE_KUBECTL_RC", str(returncode))
+
+    assert k8s.exec_succeeds("dep", "ns", ["true"]) is (returncode == 0)

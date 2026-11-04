@@ -15,12 +15,12 @@ import json
 import os
 import re
 import socket
-import subprocess
 import tempfile
 import time
 from collections.abc import Iterator
 
 from olf.common.deployment.errors import CommandExecutionError
+from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired
 from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.toolkit import Toolkit
 
@@ -73,12 +73,8 @@ def _kubectl(
     kube_context: str | None = None,
 ) -> str:
     command = _resolved_kubectl_argv(args, kube_context=kube_context)
-    result = subprocess.run(
-        command,
-        capture_output=capture,
-        text=True,
-        check=False,
-    )
+    # Uncaptured output still reaches the terminal: ProcessRunner tees it when streaming.
+    result = ProcessRunner().run(command, check=False, stream_output=not capture)
     if check and result.returncode != 0:
         detail = (result.stderr or "").strip()
         raise KubectlError(f"{' '.join(command)} failed: {detail}")
@@ -123,7 +119,7 @@ def configmap_data(name: str, namespace: str) -> dict[str, str] | None:
 def exec_succeeds(deployment: str, namespace: str, argv: list[str]) -> bool:
     """Whether `argv` exits 0 inside the deployment's pod."""
     command = _resolved_kubectl_argv(["exec", f"deploy/{deployment}", "-n", namespace, "--", *argv])
-    return subprocess.run(command, capture_output=True, check=False).returncode == 0
+    return ProcessRunner().run(command, check=False).ok
 
 
 def restart_deployment(deployment: str, namespace: str) -> None:
@@ -148,7 +144,7 @@ def _port_forward_failure(log_path: str, detail: str) -> KubectlError:
     return KubectlError(detail)
 
 
-def _wait_for_port_forward(process: subprocess.Popen[bytes], port: int, log_path: str) -> None:
+def _wait_for_port_forward(process: Popen[bytes], port: int, log_path: str) -> None:
     """Wait until kubectl has bound the local forwarding socket."""
     deadline = time.monotonic() + PORT_FORWARD_READY_TIMEOUT_SECONDS
     while True:
@@ -193,17 +189,13 @@ def port_forward(
         kube_context=kube_context,
     )
     with open(log_path, "w", encoding="utf-8") as log_file:
-        process = subprocess.Popen(
-            command,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-        )
+        process = ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT)
     try:
         _wait_for_port_forward(process, port, log_path)
         yield port
     finally:
         process.terminate()
-        with contextlib.suppress(subprocess.TimeoutExpired):
+        with contextlib.suppress(TimeoutExpired):
             process.wait(timeout=10)
         if process.poll() is None:
             process.kill()

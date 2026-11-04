@@ -9,7 +9,7 @@ import pytest
 from _tooling_support import write_fake_executable, write_sleeping_executable
 
 from olf.common.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
-from olf.common.tooling.process import Command, CommandResult, ProcessRunner
+from olf.common.tooling.process import PIPE, STDOUT, Command, CommandResult, ProcessRunner
 from olf.common.tooling.retry import RetryPolicy
 
 
@@ -250,3 +250,32 @@ def test_retry_policy_runs_command_until_success(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert int(marker.read_text()) == 2
     assert sleeps == []  # delay_seconds=0, nothing meaningful to assert beyond no crash
+
+
+def test_popen_returns_a_live_handle_and_layers_env_over_the_ambient_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OLF_AMBIENT", "ambient")
+    script = write_fake_executable(tmp_path / "fake", env_keys=["OLF_AMBIENT", "OLF_OVERRIDE"])
+
+    process = ProcessRunner().popen([str(script), "a"], env={"OLF_OVERRIDE": "set"}, stdout=PIPE, text=True)
+    out, _ = process.communicate(timeout=10)
+
+    payload = json.loads(out)
+    assert payload["argv"] == ["a"]
+    assert payload["env"] == {"OLF_AMBIENT": "ambient", "OLF_OVERRIDE": "set"}
+
+
+def test_popen_redirects_stderr_to_the_stdout_target(tmp_path: Path) -> None:
+    script = write_fake_executable(tmp_path / "fake", stderr="warned\n")
+    log_path = tmp_path / "out.log"
+
+    with open(log_path, "w") as log_file:
+        ProcessRunner().popen([str(script)], stdout=log_file, stderr=STDOUT).wait(timeout=10)
+
+    assert "warned" in log_path.read_text()
+
+
+def test_popen_missing_executable_raises_typed_error(tmp_path: Path) -> None:
+    with pytest.raises(ExecutableNotFoundError):
+        ProcessRunner().popen([str(tmp_path / "does-not-exist")])

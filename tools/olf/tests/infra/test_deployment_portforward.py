@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.resolver import PathExecutableResolver
 from olf.infra.deployment.portforward import ForwardSpec, ForwardTarget, PortForwardSupervisor
 
@@ -112,7 +112,6 @@ def test_run_stops_all_children_when_the_wait_callable_raises(tmp_path: Path) ->
     def _boom() -> None:
         raise RuntimeError("boom")
 
-    import pytest
 
     with pytest.raises(RuntimeError):
         supervisor.run(spec, wait=_boom)
@@ -121,7 +120,6 @@ def test_run_stops_all_children_when_the_wait_callable_raises(tmp_path: Path) ->
 
 
 def test_run_default_wait_raises_when_a_later_target_dies(tmp_path: Path) -> None:
-    import pytest
 
     from olf.common.deployment.errors import DeploymentPreconditionError
 
@@ -191,32 +189,24 @@ def test_stop_all_kills_processes_that_do_not_terminate_in_time(tmp_path: Path) 
     assert process.killed
 
 
-def test_start_layers_env_overrides_over_the_ambient_process_environment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_default_launch_layers_env_overrides_over_the_ambient_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A bare `env=dict(overrides)` would replace the whole child environment,
-    dropping `PATH`/`HOME` and any cloud credential-plugin config (e.g.
-    `AWS_PROFILE`, Azure's config dir) that EKS/AKS exec-based kubeconfigs
-    need in order to authenticate - see the CloudProvider.forward() caller.
-    """
-    monkeypatch.setenv("AWS_PROFILE", "ambient-profile")
-    popens: list[_FakePopen] = []
-
-    def fake_popen(argv, **kwargs):  # noqa: ANN001
-        popen = _FakePopen(argv, **kwargs)
-        popen.env = kwargs.get("env")
-        popens.append(popen)
-        return popen
-
-    supervisor = PortForwardSupervisor(_kubectl(), log_prefix=tmp_path / "openlakeforge-local", popen=fake_popen)
+    fake_kubectl = tmp_path / "kubectl"
+    fake_kubectl.write_text('#!/bin/sh\necho "ambient=$OLF_TEST_AMBIENT kubeconfig=$KUBECONFIG"\n')
+    fake_kubectl.chmod(0o755)
+    monkeypatch.setenv("OLF_TEST_AMBIENT", "kept")
+    monkeypatch.setenv("KUBECONFIG", "/operator/kubeconfig")
+    kubectl = Kubectl(ProcessRunner(), PathExecutableResolver(overrides={"kubectl": fake_kubectl}))
+    supervisor = PortForwardSupervisor(kubectl, log_prefix=tmp_path / "openlakeforge-local")
     spec = _spec()
 
-    supervisor.start(spec.targets[0], spec, env={"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"})
+    process = supervisor.start(spec.targets[0], spec, env={"KUBECONFIG": "/run/kubeconfig"})
+    process.wait(timeout=10)
+    supervisor.stop_all()
 
-    child_env = popens[0].env
-    assert child_env["AWS_PROFILE"] == "ambient-profile"
-    assert child_env["PATH"] == os.environ["PATH"]
-    assert child_env["KUBECONFIG"] == "/repo/.tmp/kubeconfigs/aws.yaml"
+    log = (tmp_path / "openlakeforge-local-trino-port-forward.log").read_text()
+    assert log.strip() == "ambient=kept kubeconfig=/run/kubeconfig"
 
 
 def test_start_passes_none_env_when_no_overrides_given(tmp_path: Path) -> None:

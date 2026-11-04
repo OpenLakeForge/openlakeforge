@@ -14,7 +14,6 @@ import json
 import os
 import secrets
 import select
-import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -25,6 +24,7 @@ from urllib.parse import urlsplit
 import requests
 
 from olf.common import config, log
+from olf.common.tooling.process import PIPE, Popen, ProcessRunner
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra import access, break_glass
 from olf.infra.e2e._identity_github import (
@@ -262,7 +262,7 @@ def probe(
     answered: list[int] = []
 
     def reach(argv: Sequence[str], **_: object) -> None:
-        process = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+        process = ProcessRunner().popen(argv, stdout=PIPE, text=True)
         try:
             wait_forwarding(process, PORTS[service], service)
             for _attempt in range(30):
@@ -283,7 +283,7 @@ def probe(
     return answered[0] if answered else None
 
 
-def wait_forwarding(process: subprocess.Popen[str], port: int, service: str, timeout: float = 30) -> None:
+def wait_forwarding(process: Popen[str], port: int, service: str, timeout: float = 30) -> None:
     """Block until kubectl says it listens on `port`, so only this forward can answer the probe."""
     want = f"Forwarding from 127.0.0.1:{port}"
     assert process.stdout is not None
