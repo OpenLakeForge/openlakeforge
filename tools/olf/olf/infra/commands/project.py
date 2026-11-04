@@ -73,7 +73,9 @@ def image(
     profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
     var_file: str = typer.Option("", "--var-file", help="Provider-specific Terraform tfvars override."),
     push: bool = typer.Option(
-        True, "--push/--no-push", help="Publish to the image repository. Required to build a revision from the result."
+        True,
+        "--push/--no-push",
+        help="Publish to the image repository. Required for a revision that other providers can activate.",
     ),
 ) -> None:
     """Build the project-code image and print the reference `olf infra project build --image` expects.
@@ -83,9 +85,9 @@ def image(
     the profile's `spec.project.image.repository`, else
     `PROJECT_CODE_IMAGE_REPOSITORY` (GHCR or Docker Hub), and also loads the
     image into kind; edited project code with neither is refused rather than
-    pushed over the public example. `--no-push` is a local inner-loop
-    shortcut: it prints a tag, not a digest, so the result cannot seed
-    `olf infra project build`.
+    pushed over the public example. `--no-push` is the local
+    loop with no registry: it prints `olf.local/project-code@sha256:<image ID>`,
+    which a revision can pin but only the local provider will activate.
     """
     from olf.common.deployment.errors import DeploymentError
     from olf.infra.project_revision import ProjectRevisionError, resolve_image_digest

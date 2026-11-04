@@ -114,10 +114,10 @@ class LocalProvider:
         Local has no registry of its own, so a publishable revision depends on
         an external one (GHCR, Docker Hub) named by the profile's
         `spec.project.image.repository`, else `PROJECT_CODE_IMAGE_REPOSITORY`.
-        Pushing is what creates the registry digest `olf infra project build`
-        requires -- a kind-only image has just a local config Id, which is not
-        pullable. The kind load still happens either way so the default `Never`
-        pull policy keeps working.
+        Pushing is what creates the registry digest a promotable revision
+        requires. Without it the image is only loaded into kind and the result
+        is a `olf.local/project-code@<image ID>` reference: a revision can pin
+        it, and it activates on this cluster alone, with pull policy `Never`.
 
         The unmodified example is already published by digest: that reference is the result, with no build.
         """
@@ -134,11 +134,10 @@ class LocalProvider:
                 "Deployment Profile (or export PROJECT_CODE_IMAGE_REPOSITORY), or pass --no-push."
             )
         image = build_project_code_image(self.config, self.tools, env=self.env)
-        if push:
-            log.step(f"Pushing project-code image: {image}")
-            self.tools.docker.push(
-                image, env=ambient_registry_env(self.env), retry_policy=self.config.images.push_retry
-            )
+        if not push:
+            return images.load_local_image_into_kind(image, self.config, self.tools, env=self.env)
+        log.step(f"Pushing project-code image: {image}")
+        self.tools.docker.push(image, env=ambient_registry_env(self.env), retry_policy=self.config.images.push_retry)
         images.load_image_into_kind(image, self.config, self.tools, env=self.env)
         return image
 

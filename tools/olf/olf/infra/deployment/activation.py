@@ -37,7 +37,7 @@ from olf.infra.deployment.source_bindings import source_binding_status
 from olf.infra.project_activation import ProjectActivation, ProjectActivationError, commit_active
 from olf.infra.project_activation import active as active_activation
 from olf.infra.project_activation import publish as publish_activation
-from olf.infra.project_revision import ProjectRevisionError, materialize, verify
+from olf.infra.project_revision import ProjectRevisionError, is_local_image, materialize, verify
 
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
@@ -211,6 +211,11 @@ def _contract_dir(context: DeploymentContext, environ: Mapping[str, str]) -> Pat
     return Path(environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)).resolve()
 
 
+def _pull_policy(image: str) -> str:
+    # A local image exists only on the kind nodes, so any pull would fail.
+    return "Never" if is_local_image(image) else "IfNotPresent"
+
+
 def _image_parts(image: str) -> tuple[str, str]:
     repository, digest = image.split("@", 1)
     return repository, digest
@@ -266,7 +271,7 @@ def _log_archive_manifest(
                                 {
                                     "name": "archive-k8s-logs",
                                     "image": activation.project_code_image,
-                                    "imagePullPolicy": "IfNotPresent",
+                                    "imagePullPolicy": _pull_policy(activation.project_code_image),
                                     "command": ["python", "-m", "openlakeforge_runtime.k8s_log_archive"],
                                     "env": env,
                                     "envFrom": [{"secretRef": {"name": secret}} for secret in secrets],
@@ -294,7 +299,8 @@ def _user_values(
     # the target is the release that was running rather than the one the
     # pointer names. Image and modules must come from the same place: a
     # digest that never shipped a module cannot load it.
-    repository, digest = _image_parts(image or activation.project_code_image)
+    deployed_image = image or activation.project_code_image
+    repository, digest = _image_parts(deployed_image)
     # Annotated rather than inferred: the initializer is all plain string
     # values, but the OPENLINEAGE_API_KEY entry below carries a nested
     # `valueFrom.secretKeyRef`, which a `dict[str, str]` inference rejects.
@@ -386,7 +392,7 @@ def _user_values(
         "deployments": [
             {
                 "name": location.name,
-                "image": {"repository": repository, "digest": digest, "pullPolicy": "IfNotPresent"},
+                "image": {"repository": repository, "digest": digest, "pullPolicy": _pull_policy(deployed_image)},
                 "dagsterApiGrpcArgs": ["--module-name", location.definitions_module],
                 "port": _CODE_SERVER_PORT,
                 "includeConfigInLaunchedRuns": {"enabled": True},
@@ -479,6 +485,12 @@ def _registry_host(repository: str) -> str:
 
 
 def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str, str]) -> None:
+    if is_local_image(image) and is_local_provider(provider):
+        # Built on this machine and never pushed: there is nothing to pull, only to put back on the nodes.
+        from olf.infra.deployment.local.images import load_digest_image_into_kind
+
+        load_digest_image_into_kind(image, provider.config, provider.tools, env=env)
+        return
     platform = None
     # A revision can legitimately live outside the provider's registry -- GHCR
     # or Docker Hub, which is what the local workflow documents, or another
@@ -874,7 +886,13 @@ def deploy_revision(
     except (ProjectRevisionError, ProviderContractError) as exc:
         raise ActivationError(str(exc)) from exc
 
-    if pull_secret:
+    local_image = is_local_image(manifest.project_code_image)
+    if local_image and not is_local_provider(provider):
+        raise ActivationError(
+            f"revision {revision} runs {manifest.project_code_image}, an image that was built locally and never "
+            f"pushed; a {context.provider.value} stage cannot pull it. Rebuild it with a pushed image."
+        )
+    if pull_secret and not local_image:
         _require_pull_secret(
             provider, pull_secret, image=manifest.project_code_image, namespace=context.namespace, env=env
         )

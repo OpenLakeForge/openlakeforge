@@ -259,8 +259,9 @@ def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Pa
     assert pushed == ["ghcr.io/acme/project-code:dev"]
 
     pushed.clear()
-    provider.build_project_image(push=False)
+    monkeypatch.setattr(images, "load_local_image_into_kind", lambda image, *a, **k: f"local/{image}")
 
+    assert provider.build_project_image(push=False) == "local/ghcr.io/acme/project-code:dev"
     assert pushed == []
 
 
@@ -302,7 +303,9 @@ def test_edited_code_without_a_repository_is_never_pushed_to_the_example_package
         provider.build_project_image()
     assert built == []
 
-    assert provider.build_project_image(push=False) == "img:local"
+    monkeypatch.setattr(images, "load_local_image_into_kind", lambda image, *a, **k: f"olf.local/{image}")
+
+    assert provider.build_project_image(push=False) == "olf.local/img:local"
 
 
 def _github_provider(tmp_path: Path) -> LocalProvider:
