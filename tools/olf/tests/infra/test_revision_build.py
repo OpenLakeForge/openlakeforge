@@ -52,3 +52,44 @@ def test_build_stage_revision_pins_the_image_the_provider_built(
     assert pushes == [True]
     assert seen["image"] == _IMAGE
     assert seen["project"] == str(external_project)
+
+
+def test_activate_stage_project_activates_the_revision_it_built(
+    external_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.infra.deployment import activation
+
+    store = object()
+    opened: list[Path] = []
+    activated: dict[str, Any] = {}
+    sentinel = object()
+    provider: Any = SimpleNamespace(context=SimpleNamespace())
+
+    monkeypatch.setattr(
+        revision_build, "build_stage_revision", lambda *_args: SimpleNamespace(revision="sha256:" + "b" * 64)
+    )
+
+    def open_store(_provider: object, _context: object, root: Path) -> Any:
+        opened.append(root)
+        return nullcontext(store)
+
+    def deploy_revision(received: object, **kwargs: Any) -> object:
+        activated.update(provider=received, **kwargs)
+        return sentinel
+
+    monkeypatch.setattr(revision_build, "provider_revision_store", open_store)
+    monkeypatch.setattr(activation, "deploy_revision", deploy_revision)
+
+    result = revision_build.activate_stage_project(
+        provider, str(external_project), profile_name="demo", pull_secret="ghcr-pull"
+    )
+
+    assert result is sentinel
+    assert opened == [external_project]
+    assert activated == {
+        "provider": provider,
+        "revision": "sha256:" + "b" * 64,
+        "store": store,
+        "profile_name": "demo",
+        "pull_secret": "ghcr-pull",
+    }

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from olf.common.deployment.context import DeploymentContext
     from olf.infra.artifact_store import RevisionStore
     from olf.infra.deployment.engine import DeploymentProvider
+    from olf.infra.project_activation import ProjectActivation
     from olf.infra.project_revision import ProjectRevisionManifest
 
 LOCAL_TRANSPORT = "port-forward"
@@ -127,3 +128,24 @@ def build_stage_revision(
     return publish_project_revision(
         project, image=image, open_store=lambda root: provider_revision_store(provider, context, root)
     )
+
+
+def activate_stage_project(
+    provider: DeploymentProvider, project: str, *, profile_name: str, pull_secret: str | None = None
+) -> ProjectActivation:
+    """Build `project`'s revision through `provider` and make it the stage's active one.
+
+    The one path from project code to a running stage: `deploy_revision` owns
+    the order of the optional layers and the Dagster rollout, so a caller needs
+    no step of its own for either.
+    """
+    from olf.common.commands._project import writable_project_layout
+    from olf.infra.deployment.activation import deploy_revision
+
+    context = provider.context
+    manifest = build_stage_revision(provider, context, project)
+    # The same root publish_project_revision opened the store at, not the raw `project` argument.
+    with provider_revision_store(provider, context, writable_project_layout(project).project_root) as store:
+        return deploy_revision(
+            provider, revision=manifest.revision, store=store, profile_name=profile_name, pull_secret=pull_secret
+        )
