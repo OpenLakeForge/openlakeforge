@@ -79,8 +79,11 @@ def openmetadata_deploy_metadata(
         deploy_openmetadata_metadata()
 
 
-def deploy_openmetadata_metadata() -> None:
-    """Seed OpenMetadata domains, data products, and medallion containers."""
+def deploy_openmetadata_metadata(*, allow_missing_assets: bool | None = None) -> None:
+    """Seed OpenMetadata domains, data products, and medallion containers.
+
+    ``allow_missing_assets`` overrides ``OPENMETADATA_ALLOW_MISSING_ASSETS`` when not None.
+    """
     from olf.infra import k8s
     from olf.infra import openmetadata as om
     from olf.infra.openmetadata._auth import admin_password, automation_token
@@ -117,7 +120,11 @@ def deploy_openmetadata_metadata() -> None:
                 admin_password=password,
                 metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
                 metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
-                allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
+                allow_missing_assets=(
+                    config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false"))
+                    if allow_missing_assets is None
+                    else allow_missing_assets
+                ),
                 catalog_service=(
                     config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER")
                 ),
