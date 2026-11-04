@@ -21,6 +21,9 @@ for how a release is cut and verified.
 
 ### Changed
 
+- The portal image is 0.4.1, the React Router app. `/` redirects to `/services`, and a new
+  **Queries** page runs read-only SQL as the signed-in person on deployments with Dex-backed
+  identity (`identity.issuer: github`); elsewhere it says the workspace is not available.
 - `olf infra deploy --phase artifacts` now builds the project's ProjectRevision and
   activates it through the same path as `olf infra project deploy`, on local, AWS and
   Azure, with one step order: the optional layers first, then the Dagster rollout. On

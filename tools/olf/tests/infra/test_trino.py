@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
+from olf.common.tooling.process import CommandResult
 from olf.infra import trino
+
+
+def _result(command: list[str], returncode: int, *, stdout: str, stderr: str) -> CommandResult:
+    return CommandResult(tuple(command), returncode, stdout, stderr, 0.0)
 
 
 def _target(**overrides: str) -> trino.TrinoTarget:
@@ -53,7 +57,7 @@ def test_exec_args_set_the_stage_catalog_as_the_session_default() -> None:
 )
 def test_run_sql_explains_failures(stderr: str, expected: str) -> None:
     def runner(command, stdin):  # noqa: ANN001, ANN202
-        return subprocess.CompletedProcess(command, 1, stdout="", stderr=stderr)
+        return _result(command, 1, stdout="", stderr=stderr)
 
     with pytest.raises(trino.TrinoQueryError, match=expected):
         trino.run_sql(_target(), "SELECT 1", output_format="ALIGNED", kubectl="kubectl", runner=runner)
@@ -68,7 +72,7 @@ def test_run_sql_explains_failures(stderr: str, expected: str) -> None:
 )
 def test_run_sql_falls_back_when_stderr_is_empty(stdout: str, stderr: str, expected: str) -> None:
     def runner(command, stdin):  # noqa: ANN001, ANN202, ARG001
-        return subprocess.CompletedProcess(command, 1, stdout=stdout, stderr=stderr)
+        return _result(command, 1, stdout=stdout, stderr=stderr)
 
     with pytest.raises(trino.TrinoQueryError) as exc_info:
         trino.run_sql(_target(), "SELECT 1", output_format="ALIGNED", kubectl="kubectl", runner=runner)
@@ -81,7 +85,7 @@ def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
         seen.append(list(command))
-        return subprocess.CompletedProcess(command, 0, stdout="" if "get" in command else "42\n", stderr="")
+        return _result(command, 0, stdout="" if "get" in command else "42\n", stderr="")
 
     assert trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner) == "42\n"
     assert all(command[:3] == ["kubectl", "--context", "kind-openlakeforge-local"] for command in seen)
@@ -93,7 +97,7 @@ def test_run_sql_reads_no_secret_and_sends_no_stdin_without_a_named_credential(m
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
         calls.append((list(command), stdin))
-        return subprocess.CompletedProcess(command, 0, stdout="1\n", stderr="")
+        return _result(command, 0, stdout="1\n", stderr="")
 
     trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
 
@@ -112,7 +116,7 @@ def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv(monkey
     def runner(command, stdin):  # noqa: ANN001, ANN202
         calls.append((list(command), stdin))
         stdout = base64.b64encode(b"s3cret").decode() if "get" in command else "1\n"
-        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+        return _result(command, 0, stdout=stdout, stderr="")
 
     trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
 
@@ -152,7 +156,7 @@ def test_run_sql_stops_when_the_password_secret_cannot_be_read(monkeypatch: pyte
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
         calls.append(list(command))
-        return subprocess.CompletedProcess(command, 1, stdout="", stderr="forbidden")
+        return _result(command, 1, stdout="", stderr="forbidden")
 
     with pytest.raises(trino.TrinoQueryError, match=r"(?s)trino-credential-olf-prod-runtime.*RBAC"):
         trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
