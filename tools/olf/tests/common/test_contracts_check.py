@@ -100,9 +100,9 @@ def _repo_with_local_contracts(
     outputs_tf_fixture: str | None = None,
 ) -> Path:
     """A synthetic repo root where `local`'s contracts.tf/main.tf come from a
-    fixture under test, while azure-poc/aws-poc and the aws-glue module are
-    copied unmodified from the real repo -- isolating the fixture as the one
-    variable under test."""
+    fixture under test, while azure-poc/aws-poc, the aws-glue module and the
+    shared provider-contract module are copied unmodified from the real repo --
+    isolating the fixture as the one variable under test."""
     hcl_fixtures = FIXTURES / "hcl"
     for env in ("azure-poc", "aws-poc"):
         env_dir = tmp_path / "infra/terraform/environments" / env
@@ -128,6 +128,10 @@ def _repo_with_local_contracts(
         ROOT / "infra/terraform/modules/catalog/aws-glue/main.tf",
         glue_dir / "main.tf",
     )
+    # aws-poc builds its contract through the shared module and inherits its checks.
+    module_dir = tmp_path / "infra/terraform/modules/contracts/provider-contract"
+    module_dir.mkdir(parents=True)
+    shutil.copy(ROOT / "infra/terraform/modules/contracts/provider-contract/main.tf", module_dir / "main.tf")
     return tmp_path
 
 
@@ -167,9 +171,6 @@ def test_hcl_structured_contracts_counts_checks_inherited_from_the_shared_module
     for name in shared_checks:
         text = text.replace(f'check "{name}"', f'check "renamed_{name}"')
     contracts_tf.write_text(text)
-    module_dir = repo_root / "infra/terraform/modules/contracts/provider-contract"
-    module_dir.mkdir(parents=True)
-    shutil.copy(ROOT / "infra/terraform/modules/contracts/provider-contract/main.tf", module_dir / "main.tf")
 
     without_call = contracts_check._check_hcl_structured_contracts(repo_root)
     contracts_tf.write_text(
@@ -241,7 +242,9 @@ def test_hcl_phase_two_invariants_rejects_secret_valued_contract_field(tmp_path:
     assert "storage.secret_access_key" in result.detail
 
 
-@pytest.mark.parametrize("env", ["azure-poc", "aws-poc"])
+# aws-poc is absent: it inherits these checks from the shared provider-contract
+# module (#561), which test_..._counts_checks_inherited_from_the_shared_module covers.
+@pytest.mark.parametrize("env", ["azure-poc"])
 def test_hcl_structured_contracts_requires_the_stage_isolation_invariants_of_every_provider(
     tmp_path: Path, env: str
 ) -> None:
