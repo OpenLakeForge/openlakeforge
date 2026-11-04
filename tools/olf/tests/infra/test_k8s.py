@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from olf.common.tooling.process import CommandResult
 from olf.infra import k8s
 
 
@@ -216,46 +215,41 @@ def test_write_secret_sends_credentials_on_stdin(
         assert "--server-side" in argv
 
 
-def test_kubectl_captures_output_and_raises_with_stderr_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
-    runner = Mock()
-    runner.run.return_value = CommandResult(("kubectl",), 1, "out", " nope \n", 0.0)
-    monkeypatch.setattr(k8s, "ProcessRunner", lambda: runner)
+@pytest.fixture
+def fake_kubectl(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A kubectl stand-in: echoes its argv on stdout, `err` on stderr, exits with $FAKE_KUBECTL_RC."""
+    script = tmp_path / "kubectl"
+    script.write_text('#!/bin/sh\necho "args: $*"\necho err >&2\nexit "${FAKE_KUBECTL_RC:-0}"\n')
+    script.chmod(0o755)
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: str(script))
+    return script
 
-    with pytest.raises(k8s.KubectlError, match=r"kubectl --context ctx get pods failed: nope$"):
+
+def test_kubectl_captures_output_and_raises_with_stderr_on_failure(
+    monkeypatch: pytest.MonkeyPatch, fake_kubectl: Path
+) -> None:
+    assert k8s._kubectl(["get", "pods"], capture=True, kube_context="ctx") == "args: --context ctx get pods\n"
+
+    monkeypatch.setenv("FAKE_KUBECTL_RC", "1")
+    with pytest.raises(k8s.KubectlError, match=r"--context ctx get pods failed: err$"):
         k8s._kubectl(["get", "pods"], capture=True, kube_context="ctx")
-    assert k8s._kubectl(["get", "pods"], capture=True, check=False, kube_context="ctx") == "out"
-    assert runner.run.call_args.args[0] == ["kubectl", "--context", "ctx", "get", "pods"]
-    assert runner.run.call_args.kwargs == {"check": False, "stream_output": False}
 
 
-def test_kubectl_streams_output_when_not_captured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
-    runner = Mock()
-    runner.run.return_value = CommandResult(("kubectl",), 0, "ignored", "", 0.0)
-    monkeypatch.setattr(k8s, "ProcessRunner", lambda: runner)
-
+def test_kubectl_uncaptured_output_reaches_the_terminal(
+    capfd: pytest.CaptureFixture[str], fake_kubectl: Path
+) -> None:
     assert k8s._kubectl(["apply", "-f", "x"], kube_context="ctx") == ""
-    assert runner.run.call_args.kwargs == {"check": False, "stream_output": True}
+
+    out, err = capfd.readouterr()
+    assert "args: --context ctx apply -f x" in out
+    assert "err" in err
 
 
 @pytest.mark.parametrize("returncode", [0, 1])
-def test_exec_succeeds_reflects_the_exit_code(monkeypatch: pytest.MonkeyPatch, returncode: int) -> None:
+def test_exec_succeeds_reflects_the_exit_code(
+    monkeypatch: pytest.MonkeyPatch, fake_kubectl: Path, returncode: int
+) -> None:
     monkeypatch.setenv("KUBE_CONTEXT", "ctx")
-    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
-    runner = Mock()
-    runner.run.return_value = CommandResult(("kubectl",), returncode, "", "", 0.0)
-    monkeypatch.setattr(k8s, "ProcessRunner", lambda: runner)
+    monkeypatch.setenv("FAKE_KUBECTL_RC", str(returncode))
 
     assert k8s.exec_succeeds("dep", "ns", ["true"]) is (returncode == 0)
-    assert runner.run.call_args.args[0] == [
-        "kubectl",
-        "--context",
-        "ctx",
-        "exec",
-        "deploy/dep",
-        "-n",
-        "ns",
-        "--",
-        "true",
-    ]
