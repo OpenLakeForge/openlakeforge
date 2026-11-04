@@ -27,7 +27,7 @@ dependencies = [
 [tool.uv.sources]
 openlakeforge-core = { path = "../../packages/core" }
 openlakeforge-lakehouse-services = { path = "../../packages/lakehouse-services" }
-openlakeforge-runtime = { path = "../../packages/runtime" }
+openlakeforge-runtime = { path = "../../packages/runtime", editable = true }
 
 [project.scripts]
 olf = "olf.cli:main"
