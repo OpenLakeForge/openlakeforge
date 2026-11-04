@@ -13,6 +13,7 @@ from dagster import (
     AssetSelection,
     DefaultScheduleStatus,
     Definitions,
+    Failure,
     Field,
     MetadataValue,
     Output,
@@ -28,6 +29,7 @@ from floe_dagster.definitions import build_job_run_config_from_manifest, build_r
 from floe_dagster.manifest import ManifestEntity
 
 import lakehouse_code
+from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
 from openlakeforge_runtime.floe_profile import write_profile
@@ -59,6 +61,8 @@ _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 _SCHEDULED_STAGES = frozenset({"prod"})
 _DAILY_SCHEDULE_CRON = "0 3 * * *"
 _MAINTENANCE_SCHEDULE_CRON = "0 4 * * 0"
+# An hour after Silver so the two never run together.
+_GOLD_MAINTENANCE_SCHEDULE_CRON = "0 5 * * 0"
 
 
 @dataclass(frozen=True)
@@ -209,6 +213,49 @@ def maintain_silver(context) -> None:
     context.add_output_metadata({**summary, "tables": MetadataValue.json(results)})
 
 
+# The same snapshot floor as Silver (Trino's expire_snapshots takes `retain_last`); the orphan
+# delay must clear Trino's own 7-day minimum, not Floe's 3.
+_GOLD_MAINTENANCE_CONFIG = {
+    "dry_run": Field(bool, default_value=False),
+    "older_than_days": Field(int, default_value=7),
+    "retain_last": Field(int, default_value=10),
+    "orphan_delay_days": Field(int, default_value=gold_maintenance.MIN_RETENTION_DAYS),
+}
+
+
+@op(config_schema=_GOLD_MAINTENANCE_CONFIG)
+def maintain_gold(context) -> None:
+    config = context.op_config
+    gold_maintenance.check_retention(config["older_than_days"], config["orphan_delay_days"])
+    schemas = gold_maintenance.gold_schemas(_LAKEHOUSE_CODE_ROOT / "gold")
+    results = gold_maintenance.maintain_gold(
+        gold_maintenance.connect(),
+        schemas,
+        older_than_days=config["older_than_days"],
+        retain_last=config["retain_last"],
+        orphan_delay_days=config["orphan_delay_days"],
+        dry_run=config["dry_run"],
+        log=lambda message, fields: log_event(context.log, message=message, service="dagster", tool="trino", **fields),
+    )
+    failed = [result for result in results if "error" in result]
+    summary = {
+        "dry_run": config["dry_run"],
+        "tables": len(results),
+        "failed_tables": len(failed),
+        "snapshots_past_window": sum(result.get("snapshots_past_window", 0) for result in results),
+    }
+    log_event(context.log, message="Maintained Gold tables", service="dagster", tool="trino", **summary)
+    context.add_output_metadata({**summary, "results": MetadataValue.json(results)})
+    if failed:
+        raise Failure(f"Gold maintenance failed for {len(failed)} of {len(results)} tables; rerun is safe")
+
+
+@job(name="gold_maintenance")
+def gold_maintenance_job():
+    """Expire old snapshots and remove orphan files of the Gold tables dbt-trino writes, through Trino."""
+    maintain_gold()
+
+
 @job
 def silver_maintenance():
     """Expire old snapshots and remove orphan files of the Silver tables Floe writes (not Gold: dbt-trino owns it)."""
@@ -236,6 +283,25 @@ def build_maintenance_definitions(*, stage: str | None = None) -> Definitions:
         else []
     )
     return Definitions(jobs=[silver_maintenance], schedules=schedules)
+
+
+def build_gold_maintenance_definitions(*, stage: str | None = None) -> Definitions:
+    """Silver's counterpart for Gold, with the same stage rule: the job everywhere, the STOPPED schedule on prod."""
+    resolved = (os.environ.get(_STAGE_ENV, "") if stage is None else stage).strip().lower()
+    schedules = (
+        [
+            ScheduleDefinition(
+                name="gold_maintenance_weekly",
+                job=gold_maintenance_job,
+                cron_schedule=_GOLD_MAINTENANCE_SCHEDULE_CRON,
+                execution_timezone="UTC",
+                default_status=DefaultScheduleStatus.STOPPED,
+            )
+        ]
+        if resolved in _SCHEDULED_STAGES
+        else []
+    )
+    return Definitions(jobs=[gold_maintenance_job], schedules=schedules)
 
 
 def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:

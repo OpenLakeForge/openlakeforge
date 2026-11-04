@@ -10,6 +10,7 @@ import lakehouse_code.pipelines.dagster as dagster_pipelines
 from dagster import Definitions
 from openlakeforge_runtime.product_dagster import (
     SourceDefinitionSpec,
+    build_gold_maintenance_definitions,
     build_maintenance_definitions,
     build_silver_definitions,
     build_source_definitions,
@@ -54,5 +55,6 @@ defs = Definitions.merge(
     *_source_definitions(_inventory),
     build_silver_definitions(),
     build_maintenance_definitions(),
+    build_gold_maintenance_definitions(),
     *_product_definitions(),
 )
