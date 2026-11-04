@@ -28,6 +28,18 @@ class LogArchiveSetting:
 
 
 @dataclass(frozen=True)
+class QueryEndpointSetting:
+    """One stage's Trino: the statement endpoint and the people catalog the API names in every query.
+
+    The catalog is fixed here, never taken from a request: the stage in the path is what the permission matrix
+    checks, so it alone decides which catalog a person's SQL reaches.
+    """
+
+    statement_url: str
+    catalog: str
+
+
+@dataclass(frozen=True)
 class Settings:
     """The identity.oidc fields the API validates tokens against (ADR 0014), the enabled stages, and service endpoints.
 
@@ -67,6 +79,8 @@ class Settings:
     public_origin: str | None = None
     # True only where the people catalogs exist (Dex-backed identity, ADR 0019). False refuses every per-person query.
     person_query: bool = False
+    # Each stage's Trino. A stage with no entry offers no query, and with none at all capabilities list no stage.
+    query_endpoints: Mapping[str, QueryEndpointSetting] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -99,6 +113,10 @@ class Settings:
                 },
                 public_origin=data.get("public_origin") or None,
                 person_query=data.get("person_query") is True,
+                query_endpoints={
+                    str(stage): QueryEndpointSetting(str(endpoint["statement_url"]), str(endpoint["catalog"]))
+                    for stage, endpoint in (data.get("query_endpoints") or {}).items()
+                },
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -147,6 +165,12 @@ class Settings:
                 or self.public_origin != f"{parts.scheme}://{parts.netloc}"
             ):
                 raise SettingsError("public_origin must be scheme://host[:port] with no path or trailing slash")
+        stray = sorted(set(self.query_endpoints) - set(self.stages))
+        if stray:
+            raise SettingsError(f"query_endpoints names stages that are not enabled: {', '.join(stray)}")
+        for stage, endpoint in self.query_endpoints.items():
+            if urlsplit(endpoint.statement_url).scheme not in ("http", "https") or not endpoint.catalog:
+                raise SettingsError(f"query_endpoints[{stage!r}] needs an http(s) statement_url and a catalog")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

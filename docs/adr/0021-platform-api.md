@@ -457,3 +457,8 @@ proxy refreshes the session (every 4 minutes), that the proxy accepts the login
 token with `--oidc-extra-audience`, and that Trino and Polaris accept it. The
 e2e's browser-session check covers the sign-in and an API read; none waits out a
 refresh.
+
+Issue #801: `GET /api/v1/query-capabilities` and the per-person schema and table
+listings (`discovery.py`). The `query_endpoints` setting maps each stage to its
+Trino statement URL and people catalog. The committed OpenAPI document of
+decision 5 does not exist yet; these routes are not in it.

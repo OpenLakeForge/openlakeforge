@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import uuid
+from collections.abc import Callable
 from typing import Any, NoReturn
 
 import boto3
+import requests
 from botocore.config import Config
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import csrf, reads, report_routes, writes
+from openlakeforge_platform_api import csrf, discovery, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.permissions import ANONYMOUS, Permission, PermissionMatrix
@@ -181,6 +184,7 @@ def create_app(
     validator: TokenValidator | None = None,
     object_store: ObjectStore | None = None,
     audit: AuditLog | None = None,
+    trino_send: Callable[..., requests.Response] | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
@@ -196,6 +200,8 @@ def create_app(
     app.state.validator = validator or TokenValidator(settings)
     app.state.object_store = object_store or _object_store(settings)
     app.state.audit = audit or AuditLog(_audit_store(settings), settings.audit_base_uri)
+    # The HTTP transport for the Trino client; tests inject a fake, and a private CA is the only thing production adds.
+    app.state.trino_send = trino_send or functools.partial(requests.request, verify=settings.ca_file or True)
     app.add_api_route("/api/healthz", healthz, methods=["GET"], name="healthz")
     app.add_api_route("/api/v1/whoami", whoami, methods=["GET"], name="whoami")
     app.add_api_route("/api/v1/stages/{stage}/jobs", reads.list_jobs, methods=["GET"], name="list_jobs")
@@ -216,6 +222,13 @@ def create_app(
         report_routes.export_report,
         methods=["GET"],
         name="export_report",
+    )
+    app.add_api_route(
+        "/api/v1/query-capabilities", discovery.query_capabilities, methods=["GET"], name="query_capabilities"
+    )
+    app.add_api_route("/api/v1/stages/{stage}/schemas", discovery.list_schemas, methods=["GET"], name="list_schemas")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/schemas/{schema}/tables", discovery.list_tables, methods=["GET"], name="list_tables"
     )
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
