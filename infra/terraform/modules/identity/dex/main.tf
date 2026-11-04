@@ -94,7 +94,14 @@ locals {
         secretEnv    = local.client_secret_env[name]
         redirectURIs = client.redirect_uris
       }
-    ], [for name in var.public_clients : { id = name, name = name, public = true }])
+      ], [
+      for name in var.public_clients : merge(
+        { id = name, name = name, public = true },
+        # The perimeter's login then also yields a token for this client (ADR 0014): a token whose `aud` is the
+        # public client is what Trino, Polaris and the platform API accept.
+        length(try(var.trusted_peers[name], [])) == 0 ? {} : { trustedPeers = sort(var.trusted_peers[name]) },
+      )
+    ])
   }
   config_yaml = jsonencode(local.config)
 

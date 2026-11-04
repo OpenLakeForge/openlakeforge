@@ -19,6 +19,7 @@ import requests
 
 from olf.common import config, log
 from olf.infra import access
+from olf.infra.e2e._browser_session import check_browser_session
 from olf.infra.e2e._cli_session import CLI_CLIENT, check_cli_session
 from olf.infra.e2e._identity_github import (
     REQUEST_TIMEOUT,
@@ -105,10 +106,13 @@ def _check_dex_perimeter(
         for role, login in logins.items():
             check_role_decisions(identity, protected, routes, role, login, sign_in)
         check_bearer_tokens(cfg, identity, routes, logins, lambda ref, role: _grants(identity, ref, role))
+        api = routes.get(PLATFORM_API_HOST_REF)
         if CLI_CLIENT in identity.get("clients", {}):
             role = "data-engineer" if "data-engineer" in logins else next(r for r in logins if r is not None)
-            api = routes.get(PLATFORM_API_HOST_REF)
             check_cli_session(cfg, identity, role, logins[role], f"{api.rstrip('/')}/api/v1/whoami" if api else None)
+            if api:
+                browser, _ = sign_in(routes[PORTAL_REF], logins[role])
+                check_browser_session(identity, api, role, browser)
         check_person_access(cfg, identity, stages, routes, logins)
 
 

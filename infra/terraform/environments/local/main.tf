@@ -278,14 +278,19 @@ module "platform_api" {
   image             = var.platform_api_image
   image_pull_policy = "Never"
   issuer_url        = local.identity_oidc.issuer_url
-  # Bearer tokens from olf only: a browser session's token does not reach
-  # the API yet (ADR 0021, open item 1).
+  # Only olf-cli's audience, which a browser session's ID token carries too
+  # (Dex trustedPeers, ADR 0014); the perimeter client is never listed.
   audiences         = [local.identity_oidc.clients["olf-cli"].client_id]
   role_claim        = local.identity_oidc.role_claim
   role_mapping      = local.identity_oidc.role_mapping
   precedence        = local.identity_roles.precedence
   stages            = sort(keys(local.enabled_stages))
   ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
+  # The portal route's origin (host and scheme of the "platform-api" route,
+  # contracts.tf): the one origin the CSRF guard lets write. Per-person
+  # queries need the people catalogs, which exist only with Dex.
+  public_origin = "${local.route_scheme}://${local.base_domain}"
+  person_query  = local.query_api_enabled
   # Reached in-cluster over F32 (ADR 0017), around the perimeter.
   dagster_graphql_urls = {
     for name in keys(local.enabled_stages) :
@@ -363,6 +368,7 @@ module "perimeter" {
   protected_refs    = local.perimeter_protected_refs
   path_refs         = local.query_api_enabled ? ["shared/query_api"] : []
   scope             = local.identity_scope
+  login_audience    = local.identity_dex ? local.identity_oidc.clients["olf-cli"].client_id : null
 
   github_organization = try(var.identity_github.organization, null)
 }
@@ -402,6 +408,7 @@ module "dex" {
   ca_configmap_name   = "olf-local-ca"
   clients             = local.identity_client_redirects
   public_clients      = local.identity_public_clients
+  trusted_peers       = { for name in local.identity_public_clients : name => ["perimeter"] }
   postgresql_contract = module.postgresql.contract
 
   depends_on = [

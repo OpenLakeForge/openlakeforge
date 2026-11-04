@@ -5,7 +5,15 @@ output "route_group" {
 
 output "group_middlewares" {
   description = "Role floor to the Traefik middlewares, in order, that gate a route in that group."
-  value       = { for floor in local.floors : floor => ["olf-strip-identity@file", "olf-auth-${floor}@file"] }
+  value = merge(
+    { for floor in local.floors : floor => ["olf-strip-identity@file", "olf-auth-${floor}@file"] },
+    { (local.api_group) = ["olf-strip-identity@file", "olf-auth-${local.api_group}@file"] },
+  )
+}
+
+output "api_group" {
+  description = "Route group of the platform API: the lowest role floor, with the middleware that also hands the session's ID token to the backend as Authorization. In group_middlewares."
+  value       = local.api_group
 }
 
 output "traefik_dynamic_config" {

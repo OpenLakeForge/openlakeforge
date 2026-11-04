@@ -10,7 +10,10 @@ locals {
     role_mapping = var.role_mapping
     precedence   = var.precedence
     stages       = var.stages
-    ca_file      = var.ca_configmap_name == null ? null : "/ca/ca.crt"
+    # The CSRF guard's one allowed Origin, and whether per-person queries are on.
+    public_origin = var.public_origin
+    person_query  = var.person_query
+    ca_file       = var.ca_configmap_name == null ? null : "/ca/ca.crt"
     # Read endpoints (ADR 0021, build step 3); a service left out is answered
     # as not configured rather than refusing the API's start.
     dagster_graphql_urls = var.dagster_graphql_urls

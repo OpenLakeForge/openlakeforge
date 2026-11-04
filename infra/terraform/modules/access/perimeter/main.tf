@@ -14,6 +14,9 @@ locals {
   }
   cookie_secret_name = "${var.release_name}-cookie"
   cookie_name        = "_olf_perimeter"
+  # Dex cross-client trust: the extra scopes make the ID token's `aud` the
+  # login audience (the CLI's client) and carry the connector id Polaris needs.
+  scope = var.login_audience == null ? var.scope : "${var.scope} federated:id audience:server:client_id:${var.login_audience}"
 
   # oauth2-proxy reads the roles of an extra-issuer bearer token from a
   # hardcoded `groups` claim (v7.15.5 pkg/apis/middleware/session.go), not from
@@ -56,28 +59,45 @@ locals {
     ["X-Auth-Request-Redirect"],
   )
 
+  auth_response_headers = ["X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups", "X-Auth-Request-Preferred-Username"]
+  auth_middlewares = {
+    for floor in local.floors : floor => {
+      forwardAuth = {
+        # The proxy's catch-all path authenticates, authorizes against
+        # its allowed groups and answers 202, a login redirect (browser),
+        # 401 (API caller) or 403 (role-restricted).
+        address = "http://${var.release_name}-${floor}.${var.namespace}.svc.cluster.local:${local.port}/"
+        # Only what the proxy needs; Accept and X-Requested-With choose
+        # between the login redirect and a 401. Authorization carries a
+        # CLI's bearer token, which Traefik would otherwise drop.
+        authRequestHeaders  = ["Cookie", "Accept", "X-Requested-With", "Authorization"]
+        authResponseHeaders = local.auth_response_headers
+        # A refreshed session is a new cookie; without this the browser
+        # keeps the old one and the idle timeout never slides. The
+        # session is split over several cookies when it outgrows one.
+        addAuthCookiesToResponse = concat([local.cookie_name], [for index in range(6) : "${local.cookie_name}_${index}"])
+        trustForwardHeader       = false
+      }
+    }
+  }
+
+  # The platform API alone receives the session's ID token as a bearer (ADR
+  # 0021, decision 2): it validates the token itself. Every other service
+  # keeps the plain middleware, so none of them ever sees the token. The
+  # lowest floor admits every recognised role; the API's permission matrix
+  # decides above it.
+  api_group = "${local.last_role}-api"
+
   traefik_dynamic_config = {
     http = {
       middlewares = merge(
         { "olf-strip-identity" = { headers = { customRequestHeaders = { for name in local.forwarded_identity_headers : name => "" } } } },
+        { for floor, middleware in local.auth_middlewares : "olf-auth-${floor}" => middleware },
         {
-          for floor in local.floors : "olf-auth-${floor}" => {
-            forwardAuth = {
-              # The proxy's catch-all path authenticates, authorizes against
-              # its allowed groups and answers 202, a login redirect (browser),
-              # 401 (API caller) or 403 (role-restricted).
-              address = "http://${var.release_name}-${floor}.${var.namespace}.svc.cluster.local:${local.port}/"
-              # Only what the proxy needs; Accept and X-Requested-With choose
-              # between the login redirect and a 401. Authorization carries a
-              # CLI's bearer token, which Traefik would otherwise drop.
-              authRequestHeaders  = ["Cookie", "Accept", "X-Requested-With", "Authorization"]
-              authResponseHeaders = ["X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups", "X-Auth-Request-Preferred-Username"]
-              # A refreshed session is a new cookie; without this the browser
-              # keeps the old one and the idle timeout never slides. The
-              # session is split over several cookies when it outgrows one.
-              addAuthCookiesToResponse = concat([local.cookie_name], [for index in range(6) : "${local.cookie_name}_${index}"])
-              trustForwardHeader       = false
-            }
+          "olf-auth-${local.api_group}" = {
+            forwardAuth = merge(local.auth_middlewares[local.last_role].forwardAuth, {
+              authResponseHeaders = concat(local.auth_response_headers, ["Authorization"])
+            })
           }
         },
       )
@@ -307,7 +327,7 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--oidc-groups-claim=${var.role_claim}",
               # Overrides the default scopes: Dex needs `groups` and
               # `offline_access` asked for, an external issuer may not.
-              "--scope=${var.scope}",
+              "--scope=${local.scope}",
               "--code-challenge-method=S256",
               "--email-domain=*",
               # The decision is the group claim; a user an administrator
@@ -339,6 +359,10 @@ resource "kubernetes_deployment_v1" "proxy" {
               # show its consent page on every sign-in despite skipApprovalScreen.
               "--approval-prompt=auto",
               "--set-xauthrequest=true",
+              # Adds `Authorization: Bearer <ID token>` to the auth response;
+              # only the middleware of the API route copies it on (api_group).
+              # https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview
+              "--set-authorization-header=true",
               # A bearer token issued to the CLI's public client is checked
               # (issuer, audience, signature, expiry) and still meets the
               # floor's --allowed-group. Without the extra issuer the proxy
@@ -349,6 +373,9 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--silence-ping-logging=true",
             ],
             local.bearer_args,
+            # The session's ID token has the login audience, not this client's
+            # own, so the proxy must accept it when it refreshes the session.
+            var.login_audience == null ? [] : ["--oidc-extra-audience=${var.login_audience}"],
             [for claim in local.allowed_claims[each.key] : "--allowed-group=${claim}"],
           )
 

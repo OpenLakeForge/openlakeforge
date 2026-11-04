@@ -37,6 +37,18 @@ variable "audiences" {
   }
 }
 
+variable "public_origin" {
+  description = "scheme://host of the portal route the API is served from, the only Origin a write may carry (ADR 0021, request rules). Null refuses every write that carries an Origin."
+  type        = string
+  default     = null
+}
+
+variable "person_query" {
+  description = "Whether per-person queries are on: true only where the people catalogs exist (Dex-backed identity, ADR 0019)."
+  type        = bool
+  default     = false
+}
+
 variable "role_claim" {
   description = "identity.oidc role_claim: the token claim holding the role values."
   type        = string

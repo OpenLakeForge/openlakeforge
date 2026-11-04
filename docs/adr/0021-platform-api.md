@@ -87,8 +87,13 @@ It is served at `https://<base_domain>/api/` behind the perimeter, the same
 origin as the portal, so a browser session reaches it without CORS. The route
 is a path on the portal's host, not a `shared.access.routes` entry, and sits
 behind the perimeter's lowest role floor: every canonical role clears it, and
-the API's own permission matrix decides above that. Its accepted audience is
-the `olf-cli` client until open item 1 brings a browser session's token.
+the API's own permission matrix decides above that. It accepts only audience
+`olf-cli`, which a browser session's ID token carries through Dex cross-client
+trust (ADR 0014): the perimeter's proxies return it as `Authorization: Bearer`
+and a Traefik middleware used on this route alone copies it to the API, so no
+other service sees it. With an external issuer, or no `spec.identity`, there is
+no such token: the settings render `person_query: false` and a browser's
+cookie alone gets 401 from the API.
 
 The portal stays in its own repository and stays Astro; React is added as
 islands where a page is interactive, and no framework migration is part of
@@ -272,10 +277,11 @@ cluster rights (ADR 0020).
 
 ## Open items
 
+Items 1 and 2 are settled (decision 1 and History); the numbering of the
+remaining one is kept.
+
 | # | Item | Why it is open |
 | --- | --- | --- |
-| 1 | How a browser session's token reaches the platform API | The perimeter sets `--set-xauthrequest=true` but does not pass the access token on; passing it needs oauth2-proxy and Traefik `authResponseHeaders` configuration, not yet written or run. Portal pages that read OpenMetadata depend on it, since the API has no credential of its own to fall back to. That session's token is issued to the perimeter's client; OpenMetadata ignores `aud`, so it should pass, but no one has run it |
-| 2 | A token Trino accepts for the portal's query page | Trino requires the audience `olf-cli` (ADR 0019, step 5), and a browser session's token is the perimeter's. Dex cross-client trust or a client Trino also accepts are candidates; neither is tested. It changes ADR 0014 and ADR 0019 |
 | 3 | The narrowest credential per service | Settled for Superset (#670, see History): a non-admin service user, role `olf_platform_api`, can import and export. It must co-own the report assets to overwrite them, and needs data access to export them |
 
 ## Build order
@@ -439,3 +445,15 @@ Issue #799, first part: the cross-site write guard (`csrf.py`), the
 `public_origin` and `person_query` settings, and the dependency that derives a
 person's Trino identity from the validated token (`query_identity.py`). Open
 items 1 and 2 stay open until the identity wiring lands.
+
+Issue #799, second part: open items 1 and 2 are settled by Dex cross-client
+trust, with no change to any service's accepted audience. `olf-cli` lists the
+perimeter in `trustedPeers`; the perimeter requests the `olf-cli` audience and
+`federated:id`, and the middleware on `/api` passes the ID token on. The
+settings render `public_origin` from the portal route's scheme and host (`http`
+under `access.issuer: none`) and `person_query` true only for Dex with the
+people catalogs. Not yet run: that Dex keeps the `olf-cli` audience when the
+proxy refreshes the session (every 4 minutes), that the proxy accepts the login
+token with `--oidc-extra-audience`, and that Trino and Polaris accept it. The
+e2e's browser-session check covers the sign-in and an API read; none waits out a
+refresh.
