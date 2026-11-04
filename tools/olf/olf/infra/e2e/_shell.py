@@ -8,7 +8,6 @@ acyclic.
 from __future__ import annotations
 
 import os
-import subprocess
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -18,6 +17,7 @@ from typing import Any, Literal
 from openlakeforge_core import LakehouseInventory
 
 from olf.common import contract_state, log
+from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.terraform import external_state_options
 
@@ -107,7 +107,10 @@ def kubectl(
 def _run(
     args: list[str], *, capture: bool = False, env: Mapping[str, str] | None = None, input_text: str | None = None
 ) -> str:
-    result = subprocess.run(args, capture_output=capture, text=True, check=False, env=env, input=input_text)
+    # Uncaptured output still reaches the terminal: ProcessRunner tees it when streaming (which has no stdin).
+    result = ProcessRunner().run(
+        args, env=env, input_text=input_text, check=False, stream_output=not capture and input_text is None
+    )
     if result.returncode != 0:
         detail = (result.stderr if capture else "") or ""
         raise E2EError(f"{' '.join(args)} failed: {detail.strip()}")

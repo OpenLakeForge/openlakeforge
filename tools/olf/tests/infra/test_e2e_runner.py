@@ -533,3 +533,28 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
 
     with pytest.raises(E2EError, match="digest mismatch"):
         _runner.check_commands(e2e_cfg(tmp_path))
+
+
+def test_run_returns_captured_stdout_and_layers_env_and_stdin() -> None:
+    out = _shell._run(
+        ["sh", "-c", 'read line; printf "%s:%s" "$OLF_T" "$line"'],
+        capture=True,
+        env={"OLF_T": "v"},
+        input_text="in\n",
+    )
+    assert out == "v:in"
+
+
+def test_run_failure_carries_stderr_only_when_captured(capfd: pytest.CaptureFixture[str]) -> None:
+    argv = ["sh", "-c", "echo oops >&2; exit 3"]
+    with pytest.raises(E2EError, match="failed: oops"):
+        _shell._run(argv, capture=True)
+    with pytest.raises(E2EError) as uncaptured:
+        _shell._run(argv)
+    assert str(uncaptured.value).strip().endswith("failed:")
+    assert "oops" in capfd.readouterr().err  # uncaptured output still reaches the terminal
+
+
+def test_run_uncaptured_returns_empty_and_echoes_stdout(capfd: pytest.CaptureFixture[str]) -> None:
+    assert _shell._run(["sh", "-c", "echo hello"]) == ""
+    assert "hello" in capfd.readouterr().out
