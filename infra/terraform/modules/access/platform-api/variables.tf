@@ -49,6 +49,15 @@ variable "person_query" {
   default     = false
 }
 
+variable "query_endpoints" {
+  description = "Each stage's Trino statement URL and people catalog, which the API runs a person's queries against (ADR 0019). Rendered into settings.json only with person_query, and an in-cluster URL, never a hostname a browser could use."
+  type = map(object({
+    statement_url = string
+    catalog       = string
+  }))
+  default = {}
+}
+
 variable "role_claim" {
   description = "identity.oidc role_claim: the token claim holding the role values."
   type        = string
@@ -133,7 +142,7 @@ variable "superset_service_users" {
 }
 
 variable "bootstrap_job_image" {
-  description = "Image of the Job that mints the Superset service users' passwords (release/component-catalog.yaml, k8s_bootstrap). Needed only with superset_service_users."
+  description = "Image of the Jobs that mint the Superset service users' passwords and the query signing key (release/component-catalog.yaml, k8s_bootstrap). Needed with superset_service_users or person_query."
   type        = string
   default     = null
 }

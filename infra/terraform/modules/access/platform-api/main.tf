@@ -13,7 +13,9 @@ locals {
     # The CSRF guard's one allowed Origin, and whether per-person queries are on.
     public_origin = var.public_origin
     person_query  = var.person_query
-    ca_file       = var.ca_configmap_name == null ? null : "/ca/ca.crt"
+    # Server-side only: in-cluster Trino URLs, one people catalog per stage.
+    query_endpoints = var.person_query ? var.query_endpoints : {}
+    ca_file         = var.ca_configmap_name == null ? null : "/ca/ca.crt"
     # Read endpoints (ADR 0021, build step 3); a service left out is answered
     # as not configured rather than refusing the API's start.
     dagster_graphql_urls = var.dagster_graphql_urls
@@ -124,6 +126,21 @@ resource "kubernetes_deployment_v1" "platform_api" {
             }
           }
 
+          # Signs query ids and cursors; one Secret, so every replica verifies
+          # what another issued. Without it query execution answers 503.
+          dynamic "env" {
+            for_each = var.person_query ? [1] : []
+            content {
+              name = "OPENLAKEFORGE_QUERY_SIGNING_KEY"
+              value_from {
+                secret_key_ref {
+                  name = local.query_signing_secret
+                  key  = "key"
+                }
+              }
+            }
+          }
+
           volume_mount {
             name       = "settings"
             mount_path = "/config"
@@ -203,8 +220,8 @@ resource "kubernetes_deployment_v1" "platform_api" {
     }
   }
 
-  # The pod reads the Superset passwords at start; their Secrets exist once the Job has run.
-  depends_on = [kubernetes_job_v1.superset_users]
+  # The pod reads the Superset passwords and the signing key at start; their Secrets exist once the Jobs have run.
+  depends_on = [kubernetes_job_v1.superset_users, kubernetes_job_v1.query_signing_key]
 }
 
 resource "kubernetes_service_v1" "platform_api" {

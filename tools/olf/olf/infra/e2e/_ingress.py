@@ -75,9 +75,12 @@ def check_portal_lists_routes(cfg: E2EConfig) -> None:
 def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
     # The page omits itself and the identity login surface, and may end with the
     # issuer's account link (GitHub's /orgs/<org>/teams) and the Sign out
-    # button (the perimeter's /oauth2/sign_out), which are no routes.
+    # button (the perimeter's /oauth2/sign_out), which are no routes. The React
+    # portal also links its own pages (/services, /queries) and preloads
+    # /assets/<chunk>-<hash>.js. Every configured route is an absolute http(s)
+    # URL, so same-origin paths never hide one.
     others = {ref: route for ref, route in routes.items() if ref not in (PORTAL_REF, "shared/identity")}
-    not_a_route = re.compile(r"/orgs/[^/]+/teams$|/oauth2/sign_out\?")
+    not_a_route = re.compile(r"/orgs/[^/]+/teams$|/oauth2/sign_out\?|^/[^/?#]+$|^/assets/")
     listed = {u for u in re.findall(r'href="([^"]*)"', page) if not not_a_route.search(u)}
     wanted = {route["url"] for route in others.values() if route["enabled"] and route["exposure"] == "user-facing"}
     if listed != wanted:

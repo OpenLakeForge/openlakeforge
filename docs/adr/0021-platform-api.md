@@ -44,7 +44,7 @@ The logic already exists, in Python, under the infra surface:
 | Dagster runs and jobs | `openlakeforge_services/dagster.py`, used only by `olf e2e` | None: Dagster's GraphQL API is unauthenticated ([ADR 0017](0017-local-network-policy-and-rbac.md)) | No: Dagster has no authentication or authorization of its own |
 | Archived logs | Written by `openlakeforge_runtime/k8s_log_archive.py` to `OPENLAKEFORGE_LOG_BASE_URI` (default `s3://openlakeforge-ops/logs`) | Object-store credentials | No: no module under `infra/terraform/modules/storage/` configures an OIDC issuer |
 
-Two facts shape the decision. The portal is an Astro application on Node, so
+Two facts shape the decision. The portal is a React Router application on Node, so
 it cannot import this code. And the services split in two: Superset, Dagster
 and the object store cannot take a person's token, so a call there needs a
 service credential and someone else must decide access; OpenMetadata takes the
@@ -95,9 +95,10 @@ other service sees it. With an external issuer, or no `spec.identity`, there is
 no such token: the settings render `person_query: false` and a browser's
 cookie alone gets 401 from the API.
 
-The portal stays in its own repository and stays Astro; React is added as
-islands where a page is interactive, and no framework migration is part of
-this decision.
+The portal stays in its own repository and is a React Router (framework mode,
+Node SSR) app. It is still a thin same-origin client of this API: it holds no
+data-plane authorization, and what a person may read or run is decided by the
+services behind the API.
 
 ### 2. The identity a call carries follows the service
 
@@ -483,3 +484,16 @@ rows and an export at most `query_export_max_rows`, else 413; CSV cells that a
 spreadsheet would read as formulas are prefixed with a quote.
 There is no per-person limit on queries in flight: it would need state shared
 between replicas, which this API does not have.
+
+Decision 1 rewritten: the portal is no longer Astro. It is a React Router
+(framework mode, Node SSR) app in its own repository
+(openlakeforge-portal #10 to #12), and the sentence about React islands is gone.
+
+Issue #799 and #800, deployment wiring: the platform API module renders
+`query_endpoints` (each stage's in-cluster Trino statement URL, on the
+coordinator's HTTPS port, and its people catalog) into `settings.json` only
+with `person_query`, so the URL never leaves the server. The same condition mounts
+`OPENLAKEFORGE_QUERY_SIGNING_KEY` from a Secret one Job mints in `olf-system`,
+kept on redeploy and never held by Terraform. ADR 0017 adds flow F36 for the
+API's egress to the coordinator. Not yet run: a query through the deployed API;
+there is no cluster in the change's environment.

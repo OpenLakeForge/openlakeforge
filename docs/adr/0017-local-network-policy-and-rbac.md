@@ -206,6 +206,7 @@ port [D]).
 | F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and nothing else | T |
 | F34 | Dagster run pods (`app.kubernetes.io/component=run_worker`) of a stage whose profile declares `spec.stages.<stage>.source_egress.ports` | any address outside the pod and Service ranges | the declared ports, TCP | Bronze sources that read an external API or database (#660); their host and port are stage bindings (`olf-source-<id>` ConfigMaps) that reach the run pod only. No FQDN selector, so the ports on any address, as F28 and F30; rendered from the profile, as F23, as its own policy `olf-flows-f34` in that stage's namespace only. A stage that declares nothing gets no row | T |
 | F35 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
+| F36 | the platform API | the Trino coordinator 8443 | 8443 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), over HTTPS, carrying that person's own token; the API holds no Trino credential. Rendered with `person_query` only | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -559,3 +560,11 @@ module created.
 F35 added (#670): the platform API reaches each stage's Superset on 8088 for the
 report routes, signed in as its own service user, not `admin`. The stage rule is
 namespace-wide, as F32's is.
+
+F36 added (#800): the platform API reaches the Trino coordinator on 8443 to run
+and page a person's queries with that person's token. It is a row on both sides,
+the API's egress and the coordinator's ingress, as F8 is. The query signing key
+(`platform-api-query-signing-key`) is minted in `olf-system` by one Job with its
+own E1 ServiceAccount, `platform-api-query-signing-key`: it may `create` Secrets
+there and read only that one by name. Its pods do not carry the API's name label,
+so the API's workload policy does not select them.
