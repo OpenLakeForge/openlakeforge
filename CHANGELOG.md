@@ -29,6 +29,9 @@ for how a release is cut and verified.
   step takes the project root from `--root` or `OPENLAKEFORGE_PROJECT_ROOT`
   (default: the working directory) rather than from the module's location, so
   Gold dbt products are found in a source checkout too.
+- `openlakeforge` now depends on `openlakeforge-runtime` (pinned to its own version)
+  instead of putting `packages/runtime` on `sys.path` for `olf check dbt` and
+  `olf infra dbt parse`.
 
 ### Migration
 
