@@ -325,13 +325,16 @@ def _verify_bronze_dlt_stage_state() -> None:
         return records
 
     def load(stage: str, bucket: Path) -> int:
+        # dlt resolves `dlt.config.value` / `dlt.secrets.value` from os.environ itself, so the
+        # source bindings are the one thing that must be exported; the stage goes by argument.
         bindings = {
-            "OPENLAKEFORGE_STAGE": stage,
             "SOURCES__MOCK_API__BASE_URL": f"https://api.{stage}.example",
             "SOURCES__MOCK_API__API_TOKEN": f"{stage}-token",
         }
         with _environment(bindings):
-            pipeline = bronze_dlt.bronze_pipeline("mock_api", bucket_url=bucket.as_uri())
+            pipeline = bronze_dlt.bronze_pipeline(
+                "mock_api", environ={"OPENLAKEFORGE_STAGE": stage}, bucket_url=bucket.as_uri()
+            )
             pipeline.run(mock_api(), loader_file_format="jsonl")
         return int(pipeline.last_trace.last_normalize_info.row_counts.get("records", 0))
 
@@ -364,12 +367,11 @@ def _verify_bronze_dlt_stage_state() -> None:
         "AWS_ACCESS_KEY_ID": "check-key",
         "AWS_SECRET_ACCESS_KEY": "check-secret",
     }
-    with _environment(stage_bucket):
-        pipeline = bronze_dlt.bronze_pipeline("mock_api")
-        try:
-            fsspec_from_config(pipeline.destination_client().config)
-        except Exception as exc:  # dlt raises its own MissingDependencyException
-            _fail(f"dlt cannot open a stage's S3 Bronze bucket ({type(exc).__name__}): {exc}")
+    pipeline = bronze_dlt.bronze_pipeline("mock_api", environ=stage_bucket)
+    try:
+        fsspec_from_config(pipeline.destination_client().config)
+    except Exception as exc:  # dlt raises its own MissingDependencyException
+        _fail(f"dlt cannot open a stage's S3 Bronze bucket ({type(exc).__name__}): {exc}")
 
 
 _LOAD_MODES_SOURCE = """\
@@ -423,14 +425,14 @@ def _verify_bronze_dlt_load_modes() -> None:
         (root / "bronze" / "mock_api" / "source.yaml").write_text(_LOAD_MODES_SOURCE, encoding="utf-8")
 
         def load(*, cursor: str = "updated_at") -> dict[str, int]:
-            with _environment({"OPENLAKEFORGE_STAGE": "dev"}):
-                results = bronze_dlt.load_dlt_source(
-                    "mock_api",
-                    source(cursor),
-                    ("records", "lookups"),
-                    bucket_url=bucket.as_uri(),
-                    lakehouse_root=root,
-                )
+            results = bronze_dlt.load_dlt_source(
+                "mock_api",
+                source(cursor),
+                ("records", "lookups"),
+                environ={"OPENLAKEFORGE_STAGE": "dev"},
+                bucket_url=bucket.as_uri(),
+                lakehouse_root=root,
+            )
             return {name: result.rows for name, result in results.items()}
 
         def files(resource: str) -> list[str]:
