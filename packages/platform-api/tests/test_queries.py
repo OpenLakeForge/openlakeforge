@@ -1,4 +1,4 @@
-"""Running, paging and cancelling a person's SQL, with a fake Trino behind the statement client."""
+"""Running, paging, cancelling and exporting a person's SQL, with a fake Trino behind the statement client."""
 
 from __future__ import annotations
 
@@ -283,6 +283,7 @@ def test_another_persons_id_cursor_and_cancel_are_404(
     assert api.get(base, headers=other).status_code == 404
     assert api.get(base, params={"cursor": first["next_cursor"]}, headers=other).status_code == 404
     assert api.delete(base, headers=other).status_code == 404
+    assert api.get(base + "/export", params={"format": "csv"}, headers=other).status_code == 404
     assert trino.cancelled is False
 
 
@@ -335,6 +336,7 @@ def test_where_person_query_is_off_every_route_is_404(settings: Settings, trino:
     assert _submit(api, token).status_code == 404
     assert api.get("/api/v1/stages/dev/queries/x", headers=bearer(token)).status_code == 404
     assert api.delete("/api/v1/stages/dev/queries/x", headers=bearer(token)).status_code == 404
+    assert api.get("/api/v1/stages/dev/queries/x/export?format=csv", headers=bearer(token)).status_code == 404
     assert trino.sent == []
 
 
@@ -360,6 +362,39 @@ def test_the_csrf_guard_still_applies_to_submit_and_cancel(api: TestClient, trin
     )
     assert form.status_code == 403
     assert trino.sent == []
+
+
+def _export(api: TestClient, token: str, fmt: str, sql: str = "SELECT n, label FROM s.t") -> Any:
+    query_id = _submit(api, token, sql).json()["id"]
+    return api.get(f"/api/v1/stages/dev/queries/{query_id}/export", params={"format": fmt}, headers=bearer(token))
+
+
+def test_export_csv_downloads_and_neutralises_formulas(api: TestClient, trino: FakeTrino, token: str) -> None:
+    trino.pages = [{"columns": COLUMNS, "data": [[1, "=SUM(A1)"], [-2, "@cmd"], [3, None], [4, "a,b"]]}]
+    response = _export(api, token, "csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="query-results.csv"'
+    assert response.text.splitlines() == ["n,label", "1,'=SUM(A1)", "-2,'@cmd", "3,", '4,"a,b"']
+
+
+def test_export_json_downloads_the_whole_result(api: TestClient, token: str) -> None:
+    response = _export(api, token, "json")
+    assert response.headers["content-disposition"] == 'attachment; filename="query-results.json"'
+    assert response.json() == {"columns": ["n", "label"], "rows": [[1, "a"], [2, "b"]]}
+
+
+def test_export_beyond_the_row_limit_is_413_and_sends_nothing(settings: Settings, trino: FakeTrino, token: str) -> None:
+    trino.pages = [{"columns": COLUMNS, "data": [[i, "x"] for i in range(5)]}]
+    response = _export(_api(settings, trino, query_export_max_rows=3), token, "csv")
+    assert response.status_code == 413 and "more than 3 rows" in response.json()["detail"]
+
+
+def test_export_runs_as_the_person_and_an_unknown_format_is_422(api: TestClient, trino: FakeTrino, token: str) -> None:
+    query_id = _submit(api, token).json()["id"]
+    assert api.get(f"/api/v1/stages/dev/queries/{query_id}/export?format=xml", headers=bearer(token)).status_code == 422
+    _export(api, token, "csv")
+    assert trino.sent[-1]["headers"]["X-Trino-User"] == "ada@example.com"
 
 
 def test_logs_carry_neither_the_sql_nor_the_token(

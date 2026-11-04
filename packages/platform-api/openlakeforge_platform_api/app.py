@@ -237,6 +237,7 @@ def create_app(
     app.add_api_route(queries_path, queries.submit_query, methods=["POST"], name="submit_query")
     app.add_api_route(queries_path + "/{query_id}", queries.get_query, methods=["GET"], name="get_query")
     app.add_api_route(queries_path + "/{query_id}", queries.cancel_query, methods=["DELETE"], name="cancel_query")
+    app.add_api_route(queries_path + "/{query_id}/export", queries.export_query, methods=["GET"], name="export_query")
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app

@@ -1,4 +1,4 @@
-"""Run, page and cancel a person's SQL through Trino, as that person (ADR 0019, ADR 0021).
+"""Run, page, cancel and export a person's SQL through Trino, as that person (ADR 0019, ADR 0021).
 
 Nothing is stored. The `id` and `cursor` a client holds are HMAC-signed records of where the query is in Trino
 (its id and continuation path), the stage and the person's token `sub`, so any replica can resume a query and none
@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import csv
 import hashlib
 import hmac
+import io
 import json
 import logging
 import time
@@ -29,7 +31,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from openlakeforge_services.trino import (
     TrinoAuthError,
     TrinoCancelledError,
@@ -49,6 +52,8 @@ from openlakeforge_platform_api.settings import Settings
 
 log = logging.getLogger(__name__)
 
+# A leading one of these makes a spreadsheet read a cell as a formula (OWASP, CSV injection).
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 # The id travels in a URL path; past this a proxy may refuse it.
 MAX_ID_CHARS = 7000
 _READ_ONLY_REFUSAL = (
@@ -237,7 +242,7 @@ def _drain(ctx: _Ctx, page: TrinoPage) -> _Drained:
         room = cap - len(rows)
         if len(page.rows) > room:
             # shortcut: one Trino page larger than the cap is cut and the rest abandoned, since resuming mid-page
-            # needs server state; a whole result needs the export route. Upgrade with a store of its own.
+            # needs server state; the export route reads whole results. Upgrade with a store of its own.
             rows.extend(page.rows[:room])
             if page.next_uri:
                 try:
@@ -324,3 +329,71 @@ def cancel_query(
         with _trino_errors(stage):
             ctx.client.cancel(ctx.url(record["p"]), identity.token)
     return _response(ctx, query_id, started, status="cancelled")
+
+
+def _cell(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return "'" + value if value.startswith(_FORMULA_STARTS) else value
+    if isinstance(value, (list, dict)):
+        return _cell(json.dumps(value, default=str))
+    return value
+
+
+def _csv(columns: list[str], rows: list[list[Any]]) -> Iterator[str]:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([_cell(name) for name in columns])
+    for start in range(0, len(rows), 500):
+        for row in rows[start : start + 500]:
+            writer.writerow([_cell(value) for value in row])
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate()
+    if not rows:
+        yield buffer.getvalue()
+
+
+def _json(columns: list[str], rows: list[list[Any]]) -> Iterator[str]:
+    # JSON is data, not something a spreadsheet opens as formulas, so values pass through unchanged.
+    yield '{"columns":' + json.dumps(columns) + ',"rows":['
+    for index, row in enumerate(rows):
+        yield ("," if index else "") + json.dumps(row, default=str)
+    yield "]}"
+
+
+def export_query(
+    request: Request,
+    stage: str,
+    query_id: str,
+    format: str = Query(pattern="^(csv|json)$"),  # noqa: A002, B008 - the contract's parameter name
+    identity: TrinoIdentity = Depends(trino_identity),  # noqa: B008
+) -> StreamingResponse:
+    ctx = _context(request, stage, identity)
+    record = _open(ctx, "id", query_id)
+    limit = ctx.settings.query_export_max_rows
+    sql = record.get("sql")
+    if not isinstance(sql, str):
+        raise HTTPException(status_code=404, detail="no such query")
+    # Trino gives a result out once, so an export runs the statement again, as the person. The statement needs no
+    # read-only probe: it is the text this API signed after the probe passed.
+    with _trino_errors(stage):
+        result = ctx.client.run(sql, bearer=lambda: identity.token, extra_credentials=ctx.credentials, max_rows=limit)
+    if result.truncated:
+        raise HTTPException(status_code=413, detail=f"the result has more than {limit} rows; narrow the query")
+    # shortcut: up to the export cap is held in memory before the first byte so an oversize result can still be a
+    # 413; upgrade to spooling when the cap needs to exceed what one replica can hold.
+    render = _csv if format == "csv" else _json
+    media = "text/csv; charset=utf-8" if format == "csv" else "application/json"
+    return StreamingResponse(
+        render(result.columns, result.rows),
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="query-results.{format}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )

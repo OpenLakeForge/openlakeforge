@@ -44,7 +44,7 @@ One JSON file, at `$OPENLAKEFORGE_PLATFORM_API_SETTINGS` (default
 | `openmetadata_url` | Optional; OpenMetadata's in-cluster base URL. Without it the OpenMetadata routes answer 404 |
 | `log_archives` | Optional; each enabled stage's archive, `{"base_uri": "s3://…", "namespace": "…"}`: where its archiver writes and the namespace it archives. A stage without one answers 404 on the logs route; the namespace is never taken from a request |
 | `person_query`, `query_endpoints` | Per-person SQL: the switch, and each stage's Trino `{"statement_url", "catalog"}` |
-| `query_page_rows`, `query_timeout_seconds`, `query_wait_seconds` | Optional bounds on SQL: rows per response (1000), seconds per Trino call (30) and per request's wait for a first result (5) |
+| `query_page_rows`, `query_export_max_rows`, `query_timeout_seconds`, `query_wait_seconds` | Optional bounds on SQL: rows per response (1000), rows per export (100000), seconds per Trino call (30) and per request's wait for a first result (5) |
 | `s3_endpoint_url`, `s3_region` | The object store the archives are read from; the endpoint is null for AWS S3, and the region defaults to `us-east-1` |
 
 Query ids and cursors are signed with the key in the environment variable
