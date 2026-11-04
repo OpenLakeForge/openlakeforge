@@ -42,6 +42,12 @@ variable "scope" {
   default     = "openid email profile"
 }
 
+variable "login_audience" {
+  description = "Client id the session's ID token is issued for, when it is not the proxy's own (Dex trustedPeers, ADR 0014): requested with the audience and federated:id scopes and accepted as an extra audience. Null leaves the token's audience as the proxy's client."
+  type        = string
+  default     = null
+}
+
 variable "route_scheme" {
   description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https. Fixes the callback URL and whether the session cookie is Secure."
   type        = string

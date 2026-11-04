@@ -53,6 +53,17 @@ variable "public_clients" {
   default     = []
 }
 
+variable "trusted_peers" {
+  description = "Public client id to the client ids that may request a token whose audience is that public client (Dex `trustedPeers`, scope audience:server:client_id:<id>). Empty trusts no one."
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition     = alltrue([for id, peers in var.trusted_peers : contains(var.public_clients, id) && alltrue([for peer in peers : contains(keys(var.clients), peer)])])
+    error_message = "trusted_peers must name a public client and, as its peers, clients defined in `clients`."
+  }
+}
+
 variable "postgresql_contract" {
   description = "Shared PostgreSQL contract: host, port, and the dex entry of `databases` (db_name, db_user, credentials_secret_name)."
   type = object({

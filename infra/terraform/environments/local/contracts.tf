@@ -510,7 +510,8 @@ locals {
     length(module.platform_api) == 0 ? {} : {
       # Not a contract route: the API is a path on the portal's host. It sits
       # behind the lowest floor, which every canonical role clears, and its own
-      # permission matrix decides above that (ADR 0021, decision 3).
+      # permission matrix decides above that (ADR 0021, decision 3). Its group
+      # is the one whose middleware also passes the session's ID token on.
       "platform-api" = {
         host         = local.base_domain
         tls_host     = local.base_domain
@@ -518,7 +519,7 @@ locals {
         service_name = module.platform_api[0].service_name
         service_port = module.platform_api[0].service_port
         path         = module.platform_api[0].path
-        group        = local.identity_roles.precedence[length(local.identity_roles.precedence) - 1]
+        group        = module.perimeter[0].api_group
       }
     },
   )
