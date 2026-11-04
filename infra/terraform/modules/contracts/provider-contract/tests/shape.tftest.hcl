@@ -107,6 +107,7 @@ run "local_adds_shared_services_and_stage_extras" {
   command = plan
 
   variables {
+    image_repository      = "localhost:5001/project-code"
     provider_name         = "local"
     region                = null
     catalog_service       = { implementation = "catalog.iceberg_rest.polaris", endpoint = "http://polaris:8181/api/catalog" }
@@ -141,6 +142,11 @@ run "local_adds_shared_services_and_stage_extras" {
   }
 
   assert {
+    condition     = output.provider_contracts.shared.artifact_registry.image_repository == "localhost:5001/project-code"
+    error_message = "the provider-owned image repository reaches the registry binding"
+  }
+
+  assert {
     condition     = output.provider_contracts.deployment.region == null
     error_message = "a provider without a region reports null"
   }
@@ -168,6 +174,11 @@ run "local_adds_shared_services_and_stage_extras" {
 
 run "capabilities_follow_the_stage_flags" {
   command = plan
+
+  assert {
+    condition     = !contains(keys(output.provider_contracts.shared.artifact_registry), "image_repository")
+    error_message = "an absent image repository is omitted from the registry binding"
+  }
 
   assert {
     condition     = contains(keys(output.provider_contracts.stages.dev), "reporting") && contains(keys(output.provider_contracts.stages.dev), "governance") && !contains(keys(output.provider_contracts.stages.prod), "reporting") && !contains(keys(output.provider_contracts.stages.prod), "governance")

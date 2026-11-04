@@ -86,6 +86,16 @@ the single merged location ADR 0006 documents, which is what such a platform's
 Dagster release is running; requiring it would make a code commit demand a
 platform apply, across the lifecycle boundary ADR 0002 draws.
 
+### `shared.artifact_registry`
+
+The registry binding may offer an `image_repository`: a lowercase OCI
+repository with an explicit host, without a tag, digest or credentials. The
+field is optional so existing contracts remain readable. A project image
+repository selected by the Deployment Profile or environment takes precedence;
+the provider-owned repository is the fallback for a project with no explicit
+repository. Its adapter owns publishing and making that digest available to
+workloads. Descriptors and project revisions do not select an adapter.
+
 ### `shared.access`
 
 The AWS and Azure roots emit `{ref, implementation: "access.kubectl_port_forward"}`.

@@ -20,6 +20,7 @@ from olf.common.contract_validation import (
 )
 from olf.common.profile import (
     _BASE_DOMAIN_PATTERN,
+    _IMAGE_REPOSITORY_PATTERN,
     DeploymentTopology,
     IdentitySpec,
     Provider,
@@ -402,6 +403,7 @@ def _parse_shared(
             where=f"shared.{name}",
             required={"ref", "implementation"},
             optional=(_ACCESS_INGRESS_FIELDS | {"perimeter"} if name == "access" else set())
+            | ({"image_repository"} if name == "artifact_registry" else set())
             | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
                 "endpoint",
@@ -422,6 +424,18 @@ def _parse_shared(
         _reference(parsed[name]["ref"], where=f"shared.{name}.ref", allowed=("shared/",))
         if parsed[name]["ref"] != f"shared/{name}":
             raise ProviderContractError(f"shared.{name}.ref must be 'shared/{name}'")
+    registry = parsed["artifact_registry"]
+    if "image_repository" in registry:
+        repository = registry["image_repository"]
+        if (
+            not isinstance(repository, str)
+            or len(repository) > 255
+            or not _IMAGE_REPOSITORY_PATTERN.fullmatch(repository)
+        ):
+            raise ProviderContractError(
+                "shared.artifact_registry.image_repository must be a lowercase registry repository "
+                "with a host, without tag, digest or credentials"
+            )
     if "roles" not in parsed["identity"]:
         raise ProviderContractError("shared.identity is missing required field 'roles'")
     _check_identity_roles(parsed["identity"]["roles"], distribution_root)
