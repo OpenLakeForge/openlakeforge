@@ -56,9 +56,9 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
             "Floe writes Iceberg through a REST or AWS Glue catalog."
         )
 
-    # Terraform-managed code deployments (`manage_user_deployments`) carry
-    # the storage binding only under its AWS SDK aliases, and the activation
-    # release under both; accept either so one image loads on both paths.
+    # A stack applied before activation owned user code carries the storage
+    # binding only under its AWS SDK aliases, and the activation release
+    # under both; accept either so one image loads on both paths.
     def first(*names: str) -> str:
         return next((value for name in names if (value := environ.get(name, "").strip())), "")
 
