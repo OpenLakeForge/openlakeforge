@@ -14,6 +14,11 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Added
+
+- `olf check resources`, part of `olf check all`, fails when a Terraform-defined container has no
+  `requests` (cpu and memory) or no memory limit, so a new Job or Deployment cannot land unsized.
+
 ### Changed
 
 - The domain model package is renamed: the PyPI distribution
