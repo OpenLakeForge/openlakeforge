@@ -15,14 +15,14 @@ from __future__ import annotations
 
 import json
 import secrets
-import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import ProcessRunner, TimeoutExpired
 
 LABEL = "openlakeforge.io/break-glass"
 DEFAULT_TTL_MINUTES = 30
@@ -81,6 +81,20 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _attach(argv: Sequence[str], *, timeout: float, env: Mapping[str, str]) -> None:
+    """Run `argv` on the operator's terminal until it exits or `timeout` passes.
+
+    Like `subprocess.run`, the child is killed on a timeout or an interrupt before the exception propagates.
+    """
+    process = ProcessRunner().popen(argv, env=env)
+    try:
+        process.wait(timeout=timeout)  # the exit status is not checked, as with run(check=False)
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+
+
 def open_session(
     cluster: Cluster,
     service: str,
@@ -89,7 +103,7 @@ def open_session(
     *,
     local_port: int = 0,
     tls_port: int | None = None,
-    run: Callable[..., Any] = subprocess.run,
+    run: Callable[..., Any] = _attach,
 ) -> str:
     """Record the use, open the path until it exits or the TTL passes, then complete the record."""
     target = TARGETS[service]
@@ -117,8 +131,8 @@ def open_session(
         ports = [f"{local_port or port}:{port}"]
         argv = cluster.kubectl.port_forward_argv(target.resource, ports, namespace=namespace, context=cluster.context)
     try:
-        run(argv, timeout=ttl_minutes * 60, check=False, env=_env(cluster))
-    except (subprocess.TimeoutExpired, KeyboardInterrupt):
+        run(argv, timeout=ttl_minutes * 60, env=_env(cluster))
+    except (TimeoutExpired, KeyboardInterrupt):
         pass  # the TTL, or Ctrl-C, is the expected way out of a port-forward
     finally:
         seconds = int((datetime.now(UTC) - started).total_seconds())
