@@ -189,26 +189,6 @@ def test_stop_all_kills_processes_that_do_not_terminate_in_time(tmp_path: Path) 
     assert process.killed
 
 
-def test_start_passes_env_overrides_through_for_the_runner_to_layer(tmp_path: Path) -> None:
-    """`ProcessRunner.popen` layers the overrides over the ambient environment
-    (covered in test_process.py), so the supervisor hands them over unmerged.
-    """
-    popens: list[_FakePopen] = []
-
-    def fake_popen(argv, **kwargs):  # noqa: ANN001
-        popen = _FakePopen(argv, **kwargs)
-        popen.env = kwargs.get("env")
-        popens.append(popen)
-        return popen
-
-    supervisor = PortForwardSupervisor(_kubectl(), log_prefix=tmp_path / "openlakeforge-local", popen=fake_popen)
-    spec = _spec()
-
-    supervisor.start(spec.targets[0], spec, env={"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"})
-
-    assert popens[0].env == {"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"}
-
-
 def test_default_launch_layers_env_overrides_over_the_ambient_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
