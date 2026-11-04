@@ -62,6 +62,10 @@ def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def _literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def maintain_gold(
     connection: Any,
     schemas: Iterable[str],
@@ -84,7 +88,7 @@ def maintain_gold(
         tables = _rows(
             connection,
             "SELECT table_name FROM information_schema.tables "
-            f"WHERE table_schema = '{schema}' AND table_type = 'BASE TABLE' ORDER BY table_name",
+            f"WHERE table_schema = {_literal(schema)} AND table_type = 'BASE TABLE' ORDER BY table_name",
         )
         for (table,) in tables:
             relation = f"{_quote(schema)}.{_quote(table)}"
