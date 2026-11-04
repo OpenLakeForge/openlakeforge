@@ -361,6 +361,9 @@ locals {
       podSpecConfig = {
         terminationGracePeriodSeconds = 10
       }
+      # The chart inherits code-server resources into launched runs. Using
+      # their budget keeps that inheritance from shrinking the run limit.
+      resources  = var.run_pod_resources
       env        = local.runtime_env
       envSecrets = local.runtime_env_secrets
       # Launched runs inherit these (includeConfigInLaunchedRuns), which is how

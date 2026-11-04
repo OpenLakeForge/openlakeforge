@@ -21,6 +21,12 @@ opensearch:
       memory: 1536Mi
     limits:
       memory: 2Gi
+  initResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
   opensearchJavaOpts: "-Xms512m -Xmx1g"
   config:
     opensearch.yml: |

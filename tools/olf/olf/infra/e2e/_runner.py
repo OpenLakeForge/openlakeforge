@@ -33,6 +33,7 @@ from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
 from olf.infra.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.infra.e2e._resources import check_workload_resources
 from olf.infra.e2e._rotation import check_secret_rotation
 from olf.infra.e2e._secret_exposure import check_secret_exposure
 from olf.infra.e2e._shell import (
@@ -314,6 +315,7 @@ def _scan_after_failure(cfg: E2EConfig) -> None:
 def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
     """Return the full-suite assertion inventory for the deployed profile."""
     assertions = [
+        FullAssertion("workload resource budgets", check_workload_resources),
         FullAssertion("Polaris namespaces", check_catalog_namespaces),
         FullAssertion("Dagster product pipelines", launch_and_poll_dagster_jobs),
         FullAssertion("Silver and Gold tables", check_trino_tables_and_marts),

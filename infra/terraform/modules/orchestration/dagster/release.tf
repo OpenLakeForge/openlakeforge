@@ -17,6 +17,7 @@ resource "helm_release" "dagster" {
       global = {
         serviceAccountName   = "dagster"
         postgresqlSecretName = var.postgresql_contract.dagster_credentials_secret_name
+        olfRunPodResources   = var.run_pod_resources
       }
 
       generatePostgresqlPasswordSecret = false

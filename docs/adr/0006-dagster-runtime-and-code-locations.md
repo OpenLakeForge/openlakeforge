@@ -166,6 +166,14 @@ inside that pod, so this also sizes them. The values are a safe default for the
 Slim footprint, not a measurement; a run that outgrows the limit is OOMKilled.
 Floe Jobs are sized by their own runner, not here.
 
+Code servers carry the same resource budget: the pinned user-deployments
+chart inherits it into launched runs, so a lower server limit would also
+shrink the run pod. Webserver/daemon init containers request 10m CPU and
+32Mi memory, with a 128Mi memory limit. The full e2e suite checks positive
+CPU/memory requests and memory limits on pods and workload templates,
+including init containers. For local deployments it also checks bound storage
+and disruption budgets for replicated workloads.
+
 Locally the image is loaded into kind with `imagePullPolicy: Never`, which means
 Kubernetes never pulls a new image on pod creation. The artifacts phase
 therefore performs an explicit coordinated rollout
@@ -239,3 +247,6 @@ whatever its connector could still fetch, which was nothing in a quiet week.
 
 2026-11-02 (#325): run pods get default requests and limits through the
 launcher's `runK8sConfig.containerConfig.resources`; they had none.
+
+2026-11-03 (#351): size code servers and chart init containers; check deployed
+workload budgets in the full e2e suite.

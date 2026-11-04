@@ -683,7 +683,8 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
             "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "lakehouse-bronze",
         },
         namespace="olf-dev",
-        platform_globals={},
+        platform_globals={"olfRunPodResources": {"requests": {"cpu": "1", "memory": "1Gi"},
+                                                 "limits": {"memory": "4Gi"}}},
         code_locations=_DEFAULT_LOCATIONS,
     )
 
@@ -694,6 +695,10 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
     # Credential values travel by Secret reference, never inline.
     assert "AWS_SECRET_ACCESS_KEY" not in env
 
+
+    assert values["deployments"][0]["resources"] == {
+        "requests": {"cpu": "1", "memory": "1Gi"}, "limits": {"memory": "4Gi"},
+    }
 
 def _values(contract_extra: dict[str, str] | None = None, **capabilities: bool) -> dict:
     from olf.infra.deployment.activation import _user_values

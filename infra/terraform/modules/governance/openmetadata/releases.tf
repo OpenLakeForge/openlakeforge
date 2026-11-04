@@ -94,7 +94,11 @@ resource "helm_release" "openmetadata" {
         { name = "olf-oidc-ca", mountPath = "/etc/olf/oidc-ca", readOnly = true }, # olf's issuer probe
       ]
       preMigrateInitContainers = [{
-        name            = "olf-java-trust"
+        name = "olf-java-trust"
+        resources = {
+          requests = { cpu = "10m", memory = "32Mi" }
+          limits   = { memory = "256Mi" }
+        }
         image           = "docker.getcollate.io/openmetadata/server:${var.chart_version}"
         imagePullPolicy = "IfNotPresent"
         command         = ["/bin/sh", "-ec"]

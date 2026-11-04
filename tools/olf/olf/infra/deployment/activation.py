@@ -390,6 +390,11 @@ def _user_values(
                 "dagsterApiGrpcArgs": ["--module-name", location.definitions_module],
                 "port": _CODE_SERVER_PORT,
                 "includeConfigInLaunchedRuns": {"enabled": True},
+                # The chart also propagates this budget to launched runs.
+                "resources": platform_globals.get(
+                    "olfRunPodResources",
+                    {"requests": {"cpu": "250m", "memory": "512Mi"}, "limits": {"memory": "2Gi"}},
+                ),
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
                 **tls_pod,

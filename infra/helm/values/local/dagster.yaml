@@ -14,6 +14,12 @@ dagsterWebserver:
   service:
     type: ClusterIP
     port: 80
+  initContainerResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
   resources:
     requests:
       cpu: 250m
@@ -26,6 +32,12 @@ dagsterDaemon:
   image:
     repository: docker.io/dagster/dagster-celery-k8s
     tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"
+  initContainerResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
   resources:
     requests:
       cpu: 250m
