@@ -7,6 +7,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Annotated
 
 import typer
 
@@ -147,12 +148,47 @@ def openmetadata_bootstrap(
     ),
     om_url: str = typer.Option("", "--om-url", help="OpenMetadata URL; default is a port-forward to the service."),
     sso: bool = typer.Option(False, "--sso", help="Also create the admin automation bot SSO needs."),
+    catalog_service: str = typer.Option(
+        "", "--catalog-service", help="Also seed OpenLineage, this lakehouse database service and its databases."
+    ),
+    catalog_display: str = typer.Option("", "--catalog-display", help="Display name of the catalog service."),
+    trino_namespace: str = typer.Option("", "--trino-namespace", help="Trino's `trino://host:port` namespace."),
+    trino_tls_namespace: str = typer.Option("", "--trino-tls-namespace", help="Trino's HTTPS namespace, if any."),
+    pipeline_service: str = typer.Option("", "--pipeline-service", help="OpenLineage's default pipeline service."),
+    database: Annotated[
+        list[str] | None, typer.Option("--database", help="A governed stage's catalog database; repeatable.")
+    ] = None,
+    schema: Annotated[
+        list[str] | None, typer.Option("--schema", help="A schema every stage database holds; repeatable.")
+    ] = None,
 ) -> None:
-    """Create the admin password, automation bot and ingestion bot token. Idempotent."""
+    """Create the admin password, bots and, with --catalog-service, the catalog entities. Idempotent."""
     from olf.infra import k8s
     from olf.infra import openmetadata as om
     from olf.infra.commands.runtime import provider_contract_environment
     from olf.infra.openmetadata._bootstrap import bootstrap_auth
+    from olf.infra.openmetadata._catalog_seed import CatalogSeed, bootstrap_catalog
+
+    seed = (
+        CatalogSeed(
+            service=catalog_service,
+            display_name=catalog_display or catalog_service,
+            trino_namespace=trino_namespace,
+            trino_tls_namespace=trino_tls_namespace,
+            pipeline_service=pipeline_service,
+            databases=tuple(database or ()),
+            schemas=tuple(schema or ()),
+        )
+        if catalog_service
+        else None
+    )
+    if seed and not (trino_namespace and pipeline_service):
+        raise typer.Exit(code=fail("--catalog-service needs --trino-namespace and --pipeline-service."))
+
+    def run(base_url: str, namespace: str) -> None:
+        client = bootstrap_auth(base_url, namespace, email=email, sso=sso)
+        if seed:
+            bootstrap_catalog(client, seed)
 
     email = config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org")
     with provider_contract_environment(
@@ -166,13 +202,13 @@ def openmetadata_bootstrap(
         governance = _governance_service()
         try:
             if om_url:
-                bootstrap_auth(om_url, governance.namespace, email=email, sso=sso)
+                run(om_url, governance.namespace)
             else:
                 with governance.url() as base_url:
-                    bootstrap_auth(base_url, governance.namespace, email=email, sso=sso)
+                    run(base_url, governance.namespace)
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
-    typer.echo("OpenMetadata authentication bootstrap complete.")
+    typer.echo("OpenMetadata bootstrap complete.")
 
 
 @app.command("list-domains")
