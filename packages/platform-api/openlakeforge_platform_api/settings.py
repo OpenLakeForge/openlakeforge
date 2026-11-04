@@ -62,6 +62,11 @@ class Settings:
     superset_username: str | None = None
     # A stage whose catalog shares schemas with other stages prefixes its own (AWS Glue); none locally.
     superset_schema_prefixes: Mapping[str, str] = field(default_factory=dict)
+    # The portal's origin (scheme://host[:port]), the only one the CSRF guard lets write. Unset, every request with an
+    # Origin header is refused on a POST, PUT, PATCH or DELETE; a client that sends none (the CLI) is unaffected.
+    public_origin: str | None = None
+    # True only where the people catalogs exist (Dex-backed identity, ADR 0019). False refuses every per-person query.
+    person_query: bool = False
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -92,6 +97,8 @@ class Settings:
                 superset_schema_prefixes={
                     str(stage): str(prefix) for stage, prefix in (data.get("superset_schema_prefixes") or {}).items()
                 },
+                public_origin=data.get("public_origin") or None,
+                person_query=data.get("person_query") is True,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -132,6 +139,14 @@ class Settings:
             raise SettingsError(f"superset_urls names stages that are not enabled: {', '.join(stray)}")
         if self.superset_urls and not self.superset_username:
             raise SettingsError("superset_urls needs superset_username, the service user the API signs in as")
+        if self.public_origin is not None:
+            parts = urlsplit(self.public_origin)
+            if (
+                parts.scheme not in ("http", "https")
+                or not parts.netloc
+                or self.public_origin != f"{parts.scheme}://{parts.netloc}"
+            ):
+                raise SettingsError("public_origin must be scheme://host[:port] with no path or trailing slash")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

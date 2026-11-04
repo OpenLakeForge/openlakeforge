@@ -36,6 +36,8 @@ class Principal:
     audience: str
     # The `preferred_username` claim alone, which OpenMetadata names its users by (ADR 0021, decision 2).
     username: str | None = None
+    # Dex's `federated_claims` (needs the `federated:id` scope); Polaris names the person's principal from it.
+    federated_claims: Mapping[str, Any] | None = None
 
 
 def canonical_role(claim: Any, role_mapping: Mapping[str, tuple[str, ...]], precedence: tuple[str, ...]) -> str | None:
@@ -130,4 +132,5 @@ class TokenValidator:
             name=claims.get("preferred_username") or claims.get("name"),
             audience=next(audience for audience in audiences if audience in self._settings.audiences),
             username=claims.get("preferred_username"),
+            federated_claims=claims["federated_claims"] if isinstance(claims.get("federated_claims"), dict) else None,
         )

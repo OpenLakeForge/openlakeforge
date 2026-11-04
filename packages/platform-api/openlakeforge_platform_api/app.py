@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import reads, report_routes, writes
+from openlakeforge_platform_api import csrf, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.permissions import ANONYMOUS, Permission, PermissionMatrix
@@ -71,6 +71,10 @@ def _enforce(request: Request) -> None:
     permission = matrix.operations.get(operation)
     if permission is None:
         _refuse(request, None, 403, f"operation {operation!r} has no permission row")
+    # Before any token is read, so a cross-site request learns nothing about whether its token would pass.
+    reason = csrf.violation(request, operation, request.app.state.settings.public_origin)
+    if reason is not None:
+        _refuse(request, permission, 403, reason)
     stage = request.path_params.get("stage")
     if stage is not None and stage not in request.app.state.settings.stages:
         _refuse(request, permission, 404, f"stage {stage!r} is not enabled")
