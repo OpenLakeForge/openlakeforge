@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 
 from olf.cli import app
 
-# Every leaf path of the tree before `olf infra` existed (80 commands).
+# Every leaf path of the tree before `olf infra` existed (79 commands: `k8s set-project-code-image` is gone, #558).
 _PATHS_FILE = Path(__file__).parents[1] / "fixtures/cli_paths_pre_2b.txt"
 PRE_2B_PATHS = [tuple(line.split()) for line in _PATHS_FILE.read_text().splitlines()]
 

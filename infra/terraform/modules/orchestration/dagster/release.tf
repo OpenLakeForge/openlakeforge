@@ -127,10 +127,9 @@ resource "helm_release" "dagster" {
             # run then takes its code location's image through
             # `includeConfigInLaunchedRuns`, and a platform-apply-time value
             # would only name a build no stage activated. The chart renders
-            # `job_image` only when this key exists. The deprecated
-            # `olf infra deploy` path patches `job_image` in place
-            # (`olf infra k8s set-project-code-image`), so it keeps one. A
-            # filtered `for` rather than `? {image = ...} : {}`: Terraform
+            # `job_image` only when this key exists. Only the Terraform-owned
+            # user code lifecycle, which nothing in olf selects any more,
+            # keeps one. A filtered `for` rather than `? {image = ...} : {}`: Terraform
             # cannot unify an object with attributes and one without.
             {
               for key, value in {
@@ -146,12 +145,11 @@ resource "helm_release" "dagster" {
       }
     }),
 
-    # `olf infra deploy` runs the control plane on the project-code image and patches
-    # it in place during its artifacts phase (`olf infra k8s set-project-code-image`
-    # targets the webserver and daemon by name), so it also needs that image's
-    # pull policy -- `Never` locally, where the image only ever exists inside
-    # kind. The catalog-pinned control plane in `base_values_file` applies
-    # where activation owns user code and nothing patches these deployments.
+    # The Terraform-owned user code lifecycle runs the control plane on the
+    # project-code image, so it also needs that image's pull policy -- `Never`
+    # locally, where the image only ever exists inside kind. The catalog-pinned
+    # control plane in `base_values_file` applies where activation owns user
+    # code and nothing patches these deployments.
     var.manage_user_deployments ? yamlencode({
       dagsterWebserver = {
         image = {

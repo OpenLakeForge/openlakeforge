@@ -42,7 +42,6 @@ from olf.infra.commands import (
     deployment,
     e2e,
     github,
-    k8s,
     openmetadata,
     platform,
     query,
@@ -164,7 +163,6 @@ _infra_group(superset.report_app, "report", common=report.app)
 # `_infra_group` copied the group, so only `olf infra report` gains the alias.
 superset.report_app.command("validate", hidden=True)(moved_alias(report.validate, "olf report validate"))
 _infra_group(openmetadata.app, "openmetadata")
-_infra_group(k8s.app, "k8s")
 _infra_group(e2e.app, "e2e")
 _infra_group(smoke.app, "smoke")
 _infra_group(infra_product.app, "product", common=product.app)

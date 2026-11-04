@@ -36,7 +36,6 @@ github connect
 images build
 images load
 init
-k8s set-project-code-image
 layers enabled
 openmetadata deploy-metadata
 openmetadata list-domains
