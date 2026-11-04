@@ -23,3 +23,8 @@ output "superset_user" {
   }
   depends_on = [kubernetes_job_v1.superset_users]
 }
+
+output "settings_json" {
+  description = "The settings document the API reads at startup (settings.json). Holds no secret: keys are named by Secret, never carried."
+  value       = jsonencode(local.settings)
+}

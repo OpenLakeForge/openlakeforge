@@ -37,3 +37,8 @@ output "contract" {
 
   depends_on = [kubernetes_deployment_v1.dex]
 }
+
+output "public_client_trusted_peers" {
+  description = "Public client id to the client ids Dex lets request a token for it, as rendered into its config."
+  value       = { for client in local.config.staticClients : client.id => client.trustedPeers if try(client.public, false) && contains(keys(client), "trustedPeers") }
+}
