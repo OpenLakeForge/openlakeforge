@@ -51,6 +51,14 @@ for how a release is cut and verified.
   instead of putting `packages/runtime` on `sys.path` for `olf check dbt` and
   `olf infra dbt parse`.
 
+### Removed
+
+- `olf infra k8s set-project-code-image`. The artifacts phase activates a
+  ProjectRevision through `deploy_revision` and nothing else patches Dagster's image
+  in place. Build and deploy with `olf infra deploy --phase artifacts`, or with
+  `olf infra project image`, `olf infra project build` and
+  `olf infra project deploy`.
+
 ### Migration
 
 - In a project's `lakehouse_code/` (for example `definitions.py`), replace
