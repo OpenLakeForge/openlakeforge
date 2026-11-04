@@ -17,7 +17,7 @@
   "properties": {
     "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
     "kind": {"const": "ProjectRevision"},
-    "schema_version": {"const": 1},
+    "schema_version": {"enum": [1, 2]},
     "project_name": {"type": "string", "minLength": 1},
     "distribution_version": {"type": "string", "minLength": 1},
     "project_code_image": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},

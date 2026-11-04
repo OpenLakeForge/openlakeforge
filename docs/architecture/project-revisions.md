@@ -49,6 +49,16 @@ does not stand one up: it pushes to whatever `PROJECT_CODE_IMAGE_REPOSITORY`
 names, GHCR or Docker Hub by default. See
 [CI/CD and environment promotion](../guides/promote-dev-to-prod.md) for that loop.
 
+The one exception is the local build-and-deploy loop with no registry account.
+`olf infra project image --no-push` loads the image into the kind cluster and
+prints `olf.local/project-code@sha256:<image ID>`: the image's config Id under a
+reserved host that no registry serves. A revision can pin it, which needs
+`schema_version` 2 in `PROJECT-REVISION.json` (version 1 revisions are still read, and
+must name a registry digest). Activation puts the image back on the kind nodes
+instead of pulling it and runs it with pull policy `Never`. Only the local
+provider accepts such a revision; any other provider refuses to activate it, so
+it cannot be promoted to a stage with a registry.
+
 Activation verifies every object of the published `ProjectRevision`, restores it
 to a temporary root, and deploys only from that root and the selected v3
 provider contract. It writes an immutable `ProjectActivation` beneath

@@ -46,6 +46,12 @@ _ALL_COMPONENT_NAMES = _REQUIRED_COMPONENT_NAMES | {"reports"}
 _EXCLUDED_DIR_NAMES = frozenset({"target", "dbt_packages", "logs", "__pycache__", ".venv", ".pytest_cache"})
 _EXCLUDED_FILE_NAMES = frozenset({".user.yml", "package-lock.yml", "profiles.yml"})
 _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
+SCHEMA_VERSION = 2
+_SUPPORTED_SCHEMA_VERSIONS = (1, SCHEMA_VERSION)
+# Schema 2 lets a revision name an image that was only built and kind-loaded, never pushed (#558). Its digest is the
+# image's config Id, which is no registry digest: the reserved host keeps such a reference from ever resolving
+# against a registry, and marks it for every consumer without a second manifest field.
+LOCAL_IMAGE_REPOSITORY = "olf.local/project-code"
 # Deliberately narrow: an env var *name* (AWS_REGION, AWS_SECRET_ACCESS_KEY)
 # or a Kubernetes Secret *reference* (secret_name:/secretRef/client_secret_key)
 # is the sanctioned way credentials reach a pod (AGENTS "No credentials in
@@ -153,6 +159,7 @@ class ProjectRevisionManifest:
     project_code_image: str
     components: tuple[ComponentEntries, ...]
     revision: str
+    schema_version: int = SCHEMA_VERSION
 
     def to_json(self) -> str:
         return (
@@ -160,7 +167,7 @@ class ProjectRevisionManifest:
                 {
                     "apiVersion": MANIFEST_API_VERSION,
                     "kind": MANIFEST_KIND,
-                    "schema_version": 1,
+                    "schema_version": self.schema_version,
                     "project_name": self.project_name,
                     "distribution_version": self.distribution_version,
                     "project_code_image": self.project_code_image,
@@ -185,6 +192,12 @@ class ProjectRevisionManifest:
             raise ProjectRevisionError(
                 f"unsupported {SIDECAR_NAME} apiVersion/kind: {payload.get('apiVersion')!r}/{payload.get('kind')!r}"
             )
+        schema_version = payload.get("schema_version")
+        if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
+            raise ProjectRevisionError(
+                f"unsupported {SIDECAR_NAME} schema_version {schema_version!r}; "
+                f"this olf reads {', '.join(map(str, _SUPPORTED_SCHEMA_VERSIONS))}."
+            )
         components_payload = payload.get("components")
         if not isinstance(components_payload, list):
             raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: 'components' must be an array")
@@ -195,6 +208,7 @@ class ProjectRevisionManifest:
                 project_code_image=payload["project_code_image"],
                 components=tuple(ComponentEntries.from_dict(item) for item in components_payload),
                 revision=payload["revision"],
+                schema_version=schema_version,
             )
         except KeyError as exc:
             raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: missing {exc}") from exc
@@ -256,6 +270,10 @@ class ProjectRevisionManifest:
         # still not an immutable revision.
         if not is_digest_pinned(self.project_code_image):
             raise ProjectRevisionError(f"project_code_image {self.project_code_image!r} is not digest-pinned.")
+        if is_local_image(self.project_code_image) and self.schema_version < 2:
+            raise ProjectRevisionError(
+                f"project_code_image {self.project_code_image!r} is a local-only image, which needs schema_version 2."
+            )
         _reject_runtime_values(self.to_json())
 
     def component(self, name: str) -> ComponentEntries | None:
@@ -445,6 +463,11 @@ def _reports_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
             key = _relative_key(project, path)
             entries[key] = _hash_and_scan(key, path, project_root=project.root)
     return ComponentEntries("reports", entries)
+
+
+def is_local_image(image: str) -> bool:
+    """True for a reference to an image that exists only in the local kind cluster (`LOCAL_IMAGE_REPOSITORY`)."""
+    return image.startswith(f"{LOCAL_IMAGE_REPOSITORY}@")
 
 
 def is_digest_pinned(image: str) -> bool:

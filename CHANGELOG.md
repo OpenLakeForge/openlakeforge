@@ -16,6 +16,11 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `olf infra project image --no-push` now prints a reference a revision can pin
+  (`olf.local/project-code@sha256:<image ID>`), so the local build-and-deploy loop
+  needs no registry account. Such a revision activates on the local provider only,
+  with pull policy `Never`, and needs the new `schema_version` 2 of the
+  ProjectRevision manifest; version 1 manifests are still read.
 - The domain model package is renamed: the PyPI distribution
   `openlakeforge-domain-model` is now `openlakeforge-core`, and its import
   package `openlakeforge_domain` is now `openlakeforge_core`. The old
