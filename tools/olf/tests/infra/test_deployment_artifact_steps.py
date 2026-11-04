@@ -14,13 +14,13 @@ def test_artifact_operation_error_is_a_deployment_precondition_error() -> None:
 
 
 def test_sync_catalog_namespaces_wraps_typer_exit(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raises_exit(*, dry_run: bool, prune: Any) -> None:  # noqa: ARG001
+    def _raises_exit(*, dry_run: bool, prune: Any, environ: Any) -> None:  # noqa: ARG001
         raise typer.Exit(code=1)
 
     monkeypatch.setattr("olf.infra.commands.catalog.sync_namespaces", _raises_exit)
 
     with pytest.raises(artifact_steps.ArtifactOperationError):
-        artifact_steps.sync_catalog_namespaces()
+        artifact_steps.sync_catalog_namespaces({})
 
 
 def test_deploy_optional_layer_artifacts_delegates_to_layers_module(monkeypatch: pytest.MonkeyPatch) -> None:

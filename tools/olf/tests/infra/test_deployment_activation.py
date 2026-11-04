@@ -209,7 +209,11 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "deploy_optional_layer_artifacts", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
-    monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: catalog_calls.append("sync"))
+    monkeypatch.setattr(
+        activation_module,
+        "sync_catalog_namespaces",
+        lambda environ: catalog_calls.append(environ["OPENLAKEFORGE_KUBE_NAMESPACE"]),
+    )
 
     @contextmanager
     def _contract_environment(**kwargs):  # noqa: ANN003, ANN202
@@ -311,7 +315,7 @@ def _build_report_harness(
     monkeypatch.setattr(activation_module, "_ensure_image", lambda provider, image, **k: None)
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
-    monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: None)
+    monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda environ: None)
 
     import olf.infra.commands.openmetadata as openmetadata_commands
     import olf.infra.superset as superset_module

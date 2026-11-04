@@ -28,7 +28,7 @@ def _run_cli(description: str, fn: Any, *args: Any, **kwargs: Any) -> None:
         raise ArtifactOperationError(f"{description} failed (see the ERROR above).") from exc
 
 
-def sync_catalog_namespaces() -> None:
+def sync_catalog_namespaces(environ: Mapping[str, str]) -> None:
     # sync_namespaces, not the catalog_sync_namespaces typer command: this
     # already runs inside the deploy flow's own hydrated contract
     # environment (see local/artifacts.py, cloud/artifacts.py) - resolving
@@ -36,7 +36,7 @@ def sync_catalog_namespaces() -> None:
     # provider/project selection than the one already active.
     from olf.infra.commands.catalog import sync_namespaces
 
-    _run_cli("Catalog namespace reconciliation", sync_namespaces, dry_run=False, prune=None)
+    _run_cli("Catalog namespace reconciliation", sync_namespaces, dry_run=False, prune=None, environ=environ)
 
 
 def deploy_optional_layer_artifacts(environ: Mapping[str, str], *, allow_missing_assets: bool | None = None) -> None:
