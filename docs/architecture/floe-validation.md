@@ -121,8 +121,32 @@ instead of clamping them, and the run fails. The op's output metadata carries
 `expired_snapshots`, `orphan_files` and `orphan_bytes` totals and a `tables`
 list with Floe's per-table result. Expiring a snapshot ends time travel to it.
 
-Only Silver is covered. Gold tables are written by dbt-trino, outside Floe, and
-have no maintenance job. Compaction is not run
+### Gold table maintenance
+
+Gold tables are written by dbt-trino, outside Floe, so the `gold_maintenance`
+job (`ops.maintain_gold.config`) runs Trino's Iceberg procedures instead:
+`ALTER TABLE ... EXECUTE expire_snapshots` then `remove_orphan_files`, for every
+base table in each product's `<product>_gold` schema. It connects as the
+stage's dbt Trino identity (the `OPENLAKEFORGE_DBT_TRINO_*` and
+`OPENLAKEFORGE_QUERY_TRINO_*` variables the dbt profile reads), which owns its
+stage's catalog. Its `gold_maintenance_weekly` schedule (Sundays 05:00 UTC)
+follows Silver's rule: `prod` only, `STOPPED`. Unlike the Silver job it needs
+Trino, so run it only on stacks that have one.
+
+| Run config key | Default | Meaning |
+| --- | --- | --- |
+| `dry_run` | `false` | Delete nothing; count per table the snapshots older than `older_than_days` that no branch or tag holds (`$snapshots`, `$refs`). Trino cannot list orphan files, so a dry run does not report them. |
+| `older_than_days` | `7` | `expire_snapshots(retention_threshold)`. Trino always keeps the current snapshot and has no `retain_last`. |
+| `orphan_delay_days` | `7` | `remove_orphan_files(retention_threshold)`. Keep it longer than the longest dbt run. |
+
+Trino refuses either value below `iceberg.expire-snapshots.min-retention` /
+`iceberg.remove-orphan-files.min-retention` (7 days; the Trino chart sets
+neither), and the run fails before touching a table. A table that fails does
+not stop the others; the run then fails and reports every table's result in
+the `results` metadata and logs. Both procedures are idempotent, so rerunning
+an interrupted run is safe.
+
+Compaction is not run
 ([#173](https://github.com/OpenLakeForge/openlakeforge/issues/173)).
 
 ## Maintenance and contingency

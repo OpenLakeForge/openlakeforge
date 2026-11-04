@@ -16,6 +16,9 @@ for how a release is cut and verified.
 
 ### Added
 
+- A `gold_maintenance` Dagster job expires snapshots and removes orphan files of the Gold tables through
+  Trino's Iceberg procedures, with the stage's dbt Trino identity and a dry run. Its `gold_maintenance_weekly`
+  schedule exists only on prod and ships `STOPPED`, like Silver's. See `docs/architecture/floe-validation.md`.
 - `olf check resources`, part of `olf check all`, fails when a Terraform-defined container has no
   `requests` (cpu and memory) or no memory limit, so a new Job or Deployment cannot land unsized.
 
