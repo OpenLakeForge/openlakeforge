@@ -157,6 +157,31 @@ def test_hcl_structured_contracts_rejects_missing_check_block(tmp_path: Path) ->
     assert "local_contract_adapters_are_explicit" in result.detail
 
 
+def test_hcl_structured_contracts_counts_checks_inherited_from_the_shared_module(tmp_path: Path) -> None:
+    """#561: a root that calls the shared provider-contract module gets the
+    stage-isolation checks from it, but only the root that calls it."""
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    contracts_tf = repo_root / "infra/terraform/environments/local/contracts.tf"
+    shared_checks = ("stage_metadata_state_is_not_shared", "stage_services_stay_in_their_own_stage")
+    text = contracts_tf.read_text()
+    for name in shared_checks:
+        text = text.replace(f'check "{name}"', f'check "renamed_{name}"')
+    contracts_tf.write_text(text)
+    module_dir = repo_root / "infra/terraform/modules/contracts/provider-contract"
+    module_dir.mkdir(parents=True)
+    shutil.copy(ROOT / "infra/terraform/modules/contracts/provider-contract/main.tf", module_dir / "main.tf")
+
+    without_call = contracts_check._check_hcl_structured_contracts(repo_root)
+    contracts_tf.write_text(
+        text + '\nmodule "provider_contract" {\n  source = "../../modules/contracts/provider-contract"\n}\n'
+    )
+    with_call = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not without_call.ok
+    assert all(name in without_call.detail for name in shared_checks)
+    assert with_call.ok, with_call.detail
+
+
 def test_hcl_structured_contracts_rejects_secret_valued_root_outputs(tmp_path: Path) -> None:
     repo_root = _repo_with_local_contracts(
         tmp_path, "valid_local_contracts.tf", outputs_tf_fixture="invalid_secret_outputs.tf"
