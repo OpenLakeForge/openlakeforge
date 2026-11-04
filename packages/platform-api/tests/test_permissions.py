@@ -58,6 +58,7 @@ def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
         ("/api/v1/stages/{stage}/queries", "POST"),
         ("/api/v1/stages/{stage}/queries/{query_id}", "DELETE"),
         ("/api/v1/stages/{stage}/queries/{query_id}", "GET"),
+        ("/api/v1/stages/{stage}/queries/{query_id}/export", "GET"),
         ("/api/v1/stages/{stage}/reports", "POST"),
         ("/api/v1/stages/{stage}/reports/{dashboard}/export", "GET"),
         ("/api/v1/stages/{stage}/runs", "GET"),

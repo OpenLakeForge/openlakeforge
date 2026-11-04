@@ -464,7 +464,8 @@ Trino statement URL and people catalog. The committed OpenAPI document of
 decision 5 does not exist yet; these routes are not in it.
 
 Issue #800: `POST /api/v1/stages/{stage}/queries`, `GET` and `DELETE` on
-`.../queries/{id}` (`queries.py`), at the `viewer` floor: Polaris decides the data. Every Trino
+`.../queries/{id}`, and `GET .../queries/{id}/export?format=csv|json`
+(`queries.py`), at the `viewer` floor: Polaris decides the data. Every Trino
 call is the person's, as discovery's. The `id` and `cursor` are HMAC-signed
 records of Trino's query id and continuation path, the stage and the token
 `sub`, so any replica resumes a query, no one resumes another person's, and a
@@ -476,7 +477,9 @@ a table expression in `SELECT * FROM (<sql>)` (checked with `EXPLAIN (TYPE
 VALIDATE)`, which runs nothing), so SHOW, DESCRIBE, EXPLAIN and every write
 are refused with 403. Being read-only, these operations are not
 `changes_state`: decision 3's audit-before-action does not apply, and nothing
-about the SQL is logged or audited. A response carries at most
-`query_page_rows` rows.
+about the SQL is logged or audited. The id also carries the statement, because Trino gives a result out once and
+an export therefore runs it again. A response carries at most `query_page_rows`
+rows and an export at most `query_export_max_rows`, else 413; CSV cells that a
+spreadsheet would read as formulas are prefixed with a quote.
 There is no per-person limit on queries in flight: it would need state shared
 between replicas, which this API does not have.

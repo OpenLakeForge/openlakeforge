@@ -81,10 +81,12 @@ class Settings:
     person_query: bool = False
     # Each stage's Trino. A stage with no entry offers no query, and with none at all capabilities list no stage.
     query_endpoints: Mapping[str, QueryEndpointSetting] = field(default_factory=dict)
-    # Bounds on a person's SQL. A response never carries more than `query_page_rows` rows.
+    # Bounds on a person's SQL. A response never carries more than `query_page_rows` rows; an export stops, and is
+    # refused with 413, past `query_export_max_rows`.
     # `query_timeout_seconds` bounds each call to Trino, and `query_wait_seconds` how long one request keeps
     # following a query that has not produced rows yet.
     query_page_rows: int = 1000
+    query_export_max_rows: int = 100_000
     query_timeout_seconds: float = 30.0
     query_wait_seconds: float = 5.0
 
@@ -124,6 +126,7 @@ class Settings:
                     for stage, endpoint in (data.get("query_endpoints") or {}).items()
                 },
                 query_page_rows=int(data.get("query_page_rows", 1000)),
+                query_export_max_rows=int(data.get("query_export_max_rows", 100_000)),
                 query_timeout_seconds=float(data.get("query_timeout_seconds", 30.0)),
                 query_wait_seconds=float(data.get("query_wait_seconds", 5.0)),
             )
@@ -180,8 +183,8 @@ class Settings:
         for stage, endpoint in self.query_endpoints.items():
             if urlsplit(endpoint.statement_url).scheme not in ("http", "https") or not endpoint.catalog:
                 raise SettingsError(f"query_endpoints[{stage!r}] needs an http(s) statement_url and a catalog")
-        if self.query_page_rows < 1 or self.query_timeout_seconds <= 0:
-            raise SettingsError("query_page_rows and query_timeout_seconds must be positive")
+        if min(self.query_page_rows, self.query_export_max_rows) < 1 or self.query_timeout_seconds <= 0:
+            raise SettingsError("query_page_rows, query_export_max_rows and query_timeout_seconds must be positive")
         if self.query_wait_seconds < 0:
             raise SettingsError("query_wait_seconds cannot be negative")
         for stage, archive in self.log_archives.items():

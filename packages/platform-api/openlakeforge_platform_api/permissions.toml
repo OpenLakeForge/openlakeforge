@@ -102,3 +102,7 @@ stages = ["*"]
 [operations.cancel_query]
 role = "viewer"
 stages = ["*"]
+
+[operations.export_query]
+role = "viewer"
+stages = ["*"]
