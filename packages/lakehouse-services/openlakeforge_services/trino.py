@@ -95,6 +95,11 @@ class TrinoPage:
     columns: list[str]
     rows: list[list[Any]]
     next_uri: str | None
+    # Trino's SQL type per column, its query id, and its progress state (QUEUED, RUNNING, FINISHED, ...), for callers
+    # that show them; `state` is Trino's own stats field, not part of the documented protocol, so it may be None.
+    types: list[str] = field(default_factory=list)
+    query_id: str | None = None
+    state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -212,8 +217,16 @@ class TrinoStatementClient:
             raise (TrinoCancelledError if cancelled else TrinoQueryError)(
                 error if isinstance(error, dict) else {}
             )
-        columns = [column["name"] for column in body.get("columns") or []]
-        return TrinoPage(columns, body.get("data") or [], body.get("nextUri"))
+        described = body.get("columns") or []
+        stats = body.get("stats")
+        return TrinoPage(
+            [column["name"] for column in described],
+            body.get("data") or [],
+            body.get("nextUri"),
+            [str(column.get("type", "")) for column in described],
+            body.get("id"),
+            stats.get("state") if isinstance(stats, dict) else None,
+        )
 
     def _call(
         self, method: str, url: str, headers: dict[str, str], data: bytes | None

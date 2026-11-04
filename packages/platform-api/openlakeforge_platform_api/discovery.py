@@ -59,7 +59,9 @@ def _encode(name: str) -> str:
 
 def query_capabilities(request: Request) -> dict[str, Any]:
     settings = request.app.state.settings
-    stages = [stage for stage in settings.stages if stage in settings.query_endpoints] if settings.person_query else []
+    # Without the signing key every query route answers 503, so no stage is offered.
+    ready = settings.person_query and request.app.state.query_signing_key is not None
+    stages = [stage for stage in settings.stages if stage in settings.query_endpoints] if ready else []
     return {
         "query_available": bool(stages),
         "stages": [

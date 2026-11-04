@@ -462,3 +462,21 @@ Issue #801: `GET /api/v1/query-capabilities` and the per-person schema and table
 listings (`discovery.py`). The `query_endpoints` setting maps each stage to its
 Trino statement URL and people catalog. The committed OpenAPI document of
 decision 5 does not exist yet; these routes are not in it.
+
+Issue #800: `POST /api/v1/stages/{stage}/queries`, `GET` and `DELETE` on
+`.../queries/{id}` (`queries.py`), at the `viewer` floor: Polaris decides the data. Every Trino
+call is the person's, as discovery's. The `id` and `cursor` are HMAC-signed
+records of Trino's query id and continuation path, the stage and the token
+`sub`, so any replica resumes a query, no one resumes another person's, and a
+value that does not verify is a 404; the key is mounted from a Secret
+(`OPENLAKEFORGE_QUERY_SIGNING_KEY`, 32 characters or more) and without it
+query execution answers 503. The MVP is
+read-only and Trino enforces it: a statement runs only if Trino accepts it as
+a table expression in `SELECT * FROM (<sql>)` (checked with `EXPLAIN (TYPE
+VALIDATE)`, which runs nothing), so SHOW, DESCRIBE, EXPLAIN and every write
+are refused with 403. Being read-only, these operations are not
+`changes_state`: decision 3's audit-before-action does not apply, and nothing
+about the SQL is logged or audited. A response carries at most
+`query_page_rows` rows.
+There is no per-person limit on queries in flight: it would need state shared
+between replicas, which this API does not have.
