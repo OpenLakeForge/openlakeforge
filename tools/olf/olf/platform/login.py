@@ -10,6 +10,7 @@ import urllib.parse
 import webbrowser
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import requests
 
@@ -44,7 +45,9 @@ def _callback_server() -> tuple[ThreadingHTTPServer, dict[str, str]]:
     return server, received
 
 
-def login(instance: Instance, *, open_browser: bool, announce: Callable[[str], None]) -> Session:
+def login(
+    instance: Instance, *, open_browser: bool, announce: Callable[[str], None], home: Path | None = None
+) -> Session:
     endpoints = discover(instance)
     server, received = _callback_server()
     redirect_uri = f"http://127.0.0.1:{server.server_port}/callback"
@@ -107,5 +110,5 @@ def login(instance: Instance, *, open_browser: bool, announce: Callable[[str], N
     session = Session(
         instance.issuer, tokens["id_token"], tokens.get("access_token", ""), tokens.get("refresh_token", "")
     )
-    save(instance, session)
+    save(instance, session, home)
     return session

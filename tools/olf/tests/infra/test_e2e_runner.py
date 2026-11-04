@@ -78,7 +78,7 @@ def test_aws_default_suite_includes_smoke_and_full_checks(monkeypatch: pytest.Mo
     calls: list[str] = []
 
     monkeypatch.setattr(_runner, "check_commands", lambda _cfg: None)
-    monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg, _kubeconfig: None)
     monkeypatch.setattr(_runner, "check_pods_ready", lambda _cfg: None)
     monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(_runner, "run_full", lambda _cfg: calls.append("full"))
@@ -92,7 +92,7 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     calls: list[str] = []
 
     monkeypatch.setattr(_runner, "check_commands", lambda _cfg: None)
-    monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg, _kubeconfig: None)
     monkeypatch.setattr(_runner, "check_pods_ready", lambda _cfg: None)
     monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(_runner, "run_full", lambda _cfg: calls.append("full"))
@@ -297,7 +297,8 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
         lambda _self, *args, **kwargs: sdk_calls.append((args, kwargs)),
     )
 
-    _runner.prepare_kube_context(e2e_cfg(tmp_path, env="aws", suite="smoke"))
+    cfg = e2e_cfg(tmp_path, env="aws", suite="smoke")
+    _runner.prepare_kube_context(cfg, _runner.configure_kubeconfig(cfg))
 
     assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
     assert sdk_calls == [
@@ -349,12 +350,13 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
         lambda _self, *args, **kwargs: sdk_calls.append(("aws", args, kwargs)),
     )
 
-    _runner.prepare_kube_context(e2e_cfg(tmp_path, env=env, suite="smoke"))
+    cfg = e2e_cfg(tmp_path, env=env, suite="smoke")
+    _runner.prepare_kube_context(cfg, _runner.configure_kubeconfig(cfg))
 
     expected_kubeconfig = tmp_path / ".tmp/kubeconfigs" / f"{env}.yaml"
     assert sdk_calls[0][0] == env
     assert sdk_calls[0][2]["kubeconfig_path"] == expected_kubeconfig
-    assert Path(os.environ["KUBECONFIG"]) == expected_kubeconfig
+    assert "KUBECONFIG" not in os.environ
     assert expected_kubeconfig.parent.is_dir()
 
 
@@ -368,7 +370,8 @@ def test_prepare_kube_context_selects_existing_local_context(monkeypatch: pytest
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
 
-    _runner.prepare_kube_context(e2e_cfg(tmp_path))
+    cfg = e2e_cfg(tmp_path)
+    _runner.prepare_kube_context(cfg, _runner.configure_kubeconfig(cfg))
 
     assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
     assert not any(command[:3] == ["kubectl", "config", "use-context"] for command in commands)
@@ -405,7 +408,8 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
         lambda _self, *args, **kwargs: sdk_calls.append((args, kwargs)),
     )
 
-    _runner.prepare_kube_context(e2e_cfg(tmp_path, env="aws", suite="smoke"))
+    cfg = e2e_cfg(tmp_path, env="aws", suite="smoke")
+    _runner.prepare_kube_context(cfg, _runner.configure_kubeconfig(cfg))
 
     assert sdk_calls == [
         (
@@ -533,3 +537,31 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
 
     with pytest.raises(E2EError, match="digest mismatch"):
         _runner.check_commands(e2e_cfg(tmp_path))
+
+
+def test_run_scopes_kubeconfig_to_the_run_and_restores_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: list[str | None] = []
+    monkeypatch.setenv("KUBECONFIG", "/operator/kubeconfig")
+    monkeypatch.setattr(_runner, "check_commands", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg, _kubeconfig: None)
+    monkeypatch.setattr(_runner, "check_pods_ready", lambda _cfg: seen.append(os.environ.get("KUBECONFIG")))
+    monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "run_full", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "configure_kubeconfig", lambda _cfg: tmp_path / "run.yaml")
+
+    _runner.run("aws", suite="smoke", repo_root=E2E_REPO_ROOT)
+
+    assert seen == [str(tmp_path / "run.yaml")]
+    assert os.environ["KUBECONFIG"] == "/operator/kubeconfig"
+
+
+def test_configure_kubeconfig_returns_the_path_without_exporting_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    monkeypatch.delenv("AWS_KUBECONFIG_PATH", raising=False)
+
+    path = _runner.configure_kubeconfig(e2e_cfg(tmp_path, env="aws", suite="smoke"))
+
+    assert path == tmp_path / ".tmp/kubeconfigs/aws.yaml"
+    assert "KUBECONFIG" not in os.environ

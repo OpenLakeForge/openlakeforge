@@ -131,13 +131,13 @@ def claims(token: str) -> dict[str, Any]:
     return decoded
 
 
-def session_path(instance: Instance) -> Path:
+def session_path(instance: Instance, home: Path | None = None) -> Path:
     # ponytail: a 0600 file is the v0.6 ceiling; the OS keyring is the follow-up (#536).
-    return default_home() / "sessions" / f"{instance.base_domain}.json"
+    return (home or default_home()) / "sessions" / f"{instance.base_domain}.json"
 
 
-def save(instance: Instance, session: Session) -> None:
-    path = session_path(instance)
+def save(instance: Instance, session: Session, home: Path | None = None) -> None:
+    path = session_path(instance, home)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -145,9 +145,9 @@ def save(instance: Instance, session: Session) -> None:
         json.dump(asdict(session), handle)
 
 
-def _load(instance: Instance) -> Session:
+def _load(instance: Instance, home: Path | None = None) -> Session:
     try:
-        session = Session(**json.loads(session_path(instance).read_text(encoding="utf-8")))
+        session = Session(**json.loads(session_path(instance, home).read_text(encoding="utf-8")))
     except FileNotFoundError as exc:
         raise PlatformError(f"not logged in to {instance.base_domain}; run `olf login`") from exc
     except (OSError, ValueError, TypeError) as exc:
@@ -157,9 +157,9 @@ def _load(instance: Instance) -> Session:
     return session
 
 
-def active_session(instance: Instance) -> Session:
+def active_session(instance: Instance, home: Path | None = None) -> Session:
     """The stored session, refreshed when its ID token has expired (Dex: 5 minutes)."""
-    session = _load(instance)
+    session = _load(instance, home)
     if claims(session.id_token).get("exp", 0) - _LEEWAY_SECONDS > time.time():
         return session
     expired = PlatformError(f"the session for {instance.base_domain} has expired; run `olf login`")
@@ -187,20 +187,20 @@ def active_session(instance: Instance) -> Session:
         tokens.get("access_token", ""),
         tokens.get("refresh_token", session.refresh_token),
     )
-    save(instance, refreshed)
+    save(instance, refreshed, home)
     return refreshed
 
 
-def delete(instance: Instance) -> bool:
+def delete(instance: Instance, home: Path | None = None) -> bool:
     try:
-        session_path(instance).unlink()
+        session_path(instance, home).unlink()
     except FileNotFoundError:
         return False
     return True
 
 
-def bearer_token(instance: Instance) -> str | None:
+def bearer_token(instance: Instance, home: Path | None = None) -> str | None:
     """The token a platform command sends as `Authorization: Bearer`, or None on a deployment without sign-in.
 
     Never falls back to a service or bot credential."""
-    return None if instance.anonymous else active_session(instance).id_token
+    return None if instance.anonymous else active_session(instance, home).id_token

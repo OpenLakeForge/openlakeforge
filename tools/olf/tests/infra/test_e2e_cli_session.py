@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -39,14 +40,16 @@ class SignIn:
     def __init__(self) -> None:
         self.reached = threading.Event()
         self.urls: list[str] = []
+        self.homes: list[Path] = []
         self.token = _token()
 
-    def login(self, instance: sessions.Instance, *, open_browser: bool, announce: Any) -> sessions.Session:
+    def login(self, instance: sessions.Instance, *, open_browser: bool, announce: Any, home: Path) -> sessions.Session:
         assert not open_browser
+        self.homes.append(home)
         announce("Open this URL in a browser to sign in:\nhttps://auth.olf.localhost/auth?client_id=olf-cli")
         assert self.reached.wait(5)
         session = sessions.Session(instance.issuer, self.token, "", "")
-        sessions.save(instance, session)
+        sessions.save(instance, session, home)
         return session
 
     def browser(self) -> Any:
@@ -91,6 +94,9 @@ def test_login_whoami_and_logout_leave_no_session_and_never_touch_the_operators(
 
     assert sign_in.urls == ["https://auth.olf.localhost/auth?client_id=olf-cli"]
     assert not (tmp_path / "operator").exists()
+    # The temporary home travels as an argument; OLF_HOME is neither rewritten nor read back.
+    assert os.environ["OLF_HOME"] == str(tmp_path / "operator")
+    assert len(sign_in.homes) == 1 and sign_in.homes[0] != tmp_path / "operator"
 
 
 def test_the_instance_is_the_one_a_dex_profile_resolves() -> None:
@@ -107,14 +113,14 @@ def test_a_stored_session_the_api_does_not_accept_fails(sign_in: SignIn, monkeyp
 
 
 def test_a_logout_that_leaves_the_session_fails(sign_in: SignIn, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli.sessions, "delete", lambda instance: True)
+    monkeypatch.setattr(cli.sessions, "delete", lambda instance, home: True)
 
     with pytest.raises(E2EError, match="after olf logout still shows a session"):
         cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", None)
 
 
 def test_a_login_that_fails_is_reported(monkeypatch: pytest.MonkeyPatch, sign_in: SignIn) -> None:
-    def refused(instance: sessions.Instance, *, open_browser: bool, announce: Any) -> sessions.Session:
+    def refused(instance: sessions.Instance, *, open_browser: bool, announce: Any, home: Path) -> sessions.Session:
         announce("Open this URL in a browser to sign in:\nhttps://auth.olf.localhost/auth")
         assert sign_in.reached.wait(5)
         raise sessions.PlatformError("the issuer refused the sign-in: access_denied")

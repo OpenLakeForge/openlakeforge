@@ -34,7 +34,7 @@ def product_run(
     from olf.common.deployment.errors import DeploymentError
     from olf.common.provider_contracts import ProviderContractError
     from olf.infra.e2e._dagster import launch_and_poll_dagster_jobs
-    from olf.infra.e2e._runner import prepare_config, prepare_kube_context
+    from olf.infra.e2e._runner import configure_kubeconfig, prepare_config, prepare_kube_context
     from olf.infra.e2e._shell import E2EError
 
     if full_refresh and full_refresh not in FULL_REFRESH_SCOPES:
@@ -57,7 +57,7 @@ def product_run(
             if not selected:
                 known = ", ".join(sorted(candidate.id for candidate in cfg.inventory.products))
                 raise typer.Exit(code=fail(f"unknown product {product!r}; this project has: {known}."))
-            prepare_kube_context(cfg)
+            prepare_kube_context(cfg, configure_kubeconfig(cfg))
             tags = full_refresh_tags(full_refresh) if full_refresh else None
             launch_and_poll_dagster_jobs(cfg, products=selected, tags=tags)
     except (E2EError, DeploymentError, ProviderContractError) as exc:
