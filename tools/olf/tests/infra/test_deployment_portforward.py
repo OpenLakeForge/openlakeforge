@@ -209,10 +209,24 @@ def test_start_passes_env_overrides_through_for_the_runner_to_layer(tmp_path: Pa
     assert popens[0].env == {"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"}
 
 
-def test_default_popen_is_the_process_runner(tmp_path: Path) -> None:
-    supervisor = PortForwardSupervisor(_kubectl(), log_prefix=tmp_path / "openlakeforge-local")
+def test_default_launch_layers_env_overrides_over_the_ambient_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_kubectl = tmp_path / "kubectl"
+    fake_kubectl.write_text('#!/bin/sh\necho "ambient=$OLF_TEST_AMBIENT kubeconfig=$KUBECONFIG"\n')
+    fake_kubectl.chmod(0o755)
+    monkeypatch.setenv("OLF_TEST_AMBIENT", "kept")
+    monkeypatch.setenv("KUBECONFIG", "/operator/kubeconfig")
+    kubectl = Kubectl(ProcessRunner(), PathExecutableResolver(overrides={"kubectl": fake_kubectl}))
+    supervisor = PortForwardSupervisor(kubectl, log_prefix=tmp_path / "openlakeforge-local")
+    spec = _spec()
 
-    assert supervisor._popen.__func__ is ProcessRunner.popen  # type: ignore[attr-defined]  # bound method of a runner
+    process = supervisor.start(spec.targets[0], spec, env={"KUBECONFIG": "/run/kubeconfig"})
+    process.wait(timeout=10)
+    supervisor.stop_all()
+
+    log = (tmp_path / "openlakeforge-local-trino-port-forward.log").read_text()
+    assert log.strip() == "ambient=kept kubeconfig=/run/kubeconfig"
 
 
 def test_start_passes_none_env_when_no_overrides_given(tmp_path: Path) -> None:
