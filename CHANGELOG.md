@@ -24,6 +24,11 @@ for how a release is cut and verified.
   now the `openlakeforge-runtime` package under `packages/runtime/`, imported
   as `openlakeforge_runtime`. It is built and attached to each release like
   the other packages; it is not published to PyPI.
+- The project-code image installs `openlakeforge-runtime` as a package instead
+  of copying `openlakeforge_runtime/` beside `lakehouse_code/`. The dbt profile
+  step takes the project root from `--root` or `OPENLAKEFORGE_PROJECT_ROOT`
+  (default: the working directory) rather than from the module's location, so
+  Gold dbt products are found in a source checkout too.
 
 ### Migration
 

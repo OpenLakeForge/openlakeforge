@@ -18,21 +18,29 @@ RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/core
 # Floe's merge write modes load DuckDB extensions, which DuckDB would otherwise
 # download at run time; Floe Job pods have no egress (#725). Installed here for
 # the locked DuckDB, into the image user's default extension directory, and
-# loaded once with downloads disabled so a missing one fails the build.
-COPY packages/runtime/openlakeforge_runtime/__init__.py packages/runtime/openlakeforge_runtime/duckdb_extensions.py ./openlakeforge_runtime/
-RUN python -m openlakeforge_runtime.duckdb_extensions install && python -m openlakeforge_runtime.duckdb_extensions verify
+# loaded once with downloads disabled so a missing one fails the build. The
+# module is standard-library only, so it runs as a script from its own copy and
+# this layer stays cached while the rest of the runtime package changes.
+COPY packages/runtime/openlakeforge_runtime/duckdb_extensions.py /tmp/duckdb_extensions.py
+RUN python /tmp/duckdb_extensions.py install && python /tmp/duckdb_extensions.py verify && rm /tmp/duckdb_extensions.py
+
+# Its dependencies (Dagster, dlt, dbt, Floe) are all in requirements.lock.
+COPY packages/runtime ./packages/runtime
+RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/runtime
 
 COPY lakehouse_code ./lakehouse_code
-COPY packages/runtime/openlakeforge_runtime ./openlakeforge_runtime
 
 # setuptools is pinned in requirements.lock, so re-use it instead of creating a
 # network-backed build environment for each provider image.
 RUN pip install --no-cache-dir --no-build-isolation --no-deps .
 
-# packages.yml reaches the shared dbt package through this variable, so a
-# product resolves it the same way here, in olf's checks and in a customer
-# repository with no openlakeforge_runtime/ beside lakehouse_code/.
-ENV OPENLAKEFORGE_DBT_PACKAGES_DIR=/opt/openlakeforge/openlakeforge_runtime/dbt
+# The project root is explicit: the baked profile and manifests live under it,
+# beside lakehouse_code/, not next to the installed runtime package.
+ENV OPENLAKEFORGE_PROJECT_ROOT=/opt/openlakeforge
+
+# packages.yml reaches the shared dbt package through
+# OPENLAKEFORGE_DBT_PACKAGES_DIR, which the runtime sets to its installed
+# location for every dbt invocation (render_profiles.dbt_environment).
 
 # One dbt profile for every stage and provider, made only of env_var()
 # references the pod's stage environment fills at run time, plus a manifest per

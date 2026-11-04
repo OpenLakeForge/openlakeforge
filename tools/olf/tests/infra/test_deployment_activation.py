@@ -776,6 +776,7 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_DBT_PACKAGES_DIR": "project-code image",
     # Only `olf check project-code` sets it; pods read the image's baked profile.
     "OPENLAKEFORGE_DBT_PROFILES_DIR": "olf check project-code",
+    "OPENLAKEFORGE_PROJECT_ROOT": "the project-code image's ENV",
     # openlakeforge_runtime/floe_profile.py falls back to a default; no contract emits these yet.
     "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE": "unset, default applies",
     "OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT": "unset, default applies",
