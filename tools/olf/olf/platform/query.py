@@ -13,13 +13,14 @@ import csv
 import io
 import json
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
 import typer
+from openlakeforge_services import trino
+from openlakeforge_services.trino import Result
 
 from olf.common.log import fail
 from olf.platform import session as sessions
@@ -28,12 +29,6 @@ from olf.platform.output import table
 FORMATS = ("table", "csv", "json")
 STAGES = ("dev", "uat", "prod")
 SOURCE = "olf-query"
-
-
-@dataclass(frozen=True)
-class Result:
-    columns: list[str]
-    rows: list[list[Any]]
 
 
 def statement_url(instance: sessions.Instance) -> str:
@@ -57,57 +52,40 @@ def person_token(instance: sessions.Instance) -> tuple[str, dict[str, Any]]:
 
 
 def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, catalog: str) -> Result:
-    """`bearer` is asked again before every page: a Dex token lasts five minutes, and a result can take longer to
-    page through. The extra credential is read once, at submission, where Polaris captures it."""
-    headers = {"X-Trino-User": user, "X-Trino-Catalog": catalog, "X-Trino-Source": SOURCE}
-    token = bearer()
-    columns: list[str] = []
-    rows: list[list[Any]] = []
-    body = _call(
-        "POST",
-        url,
-        {**headers, "Authorization": f"Bearer {token}", "X-Trino-Extra-Credential": f"token={token}"},
-        data=sql.encode("utf-8"),
-    )
-    while True:
-        if "error" in body:
-            raise sessions.PlatformError(explain(body["error"], catalog))
-        if body.get("columns") and not columns:
-            columns = [column["name"] for column in body["columns"]]
-        rows.extend(body.get("data") or [])
-        if "nextUri" not in body:
-            return Result(columns, rows)
-        body = _call("GET", body["nextUri"], {**headers, "Authorization": f"Bearer {bearer()}"})
+    def send(method: str, target: str, **kwargs: Any) -> requests.Response:
+        return sessions.send(method, target, timeout=120, **kwargs)
+
+    try:
+        return trino.run_statement(send, url, sql, bearer=bearer, user=user, catalog=catalog, source=SOURCE)
+    except trino.TrinoQueryError as exc:
+        raise sessions.PlatformError(explain(exc.error, catalog)) from exc
+    except trino.TrinoRequestError as exc:
+        raise sessions.PlatformError(_request_failure(exc)) from exc
 
 
-def _call(method: str, url: str, headers: dict[str, str], data: bytes | None = None) -> dict[str, Any]:
-    try:
-        response = sessions.send(method, url, headers=headers, data=data, timeout=120)
-    except requests.exceptions.SSLError as exc:
-        raise sessions.PlatformError(
-            f"cannot verify the TLS certificate of {urlsplit(url).hostname}. A local deployment uses its own CA: "
-            "run `olf infra access trust`, then set REQUESTS_CA_BUNDLE to the certificate file it writes"
-        ) from exc
-    except requests.RequestException as exc:
-        raise sessions.PlatformError(f"cannot reach Trino at {urlsplit(url).hostname}: {type(exc).__name__}") from exc
-    if response.status_code == 401:
-        raise sessions.PlatformError("Trino or the perimeter refused your session; run `olf login`")
-    if response.status_code == 403:
-        raise sessions.PlatformError(
-            "the perimeter refused you: your GitHub teams map to no OpenLakeForge role. A platform-admin assigns roles"
-        )
-    if response.status_code == 404:
-        raise sessions.PlatformError(
-            "this deployment has no query route for people; it needs spec.identity.issuer github and "
-            "Trino workload authentication at password. Operators can use `olf infra query`"
-        )
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise sessions.PlatformError(f"Trino answered HTTP {response.status_code} without a query result") from exc
-    if not isinstance(body, dict):
-        raise sessions.PlatformError(f"Trino answered HTTP {response.status_code} without a query result")
-    return body
+def _request_failure(exc: trino.TrinoRequestError) -> str:
+    match exc.kind:
+        case "tls":
+            return (
+                f"cannot verify the TLS certificate of {exc.host}. A local deployment uses its own CA: "
+                "run `olf infra access trust`, then set REQUESTS_CA_BUNDLE to the certificate file it writes"
+            )
+        case "unreachable":
+            return f"cannot reach Trino at {exc.host}: {exc.detail}"
+        case "unauthenticated":
+            return "Trino or the perimeter refused your session; run `olf login`"
+        case "forbidden":
+            return (
+                "the perimeter refused you: your GitHub teams map to no OpenLakeForge role. "
+                "A platform-admin assigns roles"
+            )
+        case "no_route":
+            return (
+                "this deployment has no query route for people; it needs spec.identity.issuer github and "
+                "Trino workload authentication at password. Operators can use `olf infra query`"
+            )
+        case _:
+            return f"Trino answered HTTP {exc.status} without a query result"
 
 
 def causes(error: dict[str, Any]) -> Iterator[str]:

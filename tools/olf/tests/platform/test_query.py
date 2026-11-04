@@ -234,16 +234,3 @@ def test_json_keeps_every_value_of_a_repeated_column_name(trino: FakeTrino) -> N
 
     assert result.exit_code == 0, result.output
     assert result.stdout.splitlines()[0] == '{"id": 1, "id_2": "a"}'
-
-
-def test_every_page_asks_for_a_current_token_and_only_the_submission_carries_the_extra_credential(
-    trino: FakeTrino,
-) -> None:
-    tokens = iter(["first", "refreshed"])
-
-    person_query.run_statement(trino.url, "SELECT 1", bearer=lambda: next(tokens), user=EMAIL, catalog="dev")
-
-    submitted, page = (request["headers"] for request in trino.requests)
-    assert (submitted["Authorization"], submitted["X-Trino-Extra-Credential"]) == ("Bearer first", "token=first")
-    assert page["Authorization"] == "Bearer refreshed"
-    assert "X-Trino-Extra-Credential" not in page
