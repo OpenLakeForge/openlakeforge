@@ -291,6 +291,17 @@ module "platform_api" {
   # queries need the people catalogs, which exist only with Dex.
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.query_api_enabled
+  # Trino serves in-cluster clients HTTPS only once password authentication is
+  # on (ADR 0016), so the URL names the TLS port and a name in its certificate;
+  # the caller verifies it against ca_file. Each stage's people catalog is named
+  # after the stage (modules/query/trino/people.tf). Read server-side only.
+  query_endpoints = {
+    for stage in keys(module.polaris.people_credentials_secret_names) : stage => {
+      statement_url = "https://${module.trino.service_name}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${module.trino.tls_port}/v1/statement"
+      catalog       = stage
+    }
+    if local.query_api_enabled
+  }
   # Reached in-cluster over F32 (ADR 0017), around the perimeter.
   dagster_graphql_urls = {
     for name in keys(local.enabled_stages) :
