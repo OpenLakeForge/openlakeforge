@@ -9,7 +9,8 @@ from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-from openlakeforge_services.openmetadata import OpenMetadataError
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
 from olf.infra import k8s
 from olf.infra.openmetadata import _auth, _bootstrap
@@ -28,6 +29,7 @@ class FakeServer(ThreadingHTTPServer):
         self.healthy = True
         self.fernet = False
         self.bot_admin = True
+        self.probe_status: int | None = None
         self.users: dict[str, dict] = {"ingestion-bot": {"id": "id-ingestion-bot", "isAdmin": False}}
         self.tokens: dict[str, str] = {}  # user id -> JWT
         self.calls: list[tuple[str, str]] = []
@@ -73,7 +75,7 @@ class _Handler(BaseHTTPRequestHandler):
         if user is None:
             return self._reply(401, {})
         if path == "/api/v1/users/loggedInUser":
-            return self._reply(200, user)
+            return self._reply(srv.probe_status or 200, user)
         if path == "/api/v1/users/changePassword":
             srv.password = body["newPassword"]
             return self._reply(200, {})
@@ -113,6 +115,8 @@ def store(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, str], dict[str, st
 
     def secret_value(name: str, key: str, namespace: str, **_kwargs: object) -> str:
         if (namespace, name) not in secrets:
+            if _kwargs.get("missing_ok"):
+                return ""
             raise k8s.KubectlError("NotFound")
         return secrets[(namespace, name)].get(key, "")
 
@@ -228,3 +232,47 @@ def test_an_unhealthy_server_times_out(om: FakeServer, store: dict, monkeypatch:
 
     with pytest.raises(OpenMetadataError, match="did not become healthy"):
         _run(om)
+
+
+def test_a_rerun_keeps_the_token_already_copied_into_stage_namespaces(om: FakeServer, store: dict) -> None:
+    _run(om)
+    shared = ("ns", _auth.INGESTION_BOT_SECRET)
+    stage = ("olf-dev", _auth.INGESTION_BOT_SECRET)
+    store[stage] = dict(store[shared])
+    original = store[shared][_auth.INGESTION_BOT_JWT_KEY]
+    om.calls.clear()
+
+    _run(om)
+
+    assert store[shared] == store[stage] == {_auth.INGESTION_BOT_JWT_KEY: original}
+    assert ("PUT", "/api/v1/users/generateToken/id-ingestion-bot") not in om.calls
+    assert (
+        OpenMetadataClient(om.url, token=original).request("GET", "/api/v1/users/loggedInUser")["id"]
+        == "id-ingestion-bot"
+    )
+
+
+@pytest.mark.parametrize("stored", ["expired", "admin-jwt"])
+def test_a_stale_or_different_users_ingestion_credential_is_replaced(om: FakeServer, store: dict, stored: str) -> None:
+    store[("ns", _auth.INGESTION_BOT_SECRET)] = {_auth.INGESTION_BOT_JWT_KEY: stored}
+
+    _run(om)
+
+    token = store[("ns", _auth.INGESTION_BOT_SECRET)][_auth.INGESTION_BOT_JWT_KEY]
+    assert token != stored
+    assert (
+        OpenMetadataClient(om.url, token=token).request("GET", "/api/v1/users/loggedInUser")["id"] == "id-ingestion-bot"
+    )
+
+
+def test_an_ingestion_token_is_not_rotated_when_verification_is_unavailable(om: FakeServer, store: dict) -> None:
+    _run(om)
+    original = dict(store[("ns", _auth.INGESTION_BOT_SECRET)])
+    om.calls.clear()
+    om.probe_status = 503
+
+    with pytest.raises(ServiceClientError):
+        _run(om)
+
+    assert store[("ns", _auth.INGESTION_BOT_SECRET)] == original
+    assert ("PUT", "/api/v1/users/generateToken/id-ingestion-bot") not in om.calls

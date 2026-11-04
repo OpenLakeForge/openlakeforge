@@ -103,8 +103,11 @@ def secret_value(
     namespace: str,
     *,
     kube_context: str | None = None,
+    missing_ok: bool = False,
 ) -> str:
     args = ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"]
+    if missing_ok:
+        args.append("--ignore-not-found")
     raw = _kubectl(
         args,
         capture=True,

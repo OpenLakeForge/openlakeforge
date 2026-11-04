@@ -66,12 +66,14 @@ def wait_healthy(base_url: str) -> None:
     raise OpenMetadataError("OpenMetadata did not become healthy in time")
 
 
-def _token_works(base_url: str, token: str) -> bool:
+def _token_works(base_url: str, token: str, *, user_id: str | None = None) -> bool:
     try:
-        OpenMetadataClient(base_url, token=token).request("GET", "/api/v1/users/loggedInUser")
-    except ServiceClientError:
+        user = OpenMetadataClient(base_url, token=token).request("GET", "/api/v1/users/loggedInUser")
+    except ServiceClientError as exc:
+        if exc.status not in (401, 403):
+            raise
         return False
-    return True
+    return user_id is None or user.get("id") == user_id
 
 
 def admin_client(base_url: str, email: str, password: str, stored_token: str | None) -> OpenMetadataClient:
@@ -155,10 +157,15 @@ def ensure_automation_bot(client: OpenMetadataClient, base_url: str, namespace: 
 
 
 def ensure_ingestion_bot_token(client: OpenMetadataClient, namespace: str) -> None:
-    """Mint the ingestion bot's unlimited token for machine traffic and store it."""
+    """Keep the ingestion bot's working credential, or mint one when it is missing or stale."""
     user = client.request("GET", "/api/v1/users/name/ingestion-bot")
     if not user.get("id"):
         raise OpenMetadataError(f"Failed to find ingestion-bot user: {user}")
+    stored = k8s.secret_value(INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, namespace, missing_ok=True)
+    # Stage Secrets are replicated by a one-shot Terraform Job. Rotating a
+    # working token here would revoke every stage's unchanged copy.
+    if stored and _token_works(client.base_url, stored, user_id=user["id"]):
+        return
     token = _bearer_token(client, user["id"], "ingestion-bot")
     k8s.write_secret(INGESTION_BOT_SECRET, namespace, {INGESTION_BOT_JWT_KEY: token})
 
