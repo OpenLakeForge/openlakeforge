@@ -192,7 +192,13 @@ For those calls it therefore:
   are tamper-evident against everyone but the API itself, not append-only;
 - **is stateless** with a read-only root filesystem until a feature needs
   storage; saved queries or history bring the shared PostgreSQL in as their
-  own decision.
+  own decision;
+- **refuses cross-site writes** (#799) without tokens or a session store:
+  on POST, PUT, PATCH and DELETE it refuses an `Origin` other than the
+  configured `public_origin` (unset: any `Origin`), a `Sec-Fetch-Site` other
+  than `same-origin` or `none`, and a body that is not JSON (`application/zip`
+  for report import). A request with no `Origin` is a non-browser client and
+  passes. It serves no CORS headers.
 
 ### 4. One library, two hosts
 
@@ -428,3 +434,8 @@ self-signup under any other name with 403 `OTHER_USER_SIGN_UP`
 audited: it is the first-use side effect a browser sign-in has, not an operation
 the person asked for. The e2e calls every read route through the perimeter for
 every role, which is how the missing registration was found.
+
+Issue #799, first part: the cross-site write guard (`csrf.py`), the
+`public_origin` and `person_query` settings, and the dependency that derives a
+person's Trino identity from the validated token (`query_identity.py`). Open
+items 1 and 2 stay open until the identity wiring lands.
