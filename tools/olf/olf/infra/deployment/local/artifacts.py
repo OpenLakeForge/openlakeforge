@@ -29,7 +29,7 @@ def applied_contract_environment(
     *,
     contract_terraform_dir: Path | None = None,
     environ: Mapping[str, str] | None = None,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[contract_env.ContractEnvironment]:
     """Apply the resolved provider-contract environment onto `os.environ`.
 
     Thin local-config adapter over `olf.infra.deployment.contract_env`, which

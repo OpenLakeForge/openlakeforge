@@ -6,6 +6,10 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from olf.infra.deployment.contract_env import ContractEnvironment
 
 
 def _contract_terraform_dir(default: Path) -> Path:
@@ -23,7 +27,7 @@ def provider_contract_environment(
     kubeconfig_path: str,
     project_root: str = "",
     stage: str = "",
-) -> Iterator[None]:
+) -> Iterator[ContractEnvironment]:
     """Hydrate Terraform contracts for a command outside the full deploy flow."""
     from olf.infra.commands.deployment import _build_context, _build_engine
     from olf.infra.deployment import contract_env
@@ -50,8 +54,8 @@ def provider_contract_environment(
             deployment_provider.config,
             contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
             environ=deployment_provider.env,
-        ):
-            yield
+        ) as contract_environment:
+            yield contract_environment
         return
     if is_cloud_provider(deployment_provider):
         facts = deployment_provider.foundation_facts
@@ -65,5 +69,5 @@ def provider_contract_environment(
             environ=deployment_provider.env,
             topology=context.topology,
             stage=context.stage,
-        ):
-            yield
+        ) as contract_environment:
+            yield contract_environment
