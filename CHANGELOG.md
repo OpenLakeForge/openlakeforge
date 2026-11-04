@@ -50,6 +50,11 @@ for how a release is cut and verified.
 - `openlakeforge` now depends on `openlakeforge-runtime` (pinned to its own version)
   instead of putting `packages/runtime` on `sys.path` for `olf check dbt` and
   `olf infra dbt parse`.
+- The Terraform-owned Dagster user-code branch is deleted from the dagster module: the
+  `manage_user_deployments` and `kubernetes_log_archive_schedule` variables, the user-deployment
+  subchart values, the run launcher `job_image` and the Terraform log-archive CronJob, together with
+  the variable in the local, aws-poc and azure-poc roots and `DeploymentContext`. The rendered
+  Dagster Helm values are unchanged; `deploy_revision` already owned every code location.
 
 ### Removed
 

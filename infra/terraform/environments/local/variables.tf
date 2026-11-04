@@ -224,12 +224,6 @@ variable "access_issuer" {
   }
 }
 
-variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. False (what olf passes) leaves them to activation: the openlakeforge-project release `deploy_revision` installs, and this root only publishes a stable workspace endpoint pointing at it. True is the Terraform-owned subchart that predates activation."
-  type        = bool
-  default     = false
-}
-
 variable "identity_issuer" {
   description = "Deployment Profile spec.identity.issuer (ADR 0014): `github` (Dex) deploys an adapter, `external` takes the contract from identity_external. null (no spec.identity) deploys no issuer and no perimeter."
   type        = string
