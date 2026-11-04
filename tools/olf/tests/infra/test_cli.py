@@ -30,7 +30,7 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
     monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
     monkeypatch.setenv("OPENLAKEFORGE_GOVERNANCE_ENABLED", "false")
     monkeypatch.setattr(
-        "olf.infra.commands.artifacts.deploy_superset_reports", lambda: pytest.fail("reports should be skipped")
+        "olf.infra.commands.artifacts.deploy_superset_reports", lambda **_: pytest.fail("reports should be skipped")
     )
     monkeypatch.setattr(
         "olf.infra.commands.artifacts.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped")

@@ -21,14 +21,14 @@ def enabled(environ: Mapping[str, str], layer: str) -> bool:
 def deploy_enabled_artifacts(
     environ: Mapping[str, str],
     *,
-    deploy_reports: Callable[[], None],
+    deploy_reports: Callable[[Mapping[str, str]], None],
     deploy_metadata: Callable[[], None],
     report: Callable[[str], None],
 ) -> None:
     """Deploy artifacts for enabled optional layers and report skipped layers."""
     if enabled(environ, "analytics"):
         report("Deploying product Superset report assets...")
-        deploy_reports()
+        deploy_reports(environ)
     else:
         report("Skipping Superset report assets: analytics layer is disabled.")
 

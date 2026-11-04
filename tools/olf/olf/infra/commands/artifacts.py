@@ -18,7 +18,7 @@ def artifacts_deploy_optional_layers() -> None:
     """Deploy artifacts for enabled optional platform layers."""
     layers_module.deploy_enabled_artifacts(
         os.environ,
-        deploy_reports=deploy_superset_reports,
+        deploy_reports=lambda contract: deploy_superset_reports(environ=contract),
         deploy_metadata=deploy_openmetadata_metadata,
         report=lambda message: typer.echo(f"==> {message}"),
     )
