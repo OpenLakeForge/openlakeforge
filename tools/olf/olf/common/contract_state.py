@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from olf.common.contract_validation import SUPPORTED_SCHEMA_VERSIONS, ProviderContractError
+from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.terraform import external_state_options
 
 if TYPE_CHECKING:
@@ -97,7 +97,7 @@ def _terraform_provider_contracts(
     strict_state: bool = False,
     resolver: ExecutableResolver | None = None,
 ) -> dict[str, Any] | None:
-    from olf.common.deployment.errors import ExecutableNotFoundError
+    from olf.common.deployment.errors import CommandExecutionError, ExecutableNotFoundError
     from olf.common.tooling.resolver import build_resolver
 
     try:
@@ -123,16 +123,10 @@ def _terraform_provider_contracts(
     else:
         command_env = None
     try:
-        result = subprocess.run(
-            [terraform, f"-chdir={terraform_dir}", *args],
-            capture_output=True,
-            text=True,
-            check=True,
-            env=command_env,
-        )
-    except OSError:
+        result = ProcessRunner().run([terraform, f"-chdir={terraform_dir}", *args], env=command_env)
+    except (ExecutableNotFoundError, OSError):
         return None
-    except subprocess.CalledProcessError as exc:
+    except CommandExecutionError as exc:
         # Terraform answers "not found" both for a state without this output
         # and for no state at all; anything else means it could not read one.
         if not strict_state or 'Output "provider_contracts" not found' in (exc.stderr or ""):

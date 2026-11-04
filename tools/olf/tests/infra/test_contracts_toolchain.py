@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 from olf.common.contract_state import load_provider_contracts
-from olf.common.deployment.errors import ExecutableNotFoundError, ToolchainError
+from olf.common.deployment.errors import CommandExecutionError, ExecutableNotFoundError, ToolchainError
 from olf.common.provider_contracts import ProviderContractError
+from olf.common.tooling.process import CommandResult
 
 
 def test_missing_terraform_executable_is_treated_as_not_applied_yet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,8 +52,6 @@ def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
     terraform_dir - load_provider_contracts must pass `-state=<path>` and
     `TF_DATA_DIR` exactly as Terraform._run does, or it always reads an
     absent state and returns None even after a real apply."""
-    import subprocess
-
     from olf.common.tooling.resolver import ExecutableResolver
 
     captured: dict = {}
@@ -61,13 +60,13 @@ def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
         def resolve(self, tool: str):  # noqa: ANN001, ANN202
             return Path("/usr/local/bin/terraform")
 
-    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+    def _fake_run(_self, argv, **kwargs):  # noqa: ANN001, ANN202
         captured["argv"] = argv
         captured["env"] = kwargs.get("env")
-        return subprocess.CompletedProcess(argv, 0, stdout='{"schema_version": "2.0.0"}', stderr="")
+        return CommandResult(tuple(argv), 0, '{"schema_version": "2.0.0"}', "", 0.0)
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
-    monkeypatch.setattr("olf.common.contract_state.subprocess.run", _fake_run)
+    monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _fake_run)
 
     terraform_dir = tmp_path / "environments" / "local"
     environ = {
@@ -95,8 +94,6 @@ def test_a_native_v3_terraform_output_is_returned_for_a_stage_aware_caller(
     """The loader hands back whatever version the root exports; selecting a
     stage is `build_contract_env`'s job. A v3 payload without a resolved
     topology still fails closed there rather than here."""
-    import subprocess
-
     from olf.common.tooling.resolver import ExecutableResolver
     from olf.infra.contracts import build_contract_env
 
@@ -104,11 +101,11 @@ def test_a_native_v3_terraform_output_is_returned_for_a_stage_aware_caller(
         def resolve(self, tool: str):  # noqa: ANN001, ANN202
             return Path("/usr/local/bin/terraform")
 
-    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
-        return subprocess.CompletedProcess(argv, 0, stdout='{"schema_version": "3.0.0"}', stderr="")
+    def _fake_run(_self, argv, **kwargs):  # noqa: ANN001, ANN202
+        return CommandResult(tuple(argv), 0, '{"schema_version": "3.0.0"}', "", 0.0)
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
-    monkeypatch.setattr("olf.common.contract_state.subprocess.run", _fake_run)
+    monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _fake_run)
 
     terraform_dir = tmp_path / "environments" / "local"
     environ = {"PATH": "/usr/bin"}
@@ -121,8 +118,6 @@ def test_a_native_v3_terraform_output_is_returned_for_a_stage_aware_caller(
 
 
 def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    import subprocess
-
     from olf.common.tooling.resolver import ExecutableResolver
 
     captured: dict = {}
@@ -131,13 +126,13 @@ def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.
         def resolve(self, tool: str):  # noqa: ANN001, ANN202
             return Path("/usr/local/bin/terraform")
 
-    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+    def _fake_run(_self, argv, **kwargs):  # noqa: ANN001, ANN202
         captured["argv"] = argv
         captured["env"] = kwargs.get("env")
-        return subprocess.CompletedProcess(argv, 0, stdout='{"schema_version": "2.0.0"}', stderr="")
+        return CommandResult(tuple(argv), 0, '{"schema_version": "2.0.0"}', "", 0.0)
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
-    monkeypatch.setattr("olf.common.contract_state.subprocess.run", _fake_run)
+    monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _fake_run)
 
     terraform_dir = tmp_path / "environments" / "local"
     environ = {"PATH": "/usr/bin"}
@@ -167,19 +162,17 @@ def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.
 def test_strict_state_reports_only_a_missing_output_as_not_applied(
     monkeypatch: pytest.MonkeyPatch, stderr: str, not_applied: bool
 ) -> None:
-    import subprocess
-
     from olf.common.tooling.resolver import ExecutableResolver
 
     class _Resolver(ExecutableResolver):
         def resolve(self, tool: str):  # noqa: ANN001, ANN202
             return Path("/usr/local/bin/terraform")
 
-    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
-        raise subprocess.CalledProcessError(1, argv, output="", stderr=stderr)
+    def _fake_run(_self, argv, **kwargs):  # noqa: ANN001, ANN202
+        raise CommandExecutionError(argv, 1, stderr=stderr)
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
-    monkeypatch.setattr("olf.common.contract_state.subprocess.run", _fake_run)
+    monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _fake_run)
 
     assert load_provider_contracts("platform", environ={}) is None
     if not_applied:
@@ -187,3 +180,21 @@ def test_strict_state_reports_only_a_missing_output_as_not_applied(
     else:
         with pytest.raises(ProviderContractError, match=stderr.split(": ", 1)[1].split(",")[0]):
             load_provider_contracts("platform", environ={}, strict_state=True)
+
+
+def test_a_terraform_binary_that_vanishes_before_the_read_is_treated_as_not_applied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf.common.tooling.resolver import ExecutableResolver
+
+    class _Resolver(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            return Path("/usr/local/bin/terraform")
+
+    def _missing(_self, argv, **kwargs):  # noqa: ANN001, ANN202
+        raise ExecutableNotFoundError(argv[0])
+
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
+    monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _missing)
+
+    assert load_provider_contracts("platform", environ={}, strict_state=True) is None
