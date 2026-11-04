@@ -136,6 +136,45 @@ def deploy_openmetadata_metadata() -> None:
     typer.echo("Deployed OpenMetadata governance metadata.")
 
 
+@app.command("bootstrap")
+def openmetadata_bootstrap(
+    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
+    om_url: str = typer.Option("", "--om-url", help="OpenMetadata URL; default is a port-forward to the service."),
+    sso: bool = typer.Option(False, "--sso", help="Also create the admin automation bot SSO needs."),
+) -> None:
+    """Create the admin password, automation bot and ingestion bot token. Idempotent."""
+    from olf.infra import k8s
+    from olf.infra import openmetadata as om
+    from olf.infra.commands.runtime import provider_contract_environment
+    from olf.infra.openmetadata._bootstrap import bootstrap_auth
+
+    email = config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org")
+    with provider_contract_environment(
+        provider=provider,
+        profile="",
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
+    ):
+        governance = _governance_service()
+        try:
+            if om_url:
+                bootstrap_auth(om_url, governance.namespace, email=email, sso=sso)
+            else:
+                with governance.url() as base_url:
+                    bootstrap_auth(base_url, governance.namespace, email=email, sso=sso)
+        except (om.OpenMetadataError, k8s.KubectlError) as exc:
+            raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo("OpenMetadata authentication bootstrap complete.")
+
+
 @app.command("list-domains")
 def openmetadata_list_domains(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),

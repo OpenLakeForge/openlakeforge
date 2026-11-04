@@ -404,3 +404,35 @@ def test_run_job_raises_promptly_on_failed_with_the_token_masked(monkeypatch: py
         k8s.run_job(_JOB, timeout_seconds=60)
     assert "boom jwt=*** end" in str(raised.value)
     assert "eyJ" not in str(raised.value)
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_write_secret_sends_credentials_on_stdin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, overwrite: bool
+) -> None:
+    from types import SimpleNamespace
+
+    from olf.common.tooling.kubectl import Kubectl
+    from olf.common.tooling.process import CommandResult
+
+    runner = Mock()
+    runner.run.return_value = CommandResult((), 0, "", "", 0.0)
+    resolver = Mock()
+    resolver.resolve.return_value = tmp_path / "kubectl"
+    toolkit = SimpleNamespace(kubectl=Kubectl(runner, resolver))
+    monkeypatch.setattr(k8s.Toolkit, "default", lambda: toolkit)
+    monkeypatch.setenv("KUBE_CONTEXT", "kind-test")
+    monkeypatch.setattr(k8s.tempfile, "NamedTemporaryFile", Mock(side_effect=AssertionError("secret written to disk")))
+
+    k8s.write_secret("bootstrap", "olf-system", {"password": "private-password"}, overwrite=overwrite)
+
+    argv = runner.run.call_args.args[0]
+    assert "private-password" not in str(argv)
+    assert argv[-2:] == ["-f", "-"]
+    assert "--context" in argv and "kind-test" in argv
+    assert ("apply" if overwrite else "create") in argv
+    manifest = json.loads(runner.run.call_args.kwargs["input_text"])
+    assert manifest["metadata"] == {"name": "bootstrap", "namespace": "olf-system"}
+    assert manifest["stringData"] == {"password": "private-password"}
+    if overwrite:
+        assert "--server-side" in argv

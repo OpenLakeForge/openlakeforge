@@ -23,3 +23,7 @@ def automation_token(namespace: str, *, kube_context: str | None = None) -> str 
         return k8s.secret_value(AUTOMATION_BOT, AUTOMATION_JWT_KEY, namespace, kube_context=kube_context) or None
     except k8s.KubectlError:
         return None
+
+# The Secret every consumer of the ingestion bot's JWT reads (the Dagster code location, the Trino ingestion Job).
+INGESTION_BOT_SECRET = "openmetadata-ingestion-bot"
+INGESTION_BOT_JWT_KEY = "OPENMETADATA_INGESTION_BOT_JWT"

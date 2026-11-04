@@ -22,7 +22,9 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 
 from olf.common import log
+from olf.common.deployment.errors import CommandExecutionError
 from olf.common.tooling.resolver import build_resolver
+from olf.common.tooling.toolkit import Toolkit
 
 _JWT = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
 
@@ -101,8 +103,11 @@ def secret_value(
     namespace: str,
     *,
     kube_context: str | None = None,
+    missing_ok: bool = False,
 ) -> str:
     args = ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"]
+    if missing_ok:
+        args.append("--ignore-not-found")
     raw = _kubectl(
         args,
         capture=True,
@@ -414,6 +419,26 @@ def apply_manifest(manifest: dict) -> None:
         json.dump(manifest, handle)
         handle.flush()
         _kubectl(["apply", "-f", handle.name])
+
+
+def write_secret(name: str, namespace: str, data: dict[str, str], *, overwrite: bool = True) -> None:
+    """Store `data` as an Opaque Secret; with `overwrite=False`, fail if it already exists."""
+    manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": namespace},
+        "type": "Opaque",
+        "stringData": data,
+    }
+    context = os.environ.get("KUBE_CONTEXT")
+    if not context:
+        raise KubectlError("KUBE_CONTEXT is required for Kubernetes operations.")
+    kubectl = Toolkit.default().kubectl
+    write = kubectl.apply_from_manifest if overwrite else kubectl.create_from_manifest
+    try:
+        write(json.dumps(manifest), context=context)
+    except CommandExecutionError as exc:
+        raise KubectlError(str(exc)) from exc
 
 
 def run_job(job: dict, *, timeout_seconds: int, poll_seconds: float = 5.0) -> None:
