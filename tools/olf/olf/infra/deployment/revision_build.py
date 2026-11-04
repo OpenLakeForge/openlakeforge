@@ -135,7 +135,12 @@ def build_stage_revision(
 
 
 def activate_stage_project(
-    provider: DeploymentProvider, project: str, *, profile_name: str, pull_secret: str | None = None
+    provider: DeploymentProvider,
+    project: str,
+    *,
+    profile_name: str,
+    pull_secret: str | None = None,
+    push: bool = True,
 ) -> ProjectActivation:
     """Build `project`'s revision through `provider` and make it the stage's active one.
 
@@ -147,9 +152,28 @@ def activate_stage_project(
     from olf.infra.deployment.activation import deploy_revision
 
     context = provider.context
-    manifest = build_stage_revision(provider, context, project)
+    manifest = build_stage_revision(provider, context, project, push=push)
     # The same root publish_project_revision opened the store at, not the raw `project` argument.
     with provider_revision_store(provider, context, writable_project_layout(project).project_root) as store:
         return deploy_revision(
             provider, revision=manifest.revision, store=store, profile_name=profile_name, pull_secret=pull_secret
         )
+
+
+def activate_deploy_project(provider: DeploymentProvider, *, push: bool = True) -> ProjectActivation:
+    """`activate_stage_project` for the project at the context's repo root, as the artifacts phase runs it.
+
+    There is no profile file on this path, so the profile name and the image pull Secret come from the topology
+    the context already resolved (`legacy` for the `--profile` shorthand).
+    """
+    from olf.common.profile import resolve_declared_project
+
+    topology = provider.context.topology
+    pull_secret = resolve_declared_project(topology.project, topology.provider, provider.env).pull_secret_name
+    return activate_stage_project(
+        provider,
+        str(provider.context.paths.repo_root),
+        profile_name=topology.profile_name,
+        pull_secret=pull_secret,
+        push=push,
+    )

@@ -215,27 +215,6 @@ def test_prepare_superset_image_builds_on_an_engine_the_release_does_not_publish
     assert any(c.argv[1] == "build" for c in runner.calls)
 
 
-def test_prepare_project_code_image_skips_when_tag_is_not_local(tmp_path: Path) -> None:
-    config = _config(tmp_path, environ={"PROJECT_CODE_IMAGE_TAG": "v1"})
-    runner = _ScriptedRunner()
-    tools = _toolkit(runner)
-
-    images.prepare_project_code_image(config, tools, env={})
-
-    assert runner.calls == []
-
-
-def test_prepare_project_code_image_builds_and_loads(tmp_path: Path) -> None:
-    config = _config(tmp_path)
-    runner = _ScriptedRunner(image_exists=True, cluster_exists=True)
-    tools = _toolkit(runner)
-
-    images.prepare_project_code_image(config, tools, env={})
-
-    assert any(c.argv[1] == "build" for c in runner.calls)
-    assert any(c.argv[:3] == ["kind", "load", "docker-image"] for c in runner.calls)
-
-
 _PIN = "ghcr.io/o/project-code:1.0.0-alpha.1@sha256:" + "a" * 64
 
 
@@ -245,21 +224,6 @@ def _published(tmp_path: Path) -> LocalDeploymentConfig:
     from olf.common.deployment.local.config import ImageSettings
 
     return replace(_config(tmp_path), images=ImageSettings.from_environment({}, published=_PIN))
-
-
-def test_prepare_project_code_image_loads_the_published_image_instead_of_building(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from olf.infra.deployment.local import prefetch
-
-    loaded: list[str] = []
-    monkeypatch.setattr(prefetch, "load_image_into_nodes", lambda cfg, tls, image, *, env: loaded.append(image))
-    runner = _ScriptedRunner()
-
-    images.prepare_project_code_image(_published(tmp_path), _toolkit(runner), env={})
-
-    assert loaded == [_PIN]
-    assert runner.calls == []
 
 
 def test_an_explicit_build_never_uses_the_published_digest_as_its_tag(tmp_path: Path) -> None:

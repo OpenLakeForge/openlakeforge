@@ -191,10 +191,9 @@ class DeploymentContext:
     allow_stage_removal: bool = False
     # Only `olf infra deploy` sets this (unless `--no-github-connect`): the inline GitHub connect is a deploy feature.
     github_connect: bool = False
-    # Which lifecycle owns Dagster user code. `olf infra deploy` (deprecated, single
-    # stage) leaves Terraform owning it; the #115 commands, which resolve a
-    # Deployment Profile, hand it to `olf infra project deploy` instead.
-    manage_user_deployments: bool = True
+    # Which lifecycle owns Dagster user code. Activation does (`deploy_revision`, reached through the artifacts
+    # phase and `olf infra project deploy`); True is the Terraform-owned subchart that predates it (#558).
+    manage_user_deployments: bool = False
 
     @property
     def platform_features(self) -> DeploymentFeatures:
@@ -253,7 +252,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None = None,
         stage: StageName | str | None = None,
         allow_stage_removal: bool = False,
-        manage_user_deployments: bool = True,
+        manage_user_deployments: bool = False,
     ) -> DeploymentContext:
         """Build the local `DeploymentContext`.
 
@@ -303,7 +302,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None = None,
         stage: StageName | str | None = None,
         allow_stage_removal: bool = False,
-        manage_user_deployments: bool = True,
+        manage_user_deployments: bool = False,
     ) -> DeploymentContext:
         """Build the AWS `DeploymentContext`.
 
@@ -352,7 +351,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None = None,
         stage: StageName | str | None = None,
         allow_stage_removal: bool = False,
-        manage_user_deployments: bool = True,
+        manage_user_deployments: bool = False,
     ) -> DeploymentContext:
         """Build the Azure `DeploymentContext`.
 
@@ -398,7 +397,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None,
         stage: StageName | str | None,
         allow_stage_removal: bool,
-        manage_user_deployments: bool = True,
+        manage_user_deployments: bool = False,
         stage_aware_namespaces: bool,
         kube_context: str,
         foundation_terraform_dir: Path,

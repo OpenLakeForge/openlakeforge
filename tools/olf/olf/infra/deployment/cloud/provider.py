@@ -163,7 +163,7 @@ class CloudProvider:
     def artifacts_deploy(self) -> None:
         from olf.infra.deployment.cloud import artifacts
 
-        artifacts.artifacts_deploy(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
+        artifacts.artifacts_deploy(self)
 
     def status(self) -> StatusReport:
         from olf.infra.deployment.status import collect_status

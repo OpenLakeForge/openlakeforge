@@ -103,9 +103,10 @@ olf infra destroy --provider aws
 ```
 
 `olf infra deploy --provider aws` runs the foundation, platform, and artifacts phases
-in order. The artifact phase reconciles catalog namespaces, builds and pushes
-project-code to ECR, imports Superset report assets, deploys OpenMetadata
-metadata, patches Dagster runtime images, and restarts Dagster workloads.
+in order. The artifact phase builds and pushes project-code to ECR, publishes its
+ProjectRevision, and activates it: it reconciles catalog namespaces, imports Superset
+report assets, deploys OpenMetadata metadata, and rolls out the `openlakeforge-project`
+Helm release that runs the Dagster code locations.
 
 Use `olf infra destroy --provider aws --phase platform` followed by
 `olf infra destroy --provider aws --phase foundation` only when you want to tear down

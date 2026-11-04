@@ -86,7 +86,7 @@ def test_activate_stage_project_activates_the_revision_it_built(
     provider: Any = SimpleNamespace(context=SimpleNamespace())
 
     monkeypatch.setattr(
-        revision_build, "build_stage_revision", lambda *_args: SimpleNamespace(revision="sha256:" + "b" * 64)
+        revision_build, "build_stage_revision", lambda *_args, **_kwargs: SimpleNamespace(revision="sha256:" + "b" * 64)
     )
 
     def open_store(_provider: object, _context: object, root: Path) -> Any:
@@ -113,3 +113,29 @@ def test_activate_stage_project_activates_the_revision_it_built(
         "profile_name": "demo",
         "pull_secret": "ghcr-pull",
     }
+
+
+def test_activate_deploy_project_takes_the_profile_name_and_pull_secret_from_the_topology(
+    external_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.common.profile import ProjectImageSpec, ProjectSpec, Provider
+
+    seen: dict[str, Any] = {}
+    def activate(_provider: object, project: str, **kwargs: Any) -> None:
+        seen.update(project=project, **kwargs)
+
+    monkeypatch.setattr(revision_build, "activate_stage_project", activate)
+    topology = SimpleNamespace(
+        profile_name="acme",
+        provider=Provider.LOCAL,
+        project=ProjectSpec(
+            repository="acme/data", image=ProjectImageSpec(repository="ghcr.io/acme/code", pull_secret_name="ghcr-pull")
+        ),
+    )
+    provider: Any = SimpleNamespace(
+        context=SimpleNamespace(topology=topology, paths=SimpleNamespace(repo_root=external_project)), env={}
+    )
+
+    revision_build.activate_deploy_project(provider, push=False)
+
+    assert seen == {"project": str(external_project), "profile_name": "acme", "pull_secret": "ghcr-pull", "push": False}

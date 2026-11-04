@@ -21,6 +21,14 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `olf infra deploy --phase artifacts` now builds the project's ProjectRevision and
+  activates it through the same path as `olf infra project deploy`, on local, AWS and
+  Azure, with one step order: the optional layers first, then the Dagster rollout. On
+  local, a project that names no image repository is built and loaded into kind without
+  a push. Terraform no longer owns the Dagster user deployments for any entry point:
+  upgrading a stack applied before this removes the Terraform-owned code location at
+  the next platform apply, and the artifacts phase installs `openlakeforge-project` in
+  its place. `PROJECT_CODE_IMAGE_TAG` no longer selects a prebuilt local image.
 - `olf infra project image --no-push` now prints a reference a revision can pin
   (`olf.local/project-code@sha256:<image ID>`), so the local build-and-deploy loop
   needs no registry account. Such a revision activates on the local provider only,

@@ -145,6 +145,13 @@ def test_distribution_root_defaults_to_repo_root(tmp_path: Path) -> None:
     assert ctx.paths.distribution_root == ctx.paths.repo_root
 
 
+@pytest.mark.parametrize("factory", [DeploymentContext.local, DeploymentContext.aws, DeploymentContext.azure])
+def test_activation_owns_dagster_user_code_unless_a_caller_opts_out(factory, tmp_path: Path) -> None:  # noqa: ANN001
+    """Terraform owning the code locations would run a second copy beside the revision's `openlakeforge-project`."""
+    assert factory(repo_root=tmp_path).manage_user_deployments is False
+    assert factory(repo_root=tmp_path, manage_user_deployments=True).manage_user_deployments is True
+
+
 def test_command_env_sets_expected_keys_without_mutating_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from olf.common import log
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
-from olf.common.image_build import build_platform_api_image, build_project_code_image, build_superset_image
+from olf.common.image_build import build_platform_api_image, build_superset_image
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.project_revision import LOCAL_IMAGE_REPOSITORY, is_local_image
 
@@ -141,24 +141,3 @@ def prepare_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *,
     log.step("Ensuring the platform API image is available to kind...")
     load_image_into_kind(reference, config, tools, env=env)
     return reference
-
-
-def prepare_project_code_image(
-    config: LocalDeploymentConfig,
-    tools: Toolkit,
-    *,
-    env: Mapping[str, str],
-) -> None:
-    if config.images.project_code_published:
-        # An artifacts-only run may follow a deploy of a different image, so nothing else has put this one on the nodes.
-        log.step("Ensuring the published project-code image is available to kind...")
-        from olf.infra.deployment.local.prefetch import load_image_into_nodes
-
-        load_image_into_nodes(config, tools, config.images.project_code_image, env=env)
-        return
-    if config.images.project_code_tag != "local":
-        return
-    log.step("Building local project-code image...")
-    image = build_project_code_image(config, tools, env=env)
-    log.step("Ensuring local project-code image is available to kind...")
-    load_image_into_kind(image, config, tools, env=env)

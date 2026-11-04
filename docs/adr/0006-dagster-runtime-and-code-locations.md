@@ -36,8 +36,8 @@ code, the K8sRunLauncher is given no image at all (`modules/orchestration/dagste
 renders no `job_image` when `manage_user_deployments` is false), so Dagster
 launches each run with its code location's own container image -- the digest
 that stage activation set. A value configured at platform-apply time would only
-name a build no stage activated. The deprecated single-stage `olf infra deploy`
-keeps a `job_image`, because its artifacts phase patches it in place.
+name a build no stage activated. `olf infra deploy` takes the same path: its
+artifacts phase activates a revision, so it renders no `job_image` either.
 
 The webserver caches each code location's snapshot, and a launched run takes
 its image and container context from that snapshot rather than from the code
@@ -166,17 +166,16 @@ inside that pod, so this also sizes them. The values are a safe default for the
 Slim footprint, not a measurement; a run that outgrows the limit is OOMKilled.
 Floe Jobs are sized by their own runner, not here.
 
-Locally the image is loaded into kind with `imagePullPolicy: Never`, which means
-Kubernetes never pulls a new image on pod creation. The artifacts phase
-therefore performs an explicit coordinated rollout
-(`olf infra k8s set-project-code-image`) after loading the image; without it, running
-pods keep serving the previous build.
+A local image that was built and never pushed is loaded into kind and runs with
+`imagePullPolicy: Never`, so Kubernetes never pulls it. Activation puts it back
+on the nodes before the rollout (`olf.local/project-code@<image ID>`, see
+[project revisions](../architecture/project-revisions.md)).
 
 ## Consequences
 
 The v0.3 promotion loop is `olf infra project build` followed by `olf infra project deploy`
-for each stage. The deprecated `olf infra deploy --phase artifacts` remains only for
-single-DEV compatibility.
+for each stage. `olf infra deploy --phase artifacts` builds the same revision and
+activates it on its one DEV stage.
 
 Durable product jobs are named `<product>_pipeline` and derived from the
 descriptor (ADR 0005), so adding a product adds a job with no platform edit.
@@ -225,6 +224,13 @@ pointer moves; a webserver restarted by a platform apply had kept launching
 the previous revision. The run launcher's `job_image`, which platform apply
 still rendered, is now rendered only for the deprecated `olf infra deploy`
 path, so the statement that the run launcher has no image holds again.
+
+2026-11-04 (#558): the artifacts phase of `olf infra deploy` builds a
+ProjectRevision and activates it through `deploy_revision`, and Terraform no
+longer owns the Dagster user deployments for any entry point
+(`manage_user_deployments` defaults to false). A stack applied before this keeps
+its Terraform-owned code location until the next platform apply removes it, then
+the artifacts phase installs `openlakeforge-project`.
 
 2026-11-01 (#627): product `packages.yml` files name the shared dbt package
 through `OPENLAKEFORGE_DBT_PACKAGES_DIR` instead of `../../../../libs/dbt`,
