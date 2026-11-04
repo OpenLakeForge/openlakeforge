@@ -73,3 +73,17 @@ changes_state = true
 [operations.export_report]
 role = "data-engineer"
 stages = ["*"]
+
+# Trino schema and table discovery runs as the person (ADR 0019): Trino and Polaris decide what each person sees,
+# so the floor is the lowest role, as for the OpenMetadata reads. The capabilities document names no stage's host.
+[operations.query_capabilities]
+role = "viewer"
+stages = []
+
+[operations.list_schemas]
+role = "viewer"
+stages = ["*"]
+
+[operations.list_tables]
+role = "viewer"
+stages = ["*"]
