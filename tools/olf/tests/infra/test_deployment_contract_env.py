@@ -101,9 +101,7 @@ def test_uses_the_scoped_environment_for_contract_terraform(monkeypatch: pytest.
     assert observed["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(tmp_path / "state/aws")
 
 
-def test_selected_stage_survives_into_the_contract_environment(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_selected_stage_survives_into_the_contract_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`openlakeforge_runtime.product_dagster.build_stage_schedules` reads OPENLAKEFORGE_STAGE in the code-server
     pod, and the only thing that puts it there is this environment: activation forwards every
     `OPENLAKEFORGE_*` key it yields onto the container. A contract that dropped the key would
@@ -114,10 +112,36 @@ def test_selected_stage_survives_into_the_contract_environment(
     monkeypatch.setattr(contracts_module, "build_contract_env", lambda *args, **kwargs: ({}, []))
     context = DeploymentContext.local(repo_root=tmp_path, stage="dev")
 
-    with contract_env.applied_contract_environment(
-        **_kwargs(tmp_path), environ=context.command_env()
-    ) as env:
+    with contract_env.applied_contract_environment(**_kwargs(tmp_path), environ=context.command_env()) as env:
         assert env["OPENLAKEFORGE_STAGE"] == "dev"
+
+
+def test_yields_read_only_contract_environment_with_stage_coordinates(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr(
+        contracts_module,
+        "build_contract_env",
+        lambda base, contracts_value, *, repo_root, **_: ({"OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"}, ["GONE"]),
+    )
+    monkeypatch.setenv("GONE", "stale")
+
+    with contract_env.applied_contract_environment(**_kwargs(tmp_path, stage="dev")) as env:
+        assert env.kube_context == "eks-openlakeforge-poc"
+        assert env.namespace == "lakehouse"
+        assert env.kubeconfig_path == tmp_path / ".tmp/kubeconfigs/aws.yaml"
+        assert env.stage == "dev"
+        assert env.unsets == ("GONE",)
+        assert env.environ["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+        assert env["NAMESPACE"] == "lakehouse"
+        assert "GONE" not in env
+        assert "GONE" not in env.environ
+        assert dict(env) == dict(env.environ)
+        with pytest.raises(TypeError):
+            env.environ["X"] = "y"  # type: ignore[index]  # read-only mapping is the behaviour under test
+        with pytest.raises(TypeError):
+            env["X"] = "y"  # type: ignore[index]  # Mapping has no __setitem__
 
 
 def _docker_config_seen_by_pull(tmp_path: Path, provider_env: dict[str, str]) -> str | None:

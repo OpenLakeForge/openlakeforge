@@ -15,7 +15,9 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from olf.common import contract_state
@@ -32,6 +34,29 @@ if TYPE_CHECKING:
 _PROVIDER_SCOPED = frozenset({"DOCKER_CONFIG"})
 
 
+@dataclass(frozen=True, eq=False)
+class ContractEnvironment(Mapping[str, str]):
+    """The resolved contract environment: a read-only `Mapping` over `environ`
+    plus the stage coordinates it was resolved for. Existing dict consumers
+    keep working because it compares and iterates like the mapping it wraps."""
+
+    environ: Mapping[str, str]
+    namespace: str
+    kube_context: str
+    kubeconfig_path: Path
+    stage: StageName | str | None
+    unsets: tuple[str, ...]
+
+    def __getitem__(self, key: str) -> str:
+        return self.environ[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.environ)
+
+    def __len__(self) -> int:
+        return len(self.environ)
+
+
 @contextmanager
 def applied_contract_environment(
     *,
@@ -44,7 +69,7 @@ def applied_contract_environment(
     environ: Mapping[str, str] | None = None,
     topology: DeploymentTopology | None = None,
     stage: StageName | str | None = None,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[ContractEnvironment]:
     """`topology` and `stage` select which stage a v3 contract resolves to.
     They are inert for the v2 payload the roots export today, which carries
     one deployment's worth of bindings and no stage index."""
@@ -83,7 +108,14 @@ def applied_contract_environment(
         os.environ.pop(name, None)
 
     try:
-        yield dict(os.environ)
+        yield ContractEnvironment(
+            environ=MappingProxyType(dict(os.environ)),
+            namespace=namespace,
+            kube_context=kube_context,
+            kubeconfig_path=kubeconfig_path,
+            stage=stage,
+            unsets=tuple(unsets),
+        )
     finally:
         for name, prior in previous.items():
             if prior is None:

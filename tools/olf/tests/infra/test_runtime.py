@@ -33,10 +33,9 @@ def test_standalone_local_contract_context_honors_custom_contract_root(monkeypat
     )
     monkeypatch.setattr(
         "olf.infra.deployment.local.artifacts.applied_contract_environment",
-        lambda config, *, contract_terraform_dir, environ=None: captured.update(
-            contract_terraform_dir=contract_terraform_dir
-        )
-        or nullcontext(),
+        lambda config, *, contract_terraform_dir, environ=None: (
+            captured.update(contract_terraform_dir=contract_terraform_dir) or nullcontext()
+        ),
     )
 
     with runtime.provider_contract_environment(
@@ -87,3 +86,40 @@ def test_provider_contract_environment_threads_project_root_to_build_context(mon
         pass
 
     assert captured["project_root"] == str(tmp_path / "my-project")
+
+
+def test_provider_contract_environment_yields_the_contract_environment(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    from contextlib import contextmanager
+
+    from olf.common.deployment.context import DeploymentContext
+    from olf.common.deployment.local.config import LocalDeploymentConfig
+    from olf.common.tooling.toolkit import Toolkit
+    from olf.infra.deployment.contract_env import ContractEnvironment
+    from olf.infra.deployment.local.provider import LocalProvider
+
+    context = DeploymentContext.local(repo_root=tmp_path)
+    config = LocalDeploymentConfig.from_environment({}, context=context)
+    provider = LocalProvider.create(config, toolkit=Toolkit.default())
+    expected = ContractEnvironment(
+        environ={"NAMESPACE": "ns"},
+        namespace="ns",
+        kube_context="kind-x",
+        kubeconfig_path=tmp_path / "kc",
+        stage=None,
+        unsets=(),
+    )
+
+    @contextmanager
+    def fake(config, *, contract_terraform_dir, environ=None):  # noqa: ANN001, ANN202
+        yield expected
+
+    monkeypatch.setattr("olf.infra.commands.deployment._build_context", lambda *args, **kwargs: context)
+    monkeypatch.setattr(
+        "olf.infra.commands.deployment._build_engine", lambda *args, **kwargs: SimpleNamespace(provider=provider)
+    )
+    monkeypatch.setattr("olf.infra.deployment.local.artifacts.applied_contract_environment", fake)
+
+    with runtime.provider_contract_environment(
+        provider="local", profile="full", namespace="", cluster_name="", kubeconfig_path=""
+    ) as env:
+        assert env is expected
