@@ -170,8 +170,8 @@ def ensure_ingestion_bot_token(client: OpenMetadataClient, namespace: str) -> No
     k8s.write_secret(INGESTION_BOT_SECRET, namespace, {INGESTION_BOT_JWT_KEY: token})
 
 
-def bootstrap_auth(base_url: str, namespace: str, *, email: str, sso: bool) -> None:
-    """Admin login, the automation bot (SSO only) and the ingestion bot token."""
+def bootstrap_auth(base_url: str, namespace: str, *, email: str, sso: bool) -> OpenMetadataClient:
+    """Admin login, the automation bot (SSO only) and the ingestion bot token; returns the admin client."""
     password = ensure_admin_password(namespace)
     wait_healthy(base_url)
     stored = automation_token(namespace)
@@ -180,3 +180,4 @@ def bootstrap_auth(base_url: str, namespace: str, *, email: str, sso: bool) -> N
     if sso and client.token != stored:
         ensure_automation_bot(client, base_url, namespace)
     ensure_ingestion_bot_token(client, namespace)
+    return client
