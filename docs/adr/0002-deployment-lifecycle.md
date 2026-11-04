@@ -102,6 +102,15 @@ artifacts teardown: artifacts have no independent lifetime to reclaim: they live
 inside the platform services and the object store, and are replaced wholesale on
 the next artifacts run. `all` tears down platform then foundation.
 
+The local foundation also owns a loopback OCI registry and its separate Docker
+volume. `shared.artifact_registry.image_repository` advertises its repository
+for projects without an explicit repository. Upgrading the registry container
+preserves its volume; foundation destruction removes both. Activation still
+loads the digest into kind, so workloads do not contact the loopback registry.
+Its default port is 5001; `LOCAL_REGISTRY_PORT` selects another port before
+foundation apply. An existing deployment must reapply the platform to publish
+the new registry binding.
+
 ## Consequences
 
 `olf infra deploy --provider local --phase artifacts` is the inner development loop.
@@ -121,6 +130,11 @@ deprecated single-DEV-stage shorthand for the general profile/stage model; ADR
 0011 defines the typed resolver it is a special case of.
 
 ## History
+
+2026-11-03: Added a foundation-owned local OCI registry for immutable project
+revisions without an external registry account (#558). The registry is bound
+to loopback and limited to 256 MiB; kind image loading remains the workload
+transport.
 
 2026-08-29: Recorded that the platform phase owns the shared and stage
 namespaces derived from the resolved topology, and that removing a stage needs

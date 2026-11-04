@@ -35,6 +35,7 @@ class ClusterSettings:
     config_path: Path
     wait_timeout: str
     reset_existing: bool
+    registry_port: int = 5001
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str], *, repo_root: Path, cluster_name: str) -> ClusterSettings:
@@ -44,6 +45,7 @@ class ClusterSettings:
             config_path=config_path,
             wait_timeout=_env(environ, "KIND_WAIT_TIMEOUT", "120s"),
             reset_existing=_truthy(_env(environ, "LOCAL_FOUNDATION_RESET", "false")),
+            registry_port=_int_env(environ, "LOCAL_REGISTRY_PORT", 5001),
         )
 
 

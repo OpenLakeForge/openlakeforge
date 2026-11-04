@@ -32,6 +32,7 @@ def foundation_apply_variables(config: LocalDeploymentConfig, tools: Toolkit) ->
     """
     return {
         "cluster_name": config.cluster.name,
+        "registry_port": str(config.cluster.registry_port),
         "cluster_config_path": str(config.cluster.config_path),
         "kubeconfig_path": str(config.paths.kubeconfig_path),
         "kind_wait_timeout": config.cluster.wait_timeout,

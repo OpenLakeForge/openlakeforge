@@ -37,7 +37,9 @@ catalog. The platform services in `olf-system` are shared.
 ## Promote by hand
 
 A revision has its own id, and it must reference a digest-pinned image; an
-image built straight into kind has no digest. A local platform therefore pushes to a registry you control:
+image built straight into kind has no registry digest. The local foundation
+provides a loopback registry, so local revisions need no external account.
+To publish to a registry you control instead:
 
 ```bash
 export PROJECT_CODE_IMAGE_REPOSITORY=ghcr.io/your-account/project-code

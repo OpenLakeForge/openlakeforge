@@ -39,3 +39,13 @@ variable "kubectl_executable_path" {
   type        = string
   default     = ""
 }
+
+variable "registry_port" {
+  description = "Loopback port for the foundation-owned project image registry."
+  type        = number
+  default     = 5001
+  validation {
+    condition     = var.registry_port >= 1024 && var.registry_port <= 65535 && floor(var.registry_port) == var.registry_port
+    error_message = "registry_port must be an integer between 1024 and 65535."
+  }
+}

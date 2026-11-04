@@ -199,6 +199,10 @@ class _ImageDeploymentSource:
 # version bump made the drift this check exists to catch disappear silently.
 # A tuple registers one image deployed from differently shaped sources.
 _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource | tuple[_ImageDeploymentSource, ...]] = {
+    "local_registry": _ImageDeploymentSource(
+        paths=("infra/terraform/foundations/local-kind/main.tf",),
+        full_ref_pattern=re.compile(r'registry_image\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"'),
+    ),
     "k8s_bootstrap": _ImageDeploymentSource(
         paths=(
             "infra/terraform/modules/catalog/polaris/variables.tf",

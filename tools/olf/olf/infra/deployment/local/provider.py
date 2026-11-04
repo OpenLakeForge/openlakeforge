@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -111,13 +111,10 @@ class LocalProvider:
     def build_project_image(self, *, push: bool = True) -> str:
         """Build the project-code image, optionally push it, and load it into kind.
 
-        Local has no registry of its own, so a publishable revision depends on
-        an external one (GHCR, Docker Hub) named by the profile's
-        `spec.project.image.repository`, else `PROJECT_CODE_IMAGE_REPOSITORY`.
-        Pushing is what creates the registry digest `olf infra project build`
-        requires -- a kind-only image has just a local config Id, which is not
-        pullable. The kind load still happens either way so the default `Never`
-        pull policy keeps working.
+        An explicit project repository wins; otherwise the local foundation's
+        provider contract offers a loopback registry. Pushing gives revisions
+        a registry digest, and kind still receives the image locally so pods
+        need no registry credentials or network route.
 
         The unmodified example is already published by digest: that reference is the result, with no build.
         """
@@ -127,13 +124,23 @@ class LocalProvider:
 
         if self.config.images.project_code_published:
             return self.config.images.project_code_image
-        if push and self.config.images.project_code_needs_repository:
-            raise DeploymentPreconditionError(
-                "this project names no image repository, and pushing would overwrite OpenLakeForge's example image "
-                f"{self.config.images.project_code_repository}. Set spec.project.image.repository in the "
-                "Deployment Profile (or export PROJECT_CODE_IMAGE_REPOSITORY), or pass --no-push."
-            )
-        image = build_project_code_image(self.config, self.tools, env=self.env)
+        config = self.config
+        if push and config.images.project_code_needs_repository:
+            from olf.common.provider_contracts import parse_provider_contracts
+
+            raw = self._contracts()
+            repository = None
+            if raw is not None:
+                parsed = parse_provider_contracts(raw, self.context.topology)
+                repository = parsed.shared.values["artifact_registry"].get("image_repository")
+            if not repository:
+                raise DeploymentPreconditionError(
+                    "the local platform has no project image repository binding. "
+                    "Run olf infra platform apply -f openlakeforge.yaml to create the local registry, "
+                    "or set spec.project.image.repository."
+                )
+            config = replace(config, images=replace(config.images, project_code_repository=repository))
+        image = build_project_code_image(config, self.tools, env=self.env)
         if push:
             log.step(f"Pushing project-code image: {image}")
             self.tools.docker.push(

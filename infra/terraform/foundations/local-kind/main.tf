@@ -8,6 +8,9 @@ locals {
   cluster_config_path         = var.cluster_config_path != null ? abspath(pathexpand(var.cluster_config_path)) : local.default_cluster_config_path
   kubeconfig_path             = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : "${local.repo_root}/.tmp/kubeconfigs/local.yaml"
   kube_context                = "kind-${var.cluster_name}"
+  registry_name               = "${var.cluster_name}-registry"
+  registry_volume             = "${var.cluster_name}-registry-data"
+  registry_image              = "registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
 }
 
 resource "terraform_data" "kind_cluster" {
@@ -128,5 +131,56 @@ resource "terraform_data" "kind_cluster" {
       # path below) instead of blocking teardown of that older state.
       KIND_BIN = try(self.input.kind_executable_path, "")
     }
+  }
+}
+
+resource "terraform_data" "registry_volume" {
+  input            = { name = local.registry_volume }
+  triggers_replace = [local.registry_volume]
+
+  provisioner "local-exec" {
+    command     = "docker volume inspect \"$REGISTRY_VOLUME\" >/dev/null 2>&1 || docker volume create \"$REGISTRY_VOLUME\""
+    environment = { REGISTRY_VOLUME = self.input.name }
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    command     = "docker volume rm \"$REGISTRY_VOLUME\""
+    environment = { REGISTRY_VOLUME = self.input.name }
+  }
+}
+
+resource "terraform_data" "registry" {
+  input = {
+    name   = local.registry_name
+    image  = local.registry_image
+    port   = var.registry_port
+    volume = terraform_data.registry_volume.output.name
+  }
+  triggers_replace = [local.registry_name, local.registry_image, var.registry_port]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -eu
+      if docker container inspect "$REGISTRY_NAME" >/dev/null 2>&1; then
+        docker start "$REGISTRY_NAME"
+      else
+        docker run -d --restart=always --memory=256m \
+          --name "$REGISTRY_NAME" -p "127.0.0.1:$REGISTRY_PORT:5000" \
+          -v "$REGISTRY_VOLUME:/var/lib/registry" "$REGISTRY_IMAGE"
+      fi
+    EOT
+    environment = {
+      REGISTRY_NAME   = self.input.name
+      REGISTRY_PORT   = tostring(self.input.port)
+      REGISTRY_VOLUME = self.input.volume
+      REGISTRY_IMAGE  = self.input.image
+    }
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    command     = "docker rm -f \"$REGISTRY_NAME\""
+    environment = { REGISTRY_NAME = self.input.name }
   }
 }

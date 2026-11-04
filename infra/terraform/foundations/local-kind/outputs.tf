@@ -21,6 +21,7 @@ output "foundation_contract" {
   value = {
     provider            = "local"
     implementation      = "kind"
+    image_repository    = "localhost:${var.registry_port}/openlakeforge/${var.cluster_name}/project-code"
     cluster_name        = var.cluster_name
     kube_context        = local.kube_context
     kubeconfig_path     = local.kubeconfig_path
@@ -29,5 +30,6 @@ output "foundation_contract" {
 
   depends_on = [
     terraform_data.kind_cluster,
+    terraform_data.registry,
   ]
 }

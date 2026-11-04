@@ -269,7 +269,6 @@ def test_the_image_command_returns_the_published_example_without_building(tmp_pa
 
     from _local_config_support import _PIN, _published_config
 
-
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     monkeypatch.setattr("olf.common.image_build.build_project_code_image", lambda *a, **k: pytest.fail("built"))
     provider = LocalProvider.create(_published_config(tmp_path), toolkit=_toolkit(), environ={})
@@ -298,6 +297,7 @@ def test_edited_code_without_a_repository_is_never_pushed_to_the_example_package
     provider = LocalProvider.create(_published_config(tmp_path, project_root=project), toolkit=_toolkit(), environ={})
     monkeypatch.setattr(provider.tools.docker, "push", lambda image, **k: pytest.fail(f"pushed {image}"))
 
+    monkeypatch.setattr(provider, "_contracts", lambda: None)
     with pytest.raises(DeploymentPreconditionError, match=r"spec\.project\.image\.repository"):
         provider.build_project_image()
     assert built == []
@@ -324,7 +324,10 @@ def _github_provider(tmp_path: Path) -> LocalProvider:
     [
         (True, "GitHub App installed on acme"),
         (False, "Install the GitHub App on acme: https://github.com/apps/olf/installations/new"),
-        (None, "Install the GitHub App on acme (if not installed; GitHub could not confirm): https://github.com/apps/olf/installations/new"),
+        (
+            None,
+            "Install the GitHub App on acme (if not installed; GitHub could not confirm): https://github.com/apps/olf/installations/new",
+        ),
     ],
     ids=["installed", "not-installed", "unknown"],
 )
@@ -369,6 +372,7 @@ def test_the_github_flow_runs_before_the_foundation_and_platform_reuses_its_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from olf.infra import github_app
+
     app = github_app.GitHubApp(7, "olf", "cid", "csecret", "pem")
     calls: list[str] = []
     seen: dict[str, object] = {}
@@ -408,3 +412,52 @@ def test_deploy_summary_omits_the_install_link_when_connect_did_not_run(
 
     out = capsys.readouterr().out
     assert "http" in out and "Install the GitHub App" not in out
+
+
+def test_an_edited_local_project_uses_the_contracted_registry_without_an_external_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    from dataclasses import replace
+
+    from olf.common.profile import resolve_topology, validate_deployment_profile
+    from olf.infra.deployment.local import images
+
+    fixture = Path(__file__).parents[1] / "fixtures/local-provider-contracts-v3.json"
+    contract = json.loads(fixture.read_text())
+    contract["shared"]["artifact_registry"]["image_repository"] = "localhost:5001/openlakeforge/project-code"
+    topology = resolve_topology(
+        validate_deployment_profile(
+            {
+                "apiVersion": "openlakeforge.io/v1alpha1",
+                "kind": "DeploymentProfile",
+                "metadata": {"name": contract["deployment"]["profile_name"]},
+                "spec": {
+                    "provider": {"type": "local"},
+                    "preset": "slim",
+                    "access": {},
+                    "stages": {name: {"enabled": True} for name in contract["stages"]},
+                },
+            }
+        )
+    )
+    config = _config(tmp_path)
+    config = replace(
+        config,
+        context=replace(config.context, topology=topology),
+        images=replace(config.images, project_code_published=False, project_code_needs_repository=True),
+    )
+    provider = LocalProvider.create(config, toolkit=_toolkit(), environ={})
+    monkeypatch.setattr(provider, "_contracts", lambda: contract)
+    monkeypatch.setattr(
+        "olf.common.image_build.build_project_code_image",
+        lambda config, *_a, **_k: config.images.project_code_build_image,
+    )
+    monkeypatch.setattr(images, "load_image_into_kind", lambda *_a, **_k: None)
+    pushed: list[str] = []
+    monkeypatch.setattr(provider.tools.docker, "push", lambda image, **_k: pushed.append(image))
+
+    image = provider.build_project_image()
+
+    assert image == "localhost:5001/openlakeforge/project-code:local"
+    assert pushed == [image]

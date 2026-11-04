@@ -83,9 +83,8 @@ def image(
     The profile's own directory is the project root, matching `olf infra project
     deploy`. Cloud pushes to the foundation's own registry. Local pushes to
     the profile's `spec.project.image.repository`, else
-    `PROJECT_CODE_IMAGE_REPOSITORY` (GHCR or Docker Hub), and also loads the
-    image into kind; edited project code with neither is refused rather than
-    pushed over the public example. `--no-push` is a local inner-loop
+    `PROJECT_CODE_IMAGE_REPOSITORY`, else the local foundation's registry,
+    and also loads the image into kind. `--no-push` is a local inner-loop
     shortcut: it prints a tag, not a digest, so the result cannot seed
     `olf infra project build`.
     """

@@ -92,6 +92,7 @@ def test_foundation_apply_variables_exact_order_and_content(tmp_path: Path) -> N
 
     assert list(variables.keys()) == [
         "cluster_name",
+        "registry_port",
         "cluster_config_path",
         "kubeconfig_path",
         "kind_wait_timeout",
@@ -100,6 +101,7 @@ def test_foundation_apply_variables_exact_order_and_content(tmp_path: Path) -> N
         "kubectl_executable_path",
     ]
     assert variables["cluster_name"] == "openlakeforge-local"
+    assert variables["registry_port"] == "5001"
     assert variables["reset_existing_cluster"] == "false"
     assert variables["kind_executable_path"] == "kind"
     assert variables["kubectl_executable_path"] == "kubectl"

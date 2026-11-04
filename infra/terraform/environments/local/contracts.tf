@@ -588,7 +588,12 @@ locals {
         implementation = local.catalog_contract.implementation
         endpoint       = local.catalog_contract.endpoint
       }
-      artifact_registry = { ref = "shared/artifact_registry", implementation = local.artifact_registry_contract.implementation }
+      artifact_registry = merge(
+        { ref = "shared/artifact_registry", implementation = local.artifact_registry_contract.implementation },
+        try(local.foundation_contract.image_repository, null) == null ? {} : {
+          image_repository = local.foundation_contract.image_repository
+        }
+      )
       ops_storage = {
         ref                      = "shared/ops_storage"
         implementation           = local.artifact_bucket_contract.implementation

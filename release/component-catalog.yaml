@@ -96,6 +96,7 @@ components:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock
   images:
+    local_registry: registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e
     k8s_bootstrap: alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e
     dagster_control_plane: docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee
     dagster_busybox: docker.io/busybox:1.28@sha256:141c253bc4c3fd0a201d32dc1f493bcf3fff003b6df416dea4f41046e0f37d47
