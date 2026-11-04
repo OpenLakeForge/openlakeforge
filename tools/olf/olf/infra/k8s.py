@@ -273,7 +273,7 @@ def write_secret(
     kubectl = (Toolkit.default() if environ is None else Toolkit.default(environ=environ)).kubectl
     write = kubectl.apply_from_manifest if overwrite else kubectl.create_from_manifest
     try:
-        write(json.dumps(manifest), context=context)
+        write(json.dumps(manifest), context=context, env=environ)
     except CommandExecutionError as exc:
         raise KubectlError(str(exc)) from exc
 

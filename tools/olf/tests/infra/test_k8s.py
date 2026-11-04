@@ -306,3 +306,9 @@ def test_kubectl_executable_honours_the_toolchain_mode_of_the_given_mapping(
 
     with pytest.raises(ToolchainError, match="unknown value 'bogus'"):
         k8s._kubectl_executable({"OLF_TOOLCHAIN_MODE": "bogus"})
+
+
+@pytest.mark.parametrize("overwrite", [True, False])
+def test_write_secret_child_sees_the_explicit_environ(env_probe_kubectl: dict[str, str], overwrite: bool) -> None:
+    # The probe exits non-zero unless the kubectl child received the mapping's KUBECONFIG.
+    k8s.write_secret("s", "ns", {"k": "v"}, overwrite=overwrite, environ=env_probe_kubectl)
