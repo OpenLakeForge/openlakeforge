@@ -22,6 +22,7 @@ from olf.common.tooling.redact import redact_argv
 from olf.common.tooling.retry import RetryPolicy, RetryPredicate, run_with_retry
 
 # Re-exported so long-running-process callers need not import `subprocess`.
+DEVNULL = subprocess.DEVNULL
 PIPE = subprocess.PIPE
 STDOUT = subprocess.STDOUT
 Popen = subprocess.Popen

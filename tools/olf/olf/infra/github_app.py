@@ -14,7 +14,6 @@ import os
 import platform
 import secrets
 import shutil
-import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -24,6 +23,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+
+from olf.common.tooling.process import DEVNULL, ProcessRunner
 
 TIMEOUT_SECONDS = 900
 
@@ -169,7 +170,7 @@ def open_browser(url: str, *, no_browser: bool = False) -> None:
         return
     if "microsoft" in platform.release().lower():
         if explorer := shutil.which("explorer.exe"):
-            subprocess.Popen([explorer, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
+            ProcessRunner().popen([explorer, url], stdout=DEVNULL, stderr=DEVNULL)
         return
     webbrowser.open(url)
 
