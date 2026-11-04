@@ -1,3 +1,4 @@
+import os
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -184,9 +185,9 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
     tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
     monkeypatch.setattr(
         "olf.infra.commands.runtime.provider_contract_environment",
-        lambda **kwargs: options.update(kwargs) or nullcontext(),
+        lambda **kwargs: options.update(kwargs) or nullcontext({}),
     )
-    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
+    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda **_kwargs: tools)
 
     result = runner.invoke(
         app,
@@ -250,10 +251,10 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
         # distribution-owned; without this the render_profiles import below
         # resolves against the project root and fails.
         monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(Path(__file__).resolve().parents[4]))
-        yield
+        yield dict(os.environ)
 
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
-    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
+    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda **_kwargs: tools)
 
     result = runner.invoke(app, ["infra", "dbt", "parse", "--project-root", str(project_root)])
 
@@ -298,10 +299,10 @@ def test_dbt_parse_imports_runtime_from_the_distribution_not_the_project_root(
     def fake_provider_contract_environment(**kwargs):  # noqa: ANN003, ANN202
         monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", kwargs["project_root"])
         monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution_root))
-        yield
+        yield dict(os.environ)
 
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
-    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda: tools)
+    monkeypatch.setattr("olf.infra.commands.dbt.Toolkit.default", lambda **_kwargs: tools)
 
     result = runner.invoke(app, ["infra", "dbt", "parse", "--project-root", str(project_root)])
 

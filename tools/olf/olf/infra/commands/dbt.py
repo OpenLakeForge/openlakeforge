@@ -38,13 +38,13 @@ def parse(
             cluster_name=cluster_name,
             kubeconfig_path=kubeconfig_path,
             project_root=project_root,
-        ):
+        ) as contract:
             # Resolved *inside* the contract environment: it's what sets
             # OPENLAKEFORGE_REPO_ROOT/OLF_DISTRIBUTION_ROOT from
             # --project-root in the first place, so reading these before
             # entering it always resolved the ambient/default roots
             # instead.
-            project_spec = config.project_spec()
+            project_spec = config.project_spec(environ=contract)
             from openlakeforge_runtime.dbt.render_profiles import dbt_environment, discover_project_dirs, write_profile
 
             projects = (
@@ -52,7 +52,7 @@ def parse(
             )
             if not projects:
                 raise typer.Exit(code=fail("no product dbt projects found"))
-            tools = Toolkit.default()
+            tools = Toolkit.default(environ=contract)
             dbt = str(tools.resolver.resolve("dbt"))
             for project in projects:
                 # Outside the project: a profiles.yml left in it is a stage
@@ -63,7 +63,9 @@ def parse(
                         args = [dbt, command, "--project-dir", str(project)]
                         if command == "parse":
                             args += ["--profiles-dir", profiles_dir]
-                        tools.runner.run(args, cwd=project_spec.root, env=dbt_environment(), stream_output=True)
+                        tools.runner.run(
+                            args, cwd=project_spec.root, env={**contract, **dbt_environment()}, stream_output=True
+                        )
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
