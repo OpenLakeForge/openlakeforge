@@ -9,9 +9,11 @@ from pathlib import Path
 
 import pytest
 
+from olf.common.deployment.errors import CommandExecutionError, ExecutableNotFoundError
 from olf.common.distribution import (
     DistributionError,
     DistributionManager,
+    _tracked_payload_paths,
     build_embedded_payload,
     release_to_pep440,
     runtime_layout,
@@ -236,3 +238,17 @@ def test_the_payload_ships_every_path_the_platform_api_image_copies(tmp_path: Pa
     for source in sources:
         prefix = source.rstrip("/") + "/"
         assert any(name == source or name.startswith(prefix) for name in shipped), f"{source} is not in the payload"
+
+
+def test_tracked_payload_paths_fail_outside_a_git_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+
+    with pytest.raises(CommandExecutionError):
+        _tracked_payload_paths(tmp_path)
+
+
+def test_tracked_payload_paths_fail_when_git_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    with pytest.raises(ExecutableNotFoundError):
+        _tracked_payload_paths(tmp_path)
