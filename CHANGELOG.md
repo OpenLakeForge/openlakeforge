@@ -16,6 +16,9 @@ for how a release is cut and verified.
 
 ### Added
 
+- A project can add Python dependencies in `lakehouse_code/requirements.txt`. They are installed in their own
+  cached image layer on top of the platform lock, constrained to its exact pins; `olf check project-code` and
+  the image build fail with a clear message when they conflict. The layer is not hash-verified (#557).
 - `olf check resources`, part of `olf check all`, fails when a Terraform-defined container has no
   `requests` (cpu and memory) or no memory limit, so a new Job or Deployment cannot land unsized.
 

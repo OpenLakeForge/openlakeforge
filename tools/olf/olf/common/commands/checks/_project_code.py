@@ -20,7 +20,10 @@ from olf.common.commands.checks._shared import (
     _run,
     _uv_pip_install,
 )
+from olf.common.deployment.errors import DeploymentError
+from olf.common.deployment.project_dependencies import check_project_requirements, platform_constraints
 from olf.common.log import fail
+from olf.common.tooling.toolkit import Toolkit
 
 
 def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
@@ -40,12 +43,31 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     project_digest = hashlib.sha256(
         (project.distribution_root / "images/project-code/pyproject.toml").read_bytes()
     ).hexdigest()[:16]
+    requirements = project.code_root / "requirements.txt"
+    if requirements.is_file():
+        try:
+            check_project_requirements(
+                requirements,
+                project.distribution_root / "images/project-code/requirements.lock",
+                tools=Toolkit.default(),
+            )
+        except DeploymentError as exc:
+            raise typer.Exit(code=fail(str(exc))) from exc
+        project_digest = hashlib.sha256((project_digest + requirements.read_text()).encode()).hexdigest()[:16]
     domain_digest = _source_tree_digest(project.distribution_root / "packages/core")
     site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{project_digest}-{domain_digest}" / "site"
     if not (site / ".complete").is_file():
         site.mkdir(parents=True, exist_ok=True)
         pyproject = tomllib.loads((project.distribution_root / "images/project-code/pyproject.toml").read_text())
         _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=project.root)
+        if requirements.is_file():
+            # Held to the platform pins, as the image build does, so the check runs the image's versions.
+            constraints = site.parent / "platform-constraints.txt"
+            lock = project.distribution_root / "images/project-code/requirements.lock"
+            constraints.write_text(platform_constraints(lock.read_text()))
+            _uv_pip_install(
+                target=site, requirements=["-r", str(requirements), "-c", str(constraints)], cwd=project.root
+            )
         _install_core(project.distribution_root / "packages/core", site, cwd=project.root)
         (site / ".complete").touch()
     # The distribution's baked profiles name only the products it was built
