@@ -213,11 +213,12 @@ def maintain_silver(context) -> None:
     context.add_output_metadata({**summary, "tables": MetadataValue.json(results)})
 
 
-# Trino's expire_snapshots keeps the current snapshot and every branch or tag head but has no
-# `retain_last`; its orphan delay must clear Trino's own 7-day minimum, not Floe's 3.
+# The same snapshot floor as Silver (Trino's expire_snapshots takes `retain_last`); the orphan
+# delay must clear Trino's own 7-day minimum, not Floe's 3.
 _GOLD_MAINTENANCE_CONFIG = {
     "dry_run": Field(bool, default_value=False),
     "older_than_days": Field(int, default_value=7),
+    "retain_last": Field(int, default_value=10),
     "orphan_delay_days": Field(int, default_value=gold_maintenance.MIN_RETENTION_DAYS),
 }
 
@@ -231,6 +232,7 @@ def maintain_gold(context) -> None:
         gold_maintenance.connect(),
         schemas,
         older_than_days=config["older_than_days"],
+        retain_last=config["retain_last"],
         orphan_delay_days=config["orphan_delay_days"],
         dry_run=config["dry_run"],
         log=lambda message, fields: log_event(context.log, message=message, service="dagster", tool="trino", **fields),
@@ -240,7 +242,7 @@ def maintain_gold(context) -> None:
         "dry_run": config["dry_run"],
         "tables": len(results),
         "failed_tables": len(failed),
-        "expirable_snapshots": sum(result.get("expirable_snapshots", 0) for result in results),
+        "snapshots_past_window": sum(result.get("snapshots_past_window", 0) for result in results),
     }
     log_event(context.log, message="Maintained Gold tables", service="dagster", tool="trino", **summary)
     context.add_output_metadata({**summary, "results": MetadataValue.json(results)})

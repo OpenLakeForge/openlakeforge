@@ -71,6 +71,7 @@ def maintain_gold(
     schemas: Iterable[str],
     *,
     older_than_days: int,
+    retain_last: int,
     orphan_delay_days: int,
     dry_run: bool,
     log: Callable[[str, dict], None],
@@ -79,8 +80,10 @@ def maintain_gold(
 
     A failing table does not stop the others; the caller fails the run on any `error`. Both
     procedures are idempotent, so rerunning after an interruption only repeats the remaining work.
-    The dry run counts what `expire_snapshots` would drop (snapshots past the window that no
-    branch or tag holds); Trino can list no orphan files, so those are not reported.
+    The dry run counts the candidates `expire_snapshots` considers: snapshots past the window that
+    no branch or tag head holds. It is an upper bound, not a forecast: `retain_last`, a table's
+    `history.expire.min-snapshots-to-keep` and branch retention can keep some of them. Trino can
+    list no orphan files, so those are not reported.
     """
     check_retention(older_than_days, orphan_delay_days)
     results: list[dict] = []
@@ -102,11 +105,12 @@ def maintain_gold(
                         f"SELECT count(*) FROM {metadata} WHERE committed_at < current_timestamp - "
                         f"INTERVAL '{older_than_days}' DAY AND snapshot_id NOT IN (SELECT snapshot_id FROM {refs})",
                     )
-                    result["expirable_snapshots"] = count
+                    result["snapshots_past_window"] = count
                 else:
                     _rows(
                         connection,
-                        f"ALTER TABLE {relation} EXECUTE expire_snapshots(retention_threshold => '{older_than_days}d')",
+                        f"ALTER TABLE {relation} EXECUTE expire_snapshots("
+                        f"retention_threshold => '{older_than_days}d', retain_last => {int(retain_last)})",
                     )
                     _rows(
                         connection,

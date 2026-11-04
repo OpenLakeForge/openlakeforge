@@ -135,8 +135,9 @@ Trino, so run it only on stacks that have one.
 
 | Run config key | Default | Meaning |
 | --- | --- | --- |
-| `dry_run` | `false` | Delete nothing; count per table the snapshots older than `older_than_days` that no branch or tag holds (`$snapshots`, `$refs`). Trino cannot list orphan files, so a dry run does not report them. |
-| `older_than_days` | `7` | `expire_snapshots(retention_threshold)`. Trino always keeps the current snapshot and has no `retain_last`. |
+| `dry_run` | `false` | Delete nothing; count per table the snapshots older than `older_than_days` that no branch or tag head holds (`$snapshots`, `$refs`). It is an upper bound: `retain_last`, a table's `history.expire.min-snapshots-to-keep` and branch retention can keep some of them. Trino cannot list orphan files, so a dry run does not report them. |
+| `older_than_days` | `7` | `expire_snapshots(retention_threshold)`. A snapshot expires only when older than this and outside `retain_last`. |
+| `retain_last` | `10` | `expire_snapshots(retain_last)`, as for Silver: the newest snapshots are always kept. Trino also keeps the current snapshot and every branch or tag head. |
 | `orphan_delay_days` | `7` | `remove_orphan_files(retention_threshold)`. Keep it longer than the longest dbt run. |
 
 Trino refuses either value below `iceberg.expire-snapshots.min-retention` /

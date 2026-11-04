@@ -273,15 +273,15 @@ def test_gold_maintenance_expires_then_removes_orphans_of_each_table(monkeypatch
 
     assert result.success
     assert trino.statements[1:] == [
-        'ALTER TABLE "sales_gold"."daily" EXECUTE expire_snapshots(retention_threshold => \'7d\')',
+        'ALTER TABLE "sales_gold"."daily" EXECUTE expire_snapshots(retention_threshold => \'7d\', retain_last => 10)',
         'ALTER TABLE "sales_gold"."daily" EXECUTE remove_orphan_files(retention_threshold => \'7d\')',
-        'ALTER TABLE "sales_gold"."weekly" EXECUTE expire_snapshots(retention_threshold => \'7d\')',
+        'ALTER TABLE "sales_gold"."weekly" EXECUTE expire_snapshots(retention_threshold => \'7d\', retain_last => 10)',
         'ALTER TABLE "sales_gold"."weekly" EXECUTE remove_orphan_files(retention_threshold => \'7d\')',
     ]
     assert _gold_metadata(result)["tables"] == 2
 
 
-def test_gold_dry_run_counts_expirable_snapshots_and_changes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gold_dry_run_counts_snapshots_past_the_window_and_changes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     trino = _FakeTrino(["daily"])
     _gold(monkeypatch, trino)
 
@@ -293,8 +293,8 @@ def test_gold_dry_run_counts_expirable_snapshots_and_changes_nothing(monkeypatch
     assert not any("EXECUTE" in statement for statement in trino.statements)
     assert "daily$snapshots" in trino.statements[1] and "INTERVAL '14' DAY" in trino.statements[1]
     metadata = _gold_metadata(result)
-    assert metadata["expirable_snapshots"] == 4
-    assert metadata["results"][0]["expirable_snapshots"] == 4
+    assert metadata["snapshots_past_window"] == 4
+    assert metadata["results"][0]["snapshots_past_window"] == 4
 
 
 @pytest.mark.parametrize("key", ["older_than_days", "orphan_delay_days"])
