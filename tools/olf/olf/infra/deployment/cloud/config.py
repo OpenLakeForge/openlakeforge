@@ -17,7 +17,6 @@ precedent ADR 0008 set for the local provider.
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,7 +27,9 @@ from olf.common.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.common.deployment.env_settings import env as _env
 from olf.common.deployment.env_settings import retry_policy as _retry_policy
 from olf.common.deployment.env_settings import truthy as _truthy
+from olf.common.deployment.errors import CommandExecutionError, ExecutableNotFoundError
 from olf.common.deployment.project_code import published_example_image, split_published_image
+from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.retry import RetryPolicy
 
 _DEFAULT_PYTHON_BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
@@ -43,13 +44,8 @@ def _git_sha_tag(repo_root: Path) -> str | None:
     optional so callers can try other stable sources before resorting to a
     timestamp."""
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        result = ProcessRunner().run(["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"])
+    except (CommandExecutionError, ExecutableNotFoundError):
         return None
     sha = result.stdout.strip()
     return sha or None
