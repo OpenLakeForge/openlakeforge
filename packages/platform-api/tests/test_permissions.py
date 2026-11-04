@@ -55,6 +55,9 @@ def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
         ("/api/v1/query-capabilities", "GET"),
         ("/api/v1/stages/{stage}/jobs", "GET"),
         ("/api/v1/stages/{stage}/logs", "GET"),
+        ("/api/v1/stages/{stage}/queries", "POST"),
+        ("/api/v1/stages/{stage}/queries/{query_id}", "DELETE"),
+        ("/api/v1/stages/{stage}/queries/{query_id}", "GET"),
         ("/api/v1/stages/{stage}/reports", "POST"),
         ("/api/v1/stages/{stage}/reports/{dashboard}/export", "GET"),
         ("/api/v1/stages/{stage}/runs", "GET"),
@@ -66,13 +69,19 @@ def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
     ]
 
 
+# Read-only by construction (queries.py: Trino refuses anything but a query), so there is nothing to audit before.
+READ_ONLY_WRITES = {"submit_query", "cancel_query"}
+
+
 def test_every_route_that_is_not_a_get_is_marked_as_changing_state_and_so_audited(settings: Settings) -> None:
     app = create_app(settings)
     operations = app.state.permissions.operations
 
     for route in app.routes:
         if isinstance(route, APIRoute):
-            assert operations[route.name].changes_state == (route.methods != {"GET"}), route.name
+            assert operations[route.name].changes_state == (
+                route.methods != {"GET"} and route.name not in READ_ONLY_WRITES
+            ), route.name
 
 
 @pytest.mark.parametrize(

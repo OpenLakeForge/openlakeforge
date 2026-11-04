@@ -87,3 +87,18 @@ stages = ["*"]
 [operations.list_tables]
 role = "viewer"
 stages = ["*"]
+
+# SQL as the person (ADR 0019): Trino and Polaris decide the data, so the floor is the lowest role, as for discovery.
+# Read-only, enforced by Trino (queries.py), so none changes state and none is audited; cancel only ends the
+# caller's own query. The id and cursor are signed for the person and stage, so these rows are not what binds a query.
+[operations.submit_query]
+role = "viewer"
+stages = ["*"]
+
+[operations.get_query]
+role = "viewer"
+stages = ["*"]
+
+[operations.cancel_query]
+role = "viewer"
+stages = ["*"]

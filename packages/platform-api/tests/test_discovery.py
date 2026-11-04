@@ -13,7 +13,7 @@ from conftest import ROLE_MAPPING, Mint, bearer
 from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.settings import QueryEndpointSetting, Settings, SettingsError
+from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, QueryEndpointSetting, Settings, SettingsError
 
 TRINO = "https://trino.example.com/v1/statement"
 
@@ -52,6 +52,11 @@ def _api(settings: Settings, trino: FakeTrino, **overrides: Any) -> TestClient:
     return TestClient(create_app(replace(settings, **{**values, **overrides}), trino_send=trino))
 
 
+@pytest.fixture(autouse=True)
+def signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(QUERY_SIGNING_KEY_ENV, "k" * 40)
+
+
 @pytest.fixture
 def token(mint: Mint) -> str:
     return mint(groups=list(ROLE_MAPPING["viewer"]), federated_claims={"connector_id": "github", "user_id": "1"})
@@ -75,6 +80,14 @@ def test_capabilities_say_unavailable_where_there_is_no_query(
     settings: Settings, trino: FakeTrino, token: str, overrides: dict[str, Any]
 ) -> None:
     response = _api(settings, trino, **overrides).get("/api/v1/query-capabilities", headers=bearer(token))
+    assert response.json() == {"query_available": False, "stages": []}
+
+
+def test_capabilities_offer_no_stage_while_the_signing_key_is_missing(
+    settings: Settings, trino: FakeTrino, token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(QUERY_SIGNING_KEY_ENV)
+    response = _api(settings, trino).get("/api/v1/query-capabilities", headers=bearer(token))
     assert response.json() == {"query_available": False, "stages": []}
 
 

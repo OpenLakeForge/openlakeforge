@@ -15,11 +15,11 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import csrf, discovery, reads, report_routes, writes
+from openlakeforge_platform_api import csrf, discovery, queries, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.permissions import ANONYMOUS, Permission, PermissionMatrix
-from openlakeforge_platform_api.settings import Settings
+from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
 
 SETTINGS_ENV = "OPENLAKEFORGE_PLATFORM_API_SETTINGS"
@@ -202,6 +202,9 @@ def create_app(
     app.state.audit = audit or AuditLog(_audit_store(settings), settings.audit_base_uri)
     # The HTTP transport for the Trino client; tests inject a fake, and a private CA is the only thing production adds.
     app.state.trino_send = trino_send or functools.partial(requests.request, verify=settings.ca_file or True)
+    # Mounted from a Secret; unset or short, query execution answers 503 rather than sign ids with a guessable key.
+    signing_key = os.environ.get(QUERY_SIGNING_KEY_ENV, "")
+    app.state.query_signing_key = signing_key.encode() if len(signing_key) >= 32 else None
     app.add_api_route("/api/healthz", healthz, methods=["GET"], name="healthz")
     app.add_api_route("/api/v1/whoami", whoami, methods=["GET"], name="whoami")
     app.add_api_route("/api/v1/stages/{stage}/jobs", reads.list_jobs, methods=["GET"], name="list_jobs")
@@ -230,6 +233,10 @@ def create_app(
     app.add_api_route(
         "/api/v1/stages/{stage}/schemas/{schema}/tables", discovery.list_tables, methods=["GET"], name="list_tables"
     )
+    queries_path = "/api/v1/stages/{stage}/queries"
+    app.add_api_route(queries_path, queries.submit_query, methods=["POST"], name="submit_query")
+    app.add_api_route(queries_path + "/{query_id}", queries.get_query, methods=["GET"], name="get_query")
+    app.add_api_route(queries_path + "/{query_id}", queries.cancel_query, methods=["DELETE"], name="cancel_query")
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app
