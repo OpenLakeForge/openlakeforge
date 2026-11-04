@@ -178,6 +178,15 @@ olf infra deploy --provider local --phase artifacts
 It reconciles the catalog namespaces, builds the project-code image and
 restarts Dagster's code location.
 
+### Python dependencies
+
+A project that needs a Python package (an API client, a dlt source) lists it in
+`lakehouse_code/requirements.txt`, with plain pins or ranges. The image installs the file in its own
+layer after the platform dependencies, constrained to their exact versions, so a project cannot change
+a platform pin. `olf check project-code` and the image build resolve the file against those pins and
+fail on a conflict. Unlike the platform lock, this layer is not hash-verified. Without the file the
+image is unchanged.
+
 ## Check it worked
 
 Launch `campaign_performance_pipeline` in Dagster, then query the mart:
