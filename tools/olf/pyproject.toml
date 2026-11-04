@@ -69,6 +69,8 @@ select = ["E", "F", "W", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.12"
 files = ["olf"]
+# openlakeforge-runtime is an editable install, whose import hook mypy cannot follow.
+mypy_path = "$MYPY_CONFIG_FILE_DIR/../../packages/runtime"
 # Deliberately not `strict`. The gate's job on a 25k-line codebase that has
 # never been type-checked is to stop new type errors, not to relitigate every
 # existing one. Every `olf` module is checked; adding an `ignore_errors`
