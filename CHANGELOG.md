@@ -18,6 +18,10 @@ for how a release is cut and verified.
 
 - `olf check resources`, part of `olf check all`, fails when a Terraform-defined container has no
   `requests` (cpu and memory) or no memory limit, so a new Job or Deployment cannot land unsized.
+- `olf check disruption`, part of `olf check all`, fails when a Terraform module or Helm values file runs
+  more than one replica without a PodDisruptionBudget. Single-replica pods get none, because
+  `minAvailable: 1` on one pod blocks node drains (#351). Trino workers (`spec.query.size` medium and
+  large) now get a PodDisruptionBudget with `maxUnavailable: 1`.
 
 ### Changed
 

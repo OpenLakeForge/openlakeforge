@@ -87,6 +87,7 @@ All `new` commands validate the result before writing and accept
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | Every product's dbt project parses and compiles, and its models and sources sit in the schemas the descriptors name. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
 | `olf check resources` | Every `container` and `init_container` in `infra/terraform/modules` sets `requests` (cpu and memory) and a memory limit; an expression such as `var.x` is accepted unchecked. Helm chart containers are sized through the values files and are not covered |
+| `olf check disruption` | A Terraform module that sets `replicas`, `replicaCount` or `workers` to anything but 0 or 1, or a Helm values file with `replicaCount`/`replicas` above 1, defines a PodDisruptionBudget. Single-replica workloads are exempt by design: a budget on one pod blocks node drains |
 | `olf check security` | Every entry in `.trivyignore.yaml` has an owner and an unexpired date within 90 days; not part of `olf check all` |
 | `olf report validate [<dashboard>]` | Superset bundles are promotable; needs no cluster or cloud credentials |
 | `olf infra e2e run --env local\|aws\|azure` | The deployed platform end to end. `--suite smoke` runs the preflight checks only; `--stage` and `-f <profile>` select what to check. |
