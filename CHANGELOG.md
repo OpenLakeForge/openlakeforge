@@ -21,6 +21,8 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `olf check dbt` and `olf infra dbt parse` no longer put the project root on `sys.path`; dbt discovery
+  never imported `lakehouse_code` (#557).
 - `olf infra deploy --phase artifacts` now builds the project's ProjectRevision and
   activates it through the same path as `olf infra project deploy`, on local, AWS and
   Azure, with one step order: the optional layers first, then the Dagster rollout. On
