@@ -154,3 +154,81 @@ def test_dbt_artifacts_are_skipped_with_a_warning_when_no_destination_is_set(
     product_dagster._upload_dbt_artifacts(context, _SPEC, tmp_path)
 
     assert "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI is not set" in context.log.warnings[0]
+
+
+def _fake_maintain(monkeypatch: pytest.MonkeyPatch, results: list[dict]) -> list[dict]:
+    calls: list[dict] = []
+
+    def maintain(config_path: str, **kwargs: object) -> list[dict]:
+        calls.append({"config_path": config_path, **kwargs})
+        return results
+
+    monkeypatch.setattr(product_dagster.floe, "maintain", maintain)
+    monkeypatch.setattr(product_dagster, "_floe_profile", lambda: "/profile.yml")
+    return calls
+
+
+_MAINTAINED = [
+    {"entity": "orders", "expired_snapshots": 2, "orphan_files": ["a", "b"], "orphan_bytes": 30},
+    {"entity": "accounts", "expired_snapshots": 1, "orphan_files": [], "orphan_bytes": 0},
+]
+
+
+def test_maintenance_runs_floe_with_its_retention_defaults_and_reports_the_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _fake_maintain(monkeypatch, _MAINTAINED)
+
+    result = product_dagster.silver_maintenance.execute_in_process()
+
+    assert result.success
+    assert calls == [
+        {
+            "config_path": str(product_dagster.FLOE_PROJECT),
+            "profile_path": "/profile.yml",
+            "older_than_days": 7,
+            "retain_last": 10,
+            "orphan_delay_days": 3,
+            "dry_run": False,
+        }
+    ]
+    (output,) = (event for event in result.all_events if event.event_type_value == "STEP_OUTPUT")
+    metadata = {key: value.value for key, value in output.step_output_data.metadata.items()}
+    assert metadata["expired_snapshots"] == 3
+    assert metadata["orphan_files"] == 2
+    assert metadata["orphan_bytes"] == 30
+    assert metadata["dry_run"] is False
+    assert metadata["tables"] == _MAINTAINED
+
+
+def test_run_config_sets_dry_run_and_the_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _fake_maintain(monkeypatch, [])
+    config = {"dry_run": True, "older_than_days": 14, "retain_last": 20, "orphan_delay_days": 5}
+
+    result = product_dagster.silver_maintenance.execute_in_process(
+        run_config={"ops": {"maintain_silver": {"config": config}}}
+    )
+
+    assert result.success
+    assert {key: calls[0][key] for key in config} == config
+
+
+def test_a_floe_refusal_fails_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(config_path: str, **kwargs: object) -> list[dict]:
+        raise RuntimeError("below the retention floor")
+
+    monkeypatch.setattr(product_dagster.floe, "maintain", refuse)
+    monkeypatch.setattr(product_dagster, "_floe_profile", lambda: "/profile.yml")
+
+    assert not product_dagster.silver_maintenance.execute_in_process(raise_on_error=False).success
+
+
+def test_the_maintenance_job_is_scheduled_only_in_prod_and_stopped() -> None:
+    for stage in ("dev", "uat", ""):
+        definitions = product_dagster.build_maintenance_definitions(stage=stage)
+        assert definitions.resolve_job_def("silver_maintenance")
+        assert not definitions.schedules
+
+    (schedule,) = product_dagster.build_maintenance_definitions(stage="prod").schedules
+    assert schedule.job_name == "silver_maintenance"
+    assert schedule.default_status == DefaultScheduleStatus.STOPPED

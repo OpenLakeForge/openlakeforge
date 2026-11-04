@@ -8,7 +8,12 @@ from pkgutil import iter_modules
 
 import lakehouse_code.pipelines.dagster as dagster_pipelines
 from dagster import Definitions
-from libs.product_dagster import SourceDefinitionSpec, build_silver_definitions, build_source_definitions
+from libs.product_dagster import (
+    SourceDefinitionSpec,
+    build_maintenance_definitions,
+    build_silver_definitions,
+    build_source_definitions,
+)
 from openlakeforge_core import LakehouseInventory, load_lakehouse_inventory
 
 _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parent
@@ -45,4 +50,9 @@ def _source_definitions(inventory: LakehouseInventory) -> list[Definitions]:
 
 
 _inventory = load_lakehouse_inventory(_LAKEHOUSE_CODE_ROOT)
-defs = Definitions.merge(*_source_definitions(_inventory), build_silver_definitions(), *_product_definitions())
+defs = Definitions.merge(
+    *_source_definitions(_inventory),
+    build_silver_definitions(),
+    build_maintenance_definitions(),
+    *_product_definitions(),
+)

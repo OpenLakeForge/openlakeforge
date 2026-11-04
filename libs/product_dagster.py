@@ -6,17 +6,21 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+import floe
 from dagster import (
     AssetKey,
     AssetOut,
     AssetSelection,
     DefaultScheduleStatus,
     Definitions,
+    Field,
     MetadataValue,
     Output,
     ScheduleDefinition,
     define_asset_job,
+    job,
     multi_asset,
+    op,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
@@ -54,6 +58,7 @@ _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # production-shaped daily workload against the DEV catalog.
 _SCHEDULED_STAGES = frozenset({"prod"})
 _DAILY_SCHEDULE_CRON = "0 3 * * *"
+_MAINTENANCE_SCHEDULE_CRON = "0 4 * * 0"
 
 
 @dataclass(frozen=True)
@@ -171,6 +176,66 @@ def build_silver_definitions() -> Definitions:
         register_source_assets=False,
         source_key_fn=_bronze_resource,
     )
+
+
+# Floe's own retention floor and orphan delay; `orphan_delay_days` must outlast the
+# longest Floe Job, since younger unreferenced files may be an in-flight write's.
+_MAINTENANCE_CONFIG = {
+    "dry_run": Field(bool, default_value=False),
+    "older_than_days": Field(int, default_value=7),
+    "retain_last": Field(int, default_value=10),
+    "orphan_delay_days": Field(int, default_value=3),
+}
+
+
+@op(config_schema=_MAINTENANCE_CONFIG)
+def maintain_silver(context) -> None:
+    config = context.op_config
+    results = floe.maintain(
+        str(FLOE_PROJECT),
+        profile_path=_floe_profile(),
+        older_than_days=config["older_than_days"],
+        retain_last=config["retain_last"],
+        orphan_delay_days=config["orphan_delay_days"],
+        dry_run=config["dry_run"],
+    )
+    summary = {
+        "dry_run": config["dry_run"],
+        "expired_snapshots": sum(result["expired_snapshots"] for result in results),
+        "orphan_files": sum(len(result["orphan_files"]) for result in results),
+        "orphan_bytes": sum(result["orphan_bytes"] for result in results),
+    }
+    log_event(context.log, message="Maintained Silver tables", service="dagster", tool="floe", **summary)
+    context.add_output_metadata({**summary, "tables": MetadataValue.json(results)})
+
+
+@job
+def silver_maintenance():
+    """Expire old snapshots and remove orphan files of the Silver tables Floe writes (not Gold: dbt-trino owns it)."""
+    maintain_silver()
+
+
+def build_maintenance_definitions(*, stage: str | None = None) -> Definitions:
+    """The maintenance job on every stage, so a dry run can be launched anywhere; its schedule where `stage` allows.
+
+    The schedule follows the daily scaffold's rule (`build_stage_schedules`):
+    prod only, and `STOPPED` so deploying a revision never starts deletion.
+    """
+    resolved = (os.environ.get(_STAGE_ENV, "") if stage is None else stage).strip().lower()
+    schedules = (
+        [
+            ScheduleDefinition(
+                name="silver_maintenance_weekly",
+                job=silver_maintenance,
+                cron_schedule=_MAINTENANCE_SCHEDULE_CRON,
+                execution_timezone="UTC",
+                default_status=DefaultScheduleStatus.STOPPED,
+            )
+        ]
+        if resolved in _SCHEDULED_STAGES
+        else []
+    )
+    return Definitions(jobs=[silver_maintenance], schedules=schedules)
 
 
 def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:

@@ -97,6 +97,33 @@ additional checks or monitoring where it fits. Choosing any of these as the
 Silver engine would mean explicitly providing the other rows in the table; this
 page makes no performance or general-superiority claim.
 
+## Silver table maintenance
+
+Silver tables accumulate snapshots, and failed or replaced writes leave
+unreferenced files behind. The `silver_maintenance` Dagster job
+([`libs/product_dagster.py`](../../libs/product_dagster.py)) runs Floe's own
+maintenance (`floe.maintain`, the Python form of `floe maintain`) over every
+Iceberg table the Floe project writes, with the stage's rendered profile. It
+exists on every stage; its `silver_maintenance_weekly` schedule exists only on
+`prod` and is `STOPPED`, like the product schedules above. Start the job from
+the Dagster UI, or enable the schedule.
+
+| Run config key (`ops.maintain_silver.config`) | Default | Meaning |
+| --- | --- | --- |
+| `dry_run` | `false` | Commit and delete nothing; report what would be expired or removed. |
+| `older_than_days` | `7` | A snapshot expires only when older than this and outside `retain_last`. |
+| `retain_last` | `10` | Newest snapshots always kept. Branch and tag heads are never expired. |
+| `orphan_delay_days` | `3` | Unreferenced files younger than this are kept, because an in-flight Floe Job may have written them. Keep it longer than your longest Job. |
+
+Floe refuses values below its floor (7 days, 10 snapshots, 1 orphan day)
+instead of clamping them, and the run fails. The op's output metadata carries
+`expired_snapshots`, `orphan_files` and `orphan_bytes` totals and a `tables`
+list with Floe's per-table result. Expiring a snapshot ends time travel to it.
+
+Only Silver is covered. Gold tables are written by dbt-trino, outside Floe, and
+have no maintenance job. Compaction is not run
+([#173](https://github.com/OpenLakeForge/openlakeforge/issues/173)).
+
 ## Maintenance and contingency
 
 Floe and OpenLakeForge are separate projects with independent releases. Floe
