@@ -24,6 +24,9 @@ for how a release is cut and verified.
   now the `openlakeforge-runtime` package under `packages/runtime/`, imported
   as `openlakeforge_runtime`. It is built and attached to each release like
   the other packages; it is not published to PyPI.
+- `openlakeforge` now depends on `openlakeforge-runtime` (pinned to its own version)
+  instead of putting `packages/runtime` on `sys.path` for `olf check dbt` and
+  `olf infra dbt parse`.
 
 ### Migration
 
