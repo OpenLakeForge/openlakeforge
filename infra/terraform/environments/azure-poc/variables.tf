@@ -141,7 +141,7 @@ variable "superset_chart_package_path" {
 }
 
 variable "manage_user_deployments" {
-  description = "Whether Terraform owns the Dagster user-code deployments. `olf infra deploy` (deprecated, single stage) leaves this true; `olf infra platform apply` sets it false so `olf infra project deploy` owns the openlakeforge-project release instead."
+  description = "Whether Terraform owns the Dagster user-code deployments. False (what olf passes) leaves them to activation: the openlakeforge-project release `deploy_revision` installs, and this root only publishes a stable workspace endpoint pointing at it. True is the Terraform-owned subchart that predates activation."
   type        = bool
-  default     = true
+  default     = false
 }

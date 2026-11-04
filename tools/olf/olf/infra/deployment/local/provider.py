@@ -169,7 +169,7 @@ class LocalProvider:
     def artifacts_deploy(self) -> None:
         from olf.infra.deployment.local import artifacts
 
-        artifacts.artifacts_deploy(self.config, self.tools, env=self.env)
+        artifacts.artifacts_deploy(self)
         self._log_sign_in_steps()
 
     def _log_sign_in_steps(self) -> None:

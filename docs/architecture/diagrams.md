@@ -212,12 +212,11 @@ never runs Terraform for a domain change ([ADR 0002](../adr/0002-deployment-life
 Phases 1 and 2 are static infrastructure that Terraform owns; phase 3 is
 dynamic and code-derived. `olf infra deploy --provider local` with no `--phase` chains
 1 → 2 → 3; phases 1 and 2 are idempotent no-ops when nothing changed. Phase 3,
-in order: load contract env → `olf infra catalog sync-namespaces` → build + load
-`project-code` → `olf infra k8s set-project-code-image` → `olf infra report import` (analytics
-layer on) → `olf infra openmetadata deploy-metadata` (governance layer on). The image step
-patches the run-launcher ConfigMap, every Dagster deployment, and the log-archive
-CronJob to the new image before waiting on each rollout — not a bare `kubectl rollout
-restart`. The Floe contracts ship inside the project-code image; nothing
+in order: build + push (or, with no repository of its own, build + load) `project-code`
+and publish its ProjectRevision → `deploy_revision`, which runs `olf infra catalog sync-namespaces` →
+`olf infra report import` (analytics layer on) → `olf infra openmetadata deploy-metadata` (governance
+layer on) → the Dagster rollout of the `openlakeforge-project` release, which carries the
+run launcher's image, every code location, and the log-archive CronJob. The Floe contracts ship inside the project-code image; nothing
 Floe-specific is compiled or uploaded.
 CI validates structure, infrastructure, contracts, project-code, tooling, dbt, and
 release readiness; pull requests also run the bounded slim kind smoke.

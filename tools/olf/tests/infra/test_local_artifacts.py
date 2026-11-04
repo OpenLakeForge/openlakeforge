@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -10,6 +13,8 @@ from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra import contracts as contracts_module
 from olf.infra.deployment.local import artifacts
+
+_PIN = "ghcr.io/openlakeforge/openlakeforge/project-code:1.0.0@sha256:" + "a" * 64
 
 
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:
@@ -65,38 +70,66 @@ def test_applied_contract_environment_honors_contract_root_override(
     assert captured["contract_terraform_dir"] == override
 
 
-def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    config = _config(tmp_path)
-    tools = _toolkit()
-    calls: list[str] = []
 
-    monkeypatch.setattr(
-        artifacts,
-        "applied_contract_environment",
-        _fake_contextmanager(lambda: calls.append("contract_env_entered")),
-    )
-    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: calls.append("sync_namespaces"))
-    monkeypatch.setattr(
-        artifacts.images,
-        "prepare_project_code_image",
-        lambda cfg, tls, *, env: calls.append("prepare_project_code_image"),
-    )
-    monkeypatch.setattr(
-        artifacts.k8s, "set_project_code_image", lambda image, namespace: calls.append("set_project_code_image")
-    )
-    monkeypatch.setattr(
-        artifacts, "deploy_optional_layer_artifacts", lambda environ: calls.append("deploy_optional_layers")
+def _fake_provider(repo_root: Path, *, image: str, pushes: list[bool], **extra: Any) -> Any:
+    from olf.common.profile import Provider
+
+    def build_project_image(*, push: bool) -> str:
+        pushes.append(push)
+        return image
+
+    topology = SimpleNamespace(profile_name="legacy", provider=Provider.LOCAL, project=None)
+    return SimpleNamespace(
+        context=SimpleNamespace(topology=topology, paths=SimpleNamespace(repo_root=repo_root)),
+        env={},
+        build_project_image=build_project_image,
+        **extra,
     )
 
-    artifacts.artifacts_deploy(config, tools, env={})
 
-    assert calls == [
-        "contract_env_entered",
-        "sync_namespaces",
-        "prepare_project_code_image",
-        "set_project_code_image",
-        "deploy_optional_layers",
-    ]
+def _stub_activation(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Everything below `deploy_revision` needs a cluster; what it is handed is the behaviour under test."""
+    from olf.infra import k8s
+    from olf.infra.deployment import activation, revision_build
+
+    monkeypatch.setattr(k8s, "set_project_code_image", lambda *a, **k: pytest.fail("patched Dagster directly"))
+    monkeypatch.setattr(
+        revision_build,
+        "publish_project_revision",
+        lambda project, *, image, open_store: SimpleNamespace(revision="sha256:" + "b" * 64, project_code_image=image),
+    )
+    monkeypatch.setattr(revision_build, "provider_revision_store", lambda *a, **k: nullcontext("store"))
+    activated: list[dict[str, Any]] = []
+    monkeypatch.setattr(activation, "deploy_revision", lambda provider, **kwargs: activated.append(kwargs))
+    return activated
+
+
+@pytest.mark.parametrize(
+    ("repository", "image", "pushes"),
+    [
+        ("ghcr.io/openlakeforge/openlakeforge/project-code", _PIN, False),
+        ("ghcr.io/acme/project-code", "ghcr.io/acme/project-code@sha256:" + "d" * 64, True),
+    ],
+    ids=["example-image", "customer-project"],
+)
+def test_artifacts_deploy_activates_a_revision_instead_of_patching_dagster(
+    monkeypatch: pytest.MonkeyPatch, external_project: Path, repository: str, image: str, pushes: bool
+) -> None:
+    activated = _stub_activation(monkeypatch)
+    pushed: list[bool] = []
+    provider = _fake_provider(
+        external_project,
+        image=image,
+        pushes=pushed,
+        config=SimpleNamespace(images=SimpleNamespace(project_code_repository=repository)),
+    )
+
+    artifacts.artifacts_deploy(provider)
+
+    assert [call["revision"] for call in activated] == ["sha256:" + "b" * 64]
+    assert activated[0]["profile_name"] == "legacy"
+    # Without a repository of its own the build stays on this cluster: pushing would overwrite the public example.
+    assert pushed == [pushes]
 
 
 def _fake_contextmanager(on_enter):  # noqa: ANN001, ANN202

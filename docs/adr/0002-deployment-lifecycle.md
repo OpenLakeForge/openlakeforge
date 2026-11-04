@@ -106,7 +106,8 @@ the next artifacts run. `all` tears down platform then foundation.
 
 `olf infra deploy --provider local --phase artifacts` is the inner development loop.
 It is the only command needed after a change to a dbt model, a Floe contract, a
-Dagster definition, or a descriptor.
+Dagster definition, or a descriptor. It builds the project's revision and
+activates it, as `olf infra project deploy` does.
 
 Phases are idempotent. Re-running `foundation` or `platform` reconciles existing
 state rather than requiring a teardown.
