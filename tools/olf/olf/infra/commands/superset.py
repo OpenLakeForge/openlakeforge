@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -71,19 +71,19 @@ def report_import(
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
         stage=stage,
-    ):
-        deploy_superset_reports(stage=stage)
+    ) as contract:
+        deploy_superset_reports(stage=stage, environ=contract)
 
 
-def deploy_superset_reports(stage: str = "") -> None:
+def deploy_superset_reports(stage: str = "", environ: Mapping[str, str] | None = None) -> None:
     """Build and import source-controlled Superset report bundles."""
     from olf.infra import superset
 
-    project = config.project_spec()
-    target = _report_target(stage)
+    project = config.project_spec(environ=environ)
+    target = _report_target(stage, environ)
     inventory = inventory_for(project.root)
     declared_report_dirs = tuple(dashboard.report_source_dir for dashboard in inventory.dashboards)
-    override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
+    override = config.env("SUPERSET_REPORT_SOURCE_DIR", environ=environ) or None
     if override is not None and override not in declared_report_dirs:
         raise typer.BadParameter(
             f"SUPERSET_REPORT_SOURCE_DIR {override!r} is not a dashboard bundle "
@@ -96,12 +96,13 @@ def deploy_superset_reports(stage: str = "") -> None:
         target.sqlalchemy_uri,
         report_source_dir=override,
         declared_report_dirs=declared_report_dirs,
-        work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
-        admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
-        admin_password=config.env("SUPERSET_ADMIN_PASSWORD"),
+        work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports", environ=environ)),
+        admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin", environ=environ),
+        admin_password=config.env("SUPERSET_ADMIN_PASSWORD", environ=environ),
         schema_prefix=target.schema_prefix,
         extra=target.extra,
         credential_secret=target.credential_secret,
+        environ=environ,
     )
 
 
@@ -132,11 +133,11 @@ def report_export(
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
         stage=stage,
-    ):
-        export_superset_reports(stage=stage)
+    ) as contract:
+        export_superset_reports(stage=stage, environ=contract)
 
 
-def export_superset_reports(stage: str = "") -> None:
+def export_superset_reports(stage: str = "", environ: Mapping[str, str] | None = None) -> None:
     """Export a live Superset dashboard back into a source-controlled bundle."""
     import yaml
     from openlakeforge_core import Dashboard
@@ -144,10 +145,10 @@ def export_superset_reports(stage: str = "") -> None:
 
     from olf.infra import superset
 
-    project = config.project_spec()
-    target = _report_target(stage)
+    project = config.project_spec(environ=environ)
+    target = _report_target(stage, environ)
     inventory = inventory_for(project.root)
-    override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
+    override = config.env("SUPERSET_REPORT_SOURCE_DIR", environ=environ) or None
     if override is not None:
         _validate_report_target_dir(project.root, override)
     if inventory.dashboards:
@@ -170,7 +171,7 @@ def export_superset_reports(stage: str = "") -> None:
             "set SUPERSET_REPORT_SOURCE_DIR to export into a new bundle"
         )
 
-    if os.environ.get("SUPERSET_DASHBOARD_TITLE"):
+    if config.env("SUPERSET_DASHBOARD_TITLE", environ=environ):
         raise typer.BadParameter(
             "SUPERSET_DASHBOARD_TITLE is no longer read: export selects the dashboard by stable identity. "
             "Set SUPERSET_DASHBOARD to its uuid or slug instead."
@@ -195,13 +196,14 @@ def export_superset_reports(stage: str = "") -> None:
         target.namespace,
         report_source_dir=report_source_dir,
         bundle_name=config.env(
-            "SUPERSET_REPORT_EXPORT_BUNDLE_NAME", default_dashboard.superset_export_bundle_name
+            "SUPERSET_REPORT_EXPORT_BUNDLE_NAME", default_dashboard.superset_export_bundle_name, environ=environ
         ),
-        work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
-        admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
-        admin_password=config.env("SUPERSET_ADMIN_PASSWORD"),
-        dashboard=os.environ.get("SUPERSET_DASHBOARD") or _default_dashboard(),
+        work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports", environ=environ)),
+        admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin", environ=environ),
+        admin_password=config.env("SUPERSET_ADMIN_PASSWORD", environ=environ),
+        dashboard=config.env("SUPERSET_DASHBOARD", environ=environ) or _default_dashboard(),
         schema_prefix=target.schema_prefix,
+        environ=environ,
     )
 
 
@@ -224,10 +226,10 @@ app.command("export-reports", help="Deprecated alias of `olf infra report export
 )
 
 
-def _report_target(stage: str) -> StageReportTarget:
+def _report_target(stage: str, environ: Mapping[str, str] | None = None) -> StageReportTarget:
     from olf.infra import superset
 
     try:
-        return superset.resolve_stage_report_target(os.environ, stage=stage)
+        return superset.resolve_stage_report_target(os.environ if environ is None else environ, stage=stage)
     except superset.ReportStageError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

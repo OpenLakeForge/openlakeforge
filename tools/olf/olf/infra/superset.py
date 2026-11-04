@@ -127,25 +127,29 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
 
 
 @contextlib.contextmanager
-def superset_base_url(namespace: str) -> Iterator[str]:
+def superset_base_url(namespace: str, *, environ: Mapping[str, str] | None = None) -> Iterator[str]:
     """Yield the base URL of this namespace's Superset API for the block."""
     log.step("Waiting for Superset web deployment...")
-    k8s.wait_for_rollout("deployment/superset", namespace)
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    k8s.wait_for_rollout("deployment/superset", namespace, environ=environ)
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=environ)
     with access.service_url(
-        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting",
+        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev', environ=environ)}/reporting",
         service="superset",
         remote_port=8088,
         namespace=namespace,
         log_path=f"{log_prefix}-superset-port-forward.log",
-        shared_namespace=config.shared_namespace(),
+        shared_namespace=config.shared_namespace(environ=environ),
     ) as url:
         yield url
 
 
-def admin_password_for(namespace: str, override: str = "", *, kube_context: str | None = None) -> str:
+def admin_password_for(
+    namespace: str, override: str = "", *, kube_context: str | None = None, environ: Mapping[str, str] | None = None
+) -> str:
     """The Superset admin password: an explicit override, else the Secret the Superset module's Job created."""
-    return override or k8s.secret_value(ADMIN_SECRET, "admin-password", namespace, kube_context=kube_context)
+    return override or k8s.secret_value(
+        ADMIN_SECRET, "admin-password", namespace, kube_context=kube_context, environ=environ
+    )
 
 
 def deploy_reports(
@@ -161,6 +165,7 @@ def deploy_reports(
     schema_prefix: str = "",
     extra: dict[str, Any] | None = None,
     credential_secret: str = "",
+    environ: Mapping[str, str] | None = None,
 ) -> None:
     # Computed before touching the cluster: a declared-but-unmounted bundle
     # must still fail loudly, and validate_report_registry already does that
@@ -182,9 +187,11 @@ def deploy_reports(
         log.step("No Superset report bundles are declared; nothing to import.")
         return
 
-    trino_password = k8s.secret_value(credential_secret, "password", namespace) if credential_secret else ""
-    with superset_base_url(namespace) as base_url:
-        password = admin_password_for(namespace, admin_password)
+    trino_password = (
+        k8s.secret_value(credential_secret, "password", namespace, environ=environ) if credential_secret else ""
+    )
+    with superset_base_url(namespace, environ=environ) as base_url:
+        password = admin_password_for(namespace, admin_password, environ=environ)
         client = SupersetClient(base_url, username=admin_username, password=password)
         client.login()
         reports.import_reports(
@@ -211,9 +218,10 @@ def export_report(
     admin_password: str,
     dashboard: str,
     schema_prefix: str = "",
+    environ: Mapping[str, str] | None = None,
 ) -> None:
-    with superset_base_url(namespace) as base_url:
-        password = admin_password_for(namespace, admin_password)
+    with superset_base_url(namespace, environ=environ) as base_url:
+        password = admin_password_for(namespace, admin_password, environ=environ)
         client = SupersetClient(base_url, username=admin_username, password=password)
         client.login()
         reports.export_report(

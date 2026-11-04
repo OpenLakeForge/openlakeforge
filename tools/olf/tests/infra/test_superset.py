@@ -1,7 +1,7 @@
 import contextlib
 import io
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -165,7 +165,7 @@ def test_deploy_reports_still_fails_for_a_declared_but_missing_bundle(
 
 def _serve(monkeypatch: pytest.MonkeyPatch, server: FakeSuperset) -> None:
     @contextlib.contextmanager
-    def base_url(_namespace: str) -> Iterator[str]:
+    def base_url(_namespace: str, *, environ: Mapping[str, str]) -> Iterator[str]:
         yield server.url
 
     monkeypatch.setattr(superset, "superset_base_url", base_url)
