@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +28,7 @@ class GlueConfig:
 @dataclass
 class GlueClient:
     config: GlueConfig
+    environ: Mapping[str, str] | None = None
     _client: Any = field(default=None, repr=False)
     _databases: dict[str, dict] = field(default_factory=dict, init=False, repr=False)
 
@@ -34,9 +36,9 @@ class GlueClient:
         if self._client is None:
             from olf.infra.auth import aws_session
 
-            self._client = aws_session(os.environ, region=self.config.region or None).client(
-                "glue", region_name=self.config.region or None
-            )
+            self._client = aws_session(
+                os.environ if self.environ is None else self.environ, region=self.config.region or None
+            ).client("glue", region_name=self.config.region or None)
 
     def list_namespaces(self) -> dict[str, NamespaceState]:
         states: dict[str, NamespaceState] = {}

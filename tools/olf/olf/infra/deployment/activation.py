@@ -948,7 +948,7 @@ def deploy_revision(
             topology=context.topology,
             stage=context.stage,
         ) as contract_environ:
-            sync_catalog_namespaces()
+            sync_catalog_namespaces(contract_environ)
             activation = ProjectActivation(
                 deployment_profile=profile_name,
                 provider=context.provider.value,
