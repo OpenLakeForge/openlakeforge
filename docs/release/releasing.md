@@ -54,16 +54,19 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 0. **Before the first tagged release only**: register a PyPI [pending
    trusted publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
-   for each of `openlakeforge-core`, `openlakeforge-lakehouse-services`
-   and `openlakeforge`, pointed at this repo's `release.yml`. Each must use a
+   for each of `openlakeforge-core`, `openlakeforge-lakehouse-services`,
+   `openlakeforge-runtime` and `openlakeforge`, pointed at this repo's
+   `release.yml`. Each must use a
    **distinct GitHub Environment name** (`pypi-core`,
-   `pypi-lakehouse-services` and `pypi-openlakeforge`, matching the
+   `pypi-lakehouse-services`, `pypi-runtime` and `pypi-openlakeforge`, matching the
    `environment:` key on each `publish-pypi-*` job) — PyPI keys a pending
    publisher by `(owner, repo, workflow, environment)`, and the jobs
    sharing this repo and workflow file means an identical, un-scoped
    environment would collide across the project names.
    `openlakeforge-lakehouse-services` joined after `0.3.0-alpha.1`: register
    its publisher before the first release that contains it.
+   `openlakeforge-runtime` also needs its own publisher before the first
+   release containing the installed runtime package (#557).
 1. Update `release/component-catalog.yaml`'s `distribution.version` (and any
    changed component versions/digests/lockfiles) in the same PR as the code
    it describes. Run `uv run --project tools/olf --locked olf check all` locally.
