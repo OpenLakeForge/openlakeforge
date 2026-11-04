@@ -51,6 +51,12 @@ variable "implementations" {
   })
 }
 
+variable "image_repository" {
+  description = "Provider-owned fallback project image repository, or null when none is offered."
+  type        = string
+  default     = null
+}
+
 variable "query" {
   description = "Shared query service binding; its endpoint is also what every stage's query block points at."
   type = object({

@@ -17,7 +17,10 @@ output "provider_contracts" {
           implementation = var.query.implementation
           endpoint       = var.query.endpoint
         }
-        artifact_registry = { ref = "shared/artifact_registry", implementation = var.implementations.artifact_registry }
+        artifact_registry = merge(
+          { ref = "shared/artifact_registry", implementation = var.implementations.artifact_registry },
+          var.image_repository == null ? {} : { image_repository = var.image_repository },
+        )
         ops_storage = {
           ref                      = "shared/ops_storage"
           implementation           = var.ops_storage.implementation
