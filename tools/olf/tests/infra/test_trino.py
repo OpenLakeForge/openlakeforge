@@ -161,3 +161,28 @@ def test_run_sql_stops_when_the_password_secret_cannot_be_read(monkeypatch: pyte
     with pytest.raises(trino.TrinoQueryError, match=r"(?s)trino-credential-olf-prod-runtime.*RBAC"):
         trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
     assert len(calls) == 1
+
+
+def test_run_sql_reads_the_credential_secret_from_the_given_environ(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "from-os-environ")
+    calls: list[list[str]] = []
+
+    def runner(command, stdin):  # noqa: ANN001, ANN202
+        calls.append(list(command))
+        return _result(command, 0, stdout="1\n", stderr="")
+
+    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner, environ={})
+
+    assert len(calls) == 1 and "get" not in calls[0]
+
+
+def test_default_runner_gives_the_kubectl_child_the_given_environ(tmp_path: Path) -> None:
+    script = tmp_path / "kubectl"
+    script.write_text('#!/bin/sh\necho "kc=$KUBECONFIG"\n')
+    script.chmod(0o755)
+
+    out = trino.run_sql(
+        _target(), "SELECT 1", output_format="CSV_HEADER", kubectl=str(script), environ={"KUBECONFIG": "/given"}
+    )
+
+    assert out == "kc=/given\n"

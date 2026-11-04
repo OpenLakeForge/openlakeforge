@@ -17,7 +17,7 @@ import re
 import socket
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 
 from olf.common.deployment.errors import CommandExecutionError
 from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired
@@ -35,9 +35,14 @@ PORT_FORWARD_READY_TIMEOUT_SECONDS = 30.0
 PORT_FORWARD_READY_POLL_SECONDS = 0.1
 
 
-def kubectl_command(args: list[str], *, kube_context: str | None = None) -> list[str]:
-    """Build a kubectl command pinned to the declared deployment context."""
-    context = kube_context or os.environ.get("KUBE_CONTEXT")
+def kubectl_command(
+    args: list[str], *, kube_context: str | None = None, environ: Mapping[str, str] | None = None
+) -> list[str]:
+    """Build a kubectl command pinned to the declared deployment context.
+
+    `environ` (default `os.environ`) supplies `KUBE_CONTEXT` when no context is given.
+    """
+    context = kube_context or (os.environ if environ is None else environ).get("KUBE_CONTEXT")
     if not context:
         raise KubectlError("KUBE_CONTEXT is required for Kubernetes operations.")
     command = ["kubectl", "--context", context]
@@ -45,23 +50,26 @@ def kubectl_command(args: list[str], *, kube_context: str | None = None) -> list
     return command
 
 
-def _kubectl_executable() -> str:
+def _kubectl_executable(environ: Mapping[str, str] | None = None) -> str:
     """The resolved (possibly managed, #127) kubectl executable path.
 
     A separate function so tests can substitute a literal `"kubectl"`
     without exercising real toolchain resolution.
     """
-    return str(build_resolver().resolve("kubectl"))
+    return str(build_resolver(environ=environ).resolve("kubectl"))
 
 
-def _resolved_kubectl_argv(args: list[str], *, kube_context: str | None = None) -> list[str]:
+def _resolved_kubectl_argv(
+    args: list[str], *, kube_context: str | None = None, environ: Mapping[str, str] | None = None
+) -> list[str]:
     """`kubectl_command`'s argv with `kubectl` substituted for its resolved
     executable path, used at every actual subprocess execution site.
     `kubectl_command` itself stays a pure argv builder so callers/tests that
     only need the command shape never pay for resolution.
     """
-    command = kubectl_command(args, kube_context=kube_context)
-    command[0] = _kubectl_executable()
+    command = kubectl_command(args, kube_context=kube_context, environ=environ)
+    # Called bare when no environ is given: tests substitute a zero-argument stand-in.
+    command[0] = _kubectl_executable() if environ is None else _kubectl_executable(environ)
     return command
 
 
@@ -71,22 +79,24 @@ def _kubectl(
     capture: bool = False,
     check: bool = True,
     kube_context: str | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> str:
-    command = _resolved_kubectl_argv(args, kube_context=kube_context)
+    command = _resolved_kubectl_argv(args, kube_context=kube_context, environ=environ)
     # Uncaptured output still reaches the terminal: ProcessRunner tees it when streaming.
-    result = ProcessRunner().run(command, check=False, stream_output=not capture)
+    result = ProcessRunner().run(command, check=False, stream_output=not capture, env=environ)
     if check and result.returncode != 0:
         detail = (result.stderr or "").strip()
         raise KubectlError(f"{' '.join(command)} failed: {detail}")
     return result.stdout if capture else ""
 
 
-def resource_exists(kind: str, name: str, namespace: str) -> bool:
+def resource_exists(kind: str, name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> bool:
     return bool(
         _kubectl(
             ["get", kind, name, "-n", namespace],
             capture=True,
             check=False,
+            environ=environ,
         )
     )
 
@@ -98,6 +108,7 @@ def secret_value(
     *,
     kube_context: str | None = None,
     missing_ok: bool = False,
+    environ: Mapping[str, str] | None = None,
 ) -> str:
     args = ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"]
     if missing_ok:
@@ -106,25 +117,30 @@ def secret_value(
         args,
         capture=True,
         kube_context=kube_context,
+        environ=environ,
     )
     return base64.b64decode(raw).decode("utf-8")
 
 
-def configmap_data(name: str, namespace: str) -> dict[str, str] | None:
+def configmap_data(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
     """The ConfigMap's data, or None when it does not exist."""
-    raw = _kubectl(["get", "configmap", name, "-n", namespace, "-o", "json", "--ignore-not-found"], capture=True)
+    raw = _kubectl(
+        ["get", "configmap", name, "-n", namespace, "-o", "json", "--ignore-not-found"], capture=True, environ=environ
+    )
     return (json.loads(raw).get("data") or {}) if raw else None
 
 
-def exec_succeeds(deployment: str, namespace: str, argv: list[str]) -> bool:
+def exec_succeeds(
+    deployment: str, namespace: str, argv: list[str], *, environ: Mapping[str, str] | None = None
+) -> bool:
     """Whether `argv` exits 0 inside the deployment's pod."""
-    command = _resolved_kubectl_argv(["exec", f"deploy/{deployment}", "-n", namespace, "--", *argv])
-    return ProcessRunner().run(command, check=False).ok
+    command = _resolved_kubectl_argv(["exec", f"deploy/{deployment}", "-n", namespace, "--", *argv], environ=environ)
+    return ProcessRunner().run(command, check=False, env=environ).ok
 
 
-def restart_deployment(deployment: str, namespace: str) -> None:
-    _kubectl(["rollout", "restart", f"deployment/{deployment}", "-n", namespace])
-    wait_for_rollout(f"deployment/{deployment}", namespace)
+def restart_deployment(deployment: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    _kubectl(["rollout", "restart", f"deployment/{deployment}", "-n", namespace], environ=environ)
+    wait_for_rollout(f"deployment/{deployment}", namespace, environ=environ)
 
 
 def _free_local_port() -> int:
@@ -171,6 +187,7 @@ def port_forward(
     local_port: int | None = None,
     log_path: str = "/tmp/openlakeforge-port-forward.log",
     kube_context: str | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Iterator[int]:
     """Run `kubectl port-forward` for the block, yielding the local port.
 
@@ -187,9 +204,10 @@ def port_forward(
             namespace,
         ],
         kube_context=kube_context,
+        environ=environ,
     )
     with open(log_path, "w", encoding="utf-8") as log_file:
-        process = ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT)
+        process = ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT, env=environ)
     try:
         _wait_for_port_forward(process, port, log_path)
         yield port
@@ -201,8 +219,10 @@ def port_forward(
             process.kill()
 
 
-def wait_for_rollout(kind_name: str, namespace: str, timeout: str = "300s") -> None:
-    _kubectl(["rollout", "status", kind_name, "-n", namespace, f"--timeout={timeout}"])
+def wait_for_rollout(
+    kind_name: str, namespace: str, timeout: str = "300s", *, environ: Mapping[str, str] | None = None
+) -> None:
+    _kubectl(["rollout", "status", kind_name, "-n", namespace, f"--timeout={timeout}"], environ=environ)
 
 
 def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
@@ -223,14 +243,21 @@ def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
 
 
 
-def apply_manifest(manifest: dict) -> None:
+def apply_manifest(manifest: dict, *, environ: Mapping[str, str] | None = None) -> None:
     with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
         json.dump(manifest, handle)
         handle.flush()
-        _kubectl(["apply", "-f", handle.name])
+        _kubectl(["apply", "-f", handle.name], environ=environ)
 
 
-def write_secret(name: str, namespace: str, data: dict[str, str], *, overwrite: bool = True) -> None:
+def write_secret(
+    name: str,
+    namespace: str,
+    data: dict[str, str],
+    *,
+    overwrite: bool = True,
+    environ: Mapping[str, str] | None = None,
+) -> None:
     """Store `data` as an Opaque Secret; with `overwrite=False`, fail if it already exists."""
     manifest = {
         "apiVersion": "v1",
@@ -239,38 +266,45 @@ def write_secret(name: str, namespace: str, data: dict[str, str], *, overwrite: 
         "type": "Opaque",
         "stringData": data,
     }
-    context = os.environ.get("KUBE_CONTEXT")
+    context = (os.environ if environ is None else environ).get("KUBE_CONTEXT")
     if not context:
         raise KubectlError("KUBE_CONTEXT is required for Kubernetes operations.")
-    kubectl = Toolkit.default().kubectl
+    # Called bare when no environ is given: tests substitute a zero-argument stand-in.
+    kubectl = (Toolkit.default() if environ is None else Toolkit.default(environ=environ)).kubectl
     write = kubectl.apply_from_manifest if overwrite else kubectl.create_from_manifest
     try:
-        write(json.dumps(manifest), context=context)
+        write(json.dumps(manifest), context=context, env=environ)
     except CommandExecutionError as exc:
         raise KubectlError(str(exc)) from exc
 
 
-def run_job(job: dict, *, timeout_seconds: int, poll_seconds: float = 5.0) -> None:
+def run_job(
+    job: dict, *, timeout_seconds: int, poll_seconds: float = 5.0, environ: Mapping[str, str] | None = None
+) -> None:
     """Replace the named Job (its spec is immutable) and wait for Complete or Failed.
 
     `kubectl wait` takes one condition, so a failed Job would block until the
     deadline; the status is polled instead. The log tail is masked of JWTs.
     """
     name, namespace = job["metadata"]["name"], job["metadata"]["namespace"]
-    _kubectl(["delete", "job", name, "-n", namespace, "--ignore-not-found"])
+    _kubectl(["delete", "job", name, "-n", namespace, "--ignore-not-found"], environ=environ)
     with tempfile.NamedTemporaryFile("w", suffix=".json") as manifest:
         json.dump(job, manifest)
         manifest.flush()
-        _kubectl(["create", "-f", manifest.name])
+        _kubectl(["create", "-f", manifest.name], environ=environ)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         conditions = _kubectl(
-            ["get", f"job/{name}", "-n", namespace, "-o", "jsonpath={.status.conditions[*].type}"], capture=True
+            ["get", f"job/{name}", "-n", namespace, "-o", "jsonpath={.status.conditions[*].type}"],
+            capture=True,
+            environ=environ,
         ).split()
         if "Complete" in conditions:
             return
         if "Failed" in conditions:
-            tail = _kubectl(["logs", f"job/{name}", "-n", namespace, "--tail=40"], capture=True, check=False)
+            tail = _kubectl(
+                ["logs", f"job/{name}", "-n", namespace, "--tail=40"], capture=True, check=False, environ=environ
+            )
             masked = _JWT.sub("***", tail)
             raise KubectlError(f"Job {name} failed:\n{masked}")
         time.sleep(poll_seconds)

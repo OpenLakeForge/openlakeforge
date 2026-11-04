@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import boto3
@@ -25,11 +25,13 @@ def port_forward_client(
     access_key_id: str,
     secret_access_key: str,
     region: str,
+    environ: Mapping[str, str] | None = None,
 ) -> Iterator[Any]:
     """Yield an S3 client connected to in-cluster object storage."""
-    log_prefix = os.environ.get("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    source = os.environ if environ is None else environ
+    log_prefix = source.get("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     log_path = f"{log_prefix}-seaweedfs-port-forward.log"
-    with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
+    with k8s.port_forward(service, remote_port, namespace, log_path=log_path, environ=environ) as local_port:
         endpoint = f"http://127.0.0.1:{local_port}"
         client = boto3.client(
             "s3",
