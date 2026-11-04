@@ -399,6 +399,29 @@ def test_a_localhost_issuer_is_reached_when_the_resolver_refuses_it(
     assert socket.getaddrinfo is nxdomain
 
 
+def test_a_localhost_request_bypasses_the_proxy_without_touching_the_environment(
+    issuer: FakeIssuer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")  # a dead proxy: a request routed through it fails
+    monkeypatch.setenv("NO_PROXY", "internal.corp")
+    port = issuer.url.rsplit(":", 1)[1]
+    during: list[str | None] = []
+    real = requests.request
+
+    def spy(*args: object, **kwargs: object) -> requests.Response:
+        during.append(os.environ.get("NO_PROXY"))
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(requests, "request", spy)
+
+    response = sessions.send("GET", f"http://auth.olf.localhost:{port}/.well-known/openid-configuration", timeout=5)
+
+    assert response.ok
+    assert during == ["internal.corp"]
+
+
 def _profile_with(tmp_path: Path, spec_tail: str) -> str:
     path = tmp_path / "openlakeforge.yaml"
     path.write_text(
