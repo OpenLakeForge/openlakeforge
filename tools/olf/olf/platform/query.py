@@ -12,14 +12,23 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import requests
 import typer
+from openlakeforge_services.trino import (
+    TrinoAuthError,
+    TrinoError,
+    TrinoForbiddenError,
+    TrinoNotFoundError,
+    TrinoQueryError,
+    TrinoResult,
+    TrinoStatementClient,
+    TrinoTlsError,
+    failure_messages,
+)
 
 from olf.common.log import fail
 from olf.platform import session as sessions
@@ -28,12 +37,6 @@ from olf.platform.output import table
 FORMATS = ("table", "csv", "json")
 STAGES = ("dev", "uat", "prod")
 SOURCE = "olf-query"
-
-
-@dataclass(frozen=True)
-class Result:
-    columns: list[str]
-    rows: list[list[Any]]
 
 
 def statement_url(instance: sessions.Instance) -> str:
@@ -56,74 +59,36 @@ def person_token(instance: sessions.Instance) -> tuple[str, dict[str, Any]]:
     return token, claims
 
 
-def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, catalog: str) -> Result:
-    """`bearer` is asked again before every page: a Dex token lasts five minutes, and a result can take longer to
-    page through. The extra credential is read once, at submission, where Polaris captures it."""
-    headers = {"X-Trino-User": user, "X-Trino-Catalog": catalog, "X-Trino-Source": SOURCE}
-    token = bearer()
-    columns: list[str] = []
-    rows: list[list[Any]] = []
-    body = _call(
-        "POST",
-        url,
-        {**headers, "Authorization": f"Bearer {token}", "X-Trino-Extra-Credential": f"token={token}"},
-        data=sql.encode("utf-8"),
-    )
-    while True:
-        if "error" in body:
-            raise sessions.PlatformError(explain(body["error"], catalog))
-        if body.get("columns") and not columns:
-            columns = [column["name"] for column in body["columns"]]
-        rows.extend(body.get("data") or [])
-        if "nextUri" not in body:
-            return Result(columns, rows)
-        body = _call("GET", body["nextUri"], {**headers, "Authorization": f"Bearer {bearer()}"})
-
-
-def _call(method: str, url: str, headers: dict[str, str], data: bytes | None = None) -> dict[str, Any]:
+def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, catalog: str) -> TrinoResult:
+    """The person's token is also the `token` extra credential their stage's people catalog hands to Polaris."""
+    client = TrinoStatementClient(url, catalog=catalog, user=user, source=SOURCE, send=sessions.send)
     try:
-        response = sessions.send(method, url, headers=headers, data=data, timeout=120)
-    except requests.exceptions.SSLError as exc:
+        return client.run(sql, bearer=bearer, extra_credentials=lambda token: {"token": token})
+    except TrinoQueryError as exc:
+        raise sessions.PlatformError(explain(exc.error, catalog)) from exc
+    except TrinoTlsError as exc:
         raise sessions.PlatformError(
             f"cannot verify the TLS certificate of {urlsplit(url).hostname}. A local deployment uses its own CA: "
             "run `olf infra access trust`, then set REQUESTS_CA_BUNDLE to the certificate file it writes"
         ) from exc
-    except requests.RequestException as exc:
-        raise sessions.PlatformError(f"cannot reach Trino at {urlsplit(url).hostname}: {type(exc).__name__}") from exc
-    if response.status_code == 401:
-        raise sessions.PlatformError("Trino or the perimeter refused your session; run `olf login`")
-    if response.status_code == 403:
+    except TrinoAuthError as exc:
+        raise sessions.PlatformError("Trino or the perimeter refused your session; run `olf login`") from exc
+    except TrinoForbiddenError as exc:
         raise sessions.PlatformError(
             "the perimeter refused you: your GitHub teams map to no OpenLakeForge role. A platform-admin assigns roles"
-        )
-    if response.status_code == 404:
+        ) from exc
+    except TrinoNotFoundError as exc:
         raise sessions.PlatformError(
             "this deployment has no query route for people; it needs spec.identity.issuer github and "
             "Trino workload authentication at password. Operators can use `olf infra query`"
-        )
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise sessions.PlatformError(f"Trino answered HTTP {response.status_code} without a query result") from exc
-    if not isinstance(body, dict):
-        raise sessions.PlatformError(f"Trino answered HTTP {response.status_code} without a query result")
-    return body
-
-
-def causes(error: dict[str, Any]) -> Iterator[str]:
-    """The messages of Trino's failure chain, outermost first: the reason is often only in a cause."""
-    if error.get("message"):
-        yield str(error["message"])
-    info = error.get("failureInfo")
-    while isinstance(info, dict):
-        if info.get("message"):
-            yield str(info["message"])
-        info = info.get("cause")
+        ) from exc
+    except TrinoError as exc:
+        raise sessions.PlatformError(str(exc)) from exc
 
 
 def explain(error: dict[str, Any], stage: str) -> str:
     """Name what refused the query and why, from the error Trino passes on (ADR 0019, section 6)."""
-    chain = list(dict.fromkeys(causes(error)))
+    chain = list(dict.fromkeys(failure_messages(error)))
     text = "\n".join(chain)
     reason = next(
         (line for line in chain if "Forbidden:" in line or "Access Denied" in line), chain[-1] if chain else ""
@@ -162,7 +127,7 @@ def json_keys(columns: Sequence[str]) -> list[str]:
     return keys
 
 
-def render(result: Result, output_format: str) -> str:
+def render(result: TrinoResult, output_format: str) -> str:
     if output_format == "json":
         keys = json_keys(result.columns)
         return "".join(json.dumps(dict(zip(keys, row, strict=True)), default=str) + "\n" for row in result.rows)

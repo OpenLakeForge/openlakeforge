@@ -36,6 +36,7 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import re
 import shutil
 import sys
 from collections.abc import Mapping
@@ -339,7 +340,21 @@ def _root_locals(terraform_root: Path) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for block in document.get("locals", []):
         merged.update(block)
+    if "module.provider_contract.provider_contracts" in str(merged.get("provider_contracts")):
+        merged["provider_contracts"] = _shared_module_surface(terraform_root, document)
     return merged
+
+
+def _shared_module_surface(terraform_root: Path, document: dict[str, Any]) -> dict[str, Any]:
+    """A root that builds its contract through the shared provider-contract
+    module (#561) has the document in the module's output; the root contributes
+    the `stages` input. The two expressions are joined so a presence check sees
+    both the module's stage interpolation and the root's `local.enabled_stages`."""
+    # Text, not hcl2: the module's output uses constructs hcl2 cannot parse.
+    output = (terraform_root / "../../modules/contracts/provider-contract/outputs.tf").read_text(encoding="utf-8")
+    schema_version = re.search(r'schema_version\s*=\s*"([^"]+)"', output)
+    root_stages = next(body["stages"] for block in document["module"] for body in block.values() if "stages" in body)
+    return {"schema_version": schema_version and schema_version.group(1), "stages": f"{output} {root_stages}"}
 
 
 def _guard_runner(

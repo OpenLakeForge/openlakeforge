@@ -763,6 +763,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "openlakeforge-core" },
     { name = "openlakeforge-lakehouse-services" },
+    { name = "openlakeforge-runtime" },
     { name = "python-hcl2" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -791,6 +792,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "openlakeforge-core", directory = "../../packages/core" },
     { name = "openlakeforge-lakehouse-services", directory = "../../packages/lakehouse-services" },
+    { name = "openlakeforge-runtime", editable = "../../packages/runtime" },
     { name = "python-hcl2", specifier = ">=6,<7" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "requests", specifier = ">=2.32,<3" },
@@ -836,6 +838,17 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "requests", specifier = ">=2.32,<3" },
 ]
+
+[[package]]
+name = "openlakeforge-runtime"
+version = "0.5.1a2"
+source = { editable = "../../packages/runtime" }
+dependencies = [
+    { name = "openlakeforge-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "openlakeforge-core", specifier = "==0.5.1a2" }]
 
 [[package]]
 name = "packaging"

@@ -14,6 +14,7 @@ from olf.common.commands.checks._docs import docs
 from olf.common.commands.checks._flows import flows
 from olf.common.commands.checks._infra import infra
 from olf.common.commands.checks._project_code import project_code
+from olf.common.commands.checks._resources import resources
 from olf.common.commands.checks._security import security
 from olf.common.commands.checks._skills import skills
 from olf.common.commands.checks._structure import structure
@@ -27,6 +28,7 @@ app.command("components")(components)
 app.command("flows")(flows)
 app.command("infra")(infra)
 app.command("lockfiles")(lockfiles)
+app.command("resources")(resources)
 app.command("project-code")(project_code)
 app.command("dbt")(dbt)
 app.command("security")(security)
@@ -46,6 +48,7 @@ def all_checks(
     contracts(repo_root)
     flows(repo_root)
     infra(repo_root)
+    resources(repo_root)
     project_code(repo_root)
     dbt(repo_root)
     lockfiles(repo_root)

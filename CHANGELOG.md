@@ -14,8 +14,18 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Added
+
+- `olf check resources`, part of `olf check all`, fails when a Terraform-defined container has no
+  `requests` (cpu and memory) or no memory limit, so a new Job or Deployment cannot land unsized.
+
 ### Changed
 
+- `olf infra project image --no-push` now prints a reference a revision can pin
+  (`olf.local/project-code@sha256:<image ID>`), so the local build-and-deploy loop
+  needs no registry account. Such a revision activates on the local provider only,
+  with pull policy `Never`, and needs the new `schema_version` 2 of the
+  ProjectRevision manifest; version 1 manifests are still read.
 - The domain model package is renamed: the PyPI distribution
   `openlakeforge-domain-model` is now `openlakeforge-core`, and its import
   package `openlakeforge_domain` is now `openlakeforge_core`. The old
@@ -24,6 +34,14 @@ for how a release is cut and verified.
   now the `openlakeforge-runtime` package under `packages/runtime/`, imported
   as `openlakeforge_runtime`. It is built and attached to each release like
   the other packages; it is not published to PyPI.
+- The project-code image installs `openlakeforge-runtime` as a package instead
+  of copying `openlakeforge_runtime/` beside `lakehouse_code/`. The dbt profile
+  step takes the project root from `--root` or `OPENLAKEFORGE_PROJECT_ROOT`
+  (default: the working directory) rather than from the module's location, so
+  Gold dbt products are found in a source checkout too.
+- `openlakeforge` now depends on `openlakeforge-runtime` (pinned to its own version)
+  instead of putting `packages/runtime` on `sys.path` for `olf check dbt` and
+  `olf infra dbt parse`.
 
 ### Migration
 

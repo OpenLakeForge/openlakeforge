@@ -18,6 +18,7 @@ from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.image_build import build_platform_api_image, build_project_code_image, build_superset_image
 from olf.common.tooling.toolkit import Toolkit
+from olf.infra.project_revision import LOCAL_IMAGE_REPOSITORY, is_local_image
 
 
 def load_image_into_kind(image: str, config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
@@ -67,13 +68,28 @@ def load_digest_image_into_kind(
     """
     repository, digest = split_digest_reference(image)
     tagged = f"{repository}:{digest.replace(':', '-')}"
-    tools.docker.tag(image, tagged, env=env)
+    if not is_local_image(image):  # a local image was tagged this way when it was built
+        tools.docker.tag(image, tagged, env=env)
     load_image_into_kind(tagged, config, tools, env=env)
     source, target = containerd_name(tagged), containerd_name(f"{repository}@{digest}")
     for node in tools.kind.get_nodes(config.cluster.name, env=env):
         tools.docker.exec_(
             node, ["ctr", "--namespace=k8s.io", "images", "tag", "--force", source, target], env=env
         )
+
+
+def load_local_image_into_kind(
+    image: str, config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]
+) -> str:
+    """Load a built, unpushed image into kind and return the `LOCAL_IMAGE_REPOSITORY@<image ID>` reference to it.
+
+    The image ID makes a rebuilt image a different reference, so a changed image is a changed pod spec and rolls.
+    """
+    image_id = json.loads(tools.docker.image_inspect(image, env=env, check=True).stdout)[0]["Id"]
+    tools.docker.tag(image, f"{LOCAL_IMAGE_REPOSITORY}:{image_id.replace(':', '-')}", env=env)
+    reference = f"{LOCAL_IMAGE_REPOSITORY}@{image_id}"
+    load_digest_image_into_kind(reference, config, tools, env=env)
+    return reference
 
 
 def prepare_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str | None:

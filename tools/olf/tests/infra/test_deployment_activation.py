@@ -4,6 +4,7 @@ import base64
 import json
 import os
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -218,7 +219,9 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     providers: list[_Provider] = []
 
-    def deploy(stage: str, pull_secret: str | None = None):  # noqa: ANN202
+    def deploy(
+        stage: str, pull_secret: str | None = None, revision: str | None = None, provider_kind: Provider | None = None
+    ):  # noqa: ANN202
         context = DeploymentContext.local(
             repo_root=external_project,
             distribution_root=ROOT,
@@ -227,16 +230,23 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
             work_root=tmp_path / "work",
         )
         context.paths.work_root.mkdir(parents=True, exist_ok=True)
+        if provider_kind is not None:
+            context = replace(context, provider=provider_kind)
         provider = _Provider(context, helm, kubectl)
         providers.append(provider)
         return activation_module.deploy_revision(
-            provider, revision=manifest.revision, store=store, profile_name="acceptance", pull_secret=pull_secret
+            provider,
+            revision=revision or manifest.revision,
+            store=store,
+            profile_name="acceptance",
+            pull_secret=pull_secret,
         )
 
     return SimpleNamespace(
         deploy=deploy,
         contract=contract,
         store=store,
+        spec=spec,
         helm=helm,
         kubectl=kubectl,
         webserver=webserver,
@@ -776,6 +786,7 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_DBT_PACKAGES_DIR": "project-code image",
     # Only `olf check project-code` sets it; pods read the image's baked profile.
     "OPENLAKEFORGE_DBT_PROFILES_DIR": "olf check project-code",
+    "OPENLAKEFORGE_PROJECT_ROOT": "the project-code image's ENV",
     # openlakeforge_runtime/floe_profile.py falls back to a default; no contract emits these yet.
     "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE": "unset, default applies",
     "OPENLAKEFORGE_FLOE_SERVICE_ACCOUNT": "unset, default applies",
@@ -1521,3 +1532,59 @@ def test_the_wait_is_bounded_and_names_what_the_location_served() -> None:
         )
 
     assert len(reloaded) == 3  # at 0s, 5s and 10s
+
+
+def _publish_local_image_revision(harness) -> str:  # noqa: ANN001
+    manifest = project_revision.build_project_revision(
+        harness.spec,
+        image=f"{project_revision.LOCAL_IMAGE_REPOSITORY}@sha256:" + "c" * 64,
+        distribution_version=distribution_version_at(ROOT),
+    )
+    project_revision.publish(harness.store, manifest, harness.spec)
+    return manifest.revision
+
+
+def test_a_local_image_revision_activates_locally_without_ever_pulling(harness) -> None:  # noqa: ANN001
+    """The no-registry loop: the image is on the kind nodes, so every pod must refuse to pull it."""
+    revision = _publish_local_image_revision(harness)
+
+    activation = harness.deploy("dev", pull_secret="ghcr-pull", revision=revision)
+
+    assert activation.project_code_image.startswith(project_revision.LOCAL_IMAGE_REPOSITORY + "@sha256:")
+    _namespace, values = harness.helm.rollouts[-1]
+    assert {deployment["image"]["pullPolicy"] for deployment in values["deployments"]} == {"Never"}
+    assert harness.image_calls == [activation.project_code_image]
+
+
+def test_a_registry_image_revision_keeps_pulling_when_missing(harness) -> None:  # noqa: ANN001
+    harness.deploy("dev")
+
+    _namespace, values = harness.helm.rollouts[-1]
+    assert {deployment["image"]["pullPolicy"] for deployment in values["deployments"]} == {"IfNotPresent"}
+
+
+@pytest.mark.parametrize("provider_kind", [Provider.AWS, Provider.AZURE])
+def test_a_local_image_revision_is_refused_where_a_registry_serves_the_stage(
+    harness, provider_kind: Provider  # noqa: ANN001
+) -> None:
+    revision = _publish_local_image_revision(harness)
+
+    with pytest.raises(activation_module.ActivationError, match="built locally and never pushed"):
+        harness.deploy("dev", revision=revision, provider_kind=provider_kind)
+
+    assert harness.helm.rollouts == []
+    assert harness.image_calls == []
+
+
+def test_a_local_image_is_put_back_on_the_nodes_not_pulled(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf.infra.deployment.local import images as local_images
+
+    loaded: list[str] = []
+    monkeypatch.setattr(local_images, "load_digest_image_into_kind", lambda image, *a, **k: loaded.append(image))
+    provider = _image_provider(Provider.LOCAL)
+    image = f"{project_revision.LOCAL_IMAGE_REPOSITORY}@sha256:" + "c" * 64
+
+    activation_module._ensure_image(provider, image, env={})
+
+    assert loaded == [image]
+    assert provider.tools.docker.pulls == []

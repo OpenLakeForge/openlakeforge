@@ -7,19 +7,20 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# The project root is an input, never derived from where this module is installed.
+PROJECT_ROOT_ENV = "OPENLAKEFORGE_PROJECT_ROOT"
 PROFILE_TEMPLATE_DIR = Path(__file__).resolve().parent / "profiles"
 # Where the image bakes the profile and the code location reads it: outside
 # lakehouse_code/, so it never enters a project revision (#546).
-BAKED_PROFILES_DIR = REPO_ROOT / "generated" / "dbt-profiles"
+BAKED_PROFILES_SUBDIR = Path("generated") / "dbt-profiles"
 # A check of a customer project renders that project's profiles elsewhere:
 # the distribution's baked file names only the products it was built with.
 PROFILES_DIR_ENV = "OPENLAKEFORGE_DBT_PROFILES_DIR"
 # Each product's packages.yml names the shared openlakeforge_dbt package
-# through this variable, because a path relative to the product resolves only
-# where openlakeforge_runtime/ sits beside lakehouse_code/ (the image), not in a customer
-# repository (#627). Every dbt command renders packages.yml, so whatever runs
-# dbt sets it to this distribution's own.
+# through this variable, because a path relative to the product cannot name
+# the installed distribution from a customer repository (#627). Every dbt
+# command renders packages.yml, so whatever runs dbt sets it to this
+# distribution's own.
 PACKAGES_DIR_ENV = "OPENLAKEFORGE_DBT_PACKAGES_DIR"
 DBT_PACKAGES_DIR = Path(__file__).resolve().parent
 # A template per query engine. Trino is the only one; a second engine (#547)
@@ -39,8 +40,17 @@ PARSE_PLACEHOLDERS = {
 }
 
 
+def project_root() -> Path:
+    """The directory holding `lakehouse_code/`: `OPENLAKEFORGE_PROJECT_ROOT`, else the working directory."""
+    return Path(os.environ.get(PROJECT_ROOT_ENV) or Path.cwd())
+
+
+def baked_profiles_dir() -> Path:
+    return project_root() / BAKED_PROFILES_SUBDIR
+
+
 def resolve_profiles_dir() -> Path:
-    return Path(os.environ.get(PROFILES_DIR_ENV) or BAKED_PROFILES_DIR)
+    return Path(os.environ.get(PROFILES_DIR_ENV) or baked_profiles_dir())
 
 
 def dbt_environment() -> dict[str, str]:
@@ -48,9 +58,8 @@ def dbt_environment() -> dict[str, str]:
     return {PACKAGES_DIR_ENV: str(DBT_PACKAGES_DIR)}
 
 
-def discover_project_dirs(root: Path | None = None) -> list[Path]:
-    search_root = root or REPO_ROOT / "lakehouse_code" / "gold"
-    return sorted(path.parent for path in search_root.glob("*/dbt/dbt_project.yml"))
+def discover_project_dirs(gold_root: Path) -> list[Path]:
+    return sorted(path.parent for path in gold_root.glob("*/dbt/dbt_project.yml"))
 
 
 def profile_name(project_dir: Path) -> str:
@@ -145,19 +154,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Render the OpenLakeForge dbt profiles and bake product manifests.")
     parser.add_argument("--adapter", default=DEFAULT_ADAPTER)
     parser.add_argument("--project-dir", action="append", type=Path, default=[])
-    parser.add_argument("--output-dir", type=Path, default=BAKED_PROFILES_DIR)
+    parser.add_argument("--root", type=Path, help=f"Project root; default ${PROJECT_ROOT_ENV}, else the working dir.")
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--bake", action="store_true", help="Also resolve and parse each project's manifest.")
     args = parser.parse_args()
 
-    project_dirs = [path.resolve() for path in args.project_dir] if args.project_dir else discover_project_dirs()
+    root = args.root.resolve() if args.root else project_root()
+    output_dir = args.output_dir or root / BAKED_PROFILES_SUBDIR
+    project_dirs = (
+        [path.resolve() for path in args.project_dir]
+        if args.project_dir
+        else discover_project_dirs(root / "lakehouse_code" / "gold")
+    )
     if not project_dirs:
         raise SystemExit("ERROR: no product dbt projects found.")
 
-    profile_path = write_profiles(project_dirs, args.output_dir, adapter=args.adapter)
+    profile_path = write_profiles(project_dirs, output_dir, adapter=args.adapter)
     print(f"Rendered {profile_path}")
     if args.bake:
         for project_dir in project_dirs:
-            print(f"dbt manifest baked at {bake_manifest(project_dir, args.output_dir)}")
+            print(f"dbt manifest baked at {bake_manifest(project_dir, output_dir)}")
 
 
 if __name__ == "__main__":

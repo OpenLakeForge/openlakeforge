@@ -54,6 +54,26 @@ def test_build_stage_revision_pins_the_image_the_provider_built(
     assert seen["project"] == str(external_project)
 
 
+def test_build_stage_revision_can_skip_the_push_for_the_local_loop(
+    external_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local_image = f"{project_revision.LOCAL_IMAGE_REPOSITORY}@sha256:" + "c" * 64
+    pushes: list[bool] = []
+    seen: dict[str, Any] = {}
+
+    def build_project_image(*, push: bool) -> str:
+        pushes.append(push)
+        return local_image
+
+    monkeypatch.setattr(revision_build, "publish_project_revision", lambda project, **kwargs: seen.update(kwargs))
+    provider: Any = SimpleNamespace(build_project_image=build_project_image)
+
+    revision_build.build_stage_revision(provider, SimpleNamespace(), str(external_project), push=False)  # type: ignore[arg-type]
+
+    assert pushes == [False]
+    assert seen["image"] == local_image
+
+
 def test_activate_stage_project_activates_the_revision_it_built(
     external_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

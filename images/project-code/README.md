@@ -29,18 +29,19 @@ Floe's merge write modes run through DuckDB, which loads its `httpfs`, `aws`,
 `iceberg` and `avro` extensions on first use and would download them from
 extensions.duckdb.org. Floe Job pods have no egress, so the build installs them
 for the locked DuckDB into the image user's `~/.duckdb/extensions/`, then
-`python -m openlakeforge_runtime.duckdb_extensions verify` loads them with downloads disabled; a
+`duckdb_extensions.py verify` loads them with downloads disabled; a
 missing extension fails the build. `olf check project-code` runs the same
 install and verify against its own environment.
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `olf infra deploy --provider aws --phase artifacts`.
 dbt is bound the same way. The Docker build renders one `profiles.yml` from
-`openlakeforge_runtime/dbt/profiles/trino.yml` into `generated/dbt-profiles/`, outside
-`lakehouse_code/`. Every connection value in it is an `env_var()` reference
-that the run pod's stage environment fills. The image sets
-`OPENLAKEFORGE_DBT_PACKAGES_DIR=/opt/openlakeforge/openlakeforge_runtime/dbt`, through which
-every product's `packages.yml` reaches the shared dbt package. The build also bakes each
+`openlakeforge_runtime/dbt/profiles/trino.yml` into `generated/dbt-profiles/` under
+`OPENLAKEFORGE_PROJECT_ROOT` (`/opt/openlakeforge`), outside `lakehouse_code/`. Every connection value in it is an `env_var()` reference
+that the run pod's stage environment fills. The runtime package is installed
+with `pip`, and sets `OPENLAKEFORGE_DBT_PACKAGES_DIR` to its installed `dbt/`
+directory for every dbt invocation, through which every product's
+`packages.yml` reaches the shared dbt package. The build also bakes each
 product's `target/manifest.json` with placeholder catalog and schema names.
 Dagster reads that manifest for the asset graph, and each run re-parses with
 its own stage's values, so one image serves every stage and provider.

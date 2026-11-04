@@ -1,0 +1,176 @@
+"""The shared Trino statement client, driven through a fake transport that stands in for Trino."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+import requests
+from openlakeforge_services.trino import (
+    TrinoAuthError,
+    TrinoCancelledError,
+    TrinoForbiddenError,
+    TrinoNotFoundError,
+    TrinoProtocolError,
+    TrinoQueryError,
+    TrinoStatementClient,
+    TrinoTimeoutError,
+    TrinoTlsError,
+    TrinoUnreachableError,
+)
+
+URL = "https://trino.example.com/v1/statement"
+SECRET = "eyJ.secret.token"
+
+
+class FakeTrino:
+    """Answers each request from a script of (status, body) or an exception, and records what was sent."""
+
+    def __init__(self, *answers: tuple[int, Any] | Exception) -> None:
+        self.answers = list(answers)
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        self.calls.append({"method": method, "url": url, **kwargs})
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        response = requests.Response()
+        response.status_code, body = answer
+        response._content = json.dumps(body).encode()
+        return response
+
+
+def _client(fake: FakeTrino) -> TrinoStatementClient:
+    return TrinoStatementClient(URL, catalog="dev", user="ada@example.com", source="test", send=fake)
+
+
+def _page(rows: list[list[Any]], next_uri: str | None = None, columns: bool = True) -> tuple[int, dict[str, Any]]:
+    body: dict[str, Any] = {"data": rows}
+    if columns:
+        body["columns"] = [{"name": "id"}]
+    if next_uri:
+        body["nextUri"] = next_uri
+    return 200, body
+
+
+def test_run_collects_every_page_and_cancels_nothing() -> None:
+    fake = FakeTrino(_page([[1]], f"{URL}/1"), _page([[2]], columns=False))
+
+    result = _client(fake).run("SELECT 1", bearer=lambda: SECRET)
+
+    assert (result.columns, result.rows, result.truncated) == (["id"], [[1], [2]], False)
+    assert [call["method"] for call in fake.calls] == ["POST", "GET"]
+
+
+def test_rows_past_the_limit_are_dropped_flagged_and_the_query_cancelled() -> None:
+    fake = FakeTrino(_page([[1], [2]], f"{URL}/1"), _page([[3]], f"{URL}/2"), (204, {}))
+
+    result = _client(fake).run("SELECT 1", bearer=lambda: SECRET, max_rows=2)
+
+    assert (result.rows, result.truncated) == ([[1], [2]], True)
+    assert fake.calls[-1]["method"] == "DELETE"
+    assert fake.calls[-1]["url"] == f"{URL}/2"
+
+
+def test_a_result_exactly_at_the_limit_is_not_truncated() -> None:
+    fake = FakeTrino(_page([[1], [2]], f"{URL}/1"), _page([]))
+
+    result = _client(fake).run("SELECT 1", bearer=lambda: SECRET, max_rows=2)
+
+    assert (result.rows, result.truncated) == ([[1], [2]], False)
+    assert all(call["method"] != "DELETE" for call in fake.calls)
+
+
+@pytest.mark.parametrize(
+    "next_uri",
+    [
+        "https://evil.example.com/v1/statement/1",
+        "http://trino.example.com/v1/statement/1",
+        "https://trino.example.com:8443/x",
+    ],
+)
+def test_a_continuation_off_the_configured_origin_is_refused_before_any_request(next_uri: str) -> None:
+    fake = FakeTrino(_page([[1]], next_uri))
+
+    with pytest.raises(TrinoProtocolError) as refused:
+        _client(fake).run("SELECT 1", bearer=lambda: SECRET)
+
+    assert len(fake.calls) == 1
+    assert SECRET not in str(refused.value)
+
+
+def test_a_continuation_with_credentials_in_the_authority_is_refused() -> None:
+    fake = FakeTrino(_page([[1]], "https://trino.example.com@evil.example.com/v1/statement/1"))
+
+    with pytest.raises(TrinoProtocolError):
+        _client(fake).run("SELECT 1", bearer=lambda: SECRET)
+
+
+def test_cancel_refuses_a_foreign_uri() -> None:
+    with pytest.raises(TrinoProtocolError):
+        _client(FakeTrino()).cancel("https://evil.example.com/v1/statement/1", SECRET)
+
+
+def test_cancelling_a_query_that_is_already_gone_succeeds() -> None:
+    _client(FakeTrino((404, {}))).cancel(f"{URL}/1", SECRET)
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ((401, {}), TrinoAuthError),
+        ((403, {}), TrinoForbiddenError),
+        ((404, {}), TrinoNotFoundError),
+        ((502, ["not", "a", "result"]), TrinoProtocolError),
+        (requests.exceptions.SSLError("bad"), TrinoTlsError),
+        (requests.exceptions.ReadTimeout("slow"), TrinoTimeoutError),
+        (requests.exceptions.ConnectionError(f"refused {SECRET}"), TrinoUnreachableError),
+    ],
+)
+def test_transport_and_http_failures_map_to_typed_errors_without_the_token(
+    answer: tuple[int, Any] | Exception, expected: type[Exception]
+) -> None:
+    with pytest.raises(expected) as raised:
+        _client(FakeTrino(answer)).submit("SELECT 1", SECRET)
+
+    assert SECRET not in str(raised.value)
+
+
+def test_a_timeout_is_also_unreachable() -> None:
+    with pytest.raises(TrinoUnreachableError):
+        _client(FakeTrino(requests.exceptions.ReadTimeout("slow"))).submit("SELECT 1", SECRET)
+
+
+def test_a_polaris_denial_is_told_from_a_sql_error_and_from_a_cancellation() -> None:
+    denial = {"message": "Failed", "failureInfo": {"message": "Forbidden: not authorized for op LIST_TABLES"}}
+    syntax = {"message": "line 1:8: Column 'x' cannot be resolved", "errorName": "COLUMN_NOT_FOUND"}
+    cancelled = {"message": "Query was canceled", "errorName": "USER_CANCELED"}
+    outcomes: list[TrinoQueryError] = []
+    for error in (denial, syntax, cancelled):
+        with pytest.raises(TrinoQueryError) as raised:
+            _client(FakeTrino((200, {"error": error}))).submit("SELECT 1", SECRET)
+        outcomes.append(raised.value)
+
+    assert [e.denied for e in outcomes] == [True, False, False]
+    assert [isinstance(e, TrinoCancelledError) for e in outcomes] == [False, False, True]
+    assert outcomes[0].messages == ["Failed", "Forbidden: not authorized for op LIST_TABLES"]
+
+
+def test_only_the_submission_carries_the_extra_credentials_and_each_page_a_fresh_bearer() -> None:
+    fake = FakeTrino(_page([[1]], f"{URL}/1"), _page([[2]], columns=False))
+    tokens = iter(["first", "refreshed"])
+
+    _client(fake).run("SELECT 1", bearer=lambda: next(tokens), extra_credentials=lambda t: {"token": t})
+
+    submitted, page = fake.calls[0]["headers"], fake.calls[1]["headers"]
+    assert (submitted["Authorization"], submitted["X-Trino-Extra-Credential"]) == ("Bearer first", "token=first")
+    assert page["Authorization"] == "Bearer refreshed"
+    assert "X-Trino-Extra-Credential" not in page
+    assert (submitted["X-Trino-Catalog"], submitted["X-Trino-User"], submitted["X-Trino-Source"]) == (
+        "dev",
+        "ada@example.com",
+        "test",
+    )
+    assert fake.calls[0]["allow_redirects"] is False

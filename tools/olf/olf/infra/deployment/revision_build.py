@@ -119,12 +119,16 @@ def publish_project_revision(
 
 
 def build_stage_revision(
-    provider: DeploymentProvider, context: DeploymentContext, project: str
+    provider: DeploymentProvider, context: DeploymentContext, project: str, *, push: bool = True
 ) -> ProjectRevisionManifest:
-    """Build and push the project-code image through `provider`, then publish a revision pinned to its digest."""
+    """Build the project-code image through `provider`, then publish a revision pinned to its digest.
+
+    `push=False` is the local provider's kind-only loop; its revision names a local image and activates on that
+    cluster alone.
+    """
     from olf.infra.project_revision import resolve_image_digest
 
-    image = resolve_image_digest(provider.build_project_image(push=True))
+    image = resolve_image_digest(provider.build_project_image(push=push))
     return publish_project_revision(
         project, image=image, open_store=lambda root: provider_revision_store(provider, context, root)
     )

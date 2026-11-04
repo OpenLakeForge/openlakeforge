@@ -312,3 +312,21 @@ def test_the_platform_api_reference_names_its_sources_without_building(tmp_path:
     (package / "app.py").write_text("second\n")
 
     assert images.platform_api_image(config) != before
+
+
+def test_a_built_image_is_loaded_into_kind_under_a_reference_that_names_its_image_id(tmp_path: Path) -> None:
+    """No registry holds this image, so kubelet must find it by name on every node and never pull it."""
+    config = _config(tmp_path)
+    runner = _ScriptedRunner()
+
+    reference = images.load_local_image_into_kind("acme/project-code:local", config, _toolkit(runner), env={})
+
+    image_id = "sha256:0123456789abcdef0123"
+    assert reference == f"olf.local/project-code@{image_id}"
+    argvs = [c.argv for c in runner.calls]
+    tagged = f"olf.local/project-code:sha256-{image_id.removeprefix('sha256:')}"
+    assert ["docker", "tag", "acme/project-code:local", tagged] in argvs
+    assert ["kind", "load", "docker-image", tagged, "--name", "openlakeforge-local"] in argvs
+    ctr_target = f"{reference}"
+    assert any(argv[1] == "exec" and argv[-1] == ctr_target for argv in argvs)
+    assert not any("pull" in argv or "push" in argv for argv in argvs)

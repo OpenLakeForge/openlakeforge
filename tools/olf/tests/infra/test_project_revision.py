@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -750,3 +751,49 @@ def test_build_rejects_a_report_bundle_with_a_dangling_identity(external_project
 
     with pytest.raises(project_revision.ProjectRevisionError, match="not promotable"):
         _build(external_project)
+
+
+_LOCAL_IMAGE = f"{project_revision.LOCAL_IMAGE_REPOSITORY}@sha256:" + "c" * 64
+
+
+def _local_revision(root: Path) -> project_revision.ProjectRevisionManifest:
+    return project_revision.build_project_revision(
+        _spec(root), image=_LOCAL_IMAGE, distribution_version=_DISTRIBUTION_VERSION
+    )
+
+
+def test_a_revision_can_pin_a_local_only_image(external_project: Path) -> None:
+    manifest = _local_revision(external_project)
+
+    parsed = project_revision.ProjectRevisionManifest.from_json(manifest.to_json())
+
+    assert parsed == manifest
+    assert json.loads(manifest.to_json())["schema_version"] == 2
+    assert project_revision.is_local_image(parsed.project_code_image)
+    assert not project_revision.is_local_image(_DIGEST_IMAGE)
+
+
+def test_a_schema_1_manifest_may_not_name_a_local_image(external_project: Path) -> None:
+    payload = json.loads(_local_revision(external_project).to_json())
+    payload["schema_version"] = 1
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="needs schema_version 2"):
+        project_revision.ProjectRevisionManifest.from_json(json.dumps(payload))
+
+
+def test_a_schema_1_manifest_still_loads(external_project: Path) -> None:
+    payload = json.loads(_build(external_project).to_json())
+    payload["schema_version"] = 1
+
+    parsed = project_revision.ProjectRevisionManifest.from_json(json.dumps(payload))
+
+    assert parsed.schema_version == 1
+    assert json.loads(parsed.to_json())["schema_version"] == 1
+
+
+def test_an_unknown_schema_version_is_refused(external_project: Path) -> None:
+    payload = json.loads(_build(external_project).to_json())
+    payload["schema_version"] = 3
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="unsupported .* schema_version"):
+        project_revision.ProjectRevisionManifest.from_json(json.dumps(payload))
