@@ -18,6 +18,13 @@ LAUNCH_RETRY_ATTEMPTS = 4
 LAUNCH_RETRY_DELAY_SECONDS = 3
 # The tag a launch is found by after an ambiguous response; the e2e's default.
 E2E_KEY_TAG = "openlakeforge/e2e-key"
+# Exit code 137 also occurs for other SIGKILLs; only Kubernetes' termination
+# reason establishes that the container exceeded its memory limit.
+_OOM_HINT = (
+    "\n  out of memory: the pod was killed for exceeding its memory limit."
+    " Floe job: raise the runner `resources` of the stage's rendered Floe profile."
+    " Dagster run pod (dlt): raise the `run_pod_resources` Terraform variable."
+)
 
 
 class DagsterTransientError(TransientServiceError):
@@ -329,6 +336,7 @@ class DagsterClient:
         delay: float = 10.0,
         attempts: int | None = None,
         on_status: Callable[[str], None] | None = None,
+        failure_details: Callable[[str], str] | None = None,
     ) -> None:
         terminal = {"SUCCESS", "FAILURE", "CANCELED"}
         last_error: Exception | None = None
@@ -367,6 +375,10 @@ class DagsterClient:
             if status in terminal:
                 if status != "SUCCESS":
                     failures = self._step_failures(run_id)
+                    if failure_details is not None:
+                        failures += failure_details(run_id)
+                    if "oomkilled" in failures.lower():
+                        failures += _OOM_HINT
                     raise ServiceClientError(f"{job_name} run {run_id} ended with {status}{failures}")
                 return
             time.sleep(delay)
@@ -384,6 +396,7 @@ class DagsterClient:
                   logsForRun(runId: $runId) {
                     ... on EventConnection {
                       events {
+                        ... on RunFailureEvent { message }
                         ... on ExecutionStepFailureEvent {
                           stepKey
                           error { message cause { message cause { message cause { message } } } }
@@ -400,6 +413,9 @@ class DagsterClient:
         lines = []
         for event in events:
             if not event.get("stepKey"):
+                # A run pod killed by the kernel has no failed step, only the run's own message.
+                if event.get("message"):
+                    lines.append(f"\n  run: {event['message'].strip()}")
                 continue
             # Dagster wraps a step's exception in DagsterExecutionStepExecutionError,
             # whose own message names only the op; the reason is down the cause chain.

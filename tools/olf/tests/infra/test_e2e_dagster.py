@@ -404,6 +404,44 @@ def test_dagster_poll_failure_names_the_failed_steps_error() -> None:
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
 
 
+@pytest.mark.parametrize(
+    "event",
+    [
+        {
+            "stepKey": "crm_floe",
+            "error": {"message": "Floe job failed: OOMKilled (exit_code=137)", "cause": None},
+        },
+        {"message": "Terminated with exit code 137: OOMKilled"},
+    ],
+)
+def test_dagster_poll_failure_diagnoses_out_of_memory(event: dict[str, Any]) -> None:
+    def request_json(query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        if "logsForRun" in query:
+            return {"data": {"logsForRun": {"events": [event]}}}
+        return {"data": {"runOrError": {"__typename": "Run", "status": "FAILURE"}}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    with pytest.raises(ServiceClientError, match=r"(?s)out of memory.*Floe profile.*run_pod_resources"):
+        client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
+
+
+@pytest.mark.parametrize("message", ["Terminated with exit code 137: Error", "K8s job failed"])
+def test_dagster_poll_does_not_infer_oom_from_an_unexplained_kill(message: str) -> None:
+    def request_json(query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        if "logsForRun" in query:
+            return {"data": {"logsForRun": {"events": [{"message": message}]}}}
+        return {"data": {"runOrError": {"__typename": "Run", "status": "FAILURE"}}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    with pytest.raises(ServiceClientError) as error:
+        client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
+
+    assert message in str(error.value)
+    assert "out of memory" not in str(error.value)
+
+
 def test_dagster_poll_retries_transient_graphql_errors() -> None:
     responses: list[Exception | dict[str, Any]] = [
         DagsterTransientError("read timeout"),
@@ -461,9 +499,7 @@ def test_dagster_launch_retries_transient_failure_and_keeps_launch_tag(monkeypat
         return response
 
     monkeypatch.setattr(dagster_client_module, "LAUNCH_RETRY_DELAY_SECONDS", 0)
-    run_id = DagsterClient("http://dagster/graphql", request_json=request_json).launch(
-        "sales_order_revenue_pipeline"
-    )
+    run_id = DagsterClient("http://dagster/graphql", request_json=request_json).launch("sales_order_revenue_pipeline")
     assert run_id == "run-1"
     assert calls[0]["executionParams"]["executionMetadata"] == calls[1]["executionParams"]["executionMetadata"]
     assert calls[0]["executionParams"]["executionMetadata"]["tags"][0]["key"] == "openlakeforge/e2e-key"
@@ -495,7 +531,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
         def launch(self, _job: str, *, tags=None) -> str:  # noqa: ANN001
             return "run-1"
 
-        def poll(self, _job: str, _run_id: str, *, timeout_seconds: int, on_status=None) -> None:  # noqa: ANN001
+        def poll(self, _job: str, _run_id: str, *, timeout_seconds: int, on_status=None, failure_details=None) -> None:  # noqa: ANN001
             timeouts.append(timeout_seconds)
 
     monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)
@@ -549,3 +585,55 @@ def test_dagster_launch_puts_the_requested_tags_on_the_run() -> None:
     tags = calls[-1]["variables"]["executionParams"]["executionMetadata"]["tags"]
     assert {"key": "openlakeforge/full_refresh", "value": "bronze"} in tags
     assert any(tag["key"] == "openlakeforge/e2e-key" for tag in tags)
+
+
+@pytest.mark.parametrize("previous", [False, True])
+def test_dagster_poll_reports_kubernetes_oom_when_worker_event_is_generic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    previous: bool,
+) -> None:
+    cfg = e2e_cfg(tmp_path)
+    termination = {"terminated": {"exitCode": 137, "reason": "OOMKilled"}}
+    pod = {
+        "metadata": {"name": "run-pod"},
+        "status": {
+            "containerStatuses": [
+                {
+                    "name": "dagster",
+                    "state": {} if previous else termination,
+                    "lastState": termination if previous else {},
+                }
+            ]
+        },
+    }
+
+    def kubectl(_cfg, args, *, capture):
+        assert args == ["get", "pods", "-n", cfg.namespace, "-l", "dagster/run-id=run-1", "-o", "json"]
+        return json.dumps({"items": [pod]})
+
+    monkeypatch.setattr(_dagster, "kubectl", kubectl)
+
+    def request_json(query: str, _variables=None):
+        if "logsForRun" in query:
+            return {"data": {"logsForRun": {"events": [{"message": "K8s job failed"}]}}}
+        return {"data": {"runOrError": {"__typename": "Run", "status": "FAILURE"}}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+    with pytest.raises(ServiceClientError, match=r"(?s)run-pod.*OOMKilled.*out of memory.*run_pod_resources"):
+        client.poll("job", "run-1", attempts=1, failure_details=lambda run: _dagster.run_pod_failure_details(cfg, run))
+
+
+@pytest.mark.parametrize("error", [E2EError("forbidden"), None])
+def test_run_pod_diagnostics_preserve_failure_if_pods_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error: E2EError | None,
+) -> None:
+    def kubectl(*_args, **_kwargs):
+        if error is not None:
+            raise error
+        return '{"items": []}'
+
+    monkeypatch.setattr(_dagster, "kubectl", kubectl)
+    assert _dagster.run_pod_failure_details(e2e_cfg(tmp_path), "gone-run") == ""
