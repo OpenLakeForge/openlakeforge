@@ -200,10 +200,6 @@ def deployment_context_for_profile(
         "profile": Profile(topology.preset.value),
         "topology": topology,
         "stage": selected_stage,
-        # Reaching a Deployment Profile through `-f` is what marks the #115
-        # lifecycle: the platform stops owning user code so `olf infra project
-        # deploy` can own it per stage.
-        "manage_user_deployments": False,
         "allow_stage_removal": allow_stage_removal,
     }
     if cluster_name and profile.provider.type == Provider.LOCAL:
