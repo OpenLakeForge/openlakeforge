@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.resolver import PathExecutableResolver
 from olf.infra.deployment.portforward import ForwardSpec, ForwardTarget, PortForwardSupervisor
 
@@ -112,7 +112,6 @@ def test_run_stops_all_children_when_the_wait_callable_raises(tmp_path: Path) ->
     def _boom() -> None:
         raise RuntimeError("boom")
 
-    import pytest
 
     with pytest.raises(RuntimeError):
         supervisor.run(spec, wait=_boom)
@@ -121,7 +120,6 @@ def test_run_stops_all_children_when_the_wait_callable_raises(tmp_path: Path) ->
 
 
 def test_run_default_wait_raises_when_a_later_target_dies(tmp_path: Path) -> None:
-    import pytest
 
     from olf.common.deployment.errors import DeploymentPreconditionError
 
@@ -191,15 +189,10 @@ def test_stop_all_kills_processes_that_do_not_terminate_in_time(tmp_path: Path) 
     assert process.killed
 
 
-def test_start_layers_env_overrides_over_the_ambient_process_environment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A bare `env=dict(overrides)` would replace the whole child environment,
-    dropping `PATH`/`HOME` and any cloud credential-plugin config (e.g.
-    `AWS_PROFILE`, Azure's config dir) that EKS/AKS exec-based kubeconfigs
-    need in order to authenticate - see the CloudProvider.forward() caller.
+def test_start_passes_env_overrides_through_for_the_runner_to_layer(tmp_path: Path) -> None:
+    """`ProcessRunner.popen` layers the overrides over the ambient environment
+    (covered in test_process.py), so the supervisor hands them over unmerged.
     """
-    monkeypatch.setenv("AWS_PROFILE", "ambient-profile")
     popens: list[_FakePopen] = []
 
     def fake_popen(argv, **kwargs):  # noqa: ANN001
@@ -213,10 +206,13 @@ def test_start_layers_env_overrides_over_the_ambient_process_environment(
 
     supervisor.start(spec.targets[0], spec, env={"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"})
 
-    child_env = popens[0].env
-    assert child_env["AWS_PROFILE"] == "ambient-profile"
-    assert child_env["PATH"] == os.environ["PATH"]
-    assert child_env["KUBECONFIG"] == "/repo/.tmp/kubeconfigs/aws.yaml"
+    assert popens[0].env == {"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"}
+
+
+def test_default_popen_is_the_process_runner(tmp_path: Path) -> None:
+    supervisor = PortForwardSupervisor(_kubectl(), log_prefix=tmp_path / "openlakeforge-local")
+
+    assert supervisor._popen.__func__ is ProcessRunner.popen  # type: ignore[attr-defined]  # bound method of a runner
 
 
 def test_start_passes_none_env_when_no_overrides_given(tmp_path: Path) -> None:

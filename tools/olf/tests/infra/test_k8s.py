@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from olf.common.tooling.process import CommandResult
 from olf.infra import k8s
 
 
@@ -64,7 +65,7 @@ def test_port_forward_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch
     process = Mock()
     process.poll.return_value = 0
     popen = Mock(return_value=process)
-    monkeypatch.setattr(k8s.subprocess, "Popen", popen)
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", popen)
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
     # Executable resolution (#127) is covered by test_toolchain_resolver.py;
     # here only the argv shape matters.
@@ -141,7 +142,7 @@ def test_wait_for_port_forward_times_out_and_reports_the_log(monkeypatch: pytest
 def test_port_forward_cleans_up_after_readiness_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     process = Mock()
     process.poll.return_value = 0
-    monkeypatch.setattr(k8s.subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", Mock(return_value=process))
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock(side_effect=k8s.KubectlError("not ready")))
     monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
 
@@ -213,3 +214,48 @@ def test_write_secret_sends_credentials_on_stdin(
     assert manifest["stringData"] == {"password": "private-password"}
     if overwrite:
         assert "--server-side" in argv
+
+
+def test_kubectl_captures_output_and_raises_with_stderr_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
+    runner = Mock()
+    runner.run.return_value = CommandResult(("kubectl",), 1, "out", " nope \n", 0.0)
+    monkeypatch.setattr(k8s, "ProcessRunner", lambda: runner)
+
+    with pytest.raises(k8s.KubectlError, match=r"kubectl --context ctx get pods failed: nope$"):
+        k8s._kubectl(["get", "pods"], capture=True, kube_context="ctx")
+    assert k8s._kubectl(["get", "pods"], capture=True, check=False, kube_context="ctx") == "out"
+    assert runner.run.call_args.args[0] == ["kubectl", "--context", "ctx", "get", "pods"]
+    assert runner.run.call_args.kwargs == {"check": False, "stream_output": False}
+
+
+def test_kubectl_streams_output_when_not_captured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
+    runner = Mock()
+    runner.run.return_value = CommandResult(("kubectl",), 0, "ignored", "", 0.0)
+    monkeypatch.setattr(k8s, "ProcessRunner", lambda: runner)
+
+    assert k8s._kubectl(["apply", "-f", "x"], kube_context="ctx") == ""
+    assert runner.run.call_args.kwargs == {"check": False, "stream_output": True}
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_exec_succeeds_reflects_the_exit_code(monkeypatch: pytest.MonkeyPatch, returncode: int) -> None:
+    monkeypatch.setenv("KUBE_CONTEXT", "ctx")
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
+    runner = Mock()
+    runner.run.return_value = CommandResult(("kubectl",), returncode, "", "", 0.0)
+    monkeypatch.setattr(k8s, "ProcessRunner", lambda: runner)
+
+    assert k8s.exec_succeeds("dep", "ns", ["true"]) is (returncode == 0)
+    assert runner.run.call_args.args[0] == [
+        "kubectl",
+        "--context",
+        "ctx",
+        "exec",
+        "deploy/dep",
+        "-n",
+        "ns",
+        "--",
+        "true",
+    ]

@@ -8,14 +8,12 @@ of the shell target's `trap ... INT TERM EXIT; wait`.
 `Kubectl.port_forward` is a blocking, single-call adapter method (used for
 one-shot waits elsewhere); it is the wrong shape for N concurrent,
 long-lived, backgrounded forwards, so this module builds argv through
-`Kubectl.port_forward_argv` and owns the `subprocess.Popen` lifecycle itself.
+`Kubectl.port_forward_argv` and owns the `ProcessRunner.popen` lifecycle itself.
 """
 
 from __future__ import annotations
 
-import os
 import signal
-import subprocess
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -23,6 +21,7 @@ from pathlib import Path
 
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.tooling.kubectl import Kubectl
+from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired
 
 _TERMINATE_TIMEOUT_SECONDS = 10.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.5
@@ -61,37 +60,33 @@ class PortForwardSupervisor:
         kubectl: Kubectl,
         *,
         log_prefix: Path,
-        popen: Callable[..., subprocess.Popen] = subprocess.Popen,
+        popen: Callable[..., Popen] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS,
     ) -> None:
         self._kubectl = kubectl
         self._log_prefix = log_prefix
-        self._popen = popen
+        self._popen = popen or ProcessRunner().popen
         self._sleep = sleep
         self._poll_interval_seconds = poll_interval_seconds
-        self._processes: list[subprocess.Popen] = []
+        self._processes: list[Popen] = []
         self._log_files: list = []
         self._targets: list[ForwardTarget] = []
         self._log_paths: list[Path] = []
 
-    def start(
-        self, target: ForwardTarget, spec: ForwardSpec, *, env: Mapping[str, str] | None = None
-    ) -> subprocess.Popen:
+    def start(self, target: ForwardTarget, spec: ForwardSpec, *, env: Mapping[str, str] | None = None) -> Popen:
         """Launch one forwarding child.
 
-        `env` is layered over the ambient process environment (matching
-        `ProcessRunner.run`'s `{**os.environ, **command.env}` merge), not
-        substituted for it - a bare `subprocess.Popen(..., env=dict(env))`
-        would replace the whole environment, dropping `PATH`/`HOME` and any
-        cloud credential-plugin config (`AWS_PROFILE`, Azure's config dir)
-        that EKS/AKS exec-based kubeconfigs need to authenticate.
+        `env` is layered over the ambient process environment by
+        `ProcessRunner.popen`, not substituted for it - replacing the whole
+        environment would drop `PATH`/`HOME` and any cloud credential-plugin
+        config (`AWS_PROFILE`, Azure's config dir) that EKS/AKS exec-based
+        kubeconfigs need to authenticate.
         """
         argv = self._kubectl_argv(target, spec)
         log_path = Path(f"{self._log_prefix}-{target.label}-port-forward.log")
         log_file = open(log_path, "w")  # noqa: SIM115 - lifetime tied to the child process
-        popen_env = {**os.environ, **env} if env else None
-        process = self._popen(argv, stdout=log_file, stderr=subprocess.STDOUT, env=popen_env)
+        process = self._popen(argv, stdout=log_file, stderr=STDOUT, env=env or None)
         self._processes.append(process)
         self._log_files.append(log_file)
         self._targets.append(target)
@@ -132,7 +127,7 @@ class PortForwardSupervisor:
         for process in self._processes:
             try:
                 process.wait(timeout=_TERMINATE_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
+            except TimeoutExpired:
                 process.kill()
         for log_file in self._log_files:
             try:

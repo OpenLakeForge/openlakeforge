@@ -15,10 +15,17 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO, Any
 
 from olf.common.deployment.errors import CommandExecutionError, CommandTimeoutError, ExecutableNotFoundError
 from olf.common.tooling.redact import redact_argv
 from olf.common.tooling.retry import RetryPolicy, RetryPredicate, run_with_retry
+
+# Re-exported so long-running-process callers need not import `subprocess`.
+PIPE = subprocess.PIPE
+STDOUT = subprocess.STDOUT
+Popen = subprocess.Popen
+TimeoutExpired = subprocess.TimeoutExpired
 
 
 @dataclass(frozen=True)
@@ -114,6 +121,41 @@ class ProcessRunner:
         if retry_policy is not None:
             return run_with_retry(attempt, policy=retry_policy, retry_if=retry_if)
         return attempt()
+
+    def popen(
+        self,
+        command: Command | Sequence[str | Path],
+        *,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        stdout: IO[Any] | int | None = None,
+        stderr: IO[Any] | int | None = None,
+        text: bool = False,
+    ) -> subprocess.Popen[Any]:
+        """Start a background process and return its handle; the caller owns its lifecycle.
+
+        Same argv/env/logging conventions as `run`: `env` is layered over a copy
+        of the current environment, and a missing executable raises
+        `ExecutableNotFoundError`. stdin is inherited, as with a bare `Popen`.
+        """
+        cmd = _to_command(command, cwd=cwd, env=env, timeout_seconds=None, input_text=None, stdin_path=None)
+        argv = list(cmd.argv)
+        if self._log_commands:
+            from olf.common import log
+
+            log.step(f"run: {' '.join(redact_argv(argv))}")
+        try:
+            return subprocess.Popen(  # noqa: S603 - argv is structured, shell=False
+                argv,
+                cwd=cmd.cwd,
+                env={**os.environ, **cmd.env} if cmd.env is not None else None,
+                stdout=stdout,
+                stderr=stderr,
+                text=text,
+                shell=False,
+            )
+        except FileNotFoundError as exc:
+            raise ExecutableNotFoundError(argv[0]) from exc
 
     def _run_once(self, command: Command, *, check: bool, stream_output: bool = False) -> CommandResult:
         argv = list(command.argv)
