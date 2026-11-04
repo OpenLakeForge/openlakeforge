@@ -38,6 +38,9 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
             env=env,
         )
         tools.runner.run([terraform, f"-chdir={directory}", "validate"], env=env, stream_output=True)
+        # A root's own tests plan it with mocked providers (no cluster); the init above is the one they use.
+        if (directory / "tests").is_dir():
+            tools.runner.run([terraform, f"-chdir={directory}", "test"], env=env, stream_output=True)
     module_tests = (root / "infra/terraform/modules").glob("**/tests/*.tftest.hcl")
     for module in sorted({test.parent.parent for test in module_tests}):
         _test_module(root, module, terraform=terraform, tools=tools, env=env)

@@ -77,3 +77,8 @@ output "stage_service_accounts" {
   description = "Runtime identity per enabled stage, for the storage and catalog permissions #114 binds to it."
   value       = { for name, account in kubernetes_service_account_v1.stage_runtime : name => account.metadata[0].name }
 }
+
+output "route_groups" {
+  description = "Contract ref to the perimeter group that gates its ingress route (empty: ungated)."
+  value       = { for ref, route in local.ingress_routes : ref => route.group }
+}

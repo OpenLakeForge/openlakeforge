@@ -57,7 +57,6 @@ def context(tmp_path: Path, *, provider: str = "local", issuer: str = "github") 
         command_env=lambda base: dict(base),
         provider=SimpleNamespace(value=provider),
         topology=SimpleNamespace(identity=SimpleNamespace(issuer=issuer)),
-        manage_user_deployments=True,
     )
 
 
@@ -220,7 +219,7 @@ def test_the_command_refuses_a_profile_that_is_not_local_github(
     assert kubectl.calls == []
 
 
-def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_deployments_alone(
+def test_a_profile_file_selects_the_profile_driven_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from olf.infra.commands import secrets as command
@@ -228,7 +227,6 @@ def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_depl
     kubectl = FakeKubectl()
     command_with_fakes(monkeypatch, tmp_path, kubectl)
     profile_context = context(tmp_path)
-    profile_context.manage_user_deployments = False
     seen: list[str] = []
     monkeypatch.setattr(
         command, "deployment_context_for_profile", lambda path, **_: seen.append(path) or profile_context
@@ -245,7 +243,7 @@ def test_a_profile_file_selects_the_profile_driven_context_that_leaves_user_depl
 
     assert result.exit_code == 0, result.output
     assert seen == ["profile.yaml"]
-    assert [c.manage_user_deployments for c in contexts] == [False]
+    assert contexts == [profile_context]
 
 
 def test_github_app_delegates_to_the_connect_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import base64
 import os
-import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+
+from olf.common.deployment.errors import ExecutableNotFoundError
+from olf.common.tooling.process import CommandResult, ProcessRunner
 
 # The coordinator mounts its serving certificate's CA only when workload
 # authentication is on (ADR 0016), so the pod itself says which listener to use
@@ -28,7 +30,7 @@ STAGE_CATALOG_PREFIX = "lakehouse_"
 TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
 
 # Called with the argv and the text for the process's stdin.
-Runner = Callable[[Sequence[str], str], "subprocess.CompletedProcess[str]"]
+Runner = Callable[[Sequence[str], str], CommandResult]
 
 
 class TrinoQueryError(RuntimeError):
@@ -205,12 +207,12 @@ def run_sql(
             password = decode_password(lookup.stdout or "")
             stdin = f"{password}\n"
         result = run([*base, *exec_args(target, sql, output_format=output_format)], stdin)
-    except OSError as exc:
+    except (OSError, ExecutableNotFoundError) as exc:
         raise TrinoQueryError(f"could not run kubectl: {exc}") from exc
     if result.returncode != 0:
         raise TrinoQueryError(explain_failure(target, result.stderr or result.stdout or ""))
     return result.stdout
 
 
-def _subprocess_runner(command: Sequence[str], stdin: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(list(command), input=stdin, capture_output=True, text=True, check=False)
+def _subprocess_runner(command: Sequence[str], stdin: str) -> CommandResult:
+    return ProcessRunner().run(command, input_text=stdin, check=False)

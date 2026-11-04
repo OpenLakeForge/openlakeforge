@@ -40,3 +40,8 @@ output "contract" {
     callback_url     = "${var.route_scheme}://${var.callback_host}/oauth2/callback"
   }
 }
+
+output "login_audience" {
+  description = "Client id whose audience the login also requests (var.login_audience), or null."
+  value       = var.login_audience
+}
