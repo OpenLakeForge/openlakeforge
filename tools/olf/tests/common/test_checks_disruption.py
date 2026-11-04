@@ -51,3 +51,15 @@ def test_values_with_a_budget_pass(tmp_path: Path) -> None:
 
 def test_values_with_one_replica_pass(tmp_path: Path) -> None:
     assert _values(tmp_path, "replicaCount: 1\nreplicas: 1\n") == []
+
+
+def test_values_with_several_trino_workers_need_a_budget(tmp_path: Path) -> None:
+    assert len(_values(tmp_path, "server:\n  workers: 2\n")) == 1
+
+
+def test_a_disabled_budget_does_not_count(tmp_path: Path) -> None:
+    assert len(_values(tmp_path, "replicaCount: 2\npodDisruptionBudget:\n  enabled: false\n")) == 1
+
+
+def test_a_commented_out_budget_does_not_count(tmp_path: Path) -> None:
+    assert len(_values(tmp_path, "replicaCount: 2\n# podDisruptionBudget:\n#   enabled: true\n")) == 1
