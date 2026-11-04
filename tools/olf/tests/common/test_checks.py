@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -187,3 +188,35 @@ jobs:
     assert _structure._release_publication_guard_errors(tmp_path) == [
         "release workflow green-main guard must delegate repository and SHA validation to olf"
     ]
+
+
+@pytest.mark.skipif(sys.version_info[:2] != (3, 12), reason="the project-code check runs on Python 3.12 only")
+def test_project_requirements_are_installed_under_the_platform_pins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The check environment must hold a project's requirements to the platform pins, as the image build does;
+    otherwise a range can resolve newer releases there and the check tests packages the image never runs."""
+    (tmp_path / "lakehouse_code/gold").mkdir(parents=True)
+    (tmp_path / "lakehouse_code/requirements.txt").write_text("httpx>=0.27\n")
+    monkeypatch.setattr(_project_code, "_check_cache_root", lambda root, distribution: tmp_path / "cache")
+    monkeypatch.setattr(_project_code, "check_project_requirements", lambda *args, **kwargs: None)
+    installs: list[list[str]] = []
+    monkeypatch.setattr(
+        _project_code, "_uv_pip_install", lambda *, target, requirements, cwd: installs.append(requirements)
+    )
+
+    class _Stop(Exception):
+        pass
+
+    def stop(*args: object, **kwargs: object) -> None:
+        raise _Stop
+
+    monkeypatch.setattr(_project_code, "_install_core", stop)
+
+    with pytest.raises(_Stop):
+        _project_code.project_code(str(tmp_path))
+
+    project_install = installs[-1]
+    assert project_install[:2] == ["-r", str(tmp_path / "lakehouse_code/requirements.txt")]
+    constraints = Path(project_install[project_install.index("-c") + 1])
+    assert "dagster==" in constraints.read_text() and "--hash" not in constraints.read_text()
