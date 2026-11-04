@@ -8,12 +8,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /opt/openlakeforge
 
 COPY images/project-code/pyproject.toml images/project-code/requirements.lock ./
+
 COPY packages/core ./packages/core
 
 # The lock contains the complete transitive set.  Avoid resolver re-evaluation
 # of upstream metadata ranges (for example SQLAlchemy's greenlet constraint).
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/core
+
+# The optional project layer (lakehouse_code/requirements.txt) goes on top of the
+# platform lock, constrained to its exact pins so it cannot change them. The glob
+# makes the file optional: without it only the lock is copied and the image is
+# unchanged. Placed before the runtime and the project code so its layer is cached
+# across code edits. Unlike the platform lock it is not hash-verified.
+COPY images/project-code/requirements.lock lakehouse_code/requirements.tx[t] ./project-layer/
+RUN if [ -f project-layer/requirements.txt ]; then \
+        sed -n 's/ \\$//; /^[A-Za-z0-9]/p' project-layer/requirements.lock > project-layer/constraints.txt \
+        && pip install --no-cache-dir -c project-layer/constraints.txt -r project-layer/requirements.txt; \
+    fi
 
 # Floe's merge write modes load DuckDB extensions, which DuckDB would otherwise
 # download at run time; Floe Job pods have no egress (#725). Installed here for

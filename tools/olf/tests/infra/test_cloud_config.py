@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from olf.common.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.infra.deployment.cloud.config import (
@@ -303,6 +306,23 @@ def test_default_image_tag_falls_back_to_utc_timestamp_outside_a_git_repo(tmp_pa
     tag = default_image_tag(tmp_path, scope="aws")
 
     assert re.fullmatch(r"aws-\d{14}", tag), tag
+
+
+def test_default_image_tag_uses_the_short_git_sha_inside_a_repo(tmp_path: Path) -> None:
+    identity = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), *identity, "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+    sha = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "--short", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert default_image_tag(tmp_path, scope="aws") == f"aws-{sha}"
+
+
+def test_default_image_tag_falls_back_when_git_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert re.fullmatch(r"aws-\d{14}", default_image_tag(tmp_path, scope="aws"))
 
 
 def test_default_image_tag_prefers_a_stable_distribution_identity_over_a_timestamp(tmp_path: Path) -> None:

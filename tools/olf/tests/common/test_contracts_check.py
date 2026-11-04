@@ -100,9 +100,9 @@ def _repo_with_local_contracts(
     outputs_tf_fixture: str | None = None,
 ) -> Path:
     """A synthetic repo root where `local`'s contracts.tf/main.tf come from a
-    fixture under test, while azure-poc/aws-poc and the aws-glue module are
-    copied unmodified from the real repo -- isolating the fixture as the one
-    variable under test."""
+    fixture under test, while azure-poc/aws-poc, the aws-glue module and the
+    shared provider-contract module are copied unmodified from the real repo --
+    isolating the fixture as the one variable under test."""
     hcl_fixtures = FIXTURES / "hcl"
     for env in ("azure-poc", "aws-poc"):
         env_dir = tmp_path / "infra/terraform/environments" / env

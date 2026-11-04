@@ -19,11 +19,21 @@ for how a release is cut and verified.
 - A `gold_maintenance` Dagster job expires snapshots and removes orphan files of the Gold tables through
   Trino's Iceberg procedures, with the stage's dbt Trino identity and a dry run. Its `gold_maintenance_weekly`
   schedule exists only on prod and ships `STOPPED`, like Silver's. See `docs/architecture/floe-validation.md`.
+- A project can add Python dependencies in `lakehouse_code/requirements.txt`. They are installed in their own
+  cached image layer on top of the platform lock, constrained to its exact pins; `olf check project-code` and
+  the image build fail with a clear message when they conflict. The layer is not hash-verified (#557).
 - `olf check resources`, part of `olf check all`, fails when a Terraform-defined container has no
   `requests` (cpu and memory) or no memory limit, so a new Job or Deployment cannot land unsized.
+- `olf check disruption`, part of `olf check all`, fails when a Terraform module or Helm values file runs
+  more than one replica without a PodDisruptionBudget. Single-replica pods get none, because
+  `minAvailable: 1` on one pod blocks node drains (#351). Trino workers (`spec.query.size` medium and
+  large) now get a PodDisruptionBudget with `maxUnavailable: 1`.
 
 ### Changed
 
+- The portal image is 0.4.1, the React Router app. `/` redirects to `/services`, and a new
+  **Queries** page runs read-only SQL as the signed-in person on deployments with Dex-backed
+  identity (`identity.issuer: github`); elsewhere it says the workspace is not available.
 - `olf infra deploy --phase artifacts` now builds the project's ProjectRevision and
   activates it through the same path as `olf infra project deploy`, on local, AWS and
   Azure, with one step order: the optional layers first, then the Dagster rollout. On
@@ -53,6 +63,11 @@ for how a release is cut and verified.
 - `openlakeforge` now depends on `openlakeforge-runtime` (pinned to its own version)
   instead of putting `packages/runtime` on `sys.path` for `olf check dbt` and
   `olf infra dbt parse`.
+- The Terraform-owned Dagster user-code branch is deleted from the dagster module: the
+  `manage_user_deployments` and `kubernetes_log_archive_schedule` variables, the user-deployment
+  subchart values, the run launcher `job_image` and the Terraform log-archive CronJob, together with
+  the variable in the local, aws-poc and azure-poc roots and `DeploymentContext`. The rendered
+  Dagster Helm values are unchanged; `deploy_revision` already owned every code location.
 
 ### Removed
 

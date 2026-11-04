@@ -641,7 +641,6 @@ module "dagster" {
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
   project_code_image_revision    = var.project_code_image_revision
-  manage_user_deployments        = var.manage_user_deployments
   storage_contract               = local.stage_storage_contracts[each.key]
   catalog_contract               = local.stage_catalog_contracts[each.key]
   governance_contract = merge(local.governance_contract, {

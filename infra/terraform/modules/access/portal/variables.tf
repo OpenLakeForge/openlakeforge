@@ -12,7 +12,7 @@ variable "release_name" {
 variable "image" {
   description = "openlakeforge-portal image, pinned by digest (release/component-catalog.yaml, portal)."
   type        = string
-  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.3.0@sha256:544523333c3cd83e0e73b281529e1c9ccc93b4eb87e8c0964b82211e219beae9"
+  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.4.1@sha256:a12027ed534ac293b49dcfef54b5a1f6b02657a8cfb0b6b97cf5ab37721efb88"
 }
 
 variable "links" {

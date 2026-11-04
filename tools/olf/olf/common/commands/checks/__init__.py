@@ -10,6 +10,7 @@ import typer
 from olf.common.commands.checks._components import components, lockfiles
 from olf.common.commands.checks._contracts import contracts
 from olf.common.commands.checks._dbt import dbt
+from olf.common.commands.checks._disruption import disruption
 from olf.common.commands.checks._docs import docs
 from olf.common.commands.checks._flows import flows
 from olf.common.commands.checks._infra import infra
@@ -29,6 +30,7 @@ app.command("flows")(flows)
 app.command("infra")(infra)
 app.command("lockfiles")(lockfiles)
 app.command("resources")(resources)
+app.command("disruption")(disruption)
 app.command("project-code")(project_code)
 app.command("dbt")(dbt)
 app.command("security")(security)
@@ -49,6 +51,7 @@ def all_checks(
     flows(repo_root)
     infra(repo_root)
     resources(repo_root)
+    disruption(repo_root)
     project_code(repo_root)
     dbt(repo_root)
     lockfiles(repo_root)

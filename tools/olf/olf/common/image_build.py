@@ -9,6 +9,7 @@ from olf.common import config, log
 from olf.common.deployment.context import DeploymentContext, Profile
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.deployment.project_code import project_code_build_context
+from olf.common.deployment.project_dependencies import check_project_requirements
 from olf.common.tooling.toolkit import Toolkit
 
 
@@ -56,6 +57,12 @@ def build_project_code_image(
     images = config.images
     log.step(f"Pulling project-code Python base image: {images.project_code_python_base_image}")
     tools.docker.pull(images.project_code_python_base_image, env=env, retry_policy=images.pull_retry)
+
+    requirements = config.paths.project.code_root / "requirements.txt"
+    if requirements.is_file():
+        check_project_requirements(
+            requirements, config.paths.distribution_root / "images/project-code/requirements.lock", tools=tools
+        )
 
     log.step(f"Building project-code image: {images.project_code_build_image}")
     with project_code_build_context(config.paths) as build_context:

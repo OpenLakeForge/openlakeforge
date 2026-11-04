@@ -83,19 +83,7 @@ locals {
     ops_bucket_name      = module.s3.ops_bucket_name
   })
 
-  stage_metadata_database_contracts = { for name in keys(local.enabled_stages) : name => merge(
-    local.metadata_database_contract,
-    {
-      dagster_db_name                 = local.stage_databases["dagster_${name}"].db_name
-      dagster_db_user                 = local.stage_databases["dagster_${name}"].db_user
-      dagster_credentials_secret_name = local.stage_databases["dagster_${name}"].credentials_secret_name
-    },
-    contains(keys(local.analytics_stages), name) ? {
-      superset_db_name                 = local.stage_databases["superset_${name}"].db_name
-      superset_db_user                 = local.stage_databases["superset_${name}"].db_user
-      superset_credentials_secret_name = local.stage_databases["superset_${name}"].credentials_secret_name
-    } : {},
-  ) }
+  stage_metadata_database_contracts = module.provider_contract.stage_metadata_database_contracts
 
   governance_database = local.governance_enabled ? local.stage_databases["openmetadata"] : null
 
@@ -360,145 +348,113 @@ locals {
     future_adapter_shapes = ["observability.cloudwatch", "observability.managed_prometheus"]
   }
 
-  provider_contracts = {
-    schema_version = "3.0.0"
-    deployment = {
-      profile_name = var.profile_name
-      provider     = local.aws_provider_name
-      region       = local.aws_region
-    }
-    shared = merge({
-      foundation          = { ref = "shared/foundation", implementation = local.foundation_contract.implementation }
-      kubernetes_platform = { ref = "shared/kubernetes_platform", implementation = local.kubernetes_platform_contract.implementation }
-      metadata_database   = { ref = "shared/metadata_database", implementation = local.metadata_database_contract.implementation }
-      query = {
-        ref            = "shared/query"
-        implementation = local.query_contract.implementation
-        endpoint       = local.query_contract.endpoint
-      }
-      artifact_registry = { ref = "shared/artifact_registry", implementation = local.artifact_registry_contract.implementation }
-      ops_storage = {
-        ref                      = "shared/ops_storage"
-        implementation           = local.artifact_bucket_contract.implementation
-        bucket_name              = local.artifact_bucket_contract.bucket_name
-        artifact_base_uri        = local.artifact_bucket_contract.artifact_base_uri
-        access_mode              = local.artifact_bucket_contract.access_mode
-        local_upload_access_mode = local.artifact_bucket_contract.local_upload_access_mode
-        # Always null: AWS S3 authenticates through Pod Identity, and olf's
-        # own upload path uses --via direct (boto3's own credential chain),
-        # never port-forward with a static Secret.
-        credentials_secret_name = local.artifact_bucket_contract.credentials_secret_name
-        access_key_id_key       = local.artifact_bucket_contract.access_key_id_key
-        secret_access_key_key   = local.artifact_bucket_contract.secret_access_key_key
-      }
-      secrets       = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
-      identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation, roles = local.identity_roles }
-      access        = { ref = "shared/access", implementation = local.access_contract.implementation }
-      observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
-      }, local.governance_enabled ? {
-      # OpenMetadata is one shared instance across every governed stage, so
-      # its binding lives here rather than being duplicated per stage.
-      governance_service = {
-        ref            = "shared/governance_service"
-        implementation = local.governance_contract.implementation
-        endpoint       = local.governance_contract.endpoint
-      }
-    } : {})
-    stages = {
-      for name, stage in local.enabled_stages : name => merge({
-        namespace = local.stage_namespaces[name]
-        storage = {
-          provider          = local.aws_provider_name
-          implementation    = "storage.aws_s3"
-          protocol          = "s3"
-          region            = local.aws_region
-          path_style_access = false
-          ssl_mode          = "required"
-          identity_ref      = "stage/${name}/runtime_identity"
-          bronze = {
-            physical_id = local.stage_storage_contracts[name].bronze_bucket_name
-            bucket_name = local.stage_storage_contracts[name].bronze_bucket_name
-            uri         = "s3://${local.stage_storage_contracts[name].bronze_bucket_name}"
-          }
-          silver = {
-            physical_id = local.stage_storage_contracts[name].silver_bucket_name
-            bucket_name = local.stage_storage_contracts[name].silver_bucket_name
-            uri         = "s3://${local.stage_storage_contracts[name].silver_bucket_name}"
-          }
-          gold = {
-            physical_id = local.stage_storage_contracts[name].gold_bucket_name
-            bucket_name = local.stage_storage_contracts[name].gold_bucket_name
-            uri         = "s3://${local.stage_storage_contracts[name].gold_bucket_name}"
-          }
-        }
-        catalog = {
-          logical_name     = "iceberg_catalog"
-          implementation   = local.stage_catalog_contracts[name].implementation
-          catalog_type     = "glue"
-          catalog_provider = "aws-glue"
-          catalog_name     = local.stage_catalog_contracts[name].catalog_name
-          runtime_profile  = "aws-glue-rest"
-          physical_id      = local.stage_catalog_contracts[name].glue_catalog_id
-          warehouse        = local.stage_catalog_contracts[name].glue_catalog_id
-          glue_region      = local.aws_region
-          glue_catalog_id  = local.stage_catalog_contracts[name].glue_catalog_id
-        }
-        query = {
-          service_ref          = "shared/query"
-          catalog_ref          = "stage/${name}/catalog"
-          catalog_name         = local.stage_catalog_contracts[name].catalog_name
-          endpoint             = local.query_contract.endpoint
-          runtime_identity_ref = "stage/${name}/runtime_identity"
-        }
-        orchestration = {
-          service_ref  = "stage/${name}/orchestration"
-          endpoint_ref = "stage/${name}/endpoints/orchestration"
-          # The same list the Dagster module renders workspace.yaml from, and
-          # the set a stage's user deployments are rendered from.
-          # dagster-user-deployments names each Service after its deployment,
-          # so a code-location name is also an in-cluster host: a second copy
-          # on the activation side points the webserver at a Service nobody
-          # creates, and the stage comes up with no code server reachable.
-          code_locations = local.orchestration_contract.code_locations
-        }
-        activation = {
-          ops_storage_ref = "shared/ops_storage"
-          prefix          = "activations/${name}"
-        }
-        runtime_identity = {
-          ref       = "stage/${name}/runtime_identity"
-          principal = local.stage_service_accounts[name]
-        }
-        endpoints = merge(
-          {
-            catalog       = "stage/${name}/catalog"
-            query         = "shared/query"
-            orchestration = "stage/${name}/endpoints/orchestration"
-          },
-          stage.analytics ? { reporting = "stage/${name}/endpoints/reporting" } : {},
-          stage.governance ? { governance = "stage/${name}/endpoints/governance" } : {},
-        )
-        },
-        stage.analytics ? {
-          reporting = {
-            service_ref  = "stage/${name}/reporting"
-            endpoint_ref = "stage/${name}/endpoints/reporting"
-          }
-        } : {},
-        stage.governance ? {
-          governance = {
-            service_ref  = "shared/governance_service"
-            endpoint_ref = "stage/${name}/endpoints/governance"
-          }
-      } : {})
-    }
-  }
+  provider_contracts = module.provider_contract.provider_contracts
 }
 
-check "foundation_contract_matches_platform_context" {
-  assert {
-    condition     = local.kubernetes_platform_contract.kube_context == local.foundation_contract.kube_context
-    error_message = "The AWS POC platform kube context must come from the AWS foundation contract."
+# The contract document, the per-stage metadata database contracts and the
+# cross-field checks come from the shared module; this root supplies only what
+# is specific to the AWS provider.
+module "provider_contract" {
+  source = "../../modules/contracts/provider-contract"
+
+  profile_name            = var.profile_name
+  provider_name           = local.aws_provider_name
+  region                  = local.aws_region
+  environment_label       = "AWS POC"
+  shared_namespace        = var.shared_namespace
+  stage_namespaces        = local.stage_namespaces
+  kube_context            = local.kubernetes_platform_contract.kube_context
+  foundation_kube_context = local.foundation_contract.kube_context
+
+  implementations = {
+    foundation          = local.foundation_contract.implementation
+    kubernetes_platform = local.kubernetes_platform_contract.implementation
+    metadata_database   = local.metadata_database_contract.implementation
+    secrets             = local.secrets_contract.implementation
+    observability       = local.observability_contract.implementation
+    artifact_registry   = local.artifact_registry_contract.implementation
+  }
+
+  query = local.query_contract
+
+  # Glue is stage-scoped, so there is no shared catalog service to bind.
+  catalog = local.catalog_contract
+
+  # AWS S3 authenticates through Pod Identity, and olf's own upload path uses
+  # --via direct (boto3's own credential chain), never port-forward with a
+  # static Secret: the credential fields are always null.
+  ops_storage = local.artifact_bucket_contract
+
+  identity = {
+    implementation = local.identity_contract.implementation
+    roles          = local.identity_roles
+  }
+
+  access = {
+    implementation = local.access_contract.implementation
+  }
+
+  # OpenMetadata is one shared instance across every governed stage, so its
+  # binding is shared rather than duplicated per stage.
+  governance_service = local.governance_enabled ? local.governance_contract : null
+
+  # The same list the Dagster module renders workspace.yaml from, and the set
+  # a stage's user deployments are rendered from.
+  code_locations = local.orchestration_contract.code_locations
+
+  metadata_database = local.metadata_database_contract
+  stage_databases   = local.stage_databases
+
+  stage_service_namespaces = concat(
+    [for name, instance in module.dagster : { stage = name, namespace = instance.namespace }],
+    [for name, instance in module.superset : { stage = name, namespace = instance.namespace }],
+  )
+
+  stages = {
+    for name, stage in local.enabled_stages : name => {
+      namespace            = local.stage_namespaces[name]
+      analytics            = stage.analytics
+      governance           = stage.governance
+      service_account      = local.stage_service_accounts[name]
+      catalog_endpoint_ref = "stage/${name}/catalog"
+      query_catalog_name   = local.stage_catalog_contracts[name].catalog_name
+      storage = {
+        provider          = local.aws_provider_name
+        implementation    = "storage.aws_s3"
+        protocol          = "s3"
+        region            = local.aws_region
+        path_style_access = false
+        ssl_mode          = "required"
+        identity_ref      = "stage/${name}/runtime_identity"
+        bronze = {
+          physical_id = local.stage_storage_contracts[name].bronze_bucket_name
+          bucket_name = local.stage_storage_contracts[name].bronze_bucket_name
+          uri         = "s3://${local.stage_storage_contracts[name].bronze_bucket_name}"
+        }
+        silver = {
+          physical_id = local.stage_storage_contracts[name].silver_bucket_name
+          bucket_name = local.stage_storage_contracts[name].silver_bucket_name
+          uri         = "s3://${local.stage_storage_contracts[name].silver_bucket_name}"
+        }
+        gold = {
+          physical_id = local.stage_storage_contracts[name].gold_bucket_name
+          bucket_name = local.stage_storage_contracts[name].gold_bucket_name
+          uri         = "s3://${local.stage_storage_contracts[name].gold_bucket_name}"
+        }
+      }
+      catalog = {
+        logical_name     = "iceberg_catalog"
+        implementation   = local.stage_catalog_contracts[name].implementation
+        catalog_type     = "glue"
+        catalog_provider = "aws-glue"
+        catalog_name     = local.stage_catalog_contracts[name].catalog_name
+        runtime_profile  = "aws-glue-rest"
+        physical_id      = local.stage_catalog_contracts[name].glue_catalog_id
+        warehouse        = local.stage_catalog_contracts[name].glue_catalog_id
+        glue_region      = local.aws_region
+        glue_catalog_id  = local.stage_catalog_contracts[name].glue_catalog_id
+      }
+    }
   }
 }
 
@@ -535,46 +491,6 @@ check "aws_poc_uses_managed_services" {
       local.artifact_bucket_contract.distribution_mode == "aws-s3-upload",
     ])
     error_message = "The AWS POC must use S3, RDS PostgreSQL, Glue, ECR, and S3 artifact upload."
-  }
-}
-
-check "catalog_contract_consumer_support" {
-  assert {
-    condition = alltrue([
-      contains(local.catalog_contract.trino_support, local.catalog_contract.catalog_type),
-      contains(local.catalog_contract.dagster_support, local.catalog_contract.catalog_type),
-      contains(local.catalog_contract.floe_support, local.catalog_contract.catalog_type),
-      contains(local.catalog_contract.dbt_support, local.catalog_contract.catalog_type),
-      contains(local.catalog_contract.openmetadata_support, local.catalog_contract.catalog_type),
-    ])
-    error_message = "The active catalog_type must be declared as supported by Trino, Dagster, Floe, dbt, and OpenMetadata."
-  }
-}
-
-check "stage_namespaces_are_distinct" {
-  assert {
-    condition = alltrue([
-      length(distinct(values(local.stage_namespaces))) == length(local.stage_namespaces),
-      !contains(values(local.stage_namespaces), var.shared_namespace),
-    ])
-    error_message = "Every enabled stage must own a namespace of its own, distinct from the shared platform namespace."
-  }
-}
-
-check "stage_services_stay_in_their_own_stage" {
-  assert {
-    condition = alltrue(concat(
-      [for name, instance in module.dagster : instance.namespace == local.stage_namespaces[name]],
-      [for name, instance in module.superset : instance.namespace == local.stage_namespaces[name]],
-    ))
-    error_message = "Each stage-scoped service instance must be deployed in its own stage namespace."
-  }
-}
-
-check "stage_metadata_state_is_not_shared" {
-  assert {
-    condition     = length(distinct([for database in values(local.stage_databases) : database.db_name])) == length(local.stage_databases)
-    error_message = "Every stage-scoped service instance must own its metadata database; sharing one mixes stage state."
   }
 }
 

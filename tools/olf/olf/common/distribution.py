@@ -16,13 +16,14 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tarfile
 from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
+
+from olf.common.tooling.process import ProcessRunner
 
 if TYPE_CHECKING:
     from olf.common.project import ProjectSpec
@@ -88,9 +89,9 @@ def distribution_version_at(root: Path) -> str | None:
 
 def _tracked_payload_paths(root: Path) -> list[Path]:
     """Return the deliberately small, tracked runtime allowlist."""
-    result = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], check=True, capture_output=True)
+    result = ProcessRunner().run(["git", "-C", str(root), "ls-files", "-z"])
     paths: list[Path] = []
-    for raw in result.stdout.decode("utf-8").split("\0"):
+    for raw in result.stdout.split("\0"):
         if not raw:
             continue
         relative = PurePosixPath(raw)
