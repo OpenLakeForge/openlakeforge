@@ -39,13 +39,13 @@ def sync_catalog_namespaces() -> None:
     _run_cli("Catalog namespace reconciliation", sync_namespaces, dry_run=False, prune=None)
 
 
-def deploy_optional_layer_artifacts(environ: Mapping[str, str]) -> None:
+def deploy_optional_layer_artifacts(environ: Mapping[str, str], *, allow_missing_assets: bool | None = None) -> None:
     from olf.infra.commands.openmetadata import deploy_openmetadata_metadata
     from olf.infra.commands.superset import deploy_superset_reports
 
     layers.deploy_enabled_artifacts(
         environ,
         deploy_reports=deploy_superset_reports,
-        deploy_metadata=deploy_openmetadata_metadata,
+        deploy_metadata=lambda: deploy_openmetadata_metadata(allow_missing_assets=allow_missing_assets),
         report=log.step,
     )

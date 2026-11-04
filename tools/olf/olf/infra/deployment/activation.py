@@ -983,8 +983,11 @@ def deploy_revision(
                 # Gold schema with no registered table is reported, not
                 # fatal, as in the platform's own artifact deploy
                 # (local/artifacts.py).
-                os.environ.setdefault("OPENMETADATA_ALLOW_MISSING_ASSETS", "true")
-                deploy_optional_layer_artifacts(contract_environ)
+                # An operator's own setting still wins: None defers to it.
+                deploy_optional_layer_artifacts(
+                    contract_environ,
+                    allow_missing_assets=None if "OPENMETADATA_ALLOW_MISSING_ASSETS" in os.environ else True,
+                )
             config = provider.config
             prepare_chart(
                 config.charts["dagster"],

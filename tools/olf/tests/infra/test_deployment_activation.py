@@ -340,11 +340,13 @@ def _build_report_harness(
 
     monkeypatch.setattr(superset_module, "deploy_reports", _fake_deploy_reports)
     metadata_calls: list[None] = []
-    metadata_allow_missing: list[str | None] = []
+    metadata_allow_missing: list[bool | None] = []
+    environ_seen: list[str | None] = []
 
-    def _fake_deploy_metadata() -> None:
+    def _fake_deploy_metadata(*, allow_missing_assets: bool | None = None) -> None:
         metadata_calls.append(None)
-        metadata_allow_missing.append(os.environ.get("OPENMETADATA_ALLOW_MISSING_ASSETS"))
+        metadata_allow_missing.append(allow_missing_assets)
+        environ_seen.append(os.environ.get("OPENMETADATA_ALLOW_MISSING_ASSETS"))
 
     monkeypatch.setattr(openmetadata_commands, "deploy_openmetadata_metadata", _fake_deploy_metadata)
 
@@ -370,6 +372,7 @@ def _build_report_harness(
         report_calls=report_calls,
         metadata_calls=metadata_calls,
         metadata_allow_missing=metadata_allow_missing,
+        environ_seen=environ_seen,
         external_project=external_project,
         expected_dashboard_dirs=expected_dashboard_dirs,
         original_dashboard_description=original_description,
@@ -471,7 +474,8 @@ def test_a_first_activation_deploys_metadata_before_the_gold_tables_exist(
 
     harness.deploy("prod")
 
-    assert harness.metadata_allow_missing == ["true"]
+    assert harness.metadata_allow_missing == [True]
+    assert harness.environ_seen == [None]  # the process environment is not mutated
 
 
 def test_an_operator_can_still_require_the_gold_tables_at_activation(
@@ -484,7 +488,8 @@ def test_an_operator_can_still_require_the_gold_tables_at_activation(
 
     harness.deploy("prod")
 
-    assert harness.metadata_allow_missing == ["false"]
+    assert harness.metadata_allow_missing == [None]  # defers to the operator's "false"
+    assert harness.environ_seen == ["false"]
 
 
 def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noqa: ANN001
