@@ -58,6 +58,25 @@ source `crm_api` with `runtime: {config: [base_url], secrets: [api_token]}`:
 | `base_url` | ConfigMap `olf-source-crm-api` | `SOURCES__CRM_API__BASE_URL` |
 | `api_token` | Secret `olf-source-crm-api-credentials` | `SOURCES__CRM_API__API_TOKEN` |
 
+Create those bindings through `olf`, using the same profile and stage you
+will deploy to. Export `CRM_API_TOKEN` in your shell first:
+
+```bash
+olf infra source bind crm_api --stage dev -f openlakeforge.yaml \
+  --set base_url=https://api.example.com \
+  --secret-from-env api_token=CRM_API_TOKEN
+olf infra source bindings --stage dev -f openlakeforge.yaml
+```
+
+`bind` checks key names against the descriptor. Pass secret values through
+`--secret-from-env KEY=VAR`, `--secret-from-file KEY=PATH` (one trailing newline
+is stripped), or the terminal's hidden prompt. Output contains key names only.
+`--partial` retains existing declared keys; `--dry-run` reads the current
+bindings and prints the plan without writing or prompting. `bindings` warns
+about extra keys and exits 1 for missing or unreadable objects or keys. Use
+`olf infra source unbind crm_api --stage dev -f openlakeforge.yaml` to remove
+both objects. Repeat the binding for each stage with that stage's values.
+
 These are the names dlt itself resolves for a `@dlt.source` in
 `bronze/crm_api/dlt/crm_api.py`, so the loader reads them with
 `dlt.config.value` and `dlt.secrets.value`, and fails if one is missing. In

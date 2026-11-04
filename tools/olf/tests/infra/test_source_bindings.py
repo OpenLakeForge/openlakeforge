@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from openlakeforge_core.inventory import Source
 
-from olf.infra.deployment.source_bindings import missing_source_bindings
+from olf.infra.deployment.source_bindings import missing_source_bindings, source_binding_status
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "packages/runtime"))
@@ -98,3 +98,22 @@ def test_a_source_with_config_only_needs_no_secret() -> None:
 
     assert _check(namespace, config_only) == []
     assert len(namespace.outputs) == 1
+
+
+def test_status_reports_extra_keys_without_reading_values() -> None:
+    namespace = _Namespace(
+        {
+            ("configmap", "olf-source-crm-api"): {"base_url": "https://api.example", "old_url": "old"},
+            ("secret", "olf-source-crm-api-credentials"): {"old_token": "secret-value"},
+        }
+    )
+    statuses = source_binding_status(
+        [_API, _CSV], kubectl=namespace, namespace="olf-prod", context=None, kubeconfig=None, env=None
+    )
+
+    assert statuses[0].problem == ""
+    assert statuses[0].extra == ("old_url",)
+    assert statuses[1].missing == ("api_token",)
+    assert statuses[1].extra == ("old_token",)
+    assert "secret-value" not in repr(statuses)
+    assert all(output.startswith("go-template=") for output in namespace.outputs)

@@ -66,6 +66,9 @@ All `new` commands validate the result before writing and accept
 | `olf infra status` | Service URLs, then pods, services and PVCs per namespace. `--json` for JSON. |
 | `olf infra forward` | Port-forward every service to `localhost` until Ctrl-C. |
 | `olf infra doctor` | Check the host, tools, project and cloud authentication without changing anything. |
+| `olf infra source bind <source> --stage dev -f openlakeforge.yaml` | Bind the source's declared runtime keys; `--set KEY=VALUE`, `--secret-from-env KEY=VAR`, or `--secret-from-file KEY=PATH`. `--partial` keeps existing declared keys; `--dry-run` prints key names without writing. |
+| `olf infra source bindings --stage dev -f openlakeforge.yaml` | Report bound, missing and extra keys for every source. Reads Secret key names only; exits 1 for missing or unreadable bindings. |
+| `olf infra source unbind <source> --stage dev -f openlakeforge.yaml` | Delete the source's ConfigMap and Secret in the selected stage. |
 | `olf infra plan` | Show the Terraform plan of the foundation or platform. |
 | `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |

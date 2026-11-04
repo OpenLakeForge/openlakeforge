@@ -9,6 +9,7 @@ surface when a run pod fails to start, so activation refuses first.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from openlakeforge_core.inventory import Source
@@ -20,7 +21,27 @@ from olf.common.tooling.kubectl import Kubectl
 _KEY_NAMES = 'go-template={{range $key, $_ := .data}}{{$key}}{{"\\n"}}{{end}}'
 
 
-def missing_source_bindings(
+@dataclass(frozen=True)
+class BindingStatus:
+    source: str
+    kind: str
+    name: str
+    namespace: str
+    unreadable: bool
+    missing: tuple[str, ...]
+    extra: tuple[str, ...]
+
+    @property
+    def problem(self) -> str:
+        prefix = f"source {self.source!r}: {self.kind} {self.name}"
+        if self.unreadable:
+            return f"{prefix} is missing or unreadable in {self.namespace}"
+        if self.missing:
+            return f"{prefix} in {self.namespace} has no key {', '.join(self.missing)}"
+        return ""
+
+
+def source_binding_status(
     sources: Iterable[Source],
     *,
     kubectl: Kubectl,
@@ -28,9 +49,8 @@ def missing_source_bindings(
     context: str | None,
     kubeconfig: Path | None,
     env: Mapping[str, str] | None,
-) -> list[str]:
-    """What the stage lacks, one line per ConfigMap or Secret; empty when bound."""
-    problems: list[str] = []
+) -> list[BindingStatus]:
+    statuses: list[BindingStatus] = []
     for source in sources:
         for kind, name, keys in (
             ("configmap", source.config_map_name, source.runtime_config),
@@ -48,10 +68,34 @@ def missing_source_bindings(
                 env=env,
                 check=False,
             )
-            if not result.ok:
-                problems.append(f"source {source.name!r}: {kind} {name} is missing or unreadable in {namespace}")
-                continue
-            absent = [key for key in keys if key not in set(result.stdout.split())]
-            if absent:
-                problems.append(f"source {source.name!r}: {kind} {name} in {namespace} has no key {', '.join(absent)}")
-    return problems
+            present = set(result.stdout.split()) if result.ok else set()
+            statuses.append(
+                BindingStatus(
+                    source=source.name,
+                    kind=kind,
+                    name=name,
+                    namespace=namespace,
+                    unreadable=not result.ok,
+                    missing=tuple(key for key in keys if key not in present),
+                    extra=tuple(sorted(present - set(keys))),
+                )
+            )
+    return statuses
+
+
+def missing_source_bindings(
+    sources: Iterable[Source],
+    *,
+    kubectl: Kubectl,
+    namespace: str,
+    context: str | None,
+    kubeconfig: Path | None,
+    env: Mapping[str, str] | None,
+) -> list[str]:
+    return [
+        status.problem
+        for status in source_binding_status(
+            sources, kubectl=kubectl, namespace=namespace, context=context, kubeconfig=kubeconfig, env=env
+        )
+        if status.problem
+    ]
