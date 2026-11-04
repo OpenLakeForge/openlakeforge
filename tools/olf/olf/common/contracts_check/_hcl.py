@@ -15,6 +15,9 @@ from olf.common.contracts_check._report import CheckResult
 # surface (ADR-defined; local/azure-poc/aws-poc are the only ones today).
 _ENVIRONMENT_ROOTS = ("local", "azure-poc", "aws-poc")
 
+# The shared module that declares the cross-field checks for roots migrated to it.
+_SHARED_CONTRACT_MODULE = "contracts/provider-contract"
+
 # Every `provider_contracts` capability local that `contracts.tf` must
 # declare in each environment (order matches `provider_contracts`' keys).
 _REQUIRED_CONTRACT_LOCALS = (
@@ -206,6 +209,23 @@ def _merged_locals(document: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _declared_checks(document: dict[str, Any]) -> set[str]:
+    return {key for block in document.get("check", []) for key in block}
+
+
+def _shared_module_checks(repo_root: Path, document: dict[str, Any]) -> set[str]:
+    """Checks a root inherits by calling the shared provider-contract module
+    (#561): the module declares them once, so the root need not repeat them."""
+    calls_module = any(
+        _SHARED_CONTRACT_MODULE in str(body.get("source", ""))
+        for block in document.get("module", [])
+        for body in block.values()
+    )
+    if not calls_module:
+        return set()
+    return _declared_checks(_parse_hcl(repo_root / "infra/terraform/modules" / _SHARED_CONTRACT_MODULE / "main.tf"))
+
+
 def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
     """Tier 1+2: parse each environment's `contracts.tf` and assert on the
     parsed tree -- required locals exist, required `check` blocks are
@@ -231,7 +251,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
             if required_local not in locals_map:
                 errors.append(f"{env}/contracts.tf: missing required local {required_local!r}")
 
-        declared_checks = {key for block in document.get("check", []) for key in block}
+        declared_checks = _declared_checks(document) | _shared_module_checks(repo_root, document)
         for required_check in (*_REQUIRED_STAGE_CONTRACT_CHECKS, *_REQUIRED_CONTRACT_CHECKS_BY_ENV.get(env, ())):
             if required_check not in declared_checks:
                 errors.append(f"{env}/contracts.tf: missing required check block {required_check!r}")
