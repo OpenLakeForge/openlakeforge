@@ -128,7 +128,7 @@ def _repo_with_local_contracts(
         ROOT / "infra/terraform/modules/catalog/aws-glue/main.tf",
         glue_dir / "main.tf",
     )
-    # aws-poc builds its contract through the shared module and inherits its checks.
+    # Roots already migrated to the shared provider-contract module inherit their checks from it.
     module_dir = tmp_path / "infra/terraform/modules/contracts/provider-contract"
     module_dir.mkdir(parents=True)
     shutil.copy(ROOT / "infra/terraform/modules/contracts/provider-contract/main.tf", module_dir / "main.tf")
@@ -242,9 +242,7 @@ def test_hcl_phase_two_invariants_rejects_secret_valued_contract_field(tmp_path:
     assert "storage.secret_access_key" in result.detail
 
 
-# aws-poc is absent: it inherits these checks from the shared provider-contract
-# module (#561), which test_..._counts_checks_inherited_from_the_shared_module covers.
-@pytest.mark.parametrize("env", ["azure-poc"])
+@pytest.mark.parametrize("env", ["azure-poc", "aws-poc"])
 def test_hcl_structured_contracts_requires_the_stage_isolation_invariants_of_every_provider(
     tmp_path: Path, env: str
 ) -> None:
@@ -254,9 +252,10 @@ def test_hcl_structured_contracts_requires_the_stage_isolation_invariants_of_eve
     was landing, so a cloud regression passed every gate."""
     repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
     contracts_tf = repo_root / "infra/terraform/environments" / env / "contracts.tf"
-    contracts_tf.write_text(
-        contracts_tf.read_text().replace('check "stage_metadata_state_is_not_shared"', 'check "renamed"')
-    )
+    # A root migrated to the shared module declares the check there, not in its own contracts.tf.
+    shared_module_tf = repo_root / "infra/terraform/modules/contracts/provider-contract/main.tf"
+    for tf_file in (contracts_tf, shared_module_tf):
+        tf_file.write_text(tf_file.read_text().replace('check "stage_metadata_state_is_not_shared"', 'check "renamed"'))
 
     result = contracts_check._check_hcl_structured_contracts(repo_root)
 

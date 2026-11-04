@@ -1,0 +1,185 @@
+# How the local root wires identity and per-person queries (#799), asserted on the
+# planned values the modules receive rather than on the root's source. Nothing
+# here needs a cluster: providers are mocked and the three cluster lookups and the
+# foundation state are overridden.
+
+mock_provider "kubernetes" {}
+mock_provider "helm" {}
+mock_provider "random" {}
+
+override_data {
+  target = data.terraform_remote_state.local_foundation
+  values = {
+    outputs = {
+      foundation_contract = {
+        provider            = "local"
+        implementation      = "kind"
+        cluster_name        = "test"
+        kube_context        = "kind-test"
+        kubeconfig_path     = "/nonexistent/kubeconfig"
+        cluster_config_path = "/nonexistent/kind.yaml"
+      }
+    }
+  }
+}
+
+override_data {
+  target = data.kubernetes_service_v1.apiserver
+  values = { spec = [{ cluster_ip = "10.96.0.1" }] }
+}
+
+override_data {
+  target = data.kubernetes_endpoints_v1.apiserver
+  values = { subset = [{ address = [{ ip = "172.18.0.2" }] }] }
+}
+
+override_data {
+  target = data.kubernetes_nodes.all
+  values = { nodes = [{ status = [{ addresses = [{ type = "InternalIP", address = "172.18.0.2" }] }] }] }
+}
+
+variables {
+  stages = {
+    dev  = { enabled = true, analytics = true, governance = false }
+    prod = { enabled = true, analytics = true, governance = false }
+  }
+  access_base_domain = "olf.localhost"
+  platform_api_image = "platform-api:test"
+  ops_bucket_name    = "olf-ops"
+  identity_issuer    = "github"
+  identity_github = {
+    organization = "acme"
+    teams        = { platform-admin = ["admins"], data-engineer = ["eng"], analyst = ["an"], viewer = ["all"] }
+    oauth_app_secret_ref = {
+      name              = "github-oauth"
+      client_id_key     = "id"
+      client_secret_key = "secret"
+    }
+  }
+}
+
+run "dex_with_password_authentication_serves_person_queries" {
+  command = plan
+
+  variables {
+    trino_workload_authentication = "password"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).person_query == true
+    error_message = "person_query must be on with Dex and Trino password authentication"
+  }
+
+  assert {
+    condition     = keys(jsondecode(module.platform_api[0].settings_json).query_endpoints) == ["dev", "prod"]
+    error_message = "query_endpoints must name exactly the stages with people catalogs"
+  }
+
+  assert {
+    condition = alltrue([
+      for stage, endpoint in jsondecode(module.platform_api[0].settings_json).query_endpoints :
+      endpoint.catalog == stage && endpoint.statement_url == "https://${module.trino.service_name}.olf-system.svc.cluster.local:${module.trino.tls_port}/v1/statement"
+    ])
+    error_message = "each endpoint names its stage as catalog and the coordinator's https URL on the TLS port"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).public_origin == "https://olf.localhost"
+    error_message = "public_origin must carry the route scheme and the base domain"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).audiences == ["olf-cli"]
+    error_message = "the API accepts olf-cli's audience alone, never the perimeter's"
+  }
+
+  assert {
+    condition     = module.perimeter[0].login_audience == "olf-cli"
+    error_message = "the perimeter requests olf-cli's audience with Dex"
+  }
+
+  assert {
+    condition     = jsonencode(module.dex[0].public_client_trusted_peers) == jsonencode({ "olf-cli" = ["perimeter"] })
+    error_message = "Dex lets the perimeter obtain tokens for olf-cli"
+  }
+
+  assert {
+    condition     = [for ref, group in output.route_groups : ref if group == module.perimeter[0].api_group] == ["platform-api"]
+    error_message = "only the platform-api route uses the API middleware group"
+  }
+}
+
+run "external_issuer_leaves_person_queries_off" {
+  command = plan
+
+  variables {
+    identity_issuer = "external"
+    identity_external = {
+      issuer_url   = "https://issuer.example.com"
+      role_claim   = "groups"
+      role_mapping = { platform-admin = ["admins"], data-engineer = ["eng"], analyst = ["an"], viewer = ["all"] }
+    }
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).person_query == false
+    error_message = "person_query must be off without Dex"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).query_endpoints == {}
+    error_message = "no query endpoints without person queries"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).audiences == ["olf-cli"]
+    error_message = "the API accepts olf-cli's audience alone"
+  }
+
+  assert {
+    condition     = module.perimeter[0].login_audience == null
+    error_message = "no login audience without Dex"
+  }
+
+  assert {
+    condition     = length(module.dex) == 0
+    error_message = "an external issuer deploys no Dex"
+  }
+
+  assert {
+    condition     = [for ref, group in output.route_groups : ref if group == module.perimeter[0].api_group] == ["platform-api"]
+    error_message = "only the platform-api route uses the API middleware group"
+  }
+}
+
+run "dex_without_password_authentication_leaves_person_queries_off" {
+  command = plan
+
+  variables {
+    trino_workload_authentication = "tls"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).person_query == false
+    error_message = "person_query needs Trino password authentication as well as Dex"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).query_endpoints == {}
+    error_message = "no query endpoints without person queries"
+  }
+}
+
+run "plain_http_without_identity_has_no_api" {
+  command = plan
+
+  variables {
+    identity_issuer = null
+    access_issuer   = "none"
+  }
+
+  assert {
+    condition     = length(module.platform_api) == 0 && length(module.perimeter) == 0
+    error_message = "no identity deploys neither the API nor the perimeter"
+  }
+}

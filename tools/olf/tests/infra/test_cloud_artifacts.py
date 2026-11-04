@@ -76,10 +76,8 @@ def _fake_provider(repo_root: Path, *, image: str, pushes: list[bool], **extra: 
 
 def _stub_activation(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """Everything below `deploy_revision` needs a cluster; what it is handed is the behaviour under test."""
-    from olf.infra import k8s
     from olf.infra.deployment import activation, revision_build
 
-    monkeypatch.setattr(k8s, "set_project_code_image", lambda *a, **k: pytest.fail("patched Dagster directly"))
     monkeypatch.setattr(
         revision_build,
         "publish_project_revision",
