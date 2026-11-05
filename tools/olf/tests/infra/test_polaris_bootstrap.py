@@ -1,27 +1,31 @@
-"""olf's Polaris bootstrap: stage catalogs and principal credentials (#562)."""
+"""olf's Polaris bootstrap: catalogs, principal credentials, grants and people's roles (#562)."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from _polaris_fake import ROOT, STS, Cluster, FakePolaris, serve
+from _polaris_fake import ASSIGNED, ROOT, STAGES, STS, Cluster, FakePolaris, conformance_plan, serve
 
 from olf.common.tooling.kubectl import Kubectl
 from olf.infra import k8s
 from olf.infra.polaris import PolarisClient, PolarisConfig, PolarisError
 from olf.infra.polaris_bootstrap import (
     DROP_WITH_PURGE,
+    BootstrapPlan,
     CatalogSts,
     Credential,
+    PersonAccess,
     StageCatalog,
     ensure_catalog,
     ensure_credential,
+    run_bootstrap,
 )
 
 _ENVIRON = {"KUBE_CONTEXT": "kind-test"}
@@ -253,3 +257,117 @@ def test_an_unexpected_polaris_answer_fails(
         ensure_catalog(client, _DEV, None)
 
     assert raised.value.status == 503
+
+
+def _bootstrap(client: PolarisClient, plan: BootstrapPlan | None = None) -> None:
+    run_bootstrap(client, plan or conformance_plan(), environ=_ENVIRON)
+
+
+def _secret(namespace: str, name: str, keys: str, principal: str) -> dict[str, dict[str, str]]:
+    return _current(Credential(principal, name, f"{keys}_CLIENT_ID", f"{keys}_CLIENT_SECRET", namespace))
+
+
+def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+
+    _bootstrap(client)
+
+    state = fake.state()
+    assert sorted(state["catalogs"]) == ["lakehouse_dev", "lakehouse_prod"]
+    assert state["principals"] == {
+        **{f"trino-{s}": [f"data-engineer-{s}"] for s in STAGES},
+        **{f"floe-{s}": [f"data-writer-{s}"] for s in STAGES},
+        **{f"deployer-{s}": [f"namespace-admin-{s}"] for s in STAGES},
+        "openmetadata": ["data-reader"],
+        "github": sorted(ASSIGNED),
+        **{f"trino-people-{s}": [] for s in STAGES},
+    }
+    assert state["catalog_roles"]["lakehouse_dev"] == {
+        "catalog-admin": ["CATALOG_MANAGE_CONTENT"],
+        "catalog-writer": ["CATALOG_MANAGE_CONTENT"],
+        "catalog-reader-dev": ["CATALOG_MANAGE_CONTENT"],
+        "catalog-namespace-admin": ["CATALOG_MANAGE_ACCESS", "CATALOG_MANAGE_METADATA"],
+        "olf-write": ["CATALOG_MANAGE_CONTENT"],
+        "olf-read": ["NAMESPACE_READ_PROPERTIES", "TABLE_READ_DATA", "VIEW_READ_PROPERTIES"],
+        "olf-gold-read": ["NAMESPACE_LIST"],
+    }
+    assert state["principal_roles"] == {
+        "data-engineer-dev": {"lakehouse_dev": ["catalog-admin"]},
+        "data-engineer-prod": {"lakehouse_prod": ["catalog-admin"]},
+        "data-writer-dev": {"lakehouse_dev": ["catalog-writer"]},
+        "data-writer-prod": {"lakehouse_prod": ["catalog-writer"]},
+        "data-reader": {"lakehouse_dev": ["catalog-reader-dev"], "lakehouse_prod": ["catalog-reader-prod"]},
+        "namespace-admin-dev": {"lakehouse_dev": ["catalog-namespace-admin"]},
+        "namespace-admin-prod": {"lakehouse_prod": ["catalog-namespace-admin"]},
+        **{role: {catalog: [name] for catalog, name in catalogs.items()} for role, catalogs in ASSIGNED.items()},
+    }
+    expected: dict[str, dict[str, str]] = {}
+    for s in STAGES:
+        expected |= _secret("olf-system", f"polaris-{s}-trino-creds", "POLARIS_TRINO", f"trino-{s}")
+        expected |= _secret(f"olf-{s}", f"polaris-{s}-floe-creds", "POLARIS_FLOE", f"floe-{s}")
+        expected |= _secret(f"olf-{s}", f"polaris-{s}-deployer-creds", "POLARIS_DEPLOYER", f"deployer-{s}")
+        expected |= _secret("olf-system", f"polaris-{s}-trino-people-creds", "POLARIS", f"trino-people-{s}")
+    expected |= _secret("olf-system", "polaris-om-creds", "POLARIS_OM", "openmetadata")
+    assert cluster.state(fake) == expected
+
+
+def test_a_rerun_of_the_whole_bootstrap_changes_nothing(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    _bootstrap(client)
+    before, issued = (fake.state(), cluster.state(fake)), fake.issued
+    fake.writes.clear()
+    cluster.argv.clear()
+
+    _bootstrap(client)
+
+    assert (fake.state(), cluster.state(fake), fake.issued) == (*before, issued)
+    # Only creates Polaris answers with 409, and the legacy dbt principal's removal.
+    assert [w for w in fake.writes if not w.startswith("POST")] == ["DELETE /api/management/v1/principals/dbt"]
+    assert [argv for argv in cluster.argv if argv[0] in {"create", "apply"}] == []
+    assert {argv[2] for argv in cluster.argv if argv[0] == "delete"} == {"polaris-dbt-creds"}
+
+
+def test_the_legacy_dbt_principal_and_its_secret_are_removed(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    fake.principals["dbt"] = {"roles": []}
+    cluster.put("secret", "olf-system", "polaris-dbt-creds", {"POLARIS_DBT_CLIENT_ID": "x"})
+
+    _bootstrap(client)
+
+    assert "dbt" not in fake.principals
+    assert "secret/olf-system/polaris-dbt-creds" not in cluster.load()
+
+
+def test_without_people_the_deployer_keeps_its_narrower_privilege(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+
+    _bootstrap(client, conformance_plan(person_access=False))
+
+    assert fake.state()["catalog_roles"]["lakehouse_dev"]["catalog-namespace-admin"] == ["CATALOG_MANAGE_METADATA"]
+    assert "github" not in fake.principals
+    assert not any(name.startswith("olf-") for name in fake.principal_roles)
+
+
+def test_a_narrowed_data_access_row_loses_the_grant_it_no_longer_names(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    plan = conformance_plan()
+    assert plan.person_access is not None
+    wider = {**ASSIGNED, "olf-analyst": {"lakehouse_dev": "olf-read", "lakehouse_prod": "olf-read"}}
+    _bootstrap(client, replace(plan, person_access=PersonAccess("github", wider, plan.person_access.people)))
+    fake.principal_roles["olf-signed-in"]["lakehouse_dev"] = ["olf-write"]
+
+    _bootstrap(client, plan)
+
+    gold = ["olf-gold-read"]
+    assert fake.state()["principal_roles"]["olf-analyst"] == {"lakehouse_dev": gold, "lakehouse_prod": gold}
+    assert fake.state()["principal_roles"]["olf-signed-in"] == {}
