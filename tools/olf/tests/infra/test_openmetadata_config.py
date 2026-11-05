@@ -257,7 +257,7 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     monkeypatch.setenv("OPENMETADATA_ADMIN_PASSWORD", "p")
     monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution))
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(k8s, "configmap_data", lambda *_args: None)
+    monkeypatch.setattr(k8s, "configmap_data", lambda *_args, **_kwargs: None)
 
     @contextmanager
     def _port_forward(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
@@ -292,7 +292,7 @@ def test_openmetadata_command_reports_configuration_errors(
 
     monkeypatch.setenv("OPENMETADATA_ADMIN_PASSWORD", "p")
     monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(k8s, "configmap_data", lambda *_args: None)
+    monkeypatch.setattr(k8s, "configmap_data", lambda *_args, **_kwargs: None)
 
     @contextmanager
     def _port_forward(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202

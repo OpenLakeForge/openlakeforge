@@ -16,6 +16,7 @@ from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadata
 
 from olf.common import log
 from olf.infra import k8s
+from olf.infra.access import Route
 from olf.infra.openmetadata._auth import (
     ADMIN_SECRET,
     AUTOMATION_BOT,
@@ -55,8 +56,8 @@ def ensure_admin_password(namespace: str, environ: Mapping[str, str] | None = No
     return password
 
 
-def wait_healthy(base_url: str) -> None:
-    probe = OpenMetadataClient(base_url)
+def wait_healthy(route: Route) -> None:
+    probe = route.client(OpenMetadataClient)
     for attempt in range(HEALTH_ATTEMPTS):
         try:
             probe.send("GET", "/api/v1/system/config/jwks")
@@ -67,9 +68,9 @@ def wait_healthy(base_url: str) -> None:
     raise OpenMetadataError("OpenMetadata did not become healthy in time")
 
 
-def _token_works(base_url: str, token: str, *, user_id: str | None = None) -> bool:
+def _token_works(route: Route, token: str, *, user_id: str | None = None) -> bool:
     try:
-        user = OpenMetadataClient(base_url, token=token).request("GET", "/api/v1/users/loggedInUser")
+        user = route.client(OpenMetadataClient, token=token).request("GET", "/api/v1/users/loggedInUser")
     except ServiceClientError as exc:
         if exc.status not in (401, 403):
             raise
@@ -77,16 +78,16 @@ def _token_works(base_url: str, token: str, *, user_id: str | None = None) -> bo
     return user_id is None or user.get("id") == user_id
 
 
-def admin_client(base_url: str, email: str, password: str, stored_token: str | None) -> OpenMetadataClient:
+def admin_client(route: Route, email: str, password: str, stored_token: str | None) -> OpenMetadataClient:
     """A client authenticated as an administrator.
 
     Once SSO is on, basic login answers 403, so later runs use the automation bot token the
     first run stored. An absent or stale token (a rebuilt database) falls through to basic
     login, and a fresh server still has the built-in `admin` / `admin` account.
     """
-    if stored_token and _token_works(base_url, stored_token):
-        return OpenMetadataClient(base_url, token=stored_token)
-    client = OpenMetadataClient(base_url)
+    if stored_token and _token_works(route, stored_token):
+        return route.client(OpenMetadataClient, token=stored_token)
+    client = route.client(OpenMetadataClient)
     try:
         client.login(email, password)
         return client
@@ -124,7 +125,7 @@ def _bearer_token(client: OpenMetadataClient, user_id: str, who: str) -> str:
 
 
 def ensure_automation_bot(
-    client: OpenMetadataClient, base_url: str, namespace: str, environ: Mapping[str, str] | None = None
+    client: OpenMetadataClient, route: Route, namespace: str, environ: Mapping[str, str] | None = None
 ) -> None:
     """Create the admin bot `olf` and later runs use instead of a person, and store its token."""
     user = client.request(
@@ -153,14 +154,14 @@ def ensure_automation_bot(
     except ServiceClientError as exc:
         log.warn(f"Could not register the {_BOT} bot in the UI: {exc}")
     token = _bearer_token(client, user["id"], f"the {_BOT} bot")
-    me = OpenMetadataClient(base_url, token=token).request("GET", "/api/v1/users/loggedInUser")
+    me = route.client(OpenMetadataClient, token=token).request("GET", "/api/v1/users/loggedInUser")
     if not me.get("isAdmin"):
         raise OpenMetadataError(f"The {_BOT} bot is not an administrator")
     k8s.write_secret(AUTOMATION_BOT, namespace, {AUTOMATION_JWT_KEY: token}, environ=environ)
 
 
 def ensure_ingestion_bot_token(
-    client: OpenMetadataClient, namespace: str, environ: Mapping[str, str] | None = None
+    client: OpenMetadataClient, route: Route, namespace: str, environ: Mapping[str, str] | None = None
 ) -> None:
     """Keep the ingestion bot's working credential, or mint one when it is missing or stale."""
     user = client.request("GET", "/api/v1/users/name/ingestion-bot")
@@ -169,22 +170,22 @@ def ensure_ingestion_bot_token(
     stored = k8s.secret_value(INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, namespace, missing_ok=True, environ=environ)
     # Stage Secrets are replicated by a one-shot Terraform Job. Rotating a
     # working token here would revoke every stage's unchanged copy.
-    if stored and _token_works(client.base_url, stored, user_id=user["id"]):
+    if stored and _token_works(route, stored, user_id=user["id"]):
         return
     token = _bearer_token(client, user["id"], "ingestion-bot")
     k8s.write_secret(INGESTION_BOT_SECRET, namespace, {INGESTION_BOT_JWT_KEY: token}, environ=environ)
 
 
 def bootstrap_auth(
-    base_url: str, namespace: str, *, email: str, sso: bool, environ: Mapping[str, str] | None = None
+    route: Route, namespace: str, *, email: str, sso: bool, environ: Mapping[str, str] | None = None
 ) -> OpenMetadataClient:
     """Admin login, the automation bot (SSO only) and the ingestion bot token; returns the admin client."""
     password = ensure_admin_password(namespace, environ)
-    wait_healthy(base_url)
+    wait_healthy(route)
     stored = automation_token(namespace, environ=environ)
-    client = admin_client(base_url, email, password, stored)
+    client = admin_client(route, email, password, stored)
     # Created while basic login still works; with SSO off basic login keeps working, so no bot.
     if sso and client.token != stored:
-        ensure_automation_bot(client, base_url, namespace, environ)
-    ensure_ingestion_bot_token(client, namespace, environ)
+        ensure_automation_bot(client, route, namespace, environ)
+    ensure_ingestion_bot_token(client, route, namespace, environ)
     return client

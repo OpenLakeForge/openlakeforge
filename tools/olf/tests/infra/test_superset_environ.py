@@ -105,11 +105,11 @@ def forwarded(monkeypatch: pytest.MonkeyPatch, fake_superset: FakeSuperset) -> l
     requests: list[dict[str, object]] = []
 
     @contextlib.contextmanager
-    def service_url(ref: str, **kwargs: object) -> Iterator[str]:
+    def service_route(ref: str, **kwargs: object) -> Iterator[access.Route]:
         requests.append({"ref": ref, **kwargs})
-        yield fake_superset.url
+        yield access.Route(fake_superset.url)
 
-    monkeypatch.setattr(access, "service_url", service_url)
+    monkeypatch.setattr(access, "service_route", service_route)
     return requests
 
 

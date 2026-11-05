@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -35,24 +37,28 @@ class FakeClient:
         return FakeClient.current if method == "GET" else {}
 
 
+class FakeRoute:
+    def client(self, _cls: Any, **kwargs: Any) -> FakeClient:
+        return FakeClient("http://om", **kwargs)
+
+
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state: dict[str, Any] = {"data": DATA, "probe": [True], "restarts": 0}
     FakeClient.calls, FakeClient.current, FakeClient.admin = [], {}, {"id": "u1", "isAdmin": True}
 
     @contextmanager
-    def service_url(*_a: Any, **_k: Any):  # noqa: ANN202
-        yield "http://om"
+    def service_route(*_a: Any, **_k: Any):  # noqa: ANN202
+        yield FakeRoute()
 
-    def restart(*_a: Any) -> None:
+    def restart(*_a: Any, **_k: Any) -> None:
         state["restarts"] += 1
 
-    monkeypatch.setattr(_sso, "OpenMetadataClient", FakeClient)
-    monkeypatch.setattr(_sso.access, "service_url", service_url)
-    monkeypatch.setattr(_sso.k8s, "configmap_data", lambda *_a: state["data"])
-    monkeypatch.setattr(_sso, "automation_token", lambda *_a: "jwt")
-    monkeypatch.setattr(_sso.k8s, "secret_value", lambda *_a: "client-secret")
-    monkeypatch.setattr(_sso.k8s, "exec_succeeds", lambda *_a: state["probe"].pop(0) if state["probe"] else False)
+    monkeypatch.setattr(_sso.access, "service_route", service_route)
+    monkeypatch.setattr(_sso.k8s, "configmap_data", lambda *_a, **_k: state["data"])
+    monkeypatch.setattr(_sso, "automation_token", lambda *_a, **_k: "jwt")
+    monkeypatch.setattr(_sso.k8s, "secret_value", lambda *_a, **_k: "client-secret")
+    monkeypatch.setattr(_sso.k8s, "exec_succeeds", lambda *_a, **_k: state["probe"].pop(0) if state["probe"] else False)
     monkeypatch.setattr(_sso.k8s, "restart_deployment", restart)
     clock = iter(range(0, 10_000, 5))
     monkeypatch.setattr(_sso.time, "sleep", lambda _s: None)
@@ -95,7 +101,7 @@ def test_an_issuer_that_never_answers_fails_before_the_put(env: dict[str, Any]) 
 
 
 def test_a_missing_automation_token_is_an_error(env: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_sso, "automation_token", lambda *_a: None)
+    monkeypatch.setattr(_sso, "automation_token", lambda *_a, **_k: None)
     with pytest.raises(OpenMetadataError, match="automation bot token"):
         run()
 
@@ -116,3 +122,23 @@ def test_the_local_admin_is_demoted_once(env: dict[str, Any]) -> None:
     env["probe"] = [True]
     run()
     assert not [c for c in FakeClient.calls if c[0] == "PATCH"]
+
+
+def test_apply_sso_reads_the_cluster_through_the_explicit_environ(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """kubectl answers an absent ConfigMap with nothing; the process env names no context, the mapping does."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    kubectl = bindir / "kubectl"
+    kubectl.write_text("#!/bin/sh\n")
+    kubectl.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    for name in ("KUBE_CONTEXT", "OLF_TOOLCHAIN_MODE"):
+        monkeypatch.delenv(name, raising=False)
+    environ = {"KUBE_CONTEXT": "explicit-ctx", "OLF_TOOLCHAIN_MODE": "host"}
+
+    _sso.apply_sso("ns", service="openmetadata", remote_port=8585, log_path="/dev/null", environ=environ)
+
+    with pytest.raises(k8s.KubectlError, match="KUBE_CONTEXT is required"):
+        _sso.apply_sso("ns", service="openmetadata", remote_port=8585, log_path="/dev/null")
