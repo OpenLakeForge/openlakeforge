@@ -132,6 +132,8 @@ class TrinoStatementClient:
     source: str
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     send: Callable[..., requests.Response] = field(default=requests.request, repr=False)
+    # The default schema for unqualified names (`X-Trino-Schema`); None sends no header, as `olf query` does.
+    schema: str | None = None
 
     def submit(
         self, sql: str, bearer: str, extra_credentials: Mapping[str, str] | None = None
@@ -190,12 +192,15 @@ class TrinoStatementClient:
             pass
 
     def _headers(self, bearer: str) -> dict[str, str]:
-        return {
+        headers = {
             "X-Trino-User": self.user,
             "X-Trino-Catalog": self.catalog,
             "X-Trino-Source": self.source,
             "Authorization": f"Bearer {bearer}",
         }
+        if self.schema:
+            headers["X-Trino-Schema"] = self.schema
+        return headers
 
     def _checked(self, uri: str) -> str:
         # The URI comes from the response body: followed blindly, it sends the person's token wherever Trino says.

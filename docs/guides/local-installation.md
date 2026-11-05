@@ -225,6 +225,36 @@ olf infra forward --provider local
 `OLF_PORT_FORWARD=1` makes `olf`'s own commands, such as `olf infra e2e run`,
 port-forward instead of using the ingress, for example while you debug it.
 
+## Try a portal preview image
+
+To test a portal change before it is released, deploy a preview image published
+by the portal repository's CI for a pull request. The portal is deployed only
+when the profile has `spec.access`. The image replaces the pinned portal image
+until you deploy again without it.
+
+1. Take the preview image's digest from the portal pull request.
+2. Write `portal-preview.tfvars` in the project root, with `<N>` the pull
+   request number and `<digest>` the 64 hex digits after `sha256:`:
+
+   ```hcl
+   portal_image = "ghcr.io/openlakeforge/openlakeforge-portal:pr-<N>@sha256:<digest>"
+   ```
+
+3. Deploy with the file:
+
+   ```bash
+   olf infra deploy --provider local --var-file portal-preview.tfvars
+   ```
+
+4. To go back to the pinned image, deploy without the file:
+
+   ```bash
+   olf infra deploy --provider local
+   ```
+
+The reference must be pinned by digest, or Terraform refuses the plan. `olf`
+does not prefetch this image: the kind nodes pull it from the registry.
+
 ## Tear down
 
 ```bash

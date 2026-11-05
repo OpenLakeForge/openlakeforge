@@ -141,6 +141,17 @@ variable "platform_api_image" {
   default     = null
 }
 
+variable "portal_image" {
+  description = "Run this portal image instead of the one the access/portal module pins (release/component-catalog.yaml, portal), to try an unreleased build. A full reference pinned by digest. null keeps the pin."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.portal_image == null || can(regex("^[^@[:space:]]+@sha256:[0-9a-f]{64}$", var.portal_image))
+    error_message = "portal_image must be a full image reference pinned by digest: <repository>:<tag>@sha256:<64 hex digits>."
+  }
+}
+
 variable "trino_chart_package_path" {
   description = "Optional local Trino Helm chart package used by local-up to avoid transient GitHub chart download failures."
   type        = string

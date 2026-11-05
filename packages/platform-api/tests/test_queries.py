@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import zlib
 from dataclasses import replace
 from typing import Any
 
@@ -156,6 +158,59 @@ def test_every_trino_call_is_the_persons_in_the_stage_catalog_without_a_session_
         assert "X-Trino-Schema" not in call["headers"]
     assert trino.sent[-1]["headers"]["X-Trino-Extra-Credential"] == f"token={token}"
     assert token not in response.text and token not in str(response.headers)
+
+
+def _submit_in(api: TestClient, token: str, schema: Any, sql: str = "SELECT n FROM t") -> Any:
+    body = {"sql": sql, "schema": schema}
+    return api.post("/api/v1/stages/dev/queries", json=body, headers=bearer(token))
+
+
+def test_a_named_schema_is_sent_on_the_validation_and_the_run(api: TestClient, trino: FakeTrino, token: str) -> None:
+    assert _submit_in(api, token, "sales").status_code == 200
+    assert len(trino.sent) == 2 and trino.sent[0]["sql"].startswith("EXPLAIN (TYPE VALIDATE)")
+    assert [call["headers"]["X-Trino-Schema"] for call in trino.sent] == ["sales", "sales"]
+
+
+def test_a_write_probe_also_carries_the_schema(api: TestClient, trino: FakeTrino, token: str) -> None:
+    assert _submit_in(api, token, "sales", "DROP TABLE t").status_code == 403
+    assert trino.sent and all(call["headers"]["X-Trino-Schema"] == "sales" for call in trino.sent)
+
+
+def test_no_schema_or_null_sends_no_schema_header(api: TestClient, trino: FakeTrino, token: str) -> None:
+    assert _submit_in(api, token, None).status_code == 200
+    assert all("X-Trino-Schema" not in call["headers"] for call in trino.sent)
+
+
+@pytest.mark.parametrize("schema", ["a\nb", "a\r\nX-Evil: 1", "a\x00", "a\x7f", "caf\u00e9", "", "x" * 129])
+def test_a_schema_that_cannot_be_a_header_value_is_400(
+    api: TestClient, trino: FakeTrino, token: str, schema: str
+) -> None:
+    assert _submit_in(api, token, schema).status_code == 400
+    assert trino.sent == []
+
+
+def test_an_unknown_body_field_is_still_422(api: TestClient, token: str) -> None:
+    body = {"sql": "SELECT 1", "schema": "s", "catalog": "x"}
+    assert api.post("/api/v1/stages/dev/queries", json=body, headers=bearer(token)).status_code == 422
+
+
+def test_export_reruns_under_the_schema_the_id_was_signed_with(api: TestClient, trino: FakeTrino, token: str) -> None:
+    query_id = _submit_in(api, token, "sales").json()["id"]
+    trino.sent.clear()
+    export = api.get(f"/api/v1/stages/dev/queries/{query_id}/export", params={"format": "csv"}, headers=bearer(token))
+    assert export.status_code == 200
+    assert [call["headers"]["X-Trino-Schema"] for call in trino.sent] == ["sales"]
+
+
+def test_an_id_with_a_changed_schema_is_404(api: TestClient, trino: FakeTrino, token: str) -> None:
+    query_id = _submit_in(api, token, "sales").json()["id"]
+    body_text, _, mac = query_id.partition(".")
+    payload = json.loads(zlib.decompress(base64.urlsafe_b64decode(body_text + "=" * (-len(body_text) % 4))))
+    payload["sc"] = "secret"
+    forged = base64.urlsafe_b64encode(zlib.compress(json.dumps(payload).encode())).decode().rstrip("=") + "." + mac
+    base = f"/api/v1/stages/dev/queries/{forged}"
+    assert api.get(base, headers=bearer(token)).status_code == 404
+    assert api.get(base + "/export", params={"format": "csv"}, headers=bearer(token)).status_code == 404
 
 
 def test_a_body_naming_a_catalog_or_endpoint_is_refused(api: TestClient, trino: FakeTrino, token: str) -> None:

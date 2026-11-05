@@ -39,7 +39,7 @@ every bundle as the stage's Superset admin. See
 | `--project-root` | current directory | The project holding `openlakeforge.yaml` |
 | `--cluster-name` | `openlakeforge-local` | Local kind cluster name |
 | `--kubeconfig-path` | under `OLF_HOME/state/<provider>/` | Where `olf` keeps the cluster's kubeconfig |
-| `--var-file` | none | A Terraform variables file (cloud) |
+| `--var-file` | none | A Terraform variables file for the platform apply |
 
 `--profile slim|full` is a deprecated shorthand for a single-DEV profile; use
 `spec.preset` in `openlakeforge.yaml` instead. A stack deployed with it is
