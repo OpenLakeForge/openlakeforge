@@ -395,7 +395,11 @@ def _other_client_token(
     ref = superset["secret_ref"]
     try:
         secret = k8s.secret_value(
-            ref["name"], ref["key"].replace(".", "\\."), cfg.platform_namespace, kube_context=cfg.kube_context
+            ref["name"],
+            ref["key"].replace(".", "\\."),
+            cfg.platform_namespace,
+            kube_context=cfg.kube_context,
+            environ=cfg.environ,
         )
     except k8s.KubectlError:
         return None

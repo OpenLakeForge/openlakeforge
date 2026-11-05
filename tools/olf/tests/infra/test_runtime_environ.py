@@ -279,7 +279,9 @@ def test_aws_preflight_builds_its_session_from_the_contract_environment(
     monkeypatch.setenv("AWS_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
     monkeypatch.setattr("olf.infra.auth.aws._aws_instance_profile_available", lambda: False)
-    monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+    monkeypatch.setattr(
+        _shell, "terraform_output", lambda _dir, name, **_: "eu-central-1" if name == "aws_region" else ""
+    )
     monkeypatch.setattr(
         _preflight,
         "load_provider_contracts_or_raise",
@@ -308,3 +310,16 @@ def test_aws_preflight_builds_its_session_from_the_contract_environment(
 
     (session,) = sessions
     assert (session.profile_name, session.region_name) == ("saved-profile", "eu-central-1")
+
+
+def test_the_kube_context_check_runs_kubectl_with_the_contract_environment(tmp_path: Path, kubectl_log: Path) -> None:
+    """`olf infra product run` checks the context before launching, so the check must reach the contract's cluster."""
+    cfg = replace(
+        e2e_cfg(tmp_path), kube_context="ctx-from-contract", environ=_runtime_contract(tmp_path, kubectl_log)
+    )
+
+    _runner.prepare_kube_context(cfg, tmp_path / "contract/kubeconfig")
+
+    (call,) = _calls(kubectl_log)
+    assert call["argv"] == ["cluster-info", "--context", "ctx-from-contract"]
+    assert (call["kubeconfig"], call["marker"]) == (str(tmp_path / "contract/kubeconfig"), "from-contract")

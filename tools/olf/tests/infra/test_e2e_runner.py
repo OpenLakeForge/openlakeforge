@@ -273,7 +273,7 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
     kubeconfig = tmp_path / "aws.yaml"
     monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
 
-    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None, env: object = None) -> str:
         commands.append(args)
         return ""
 
@@ -282,11 +282,11 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
     # both bindings need the same fake to capture every command.
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_shell, "_run", run)
-    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda *_: "kubectl")
     monkeypatch.setattr(
         _runner,
         "terraform_output",
-        lambda _dir, name: {
+        lambda _dir, name, **_: {
             "aws_region": "eu-west-1",
             "cluster_name": "limited-eks-openlakeforge-poc",
         }[name],
@@ -308,6 +308,7 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
                 "region": "eu-west-1",
                 "kubeconfig_path": kubeconfig,
                 "alias": "kind-openlakeforge-local",
+                "env": None,
             },
         )
     ]
@@ -335,11 +336,11 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
     commands: list[list[str]] = []
     monkeypatch.delenv("KUBECONFIG", raising=False)
     monkeypatch.delenv(f"{env.upper()}_KUBECONFIG_PATH", raising=False)
-    run = lambda args, capture=False: commands.append(args) or ""  # noqa: E731
+    run = lambda args, capture=False, **_: commands.append(args) or ""  # noqa: E731
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_shell, "_run", run)
-    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
-    monkeypatch.setattr(_runner, "terraform_output", lambda _dir, name: terraform_outputs[name])
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda *_: "kubectl")
+    monkeypatch.setattr(_runner, "terraform_output", lambda _dir, name, **_: terraform_outputs[name])
     sdk_calls: list[tuple[str, tuple, dict]] = []
     monkeypatch.setattr(
         "olf.infra.tooling.azure.AzureSdk.aks_get_credentials",
@@ -363,12 +364,12 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
 def test_prepare_kube_context_selects_existing_local_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
 
-    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None, env: object = None) -> str:
         commands.append(args)
         return ""
 
     monkeypatch.setattr(_runner, "_run", run)
-    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda *_: "kubectl")
 
     cfg = e2e_cfg(tmp_path)
     _runner.prepare_kube_context(cfg, _runner.configure_kubeconfig(cfg))
@@ -384,7 +385,7 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     kubeconfig = tmp_path / "aws.yaml"
     monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
 
-    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None, env: object = None) -> str:
         commands.append(args)
         if args[:2] == ["kubectl", "cluster-info"] and len(commands) == 1:
             raise E2EError("context missing")
@@ -393,11 +394,11 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_shell, "_run", run)
     monkeypatch.setattr(_shell.time, "sleep", lambda _delay: None)
-    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda *_: "kubectl")
     monkeypatch.setattr(
         _runner,
         "terraform_output",
-        lambda _dir, name: {
+        lambda _dir, name, **_: {
             "aws_region": "eu-west-1",
             "cluster_name": "limited-eks-openlakeforge-poc",
         }[name],
@@ -414,7 +415,7 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     assert sdk_calls == [
         (
             ("limited-eks-openlakeforge-poc",),
-            {"region": "eu-west-1", "kubeconfig_path": kubeconfig, "alias": "kind-openlakeforge-local"},
+            {"region": "eu-west-1", "kubeconfig_path": kubeconfig, "alias": "kind-openlakeforge-local", "env": None},
         )
     ]
 
@@ -435,7 +436,7 @@ def test_terraform_output_honors_external_state_root(
         return "us-east-1"
 
     monkeypatch.setattr(_shell, "_run", run)
-    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda *_: "terraform")
     monkeypatch.setenv("OPENLAKEFORGE_TERRAFORM_DATA_ROOT", str(tmp_path / "terraform-data"))
     monkeypatch.setenv("OPENLAKEFORGE_TERRAFORM_STATE_ROOT", str(tmp_path / "state"))
 
@@ -459,7 +460,7 @@ def test_terraform_output_without_external_state_root_is_unchanged(
         return "us-east-1"
 
     monkeypatch.setattr(_shell, "_run", run)
-    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda *_: "terraform")
 
     foundation_dir = tmp_path / "foundations" / "aws-eks"
     assert _shell.terraform_output(foundation_dir, "aws_region") == "us-east-1"
@@ -471,7 +472,7 @@ def test_terraform_output_without_external_state_root_is_unchanged(
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = 0
 
-    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
+    def run(args: list[str], *, capture: bool = False, input_text: str | None = None, env: object = None) -> str:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
@@ -537,7 +538,7 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
                 raise ToolchainError(tool, reason="digest mismatch")
             return Path(f"/usr/bin/{tool}")
 
-    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda: _FailingResolver())
+    monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda **_: _FailingResolver())
 
     with pytest.raises(E2EError, match="digest mismatch"):
         _runner.check_commands(e2e_cfg(tmp_path))

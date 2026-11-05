@@ -47,7 +47,9 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     monkeypatch.setattr(_preflight, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
     # aws_stack_region (called by check_aws_storage_and_glue) calls terraform_output
     # internally within _shell's own module namespace, not _preflight's.
-    monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+    monkeypatch.setattr(
+        _shell, "terraform_output", lambda _dir, name, **_: "eu-central-1" if name == "aws_region" else ""
+    )
 
     class Session:
         def client(self, name, **_kwargs):  # noqa: ANN001, ANN003, ANN202
@@ -78,7 +80,9 @@ def test_aws_storage_and_glue_smoke_check_uses_the_requested_stage(
     calls: list[str] = []
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "lakehouse_prod")
     monkeypatch.setattr(_preflight, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
-    monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+    monkeypatch.setattr(
+        _shell, "terraform_output", lambda _dir, name, **_: "eu-central-1" if name == "aws_region" else ""
+    )
 
     class Session:
         def client(self, name, **_kwargs):  # noqa: ANN001, ANN003, ANN202
@@ -95,6 +99,8 @@ def test_aws_storage_and_glue_smoke_check_uses_the_requested_stage(
 
 def test_aws_stack_region_prefers_foundation_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+    monkeypatch.setattr(
+        _shell, "terraform_output", lambda _dir, name, **_: "eu-central-1" if name == "aws_region" else ""
+    )
 
     assert _shell.aws_stack_region(e2e_cfg(tmp_path, env="aws", suite="smoke")) == "eu-central-1"

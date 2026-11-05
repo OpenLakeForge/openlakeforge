@@ -15,7 +15,7 @@ import secrets
 import select
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 import requests
 
 from olf.common import config, log
-from olf.common.tooling.process import PIPE, Popen, ProcessRunner
+from olf.common.tooling.process import PIPE, Popen, ProcessRunner, unsets_of
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra import access, break_glass
 from olf.infra.e2e._identity_github import (
@@ -128,7 +128,9 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     reason = f"{REASON} {secrets.token_hex(3)}"
     issuer_host = urlsplit(identity["issuer_url"]).hostname
     tls_port = break_glass.trino_tls_port(contracts, next(iter(contracts["stages"])))
-    cluster = break_glass.Cluster(Toolkit.default().kubectl, cfg.kube_context, None, namespace, cfg.namespace)
+    cluster = break_glass.Cluster(
+        Toolkit.default(environ=cfg.environ).kubectl, cfg.kube_context, None, namespace, cfg.namespace, cfg.environ
+    )
     dex = ["-n", namespace, "deploy/dex"]
     replicas = int(kubectl(cfg, ["get", *dex, "-o", "jsonpath={.spec.replicas}"], capture=True) or 1)
 
@@ -261,8 +263,8 @@ def probe(
     """Open a recorded break-glass session to `service` and GET `url` through it once it answers."""
     answered: list[int] = []
 
-    def reach(argv: Sequence[str], **_: object) -> None:
-        process = ProcessRunner().popen(argv, stdout=PIPE, text=True)
+    def reach(argv: Sequence[str], *, env: Mapping[str, str], **_: object) -> None:
+        process = ProcessRunner().popen(argv, stdout=PIPE, text=True, env=env, unset=unsets_of(cluster.env))
         try:
             wait_forwarding(process, PORTS[service], service)
             for _attempt in range(30):

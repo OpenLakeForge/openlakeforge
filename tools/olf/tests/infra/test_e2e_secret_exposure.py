@@ -55,7 +55,7 @@ def _kubectl_stub(_cfg: Any, _args: list[str]) -> str:
 
 
 def _cfg() -> Any:
-    return SimpleNamespace(platform_namespace="olf-system", kube_context="ctx")
+    return SimpleNamespace(platform_namespace="olf-system", kube_context="ctx", environ=None)
 
 
 def test_credentials_come_from_the_secrets_the_contract_and_deployment_name(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,7 +87,7 @@ def test_state_files_are_read_and_a_missing_one_is_unavailable(tmp_path: Path) -
     platform, foundation = tmp_path / "local", tmp_path / "foundation"
     platform.mkdir()
     (platform / "terraform.tfstate").write_text('{"version": 4}')
-    cfg = SimpleNamespace(contract_terraform_dir=platform, foundation_terraform_dir=foundation)
+    cfg = SimpleNamespace(contract_terraform_dir=platform, foundation_terraform_dir=foundation, environ=None)
 
     assert exposure._state_surfaces(cfg) == {
         "Terraform state of local": '{"version": 4}',

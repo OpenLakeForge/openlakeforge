@@ -49,7 +49,7 @@ def test_can_i_fails_instead_of_reading_an_error_as_no(
     monkeypatch: pytest.MonkeyPatch, stdout: str, expected: bool | None
 ) -> None:
     monkeypatch.setattr(_network.k8s, "_kubectl", lambda *_a, **_k: stdout)
-    cfg = SimpleNamespace(kube_context="kind-x")
+    cfg = SimpleNamespace(kube_context="kind-x", environ=None)
     if expected is None:
         with pytest.raises(E2EError, match="no answer"):
             _network._can_i(cfg, "system:serviceaccount:olf-dev:x", "list", "secrets")  # type: ignore[arg-type]
