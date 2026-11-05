@@ -142,6 +142,12 @@ class PolarisClient:
             raise PolarisError("Polaris token response contained no access_token")
         self.token = token
 
+    def management(
+        self, method: str, path: str, *, payload: dict | None = None, ok_statuses: tuple[int, ...] = (200,)
+    ) -> dict:
+        """A call to the management API, which the bootstrap (`olf.infra.polaris_bootstrap`) makes as root."""
+        return self._request(method, f"/api/management/v1{path}", payload=payload, ok_statuses=ok_statuses)
+
     def _namespace_path(self, name: str) -> str:
         return f"{self.config.catalog_path}/namespaces/{urllib.parse.quote(name, safe='')}"
 

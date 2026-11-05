@@ -146,6 +146,10 @@ def configmap_data(name: str, namespace: str, *, environ: Mapping[str, str] | No
     return (json.loads(raw).get("data") or {}) if raw else None
 
 
+def delete_configmap(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    _kubectl(["delete", "configmap", name, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
+
+
 def exec_succeeds(
     deployment: str, namespace: str, argv: list[str], *, environ: Mapping[str, str] | None = None
 ) -> bool:
