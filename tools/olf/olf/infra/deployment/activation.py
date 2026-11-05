@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import tarfile
 import tempfile
 import time
@@ -999,7 +998,7 @@ def deploy_revision(
                 # An operator's own setting still wins: None defers to it.
                 deploy_optional_layer_artifacts(
                     contract_environ,
-                    allow_missing_assets=None if "OPENMETADATA_ALLOW_MISSING_ASSETS" in os.environ else True,
+                    allow_missing_assets=None if "OPENMETADATA_ALLOW_MISSING_ASSETS" in contract_environ else True,
                 )
             config = provider.config
             prepare_chart(

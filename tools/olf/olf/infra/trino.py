@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from olf.common.deployment.errors import ExecutableNotFoundError
-from olf.common.tooling.process import CommandResult, ProcessRunner
+from olf.common.tooling.process import CommandResult, ProcessRunner, unsets_of
 
 # The coordinator mounts its serving certificate's CA only when workload
 # authentication is on (ADR 0016), so the pod itself says which listener to use
@@ -218,4 +218,4 @@ def run_sql(
 def _subprocess_runner(
     command: Sequence[str], stdin: str, *, environ: Mapping[str, str] | None = None
 ) -> CommandResult:
-    return ProcessRunner().run(command, input_text=stdin, check=False, env=environ)
+    return ProcessRunner().run(command, input_text=stdin, check=False, env=environ, unset=unsets_of(environ))

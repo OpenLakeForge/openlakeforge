@@ -10,6 +10,7 @@ import typer
 from olf.common import config
 from olf.common.deployment.errors import DeploymentError
 from olf.common.log import fail
+from olf.common.tooling.process import unsets_of
 from olf.common.tooling.toolkit import Toolkit
 
 app = typer.Typer(help="Render and validate dbt product projects.")
@@ -64,7 +65,11 @@ def parse(
                         if command == "parse":
                             args += ["--profiles-dir", profiles_dir]
                         tools.runner.run(
-                            args, cwd=project_spec.root, env={**contract, **dbt_environment()}, stream_output=True
+                            args,
+                            cwd=project_spec.root,
+                            env={**contract, **dbt_environment()},
+                            stream_output=True,
+                            unset=unsets_of(contract),
                         )
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

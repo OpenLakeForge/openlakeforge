@@ -157,7 +157,27 @@ def test_direct_artifact_client_uses_the_contracts_aws_profile_and_region(
         pass
 
     assert sessions == [{"profile_name": "team-profile", "region_name": "eu-west-1"}]
-    assert clients == [("s3", {"region_name": "eu-west-1"})]
+    assert [(service, kwargs["region_name"], kwargs["endpoint_url"]) for service, kwargs in clients] == [
+        ("s3", "eu-west-1", None)
+    ]
+
+
+def test_direct_artifact_client_follows_the_contract_not_the_operators_shell(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A contract that unsets `AWS_ENDPOINT_URL_S3` and sets `AWS_REGION` must win over the same names in the shell."""
+    monkeypatch.setenv("AWS_ENDPOINT_URL_S3", "http://operator-shell.invalid:9000")
+    monkeypatch.setenv("AWS_REGION", "ap-south-1")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-south-1")
+    contract = {"OLF_HOME": str(tmp_path / "olf-home"), "AWS_REGION": "eu-west-1"}
+
+    with artifact_store.artifact_storage_client("direct", "ops", environ=contract) as client:
+        assert client.meta.region_name == "eu-west-1"
+        assert "operator-shell" not in client.meta.endpoint_url
+
+    contract["AWS_ENDPOINT_URL_S3"] = "http://contract-s3.invalid:8333"
+    with artifact_store.artifact_storage_client("direct", "ops", environ=contract) as client:
+        assert client.meta.endpoint_url == "http://contract-s3.invalid:8333"
 
 
 def test_port_forward_artifact_client_resolves_the_store_from_the_contract(

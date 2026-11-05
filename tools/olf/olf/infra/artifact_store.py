@@ -36,10 +36,13 @@ def artifact_storage_client(via: str, bucket: str, *, environ: Mapping[str, str]
     from olf.infra import k8s, s3
 
     if via == "direct":
-        from olf.infra.auth import aws_session
+        from olf.infra.auth import aws_session, client_options
 
+        source = os.environ if environ is None else environ
         region = config.env("OPENLAKEFORGE_STORAGE_REGION", environ=environ) or None
-        yield aws_session(os.environ if environ is None else environ, region=region).client("s3", region_name=region)
+        yield aws_session(source, region=region).client(
+            "s3", **client_options(source, region=region, endpoint_variable="AWS_ENDPOINT_URL_S3")
+        )
         return
     if via != "port-forward":
         raise ArtifactStoreError(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')")

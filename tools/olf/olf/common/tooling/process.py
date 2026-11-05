@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
@@ -37,6 +37,7 @@ class Command:
     timeout_seconds: float | None = None
     input_text: str | None = None
     stdin_path: Path | None = None
+    unset: Collection[str] = ()
 
     def __post_init__(self) -> None:
         argv = tuple(str(part) for part in self.argv)
@@ -45,6 +46,25 @@ class Command:
         object.__setattr__(self, "argv", argv)
         if self.input_text is not None and self.stdin_path is not None:
             raise ValueError("Command.input_text and Command.stdin_path are mutually exclusive")
+
+
+def unsets_of(env: Mapping[str, str] | None) -> tuple[str, ...]:
+    """The names a contract environment unsets (`ContractEnvironment.unsets`); empty for any other mapping."""
+    return tuple(getattr(env, "unsets", ()))
+
+
+def _child_env(env: Mapping[str, str] | None, unset: Collection[str]) -> dict[str, str] | None:
+    """The environment a child starts with: `env` over a copy of this process's, minus `unset`.
+
+    `unset` exists because a contract unsets names the operator's shell may still define; layering over
+    this process's environment would hand them back to the child.
+    """
+    if env is None and not unset:
+        return None
+    merged = {**os.environ, **(env or {})}
+    for name in unset:
+        merged.pop(name, None)
+    return merged
 
 
 @dataclass(frozen=True)
@@ -68,6 +88,7 @@ def _to_command(
     timeout_seconds: float | None,
     input_text: str | None,
     stdin_path: Path | None,
+    unset: Collection[str] = (),
 ) -> Command:
     if isinstance(command, Command):
         return command
@@ -78,6 +99,7 @@ def _to_command(
         timeout_seconds=timeout_seconds,
         input_text=input_text,
         stdin_path=stdin_path,
+        unset=unset,
     )
 
 
@@ -87,7 +109,8 @@ class ProcessRunner:
     `env`, when given, is layered on top of a copy of the current process
     environment (never `os.environ` itself) so callers only need to specify
     the deployment-scoped overrides they care about, while the parent
-    process's environment is left untouched.
+    process's environment is left untouched. `unset` names are removed from
+    that copy.
     """
 
     def __init__(self, *, log_commands: bool = False) -> None:
@@ -106,6 +129,7 @@ class ProcessRunner:
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
         stream_output: bool = False,
+        unset: Collection[str] = (),
     ) -> CommandResult:
         cmd = _to_command(
             command,
@@ -114,6 +138,7 @@ class ProcessRunner:
             timeout_seconds=timeout_seconds,
             input_text=input_text,
             stdin_path=stdin_path,
+            unset=unset,
         )
 
         def attempt() -> CommandResult:
@@ -132,6 +157,7 @@ class ProcessRunner:
         stdout: IO[Any] | int | None = None,
         stderr: IO[Any] | int | None = None,
         text: bool = False,
+        unset: Collection[str] = (),
     ) -> subprocess.Popen[Any]:
         """Start a background process and return its handle; the caller owns its lifecycle.
 
@@ -139,7 +165,9 @@ class ProcessRunner:
         of the current environment, and a missing executable raises
         `ExecutableNotFoundError`. stdin is inherited, as with a bare `Popen`.
         """
-        cmd = _to_command(command, cwd=cwd, env=env, timeout_seconds=None, input_text=None, stdin_path=None)
+        cmd = _to_command(
+            command, cwd=cwd, env=env, timeout_seconds=None, input_text=None, stdin_path=None, unset=unset
+        )
         argv = list(cmd.argv)
         if self._log_commands:
             from olf.common import log
@@ -149,7 +177,7 @@ class ProcessRunner:
             return subprocess.Popen(  # noqa: S603 - argv is structured, shell=False
                 argv,
                 cwd=cmd.cwd,
-                env={**os.environ, **cmd.env} if cmd.env is not None else None,
+                env=_child_env(cmd.env, cmd.unset),
                 stdout=stdout,
                 stderr=stderr,
                 text=text,
@@ -160,7 +188,7 @@ class ProcessRunner:
 
     def _run_once(self, command: Command, *, check: bool, stream_output: bool = False) -> CommandResult:
         argv = list(command.argv)
-        full_env = {**os.environ, **command.env} if command.env is not None else None
+        full_env = _child_env(command.env, command.unset)
 
         if self._log_commands:
             from olf.common import log

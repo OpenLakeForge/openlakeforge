@@ -122,11 +122,11 @@ def test_run_exports_the_provider_contract_environment_before_e2e(
     assert observed["catalog"] == "lakehouse_dev"
 
 
-def test_run_applies_the_supplied_environment_during_deployment_and_e2e(
+def test_run_hands_the_supplied_environment_to_e2e_without_deploying_through_the_process_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    deployment_observed: dict[str, str | None] = {}
-    e2e_observed: dict[str, str | None] = {}
+    during_deploy: dict[str, str | None] = {}
+    e2e_environ: dict[str, str] = {}
     supplied = {
         "LOCAL_KUBECONFIG_PATH": str(tmp_path / "custom-kubeconfig.yaml"),
         "KUBECONFIG": str(tmp_path / "explicit-kubeconfig.yaml"),
@@ -137,22 +137,21 @@ def test_run_applies_the_supplied_environment_during_deployment_and_e2e(
     monkeypatch.setattr(
         smoke.DeploymentEngine,
         "deploy",
-        lambda *args: deployment_observed.update({key: os.environ.get(key) for key in supplied}),
+        lambda *args: during_deploy.update({key: os.environ.get(key) for key in supplied}),
     )
-    monkeypatch.delenv("KUBECONFIG", raising=False)
-    monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
+    for key in supplied:
+        monkeypatch.delenv(key, raising=False)
 
-    def _capture_e2e(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        e2e_observed.update({key: os.environ.get(key) for key in supplied})
+    def _capture_e2e(*args, environ, **kwargs) -> None:  # noqa: ANN002, ANN003
+        e2e_environ.update(environ)
 
     monkeypatch.setattr(smoke.e2e, "run", _capture_e2e)
 
     smoke.run(timeout_seconds=2700, environ=supplied, monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__)
 
-    assert deployment_observed == supplied
-    assert e2e_observed == supplied
-    assert "KUBECONFIG" not in os.environ
-    assert "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR" not in os.environ
+    assert e2e_environ["KUBECONFIG"] == supplied["KUBECONFIG"]
+    assert e2e_environ["LOCAL_KUBECONFIG_PATH"] == supplied["LOCAL_KUBECONFIG_PATH"]
+    assert during_deploy == {key: None for key in supplied}
 
 
 def test_run_rejects_a_nonpositive_budget() -> None:
