@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
 from olf.common import log
 from olf.infra.auth import aws_session
-from olf.infra.e2e._shell import E2EConfig, E2EError, aws_stack_region, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, aws_stack_region, cfg_environ, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import stage_catalog_name
 
 
@@ -63,7 +61,7 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
         )
     }
     try:
-        session = aws_session(os.environ, region=region)
+        session = aws_session(cfg_environ(cfg), region=region)
         session.client("s3").head_bucket(Bucket=bucket)
         glue = session.client("glue", region_name=region)
         for database in sorted(expected_schemas):
