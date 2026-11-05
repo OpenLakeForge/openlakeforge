@@ -1,7 +1,7 @@
 """The authentication half of the OpenMetadata bootstrap: admin, automation bot, ingestion bot.
 
-Ports the first steps of the governance module's `bootstrap.sh.tftpl` (#562). Every step
-is idempotent, so a Job that died half-way reruns from the top.
+Ports the first steps of the governance module's former `bootstrap.sh.tftpl` (#562). Every step
+is idempotent, so a run that died half-way reruns from the top.
 """
 
 from __future__ import annotations

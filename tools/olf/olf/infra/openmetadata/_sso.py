@@ -3,7 +3,7 @@
 OpenMetadata builds its SSO handler when it applies the security configuration
 (and at every start) and never retries a discovery that failed. The issuer's
 host resolves in the cluster only once Traefik exists, which is after the
-platform apply, so the Terraform-run bootstrap Job cannot do this (#432). It
+platform apply, so the governance Terraform module cannot do this (#432). It
 only publishes the configuration (no secret) in a ConfigMap; this runs in the
 dynamic phase of `olf infra deploy`.
 """

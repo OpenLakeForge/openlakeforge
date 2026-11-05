@@ -1,8 +1,8 @@
 """The ingestion-bot Secret's copies in the stage namespaces, kept by the platform phase (#562).
 
 A Secret cannot be read across namespaces, so each governed stage's Dagster needs its own copy of the
-one the bootstrap keeps in the shared namespace. Ported from the governance module's
-`replicate-secrets.sh.tftpl`; its Terraform Job writes the same copies until it is deleted.
+one the bootstrap keeps in the shared namespace. Ported from the governance module's former
+`replicate-secrets.sh.tftpl` Job.
 """
 
 from __future__ import annotations

@@ -1,8 +1,9 @@
 """Redeploy preservation drill (#400).
 
-The credentials that moved out of Terraform state are created by in-cluster Jobs, only when missing. The drill
-deletes those Jobs so the platform apply has to run their scripts again, then checks that every value is unchanged.
-Values are compared, never printed.
+The credentials that moved out of Terraform state are created only when missing: by in-cluster Jobs, and the
+OpenMetadata admin password by olf's bootstrap after the apply (#562). The drill deletes those Jobs so the platform
+apply has to run their scripts again, reruns the bootstrap as `olf infra deploy` does, then checks that every value
+is unchanged. Values are compared, never printed.
 """
 
 from __future__ import annotations
@@ -21,9 +22,6 @@ CREDENTIAL_JOB_PREFIXES = (
     "superset-credentials-",
     "polaris-token-key-",
     "seaweedfs-credentials-",
-    "openmetadata-bootstrap-",
-    # Re-running the bootstrap Job rotates the ingestion-bot token; the replication Job copies it to the stages.
-    "openmetadata-credential-replication-",
 )
 
 
@@ -49,6 +47,7 @@ def check_credential_preservation(cfg: E2EConfig) -> None:
         for namespace, name in old:
             kubectl(cfg, ["delete", "job", name, "-n", namespace, "--wait=true"])
         secrets_rotation.apply_platform(cfg.deployment, [])
+        secrets_rotation.bootstrap_openmetadata(cfg.deployment)
         # Terraform recreates a Job that is gone, under the same name and a new uid.
         recreated = _credential_jobs(cfg)
         missing = sorted("/".join(key) for key, uid in old.items() if recreated.get(key) in (None, uid))
