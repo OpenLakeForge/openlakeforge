@@ -16,7 +16,7 @@ from typing import Any, Literal
 from olf.common import log
 from olf.infra import access, trino
 from olf.infra.e2e._perimeter_bearer import CLI_CLIENT, issue_id_token
-from olf.infra.e2e._shell import E2EConfig, E2EError
+from olf.infra.e2e._shell import E2EConfig, E2EError, user_trust_environment
 from olf.infra.e2e._trino import PROBE_SCHEMA, list_tables, stage_catalog_name
 from olf.platform import query, session
 
@@ -144,7 +144,12 @@ def check_person_access(
 
     def run(role: str, stage: str, sql: str) -> Outcome:
         user = str(session.claims(bearer(role))["email"])
-        return outcome(lambda: query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, catalog=stage))
+
+        def statement() -> object:
+            with user_trust_environment(route):
+                return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, catalog=stage)
+
+        return outcome(statement)
 
     check_person_decisions(ordered, {role: data_access[role] for role in roles}, layer_tables(cfg), run)
     log.info(

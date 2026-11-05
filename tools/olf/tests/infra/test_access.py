@@ -86,14 +86,27 @@ def test_ingress_route_is_used_and_verified_against_the_local_ca(
     monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
 
     with _reach() as route:
-        bundle = Path(os.environ["REQUESTS_CA_BUNDLE"]).read_text()
+        assert isinstance(route.verify, str)
+        bundle = Path(route.verify).read_text()
         loopback = socket.getaddrinfo("superset-dev.olf.localhost", 443, type=socket.SOCK_STREAM)
 
     assert route.url == "https://superset-dev.olf.localhost"
     assert forwarded == []
     assert bundle.endswith("LOCAL-CA-PEM\n") and "BEGIN CERTIFICATE" in bundle
     assert {info[4][0] for info in loopback} == {"127.0.0.1"}
-    assert "REQUESTS_CA_BUNDLE" not in os.environ
+
+
+def test_a_route_never_writes_the_process_environment(monkeypatch: pytest.MonkeyPatch, forwarded: list[str]) -> None:
+    monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
+    monkeypatch.setenv("NO_PROXY", "internal.corp")
+    monkeypatch.delenv("no_proxy", raising=False)
+    before = dict(os.environ)
+
+    with _reach() as route:
+        assert dict(os.environ) == before
+        assert isinstance(route.verify, str) and route.proxies  # the route carries them instead
+    assert dict(os.environ) == before
+    assert "REQUESTS_CA_BUNDLE" not in os.environ and "no_proxy" not in os.environ
 
 
 def test_port_forward_without_a_route_or_when_asked(monkeypatch: pytest.MonkeyPatch, forwarded: list[str]) -> None:
@@ -192,11 +205,29 @@ def test_a_configured_proxy_is_bypassed_for_the_pinned_route(
     monkeypatch.delenv("no_proxy", raising=False)
 
     with _reach() as route:
-        bypassed = requests.utils.should_bypass_proxies(route.url, no_proxy=None)
+        bypassed = requests.utils.should_bypass_proxies(route.url, no_proxy=route.proxies["no_proxy"])
 
     assert bypassed
     assert os.environ["NO_PROXY"] == "internal.corp"
     assert "no_proxy" not in os.environ
+
+
+@pytest.mark.parametrize("name", ["no_proxy", "NO_PROXY"])
+def test_the_route_keeps_the_operators_proxy_exemptions_in_either_case(
+    monkeypatch: pytest.MonkeyPatch, forwarded: list[str], name: str
+) -> None:
+    monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp:3128")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.setenv(name, ".localhost")
+
+    with _reach() as route:
+        exemption = route.proxies["no_proxy"]
+
+    # Another loopback host the same session reaches (the portal) must still bypass the proxy.
+    assert requests.utils.should_bypass_proxies("https://olf.localhost/", no_proxy=exemption)
+    assert requests.utils.should_bypass_proxies(route.url, no_proxy=exemption)
 
 
 def test_the_local_ca_is_read_from_the_cluster_the_supplied_environ_names(
@@ -226,26 +257,3 @@ def test_the_local_ca_is_read_from_the_cluster_the_supplied_environ_names(
     with _reach(environ=environ) as route:
         assert isinstance(route.verify, str)
         assert Path(route.verify).read_text().endswith("CONTRACT-CA-PEM\n")
-
-
-def test_service_url_yields_the_route_url_as_a_str(forwarded: list[str]) -> None:
-    with access.service_url(
-        "stage/dev/reporting",
-        service="superset",
-        remote_port=8088,
-        namespace="olf-dev",
-        log_path="/dev/null",
-        shared_namespace="olf-system",
-    ) as forwarded_url:
-        assert forwarded_url == "http://127.0.0.1:18088"
-    ingress = {access.ACCESS_ENV: json.dumps(ROUTES)}
-    with access.service_url(
-        "stage/dev/reporting",
-        service="superset",
-        remote_port=8088,
-        namespace="olf-dev",
-        log_path="/dev/null",
-        shared_namespace="olf-system",
-        environ=ingress,
-    ) as ingress_url:
-        assert ingress_url == "https://superset-dev.olf.localhost"

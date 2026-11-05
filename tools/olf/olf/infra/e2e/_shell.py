@@ -7,9 +7,10 @@ acyclic.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +21,7 @@ from olf.common import contract_state, log
 from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.terraform import external_state_options
+from olf.infra import access
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
@@ -80,6 +82,25 @@ class E2EConfig:
 def cfg_environ(cfg: E2EConfig) -> Mapping[str, str]:
     """The environment `cfg` reads its settings from: its contract environment, else the process's."""
     return os.environ if cfg.environ is None else cfg.environ
+
+
+@contextlib.contextmanager
+def user_trust_environment(route: access.Route) -> Iterator[None]:
+    """Sets what a user would set to point the olf CLI at a private CA (docs/reference/cli.md); used only where
+    e2e drives the CLI's documented env contract."""
+    wanted = {name: route.proxies["no_proxy"] for name in ("NO_PROXY", "no_proxy") if "no_proxy" in route.proxies}
+    if isinstance(route.verify, str):
+        wanted["REQUESTS_CA_BUNDLE"] = route.verify
+    previous = {name: os.environ.get(name) for name in wanted}
+    os.environ.update(wanted)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _kubectl_executable(environ: Mapping[str, str] | None = None) -> str:
