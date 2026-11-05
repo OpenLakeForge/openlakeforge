@@ -90,11 +90,11 @@ def test_run_tells_e2e_where_the_shared_services_live(monkeypatch: pytest.Monkey
     assert e2e_calls[0]["shared_namespace"] == "olf-system"
 
 
-def test_run_exports_the_provider_contract_environment_before_e2e(
+def test_run_hands_the_provider_contract_environment_to_e2e(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """e2e.run() must see the same contract-derived exports the CLI's own
-    `olf infra e2e run` applies (e.g. OPENLAKEFORGE_QUERY_TRINO_CATALOG) - without
+    """e2e.run() must receive the same contract-derived exports the CLI's own
+    `olf infra e2e run` resolves (e.g. OPENLAKEFORGE_QUERY_TRINO_CATALOG) - without
     them, Trino catalog lookups silently fall back to the stale "iceberg"
     default instead of this profile's actual stage catalog name."""
     from olf.infra import contracts as contracts_module
@@ -108,8 +108,8 @@ def test_run_exports_the_provider_contract_environment_before_e2e(
     monkeypatch.setattr(smoke.config, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(smoke, "build_provider", lambda *args, **kwargs: object())
     monkeypatch.setattr(smoke.DeploymentEngine, "deploy", lambda *args: None)
-    def _capture_catalog(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        observed["catalog"] = os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG")
+    def _capture_catalog(*args, environ, **kwargs) -> None:  # noqa: ANN002, ANN003
+        observed["catalog"] = environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG")
 
     monkeypatch.setattr(smoke.e2e, "run", _capture_catalog)
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -165,10 +164,10 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
 def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A direct `olf infra e2e run --env aws` invocation with only the documented
     `AWS_KUBECONFIG_PATH` override set (no bare `KUBECONFIG`) must still
-    target that file - this command exports `KUBECONFIG` via
-    `applied_contract_environment` before `_runner.configure_kubeconfig`
-    ever runs, so it has to resolve the same provider-override precedence
-    itself or it would shadow the override with the plain default path.
+    target that file - the contract environment this command hands to
+    `_runner.configure_kubeconfig` already names a `KUBECONFIG`, so it has to
+    resolve the same provider-override precedence itself or it would shadow
+    the override with the plain default path.
     """
     override = tmp_path / "custom/aws-kubeconfig.yaml"
     seen: dict = {}
@@ -186,7 +185,7 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
         deployment,
         environ,
     ):
-        seen["kubeconfig"] = os.environ.get("KUBECONFIG")
+        seen["kubeconfig"] = environ.get("KUBECONFIG")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setenv("AWS_KUBECONFIG_PATH", str(override))
@@ -258,7 +257,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
             {
                 "repo_root": repo_root,
                 "distribution_root": distribution_root,
-                "kubeconfig": os.environ.get("KUBECONFIG"),
+                "kubeconfig": environ.get("KUBECONFIG"),
             }
         )
 

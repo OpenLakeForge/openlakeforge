@@ -54,13 +54,7 @@ def artifact_transport(provider: object) -> str:
 def provider_revision_store(
     provider: DeploymentProvider, context: DeploymentContext, project_root: Path, *, via: str = "", output: str = ""
 ) -> Iterator[RevisionStore]:
-    """Open the revision store under the platform contract of `context`'s stage.
-
-    The stage must be the one a caller goes on to activate: the contract
-    environment applied here stays in `os.environ` underneath the one
-    activation applies, and values it only defaults (the OpenMetadata catalog
-    database) would otherwise keep the default stage's.
-    """
+    """Open the revision store under the platform contract of `context`'s stage."""
     from olf.common.deployment.errors import DeploymentError
     from olf.common.provider_contracts import ProviderContractError
     from olf.infra.artifact_store import ArtifactStoreError

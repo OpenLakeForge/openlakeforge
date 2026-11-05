@@ -265,13 +265,11 @@ def test_activation_webserver_forward_runs_kubectl_under_the_contract_environmen
     assert call["kubeconfig"] == "/contract/kubeconfig"
 
 
-def test_the_inner_contract_sees_the_defaults_the_outer_contract_supplied(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """`provider_revision_store` wraps activation: the outer block's environment sits under the inner one.
+def test_the_inner_contract_takes_its_own_stages_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`provider_revision_store` wraps activation, and the two blocks may resolve different stages.
 
-    A value the contract only defaults (the OpenMetadata catalog database) keeps the outer stage's value, because the
-    inner block derives its base from the process environment the outer one wrote."""
+    A value the contract only defaults (the OpenMetadata catalog database) is the inner stage's own: the outer block
+    leaves nothing in the process environment for the inner one to mistake for an operator's setting."""
     stage_catalogs = {"dev": "lakehouse_dev", "prod": "lakehouse_prod"}
 
     def build_contract_env(base: Any, _contracts: Any, *, stage: str, **_kwargs: Any) -> tuple[dict[str, str], list]:
@@ -291,8 +289,8 @@ def test_the_inner_contract_sees_the_defaults_the_outer_contract_supplied(
     with contract_env.applied_contract_environment(**kwargs, stage="dev") as outer:
         assert outer["OPENMETADATA_CATALOG_DATABASE"] == "lakehouse_dev"
         with contract_env.applied_contract_environment(**kwargs, stage="prod") as inner:
-            assert inner["OPENMETADATA_CATALOG_DATABASE"] == "lakehouse_dev"
-            assert os.environ["OPENMETADATA_CATALOG_DATABASE"] == "lakehouse_dev"
+            assert inner["OPENMETADATA_CATALOG_DATABASE"] == "lakehouse_prod"
+            assert "OPENMETADATA_CATALOG_DATABASE" not in os.environ
         assert outer["OPENMETADATA_CATALOG_DATABASE"] == "lakehouse_dev"
 
     assert "OPENMETADATA_CATALOG_DATABASE" not in os.environ

@@ -1,13 +1,11 @@
-"""Provider-neutral contract-environment activation.
+"""Provider-neutral contract-environment resolution.
 
 Replaces sourcing `scripts/contracts/load-runtime-env.sh`: calls
 `olf.common.contract_state.load_provider_contracts`/`build_contract_env` directly and
-applies the exports/unsets to `os.environ` for the duration of a block,
-restoring the previous values on exit. This is the in-process bridge to the
-existing `os.environ`-reading library modules (`olf.infra.k8s`, `olf.common.config`,
-`olf.infra.s3`, `olf.common.layers`) that every provider's artifact deployment needs, so
-it lives at `olf.common.deployment` rather than under `olf.common.deployment.local` -
-issue #125's AWS/Azure providers reuse it unmodified.
+yields the resulting environment as a `ContractEnvironment` for the duration of a
+block. The process environment is never written: every reader takes the mapping
+(`environ=`) and every subprocess gets it as `env=` plus its `unsets`. Shared by
+every provider's artifact deployment, so it lives here rather than under `local`.
 """
 
 from __future__ import annotations
@@ -28,9 +26,9 @@ if TYPE_CHECKING:
 
 
 # The provider's command environment scopes DOCKER_CONFIG to an OLF-owned
-# directory. Applying it to os.environ would make it indistinguishable from the
-# developer's own, so `ambient_registry_env` would hand it to a pull from a
-# private registry and the pull would run without their `docker login`.
+# directory. Yielding it would make it indistinguishable from the developer's
+# own, so a pull from a private registry given this environment would run
+# without their `docker login`.
 _PROVIDER_SCOPED = frozenset({"DOCKER_CONFIG"})
 
 
@@ -98,27 +96,15 @@ def applied_contract_environment(
         "OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX": str(port_forward_log_prefix),
     }
 
-    previous: dict[str, str | None] = {}
     applied = {key: value for key, value in {**base, **exports, **extra}.items() if key not in _PROVIDER_SCOPED}
-    for name, value in applied.items():
-        previous[name] = os.environ.get(name)
-        os.environ[name] = value
+    resolved = {**os.environ, **applied}
     for name in unsets:
-        previous.setdefault(name, os.environ.get(name))
-        os.environ.pop(name, None)
-
-    try:
-        yield ContractEnvironment(
-            environ=MappingProxyType(dict(os.environ)),
-            namespace=namespace,
-            kube_context=kube_context,
-            kubeconfig_path=kubeconfig_path,
-            stage=stage,
-            unsets=tuple(unsets),
-        )
-    finally:
-        for name, prior in previous.items():
-            if prior is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = prior
+        resolved.pop(name, None)
+    yield ContractEnvironment(
+        environ=MappingProxyType(resolved),
+        namespace=namespace,
+        kube_context=kube_context,
+        kubeconfig_path=kubeconfig_path,
+        stage=stage,
+        unsets=tuple(unsets),
+    )
