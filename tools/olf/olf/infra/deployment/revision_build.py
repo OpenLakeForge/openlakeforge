@@ -5,7 +5,7 @@ Shared by `olf infra project build` and the deploy phases, so neither depends on
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,7 +23,7 @@ LOCAL_TRANSPORT = "port-forward"
 
 
 @contextmanager
-def revision_store(*, via: str, output: str) -> Iterator[RevisionStore]:
+def revision_store(*, via: str, output: str, environ: Mapping[str, str] | None = None) -> Iterator[RevisionStore]:
     from olf.infra.artifact_store import (
         FilesystemRevisionStore,
         S3RevisionStore,
@@ -34,8 +34,8 @@ def revision_store(*, via: str, output: str) -> Iterator[RevisionStore]:
     if output:
         yield FilesystemRevisionStore(Path(output))
         return
-    bucket = artifact_bucket()
-    with artifact_storage_client(via, bucket) as client:
+    bucket = artifact_bucket(environ=environ)
+    with artifact_storage_client(via, bucket, environ=environ) as client:
         yield S3RevisionStore(client, bucket)
 
 
@@ -79,7 +79,7 @@ def provider_revision_store(
             # the store is wrapped: a failure in the body belongs to whatever
             # the caller is doing with it, and reporting that as an artifact
             # store problem would misname it.
-            stack.enter_context(
+            contract = stack.enter_context(
                 applied_contract_environment(
                     contract_terraform_dir=contract_dir,
                     repo_root=project_root,
@@ -92,7 +92,9 @@ def provider_revision_store(
                     stage=context.stage,
                 )
             )
-            store = stack.enter_context(revision_store(via=via or artifact_transport(provider), output=output))
+            store = stack.enter_context(
+                revision_store(via=via or artifact_transport(provider), output=output, environ=contract)
+            )
         except (DeploymentError, KubectlError, ProviderContractError) as exc:
             raise ArtifactStoreError(
                 f"could not resolve the artifact store from the {context.provider.value} platform contract: {exc}"

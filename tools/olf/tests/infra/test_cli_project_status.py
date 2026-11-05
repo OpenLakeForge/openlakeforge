@@ -95,7 +95,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         capabilities={"analytics": False, "governance": False},
     ).resolved()
 
-    state = SimpleNamespace(contract=contract, deployments=None, pull_secret=None, release_pull_secrets=[])
+    state = SimpleNamespace(contract=contract, deployments=None, pull_secret=None, release_pull_secrets=[], buckets=[])
     if state.deployments is None:
         state.deployments = [
             {
@@ -148,12 +148,18 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
 
     @contextmanager
     def _env(**kwargs):  # noqa: ANN003, ANN202
-        yield {"OPENLAKEFORGE_KUBE_NAMESPACE": kwargs["namespace"]}
+        yield {
+            "OPENLAKEFORGE_KUBE_NAMESPACE": kwargs["namespace"],
+            "OPENLAKEFORGE_OPS_BUCKET_NAME": "ops-from-contract",
+        }
 
     monkeypatch.setattr(contract_env, "applied_contract_environment", _env)
-    monkeypatch.setattr(artifact_store, "artifact_bucket", lambda *a, **k: "ops")
+    monkeypatch.delenv("OPENLAKEFORGE_OPS_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", raising=False)
+
     @contextmanager
-    def _client(*a, **k):  # noqa: ANN002, ANN003, ANN202, ARG001
+    def _client(_via, bucket, **k):  # noqa: ANN001, ANN003, ANN202, ARG001
+        state.buckets.append(bucket)
         yield object()
 
     monkeypatch.setattr(artifact_store, "artifact_storage_client", _client)
@@ -163,6 +169,13 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         activation_module, "read_platform_globals", lambda *a, **k: _GLOBALS
     )
     return SimpleNamespace(state=state, activation=activation, locations=locations)
+
+
+def test_status_opens_the_bucket_the_contract_environment_names(stage) -> None:  # noqa: ANN001
+    result = runner.invoke(app, ["infra", "project", "status", "-f", "openlakeforge.yaml", "--stage", "dev", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert stage.state.buckets == ["ops-from-contract"]
 
 
 def test_status_reports_a_stage_whose_release_matches_its_pointer(stage) -> None:  # noqa: ANN001
