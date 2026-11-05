@@ -237,8 +237,38 @@ def test_explicit_aws_profile_takes_precedence_over_saved_olf_sso(
 
     auth.aws_session(env, region="eu-west-1")
 
-    assert calls == [{"region_name": "eu-west-1"}]
+    assert calls == [{"profile_name": "company-sso", "region_name": "eu-west-1"}]
     assert auth.terraform_auth_environment("aws", env) == {}
+
+
+_AWS_SELECTION = ("AWS_PROFILE", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_REGION", "AWS_DEFAULT_REGION")
+
+
+def test_aws_session_takes_the_selected_profile_and_region_from_the_mapping_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A deploy's selected profile and region live in its command mapping, not in this process's environment."""
+    for name in _AWS_SELECTION:
+        monkeypatch.delenv(name, raising=False)
+    config = tmp_path / "config"
+    config.write_text("[profile selected]\nregion = us-west-2\n", encoding="utf-8")
+    credentials = tmp_path / "credentials"
+    credentials.write_text(
+        "[selected]\naws_access_key_id = SELECTEDKEY\naws_secret_access_key = selected-secret\n", encoding="utf-8"
+    )
+    env = {
+        "OLF_HOME": str(tmp_path),
+        "AWS_PROFILE": "selected",
+        "AWS_CONFIG_FILE": str(config),
+        "AWS_SHARED_CREDENTIALS_FILE": str(credentials),
+        "AWS_REGION": "eu-central-1",
+    }
+
+    session = auth.aws_session(env)
+
+    assert session.profile_name == "selected"
+    assert session.region_name == "eu-central-1"
+    assert session.get_credentials().get_frozen_credentials().access_key == "SELECTEDKEY"
 
 
 def test_olf_generated_credential_process_profile_remains_managed(tmp_path: Path) -> None:
@@ -679,10 +709,10 @@ def test_sso_client_survives_a_config_file_set_after_an_earlier_bare_boto3_call(
 ) -> None:
     """`boto3.client()` (the bare module function) shares one process-global
     default session, and `botocore.session.Session` permanently caches the
-    config file it parses on first use. `olf.infra.deployment.cloud.artifacts`
-    resolves foundation facts (an earlier `aws_session` call, which can reach
-    `_sso_client`) before its `_applied_authentication_environment` overlay
-    sets `AWS_CONFIG_FILE`/`AWS_PROFILE` for the artifacts phase - reproduced
+    config file it parses on first use. The cloud artifacts phase resolves
+    foundation facts (an earlier `aws_session` call, which can reach
+    `_sso_client`) before its contract block sets
+    `AWS_CONFIG_FILE`/`AWS_PROFILE` - reproduced
     directly against a real Terraform-style config file: an earlier bare
     `boto3.client()` call makes a later one raise `ProfileNotFound` for a
     profile the *current* config file genuinely defines, while a fresh

@@ -41,24 +41,9 @@ def _fake_contract_env(on_enter):  # noqa: ANN001, ANN202
     return _cm
 
 
-def test_applied_authentication_environment_exposes_and_restores_olf_selection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OLF_HOME", "/original")
-    monkeypatch.setenv("AWS_PROFILE", "ambient")
-
-    with artifacts._applied_authentication_environment(
-        "aws", {"OLF_HOME": "/selected", "AWS_PROFILE": "olf-sso"}
-    ):
-        assert os.environ["OLF_HOME"] == "/selected"
-        assert os.environ["AWS_PROFILE"] == "olf-sso"
-
-    assert os.environ["OLF_HOME"] == "/original"
-    assert os.environ["AWS_PROFILE"] == "ambient"
-
-
-
-def _fake_provider(repo_root: Path, *, image: str, pushes: list[bool], **extra: Any) -> Any:
+def _fake_provider(
+    repo_root: Path, *, image: str, pushes: list[bool], env: dict[str, str] | None = None, **extra: Any
+) -> Any:
     from olf.common.profile import Provider
 
     def build_project_image(*, push: bool) -> str:
@@ -68,7 +53,7 @@ def _fake_provider(repo_root: Path, *, image: str, pushes: list[bool], **extra: 
     topology = SimpleNamespace(profile_name="legacy", provider=Provider.LOCAL, project=None)
     return SimpleNamespace(
         context=SimpleNamespace(topology=topology, paths=SimpleNamespace(repo_root=repo_root)),
-        env={},
+        env=env or {},
         build_project_image=build_project_image,
         **extra,
     )
@@ -111,3 +96,28 @@ def test_artifacts_deploy_activates_a_revision_instead_of_patching_dagster(
     assert [call["revision"] for call in activated] == ["sha256:" + "b" * 64]
     # A cloud cluster can only pull from a registry.
     assert pushed == [True]
+
+
+def test_artifacts_deploy_leaves_the_process_environment_alone(
+    monkeypatch: pytest.MonkeyPatch, external_project: Path
+) -> None:
+    """The selected credentials reach the SDK clients through `provider.env`; none is copied into `os.environ`."""
+    for name in ("AWS_PROFILE", "AWS_CONFIG_FILE", "AWS_REGION", "AWS_DEFAULT_REGION"):
+        monkeypatch.delenv(name, raising=False)
+    before = dict(os.environ)
+    seen: list[dict[str, str]] = []
+    _stub_activation(monkeypatch)
+    provider = _fake_provider(
+        external_project,
+        image="ghcr.io/openlakeforge/openlakeforge/project-code:1.0.0@sha256:" + "a" * 64,
+        pushes=[],
+        env={"AWS_PROFILE": "selected", "AWS_CONFIG_FILE": "/selected/config", "AWS_REGION": "eu-central-1"},
+        backend=FakeCloudBackend(scope="aws", transport="direct"),
+    )
+    build = provider.build_project_image
+    provider.build_project_image = lambda *, push: seen.append(dict(os.environ)) or build(push=push)
+
+    artifacts.artifacts_deploy(provider)
+
+    assert seen == [before]
+    assert dict(os.environ) == before
