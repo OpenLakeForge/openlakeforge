@@ -136,6 +136,26 @@ path.
 Before, the profile path ran the removal guard with no way to opt in, so a
 stage could only be removed through the deprecated `olf deploy`.
 
+2026-11-05: Recorded why catalog namespaces left Terraform (#89). PR #88,
+finishing #39, first had each Terraform root derive the namespace list from the
+descriptors at plan time; that made `platform` read user code, so it was
+reverted. Namespaces were created by a Terraform-templated Polaris bootstrap
+job and `aws_glue_catalog_database` resources, so a new product still needed a
+platform apply. `olf infra catalog sync-namespaces` now creates them at the
+start of artifacts. Reconciling also deletes, so the delete path is guarded:
+
+| Rule | Where it holds |
+| --- | --- |
+| Prune is opt-in: `--prune`, or `OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES` in the artifacts phase; otherwise an undeclared managed namespace is reported and kept | `test_plan_deletes_orphans_only_when_pruning` |
+| `--dry-run` prints the plan and changes nothing | `_reconcile_and_report` in `olf/infra/commands/catalog.py` |
+| A prune drops catalog metadata only; object-store files stay | `drop_namespace` in `olf/infra/polaris.py` (`purgeRequested=false`) and `olf/infra/glue.py` |
+| A namespace without the `openlakeforge.io/managed-by` property is never pruned or relocated | `test_plan_never_prunes_a_foreign_undeclared_namespace`, `test_plan_refuses_to_relocate_foreign_namespace` |
+| Creates run before drops | `test_apply_creates_before_it_drops` |
+
+The tests are in `tools/olf/tests/infra/test_catalog.py`. The command's flags
+are in the [`olf` README](../../tools/olf/README.md); how a prune takes its
+Gold grants with it is in [ADR 0019](0019-data-plane-authorization-deferral.md#5-polaris-objects).
+
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025
 (`olf` owns the local lifecycle), and 0027 (`olf` owns the cloud lifecycles).
