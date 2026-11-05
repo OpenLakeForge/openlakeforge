@@ -86,7 +86,7 @@ def _runtime_contract(tmp_path: Path, log: Path, *, credential: bool = True) -> 
         "FAKE_KUBECTL_LOG": str(log),
         "STAGE_MARKER": "from-contract",
         "KUBE_CONTEXT": "ctx-from-contract",
-        "KUBECONFIG": "/contract/kubeconfig",
+        "KUBECONFIG": str(tmp_path / "contract/kubeconfig"),
         "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_prod",
         "DAGSTER_LOCAL_PORT": "4242",
     }
@@ -128,7 +128,7 @@ def test_query_runs_kubectl_with_the_contract_environment(
     assert execution["argv"][execution["argv"].index("--catalog") + 1] == "lakehouse_prod"
     for call in (password_lookup, execution):
         assert call["argv"][:2] == ["--context", "ctx-from-contract"]
-        assert call["kubeconfig"] == "/contract/kubeconfig"
+        assert call["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
         assert call["marker"] == "from-contract"
 
 
@@ -163,7 +163,7 @@ def test_product_run_builds_the_e2e_config_from_the_contract(
     assert result.exit_code == 0, result.output
     (cfg,) = seen
     assert (cfg.kube_context, cfg.dagster_local_port) == ("ctx-from-contract", 4242)
-    assert _runner.configure_kubeconfig(cfg) == Path("/contract/kubeconfig").resolve()
+    assert _runner.configure_kubeconfig(cfg) == (tmp_path / "contract/kubeconfig").resolve()
 
 
 def test_e2e_kubectl_and_probes_read_the_contract_environment(tmp_path: Path, kubectl_log: Path) -> None:
@@ -177,7 +177,7 @@ def test_e2e_kubectl_and_probes_read_the_contract_environment(tmp_path: Path, ku
     )
     assert _isolation._sibling_stage(cfg) == "dev"
     for call in _calls(kubectl_log):
-        assert call["kubeconfig"] == "/contract/kubeconfig"
+        assert call["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
         assert call["marker"] == "from-contract"
 
 
