@@ -7,3 +7,8 @@ output "service_port" {
   description = "Port the portal Service listens on."
   value       = local.port
 }
+
+output "image" {
+  description = "The image the portal Deployment runs."
+  value       = var.image
+}

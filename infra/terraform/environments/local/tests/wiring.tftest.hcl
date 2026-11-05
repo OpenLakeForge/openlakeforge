@@ -183,3 +183,35 @@ run "plain_http_without_identity_has_no_api" {
     error_message = "no identity deploys neither the API nor the perimeter"
   }
 }
+
+run "portal_image_override_reaches_the_portal" {
+  command = plan
+
+  variables {
+    portal_image = "ghcr.io/openlakeforge/openlakeforge-portal:pr-1@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+
+  assert {
+    condition     = module.portal[0].image == var.portal_image
+    error_message = "portal_image must reach the portal module"
+  }
+}
+
+run "portal_keeps_its_pin_when_no_image_is_given" {
+  command = plan
+
+  assert {
+    condition     = can(regex("^ghcr.io/openlakeforge/openlakeforge-portal:[^@]+@sha256:[0-9a-f]{64}$", module.portal[0].image))
+    error_message = "an unset portal_image must leave the module's digest-pinned default"
+  }
+}
+
+run "portal_image_must_be_pinned_by_digest" {
+  command = plan
+
+  variables {
+    portal_image = "ghcr.io/openlakeforge/openlakeforge-portal:pr-1"
+  }
+
+  expect_failures = [var.portal_image]
+}
