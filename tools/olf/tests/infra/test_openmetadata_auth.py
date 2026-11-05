@@ -11,7 +11,7 @@ from olf.infra.openmetadata import _auth
 def test_automation_token_is_the_secret_value(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[tuple[str, str, str]] = []
 
-    def secret_value(name: str, key: str, namespace: str, *, kube_context: str | None = None) -> str:
+    def secret_value(name: str, key: str, namespace: str, **_kwargs: object) -> str:
         seen.append((name, key, namespace))
         return "jwt"
 

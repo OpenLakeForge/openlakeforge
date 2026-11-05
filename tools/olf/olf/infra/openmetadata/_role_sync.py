@@ -10,6 +10,7 @@ the ingestion CronJob; the App credentials reach the pod through secretKeyRefs, 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,7 @@ def role_sync_manifests(
     ]
 
 
-def apply_role_sync(namespace: str, *, om_url: str) -> str:
+def apply_role_sync(namespace: str, *, om_url: str, environ: Mapping[str, str] | None = None) -> str:
     """Apply the CronJob when the profile signs in with GitHub and the App Secret holds its credentials.
 
     Returns what happened, for the log. An `external` issuer, or authentication off, never syncs: OIDC
@@ -96,24 +97,26 @@ def apply_role_sync(namespace: str, *, om_url: str) -> str:
     from olf.common.profile import load_deployment_profile
     from olf.infra import k8s
 
-    profile_path = config.project_root() / "openlakeforge.yaml"
+    profile_path = config.project_root(environ=environ) / "openlakeforge.yaml"
     if not profile_path.is_file():
         return "no role sync: no Deployment Profile"
-    identity = load_deployment_profile(profile_path, distribution_root=config.distribution_root()).identity
+    identity = load_deployment_profile(
+        profile_path, distribution_root=config.distribution_root(environ=environ)
+    ).identity
     if identity is None or identity.github is None:
         return "no role sync: the profile does not sign in with GitHub"
     github = identity.github
     try:
-        has_app = bool(k8s.secret_value(github.oauth_app_secret_ref.name, "app-id", namespace))
+        has_app = bool(k8s.secret_value(github.oauth_app_secret_ref.name, "app-id", namespace, environ=environ))
     except k8s.KubectlError:
         has_app = False
     if not has_app:
         return "no role sync: the GitHub Secret has no 'app-id' (a hand-made OAuth App); run 'olf github connect'"
-    catalog = yaml.safe_load((config.distribution_root() / "release/component-catalog.yaml").read_text())
+    catalog = yaml.safe_load((config.distribution_root(environ=environ) / "release/component-catalog.yaml").read_text())
     image = catalog["components"]["images"]["openmetadata_ingestion"]
-    roles = yaml.safe_load((config.distribution_root() / "release/identity-roles.yaml").read_text())
+    roles = yaml.safe_load((config.distribution_root(environ=environ) / "release/identity-roles.yaml").read_text())
     for manifest in role_sync_manifests(
         github, image=image, namespace=namespace, om_url=om_url, precedence=list(roles["precedence"])
     ):
-        k8s.apply_manifest(manifest)
+        k8s.apply_manifest(manifest, environ=environ)
     return f"OpenMetadata roles sync from GitHub teams every 5 minutes ({NAME})"

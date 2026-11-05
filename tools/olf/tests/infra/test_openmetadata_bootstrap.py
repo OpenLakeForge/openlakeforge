@@ -120,7 +120,9 @@ def store(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, str], dict[str, st
             raise k8s.KubectlError("NotFound")
         return secrets[(namespace, name)].get(key, "")
 
-    def write_secret(name: str, namespace: str, data: dict[str, str], *, overwrite: bool = True) -> None:
+    def write_secret(
+        name: str, namespace: str, data: dict[str, str], *, overwrite: bool = True, **_kwargs: object
+    ) -> None:
         if not overwrite and (namespace, name) in secrets:
             raise k8s.KubectlError("AlreadyExists")
         secrets[(namespace, name)] = dict(data)
@@ -216,14 +218,19 @@ def test_the_command_bootstraps_the_shared_namespace(monkeypatch: pytest.MonkeyP
     from olf.infra.commands import runtime
 
     calls: list[tuple] = []
-    monkeypatch.setattr(runtime, "provider_contract_environment", lambda **_kwargs: contextlib.nullcontext())
-    monkeypatch.setenv("OPENLAKEFORGE_SHARED_NAMESPACE", "olf-shared")
+    monkeypatch.setattr(
+        runtime,
+        "provider_contract_environment",
+        lambda **_kwargs: contextlib.nullcontext({"OPENLAKEFORGE_SHARED_NAMESPACE": "olf-shared"}),
+    )
     monkeypatch.setattr(_bootstrap, "bootstrap_auth", lambda *args, **kwargs: calls.append((args, kwargs)))
 
     result = CliRunner().invoke(app, ["infra", "openmetadata", "bootstrap", "--om-url", "http://om:8585", "--sso"])
 
     assert result.exit_code == 0, result.output
-    assert calls == [(("http://om:8585", "olf-shared"), {"email": EMAIL, "sso": True})]
+    assert [(args, (kwargs["email"], kwargs["sso"])) for args, kwargs in calls] == [
+        (("http://om:8585", "olf-shared"), (EMAIL, True))
+    ]
 
 
 def test_an_unhealthy_server_times_out(om: FakeServer, store: dict, monkeypatch: pytest.MonkeyPatch) -> None:

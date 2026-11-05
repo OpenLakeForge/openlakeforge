@@ -189,7 +189,7 @@ def _apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, identity, app_id: st
     monkeypatch.setattr(
         "olf.common.profile.load_deployment_profile", lambda *_a, **_k: SimpleNamespace(identity=identity)
     )
-    monkeypatch.setattr(k8s, "apply_manifest", applied.append)
+    monkeypatch.setattr(k8s, "apply_manifest", lambda manifest, **_kwargs: applied.append(manifest))
 
     def secret(*_args: object, **_kwargs: object) -> str:
         if app_id is None:

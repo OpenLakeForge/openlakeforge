@@ -156,7 +156,7 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
     )
     monkeypatch.setattr(
         "olf.infra.commands.openmetadata.deploy_openmetadata_metadata",
-        lambda: calls.append("metadata"),
+        lambda **_kwargs: calls.append("metadata"),
     )
 
     result = runner.invoke(app, ["infra", "openmetadata", "deploy-metadata", "--provider", "azure"])
