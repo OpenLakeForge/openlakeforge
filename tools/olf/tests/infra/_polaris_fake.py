@@ -1,6 +1,6 @@
 """A Polaris management API and a Kubernetes namespace store for olf's Polaris bootstrap.
 
-`FakePolaris` answers as Polaris does: 409 on a repeated create, one-time
+`FakePolaris` answers as Polaris does: 409 on a repeated create, 500 on a repeated assignment or grant, one-time
 credentials on a principal create or rotate. `Cluster` keeps Secrets and ConfigMaps in a JSON file and answers
 olf's kubectl calls from it.
 """
@@ -17,6 +17,15 @@ from typing import Any
 from urllib.parse import unquote
 
 ROOT = ("root", "root-secret-value")
+STAGES = ("dev", "prod")
+# What person_access.tf renders for release/identity-roles.yaml with DEV and PROD enabled.
+ASSIGNED = {
+    "olf-signed-in": {},
+    "olf-platform-admin": {"lakehouse_dev": "olf-write", "lakehouse_prod": "olf-write"},
+    "olf-data-engineer": {"lakehouse_dev": "olf-write", "lakehouse_prod": "olf-read"},
+    "olf-analyst": {"lakehouse_dev": "olf-gold-read", "lakehouse_prod": "olf-gold-read"},
+    "olf-viewer": {"lakehouse_prod": "olf-gold-read"},
+}
 STS = {
     "role_arn": "arn:aws:iam::000000000000:role/polaris-vending",
     "region": "us-east-1",
@@ -25,10 +34,53 @@ STS = {
 }
 
 
+def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
+    """The plan the local root's DEV and PROD stages give the bootstrap, with GitHub sign-in."""
+    from olf.infra import polaris_bootstrap as pb
+
+    def credential(principal: str, secret: str, keys: str, namespace: str, *, recreatable: bool = False) -> Any:
+        return pb.Credential(principal, secret, f"{keys}_CLIENT_ID", f"{keys}_CLIENT_SECRET", namespace, recreatable)
+
+    stages = tuple(
+        pb.StageCatalog(
+            stage,
+            f"lakehouse_{stage}",
+            f"lakehouse-{stage}-bronze",
+            f"lakehouse-{stage}-silver",
+            f"lakehouse-{stage}-gold",
+            trino=credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", "olf-system"),
+            floe=credential(
+                f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}", recreatable=True
+            ),
+            deployer=credential(
+                f"deployer-{stage}",
+                f"polaris-{stage}-deployer-creds",
+                "POLARIS_DEPLOYER",
+                f"olf-{stage}",
+                recreatable=True,
+            ),
+        )
+        for stage in STAGES
+    )
+    people = tuple(
+        credential(f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", "olf-system")
+        for stage in STAGES
+    )
+    return pb.BootstrapPlan(
+        shared_namespace="olf-system",
+        stages=stages,
+        openmetadata=credential("openmetadata", "polaris-om-creds", "POLARIS_OM", "olf-system"),
+        sts=pb.CatalogSts(**STS) if sts else None,
+        person_access=pb.PersonAccess("github", ASSIGNED, people) if person_access else None,
+    )
+
+
 class FakePolaris:
     def __init__(self) -> None:
         self.catalogs: dict[str, dict[str, Any]] = {}
         self.principals: dict[str, dict[str, Any]] = {}
+        self.principal_roles: dict[str, dict[str, list[str]]] = {}
+        self.catalog_roles: dict[str, dict[str, list[str]]] = {}
         self.writes: list[str] = []
         self.issued = 0
 
@@ -50,6 +102,7 @@ class FakePolaris:
                 if body["name"] in self.catalogs:
                     return 409, {}
                 self.catalogs[body["name"]] = {**body, "entityVersion": 1}
+                self.catalog_roles[body["name"]] = {}
                 return 201, self.catalogs[body["name"]]
             case "GET", ["catalogs", name]:
                 return (200, self.catalogs[name]) if name in self.catalogs else (404, {})
@@ -64,7 +117,7 @@ class FakePolaris:
                 name = body["principal"]["name"] if "principal" in body else body["name"]
                 if name in self.principals:
                     return 409, {}
-                self.principals[name] = {}
+                self.principals[name] = {"roles": []}
                 return 201, self._issue(name)
             case "GET", ["principals", name]:
                 return (200, {"name": name}) if name in self.principals else (404, {})
@@ -72,7 +125,47 @@ class FakePolaris:
                 return (204, {}) if self.principals.pop(name, None) is not None else (404, {})
             case "POST", ["principals", name, "rotate"]:
                 return 200, self._issue(name)
+            case "GET", ["principals", name, "principal-roles"]:
+                if name not in self.principals:
+                    return 404, {}
+                return 200, {"roles": [{"name": role} for role in self.principals[name]["roles"]]}
+            case "PUT", ["principals", name, "principal-roles"]:
+                return self._add(self.principals[name]["roles"], body["principalRole"]["name"])
+            case "POST", ["principal-roles"]:
+                return self._create(self.principal_roles, body["principalRole"]["name"], {})
+            case "POST", ["catalogs", catalog, "catalog-roles"]:
+                return self._create(self.catalog_roles[catalog], body["catalogRole"]["name"], [])
+            case "GET", ["catalogs", catalog, "catalog-roles", role, "grants"]:
+                if role not in self.catalog_roles.get(catalog, {}):
+                    return 404, {}
+                grants = self.catalog_roles[catalog][role]
+                return 200, {"grants": [{"type": "catalog", "privilege": privilege} for privilege in grants]}
+            case "PUT", ["catalogs", catalog, "catalog-roles", role, "grants"]:
+                return self._add(self.catalog_roles[catalog][role], body["grant"]["privilege"])
+            case "GET", ["principal-roles", role, "catalog-roles", catalog]:
+                if role not in self.principal_roles:
+                    return 404, {}
+                return 200, {"roles": [{"name": name} for name in self.principal_roles[role].get(catalog, [])]}
+            case "PUT", ["principal-roles", role, "catalog-roles", catalog]:
+                return self._add(self.principal_roles[role].setdefault(catalog, []), body["catalogRole"]["name"])
+            case "DELETE", ["principal-roles", role, "catalog-roles", catalog, name]:
+                self.principal_roles[role][catalog].remove(name)
+                return 204, {}
         return 400, {"error": f"unexpected {method} {path}"}
+
+    @staticmethod
+    def _create(collection: dict[str, Any], name: str, empty: object) -> tuple[int, dict[str, Any]]:
+        if name in collection:
+            return 409, {}
+        collection[name] = empty
+        return 201, {}
+
+    @staticmethod
+    def _add(values: list[str], value: str) -> tuple[int, dict[str, Any]]:
+        if value in values:
+            return 500, {"error": "duplicate key value violates unique constraint grant_records_pkey"}
+        values.append(value)
+        return 201, {}
 
     def state(self) -> dict[str, Any]:
         """Everything a client can observe, less entity versions and the credentials themselves."""
@@ -80,7 +173,15 @@ class FakePolaris:
             "catalogs": {
                 name: {k: v for k, v in c.items() if k != "entityVersion"} for name, c in self.catalogs.items()
             },
-            "principals": sorted(self.principals),
+            "principals": {name: sorted(p["roles"]) for name, p in self.principals.items()},
+            "principal_roles": {
+                role: {catalog: sorted(names) for catalog, names in catalogs.items() if names}
+                for role, catalogs in self.principal_roles.items()
+            },
+            "catalog_roles": {
+                catalog: {role: sorted(grants) for role, grants in roles.items()}
+                for catalog, roles in self.catalog_roles.items()
+            },
         }
 
     def owner(self, value: str) -> str:

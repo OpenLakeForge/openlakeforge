@@ -20,6 +20,18 @@ from olf.infra import k8s
 from olf.infra.polaris import PolarisClient, PolarisError
 
 DROP_WITH_PURGE = "polaris.config.drop-with-purge.enabled"
+MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
+MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
+MANAGE_ACCESS = "CATALOG_MANAGE_ACCESS"
+# The catalog role each person role holds on a stage catalog, per its data_access row (ADR 0019).
+PERSON_CATALOG_ROLES: Mapping[str, tuple[str, ...]] = {
+    "olf-gold-read": ("NAMESPACE_LIST",),
+    "olf-read": ("TABLE_READ_DATA", "NAMESPACE_READ_PROPERTIES", "VIEW_READ_PROPERTIES"),
+    "olf-write": (MANAGE_CONTENT,),
+}
+# Removed on every run: Gold writes through Trino, and pre-migration deployments had a dbt principal.
+LEGACY_DBT_PRINCIPAL = "dbt"
+LEGACY_DBT_SECRET = "polaris-dbt-creds"
 
 
 @dataclass(frozen=True)
@@ -38,6 +50,16 @@ class Credential:
     @property
     def pending_marker(self) -> str:
         return f"{self.secret}-bootstrap-pending"
+
+
+@dataclass(frozen=True)
+class Grant:
+    """`principal` holds `principal_role`, which holds `catalog_role` on the catalog, which holds `privilege`."""
+
+    principal: str
+    principal_role: str
+    catalog_role: str
+    privilege: str
 
 
 @dataclass(frozen=True)
@@ -60,6 +82,23 @@ class StageCatalog:
     deployer: Credential
 
 
+@dataclass(frozen=True)
+class PersonAccess:
+    principal: str
+    # Principal role -> catalog -> the one catalog role it holds there; a role with no entry holds none.
+    assigned: Mapping[str, Mapping[str, str]]
+    people: tuple[Credential, ...]
+
+
+@dataclass(frozen=True)
+class BootstrapPlan:
+    shared_namespace: str
+    stages: tuple[StageCatalog, ...]
+    openmetadata: Credential
+    sts: CatalogSts | None = None
+    person_access: PersonAccess | None = None
+
+
 def _q(segment: str) -> str:
     return urllib.parse.quote(segment, safe="")
 
@@ -80,6 +119,21 @@ def _call(
         if err.status in absent:
             return None
         raise
+
+
+def _present(client: PolarisClient, path: str, field: str, value: str) -> bool:
+    """Whether the listing at `path` has an entry whose `field` is `value`; a missing listing has none.
+
+    Polaris answers a repeated role assignment or grant with HTTP 500 (a `grant_records_pkey`
+    violation), not 409, so the bootstrap reads first and writes only what is missing.
+    """
+    body = _call(client, "GET", path, absent=(404,)) or {}
+    return any(
+        isinstance(entry, dict) and entry.get(field) == value
+        for listing in body.values()
+        if isinstance(listing, list)
+        for entry in listing
+    )
 
 
 def ensure_catalog(client: PolarisClient, stage: StageCatalog, sts: CatalogSts | None) -> None:
@@ -208,3 +262,122 @@ def ensure_credential(client: PolarisClient, credential: Credential, *, environ:
     )
     k8s.delete_configmap(credential.pending_marker, namespace, environ=environ)
     log.info(f"Stored the credentials of Polaris principal '{principal}' in '{namespace}'.")
+
+
+def _ensure_principal_role(client: PolarisClient, principal: str, role: str) -> None:
+    _call(client, "POST", "/principal-roles", {"principalRole": {"name": role}}, ok=(201,), absent=(409,))
+    if not _present(client, f"/principals/{_q(principal)}/principal-roles", "name", role):
+        client.management(
+            "PUT",
+            f"/principals/{_q(principal)}/principal-roles",
+            payload={"principalRole": {"name": role}},
+            ok_statuses=(201, 409),
+        )
+
+
+def _ensure_catalog_role(client: PolarisClient, catalog: str, role: str, privileges: tuple[str, ...]) -> None:
+    path = f"/catalogs/{_q(catalog)}/catalog-roles"
+    _call(client, "POST", path, {"catalogRole": {"name": role}}, ok=(201,), absent=(409,))
+    for privilege in privileges:
+        if not _present(client, f"{path}/{_q(role)}/grants", "privilege", privilege):
+            client.management(
+                "PUT",
+                f"{path}/{_q(role)}/grants",
+                payload={"grant": {"type": "catalog", "privilege": privilege}},
+                ok_statuses=(201, 409),
+            )
+
+
+def _assign_catalog_role(client: PolarisClient, principal_role: str, catalog: str, catalog_role: str) -> None:
+    client.management(
+        "PUT",
+        f"/principal-roles/{_q(principal_role)}/catalog-roles/{_q(catalog)}",
+        payload={"catalogRole": {"name": catalog_role}},
+        ok_statuses=(201, 409),
+    )
+
+
+def grant_catalog_access(client: PolarisClient, grant: Grant, catalog: str) -> None:
+    _ensure_principal_role(client, grant.principal, grant.principal_role)
+    _ensure_catalog_role(client, catalog, grant.catalog_role, (grant.privilege,))
+    held = f"/principal-roles/{_q(grant.principal_role)}/catalog-roles/{_q(catalog)}"
+    if not _present(client, held, "name", grant.catalog_role):
+        _assign_catalog_role(client, grant.principal_role, catalog, grant.catalog_role)
+
+
+def reconcile_person_access(
+    client: PolarisClient, access: PersonAccess, catalogs: tuple[str, ...], *, environ: Mapping[str, str] | None
+) -> None:
+    """People's access (ADR 0019): the one principal every person's token names, a principal role per
+    canonical role, and on each catalog exactly the catalog role its data_access row needs. A narrowed
+    row revokes the grant it no longer names, which an add-only bootstrap would leave in place."""
+    _call(client, "POST", "/principals", {"principal": {"name": access.principal}}, ok=(201,), absent=(409,))
+    roles = sorted(access.assigned)
+    for role in roles:
+        _ensure_principal_role(client, access.principal, role)
+    for catalog in catalogs:
+        for catalog_role, privileges in sorted(PERSON_CATALOG_ROLES.items()):
+            _ensure_catalog_role(client, catalog, catalog_role, privileges)
+        for role in roles:
+            wanted = access.assigned[role].get(catalog)
+            held = f"/principal-roles/{_q(role)}/catalog-roles/{_q(catalog)}"
+            for catalog_role in sorted(PERSON_CATALOG_ROLES):
+                if _present(client, held, "name", catalog_role):
+                    if catalog_role != wanted:
+                        client.management("DELETE", f"{held}/{_q(catalog_role)}", ok_statuses=(204,))
+                elif catalog_role == wanted:
+                    _assign_catalog_role(client, role, catalog, catalog_role)
+    # Each stage's Trino people catalog credential holds no principal role and so no grant: Trino uses it
+    # only for the catalog's configuration call, and every table request carries the person's own token.
+    for person in access.people:
+        ensure_credential(client, person, environ=environ)
+
+
+def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mapping[str, str] | None = None) -> None:
+    """Every step of the template, in its order. `client` is logged in as the root principal."""
+    for stage in plan.stages:
+        ensure_catalog(client, stage, plan.sts)
+    for stage in plan.stages:
+        ensure_credential(client, stage.trino, environ=environ)
+        grant_catalog_access(
+            client,
+            Grant(stage.trino.principal, f"data-engineer-{stage.stage}", "catalog-admin", MANAGE_CONTENT),
+            stage.catalog_name,
+        )
+        ensure_credential(client, stage.floe, environ=environ)
+        grant_catalog_access(
+            client,
+            Grant(stage.floe.principal, f"data-writer-{stage.stage}", "catalog-writer", MANAGE_CONTENT),
+            stage.catalog_name,
+        )
+
+    _call(client, "DELETE", f"/principals/{LEGACY_DBT_PRINCIPAL}", ok=(204,), absent=(404,))
+    k8s.delete_secret(LEGACY_DBT_SECRET, plan.shared_namespace, environ=environ)
+
+    om = plan.openmetadata
+    ensure_credential(client, om, environ=environ)
+    for stage in plan.stages:
+        grant_catalog_access(
+            client,
+            Grant(om.principal, "data-reader", f"catalog-reader-{stage.stage}", MANAGE_CONTENT),
+            stage.catalog_name,
+        )
+
+    # Namespace lifecycle belongs to the artifacts phase (ADR 0002): this stops at handing
+    # `olf infra catalog sync-namespaces` a principal that can create and drop namespaces.
+    for stage in plan.stages:
+        deployer = stage.deployer
+        ensure_credential(client, deployer, environ=environ)
+        privileges = (MANAGE_METADATA, MANAGE_ACCESS) if plan.person_access else (MANAGE_METADATA,)
+        # With people's access, sync-namespaces grants olf-gold-read on each Gold namespace as the deployer.
+        for privilege in privileges:
+            grant_catalog_access(
+                client,
+                Grant(deployer.principal, f"namespace-admin-{stage.stage}", "catalog-namespace-admin", privilege),
+                stage.catalog_name,
+            )
+
+    if plan.person_access:
+        reconcile_person_access(
+            client, plan.person_access, tuple(stage.catalog_name for stage in plan.stages), environ=environ
+        )
