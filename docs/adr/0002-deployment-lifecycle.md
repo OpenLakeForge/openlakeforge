@@ -33,7 +33,7 @@ The deprecated `olf infra deploy --provider P` retains the old single-DEV path.
 | Phase | Creates | Engine |
 | --- | --- | --- |
 | `foundation` | Kubernetes cluster and container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure | Terraform |
-| `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm, then `olf` bootstraps OpenMetadata |
+| `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm, then `olf` bootstraps Polaris and OpenMetadata |
 | `artifacts` | Deprecated single-DEV compatibility path derived from `lakehouse_code/` | `olf` |
 
 `DeploymentPhase` (`tools/olf/olf/infra/deployment/engine.py`) also carries a
@@ -44,13 +44,16 @@ providers it is a deliberate no-op (`deployment/cloud/provider.py`). It is an
 optimization inside the foundation→platform transition, not a fourth phase, and
 is named here only so a reader counting `DeploymentPhase` members is not misled.
 
-Once the apply finishes, the platform phase runs the OpenMetadata bootstrap
+Once the apply finishes, the platform phase runs the Polaris bootstrap
+(`olf/infra/polaris_bootstrap.py`) and then the OpenMetadata bootstrap
 (`olf infra openmetadata bootstrap`) from the operator's side, as
 `olf infra catalog sync-namespaces` runs in artifacts:
 `deployment/governance.py`, called by the engine after `platform_up`. Its
 inputs come from the applied provider contract alone, so it reads no user code.
-It runs before artifacts because `deploy-metadata` logs in with the
-credentials it creates. It then copies the ingestion-bot Secret into each
+The Polaris bootstrap creates each stage catalog, the workload principals
+with their credential Secrets and grants, and people's roles (ADR 0019), as
+root through a port-forward. The OpenMetadata bootstrap runs before artifacts
+because `deploy-metadata` logs in with the credentials it creates. It then copies the ingestion-bot Secret into each
 governed stage's namespace, where Dagster mounts it, and deletes it from the
 enabled stages that are not governed. On a fresh install those Dagster pods
 wait in `CreateContainerConfigError` until then; the Dagster release does not
@@ -172,6 +175,12 @@ Gold grants with it is in [ADR 0019](0019-data-plane-authorization-deferral.md#5
 the apply, then replicates the ingestion-bot Secret into the governed stage
 namespaces (#562). The Terraform bootstrap and credential-replication Jobs that
 did both inside the apply, and their shell templates, are deleted.
+
+2026-11-05: The platform phase also runs the Polaris bootstrap from `olf`
+after the apply (#562). The Terraform `polaris-bootstrap-*` Job still runs
+inside the apply until a follow-up removes it; a test runs the Job's rendered
+script and `olf`'s port against the same fake Polaris and namespaces and
+checks both leave the same state, in either order.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

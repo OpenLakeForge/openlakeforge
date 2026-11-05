@@ -22,7 +22,10 @@ def _runnable_project(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The OpenMetadata bootstrap the platform phase runs, recorded in the provider's call log."""
+    """The Polaris and OpenMetadata bootstraps the platform phase runs, recorded in the provider's call log."""
+    monkeypatch.setattr(
+        "olf.infra.deployment.governance.bootstrap_polaris", lambda provider: provider.calls.append("polaris")
+    )
     monkeypatch.setattr(
         "olf.infra.deployment.governance.bootstrap_openmetadata", lambda provider: provider.calls.append("bootstrap")
     )
@@ -73,6 +76,7 @@ def test_deploy_all_runs_phases_in_adr_0008_order(tmp_path: Path) -> None:
         "foundation_up",
         "prepare_images",
         "platform_up",
+        "polaris",
         "bootstrap",
         "artifacts_deploy",
     ]
@@ -83,7 +87,7 @@ def test_deploy_all_runs_phases_in_adr_0008_order(tmp_path: Path) -> None:
     [
         (DeploymentPhase.FOUNDATION, ["foundation_up"]),
         (DeploymentPhase.PREFETCH, ["prepare_images"]),
-        (DeploymentPhase.PLATFORM, ["platform_up", "bootstrap"]),
+        (DeploymentPhase.PLATFORM, ["platform_up", "polaris", "bootstrap"]),
         (DeploymentPhase.ARTIFACTS, ["artifacts_deploy"]),
     ],
 )

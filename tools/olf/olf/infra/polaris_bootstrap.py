@@ -16,9 +16,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from olf.common import log
+from olf.common.provider_contracts import ProviderContracts, StageContract
 from olf.infra import k8s
-from olf.infra.polaris import PolarisClient, PolarisError
+from olf.infra.polaris import PolarisClient, PolarisConfig, PolarisError
 
+# The catalog module's Secret holding the root principal's credentials, beside Polaris.
+ROOT_CREDENTIALS_SECRET = "polaris-bootstrap-credentials"
+# The SeaweedFS module's role Polaris assumes through the gateway's STS (ADR 0019).
+SEAWEEDFS_VENDING_ROLE = "arn:aws:iam::000000000000:role/polaris-vending"
+# The Dex module's GitHub connector id, which names the one principal every person's token maps to.
+DEX_CONNECTOR = "github"
 DROP_WITH_PURGE = "polaris.config.drop-with-purge.enabled"
 MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
 MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
@@ -381,3 +388,116 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
         reconcile_person_access(
             client, plan.person_access, tuple(stage.catalog_name for stage in plan.stages), environ=environ
         )
+
+
+def _credential(principal: str, secret: str, keys: str, namespace: str) -> Credential:
+    return Credential(principal, secret, f"{keys}_CLIENT_ID", f"{keys}_CLIENT_SECRET", namespace)
+
+
+def _stage_credential(stage: StageContract, role: str) -> Credential:
+    catalog = stage.catalog
+    return Credential(
+        f"{role}-{stage.name.value}",
+        catalog[f"{role}_credentials_secret_name"],
+        catalog[f"{role}_client_id_key"],
+        catalog[f"{role}_client_secret_key"],
+        stage.namespace,
+        recreatable=True,
+    )
+
+
+def _person_access(contracts: ProviderContracts, stages: Mapping[str, str], shared: str) -> PersonAccess | None:
+    """`person_access.tf`'s rendering of data_access, for the Dex that GitHub sign-in deploys (ADR 0019)."""
+    identity = contracts.shared.values.get("identity") or {}
+    if identity.get("adapter") != "dex":
+        return None
+
+    def catalog_role(layers: Mapping[str, str]) -> str:
+        # A row is one of three shapes, which olf validates: every layer write, every layer read, or Gold read.
+        return "olf-write" if layers.get("gold") == "write" else "olf-read" if len(layers) == 3 else "olf-gold-read"
+
+    assigned: dict[str, Mapping[str, str]] = {"olf-signed-in": {}}
+    for role, rows in identity["roles"]["data_access"].items():
+        assigned[f"olf-{role}"] = {
+            stages[stage]: catalog_role(layers) for stage, layers in rows.items() if stage in stages
+        }
+    people = tuple(
+        _credential(f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", shared)
+        for stage in sorted(stages)
+    )
+    return PersonAccess(DEX_CONNECTOR, assigned, people)
+
+
+def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
+    """The plan for every enabled stage whose catalog is Polaris; None when none is (Glue needs no bootstrap).
+
+    Stage catalogs, buckets, namespaces and the Floe and deployer Secrets come from the contract. The other
+    principal and Secret names are the catalog module's and the environment roots' fixed ones.
+    """
+    stages = sorted(
+        (stage for stage in contracts.stages.values() if stage.catalog.get("catalog_provider") == "polaris"),
+        key=lambda stage: stage.name.value,
+    )
+    if not stages:
+        return None
+    shared = polaris_service(contracts)[2]
+    storage = stages[0].storage
+    # The catalog module vends credentials when the storage adapter offers an STS, and SeaweedFS, the only
+    # storage behind Polaris, always does, on its S3 port.
+    sts = (
+        CatalogSts(SEAWEEDFS_VENDING_ROLE, storage["region"], storage["endpoint"], storage["endpoint"])
+        if str(storage.get("implementation", "")).startswith("storage.s3_compatible.seaweedfs")
+        else None
+    )
+    catalogs = {stage.name.value: stage.catalog["catalog_name"] for stage in stages}
+    return BootstrapPlan(
+        shared_namespace=shared,
+        stages=tuple(
+            StageCatalog(
+                stage.name.value,
+                stage.catalog["catalog_name"],
+                stage.storage["bronze"]["bucket_name"],
+                stage.storage["silver"]["bucket_name"],
+                stage.storage["gold"]["bucket_name"],
+                trino=_credential(
+                    f"trino-{stage.name.value}", f"polaris-{stage.name.value}-trino-creds", "POLARIS_TRINO", shared
+                ),
+                floe=_stage_credential(stage, "floe"),
+                deployer=_stage_credential(stage, "deployer"),
+            )
+            for stage in stages
+        ),
+        openmetadata=_credential("openmetadata", "polaris-om-creds", "POLARIS_OM", shared),
+        sts=sts,
+        person_access=_person_access(contracts, catalogs, shared),
+    )
+
+
+def polaris_service(contracts: ProviderContracts) -> tuple[str, int, str]:
+    """Polaris's Service, port and namespace, from the catalog's namespace-qualified REST URI."""
+    rest_uri = next(stage.catalog["rest_uri"] for stage in contracts.stages.values())
+    parsed = urllib.parse.urlparse(rest_uri)
+    service, _, namespace = (parsed.hostname or "").partition(".")
+    return service, parsed.port or 8181, namespace
+
+
+def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[str, str]) -> None:
+    """Bootstrap Polaris as root through a port-forward, from the applied contract. Nothing to do without it."""
+    plan = bootstrap_plan(contracts)
+    if plan is None:
+        return
+    service, port, namespace = polaris_service(contracts)
+    log.step("Bootstrapping Polaris...")
+    log_prefix = environ.get("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    with k8s.port_forward(
+        service, port, namespace, log_path=f"{log_prefix}-polaris-bootstrap.log", environ=environ
+    ) as local_port:
+        root = PolarisConfig(
+            f"http://127.0.0.1:{local_port}",
+            "",
+            client_id=k8s.secret_value(ROOT_CREDENTIALS_SECRET, "ROOT_CLIENT_ID", namespace, environ=environ),
+            client_secret=k8s.secret_value(ROOT_CREDENTIALS_SECRET, "ROOT_CLIENT_SECRET", namespace, environ=environ),
+        )
+        client = PolarisClient(root)
+        client.login()
+        run_bootstrap(client, plan, environ=environ)
