@@ -572,6 +572,7 @@ def test_check_python_package_versions_names_every_drifted_distribution(tmp_path
         "packages/core": ("openlakeforge-core", "0.5.0a1"),
         "packages/lakehouse-services": ("openlakeforge-lakehouse-services", "0.4.0a1"),
         "packages/runtime": ("openlakeforge-runtime", "0.5.0a1"),
+        "images/project-code": ("openlakeforge-project-code", "0.3.0"),
     }
     for directory, (name, version) in published.items():
         (tmp_path / directory).mkdir(parents=True)
@@ -580,7 +581,10 @@ def test_check_python_package_versions_names_every_drifted_distribution(tmp_path
     result = _readiness._check_python_package_versions(tmp_path, {"distribution": {"version": "0.5.0-alpha.1"}})
 
     assert not result.ok
-    assert result.detail == "packages/lakehouse-services/pyproject.toml version '0.4.0a1', expected '0.5.0a1'"
+    assert result.detail == (
+        "packages/lakehouse-services/pyproject.toml version '0.4.0a1', expected '0.5.0a1'; "
+        "images/project-code/pyproject.toml version '0.3.0', expected '0.5.0a1'"
+    )
 
 
 _FLOE_CATALOG = {"components": {"floe": {"floe-python": "0.9.0", "dagster-floe": "0.5.0"}}}

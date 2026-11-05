@@ -63,13 +63,14 @@ def _pep440_release_version(version: str) -> str:
 
 
 def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
-    """The published distributions and catalog release are one version contract."""
+    """The published distributions, the project-code image and the catalog release are one version contract."""
     expected = _pep440_release_version(catalog_version(catalog))
     paths = {
         "openlakeforge": repo_root / "tools/olf/pyproject.toml",
         "openlakeforge-core": repo_root / "packages/core/pyproject.toml",
         "openlakeforge-lakehouse-services": repo_root / "packages/lakehouse-services/pyproject.toml",
         "openlakeforge-runtime": repo_root / "packages/runtime/pyproject.toml",
+        "openlakeforge-project-code": repo_root / "images/project-code/pyproject.toml",
     }
     problems: list[str] = []
     for name, path in paths.items():
