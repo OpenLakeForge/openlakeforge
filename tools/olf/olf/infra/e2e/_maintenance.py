@@ -18,7 +18,7 @@ from olf.common import log
 from olf.infra import trino
 from olf.infra.e2e._dagster import dagster_client, launch_and_poll
 from olf.infra.e2e._shell import E2EConfig, E2EError
-from olf.infra.e2e._trino import list_tables, stage_catalog_name, trino_query
+from olf.infra.e2e._trino import stage_catalog_name, trino_query
 
 # The runtime's own job and op names (openlakeforge_runtime/product_dagster.py).
 SILVER_JOB, SILVER_OP = "silver_maintenance", "maintain_silver"
@@ -79,12 +79,21 @@ def _prefix(cfg: E2EConfig) -> str:
     return trino.glue_namespace_prefix(cfg.env, stage_catalog_name(cfg))
 
 
+def base_tables(cfg: E2EConfig, schema: str) -> list[str]:
+    """The Iceberg tables in `schema`; views have no snapshots, and the jobs skip them too."""
+    sql = (
+        f"SELECT table_name FROM {stage_catalog_name(cfg)}.information_schema.tables "
+        f"WHERE table_schema = '{schema}' AND table_type = 'BASE TABLE' ORDER BY table_name"
+    )
+    return [line.strip() for line in trino_query(cfg, sql).splitlines() if line.strip()]
+
+
 def _silver_tables(cfg: E2EConfig) -> list[tuple[str, str]]:
     prefix = _prefix(cfg)
     return [
         (f"{prefix}{domain.silver_namespace}", table)
         for domain in cfg.inventory.domains
-        for table in list_tables(cfg, f"{prefix}{domain.silver_namespace}")
+        for table in base_tables(cfg, f"{prefix}{domain.silver_namespace}")
     ]
 
 
@@ -93,7 +102,7 @@ def _gold_tables(cfg: E2EConfig) -> list[tuple[str, str]]:
     return [
         (f"{prefix}{product.gold_namespace}", table)
         for product in cfg.inventory.products
-        for table in list_tables(cfg, f"{prefix}{product.gold_namespace}")
+        for table in base_tables(cfg, f"{prefix}{product.gold_namespace}")
     ]
 
 
@@ -159,10 +168,11 @@ def _unchanged_rows(job: str, before: TableState, after: TableState) -> None:
 
 def check_silver_result(metadata: Mapping[str, Any], before: TableState, after: TableState, *, dry_run: bool) -> None:
     """Floe's per-table report agrees with the catalog, and only a real run removes snapshots."""
-    results = {result["entity"]: result for result in metadata.get("tables") or []}
+    # Floe names each result's physical table `<namespace>.<table>`; entity names repeat across domains.
+    results = {tuple(result["table"].rsplit(".", 1)): result for result in metadata.get("tables") or []}
     _unchanged_rows(SILVER_JOB, before, after)
     for (schema, table), (snapshots, _rows) in before.items():
-        result = results.get(table)
+        result = results.get((schema, table))
         if result is None:
             raise E2EError(f"{SILVER_JOB} reported no result for {schema}.{table}.")
         expired, kept = result["expired_snapshots"], result["kept_snapshots"]

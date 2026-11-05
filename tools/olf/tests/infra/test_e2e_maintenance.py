@@ -82,6 +82,36 @@ def test_table_state_counts_snapshots_and_rows_in_one_query(monkeypatch: pytest.
     assert _TABLE.findall(sql) == tables
 
 
+def test_silver_results_are_matched_by_schema_not_only_by_entity() -> None:
+    """Two domains may both have an `orders` entity; each table is checked against its own report."""
+    other = ("crm_silver", "orders")
+    metadata = {
+        "tables": [
+            {"entity": "orders", "table": "sales_silver.orders", "expired_snapshots": 0, "kept_snapshots": 2},
+            {"entity": "orders", "table": "crm_silver.orders", "expired_snapshots": 0, "kept_snapshots": 3},
+        ]
+    }
+    state = {_KEY: (2, 5), other: (3, 7)}
+
+    _maintenance.check_silver_result(metadata, state, state, dry_run=True)
+
+
+def test_base_tables_lists_only_iceberg_tables(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    queries: list[str] = []
+
+    def trino_query(_cfg: object, sql: str) -> str:
+        queries.append(sql)
+        return "daily\nweekly\n"
+
+    monkeypatch.setattr(_maintenance, "trino_query", trino_query)
+
+    assert _maintenance.base_tables(e2e_cfg(tmp_path), "sales_gold") == ["daily", "weekly"]
+    (sql,) = queries
+    assert "information_schema.tables" in sql
+    assert "table_schema = 'sales_gold'" in sql
+    assert "table_type = 'BASE TABLE'" in sql
+
+
 def test_table_state_fails_when_a_table_is_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(_maintenance, "trino_query", lambda _cfg, _sql: "sales_silver,orders,3,120\n")
 
@@ -93,7 +123,11 @@ _KEY = ("sales_silver", "orders")
 
 
 def _silver(expired: int, kept: int) -> dict[str, Any]:
-    return {"tables": [{"entity": "orders", "expired_snapshots": expired, "kept_snapshots": kept}]}
+    return {
+        "tables": [
+            {"entity": "orders", "table": "sales_silver.orders", "expired_snapshots": expired, "kept_snapshots": kept}
+        ]
+    }
 
 
 @pytest.mark.parametrize(
@@ -162,7 +196,7 @@ class _FakeStack:
         }
         self.gold = {(product.gold_namespace, "mart"): (2, 5) for product in E2E_INVENTORY.products}
 
-    def list_tables(self, _cfg: object, schema: str) -> list[str]:
+    def base_tables(self, _cfg: object, schema: str) -> list[str]:
         return [table for (namespace, table) in [*self.silver, *self.gold] if namespace == schema]
 
     def trino_query(self, _cfg: object, sql: str) -> str:
@@ -178,7 +212,9 @@ class _FakeStack:
         (op_config,) = (op["config"] for op in run_config["ops"].values())
         dry_run = op_config["dry_run"] if self.report_dry_run is None else self.report_dry_run
         if job == _maintenance.SILVER_JOB:
-            tables = [{"entity": t, "expired_snapshots": 0, "kept_snapshots": 2} for _s, t in self.silver]
+            tables = [
+                {"entity": t, "table": f"{s}.{t}", "expired_snapshots": 0, "kept_snapshots": 2} for s, t in self.silver
+            ]
             return {"dry_run": dry_run, "tables": tables}
         results = [{"schema": s, "table": t, "dry_run": dry_run, "snapshots_past_window": 0} for s, t in self.gold]
         return {"dry_run": dry_run, "results": results}
@@ -186,7 +222,7 @@ class _FakeStack:
 
 def _install(monkeypatch: pytest.MonkeyPatch, stack: _FakeStack) -> None:
     monkeypatch.setattr(_maintenance, "dagster_client", lambda _cfg: contextlib.nullcontext(object()))
-    for name in ("list_tables", "trino_query", "launch_and_poll", "run_output_metadata"):
+    for name in ("base_tables", "trino_query", "launch_and_poll", "run_output_metadata"):
         monkeypatch.setattr(_maintenance, name, getattr(stack, name))
 
 
