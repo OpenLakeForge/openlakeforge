@@ -3,17 +3,26 @@ from __future__ import annotations
 import contextlib
 import json
 import ssl
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+import requests
 from conftest import e2e_cfg
 
+from olf.infra import access
 from olf.infra.e2e import _ingress
 from olf.infra.e2e._shell import E2EError
 
 _URL = "https://dagster-dev.olf.localhost"
 _REAL_NO_ROUTE_TLS = _ingress._no_route_tls
+
+
+def _reply(status: int) -> requests.Response:
+    reply = requests.Response()
+    reply.status_code = status
+    return reply
 
 
 def _drill(monkeypatch: pytest.MonkeyPatch, served: list[str | Exception], conditions: str = "") -> list[list[str]]:
@@ -33,7 +42,7 @@ def _drill(monkeypatch: pytest.MonkeyPatch, served: list[str | Exception], condi
     monkeypatch.setattr(_ingress, "kubectl", _kubectl)
     monkeypatch.setattr(_ingress, "_no_ingress", lambda _cfg: False)
     monkeypatch.setattr(_ingress, "_no_route_tls", lambda _cfg: False)
-    monkeypatch.setattr(_ingress, "_route", lambda _cfg: contextlib.nullcontext(_URL))
+    monkeypatch.setattr(_ingress, "_route", lambda _cfg: contextlib.nullcontext(access.Route(_URL)))
     monkeypatch.setattr(_ingress, "_served_serial", _served_serial)
     monkeypatch.setattr(_ingress.time, "sleep", lambda _seconds: None)
     monkeypatch.delenv("OLF_PORT_FORWARD", raising=False)
@@ -95,7 +104,7 @@ def test_restart_drill_keeps_its_evidence_when_the_route_does_not_recover(
 ) -> None:
     _drill(monkeypatch, [])
     # Traefik itself answers 404 while it has no backend: that is not recovery.
-    monkeypatch.setattr(_ingress.requests, "get", lambda _url, **_kwargs: SimpleNamespace(status_code=404))
+    monkeypatch.setattr(requests.Session, "request", lambda *_a, **_k: _reply(404))
     monkeypatch.setattr(_ingress.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(E2EError, match="did not answer"):
@@ -147,9 +156,7 @@ def test_portal_must_link_exactly_the_enabled_user_facing_routes() -> None:
         )
 
 
-def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from_any_issuer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from_any_issuer() -> None:
     callback = "redirect_uri=https%3A%2F%2Foauth2.olf.localhost%2Foauth2%2Fcallback"
     dex = f"https://auth.olf.localhost/auth?{callback}"
     external = f"https://login.example/authorize?client_id=perimeter&{callback}"
@@ -162,9 +169,26 @@ def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from
     )
 
     for status, location, answered in cases:
-        reply = SimpleNamespace(status_code=status, headers={"Location": location})
-        monkeypatch.setattr(_ingress.requests, "get", lambda *_args, reply=reply, **_kwargs: reply)
-        assert _ingress._dagster_answers(_URL, attempts=1, delay=0) is answered
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self, status: int = status, location: str = location) -> None:  # noqa: N802 - http.server's name
+                self.send_response(status)
+                if location:
+                    self.send_header("Location", location)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_args: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            route = access.Route(f"http://127.0.0.1:{server.server_port}", {"no_proxy": "127.0.0.1"})
+            assert _ingress._dagster_answers(route, attempts=1, delay=0) is answered
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 def test_renewal_drill_skips_when_routes_are_plain_http(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

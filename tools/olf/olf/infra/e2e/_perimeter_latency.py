@@ -7,7 +7,6 @@ and straight at the Superset Service. The difference is the perimeter's cost.
 
 from __future__ import annotations
 
-import os
 import secrets
 import statistics
 import time
@@ -27,7 +26,7 @@ from olf.infra.e2e._identity_github import (
     stub_host,
 )
 from olf.infra.e2e._perimeter import PORTAL_REF
-from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 
 WARMUP = 3
 SAMPLES = 20
@@ -74,8 +73,9 @@ def _dashboard_load(
     datasets: Sequence[Mapping[str, Any]],
     headers: Mapping[str, str],
     cookies: MutableMapping[str, str],
+    session: requests.Session | None = None,
 ) -> Callable[[], None]:
-    session = requests.Session()  # keep-alive, as a browser has
+    session = session or requests.Session()  # keep-alive, as a browser has
     session.cookies.update(cookies)
     csrf = session.get(f"{base}/api/v1/security/csrf_token/", headers=headers, timeout=REQUEST_TIMEOUT)
     csrf.raise_for_status()
@@ -109,10 +109,10 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
     if not perimeter or not perimeter["enabled"] or identity.get("adapter") != "dex":
         log.info("Skipping the perimeter latency measurement: it needs an enabled perimeter and the Dex adapter.")
         return
-    if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")) or not dex_points_at_stub(cfg):
+    if config.truthy(cfg_environ(cfg).get(access.PORT_FORWARD_ENV, "")) or not dex_points_at_stub(cfg):
         log.info("Skipping the perimeter latency measurement: it needs the ingress and the GitHub stub.")
         return
-    ref = f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting"
+    ref = f"stage/{cfg_environ(cfg).get(CONTRACT_STAGE_ENV, 'dev')}/reporting"
     routes = {r: route["url"] for r, route in access_contract["routes"].items()}
     # The most privileged mapped role, so the grant on Superset is never the variable.
     role = next(r for r in identity["roles"]["precedence"] if r in identity["role_mapping"])
@@ -127,9 +127,10 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
             log_path=f"/tmp/openlakeforge-{cfg.env}-dex-port-forward.log",
             shared_namespace=cfg.platform_namespace,
             kube_context=cfg.kube_context,
+            environ=cfg_environ(cfg),
         ),
         github_stub(cfg, {login: identity["role_mapping"][role]}),
-        access.service_url(
+        access.service_route(
             ref,
             service="superset",
             remote_port=8088,
@@ -138,29 +139,31 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
             log_path=f"/tmp/openlakeforge-{cfg.env}-superset-latency-port-forward.log",
             shared_namespace=cfg.platform_namespace,
             kube_context=cfg.kube_context,
-        ) as direct_url,
+            environ=cfg_environ(cfg),
+        ) as superset_route,
     ):
+        direct_url, api = superset_route.url, superset_route.session()
         browser, _ = sign_in_with_stub(routes[PORTAL_REF], login, stub_host(cfg))
         cookies = {c.name: c.value or "" for c in browser.cookies}
         # Superset's own API login is the same on both paths; only the route differs.
         password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
-        auth = requests.post(
+        auth = api.post(
             f"{direct_url}/api/v1/security/login",
             json={"username": "admin", "password": password, "provider": "db", "refresh": True},
             timeout=REQUEST_TIMEOUT,
         )
         auth.raise_for_status()
         headers = {"Accept": "application/json", "Authorization": f"Bearer {auth.json()['access_token']}"}
-        dashboards = requests.get(f"{direct_url}/api/v1/dashboard/", headers=headers, timeout=REQUEST_TIMEOUT).json()
+        dashboards = api.get(f"{direct_url}/api/v1/dashboard/", headers=headers, timeout=REQUEST_TIMEOUT).json()
         slug = str(dashboards["result"][0]["id"])
-        charts = requests.get(f"{direct_url}/api/v1/dashboard/{slug}/charts", headers=headers, timeout=REQUEST_TIMEOUT)
+        charts = api.get(f"{direct_url}/api/v1/dashboard/{slug}/charts", headers=headers, timeout=REQUEST_TIMEOUT)
         chart_ids = [c["id"] for c in charts.json()["result"]][:CHARTS_PER_LOAD]
         datasets = []
         for chart_id in chart_ids:
-            chart = requests.get(f"{direct_url}/api/v1/chart/{chart_id}", headers=headers, timeout=REQUEST_TIMEOUT)
+            chart = api.get(f"{direct_url}/api/v1/chart/{chart_id}", headers=headers, timeout=REQUEST_TIMEOUT)
             result = chart.json()["result"]
             datasets.append({"id": result["datasource_id"], "type": result["datasource_type"]})
-        direct = summarize(_timed_loads(_dashboard_load(direct_url, slug, datasets, headers, {})))
+        direct = summarize(_timed_loads(_dashboard_load(direct_url, slug, datasets, headers, {}, api)))
         via = summarize(_timed_loads(_dashboard_load(routes[ref], slug, datasets, headers, cookies)))
     added = require_acceptable(direct, via)
     log.info(

@@ -24,6 +24,7 @@ from openlakeforge_services.openmetadata import OpenMetadataClient
 from openlakeforge_services.superset import SupersetClient
 
 from olf.infra import access, k8s
+from olf.infra.e2e import _dagster
 
 
 @contextlib.contextmanager
@@ -79,6 +80,7 @@ def _clients(route: access.Route) -> dict[str, Callable[[], Any]]:
         "OpenMetadataClient": lambda: route.client(OpenMetadataClient, token="t").request("GET", "/api/v1/ping"),
         "SupersetClient": lambda: route.client(SupersetClient).request("GET", "/api/v1/ping"),
         "JsonHttpClient": lambda: route.client(JsonHttpClient).send("GET", "/api/v1/ping"),
+        "Dagster GraphQL": lambda: _dagster._graphql_over(route)("{ version }", None),
         "http_wait": lambda: k8s.http_wait(f"{route.url}/api/v1/ping", attempts=1, session=route.session()),
         "session": lambda: route.session().get(f"{route.url}/api/v1/ping", timeout=5),
     }

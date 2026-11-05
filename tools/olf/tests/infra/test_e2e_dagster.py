@@ -525,7 +525,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     received_location_names: list[str] = []
 
     class Client:
-        def __init__(self, _url: str, *, expected_location_names: list[str]) -> None:
+        def __init__(self, _url: str, *, expected_location_names: list[str], **_kwargs: object) -> None:
             received_location_names.extend(expected_location_names)
 
         def launch(self, _job: str, *, tags=None) -> str:  # noqa: ANN001

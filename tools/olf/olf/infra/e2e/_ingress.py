@@ -24,7 +24,7 @@ from olf.common import config, log
 from olf.infra import access
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 
 TRAEFIK_DEPLOYMENT = "deploy/traefik"
 # cert-manager's ingress-shim names the Certificate after the Ingress's TLS
@@ -35,7 +35,7 @@ PORTAL_REF = "shared/portal"
 
 
 def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
-    if _no_ingress(cfg) or _skipped("the Traefik restart drill"):
+    if _no_ingress(cfg) or _skipped(cfg, "the Traefik restart drill"):
         return
     log.step("Checking ingress routes recover from a Traefik restart...")
     started = time.monotonic()
@@ -44,8 +44,9 @@ def check_traefik_restart_recovery(cfg: E2EConfig) -> None:
         cfg,
         ["rollout", "status", TRAEFIK_DEPLOYMENT, "-n", cfg.platform_namespace, f"--timeout={DRILL_TIMEOUT_SECONDS}s"],
     )
-    with _route(cfg) as url:
-        recovered = _dagster_answers(url, attempts=DRILL_TIMEOUT_SECONDS // 2, delay=2)
+    with _route(cfg) as route:
+        url = route.url
+        recovered = _dagster_answers(route, attempts=DRILL_TIMEOUT_SECONDS // 2, delay=2)
     elapsed = round(time.monotonic() - started, 1)
     _retain(cfg, "traefik-restart", {"route": url, "recovered": recovered, "elapsed_seconds": elapsed})
     if not recovered:
@@ -58,7 +59,7 @@ def check_portal_lists_routes(cfg: E2EConfig) -> None:
         return
     log.step("Checking the landing page lists the user-facing routes...")
     routes = load_provider_contracts_or_raise(cfg)["shared"]["access"]["routes"]
-    with access.service_url(
+    with access.service_route(
         PORTAL_REF,
         service="portal",
         remote_port=8080,
@@ -66,8 +67,9 @@ def check_portal_lists_routes(cfg: E2EConfig) -> None:
         log_path=f"/tmp/openlakeforge-{cfg.env}-portal-port-forward.log",
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
-    ) as url:
-        response = requests.get(url, timeout=10)
+        environ=cfg_environ(cfg),
+    ) as route:
+        response = route.session().get(route.url, timeout=10)
     response.raise_for_status()
     assert_portal_lists_routes(response.text, routes)
 
@@ -87,15 +89,16 @@ def assert_portal_lists_routes(page: str, routes: dict[str, Any]) -> None:
         raise E2EError(f"Landing page links {sorted(listed)}, expected {sorted(wanted)}.")
 
 
-def _dagster_answers(url: str, *, attempts: int, delay: float) -> bool:
+def _dagster_answers(route: access.Route, *, attempts: int, delay: float) -> bool:
     # Traefik answers 404/503 itself while it has no backend for the host, so
     # any HTTP status is not recovery: only Dagster's own endpoint returning 200,
     # or, behind the perimeter, the proxy's redirect to the issuer's login. The
     # redirect is recognised by the proxy's own callback in `redirect_uri`, not
     # by a path that only one issuer serves.
+    session = route.session()
     for _ in range(attempts):
         try:
-            reply = requests.get(f"{url}/server_info", allow_redirects=False, timeout=5)
+            reply = session.get(f"{route.url}/server_info", allow_redirects=False, timeout=5)
             if reply.status_code == 200 or (
                 reply.status_code == 302 and "%2Foauth2%2Fcallback" in reply.headers.get("Location", "")
             ):
@@ -113,10 +116,11 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
     the Certificate's status, so the old Secret keeps serving until the new
     one replaces it.
     """
-    if _no_ingress(cfg) or _no_route_tls(cfg) or _skipped("the certificate renewal drill"):
+    if _no_ingress(cfg) or _no_route_tls(cfg) or _skipped(cfg, "the certificate renewal drill"):
         return
     log.step("Checking the served route certificate renews without downtime...")
-    with _route(cfg) as url:
+    with _route(cfg) as route:
+        url = route.url
         host, port = urlsplit(url).hostname or "", urlsplit(url).port or 443
         before = _served_serial(host, port)
         issuing = {
@@ -181,20 +185,21 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
 
 
 @contextlib.contextmanager
-def _route(cfg: E2EConfig) -> Iterator[str]:
+def _route(cfg: E2EConfig) -> Iterator[access.Route]:
     # The drills test the ingress itself, so they take the public URL even when
     # the route is behind the perimeter.
-    with access.service_url(
-        f"stage/{os.environ.get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
+    with access.service_route(
+        f"stage/{cfg_environ(cfg).get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
         service=DAGSTER_WEBSERVER_SERVICE_NAME,
         remote_port=80,
         namespace=cfg.namespace,
         log_path=f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log",
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
+        environ=cfg_environ(cfg),
         through_ingress=True,
-    ) as url:
-        yield url
+    ) as route:
+        yield route
 
 
 def _no_ingress(cfg: E2EConfig) -> bool:
@@ -213,9 +218,9 @@ def _no_route_tls(cfg: E2EConfig) -> bool:
     return False
 
 
-def _skipped(drill: str) -> bool:
+def _skipped(cfg: E2EConfig, drill: str) -> bool:
     # OLF_PORT_FORWARD is the documented way to run e2e around a broken ingress.
-    if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
+    if config.truthy(cfg_environ(cfg).get(access.PORT_FORWARD_ENV, "")):
         log.info(f"Skipping {drill}: {access.PORT_FORWARD_ENV} bypasses the ingress.")
         return True
     return False
