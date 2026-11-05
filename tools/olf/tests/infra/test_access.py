@@ -32,11 +32,11 @@ def forwarded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     # cert-manager guarantees. Any other namespace or key raises KeyError.
     secrets = {("local-ca", "olf-system"): {"tls\\.crt": "LOCAL-CA-PEM\n", "tls\\.key": "KEY"}}
     monkeypatch.setattr(access.k8s, "secret_value", lambda name, key, namespace, **_k: secrets[(name, namespace)][key])
-    # service_url pins resolution process-wide; monkeypatch restores the original.
+    # service_route pins resolution process-wide; monkeypatch restores the original.
     monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
     monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
     monkeypatch.delenv(access.PORT_FORWARD_ENV, raising=False)
-    access._ca_bundle.cache_clear()
+    access._CA_BUNDLES.clear()
     return calls
 
 
@@ -45,10 +45,10 @@ def test_a_route_behind_the_perimeter_is_port_forwarded_unless_the_ingress_is_un
 ) -> None:
     monkeypatch.setenv(access.ACCESS_ENV, json.dumps({**ROUTES, "protected": ["stage/dev/reporting"]}))
 
-    with _reach() as url:
-        assert url == "http://127.0.0.1:18088"
-    with _reach(through_ingress=True) as url:
-        assert url == "https://superset-dev.olf.localhost"
+    with _reach() as route:
+        assert route.url == "http://127.0.0.1:18088"
+    with _reach(through_ingress=True) as route:
+        assert route.url == "https://superset-dev.olf.localhost"
     assert forwarded == ["superset"]
 
 
@@ -69,7 +69,7 @@ def test_contract_access_lists_the_protected_routes_only_when_the_perimeter_is_e
 
 
 def _reach(ref: str = "stage/dev/reporting", **kwargs):  # noqa: ANN003, ANN202
-    return access.service_url(
+    return access.service_route(
         ref,
         service="superset",
         remote_port=8088,
@@ -85,11 +85,11 @@ def test_ingress_route_is_used_and_verified_against_the_local_ca(
 ) -> None:
     monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
 
-    with _reach() as url:
+    with _reach() as route:
         bundle = Path(os.environ["REQUESTS_CA_BUNDLE"]).read_text()
         loopback = socket.getaddrinfo("superset-dev.olf.localhost", 443, type=socket.SOCK_STREAM)
 
-    assert url == "https://superset-dev.olf.localhost"
+    assert route.url == "https://superset-dev.olf.localhost"
     assert forwarded == []
     assert bundle.endswith("LOCAL-CA-PEM\n") and "BEGIN CERTIFICATE" in bundle
     assert {info[4][0] for info in loopback} == {"127.0.0.1"}
@@ -98,22 +98,63 @@ def test_ingress_route_is_used_and_verified_against_the_local_ca(
 
 def test_port_forward_without_a_route_or_when_asked(monkeypatch: pytest.MonkeyPatch, forwarded: list[str]) -> None:
     monkeypatch.delenv(access.ACCESS_ENV, raising=False)
-    with _reach() as url:
-        assert url == "http://127.0.0.1:18088"
+    with _reach() as route:
+        assert route.url == "http://127.0.0.1:18088"
 
     monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
     monkeypatch.setenv(access.PORT_FORWARD_ENV, "1")
-    with _reach() as url:
-        assert url == "http://127.0.0.1:18088"
+    with _reach() as route:
+        assert route.url == "http://127.0.0.1:18088"
     assert forwarded == ["superset", "superset"]
 
 
 def test_a_public_issuer_keeps_the_system_trust_store(monkeypatch: pytest.MonkeyPatch, forwarded: list[str]) -> None:
     monkeypatch.setenv(access.ACCESS_ENV, json.dumps({**ROUTES, "issuer": "letsencrypt"}))
 
-    with _reach() as url:
+    with _reach() as route:
         assert "REQUESTS_CA_BUNDLE" not in os.environ
-    assert url == "https://superset-dev.olf.localhost"
+    assert route.url == "https://superset-dev.olf.localhost"
+
+
+def test_the_route_carries_what_the_local_ca_ingress_needs(
+    monkeypatch: pytest.MonkeyPatch, forwarded: list[str], tmp_path: Path
+) -> None:
+    access_json = json.dumps({**ROUTES, "protected": ["stage/dev/other"]})
+    environ = {access.ACCESS_ENV: access_json, "NO_PROXY": "internal.corp"}
+    monkeypatch.delenv(access.ACCESS_ENV, raising=False)
+
+    with _reach(environ=environ) as route:
+        assert route.url == "https://superset-dev.olf.localhost"
+        assert route.proxies == {"no_proxy": "superset-dev.olf.localhost,internal.corp"}
+        assert isinstance(route.verify, str)
+        assert Path(route.verify).read_text().endswith("LOCAL-CA-PEM\n")
+
+
+def test_the_route_of_a_public_issuer_verifies_with_the_system_trust_store(forwarded: list[str]) -> None:
+    environ = {access.ACCESS_ENV: json.dumps({**ROUTES, "issuer": "letsencrypt"})}
+
+    with _reach(environ=environ) as route:
+        assert (route.url, route.verify) == ("https://superset-dev.olf.localhost", True)
+        assert route.proxies == {"no_proxy": "superset-dev.olf.localhost"}
+
+
+def test_the_route_of_a_port_forward_is_the_loopback_without_exemptions(forwarded: list[str]) -> None:
+    protected = {access.ACCESS_ENV: json.dumps({**ROUTES, "protected": ["stage/dev/reporting"]})}
+    forced = {access.ACCESS_ENV: json.dumps(ROUTES), access.PORT_FORWARD_ENV: "1"}
+
+    for environ in ({}, protected, forced):
+        with _reach(environ=environ) as route:
+            assert route == access.Route("http://127.0.0.1:18088")
+    assert forwarded == ["superset"] * 3
+
+
+def test_the_environ_argument_replaces_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch, forwarded: list[str]
+) -> None:
+    monkeypatch.setenv(access.ACCESS_ENV, json.dumps(ROUTES))
+
+    with _reach(environ={}) as route:
+        assert route.url == "http://127.0.0.1:18088"
 
 
 def test_contract_without_an_ingress_clears_a_stale_access_env() -> None:
@@ -150,9 +191,61 @@ def test_a_configured_proxy_is_bypassed_for_the_pinned_route(
     monkeypatch.setenv("NO_PROXY", "internal.corp")
     monkeypatch.delenv("no_proxy", raising=False)
 
-    with _reach() as url:
-        bypassed = requests.utils.should_bypass_proxies(url, no_proxy=None)
+    with _reach() as route:
+        bypassed = requests.utils.should_bypass_proxies(route.url, no_proxy=None)
 
     assert bypassed
     assert os.environ["NO_PROXY"] == "internal.corp"
     assert "no_proxy" not in os.environ
+
+
+def test_the_local_ca_is_read_from_the_cluster_the_supplied_environ_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import base64
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    pem = base64.b64encode(b"CONTRACT-CA-PEM\n").decode()
+    # Answers only for the supplied kubeconfig and context: the ambient cluster has no CA to give.
+    (bindir / "kubectl").write_text(
+        f'#!/bin/sh\n[ "$KUBECONFIG" = "{tmp_path}/kc" ] && [ "$2" = "contract-ctx" ] || exit 1\necho {pem}\n'
+    )
+    (bindir / "kubectl").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    for name in ("KUBE_CONTEXT", "KUBECONFIG", "REQUESTS_CA_BUNDLE", access.ACCESS_ENV, access.PORT_FORWARD_ENV):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
+    environ = {
+        access.ACCESS_ENV: json.dumps(ROUTES),
+        "KUBE_CONTEXT": "contract-ctx",
+        "KUBECONFIG": str(tmp_path / "kc"),
+        "OLF_TOOLCHAIN_MODE": "host",
+    }
+
+    with _reach(environ=environ) as route:
+        assert isinstance(route.verify, str)
+        assert Path(route.verify).read_text().endswith("CONTRACT-CA-PEM\n")
+
+
+def test_service_url_yields_the_route_url_as_a_str(forwarded: list[str]) -> None:
+    with access.service_url(
+        "stage/dev/reporting",
+        service="superset",
+        remote_port=8088,
+        namespace="olf-dev",
+        log_path="/dev/null",
+        shared_namespace="olf-system",
+    ) as forwarded_url:
+        assert forwarded_url == "http://127.0.0.1:18088"
+    ingress = {access.ACCESS_ENV: json.dumps(ROUTES)}
+    with access.service_url(
+        "stage/dev/reporting",
+        service="superset",
+        remote_port=8088,
+        namespace="olf-dev",
+        log_path="/dev/null",
+        shared_namespace="olf-system",
+        environ=ingress,
+    ) as ingress_url:
+        assert ingress_url == "https://superset-dev.olf.localhost"
