@@ -79,7 +79,7 @@ def run(
                     environ=env,
                     topology=context.topology,
                     stage=context.stage,
-                ):
+                ) as contract:
                     e2e.run(
                         "local",
                         suite="smoke",
@@ -87,6 +87,7 @@ def run(
                         shared_namespace=context.shared_namespace,
                         kube_context=context.kube_context,
                         repo_root=root,
+                        environ=contract,
                     )
     except DeploymentError as exc:
         raise SmokeError(str(exc)) from exc

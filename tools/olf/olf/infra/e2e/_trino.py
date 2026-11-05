@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Callable
 
 from openlakeforge_core import Domain, Product
 
-from olf.common import log
+from olf.common import config, log
 from olf.infra import trino
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
@@ -21,12 +20,8 @@ PROBE_SCHEMA = "zz_olf_e2e_probe"
 POLARIS_QUERY_RETRY_INTERVAL_SECONDS = 5
 
 def stage_catalog_name(cfg: E2EConfig) -> str:
-    """The Iceberg catalog this run's stage is served under (see `olf.infra.trino.stage_catalog_name`).
-
-    Takes `cfg` for call-site symmetry with the rest of this module.
-    """
-    del cfg
-    return trino.stage_catalog_name()
+    """The Iceberg catalog this run's stage is served under (see `olf.infra.trino.stage_catalog_name`)."""
+    return trino.stage_catalog_name(cfg.environ)
 
 
 def _glue_namespace_prefix(cfg: E2EConfig) -> str:
@@ -221,7 +216,7 @@ def trino_query(
     )
     # Only a contract that carries the credential name is at the password level; the principal
     # Secrets exist at `off` and `tls` too, but nothing there asks for them.
-    if not os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
+    if not config.env("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", environ=cfg.environ):
         password = None
     elif password is None:
         password = trino.decode_password(kubectl(cfg, trino.password_args(target), capture=True, retry_transient=True))

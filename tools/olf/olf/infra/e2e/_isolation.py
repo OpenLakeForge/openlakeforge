@@ -13,7 +13,7 @@ this module skips cleanly rather than failing.
 
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
 from typing import Any
 
 from openlakeforge_services.base import ServiceClientError
@@ -33,7 +33,7 @@ def _sibling_stage(cfg: E2EConfig) -> str | None:
     for candidate in candidates:
         if candidate == this_stage:
             continue
-        if k8s.resource_exists("namespace", f"olf-{candidate}", f"olf-{candidate}"):
+        if k8s.resource_exists("namespace", f"olf-{candidate}", f"olf-{candidate}", environ=cfg.environ):
             return candidate
     return None
 
@@ -84,7 +84,7 @@ def check_trino_workload_authentication(cfg: E2EConfig, this_stage: str, sibling
     own catalog with its Secret's password, and the unattended pipeline runs
     that authenticate the same way.
     """
-    if not os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
+    if not config.env("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", environ=cfg.environ):
         log.info("Skipping Trino workload authentication probes: Trino takes no password here.")
         return
     log.step(f"Checking Trino workload authentication ({this_stage} claiming {sibling})...")
@@ -136,10 +136,12 @@ def _expect_s3_denied(call, *, who: str, what: str) -> None:  # noqa: ANN001
         raise E2EError(f"isolation breach: {who}'s S3 identity was not denied {what}.")
 
 
-def _s3_identity(namespace: str, secret_name: str) -> tuple[str, str] | None:
+def _s3_identity(
+    namespace: str, secret_name: str, *, environ: Mapping[str, str] | None = None
+) -> tuple[str, str] | None:
     try:
-        access_key = k8s.secret_value(secret_name, "AWS_ACCESS_KEY_ID", namespace)
-        secret_key = k8s.secret_value(secret_name, "AWS_SECRET_ACCESS_KEY", namespace)
+        access_key = k8s.secret_value(secret_name, "AWS_ACCESS_KEY_ID", namespace, environ=environ)
+        secret_key = k8s.secret_value(secret_name, "AWS_SECRET_ACCESS_KEY", namespace, environ=environ)
     except k8s.KubectlError:
         return None
     return access_key, secret_key
@@ -211,7 +213,12 @@ def _check_table_locations(cfg: E2EConfig, provider_contracts: dict[str, Any], s
 
 
 def stage_bucket_objects(
-    provider_contracts: dict[str, Any], stage: str, layers: tuple[str, ...], *, namespace: str
+    provider_contracts: dict[str, Any],
+    stage: str,
+    layers: tuple[str, ...],
+    *,
+    namespace: str,
+    environ: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """`<bucket>/<key>` -> ETag for every object in a stage's buckets for
     `layers`, listed with the platform's S3 identity (the stage identities are
@@ -219,13 +226,16 @@ def stage_bucket_objects(
     which must leave the target stage's buckets untouched."""
     from botocore.exceptions import BotoCoreError, ClientError
 
-    identity = _s3_identity(namespace, "seaweedfs-s3-creds")
+    identity = _s3_identity(namespace, "seaweedfs-s3-creds", environ=environ)
     if identity is None:
         raise E2EError(f"no-copy probe: seaweedfs-s3-creds not found in {namespace}.")
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=environ)
     objects: dict[str, str] = {}
-    with k8s.port_forward("seaweedfs-s3", 8333, namespace, log_path=f"{log_prefix}-isolation-s3-admin.log") as port:
-        client = _s3_client(*identity, local_port=port, region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"))
+    with k8s.port_forward(
+        "seaweedfs-s3", 8333, namespace, log_path=f"{log_prefix}-isolation-s3-admin.log", environ=environ
+    ) as port:
+        region = config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1", environ=environ)
+        client = _s3_client(*identity, local_port=port, region=region)
         for layer in layers:
             bucket = _stage_bucket(provider_contracts, stage, layer)
             try:
@@ -240,7 +250,11 @@ def _bucket_data_files(cfg: E2EConfig, provider_contracts: dict[str, Any], stage
     """Parquet data file names in a stage's Silver and Gold buckets, registered
     or not -- a copied file need not be in any snapshot."""
     objects = stage_bucket_objects(
-        provider_contracts, stage, ("silver", "gold"), namespace=cfg.shared_namespace or "olf-system"
+        provider_contracts,
+        stage,
+        ("silver", "gold"),
+        namespace=cfg.shared_namespace or "olf-system",
+        environ=cfg.environ,
     )
     return {path.rsplit("/", 1)[-1] for path in objects if path.endswith(".parquet")}
 
@@ -273,10 +287,12 @@ def check_stage_data_is_its_own(
         )
 
 
-def _dagster_run_ids(service_name: str, namespace: str, log_path: str) -> set[str]:
+def _dagster_run_ids(
+    service_name: str, namespace: str, log_path: str, *, environ: Mapping[str, str] | None = None
+) -> set[str]:
     from openlakeforge_services.dagster import DagsterClient
 
-    with k8s.port_forward(service_name, 80, namespace, log_path=log_path) as local_port:
+    with k8s.port_forward(service_name, 80, namespace, log_path=log_path, environ=environ) as local_port:
         try:
             result = DagsterClient(f"http://127.0.0.1:{local_port}/graphql").graphql(
                 "query { runsOrError(limit: 500) { __typename ... on Runs { results { runId } } } }"
@@ -297,10 +313,13 @@ def check_dagster_state_isolation(cfg: E2EConfig, this_stage: str, sibling: str)
     sibling without any yet is compared later, from its own suite.
     """
     log.step(f"Checking Dagster run-state isolation ({this_stage} <-> {sibling})...")
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=cfg.environ)
     runs = {
         stage: _dagster_run_ids(
-            DAGSTER_WEBSERVER_SERVICE_NAME, f"olf-{stage}", f"{log_prefix}-isolation-dagster-{stage}.log"
+            DAGSTER_WEBSERVER_SERVICE_NAME,
+            f"olf-{stage}",
+            f"{log_prefix}-isolation-dagster-{stage}.log",
+            environ=cfg.environ,
         )
         for stage in (this_stage, sibling)
     }
@@ -345,14 +364,18 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
     check_trino_workload_authentication(cfg, this_stage, sibling)
 
     log.step(f"Checking SeaweedFS cross-stage isolation ({this_stage} -> {sibling})...")
-    identity = _s3_identity(cfg.namespace, f"seaweedfs-{this_stage}-s3-creds")
+    identity = _s3_identity(cfg.namespace, f"seaweedfs-{this_stage}-s3-creds", environ=cfg.environ)
     if identity is None:
         raise E2EError(f"stage isolation probe: seaweedfs-{this_stage}-s3-creds not found in {cfg.namespace}.")
     access_key, secret_key = identity
-    region = config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    region = config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1", environ=cfg.environ)
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=cfg.environ)
     with k8s.port_forward(
-        "seaweedfs-s3", 8333, cfg.shared_namespace or "olf-system", log_path=f"{log_prefix}-isolation-s3.log"
+        "seaweedfs-s3",
+        8333,
+        cfg.shared_namespace or "olf-system",
+        log_path=f"{log_prefix}-isolation-s3.log",
+        environ=cfg.environ,
     ) as local_port:
         client = _s3_client(access_key, secret_key, local_port=local_port, region=region)
 
@@ -362,7 +385,7 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
             what=f"HeadBucket on {sibling_bucket}",
         )
 
-        ops_bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME", "openlakeforge-ops")
+        ops_bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME", "openlakeforge-ops", environ=cfg.environ)
         _expect_s3_denied(
             lambda: client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{sibling}/", MaxKeys=1),
             who=this_stage,

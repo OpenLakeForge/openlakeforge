@@ -92,7 +92,17 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
     calls: list[dict] = []
 
     def _fake_run(  # noqa: ANN001
-        env, *, suite, checks, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment
+        env,
+        *,
+        suite,
+        checks,
+        namespace,
+        shared_namespace,
+        kube_context,
+        repo_root,
+        distribution_root,
+        deployment,
+        environ,
     ):
         calls.append(
             {"env": env, "suite": suite, "namespace": namespace, "kube_context": kube_context, "repo_root": repo_root}
@@ -127,7 +137,17 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     calls: list[dict] = []
 
     def _fake_run(  # noqa: ANN001
-        env, *, suite, checks, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment
+        env,
+        *,
+        suite,
+        checks,
+        namespace,
+        shared_namespace,
+        kube_context,
+        repo_root,
+        distribution_root,
+        deployment,
+        environ,
     ):
         calls.append({"kube_context": kube_context})
 
@@ -154,7 +174,17 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
     seen: dict = {}
 
     def _fake_run(  # noqa: ANN001, ARG001
-        env, *, suite, checks, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment
+        env,
+        *,
+        suite,
+        checks,
+        namespace,
+        shared_namespace,
+        kube_context,
+        repo_root,
+        distribution_root,
+        deployment,
+        environ,
     ):
         seen["kubeconfig"] = os.environ.get("KUBECONFIG")
 
@@ -212,7 +242,17 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
     calls: list[dict] = []
 
     def _fake_run(  # noqa: ANN001
-        env, *, suite, checks, namespace, shared_namespace, kube_context, repo_root, distribution_root, deployment
+        env,
+        *,
+        suite,
+        checks,
+        namespace,
+        shared_namespace,
+        kube_context,
+        repo_root,
+        distribution_root,
+        deployment,
+        environ,
     ):
         calls.append(
             {

@@ -32,7 +32,7 @@ def _write_profile(path: Path, *, provider: str = "local", stages: tuple[str, ..
     )
 
 
-def _unexpected_toolchain_lookup() -> None:
+def _unexpected_toolchain_lookup(**_kwargs: object) -> None:
     pytest.fail("toolchain lookup was attempted")
 
 
@@ -40,7 +40,7 @@ def _unexpected_toolchain_lookup() -> None:
 def calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     seen: list[dict] = []
 
-    def run_sql(target, sql, *, output_format, kubectl, runner=None):  # noqa: ANN001, ANN202, ARG001
+    def run_sql(target, sql, *, output_format, kubectl, runner=None, environ=None):  # noqa: ANN001, ANN202, ARG001
         seen.append({"target": target, "sql": sql, "format": output_format})
         return "ok\n"
 
@@ -52,7 +52,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     )
     monkeypatch.setattr(
         "olf.common.tooling.resolver.build_resolver",
-        lambda: SimpleNamespace(resolve=lambda _name: "kubectl"),
+        lambda environ=None: SimpleNamespace(resolve=lambda _name: "kubectl"),
     )
     return seen
 

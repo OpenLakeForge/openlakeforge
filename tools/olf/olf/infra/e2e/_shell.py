@@ -62,6 +62,8 @@ class E2EConfig:
     deployment: Any = None
     # "core" skips the slow drills (FullAssertion.tier == "drill"); "all" runs them.
     checks: Checks = "all"
+    # The contract environment `olf infra e2e run` and `olf infra product run` resolved; None reads `os.environ`.
+    environ: Mapping[str, str] | None = None
 
     @property
     def platform_namespace(self) -> str:
@@ -75,13 +77,18 @@ class E2EConfig:
         return self.shared_namespace or self.namespace
 
 
-def _kubectl_executable() -> str:
+def cfg_environ(cfg: E2EConfig) -> Mapping[str, str]:
+    """The environment `cfg` reads its settings from: its contract environment, else the process's."""
+    return os.environ if cfg.environ is None else cfg.environ
+
+
+def _kubectl_executable(environ: Mapping[str, str] | None = None) -> str:
     """The resolved (possibly managed, #127) kubectl executable path.
 
     A separate function so tests can substitute a literal `"kubectl"`
     without exercising real toolchain resolution.
     """
-    return str(build_resolver().resolve("kubectl"))
+    return str(build_resolver(environ=environ).resolve("kubectl"))
 
 
 def _terraform_executable() -> str:
@@ -98,10 +105,12 @@ def kubectl(
     retry_transient: bool = False,
     input_text: str | None = None,
 ) -> str:
-    command = [_kubectl_executable(), "--context", cfg.kube_context, *args]
+    # Called bare when no environ is given: tests substitute a zero-argument stand-in.
+    executable = _kubectl_executable() if cfg.environ is None else _kubectl_executable(cfg.environ)
+    command = [executable, "--context", cfg.kube_context, *args]
     if retry_transient:
-        return _run_retry_transient_kubectl(command, capture=capture, input_text=input_text)
-    return _run(command, capture=capture, input_text=input_text)
+        return _run_retry_transient_kubectl(command, capture=capture, input_text=input_text, env=cfg.environ)
+    return _run(command, capture=capture, input_text=input_text, env=cfg.environ)
 
 
 def _run(
@@ -139,10 +148,11 @@ def _run_retry_transient_kubectl(
     attempts: int = KUBECTL_READ_RETRY_ATTEMPTS,
     delay: float = KUBECTL_READ_RETRY_DELAY_SECONDS,
     input_text: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> str:
     for attempt in range(1, attempts + 1):
         try:
-            return _run(args, capture=capture, input_text=input_text)
+            return _run(args, capture=capture, input_text=input_text, env=env)
         except E2EError as exc:
             if attempt == attempts or not is_transient_kubectl_error(exc):
                 raise

@@ -7,13 +7,16 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 
 from olf.common import config, log
 from olf.common.log import fail
 from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
+
+if TYPE_CHECKING:
+    from olf.infra.deployment.contract_env import ContractEnvironment
 
 
 def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa: ANN001, ANN202
@@ -248,8 +251,8 @@ def default_kube_context(env: str, foundation_state_path: Path | None = None) ->
     return aws_cluster_name(os.environ, foundation_state_path)
 
 @contextmanager
-def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa: ANN001
-    """Apply the stage's provider-contract environment and yield its kube context.
+def applied_runtime_environment(context, *, env: str) -> Iterator[ContractEnvironment]:  # noqa: ANN001
+    """Apply the stage's provider-contract environment and yield it (`.kube_context` is its kube context).
 
     What `olf infra e2e run` and `olf infra query` both need before talking to the
     cluster: the in-process equivalent of sourcing the contract exports, with
@@ -276,5 +279,5 @@ def applied_runtime_environment(context, *, env: str) -> Iterator[str]:  # noqa:
         environ=context.command_env(base=os.environ),
         topology=context.topology,
         stage=context.stage,
-    ):
-        yield kube_context
+    ) as contract:
+        yield contract

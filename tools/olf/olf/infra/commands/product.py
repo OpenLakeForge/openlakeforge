@@ -43,15 +43,16 @@ def product_run(
     context = deployment_context_for_profile(profile_file, stage=stage)
     provider = context.provider.value
     try:
-        with applied_runtime_environment(context, env=provider) as kube_context:
+        with applied_runtime_environment(context, env=provider) as contract:
             cfg = prepare_config(
                 provider,
                 suite=None,
                 namespace=context.namespace,
                 shared_namespace=context.shared_namespace,
-                kube_context=kube_context,
+                kube_context=contract.kube_context,
                 repo_root=context.paths.repo_root,
                 distribution_root=context.paths.distribution_root,
+                environ=contract,
             )
             selected = [candidate for candidate in cfg.inventory.products if candidate.id == product]
             if not selected:
