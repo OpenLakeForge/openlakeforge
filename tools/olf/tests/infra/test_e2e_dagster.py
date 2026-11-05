@@ -526,9 +526,10 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
 
     class Client:
         def __init__(self, _url: str, *, expected_location_names: list[str], **_kwargs: object) -> None:
+            self.expected_location_names = expected_location_names
             received_location_names.extend(expected_location_names)
 
-        def launch(self, _job: str, *, tags=None) -> str:  # noqa: ANN001
+        def launch(self, _job: str, *, tags=None, run_config=None) -> str:  # noqa: ANN001
             return "run-1"
 
         def poll(self, _job: str, _run_id: str, *, timeout_seconds: int, on_status=None, failure_details=None) -> None:  # noqa: ANN001
@@ -637,3 +638,18 @@ def test_run_pod_diagnostics_preserve_failure_if_pods_are_unavailable(
 
     monkeypatch.setattr(_dagster, "kubectl", kubectl)
     assert _dagster.run_pod_failure_details(e2e_cfg(tmp_path), "gone-run") == ""
+
+
+def test_dagster_launch_sends_the_run_config() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def request_json(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        calls.append(variables or {})
+        return {"data": {"launchRun": {"__typename": "LaunchRunSuccess", "run": {"runId": "run-1"}}}}
+
+    client = DagsterClient("http://dagster/graphql", request_json=request_json)
+    run_config = {"ops": {"maintain_silver": {"config": {"dry_run": True}}}}
+    client.launch("silver_maintenance", repository=("loc", "__repository__"), run_config=run_config)
+    client.launch("silver_maintenance", repository=("loc", "__repository__"))
+
+    assert [call["executionParams"]["runConfigData"] for call in calls] == [run_config, {}]

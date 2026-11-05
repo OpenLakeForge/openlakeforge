@@ -147,6 +147,15 @@ not stop the others; the run then fails and reports every table's result in
 the `results` metadata and logs. Both procedures are idempotent, so rerunning
 an interrupted run is safe.
 
+The full e2e suite (`olf infra e2e run --suite full`) launches each job
+twice through Dagster, `dry_run: true` then `false`, with the default
+retention. It checks the output metadata against Trino: every Silver and Gold
+table has a result and no `error`, Floe's expired plus kept snapshots equal
+the table's `$snapshots` count, a dry run removes no snapshot, and no run
+changes a row count. A freshly deployed stack has no snapshot older than 7
+days, so there the real run proves that the procedures run with the stage's
+credentials and leave the tables intact, not that anything is deleted.
+
 Compaction is not run
 ([#173](https://github.com/OpenLakeForge/openlakeforge/issues/173)).
 

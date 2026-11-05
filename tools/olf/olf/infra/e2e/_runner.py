@@ -30,6 +30,7 @@ from olf.infra.e2e._ingress import check_certificate_renewal, check_portal_lists
 from olf.infra.e2e._isolation import check_stage_isolation
 from olf.infra.e2e._issuer_outage import check_issuer_outage
 from olf.infra.e2e._layers import Layer, configured_layers
+from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
@@ -352,6 +353,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         FullAssertion("Polaris namespaces", check_catalog_namespaces),
         FullAssertion("Dagster product pipelines", launch_and_poll_dagster_jobs),
         FullAssertion("Silver and Gold tables", check_trino_tables_and_marts),
+        FullAssertion("Silver and Gold maintenance", check_iceberg_maintenance),
     ]
     if cfg.env == "local":
         assertions.append(FullAssertion("Polaris restart recovery", check_polaris_restart_recovery, tier="drill"))

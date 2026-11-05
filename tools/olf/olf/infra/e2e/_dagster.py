@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 import requests
@@ -59,12 +60,19 @@ def launch_and_poll_dagster_jobs(
     cfg: E2EConfig, *, products: Sequence[Product] | None = None, tags: Mapping[str, str] | None = None
 ) -> None:
     log.step("Launching and polling Dagster product jobs...")
+    with dagster_client(cfg) as client:
+        for product in products or cfg.inventory.products:
+            launch_and_poll(cfg, client, product.job_name, tags=tags)
+
+
+@contextmanager
+def dagster_client(cfg: E2EConfig) -> Iterator[DagsterClient]:
+    """A client for this run's stage's Dagster webserver, reached through its service route."""
     assert cfg.dagster_local_port is not None
-    webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
     with access.service_route(
         f"stage/{cfg_environ(cfg).get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
-        service=webserver_service_name,
+        service=DAGSTER_WEBSERVER_SERVICE_NAME,
         remote_port=80,
         namespace=cfg.namespace,
         local_port=cfg.dagster_local_port,
@@ -75,32 +83,43 @@ def launch_and_poll_dagster_jobs(
     ) as route:
         if not k8s.http_wait(f"{route.url}/server_info", attempts=90, delay=2, session=route.session()):
             raise E2EError("Dagster endpoint did not become reachable.")
-        location_names = expected_repository_location_names(cfg)
-        client = DagsterClient(
-            f"{route.url}/graphql", expected_location_names=location_names, request_json=_graphql_over(route)
+        yield DagsterClient(
+            f"{route.url}/graphql",
+            expected_location_names=expected_repository_location_names(cfg),
+            request_json=_graphql_over(route),
         )
-        timeout_seconds = int(cfg_environ(cfg).get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
-        for product in products or cfg.inventory.products:
-            job = product.job_name
-            try:
-                run_id = client.launch(job, tags=tags)
-            except ServiceClientError as exc:
-                diagnostics = _bounded_pod_diagnostics(
-                    cfg,
-                    [webserver_service_name, *expected_user_code_pods(cfg, location_names)],
-                )
-                raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
-            log.info(f"{job}: launched ({run_id})")
-            try:
-                client.poll(
-                    job,
-                    run_id,
-                    timeout_seconds=timeout_seconds,
-                    on_status=log.info,
-                    failure_details=lambda failed_run: run_pod_failure_details(cfg, failed_run),
-                )
-            except ServiceClientError as exc:
-                raise E2EError(str(exc)) from exc
+
+
+def launch_and_poll(
+    cfg: E2EConfig,
+    client: DagsterClient,
+    job: str,
+    *,
+    tags: Mapping[str, str] | None = None,
+    run_config: Mapping[str, Any] | None = None,
+) -> str:
+    """Launch `job`, wait for it to succeed, and return its run id."""
+    timeout_seconds = int(cfg_environ(cfg).get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
+    try:
+        run_id = client.launch(job, tags=tags, run_config=run_config)
+    except ServiceClientError as exc:
+        diagnostics = _bounded_pod_diagnostics(
+            cfg,
+            [DAGSTER_WEBSERVER_SERVICE_NAME, *expected_user_code_pods(cfg, client.expected_location_names)],
+        )
+        raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
+    log.info(f"{job}: launched ({run_id})")
+    try:
+        client.poll(
+            job,
+            run_id,
+            timeout_seconds=timeout_seconds,
+            on_status=log.info,
+            failure_details=lambda failed_run: run_pod_failure_details(cfg, failed_run),
+        )
+    except ServiceClientError as exc:
+        raise E2EError(str(exc)) from exc
+    return run_id
 
 
 def run_pod_failure_details(cfg: E2EConfig, run_id: str) -> str:
