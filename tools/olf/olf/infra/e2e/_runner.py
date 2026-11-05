@@ -211,7 +211,7 @@ def check_commands(cfg: E2EConfig) -> None:
     from olf.common.tooling.resolver import build_resolver
 
     missing: list[str] = []
-    resolver = build_resolver()
+    resolver = build_resolver(environ=cfg.environ)
     for managed_tool in ("kubectl", "terraform"):
         try:
             resolver.resolve(managed_tool)
@@ -230,31 +230,39 @@ def check_commands(cfg: E2EConfig) -> None:
 
 
 def prepare_kube_context(cfg: E2EConfig, kubeconfig: Path) -> None:
-    if cfg.env == "local" and kube_context_is_ready(cfg.kube_context):
+    if cfg.env == "local" and kube_context_is_ready(cfg.kube_context, environ=cfg.environ):
         return
 
     if cfg.env == "azure":
         if cfg.foundation_terraform_dir is None:
             raise E2EError("Azure e2e requires a foundation Terraform directory.")
-        resource_group = terraform_output(cfg.foundation_terraform_dir, "resource_group_name")
-        cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name")
+        resource_group = terraform_output(cfg.foundation_terraform_dir, "resource_group_name", environ=cfg.environ)
+        cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name", environ=cfg.environ)
         from olf.infra.tooling.azure import AzureSdk
 
         AzureSdk().aks_get_credentials(
-            cluster_name, resource_group=resource_group, kubeconfig_path=kubeconfig, overwrite=True
+            cluster_name,
+            resource_group=resource_group,
+            kubeconfig_path=kubeconfig,
+            overwrite=True,
+            env=cfg.environ,
         )
     elif cfg.env == "aws":
         if cfg.foundation_terraform_dir is None:
             raise E2EError("AWS e2e requires a foundation Terraform directory.")
-        region = terraform_output(cfg.foundation_terraform_dir, "aws_region")
-        cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name")
+        region = terraform_output(cfg.foundation_terraform_dir, "aws_region", environ=cfg.environ)
+        cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name", environ=cfg.environ)
         from olf.infra.tooling.aws import AwsSdk
 
         AwsSdk().eks_update_kubeconfig(
-            cluster_name, region=region, kubeconfig_path=kubeconfig, alias=cfg.kube_context
+            cluster_name, region=region, kubeconfig_path=kubeconfig, alias=cfg.kube_context, env=cfg.environ
         )
     _run_retry(
-        [_kubectl_executable(), "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5
+        [_kubectl_executable(cfg.environ), "cluster-info", "--context", cfg.kube_context],
+        capture=True,
+        attempts=6,
+        delay=5,
+        env=cfg.environ,
     )
 
 
@@ -286,9 +294,9 @@ def _kubeconfig_environment(kubeconfig: Path) -> Iterator[None]:
             os.environ["KUBECONFIG"] = previous
 
 
-def kube_context_is_ready(kube_context: str) -> bool:
+def kube_context_is_ready(kube_context: str, *, environ: Mapping[str, str] | None = None) -> bool:
     try:
-        _run([_kubectl_executable(), "cluster-info", "--context", kube_context], capture=True)
+        _run([_kubectl_executable(environ), "cluster-info", "--context", kube_context], capture=True, env=environ)
     except E2EError:
         return False
     return True

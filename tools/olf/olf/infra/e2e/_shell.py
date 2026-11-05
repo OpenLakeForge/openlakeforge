@@ -18,7 +18,7 @@ from typing import Any, Literal
 from openlakeforge_core import LakehouseInventory
 
 from olf.common import contract_state, log
-from olf.common.tooling.process import ProcessRunner
+from olf.common.tooling.process import ProcessRunner, unsets_of
 from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.terraform import external_state_options
 from olf.infra import access
@@ -112,10 +112,10 @@ def _kubectl_executable(environ: Mapping[str, str] | None = None) -> str:
     return str(build_resolver(environ=environ).resolve("kubectl"))
 
 
-def _terraform_executable() -> str:
+def _terraform_executable(environ: Mapping[str, str] | None = None) -> str:
     """The resolved (possibly managed, #127) terraform executable path. See
     `_kubectl_executable`."""
-    return str(build_resolver().resolve("terraform"))
+    return str(build_resolver(environ=environ).resolve("terraform"))
 
 
 def kubectl(
@@ -139,7 +139,12 @@ def _run(
 ) -> str:
     # Uncaptured output still reaches the terminal: ProcessRunner tees it when streaming (which has no stdin).
     result = ProcessRunner().run(
-        args, env=env, input_text=input_text, check=False, stream_output=not capture and input_text is None
+        args,
+        env=env,
+        unset=unsets_of(env),
+        input_text=input_text,
+        check=False,
+        stream_output=not capture and input_text is None,
     )
     if result.returncode != 0:
         detail = (result.stderr if capture else "") or ""
@@ -147,11 +152,18 @@ def _run(
     return result.stdout if capture else ""
 
 
-def _run_retry(args: list[str], *, capture: bool = False, attempts: int = 3, delay: float = 2.0) -> str:
+def _run_retry(
+    args: list[str],
+    *,
+    capture: bool = False,
+    attempts: int = 3,
+    delay: float = 2.0,
+    env: Mapping[str, str] | None = None,
+) -> str:
     last_error: E2EError | None = None
     for attempt in range(1, attempts + 1):
         try:
-            return _run(args, capture=capture)
+            return _run(args, capture=capture, env=env)
         except E2EError as exc:
             last_error = exc
             if attempt == attempts:
@@ -190,31 +202,34 @@ def is_transient_kubectl_error(error: Exception) -> bool:
     return any(marker in message for marker in TRANSIENT_KUBECTL_ERROR_MARKERS)
 
 
-def _terraform_output_args(terraform_dir: Path, *, mode: str, name: str) -> tuple[list[str], dict[str, str] | None]:
+def _terraform_output_args(
+    terraform_dir: Path, *, mode: str, name: str, environ: Mapping[str, str] | None = None
+) -> tuple[list[str], Mapping[str, str] | None]:
     """Build a `terraform output` argv/env pair for the AWS/Azure foundation
     reads in this module - the same external-state translation
     `Terraform._run`/`olf.common.contract_state.load_provider_contracts` apply, or an
     installed distribution's foundation state under `OLF_HOME` is never
     found (see `olf.common.tooling.terraform.external_state_options`).
     """
-    overlay, state_path = external_state_options(terraform_dir, os.environ, create=False)
-    args = [_terraform_executable(), f"-chdir={terraform_dir}", "output"]
+    source = os.environ if environ is None else environ
+    overlay, state_path = external_state_options(terraform_dir, source, create=False)
+    args = [_terraform_executable(environ), f"-chdir={terraform_dir}", "output"]
     if state_path is not None:
         args.append(f"-state={state_path}")
     args.extend([f"-{mode}", name])
-    env = {**os.environ, **overlay} if overlay else None
+    env = {**source, **overlay} if overlay else environ
     return args, env
 
 
-def terraform_output(terraform_dir: Path | None, name: str) -> str:
+def terraform_output(terraform_dir: Path | None, name: str, *, environ: Mapping[str, str] | None = None) -> str:
     if terraform_dir is None:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
-    args, env = _terraform_output_args(terraform_dir, mode="raw", name=name)
+    args, env = _terraform_output_args(terraform_dir, mode="raw", name=name, environ=environ)
     return _run(args, capture=True, env=env).strip()
 
 
 def load_provider_contracts_or_raise(cfg: E2EConfig) -> dict[str, Any]:
-    provider_contracts = contract_state.load_provider_contracts(str(cfg.contract_terraform_dir))
+    provider_contracts = contract_state.load_provider_contracts(str(cfg.contract_terraform_dir), environ=cfg.environ)
     if provider_contracts is None:
         raise E2EError(f"could not load provider_contracts from {cfg.contract_terraform_dir}")
     return provider_contracts
@@ -222,9 +237,9 @@ def load_provider_contracts_or_raise(cfg: E2EConfig) -> dict[str, Any]:
 
 def aws_stack_region(cfg: E2EConfig) -> str:
     if cfg.foundation_terraform_dir is not None:
-        return terraform_output(cfg.foundation_terraform_dir, "aws_region")
+        return terraform_output(cfg.foundation_terraform_dir, "aws_region", environ=cfg.environ)
     if cfg.aws_region:
         return cfg.aws_region
-    if os.environ.get("AWS_REGION"):
-        return os.environ["AWS_REGION"]
+    if region := cfg_environ(cfg).get("AWS_REGION"):
+        return region
     raise E2EError("AWS e2e requires a stack region from Terraform output or AWS_REGION.")

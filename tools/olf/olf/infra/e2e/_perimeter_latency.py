@@ -145,7 +145,7 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
         browser, _ = sign_in_with_stub(dex_route, routes[PORTAL_REF], login, stub_host(cfg))
         cookies = {c.name: c.value or "" for c in browser.cookies}
         # Superset's own API login is the same on both paths; only the route differs.
-        password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
+        password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context, environ=cfg.environ)
         auth = api.post(
             f"{direct_url}/api/v1/security/login",
             json={"username": "admin", "password": password, "provider": "db", "refresh": True},

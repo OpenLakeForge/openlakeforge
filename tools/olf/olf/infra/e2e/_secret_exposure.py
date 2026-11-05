@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import tempfile
 from collections.abc import Mapping
@@ -23,7 +22,7 @@ from olf.common.tooling.terraform import external_state_options
 from olf.infra import k8s
 from olf.infra.commands import diagnostics
 from olf.infra.e2e._health import health_namespaces
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 
 # Below this a value is likelier to be an ordinary word in the haystack than a
 # credential. Generated identity secrets are 32 characters.
@@ -108,7 +107,9 @@ def scan_namespaces(cfg: E2EConfig, contracts: Mapping[str, Any]) -> tuple[str, 
 
 def _read_secret(cfg: E2EConfig, namespace: str, name: str, key: str) -> str:
     # secret_value puts the key in a JSONPath, where `.` separates fields.
-    return k8s.secret_value(name, key.replace(".", "\\."), namespace, kube_context=cfg.kube_context)
+    return k8s.secret_value(
+        name, key.replace(".", "\\."), namespace, kube_context=cfg.kube_context, environ=cfg.environ
+    )
 
 
 def migrated_credentials(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[str, str]:
@@ -188,7 +189,7 @@ def _state_surfaces(cfg: E2EConfig) -> dict[str, str | None]:
     for root in (cfg.contract_terraform_dir, cfg.foundation_terraform_dir):
         if root is None:
             continue
-        _, state = external_state_options(root, os.environ, create=False)
+        _, state = external_state_options(root, cfg_environ(cfg), create=False)
         path = state or root / "terraform.tfstate"
         surfaces[f"Terraform state of {root.name}"] = path.read_text() if path.is_file() else None
     return surfaces

@@ -11,7 +11,15 @@ from openlakeforge_core import LakehouseInventory
 
 from olf.common import log
 from olf.infra import k8s
-from olf.infra.e2e._shell import E2EConfig, E2EError, aws_stack_region, kubectl, load_provider_contracts_or_raise
+from olf.infra.auth import aws_session
+from olf.infra.e2e._shell import (
+    E2EConfig,
+    E2EError,
+    aws_stack_region,
+    cfg_environ,
+    kubectl,
+    load_provider_contracts_or_raise,
+)
 
 # Dagster's own compute-log archive path, relative to this stage's own
 # activations/<stage> prefix (modules/orchestration/dagster/release.tf
@@ -26,7 +34,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["shared"]["ops_storage"]["bucket_name"]
     if cfg.env == "aws":
-        client = boto3.client("s3", region_name=aws_stack_region(cfg))
+        client = aws_session(cfg_environ(cfg), region=aws_stack_region(cfg)).client("s3")
         assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
         return
 
@@ -36,12 +44,14 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
         "AWS_ACCESS_KEY_ID",
         cfg.platform_namespace,
         kube_context=cfg.kube_context,
+        environ=cfg.environ,
     )
     secret_access_key = k8s.secret_value(
         "seaweedfs-s3-creds",
         "AWS_SECRET_ACCESS_KEY",
         cfg.platform_namespace,
         kube_context=cfg.kube_context,
+        environ=cfg.environ,
     )
     log_path = f"/tmp/openlakeforge-{cfg.env}-seaweedfs-s3-port-forward.log"
     with k8s.port_forward(
@@ -51,6 +61,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
         local_port=cfg.seaweedfs_local_port,
         log_path=log_path,
         kube_context=cfg.kube_context,
+        environ=cfg.environ,
     ):
         endpoint = f"http://127.0.0.1:{cfg.seaweedfs_local_port}"
         client = boto3.client(

@@ -37,7 +37,7 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
         return
     log.step(f"Rotating {TARGET} with `olf infra secrets rotate`, then signing in...")
     started = time.monotonic()
-    kubectl = Toolkit.default().kubectl
+    kubectl = Toolkit.default(environ=cfg.environ).kubectl
     try:
         secrets_rotation.rotate_client(cfg.deployment, TARGET, kubectl=kubectl)
     except secrets_rotation.RotationError as exc:
