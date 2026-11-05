@@ -21,7 +21,7 @@ from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING
 
 from olf.common.deployment.errors import CommandExecutionError
-from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired
+from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired, unsets_of
 from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.toolkit import Toolkit
 
@@ -87,7 +87,7 @@ def _kubectl(
 ) -> str:
     command = _resolved_kubectl_argv(args, kube_context=kube_context, environ=environ)
     # Uncaptured output still reaches the terminal: ProcessRunner tees it when streaming.
-    result = ProcessRunner().run(command, check=False, stream_output=not capture, env=environ)
+    result = ProcessRunner().run(command, check=False, stream_output=not capture, env=environ, unset=unsets_of(environ))
     if check and result.returncode != 0:
         detail = (result.stderr or "").strip()
         raise KubectlError(f"{' '.join(command)} failed: {detail}")
@@ -139,7 +139,7 @@ def exec_succeeds(
 ) -> bool:
     """Whether `argv` exits 0 inside the deployment's pod."""
     command = _resolved_kubectl_argv(["exec", f"deploy/{deployment}", "-n", namespace, "--", *argv], environ=environ)
-    return ProcessRunner().run(command, check=False, env=environ).ok
+    return ProcessRunner().run(command, check=False, env=environ, unset=unsets_of(environ)).ok
 
 
 def restart_deployment(deployment: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
@@ -211,7 +211,7 @@ def port_forward(
         environ=environ,
     )
     with open(log_path, "w", encoding="utf-8") as log_file:
-        process = ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT, env=environ)
+        process = ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT, env=environ, unset=unsets_of(environ))
     try:
         _wait_for_port_forward(process, port, log_path)
         yield port
@@ -245,7 +245,6 @@ def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0, session: requ
         except requests.RequestException:
             time.sleep(delay)
     return False
-
 
 
 def apply_manifest(manifest: dict, *, environ: Mapping[str, str] | None = None) -> None:

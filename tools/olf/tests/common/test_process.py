@@ -279,3 +279,27 @@ def test_popen_redirects_stderr_to_the_stdout_target(tmp_path: Path) -> None:
 def test_popen_missing_executable_raises_typed_error(tmp_path: Path) -> None:
     with pytest.raises(ExecutableNotFoundError):
         ProcessRunner().popen([str(tmp_path / "does-not-exist")])
+
+
+def test_unset_keeps_an_operator_variable_out_of_the_child(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLF_OPERATOR_SET", "from-the-shell")
+    monkeypatch.setenv("OLF_OPERATOR_KEPT", "kept")
+    script = write_fake_executable(tmp_path / "fake", env_keys=["OLF_OPERATOR_SET", "OLF_OPERATOR_KEPT"])
+
+    result = ProcessRunner().run([str(script)], env={}, unset=["OLF_OPERATOR_SET"])
+
+    assert json.loads(result.stdout)["env"] == {"OLF_OPERATOR_SET": None, "OLF_OPERATOR_KEPT": "kept"}
+
+
+def test_unset_applies_without_an_env_overlay_and_to_a_background_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OLF_OPERATOR_SET", "from-the-shell")
+    script = write_fake_executable(tmp_path / "fake", env_keys=["OLF_OPERATOR_SET"])
+
+    foreground = ProcessRunner().run([str(script)], unset=["OLF_OPERATOR_SET"])
+    background = ProcessRunner().popen([str(script)], stdout=PIPE, text=True, unset=["OLF_OPERATOR_SET"])
+    background_out, _ = background.communicate()
+
+    assert json.loads(foreground.stdout)["env"] == {"OLF_OPERATOR_SET": None}
+    assert json.loads(background_out)["env"] == {"OLF_OPERATOR_SET": None}

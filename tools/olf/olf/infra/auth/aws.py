@@ -236,6 +236,24 @@ def _choose(items: list[Mapping[str, Any]], key: str, choose: Any | None, label:
     return str(choose(values, label))
 
 
+def client_options(
+    environ: Mapping[str, str], *, region: str | None = None, endpoint_variable: str | None = None
+) -> dict[str, Any]:
+    """`Session.client` keywords that make a client follow `environ` rather than this process's environment.
+
+    botocore takes a missing region from `os.environ`, so a contract that sets `AWS_REGION` would not reach
+    it. A client naming `endpoint_variable` also refuses every configured endpoint, because the contract
+    unsets that variable on some providers and the operator's shell must not supply it back.
+    """
+    options: dict[str, Any] = {
+        "region_name": region or environ.get("AWS_REGION") or environ.get("AWS_DEFAULT_REGION") or None
+    }
+    if endpoint_variable:
+        options["endpoint_url"] = environ.get(endpoint_variable) or None
+        options["config"] = Config(ignore_configured_endpoint_urls=True)  # type: ignore[call-arg]  # botocore stubs predate this option
+    return options
+
+
 def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any:
     """Return a boto3 session sourced from OLF state or normal SDK discovery."""
     if _uses_aws_automation(environ) or _uses_external_aws_profile(environ):

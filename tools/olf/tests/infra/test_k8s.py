@@ -312,3 +312,30 @@ def test_kubectl_executable_honours_the_toolchain_mode_of_the_given_mapping(
 def test_write_secret_child_sees_the_explicit_environ(env_probe_kubectl: dict[str, str], overwrite: bool) -> None:
     # The probe exits non-zero unless the kubectl child received the mapping's KUBECONFIG.
     k8s.write_secret("s", "ns", {"k": "v"}, overwrite=overwrite, environ=env_probe_kubectl)
+
+
+def test_kubectl_does_not_get_back_a_variable_the_contract_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from olf.infra.deployment.contract_env import ContractEnvironment
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    kubectl = bindir / "kubectl"
+    # Exits non-zero when the contract-unset variable reaches the child.
+    kubectl.write_text('#!/bin/sh\n[ -z "${OLF_OPERATOR_ONLY+x}" ]\n')
+    kubectl.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("OLF_OPERATOR_ONLY", "from-the-shell")
+    environ = {"KUBE_CONTEXT": "ctx", "OLF_TOOLCHAIN_MODE": "host"}
+    contract = ContractEnvironment(
+        environ=environ,
+        namespace="ns",
+        kube_context="ctx",
+        kubeconfig_path=tmp_path / "kubeconfig",
+        stage=None,
+        unsets=("OLF_OPERATOR_ONLY",),
+    )
+
+    assert k8s.exec_succeeds("dep", "ns", ["true"], environ=contract)
+    assert not k8s.exec_succeeds("dep", "ns", ["true"], environ=environ)

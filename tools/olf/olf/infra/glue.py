@@ -34,11 +34,12 @@ class GlueClient:
 
     def __post_init__(self) -> None:
         if self._client is None:
-            from olf.infra.auth import aws_session
+            from olf.infra.auth import aws_session, client_options
 
-            self._client = aws_session(
-                os.environ if self.environ is None else self.environ, region=self.config.region or None
-            ).client("glue", region_name=self.config.region or None)
+            source = os.environ if self.environ is None else self.environ
+            self._client = aws_session(source, region=self.config.region or None).client(
+                "glue", **client_options(source, region=self.config.region or None)
+            )
 
     def list_namespaces(self) -> dict[str, NamespaceState]:
         states: dict[str, NamespaceState] = {}
