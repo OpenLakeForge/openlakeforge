@@ -199,7 +199,11 @@ class DeploymentEngine:
         elif phase == DeploymentPhase.PREFETCH:
             self.provider.prepare_images()
         elif phase == DeploymentPhase.PLATFORM:
+            from olf.infra.deployment.governance import bootstrap_openmetadata
+
             self.provider.platform_up()
+            # Before the artifacts phase: deploy-metadata logs in with the credentials it creates.
+            bootstrap_openmetadata(self.provider)
         elif phase == DeploymentPhase.ARTIFACTS:
             self.provider.artifacts_deploy()
         else:

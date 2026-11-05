@@ -33,7 +33,7 @@ The deprecated `olf infra deploy --provider P` retains the old single-DEV path.
 | Phase | Creates | Engine |
 | --- | --- | --- |
 | `foundation` | Kubernetes cluster and container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure | Terraform |
-| `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm |
+| `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm, then `olf` bootstraps OpenMetadata |
 | `artifacts` | Deprecated single-DEV compatibility path derived from `lakehouse_code/` | `olf` |
 
 `DeploymentPhase` (`tools/olf/olf/infra/deployment/engine.py`) also carries a
@@ -43,6 +43,14 @@ kind nodes so the Helm releases do not each wait on a cold pull. On cloud
 providers it is a deliberate no-op (`deployment/cloud/provider.py`). It is an
 optimization inside the foundation→platform transition, not a fourth phase, and
 is named here only so a reader counting `DeploymentPhase` members is not misled.
+
+Once the apply finishes, the platform phase runs the OpenMetadata bootstrap
+(`olf infra openmetadata bootstrap`) from the operator's side, as
+`olf infra catalog sync-namespaces` runs in artifacts:
+`deployment/governance.py`, called by the engine after `platform_up`. Its
+inputs come from the applied provider contract alone, so it reads no user code.
+It runs before artifacts because `deploy-metadata` logs in with the
+credentials it creates.
 
 ### The platform phase owns namespaces, and which services repeat
 
@@ -155,6 +163,10 @@ start of artifacts. Reconciling also deletes, so the delete path is guarded:
 The tests are in `tools/olf/tests/infra/test_catalog.py`. The command's flags
 are in the [`olf` README](../../tools/olf/README.md); how a prune takes its
 Gold grants with it is in [ADR 0019](0019-data-plane-authorization-deferral.md#5-polaris-objects).
+
+2026-11-05: The platform phase runs the OpenMetadata bootstrap from `olf` after
+the apply (#562). The Terraform bootstrap Job still runs inside the apply until
+a follow-up removes it; every step is idempotent, so both running converge.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

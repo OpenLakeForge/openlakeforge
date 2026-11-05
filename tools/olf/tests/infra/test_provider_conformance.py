@@ -1044,6 +1044,8 @@ def _record_steps(adapter_class: type, monkeypatch: pytest.MonkeyPatch, calls: l
             calls.append(step)
 
         monkeypatch.setattr(adapter_class, step, _recorder)
+    # Provider-neutral rather than an adapter step; test_deployment_governance covers it.
+    monkeypatch.setattr("olf.infra.deployment.governance.bootstrap_openmetadata", lambda _provider: None)
 
 
 @every_provider

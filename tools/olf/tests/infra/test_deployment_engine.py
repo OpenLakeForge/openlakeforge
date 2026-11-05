@@ -20,6 +20,14 @@ def _runnable_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The OpenMetadata bootstrap the platform phase runs, recorded in the provider's call log."""
+    monkeypatch.setattr(
+        "olf.infra.deployment.governance.bootstrap_openmetadata", lambda provider: provider.calls.append("bootstrap")
+    )
+
+
 class _FakeProvider:
     def __init__(self, repo_root: Path) -> None:
         self.calls: list[str] = []
@@ -60,7 +68,14 @@ def test_deploy_all_runs_phases_in_adr_0008_order(tmp_path: Path) -> None:
 
     engine.deploy()
 
-    assert provider.calls == ["before_deploy", "foundation_up", "prepare_images", "platform_up", "artifacts_deploy"]
+    assert provider.calls == [
+        "before_deploy",
+        "foundation_up",
+        "prepare_images",
+        "platform_up",
+        "bootstrap",
+        "artifacts_deploy",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -68,7 +83,7 @@ def test_deploy_all_runs_phases_in_adr_0008_order(tmp_path: Path) -> None:
     [
         (DeploymentPhase.FOUNDATION, ["foundation_up"]),
         (DeploymentPhase.PREFETCH, ["prepare_images"]),
-        (DeploymentPhase.PLATFORM, ["platform_up"]),
+        (DeploymentPhase.PLATFORM, ["platform_up", "bootstrap"]),
         (DeploymentPhase.ARTIFACTS, ["artifacts_deploy"]),
     ],
 )
