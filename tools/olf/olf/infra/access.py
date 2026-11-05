@@ -117,7 +117,10 @@ def _ca_bundle(shared_namespace: str, kube_context: str | None, environ: Mapping
             LOCAL_CA_SECRET, LOCAL_CA_KEY, shared_namespace, kube_context=kube_context, environ=environ
         )
         bundle = Path(tempfile.mkdtemp(prefix="olf-ca-")) / "ca-bundle.pem"
-        bundle.write_text(Path(requests.utils.DEFAULT_CA_BUNDLE_PATH).read_text() + "\n" + pem)
+        bundle_contents = Path(requests.utils.DEFAULT_CA_BUNDLE_PATH).read_text() + "\n" + pem
+        fd = os.open(bundle, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as bundle_file:
+            bundle_file.write(bundle_contents)
         _CA_BUNDLES[key] = str(bundle)
     return _CA_BUNDLES[key]
 
