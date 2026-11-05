@@ -65,8 +65,9 @@ are discarded.
 
 Precedent already in the tree: the Polaris bootstrap Job creates the per-stage
 principal Secrets and handles "principal exists, Secret missing" by rotating
-the principal; the OpenMetadata bootstrap Job writes the ingestion-bot Secret.
-Both create the Secret in-cluster and Terraform never reads it.
+the principal; `olf`'s OpenMetadata bootstrap, run by `olf infra deploy` after
+the platform apply, writes the ingestion-bot Secret. Neither puts the value in
+Terraform state.
 
 ## Identity credentials
 
@@ -97,15 +98,17 @@ here, not migrated. All are in the debt register
 | Polaris root client (#400) | Polaris module Job `polaris-token-key-<hash>`, in-cluster, create-if-absent, 32 random alphanumeric characters | `polaris-bootstrap-credentials` | No |
 | Superset `SECRET_KEY` and admin password (#400) | In-cluster Job `superset-credentials-<hash>` in each stage namespace (`modules/analytics/superset/credentials.tf`), create-if-missing; reuses the key in the chart Secret `superset-env` when an earlier release made it | `superset-credentials` (`secret-key`, `admin-password`), read by the pods through `secretKeyRef` | No |
 | Superset service user of the platform API, one per stage with Superset (ADR 0021, open item 3) | In-cluster Job `platform-api-superset-users-<hash>` in `olf-system` (`modules/access/platform-api/superset_users.tf`), create-if-missing, 32 random alphanumeric characters. It copies each password into the stage's namespace and overwrites a copy that differs. Superset's init script creates the user `olf-platform-api` with role `olf_platform_api` from it | `platform-api-superset-<stage>` (`olf-system`, the source, for the platform API) and `platform-api-superset` (each stage namespace, read by Superset through `secretKeyRef`), keys `username`, `password` | No |
-| OpenMetadata admin password (#400) | The bootstrap Job (`modules/governance/openmetadata/templates/bootstrap.sh.tftpl`) creates the Secret if missing, 24 random alphanumeric characters plus `Aa1!` to meet OpenMetadata's password policy, then changes the built-in `admin` password through `PUT /api/v1/users/changePassword`; a run logs in with the Secret and falls back to the default only on the first run | `openmetadata-admin` (`admin-password`) in the OpenMetadata namespace; `olf` reads it unless `OPENMETADATA_ADMIN_PASSWORD` is set | No |
+| OpenMetadata admin password (#400) | `olf`'s OpenMetadata bootstrap (`tools/olf/olf/infra/openmetadata/_bootstrap.py`), run by `olf infra deploy` after the platform apply, creates the Secret if missing, 24 random alphanumeric characters plus `Aa1!` to meet OpenMetadata's password policy, then changes the built-in `admin` password through `PUT /api/v1/users/changePassword`; a run logs in with the Secret and falls back to the default only on the first run | `openmetadata-admin` (`admin-password`) in the OpenMetadata namespace; `olf` reads it unless `OPENMETADATA_ADMIN_PASSWORD` is set | No |
 | Polaris token-signing key | Polaris module Job, in-cluster, create-if-absent | `<release>-token-broker` (`symmetric.key`) | No |
 | OpenMetadata Fernet key (encrypts stored credentials, ADR 0016) | OpenMetadata module Job, in-cluster, create-if-absent | `<release>-fernet-key` (`fernet-key`) | No |
 | Polaris per-stage principals (Trino, Floe, OpenMetadata, deployer) | Polaris, written by its bootstrap Job | `trino_credentials_secret_name` and siblings in the catalog contract | No |
-| OpenMetadata ingestion-bot JWT | OpenMetadata, written by its bootstrap Job | `openmetadata-ingestion-bot`, replicated to governed stage namespaces | No |
+| OpenMetadata ingestion-bot JWT | OpenMetadata, written by `olf`'s bootstrap after the platform apply | `openmetadata-ingestion-bot`, copied by `olf` to governed stage namespaces and deleted from the others (`tools/olf/olf/infra/openmetadata/_replication.py`) | No |
 
-The OpenMetadata bootstrap Job deletes and recreates the ingestion-bot Secret
-each time it runs, so a re-run of that Job is a rotation. Whether a redeploy
-re-runs it was not verified here.
+`olf`'s bootstrap keeps a stored ingestion-bot token that OpenMetadata still
+accepts, because running Dagster pods read their copy at start; it mints a new
+one only when the Secret is missing or the token no longer verifies. A redeploy
+is therefore not a rotation. A copy in a stage namespace is replaced only when
+it differs from the source.
 
 ## Exposure scan
 
@@ -138,11 +141,11 @@ the run reports the original failure.
 The drill `credential preservation across a redeploy` (`--checks all`,
 `tools/olf/olf/infra/e2e/_credential_preservation.py`) reads the same migrated values,
 deletes the Jobs that create them (by name: `postgresql-credentials-*`,
-`superset-credentials-*`, `polaris-token-key-*`, `openmetadata-bootstrap-*`
-and `openmetadata-credential-replication-*`, which copies the ingestion-bot token the
-bootstrap Job rotates into the stages),
-runs a platform `terraform apply`, fails if a deleted Job was not recreated
-(a new uid), and fails by name if any value changed or disappeared. It is skipped on a stack that builds its Superset
+`superset-credentials-*`, `polaris-token-key-*` and `seaweedfs-credentials-*`),
+runs a platform `terraform apply` and then `olf`'s OpenMetadata bootstrap, which
+creates the OpenMetadata admin password, as `olf infra deploy` does, fails if a
+deleted Job was not recreated (a new uid), and fails by name if any value
+changed or disappeared. It is skipped on a stack that builds its Superset
 image locally (arm64 or `BUILD_SUPERSET_IMAGE`), because an apply outside
 `olf infra deploy` would put the pinned amd64 image back. It runs after the scan and before the rotation
 drill.

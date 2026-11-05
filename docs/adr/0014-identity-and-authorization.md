@@ -392,6 +392,11 @@ is not.
 
 ## History
 
+OpenMetadata bootstrap in `olf` (#562): the Terraform bootstrap Job is deleted;
+`olf` creates the admin automation bot after the platform apply. The sign-in
+paragraph also names the command that switches OpenMetadata to the issuer,
+`deploy-metadata`, where it named the Job.
+
 Fifth OIDC consumer (#536): `olf-cli` joins `identity.oidc.clients` as a public
 client, so the command-line client can sign a person in with Authorization Code
 and PKCE on a loopback redirect, with no distributable secret. The perimeter
@@ -564,9 +569,11 @@ NetworkPolicy flow are separate slices.
 
 OpenMetadata sign-in (#25 slice b): OpenMetadata authenticates through the
 issuer as a confidential `custom-oidc` client with the principal taken from
-`preferred_username`. The bootstrap Job applies it through the security
-configuration API because 1.13.6 keeps that configuration in its database after
-the first boot; an admin automation bot replaces basic login for `olf`. 1.13.6
+`preferred_username`. `olf infra openmetadata deploy-metadata` applies it
+through the security configuration API because 1.13.6 keeps that configuration
+in its database after the first boot; an admin automation bot, which `olf`'s
+OpenMetadata bootstrap creates after the platform apply, replaces basic login
+for `olf`. 1.13.6
 has no claim-based admin mapping, so every signed-in person starts at the read
 baseline until the role sync lands. Details in
 `docs/architecture/identity/identity-service-permissions.md`.

@@ -65,9 +65,9 @@ it. **Per pipeline run**: the run pod and its Floe Jobs, TTL-collected within th
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: six grouped
 categories — Polaris (metastore bootstrap and principal bootstrap), SeaweedFS (one Job
-per bucket, four buckets), PostgreSQL, OpenMetadata (bootstrap and credential
-replication to the governed stage), Superset's Helm hook, and cert-manager's startup
-API check hook — eleven one-shot Jobs for one full stage, firing once per platform
+per bucket, four buckets), PostgreSQL, OpenMetadata (its Fernet key; `olf` bootstraps
+OpenMetadata after the apply, with no Job), Superset's Helm hook, and cert-manager's
+startup API check hook — ten one-shot Jobs for one full stage, firing once per platform
 apply (phase 2), except cert-manager's check, which runs only on first install.
 **Scheduled**: the two CronJobs on the cluster clock (log archive every 15 minutes,
 OpenMetadata catalog refresh hourly).

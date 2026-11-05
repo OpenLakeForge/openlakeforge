@@ -52,7 +52,9 @@ inputs come from the applied provider contract alone, so it reads no user code.
 It runs before artifacts because `deploy-metadata` logs in with the
 credentials it creates. It then copies the ingestion-bot Secret into each
 governed stage's namespace, where Dagster mounts it, and deletes it from the
-enabled stages that are not governed.
+enabled stages that are not governed. On a fresh install those Dagster pods
+wait in `CreateContainerConfigError` until then; the Dagster release does not
+wait for its pods (`wait = false`), so the apply is not held up by them.
 
 ### The platform phase owns namespaces, and which services repeat
 
@@ -167,10 +169,9 @@ are in the [`olf` README](../../tools/olf/README.md); how a prune takes its
 Gold grants with it is in [ADR 0019](0019-data-plane-authorization-deferral.md#5-polaris-objects).
 
 2026-11-05: The platform phase runs the OpenMetadata bootstrap from `olf` after
-the apply (#562). The Terraform bootstrap Job still runs inside the apply until
-a follow-up removes it; every step is idempotent, so both running converge.
-The same run then replicates the ingestion-bot Secret into the governed stage
-namespaces, which the Terraform credential-replication Job also still does.
+the apply, then replicates the ingestion-bot Secret into the governed stage
+namespaces (#562). The Terraform bootstrap and credential-replication Jobs that
+did both inside the apply, and their shell templates, are deleted.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

@@ -28,9 +28,10 @@ in the design below:
   configuration in the ConfigMap `openmetadata-sso-config` without the client
   secret, which `olf` adds from its Secret reference, so it is neither in Helm
   values nor in Terraform state.
-- **Automation identity.** While basic login still works the Job creates an
-  admin bot `olf-automation` and stores its JWT in the Secret
-  `openmetadata-automation-bot` (key `OPENMETADATA_AUTOMATION_JWT`). Later Job runs,
+- **Automation identity.** While basic login still works `olf`'s bootstrap,
+  run after the platform apply, creates an admin bot `olf-automation` and
+  stores its JWT in the Secret `openmetadata-automation-bot` (key
+  `OPENMETADATA_AUTOMATION_JWT`). Later bootstrap runs,
   `olf infra openmetadata deploy-metadata` and `olf e2e` use it. `ingestion-bot`
   is unchanged (it is replicated into stage namespaces, so it must not be an
   admin); OpenMetadata's own JWKS stays first in `publicKeyUrls` so both bots
@@ -47,7 +48,7 @@ in the design below:
   closed); every sign-in starts there until the role sync grants more.
 - **Not done.** Removing `spec.identity` from an install that already has SSO does
   not restore basic login (the stored provider stays); rebuild the metadata
-  database. The Job removes the `Organization`
+  database. The bootstrap removes the `Organization`
   default roles and `NoOwner-Rule` before it enables SSO (OM-12); the payloads are
   unverified at runtime.
 
@@ -205,7 +206,7 @@ inherits `DataConsumer` (**V** `TeamRepository.initOrganization`). The policy
 also lets anyone set the owner of an unowned entity (`NoOwner-Rule`), and an
 owner holds every operation on the entity (`Owner-Rule`). Left alone, an
 `analyst` or `viewer` can edit descriptions, tags and tiers on all assets and
-take ownership of any unowned one, which is not `read`. The bootstrap Job must
+take ownership of any unowned one, which is not `read`. The bootstrap must
 therefore (**D**; that the system team and policy accept the patch is **T**):
 
 1. set `Organization` default roles to empty;
@@ -256,7 +257,7 @@ baseline only; `useRolesFromProvider` stays `false`.
 | --- | --- |
 | `admin@open-metadata.org` / `admin` | Unusable under `custom-oidc` (**V**, finding 8). The `admin` user stays in the database with no credential and is demoted (`isAdmin` cleared by `deploy-metadata`); `adminPrincipals` is empty, because the principal is derived from claims and listed users are re-flagged admin on every start (**V** `UserUtil.createOrUpdateUser`; the exact claim derivation is **T**) |
 | Bot tokens | `publicKeys` keeps OpenMetadata's own JWKS URL beside the issuer's (**V** `MultiUrlJwkProvider`), so bot JWTs, which are signed by OpenMetadata, keep validating. `ingestion-bot` should keep working for Floe and Dagster (**T**, acceptance item of #25) |
-| `olf` and the bootstrap Job | Replace email and password login with a dedicated admin automation bot (`olf-automation`) whose JWT is stored in a Secret created in cluster if missing (#181). `IngestionBotPolicy` denies `EditDisplayName`, so `ingestion-bot` is not a drop-in (**V**). The bot exists only after OpenMetadata starts, and creating it needs an admin token, which basic login no longer provides. **Prerequisite (T):** OpenMetadata's own JWKS stays trusted, and the local values point `jwtTokenConfiguration` at `./conf/private_key.der`, files the image provides; if they are the image's shared defaults, anyone holding them can sign a token for any user, including this admin bot. Generate a per-deployment RSA keypair in cluster (#181) and mount it before the bot is made admin. **Decided (decision 6):** install with `provider: basic`, let the Job create the bot and Secret, then upgrade the release to `custom-oidc`. Sequencing on a fresh install is the main implementation risk (**T**) |
+| `olf` and its bootstrap | Replace email and password login with a dedicated admin automation bot (`olf-automation`) whose JWT is stored in a Secret created in cluster if missing (#181). `IngestionBotPolicy` denies `EditDisplayName`, so `ingestion-bot` is not a drop-in (**V**). The bot exists only after OpenMetadata starts, and creating it needs an admin token, which basic login no longer provides. **Prerequisite (T):** OpenMetadata's own JWKS stays trusted, and the local values point `jwtTokenConfiguration` at `./conf/private_key.der`, files the image provides; if they are the image's shared defaults, anyone holding them can sign a token for any user, including this admin bot. Generate a per-deployment RSA keypair in cluster (#181) and mount it before the bot is made admin. **Decided (decision 6):** install with `provider: basic`, let the Job create the bot and Secret, then upgrade the release to `custom-oidc`. Sequencing on a fresh install is the main implementation risk (**T**) |
 | OpenMetadata to Superset | The service connection stores a Superset username and password; it moves to the Superset ingestion user above |
 
 ### Sessions (V from source, T on the stack)
@@ -313,7 +314,7 @@ status (2xx or 403).
 | OM-7 | Role changed in GitHub, before the role sync runs | Read the user's OpenMetadata roles before and after the role sync | Stale before, correct after; exposure recorded |
 | OM-8 | User disabled | Any call after the ID token expires | Refused within 5 min; refresh logged as refused |
 | OM-9 | Anyone | `POST /api/v1/users/login` with `admin@open-metadata.org` / `admin` | 403 |
-| OM-10 | Automation | `olf infra openmetadata deploy-metadata`, bootstrap Job, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
+| OM-10 | Automation | `olf infra openmetadata deploy-metadata`, `olf infra openmetadata bootstrap`, ingestion-bot run, Dagster and Floe lineage with SSO on | Succeed unattended |
 | OM-11 | Issuer user whose principal is `admin` | Sign in | Not an admin |
 | OM-12 | Anyone | Read `Organization` default roles and `OrganizationPolicy` rules | Default roles empty, no `NoOwner-Rule` (fails after an upgrade that re-seeds them) |
 
@@ -335,13 +336,13 @@ Maintainer decisions for v0.5-alpha.
 4. **Ownership outlives a role.** `Owner-Rule` stays for v0.5. Demotion and
    offboarding must reassign owned assets; the procedure belongs to the #177
    "owned objects" deliverable.
-5. **The bootstrap Job patches `Organization` and `OrganizationPolicy`.**
-   Acceptable for local qualification. The bootstrap Job and e2e (OM-12) assert
+5. **The bootstrap patches `Organization` and `OrganizationPolicy`.**
+   Acceptable for local qualification. The bootstrap and e2e (OM-12) assert
    the patch is still in place, so an upgrade that re-seeds them fails loudly.
 6. **First-boot automation credential: option (a).** Install with
-   `provider: basic`, let the Job create the automation bot and its Secret,
+   `provider: basic`, let the bootstrap create the automation bot and its Secret,
    then flip the release to `custom-oidc`. **Superseded by #25 slice b:** the
-   release stays `basic` and the Job applies `custom-oidc` through the security
+   release stays `basic` and `deploy-metadata` applies `custom-oidc` through the security
    configuration API (top of this file). Decrypting the seeded bot token with
    `fernetkey` is rejected.
 
