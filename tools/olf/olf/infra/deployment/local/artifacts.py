@@ -30,13 +30,10 @@ def applied_contract_environment(
     contract_terraform_dir: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> Iterator[contract_env.ContractEnvironment]:
-    """Apply the resolved provider-contract environment onto `os.environ`.
+    """Yield the resolved provider-contract environment for a local deployment.
 
     Thin local-config adapter over `olf.infra.deployment.contract_env`, which
-    replaces sourcing `scripts/contracts/load-runtime-env.sh`. `Deployment
-    Context.command_env` itself never mutates `os.environ` - this is the
-    documented, deliberate bridge to the existing `os.environ`-reading
-    library modules (`olf.infra.k8s`, `olf.common.config`, `olf.infra.s3`, `olf.common.layers`).
+    replaces sourcing `scripts/contracts/load-runtime-env.sh`.
     """
     resolved_contract_terraform_dir = contract_terraform_dir or Path(
         (environ or os.environ).get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)

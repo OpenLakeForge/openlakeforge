@@ -22,7 +22,7 @@ def _kwargs(tmp_path: Path, **overrides: object) -> dict[str, object]:
     return base
 
 
-def test_applies_contract_exports_and_restores_previous_environment(
+def test_yields_contract_exports_without_touching_the_process_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda terraform_dir: None)
@@ -36,16 +36,16 @@ def test_applies_contract_exports_and_restores_previous_environment(
     )
     monkeypatch.setenv("SOME_STALE_VAR", "old-value")
     monkeypatch.delenv("OPENLAKEFORGE_CATALOG_NAME", raising=False)
+    before = dict(os.environ)
 
     with contract_env.applied_contract_environment(**_kwargs(tmp_path)) as env:
-        assert os.environ["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
-        assert "SOME_STALE_VAR" not in os.environ
-        assert os.environ["NAMESPACE"] == "lakehouse"
-        assert os.environ["KUBE_CONTEXT"] == "eks-openlakeforge-poc"
+        assert dict(os.environ) == before
+        assert env["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+        assert "SOME_STALE_VAR" not in env
         assert env["NAMESPACE"] == "lakehouse"
+        assert env["KUBE_CONTEXT"] == "eks-openlakeforge-poc"
 
-    assert "OPENLAKEFORGE_CATALOG_NAME" not in os.environ
-    assert os.environ["SOME_STALE_VAR"] == "old-value"
+    assert dict(os.environ) == before
 
 
 def test_extra_variables_override_contract_exports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -56,8 +56,8 @@ def test_extra_variables_override_contract_exports(monkeypatch: pytest.MonkeyPat
         lambda base, contracts_value, *, repo_root, **_: ({"NAMESPACE": "from-contract"}, []),
     )
 
-    with contract_env.applied_contract_environment(**_kwargs(tmp_path, namespace="lakehouse-slim")):
-        assert os.environ["NAMESPACE"] == "lakehouse-slim"
+    with contract_env.applied_contract_environment(**_kwargs(tmp_path, namespace="lakehouse-slim")) as env:
+        assert env["NAMESPACE"] == "lakehouse-slim"
 
 
 def test_restores_environment_even_when_the_block_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

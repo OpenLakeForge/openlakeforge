@@ -28,7 +28,9 @@ def _toolkit() -> Toolkit:
     )
 
 
-def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_applied_contract_environment_yields_the_local_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config = _config(tmp_path)
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
@@ -42,10 +44,10 @@ def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.M
     monkeypatch.setenv("SOME_STALE_VAR", "old-value")
     monkeypatch.delenv("OPENLAKEFORGE_CATALOG_NAME", raising=False)
 
-    with artifacts.applied_contract_environment(config):
-        assert os.environ["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
-        assert "SOME_STALE_VAR" not in os.environ
-        assert os.environ["NAMESPACE"] == "olf-dev"
+    with artifacts.applied_contract_environment(config) as env:
+        assert env["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+        assert "SOME_STALE_VAR" not in env
+        assert env["NAMESPACE"] == "olf-dev"
 
     assert "OPENLAKEFORGE_CATALOG_NAME" not in os.environ
     assert os.environ["SOME_STALE_VAR"] == "old-value"

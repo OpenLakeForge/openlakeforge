@@ -345,10 +345,7 @@ def revision_verify(
 def _build_store_for_project(project_root: Path, *, via: str, output: str, stage: str = "") -> Iterator[RevisionStore]:
     """Open the build store under the profile contract when one is available.
 
-    `stage` must name the stage a caller goes on to activate: the contract
-    environment applied here stays in `os.environ` underneath the one
-    activation applies, and values it only defaults (the OpenMetadata catalog
-    database) would otherwise keep the default stage's.
+    `stage` selects the stage whose contract environment opens the store.
 
     An empty `via` means "ask the provider", which is the default for every
     project command: only an explicit `--via` overrides it.
