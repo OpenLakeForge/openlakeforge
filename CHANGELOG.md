@@ -31,6 +31,10 @@ for how a release is cut and verified.
 
 ### Changed
 
+- With governance on, the platform phase now runs the OpenMetadata bootstrap from `olf` once
+  `terraform apply` finishes, through a port-forward from the operator's machine, with its inputs read
+  from the applied provider contract (#562). The Terraform bootstrap Job still runs until a follow-up
+  removes it.
 - `olf check dbt` and `olf infra dbt parse` no longer put the project root on `sys.path`; dbt discovery
   never imported `lakehouse_code` (#557).
 - The portal image is 0.4.1, the React Router app. `/` redirects to `/services`, and a new

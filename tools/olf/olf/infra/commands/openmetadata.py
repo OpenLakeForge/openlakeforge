@@ -18,6 +18,7 @@ from olf.common.project import ProjectSpec
 from olf.infra.openmetadata._ingestion import run_trino_ingestion
 
 if TYPE_CHECKING:
+    from olf.common.provider_contracts import ProviderContracts
     from olf.infra.access import Route
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
@@ -223,11 +224,9 @@ def openmetadata_bootstrap(
     from olf.infra import openmetadata as om
     from olf.infra.access import Route
     from olf.infra.commands.runtime import provider_contract_environment
-    from olf.infra.openmetadata._bootstrap import bootstrap_auth
-    from olf.infra.openmetadata._catalog_seed import CatalogSeed, bootstrap_catalog
-    from olf.infra.openmetadata._signup_baseline import restrict_signup_defaults
-    from olf.infra.openmetadata._stage_services import STAGES, StageServices, bootstrap_stage_services
-    from olf.infra.openmetadata._stale_services import remove_legacy_services
+    from olf.infra.openmetadata._catalog_seed import CatalogSeed
+    from olf.infra.openmetadata._platform import run_bootstrap
+    from olf.infra.openmetadata._stage_services import STAGES, StageServices
 
     seed = (
         CatalogSeed(
@@ -255,15 +254,7 @@ def openmetadata_bootstrap(
     ]
 
     def run(route: Route, namespace: str) -> None:
-        client = bootstrap_auth(route, namespace, email=email, sso=sso, environ=contract)
-        if seed:
-            bootstrap_catalog(client, seed)
-        # Gated on the flag: without it, every stage's services would be removed as ungoverned.
-        if stages:
-            bootstrap_stage_services(client, stages, environ=contract)
-        remove_legacy_services(client)
-        if sso:
-            restrict_signup_defaults(client)
+        run_bootstrap(route, namespace, email=email, sso=sso, seed=seed, stages=stages, environ=contract)
 
     with provider_contract_environment(
         provider=provider,
@@ -284,6 +275,38 @@ def openmetadata_bootstrap(
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo("OpenMetadata bootstrap complete.")
+
+
+def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[str, str]) -> None:
+    """Run the bootstrap with inputs read from the applied contract; nothing to do when no stage is governed.
+
+    SSO follows the ConfigMap the governance module publishes only when an issuer is configured.
+    """
+    from olf.infra import k8s
+    from olf.infra import openmetadata as om
+    from olf.infra.openmetadata._platform import bootstrap_inputs, run_bootstrap
+    from olf.infra.openmetadata._sso import CONFIGMAP
+
+    inputs = bootstrap_inputs(contracts)
+    if inputs is None:
+        return
+    seed, stages = inputs
+    governance = _governance_service(environ)
+    log.step("Bootstrapping OpenMetadata...")
+    try:
+        sso = k8s.configmap_data(CONFIGMAP, governance.namespace, environ=environ) is not None
+        with governance.url(environ) as route:
+            run_bootstrap(
+                route,
+                governance.namespace,
+                email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=environ),
+                sso=sso,
+                seed=seed,
+                stages=stages,
+                environ=environ,
+            )
+    except (om.OpenMetadataError, k8s.KubectlError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
 
 
 @app.command("list-domains")
