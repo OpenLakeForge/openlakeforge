@@ -9,7 +9,6 @@ perimeter (`olf.infra.access.service_url`).
 
 from __future__ import annotations
 
-import os
 import secrets
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -31,7 +30,7 @@ from olf.infra.e2e._identity_github import (
 )
 from olf.infra.e2e._perimeter_bearer import PLATFORM_API_HOST_REF, check_bearer_tokens
 from olf.infra.e2e._person_access import check_person_access
-from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 
 PORTAL_REF = "shared/portal"
 DENIAL_HEADING = "Access is role-restricted"
@@ -58,7 +57,7 @@ def check_perimeter(cfg: E2EConfig) -> None:
     if identity.get("adapter") != "dex":
         log.info("Skipping the perimeter checks: they need the Dex adapter.")
         return
-    if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
+    if config.truthy(cfg_environ(cfg).get(access.PORT_FORWARD_ENV, "")):
         log.info("Skipping the perimeter checks: OLF_PORT_FORWARD bypasses the ingress they test.")
         return
     routes = {ref: route["url"] for ref, route in access_contract["routes"].items()}
@@ -71,6 +70,7 @@ def check_perimeter(cfg: E2EConfig) -> None:
         log_path=f"/tmp/openlakeforge-{cfg.env}-dex-port-forward.log",
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
+        environ=cfg_environ(cfg),
     ):
         _check_dex_perimeter(cfg, identity, perimeter["protected_routes"], routes, list(contracts["stages"]))
 

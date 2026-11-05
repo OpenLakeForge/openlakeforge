@@ -11,7 +11,6 @@ docs/architecture/identity/identity-sessions-and-recovery.md.
 from __future__ import annotations
 
 import json
-import os
 import secrets
 import select
 import tempfile
@@ -35,7 +34,7 @@ from olf.infra.e2e._identity_github import (
     stub_host,
 )
 from olf.infra.e2e._perimeter import check_unauthenticated_requests
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import trino_scalar
 
 REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
@@ -115,7 +114,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     if not (contracts["shared"]["access"].get("perimeter") or {}).get("enabled") or identity.get("adapter") != "dex":
         log.info("Skipping the issuer-outage drill: it needs the Dex adapter behind an enabled perimeter.")
         return
-    if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
+    if config.truthy(cfg_environ(cfg).get(access.PORT_FORWARD_ENV, "")):
         log.info("Skipping the issuer-outage drill: OLF_PORT_FORWARD bypasses the ingress it signs in through.")
         return
     if not dex_points_at_stub(cfg):
@@ -228,6 +227,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                 log_path=f"/tmp/openlakeforge-{cfg.env}-outage-port-forward.log",
                 shared_namespace=namespace,
                 kube_context=cfg.kube_context,
+                environ=cfg_environ(cfg),
                 through_ingress=True,
             ),
             github_stub(cfg, {login: team}),

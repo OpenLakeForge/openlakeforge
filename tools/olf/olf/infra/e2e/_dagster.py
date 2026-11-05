@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
+import requests
 from openlakeforge_core import Product
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import (  # noqa: F401 - re-exported
@@ -28,6 +30,31 @@ DAGSTER_RELEASE_NAME = "dagster"
 DAGSTER_WEBSERVER_SERVICE_NAME = f"{DAGSTER_RELEASE_NAME}-dagster-webserver"
 
 
+def _graphql_over(route: access.Route) -> Callable[[str, Mapping[str, Any] | None], Mapping[str, Any]]:
+    """DagsterClient's GraphQL transport, sent through the route's proxy exemption and CA."""
+    session = route.session()
+
+    def request_json(query: str, variables: Mapping[str, Any] | None) -> Mapping[str, Any]:
+        try:
+            response = session.post(
+                f"{route.url}/graphql",
+                json={"query": query, "variables": variables or {}},
+                headers={"Accept": "application/json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status is not None and 500 <= status < 600:
+                raise DagsterTransientError(f"Dagster GraphQL HTTP {status}: {exc}") from exc
+            raise DagsterHTTPError(f"Dagster GraphQL HTTP {status}: {exc}") from exc
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            raise DagsterTransientError(f"Dagster GraphQL request failed: {exc}") from exc
+        return response.json()
+
+    return request_json
+
+
 def launch_and_poll_dagster_jobs(
     cfg: E2EConfig, *, products: Sequence[Product] | None = None, tags: Mapping[str, str] | None = None
 ) -> None:
@@ -35,7 +62,7 @@ def launch_and_poll_dagster_jobs(
     assert cfg.dagster_local_port is not None
     webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
-    with access.service_url(
+    with access.service_route(
         f"stage/{cfg_environ(cfg).get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
         service=webserver_service_name,
         remote_port=80,
@@ -44,11 +71,14 @@ def launch_and_poll_dagster_jobs(
         log_path=log_path,
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
-    ) as base_url:
-        if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):
+        environ=cfg_environ(cfg),
+    ) as route:
+        if not k8s.http_wait(f"{route.url}/server_info", attempts=90, delay=2, session=route.session()):
             raise E2EError("Dagster endpoint did not become reachable.")
         location_names = expected_repository_location_names(cfg)
-        client = DagsterClient(f"{base_url}/graphql", expected_location_names=location_names)
+        client = DagsterClient(
+            f"{route.url}/graphql", expected_location_names=location_names, request_json=_graphql_over(route)
+        )
         timeout_seconds = int(cfg_environ(cfg).get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
         for product in products or cfg.inventory.products:
             job = product.job_name

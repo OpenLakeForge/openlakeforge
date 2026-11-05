@@ -8,7 +8,6 @@ resourceVersion are read, never its value.
 
 from __future__ import annotations
 
-import os
 import secrets
 import time
 from urllib.parse import urlsplit
@@ -18,7 +17,7 @@ from olf.common.tooling.toolkit import Toolkit
 from olf.infra import access, secrets_rotation
 from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, log_skip, sign_in_with_stub, stub_host
 from olf.infra.e2e._perimeter import DENIAL_HEADING, PORTAL_REF
-from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 
 TARGET = "dex-client-perimeter"
 
@@ -30,7 +29,7 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
     if cfg.deployment is None or not perimeter or not perimeter["enabled"] or identity.get("adapter") != "dex":
         log.info("Skipping the secret rotation drill: it needs Dex, the perimeter and a resolved deployment.")
         return
-    if config.truthy(os.environ.get(access.PORT_FORWARD_ENV, "")):
+    if config.truthy(cfg_environ(cfg).get(access.PORT_FORWARD_ENV, "")):
         log.info("Skipping the secret rotation drill: OLF_PORT_FORWARD bypasses the ingress it signs in through.")
         return
     if not dex_points_at_stub(cfg):
@@ -57,6 +56,7 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
         log_path=f"/tmp/openlakeforge-{cfg.env}-dex-port-forward.log",
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
+        environ=cfg_environ(cfg),
     ):
         with github_stub(cfg, {login: mapping[role]}):
             _browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))

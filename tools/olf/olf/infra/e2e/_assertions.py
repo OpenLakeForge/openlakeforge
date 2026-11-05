@@ -27,7 +27,7 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
     log.step("Checking Superset report imports...")
     assert cfg.superset_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
-    with access.service_url(
+    with access.service_route(
         f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev', environ=cfg_environ(cfg))}/reporting",
         service="superset",
         remote_port=8088,
@@ -36,12 +36,13 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         log_path=log_path,
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
-    ) as base_url:
-        if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
+        environ=cfg_environ(cfg),
+    ) as route:
+        if not k8s.http_wait(f"{route.url}/health", attempts=90, delay=2, session=route.session()):
             raise E2EError("Superset endpoint did not become reachable.")
         try:
             password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
-            dashboards = SupersetClient(base_url, password=password).dashboards()
+            dashboards = route.client(SupersetClient, password=password).dashboards()
         except ServiceClientError as exc:
             raise E2EError(str(exc)) from exc
     assert_superset_dashboards(dashboards, discovered_dashboards(cfg))
@@ -95,7 +96,7 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
     log.step("Checking OpenMetadata domains and data products...")
     assert cfg.openmetadata_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-openmetadata-port-forward.log"
-    with access.service_url(
+    with access.service_route(
         "shared/governance_service",
         service="openmetadata",
         remote_port=8585,
@@ -104,11 +105,12 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         log_path=log_path,
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
-    ) as base_url:
-        if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
+        environ=cfg_environ(cfg),
+    ) as route:
+        if not k8s.http_wait(f"{route.url}/api/v1/system/config/jwks", attempts=90, delay=2, session=route.session()):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
         token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
-        client = OpenMetadataClient(base_url, token=token)
+        client = route.client(OpenMetadataClient, token=token)
         password = (
             "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
         )

@@ -21,6 +21,7 @@ from conftest import e2e_cfg
 from typer.testing import CliRunner
 
 from olf.cli import app
+from olf.infra.access import Route
 from olf.infra.auth import aws_session
 from olf.infra.deployment.contract_env import ContractEnvironment
 from olf.infra.e2e import _assertions, _isolation, _preflight, _runner, _shell, _trino
@@ -196,15 +197,15 @@ def _stub_openmetadata(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     seen: dict[str, Any] = {"stages": []}
 
     @contextmanager
-    def service_url(stage_path: str, **_kwargs: Any) -> Iterator[str]:
+    def service_route(stage_path: str, **_kwargs: Any) -> Iterator[Route]:
         seen["stages"].append(stage_path)
-        yield "http://openmetadata.invalid"
+        yield Route("http://openmetadata.invalid")
 
     class Client:
-        def __init__(self, _base_url: str, *, token: str | None = None) -> None:
+        def __init__(self, _base_url: str, *, token: str | None = None, **_kwargs: Any) -> None:
             seen["token"] = token
 
-    monkeypatch.setattr(_assertions.access, "service_url", service_url)
+    monkeypatch.setattr(_assertions.access, "service_route", service_route)
     monkeypatch.setattr(_assertions.k8s, "http_wait", lambda *_a, **_kw: True)
     monkeypatch.setattr(_assertions, "OpenMetadataClient", Client)
     monkeypatch.setattr(
