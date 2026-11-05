@@ -13,7 +13,7 @@ from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
 from olf.infra import access, k8s
-from olf.infra.openmetadata import _auth, _bootstrap
+from olf.infra.openmetadata import _auth, _bootstrap, _signup_baseline, _stale_services
 
 EMAIL = "admin@open-metadata.org"
 
@@ -224,6 +224,8 @@ def test_the_command_bootstraps_the_shared_namespace(monkeypatch: pytest.MonkeyP
         lambda **_kwargs: contextlib.nullcontext({"OPENLAKEFORGE_SHARED_NAMESPACE": "olf-shared"}),
     )
     monkeypatch.setattr(_bootstrap, "bootstrap_auth", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(_stale_services, "remove_legacy_services", lambda _client: None)
+    monkeypatch.setattr(_signup_baseline, "restrict_signup_defaults", lambda _client: None)
 
     result = CliRunner().invoke(app, ["infra", "openmetadata", "bootstrap", "--om-url", "http://om:8585", "--sso"])
 
