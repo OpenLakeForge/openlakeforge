@@ -72,21 +72,9 @@ variable "postgresql_ssl_mode" {
 }
 
 variable "bootstrap_job_image" {
-  description = "Image used by the OpenMetadata bootstrap Kubernetes Job."
+  description = "Image used by the OpenMetadata fernet-key Kubernetes Job."
   type        = string
   default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
-}
-
-variable "admin_email" {
-  description = "OpenMetadata admin user email."
-  type        = string
-  default     = "admin@open-metadata.org"
-}
-
-variable "admin_secret_name" {
-  description = "Kubernetes Secret (key admin-password) the bootstrap job creates, if missing, to hold the admin user's password. Terraform never holds it."
-  type        = string
-  default     = "openmetadata-admin"
 }
 
 variable "om_http_port" {
@@ -95,32 +83,8 @@ variable "om_http_port" {
   default     = 8585
 }
 
-variable "workload_namespaces" {
-  description = "Namespaces the bootstrap job replicates the ingestion-bot Secret into, for workloads that run outside this module's namespace."
-  type        = list(string)
-  default     = []
-}
-
-variable "revoked_namespaces" {
-  description = "Namespaces that must not keep a copy of the ingestion-bot Secret. A stage that turns governance off keeps its namespace, so ending replication is not enough: the already-replicated JWT stays valid until the bootstrap job next rotates it, which a topology change does not do."
-  type        = list(string)
-  default     = []
-}
-
-variable "trino_lineage_namespace" {
-  description = "OpenLineage namespace the query engine reports itself as. Must match the host:port runtime clients actually connect to, or lineage events land under an unmapped namespace."
-  type        = string
-  default     = "trino://trino:8080"
-}
-
-variable "trino_tls_lineage_namespace" {
-  description = "OpenLineage namespace of the query engine's HTTPS listener, mapped to the catalog service beside trino_lineage_namespace. dbt names its datasets by the port it connects to, which is the TLS port when workload authentication is on. null when Trino serves no TLS."
-  type        = string
-  default     = null
-}
-
 variable "ingestion_bot_secret_name" {
-  description = "Kubernetes Secret written by the bootstrap job containing the ingestion-bot JWT."
+  description = "Kubernetes Secret containing the ingestion-bot JWT, written by `olf infra openmetadata bootstrap` after the apply."
   type        = string
   default     = "openmetadata-ingestion-bot"
 }
@@ -129,35 +93,6 @@ variable "ingestion_bot_jwt_key" {
   description = "Key within the ingestion-bot secret that holds the JWT token."
   type        = string
   default     = "OPENMETADATA_INGESTION_BOT_JWT"
-}
-
-variable "catalog_contract" {
-  description = "Iceberg catalog contract consumed by OpenMetadata. This module currently uses the REST/Polaris fields for catalog discovery."
-  type = object({
-    rest_uri                   = optional(string)
-    token_uri                  = optional(string)
-    warehouse                  = optional(string)
-    oauth_scope                = optional(string)
-    om_credentials_secret_name = optional(string)
-    om_client_id_key           = optional(string)
-    om_client_secret_key       = optional(string)
-    catalog_type               = optional(string)
-    catalog_provider           = optional(string)
-    catalog_name               = optional(string)
-    runtime_profile            = optional(string)
-    trino_catalog_name         = optional(string)
-    default_warehouse_location = optional(string)
-    glue_catalog_id            = optional(string)
-    glue_region                = optional(string)
-    glue_rest_uri              = optional(string)
-    glue_rest_warehouse        = optional(string)
-    provider                   = optional(string)
-    implementation             = optional(string)
-    auth_mode                  = optional(string)
-    ssl_mode                   = optional(string)
-    endpoint                   = optional(string)
-    ingress_mode               = optional(string)
-  })
 }
 
 variable "storage_contract" {
@@ -179,53 +114,6 @@ variable "storage_contract" {
   })
 }
 
-variable "stages" {
-  description = "Governed stages by name. Each gets its own catalog database entity and stage-qualified pipeline and dashboard services; the dashboard pair is null for a stage without analytics."
-  type = map(object({
-    catalog_database_name  = string
-    pipeline_service_name  = string
-    dagster_webserver_url  = string
-    dashboard_service_name = optional(string)
-    superset_url           = optional(string)
-    superset_namespace     = optional(string)
-  }))
-}
-
-variable "canonical_stage" {
-  description = "Key of `stages` whose catalog the single Iceberg connection crawls and whose pipeline service receives OpenLineage pipelines."
-  type        = string
-}
-
-variable "catalog_schema_names" {
-  description = "OpenMetadata database schema names to seed before catalog refresh."
-  type        = list(string)
-  default     = ["silver", "gold"]
-}
-
-variable "superset_username" {
-  description = "Superset API username used by OpenMetadata dashboard metadata ingestion."
-  type        = string
-  default     = "admin"
-}
-
-variable "superset_admin_secret_name" {
-  description = "Secret in each stage namespace that holds the Superset admin password (key admin-password). The bootstrap Job reads it there, so OpenMetadata ingestion logs in with it and Terraform never holds it."
-  type        = string
-  default     = "superset-credentials"
-}
-
-variable "superset_auth_provider" {
-  description = "Superset API authentication provider used by OpenMetadata dashboard metadata ingestion."
-  type        = string
-  default     = "db"
-}
-
-variable "superset_verify_ssl" {
-  description = "Superset SSL verification mode used by OpenMetadata dashboard metadata ingestion."
-  type        = string
-  default     = "no-ssl"
-}
-
 variable "service_account_annotations" {
   description = "Optional annotations for OpenMetadata-related service accounts, used by AWS workload identity integrations."
   type        = map(string)
@@ -243,16 +131,4 @@ variable "oidc" {
     ca_configmap_name = string
   })
   default = null
-}
-
-variable "automation_secret_name" {
-  description = "Kubernetes Secret the bootstrap job writes the admin automation bot's JWT to. Basic login is unusable once SSO is on, so every later run of the job and every olf command authenticates with this token."
-  type        = string
-  default     = "openmetadata-automation-bot"
-}
-
-variable "automation_jwt_key" {
-  description = "Key within the automation Secret that holds the JWT token."
-  type        = string
-  default     = "OPENMETADATA_AUTOMATION_JWT"
 }

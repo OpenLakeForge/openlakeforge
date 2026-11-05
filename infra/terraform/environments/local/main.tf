@@ -309,7 +309,7 @@ module "platform_api" {
     name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
   }
   # Built from locals the OpenMetadata module is given too, never from its
-  # contract: that waits for OpenMetadata's release and bootstrap Job, and a
+  # contract, so the API never orders after the governance module: a
   # governance failure must not hold back the API and its other routes.
   openmetadata_url = local.governance_enabled ? "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}" : null
   # The archived-logs route (ADR 0021): read with the key the SeaweedFS
@@ -554,13 +554,6 @@ module "openmetadata" {
   deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
   chart_package_path      = var.openmetadata_chart_package_path
   deps_chart_package_path = var.openmetadata_deps_chart_package_path
-  # One Iceberg connection crawls one catalog: the canonical stage's. Every
-  # other governed stage still gets its own database root and services below,
-  # which is what `olf infra openmetadata deploy-metadata` seeds into (#131).
-  catalog_contract = merge(
-    local.catalog_contract,
-    local.stage_catalog_contracts[local.governance_dagster_stage],
-  )
   storage_contract = merge(local.storage_contract, {
     bucket_name        = local.stage_storage[local.governance_dagster_stage].bronze_bucket_name
     bronze_bucket_name = local.stage_storage[local.governance_dagster_stage].bronze_bucket_name
@@ -568,22 +561,6 @@ module "openmetadata" {
     gold_bucket_name   = local.stage_storage[local.governance_dagster_stage].gold_bucket_name
   })
   postgresql_contract = local.metadata_database_contract
-  # Empty by design: the database schemas mirror Polaris namespaces, which now
-  # come into existence in Phase 2. `olf infra openmetadata deploy-metadata` creates
-  # each databaseSchema entity right before it seeds that schema's tables.
-  catalog_schema_names = []
-  # Only governed stages: the ingestion-bot JWT is a live credential, and a
-  # stage that did not enable governance should not have one sitting in its
-  # namespace even though its Dagster never mounts it.
-  workload_namespaces = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
-  # The complement, for stages that are still deployed but no longer governed.
-  # Their namespace survives the topology change, so the ingestion-bot Secret
-  # already copied there has to be deleted rather than merely not refreshed.
-  revoked_namespaces = [
-    for name in keys(local.enabled_stages) : local.stage_namespaces[name]
-    if !contains(keys(local.governed_stages), name)
-  ]
-  canonical_stage = local.governance_dagster_stage
   # Only with an issuer deployed (spec.identity); without one OpenMetadata keeps
   # its basic login. The client Secret is in this namespace, made by the issuer.
   oidc = !local.identity_deployed ? null : {
@@ -594,22 +571,6 @@ module "openmetadata" {
     base_url          = "${local.route_scheme}://openmetadata.${local.base_domain}"
     ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
   }
-  stages = {
-    for name in keys(local.governed_stages) : name => {
-      catalog_database_name  = local.stage_catalog_contracts[name].catalog_name
-      pipeline_service_name  = local.stage_databases["dagster_${name}"].db_name
-      dagster_webserver_url  = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}"
-      dashboard_service_name = contains(keys(local.analytics_stages), name) ? local.stage_databases["superset_${name}"].db_name : null
-      superset_url           = contains(keys(local.analytics_stages), name) ? "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}" : null
-      superset_namespace     = contains(keys(local.analytics_stages), name) ? local.stage_namespaces[name] : null
-    }
-  }
-  # Read from module.trino, not the contract, so the bootstrap Job that runs
-  # the first catalog crawl through Trino is created only once Trino is ready.
-  trino_lineage_namespace = "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.http_port}"
-  # dbt connects on the HTTPS port when workload authentication is on, and
-  # names its lineage datasets by that port.
-  trino_tls_lineage_namespace = module.trino.tls_port == null ? null : "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.tls_port}"
 
   depends_on = [
     module.polaris,
@@ -704,9 +665,10 @@ module "dagster" {
   log_base_uri          = "${local.artifact_bucket_contract.artifact_base_uri}/${local.stage_log_prefixes[each.key]}"
   run_artifact_base_uri = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
+  # Not module.openmetadata: olf writes the ingestion-bot Secret these pods mount
+  # after the apply (#562), and the release does not wait for its pods.
   depends_on = [
     module.trino,
-    module.openmetadata,
     module.postgresql,
     module.superset,
   ]
@@ -742,7 +704,7 @@ locals {
     { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
     { "platform-api" = length(module.platform_api) > 0 },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
-    { for name in ["openmetadata", "opensearch", "governance-bootstrap", "governance-credential-replication", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
+    { for name in ["openmetadata", "opensearch", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
   )
 
   # ipBlock cannot name a host, so profile-driven egress is any address on the

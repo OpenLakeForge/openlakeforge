@@ -550,45 +550,12 @@ module "openmetadata" {
   deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
   chart_package_path      = var.openmetadata_chart_package_path
   deps_chart_package_path = var.openmetadata_deps_chart_package_path
-  # OpenMetadata currently has one active Iceberg connection. Its binding
-  # follows the governed stage rather than the selected runtime stage, and the
-  # check below fails closed until #131 can configure multiple connections.
-  catalog_contract = merge(
-    local.catalog_contract,
-    local.stage_catalog_contracts[local.governance_dagster_stage],
-  )
   storage_contract = merge(
     local.storage_contract,
     local.stage_storage_contracts[local.governance_dagster_stage],
   )
   postgresql_contract = local.metadata_database_contract
   postgresql_ssl_mode = "require"
-  # Empty by design: the database schemas mirror Glue databases, which now
-  # come into existence in Phase 2. `olf infra openmetadata deploy-metadata` creates
-  # each databaseSchema entity right before it seeds that schema's tables.
-  catalog_schema_names = []
-  workload_namespaces  = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
-  revoked_namespaces = [
-    for name in keys(local.enabled_stages) : local.stage_namespaces[name]
-    if !contains(keys(local.governed_stages), name)
-  ]
-  canonical_stage = local.governance_dagster_stage
-  stages = {
-    for name in [local.governance_dagster_stage] : name => {
-      catalog_database_name  = local.stage_catalog_contracts[name].catalog_name
-      pipeline_service_name  = "dagster_${name}"
-      dagster_webserver_url  = "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}"
-      dashboard_service_name = contains(keys(local.analytics_stages), name) ? "superset_${name}" : null
-      superset_url           = contains(keys(local.analytics_stages), name) ? "http://${module.superset[name].contract.service_name}.${local.stage_namespaces[name]}:${module.superset[name].contract.http_port}" : null
-      superset_namespace     = contains(keys(local.analytics_stages), name) ? local.stage_namespaces[name] : null
-    }
-  }
-  # Read from module.trino, not the contract, so the bootstrap Job that runs
-  # the first catalog crawl through Trino is created only once Trino is ready.
-  trino_lineage_namespace = "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.http_port}"
-  # dbt connects on the HTTPS port when workload authentication is on, and
-  # names its lineage datasets by that port.
-  trino_tls_lineage_namespace = module.trino.tls_port == null ? null : "trino://${module.trino.service_name}.${var.shared_namespace}:${module.trino.tls_port}"
 
   depends_on = [
     module.glue,
@@ -658,9 +625,10 @@ module "dagster" {
   log_base_uri          = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
   run_artifact_base_uri = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
+  # Not module.openmetadata: olf writes the ingestion-bot Secret these pods mount
+  # after the apply (#562), and the release does not wait for its pods.
   depends_on = [
     module.trino,
-    module.openmetadata,
     module.rds_postgresql,
     module.superset,
     aws_eks_pod_identity_association.stage_workloads,

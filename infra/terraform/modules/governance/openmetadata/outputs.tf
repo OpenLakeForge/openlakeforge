@@ -7,8 +7,4 @@ output "contract" {
     ingestion_bot_secret_name = var.ingestion_bot_secret_name
     ingestion_bot_jwt_key     = var.ingestion_bot_jwt_key
   }
-
-  depends_on = [
-    kubernetes_job_v1.bootstrap,
-  ]
 }

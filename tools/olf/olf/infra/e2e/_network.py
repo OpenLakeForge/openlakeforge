@@ -69,7 +69,7 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("polaris-bootstrap", ("polaris-*",)),
     (
         "openmetadata-bootstrap",
-        ("openmetadata-admin", "openmetadata-automation-bot", "openmetadata-ingestion-bot", "superset-credentials"),
+        ("openmetadata-fernet-key",),
     ),
     ("publish-local-ca", ("local-ca",)),
     # The platform API's Superset service-user passwords: the source in olf-system, the copy in each stage namespace.

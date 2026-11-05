@@ -200,16 +200,3 @@ resource "kubernetes_job_v1" "fernet_key" {
 
   depends_on = [kubernetes_role_binding_v1.bootstrap]
 }
-
-resource "terraform_data" "openmetadata_release_revision" {
-  triggers_replace = [
-    helm_release.openmetadata.metadata.revision,
-  ]
-}
-
-resource "terraform_data" "openmetadata_catalog_schemas" {
-  triggers_replace = [
-    local.catalog_database_name,
-    sha256(local.catalog_schema_names_json),
-  ]
-}
