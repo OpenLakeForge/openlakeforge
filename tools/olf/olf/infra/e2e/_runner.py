@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +77,7 @@ def run(
     repo_root: Path | None = None,
     distribution_root: Path | None = None,
     deployment: Any = None,
+    environ: Mapping[str, str] | None = None,
 ) -> None:
     cfg = prepare_config(
         env,
@@ -86,6 +87,7 @@ def run(
         kube_context=kube_context,
         repo_root=repo_root,
         distribution_root=distribution_root,
+        environ=environ,
     )
     cfg = dataclasses.replace(cfg, deployment=deployment, checks=checks)
     check_commands(cfg)
@@ -116,6 +118,7 @@ def prepare_config(
     shared_namespace: str = "",
     repo_root: Path | None,
     distribution_root: Path | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> E2EConfig:
     """`repo_root` (descriptor discovery, Superset report dirs) and
     `distribution_root` (foundation/contract Terraform roots) are distinct:
@@ -124,9 +127,10 @@ def prepare_config(
     extracted under `OLF_HOME` - they only coincide in source-mode
     checkouts, where `distribution_root` defaults to `repo_root`.
     """
-    legacy_project_root = os.environ.get("OPENLAKEFORGE_REPO_ROOT", ".")
-    default_project_root = Path(os.environ.get("OPENLAKEFORGE_PROJECT_ROOT", legacy_project_root))
-    default_distribution_root = Path(os.environ.get("OLF_DISTRIBUTION_ROOT", default_project_root))
+    source = os.environ if environ is None else environ
+    legacy_project_root = source.get("OPENLAKEFORGE_REPO_ROOT", ".")
+    default_project_root = Path(source.get("OPENLAKEFORGE_PROJECT_ROOT", legacy_project_root))
+    default_distribution_root = Path(source.get("OLF_DISTRIBUTION_ROOT", default_project_root))
     project = ProjectSpec(
         root=repo_root or default_project_root,
         distribution_root=distribution_root or repo_root or default_distribution_root,
@@ -136,64 +140,67 @@ def prepare_config(
     actual_suite = suite or default_suite(env)
     inventory = inventory_for(root)
     if env == "local":
-        cluster_name = os.environ.get("CLUSTER_NAME", "openlakeforge-local")
+        cluster_name = source.get("CLUSTER_NAME", "openlakeforge-local")
         return E2EConfig(
             env=env,
             suite=actual_suite,
             namespace=namespace,
             shared_namespace=shared_namespace,
-            kube_context=kube_context or os.environ.get("KUBE_CONTEXT", f"kind-{cluster_name}"),
+            kube_context=kube_context or source.get("KUBE_CONTEXT", f"kind-{cluster_name}"),
             repo_root=root,
             distribution_root=dist_root,
             foundation_terraform_dir=dist_root / "infra/terraform/foundations/local-kind",
-            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/local"),
+            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/local", source),
             inventory=inventory,
-            dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
-            superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
-            openmetadata_local_port=int(os.environ.get("OPENMETADATA_LOCAL_PORT", "18585")),
-            seaweedfs_local_port=int(os.environ.get("SEAWEEDFS_LOCAL_PORT", "19000")),
+            environ=environ,
+            dagster_local_port=int(source.get("DAGSTER_LOCAL_PORT", "13000")),
+            superset_local_port=int(source.get("SUPERSET_LOCAL_PORT", "18088")),
+            openmetadata_local_port=int(source.get("OPENMETADATA_LOCAL_PORT", "18585")),
+            seaweedfs_local_port=int(source.get("SEAWEEDFS_LOCAL_PORT", "19000")),
         )
     if env == "azure":
-        cluster_name = os.environ.get("AZURE_CLUSTER_NAME", "aks-openlakeforge-poc")
+        cluster_name = source.get("AZURE_CLUSTER_NAME", "aks-openlakeforge-poc")
         return E2EConfig(
             env=env,
             suite=actual_suite,
             namespace=namespace,
             shared_namespace=shared_namespace,
-            kube_context=kube_context or os.environ.get("KUBE_CONTEXT", cluster_name),
+            kube_context=kube_context or source.get("KUBE_CONTEXT", cluster_name),
             repo_root=root,
             distribution_root=dist_root,
             foundation_terraform_dir=dist_root / "infra/terraform/foundations/azure-aks",
-            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/azure-poc"),
+            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/azure-poc", source),
             inventory=inventory,
-            dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
-            superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
-            openmetadata_local_port=int(os.environ.get("OPENMETADATA_LOCAL_PORT", "18585")),
-            seaweedfs_local_port=int(os.environ.get("SEAWEEDFS_LOCAL_PORT", "19000")),
+            environ=environ,
+            dagster_local_port=int(source.get("DAGSTER_LOCAL_PORT", "13000")),
+            superset_local_port=int(source.get("SUPERSET_LOCAL_PORT", "18088")),
+            openmetadata_local_port=int(source.get("OPENMETADATA_LOCAL_PORT", "18585")),
+            seaweedfs_local_port=int(source.get("SEAWEEDFS_LOCAL_PORT", "19000")),
         )
     if env == "aws":
-        cluster_name = aws_cluster_name(os.environ)
+        cluster_name = aws_cluster_name(source)
         return E2EConfig(
             env=env,
             suite=actual_suite,
             namespace=namespace,
             shared_namespace=shared_namespace,
-            kube_context=kube_context or os.environ.get("KUBE_CONTEXT", cluster_name),
+            kube_context=kube_context or source.get("KUBE_CONTEXT", cluster_name),
             repo_root=root,
             distribution_root=dist_root,
             foundation_terraform_dir=dist_root / "infra/terraform/foundations/aws-eks",
-            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/aws-poc"),
+            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/aws-poc", source),
             inventory=inventory,
-            aws_region=os.environ.get("AWS_REGION"),
-            dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
-            superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
-            openmetadata_local_port=int(os.environ.get("OPENMETADATA_LOCAL_PORT", "18585")),
+            environ=environ,
+            aws_region=source.get("AWS_REGION"),
+            dagster_local_port=int(source.get("DAGSTER_LOCAL_PORT", "13000")),
+            superset_local_port=int(source.get("SUPERSET_LOCAL_PORT", "18088")),
+            openmetadata_local_port=int(source.get("OPENMETADATA_LOCAL_PORT", "18585")),
         )
     raise E2EError(f"unsupported e2e environment: {env}")
 
 
-def _contract_dir(distribution_root: Path, default: str) -> Path:
-    return Path(os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", distribution_root / default)).resolve()
+def _contract_dir(distribution_root: Path, default: str, source: Mapping[str, str]) -> Path:
+    return Path(source.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", distribution_root / default)).resolve()
 
 
 def check_commands(cfg: E2EConfig) -> None:
@@ -249,8 +256,9 @@ def prepare_kube_context(cfg: E2EConfig, kubeconfig: Path) -> None:
 
 
 def configure_kubeconfig(cfg: E2EConfig) -> Path:
-    provider_override = os.environ.get(f"{cfg.env.upper()}_KUBECONFIG_PATH")
-    configured_path = os.environ.get("KUBECONFIG") or provider_override
+    source = os.environ if cfg.environ is None else cfg.environ
+    provider_override = source.get(f"{cfg.env.upper()}_KUBECONFIG_PATH")
+    configured_path = source.get("KUBECONFIG") or provider_override
     kubeconfig = (
         Path(configured_path).expanduser()
         if configured_path

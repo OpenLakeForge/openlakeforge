@@ -89,17 +89,18 @@ def e2e_run(
             env, profile=profile, namespace="", cluster_name="", project_root=project_root, stage=stage
         )
     try:
-        with applied_runtime_environment(context, env=env) as kube_context:
+        with applied_runtime_environment(context, env=env) as contract:
             e2e.run(
                 env,  # type: ignore[arg-type]
                 suite=suite or None,  # type: ignore[arg-type]
                 checks=checks,  # type: ignore[arg-type]
                 namespace=context.namespace,
                 shared_namespace=context.shared_namespace,
-                kube_context=kube_context,
+                kube_context=contract.kube_context,
                 repo_root=context.paths.repo_root,
                 distribution_root=context.paths.distribution_root,
                 deployment=context,
+                environ=contract,
             )
     except (e2e.E2EError, DeploymentError) as exc:
         # DeploymentError covers a managed-toolchain provisioning failure

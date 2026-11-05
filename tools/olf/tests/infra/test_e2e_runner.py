@@ -488,7 +488,9 @@ def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPa
 def test_run_retry_transient_kubectl_retries_tls_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = 0
 
-    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
+    def run(
+        args: list[str], *, capture: bool = False, input_text: str | None = None, env=None  # noqa: ANN001
+    ) -> str:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
@@ -507,7 +509,9 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
 ) -> None:
     attempts = 0
 
-    def run(args: list[str], *, capture: bool = False, input_text: str | None = None) -> str:
+    def run(
+        args: list[str], *, capture: bool = False, input_text: str | None = None, env=None  # noqa: ANN001
+    ) -> str:
         nonlocal attempts
         attempts += 1
         raise E2EError("Trino query failed: TABLE_NOT_FOUND")

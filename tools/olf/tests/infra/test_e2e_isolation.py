@@ -42,14 +42,14 @@ def test_isolation_uses_the_selected_stage_bucket_from_the_contract(
     client = _S3Client()
 
     monkeypatch.setattr(_isolation, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
-    monkeypatch.setattr(_isolation.k8s, "resource_exists", lambda *_args: True)
+    monkeypatch.setattr(_isolation.k8s, "resource_exists", lambda *_args, **_kwargs: True)
     def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003
         if "lakehouse_prod" in sql:
             raise E2EError("Access Denied: Cannot select from columns [...] in catalog lakehouse_prod")
         return ""
 
     monkeypatch.setattr(_isolation, "trino_query", _trino_query)
-    monkeypatch.setattr(_isolation, "_s3_identity", lambda *_args: ("key", "secret"))
+    monkeypatch.setattr(_isolation, "_s3_identity", lambda *_args, **_kwargs: ("key", "secret"))
     monkeypatch.setattr(_isolation, "_s3_client", lambda *_args, **_kwargs: client)
 
     @contextmanager
@@ -229,7 +229,9 @@ def test_stage_data_check_rejects_a_table_with_no_data_files(monkeypatch: pytest
 
 def _stub_runs(monkeypatch: pytest.MonkeyPatch, runs: dict[str, set[str]]) -> None:
     monkeypatch.setattr(
-        _isolation, "_dagster_run_ids", lambda _service, namespace, _log: runs[namespace.removeprefix("olf-")]
+        _isolation,
+        "_dagster_run_ids",
+        lambda _service, namespace, _log, **_kwargs: runs[namespace.removeprefix("olf-")],
     )
 
 
@@ -246,7 +248,7 @@ def test_bucket_listing_failure_surfaces_as_an_e2e_error(monkeypatch: pytest.Mon
     def _port_forward(*_args, **_kwargs):  # noqa: ANN202
         yield 8333
 
-    monkeypatch.setattr(_isolation, "_s3_identity", lambda *_args: ("key", "secret"))
+    monkeypatch.setattr(_isolation, "_s3_identity", lambda *_args, **_kwargs: ("key", "secret"))
     monkeypatch.setattr(_isolation, "_s3_client", lambda *_args, **_kwargs: _Client())
     monkeypatch.setattr(_isolation.k8s, "port_forward", _port_forward)
 

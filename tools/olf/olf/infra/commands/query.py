@@ -52,8 +52,8 @@ def query(
     context = deployment_context_for_profile(profile_file, stage=stage)
     provider = context.provider.value
     try:
-        with applied_runtime_environment(context, env=provider) as kube_context:
-            catalog = trino.stage_catalog_name()
+        with applied_runtime_environment(context, env=provider) as contract:
+            catalog = trino.stage_catalog_name(contract)
             if trino.glue_namespace_prefix(provider, catalog):
                 # ponytail: AWS stages share one Glue catalog behind a name prefix that
                 # SQL would have to be rewritten for; add it once the AWS root is stage-aware.
@@ -61,13 +61,15 @@ def query(
                 raise typer.Exit(code=fail(msg))
             target = trino.TrinoTarget(
                 provider=provider,
-                kube_context=kube_context,
+                kube_context=contract.kube_context,
                 namespace=context.shared_namespace or context.namespace,
                 catalog=catalog,
                 stage=context.stage.value,
             )
-            kubectl = str(build_resolver().resolve("kubectl"))
-            output = trino.run_sql(target, sql, output_format=OUTPUT_FORMATS[output_format], kubectl=kubectl)
+            kubectl = str(build_resolver(environ=contract).resolve("kubectl"))
+            output = trino.run_sql(
+                target, sql, output_format=OUTPUT_FORMATS[output_format], kubectl=kubectl, environ=contract
+            )
     except (trino.TrinoQueryError, DeploymentError, ProviderContractError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(output, nl=False)

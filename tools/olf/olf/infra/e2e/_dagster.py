@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping, Sequence
 
 from openlakeforge_core import Product
@@ -18,7 +17,7 @@ from olf.common import log
 from olf.infra import access, k8s
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._health import _bounded_pod_diagnostics
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 # No root overrides modules/orchestration/dagster's `release_name`: each stage
@@ -37,7 +36,7 @@ def launch_and_poll_dagster_jobs(
     webserver_service_name = DAGSTER_WEBSERVER_SERVICE_NAME
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
     with access.service_url(
-        f"stage/{os.environ.get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
+        f"stage/{cfg_environ(cfg).get(CONTRACT_STAGE_ENV, 'dev')}/orchestration",
         service=webserver_service_name,
         remote_port=80,
         namespace=cfg.namespace,
@@ -50,7 +49,7 @@ def launch_and_poll_dagster_jobs(
             raise E2EError("Dagster endpoint did not become reachable.")
         location_names = expected_repository_location_names(cfg)
         client = DagsterClient(f"{base_url}/graphql", expected_location_names=location_names)
-        timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
+        timeout_seconds = int(cfg_environ(cfg).get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
         for product in products or cfg.inventory.products:
             job = product.job_name
             try:
@@ -129,7 +128,7 @@ def expected_repository_location_names(cfg: E2EConfig) -> list[str]:
     recorded the stage it served, so this reads the same document the
     contract file or Terraform output supplied.
     """
-    stage = os.environ.get(CONTRACT_STAGE_ENV, "")
+    stage = cfg_environ(cfg).get(CONTRACT_STAGE_ENV, "")
     stages = load_provider_contracts_or_raise(cfg).get("stages") or {}
     code_locations = (stages.get(stage) or {}).get("orchestration", {}).get("code_locations")
     if not code_locations:
