@@ -18,7 +18,7 @@ from olf.common.provider_contracts import ProviderContracts, parse_provider_cont
 from olf.infra.commands._shared import deployment_context_for_profile
 from olf.infra.commands.openmetadata import bootstrap_from_contract
 from olf.infra.deployment.engine import DeploymentEngine, DeploymentPhase
-from olf.infra.openmetadata import _platform
+from olf.infra.openmetadata import _platform, _replication
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
 from olf.infra.openmetadata._stage_services import StageServices
 
@@ -51,10 +51,15 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["calls"].append("bootstrap")
         seen["bootstrap"] = {"url": route.url, "namespace": namespace, **kwargs}
 
+    def replicate(shared: str, governed: Any, revoked: Any, **_: Any) -> None:
+        seen["calls"].append("replicate")
+        seen["replicated"] = (shared, tuple(governed), tuple(revoked))
+
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: _CONTRACT)
     monkeypatch.setattr("olf.infra.k8s.configmap_data", lambda *_a, **_k: seen["configmap"])
     monkeypatch.setattr("olf.infra.k8s.port_forward", port_forward)
     monkeypatch.setattr(_platform, "run_bootstrap", run_bootstrap)
+    monkeypatch.setattr(_replication, "replicate_ingestion_bot", replicate)
     return seen
 
 
@@ -64,7 +69,8 @@ def test_the_platform_phase_bootstraps_openmetadata_after_the_apply_from_the_con
 
     DeploymentEngine(provider).deploy(DeploymentPhase.PLATFORM)
 
-    assert cluster["calls"] == ["platform_up", "bootstrap"]
+    assert cluster["calls"] == ["platform_up", "bootstrap", "replicate"]
+    assert cluster["replicated"] == ("olf-system", ("olf-dev", "olf-prod"), ())
     assert cluster["forwarded"] == ("openmetadata", 8585, "olf-system")
     given = cluster["bootstrap"]
     assert (given["url"], given["namespace"]) == ("http://127.0.0.1:18585", "olf-system")

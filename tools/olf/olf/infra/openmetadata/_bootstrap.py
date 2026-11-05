@@ -168,8 +168,8 @@ def ensure_ingestion_bot_token(
     if not user.get("id"):
         raise OpenMetadataError(f"Failed to find ingestion-bot user: {user}")
     stored = k8s.secret_value(INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, namespace, missing_ok=True, environ=environ)
-    # Stage Secrets are replicated by a one-shot Terraform Job. Rotating a
-    # working token here would revoke every stage's unchanged copy.
+    # Running Dagster pods hold the stage copy in their environment, read at
+    # start. Rotating a working token here would revoke it under them.
     if stored and _token_works(route, stored, user_id=user["id"]):
         return
     token = _bearer_token(client, user["id"], "ingestion-bot")

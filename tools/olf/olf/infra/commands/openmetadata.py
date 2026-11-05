@@ -278,13 +278,15 @@ def openmetadata_bootstrap(
 
 
 def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[str, str]) -> None:
-    """Run the bootstrap with inputs read from the applied contract; nothing to do when no stage is governed.
+    """Run the bootstrap with inputs read from the applied contract, then copy the ingestion-bot Secret
+    into the governed stages' namespaces. Nothing to do when no stage is governed.
 
     SSO follows the ConfigMap the governance module publishes only when an issuer is configured.
     """
     from olf.infra import k8s
     from olf.infra import openmetadata as om
     from olf.infra.openmetadata._platform import bootstrap_inputs, run_bootstrap
+    from olf.infra.openmetadata._replication import replicate_ingestion_bot, replication_namespaces
     from olf.infra.openmetadata._sso import CONFIGMAP
 
     inputs = bootstrap_inputs(contracts)
@@ -305,6 +307,8 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
                 stages=stages,
                 environ=environ,
             )
+        governed, revoked = replication_namespaces(contracts)
+        replicate_ingestion_bot(governance.namespace, governed, revoked, environ=environ)
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
