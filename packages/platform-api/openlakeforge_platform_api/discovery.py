@@ -2,7 +2,8 @@
 
 Every statement carries the person's own token (`trino_identity`), so Polaris decides which schemas and tables
 come back; nothing is cached, and the API holds no metadata credential. The catalog is the stage's, from settings.
-No `X-Trino-Schema` is ever sent: the explorer's Schema filter is the UI's, and SQL names `schema.table` itself.
+Discovery never sets `X-Trino-Schema` (only a query submit may, in queries.py): the explorer's Schema filter is the
+UI's, and its SQL names `schema.table` itself.
 """
 
 from __future__ import annotations

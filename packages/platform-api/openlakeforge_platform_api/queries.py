@@ -1,10 +1,11 @@
 """Run, page, cancel and export a person's SQL through Trino, as that person (ADR 0019, ADR 0021).
 
 Nothing is stored. The `id` and `cursor` a client holds are HMAC-signed records of where the query is in Trino
-(its id and continuation path), the stage and the person's token `sub`, so any replica can resume a query and none
-can be made to resume another person's or another stage's: a value that does not verify for this person on this
-stage is a 404, as if it did not exist. They are signed, not encrypted. The continuation URI is kept as a path and
-re-attached to the stage's configured origin, so a request can never steer where the person's token is sent.
+(its id and continuation path), the stage, the default schema if one was named and the person's token `sub`, so
+any replica can resume a query and none can be made to resume another person's or another stage's: a value that
+does not verify for this person on this stage is a 404, as if it did not exist. They are signed, not encrypted. The
+continuation URI is kept as a path and re-attached to the stage's configured origin, so a request can never steer
+where the person's token is sent.
 
 Read-only for now, enforced by Trino. Trino reports a statement's kind only after running it, and the grammar is its
 own, so the API asks Trino whether the text is a query: only a query (SELECT, WITH, VALUES, TABLE) can stand as a
@@ -27,7 +28,7 @@ import time
 import zlib
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -44,7 +45,7 @@ from openlakeforge_services.trino import (
     TrinoStatementClient,
     TrinoTimeoutError,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from openlakeforge_platform_api.discovery import SOURCE
 from openlakeforge_platform_api.query_identity import TrinoIdentity, trino_identity
@@ -56,6 +57,7 @@ log = logging.getLogger(__name__)
 _FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 # The id travels in a URL path; past this a proxy may refuse it.
 MAX_ID_CHARS = 7000
+MAX_SCHEMA_CHARS = 128
 _READ_ONLY_REFUSAL = (
     "only read queries (SELECT, WITH, VALUES, TABLE) are offered in the portal yet; writes and other statements are not"
 )
@@ -66,6 +68,20 @@ class QuerySubmit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sql: str
+    # The query's default schema, sent as `X-Trino-Schema`; None keeps names qualified. Checked in `_schema`.
+    # Aliased because `schema` is a BaseModel attribute.
+    default_schema: str | None = Field(None, alias="schema")
+
+
+def _schema(value: str | None) -> str | None:
+    """The schema travels as an HTTP header, so only printable ASCII: a newline or a non-Latin-1 byte cannot get in."""
+    if value is None:
+        return None
+    if not value or len(value) > MAX_SCHEMA_CHARS or not (value.isascii() and value.isprintable()):
+        raise HTTPException(
+            status_code=400, detail=f"schema must be 1 to {MAX_SCHEMA_CHARS} printable ASCII characters"
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -277,10 +293,14 @@ def submit_query(
     sql = body.sql.strip().rstrip(";").strip()
     if not sql:
         raise HTTPException(status_code=400, detail="the statement is empty")
+    schema = _schema(body.default_schema)
+    ctx = replace(ctx, client=replace(ctx.client, schema=schema))
     with _trino_errors(stage):
         _require_read_only(ctx, sql)
         page = ctx.client.submit(sql, identity.token, ctx.credentials(identity.token))
-        query_id = _sign(ctx, "id", q=page.query_id or "", p=_path(page.next_uri) if page.next_uri else None, sql=sql)
+        extra = {"sc": schema} if schema else {}
+        next_path = _path(page.next_uri) if page.next_uri else None
+        query_id = _sign(ctx, "id", q=page.query_id or "", p=next_path, sql=sql, **extra)
         if len(query_id) > MAX_ID_CHARS:
             if page.next_uri:
                 ctx.client.cancel(page.next_uri, identity.token)
@@ -378,6 +398,11 @@ def export_query(
     sql = record.get("sql")
     if not isinstance(sql, str):
         raise HTTPException(status_code=404, detail="no such query")
+    # Re-run under the default schema the id was signed with, so unqualified names resolve as they did.
+    schema = record.get("sc")
+    if schema is not None and not isinstance(schema, str):
+        raise HTTPException(status_code=404, detail="no such query")
+    ctx = replace(ctx, client=replace(ctx.client, schema=schema))
     # Trino gives a result out once, so an export runs the statement again, as the person. The statement needs no
     # read-only probe: it is the text this API signed after the probe passed.
     with _trino_errors(stage):

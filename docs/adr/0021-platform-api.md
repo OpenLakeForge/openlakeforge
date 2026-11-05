@@ -467,10 +467,14 @@ decision 5 does not exist yet; these routes are not in it.
 Issue #800: `POST /api/v1/stages/{stage}/queries`, `GET` and `DELETE` on
 `.../queries/{id}`, and `GET .../queries/{id}/export?format=csv|json`
 (`queries.py`), at the `viewer` floor: Polaris decides the data. Every Trino
-call is the person's, as discovery's. The `id` and `cursor` are HMAC-signed
-records of Trino's query id and continuation path, the stage and the token
-`sub`, so any replica resumes a query, no one resumes another person's, and a
-value that does not verify is a 404; the key is mounted from a Secret
+call is the person's, as discovery's. A submit may name `schema` in its body
+(printable ASCII, at most 128 characters, else 400): Trino calls for that query,
+the read-only check and the export re-run included, carry it as
+`X-Trino-Schema`, so unqualified names resolve in it; without it names stay
+qualified, as in discovery, which never sets one. The `id` and `cursor` are
+HMAC-signed records of Trino's query id and continuation path, the stage, the
+schema if named, and the token `sub`, so any replica resumes a query, no one
+resumes another person's, and a value that does not verify is a 404; the key is mounted from a Secret
 (`OPENLAKEFORGE_QUERY_SIGNING_KEY`, 32 characters or more) and without it
 query execution answers 503. The MVP is
 read-only and Trino enforces it: a statement runs only if Trino accepts it as
@@ -497,3 +501,7 @@ with `person_query`, so the URL never leaves the server. The same condition moun
 kept on redeploy and never held by Terraform. ADR 0017 adds flow F36 for the
 API's egress to the coordinator. Not yet run: a query through the deployed API;
 there is no cluster in the change's environment.
+
+Issue #800 follow-up: a query may name its default schema (`schema` in the
+submit body, the Portal's Schema selector). This reverses the earlier rule that
+queries never set `X-Trino-Schema`; discovery still does not.
