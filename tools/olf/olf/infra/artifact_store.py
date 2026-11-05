@@ -10,7 +10,7 @@ credentials.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
@@ -22,22 +22,24 @@ class ArtifactStoreError(RuntimeError):
     """An artifact store cannot be reached, resolved, or written to safely."""
 
 
-def artifact_bucket() -> str:
-    bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME") or config.env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
+def artifact_bucket(*, environ: Mapping[str, str] | None = None) -> str:
+    bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME", environ=environ) or config.env(
+        "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", environ=environ
+    )
     if not bucket:
         raise ArtifactStoreError("no ops/artifact bucket resolved from the contract environment.")
     return bucket
 
 
 @contextmanager
-def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
+def artifact_storage_client(via: str, bucket: str, *, environ: Mapping[str, str] | None = None) -> Iterator[Any]:
     from olf.infra import k8s, s3
 
     if via == "direct":
         from olf.infra.auth import aws_session
 
-        region = config.env("OPENLAKEFORGE_STORAGE_REGION") or None
-        yield aws_session(os.environ, region=region).client("s3", region_name=region)
+        region = config.env("OPENLAKEFORGE_STORAGE_REGION", environ=environ) or None
+        yield aws_session(os.environ if environ is None else environ, region=region).client("s3", region_name=region)
         return
     if via != "port-forward":
         raise ArtifactStoreError(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')")
@@ -48,25 +50,24 @@ def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
     # outside any stage's activations/<stage> prefix, so a stage's own
     # narrower identity cannot reach it, and it lives only in the shared
     # namespace, not config.namespace()'s stage-selected one.
-    namespace = config.shared_namespace()
-    secret_name = config.env("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME")
-    service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
-    remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
-    service_namespace = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE") or namespace
+    namespace = config.shared_namespace(environ=environ)
+    secret_name = config.env("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME", environ=environ)
+    service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3", environ=environ)
+    remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333", environ=environ))
+    service_namespace = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE", environ=environ) or namespace
+    access_key_key = config.env("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID", environ=environ)
+    secret_key_key = config.env(
+        "OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY", environ=environ
+    )
     with s3.port_forward_client(
         bucket,
         service=service,
         remote_port=remote_port,
         namespace=service_namespace,
-        access_key_id=k8s.secret_value(
-            secret_name, config.env("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
-        ),
-        secret_access_key=k8s.secret_value(
-            secret_name,
-            config.env("OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY"),
-            namespace,
-        ),
-        region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"),
+        access_key_id=k8s.secret_value(secret_name, access_key_key, namespace, environ=environ),
+        secret_access_key=k8s.secret_value(secret_name, secret_key_key, namespace, environ=environ),
+        region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1", environ=environ),
+        environ=environ,
     ) as client:
         yield client
 

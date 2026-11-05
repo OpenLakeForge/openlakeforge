@@ -176,9 +176,10 @@ def status(
                 environ=provider.env,
                 topology=context.topology,
                 stage=context.stage,
-            ):
-                with artifact_storage_client(_artifact_transport(provider), artifact_bucket()) as client:
-                    store = S3RevisionStore(client, artifact_bucket())
+            ) as contract:
+                bucket = artifact_bucket(environ=contract)
+                with artifact_storage_client(_artifact_transport(provider), bucket, environ=contract) as client:
+                    store = S3RevisionStore(client, bucket)
                     activation = active_activation(store, stage=item)
                     if activation is None:
                         # A release with no pointer is an untracked executable

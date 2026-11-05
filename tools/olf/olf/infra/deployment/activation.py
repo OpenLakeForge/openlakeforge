@@ -682,10 +682,16 @@ def await_locations_serving(
 
 
 def _verify_webserver(
-    *, namespace: str, code_locations: Sequence[CodeLocation], image: str, kube_context: str, log_prefix: str
+    *,
+    namespace: str,
+    code_locations: Sequence[CodeLocation],
+    image: str,
+    kube_context: str,
+    log_prefix: str,
+    environ: Mapping[str, str],
 ) -> None:
     try:
-        with _stage_webserver(namespace, kube_context=kube_context, log_prefix=log_prefix) as client:
+        with _stage_webserver(namespace, kube_context=kube_context, log_prefix=log_prefix, environ=environ) as client:
             await_locations_serving(
                 client,
                 code_locations,
@@ -700,9 +706,16 @@ def _verify_webserver(
 
 
 @contextmanager
-def _stage_webserver(namespace: str, *, kube_context: str, log_prefix: str) -> Iterator[DagsterClient]:
+def _stage_webserver(
+    namespace: str, *, kube_context: str, log_prefix: str, environ: Mapping[str, str]
+) -> Iterator[DagsterClient]:
     with k8s.port_forward(
-        _WEBSERVER_SERVICE, 80, namespace, log_path=f"{log_prefix}-activation-dagster.log", kube_context=kube_context
+        _WEBSERVER_SERVICE,
+        80,
+        namespace,
+        log_path=f"{log_prefix}-activation-dagster.log",
+        kube_context=kube_context,
+        environ=environ,
     ) as port:
         yield DagsterClient(f"http://127.0.0.1:{port}/graphql")
 
@@ -1035,6 +1048,7 @@ def deploy_revision(
                     image=activation.project_code_image,
                     kube_context=kube_context,
                     log_prefix=str(context.paths.port_forward_log_prefix),
+                    environ=contract_environ,
                 )
                 commit_active(store, activation)
             except (ProjectActivationError, ActivationError) as exc:
