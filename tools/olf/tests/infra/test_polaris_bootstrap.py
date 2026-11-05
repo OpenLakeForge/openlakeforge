@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,9 +13,13 @@ from unittest.mock import Mock
 
 import pytest
 from _polaris_fake import ASSIGNED, ROOT, STAGES, STS, Cluster, FakePolaris, conformance_plan, serve
+from conftest import CONFORMANCE_PROFILE
 
+from olf.common.profile import StageName
+from olf.common.provider_contracts import ProviderContracts, parse_provider_contracts
 from olf.common.tooling.kubectl import Kubectl
 from olf.infra import k8s
+from olf.infra.commands._shared import deployment_context_for_profile
 from olf.infra.polaris import PolarisClient, PolarisConfig, PolarisError
 from olf.infra.polaris_bootstrap import (
     DROP_WITH_PURGE,
@@ -23,6 +28,8 @@ from olf.infra.polaris_bootstrap import (
     Credential,
     PersonAccess,
     StageCatalog,
+    bootstrap_from_contract,
+    bootstrap_plan,
     ensure_catalog,
     ensure_credential,
     run_bootstrap,
@@ -371,3 +378,70 @@ def test_a_narrowed_data_access_row_loses_the_grant_it_no_longer_names(
     gold = ["olf-gold-read"]
     assert fake.state()["principal_roles"]["olf-analyst"] == {"lakehouse_dev": gold, "lakehouse_prod": gold}
     assert fake.state()["principal_roles"]["olf-signed-in"] == {}
+
+
+# Captured from the local root applied with openlakeforge.conformance.yaml: DEV and PROD, GitHub sign-in.
+_CONTRACT = json.loads((Path(__file__).parents[1] / "fixtures" / "conformance-provider-contracts.json").read_text())
+_GLUE = {"catalog_provider": "aws-glue", "catalog_name": "lakehouse"}
+
+
+def _contracts(**stage_changes: dict[str, Any]) -> ProviderContracts:
+    topology = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage=StageName.DEV.value).topology
+    contracts = parse_provider_contracts(_CONTRACT, topology)
+    stages = {name: replace(stage, **stage_changes.get(name.value, {})) for name, stage in contracts.stages.items()}
+    return replace(contracts, stages=stages)
+
+
+def test_the_plan_from_the_contract_is_what_the_job_is_rendered_with() -> None:
+    # conformance_plan() holds the values the local root hands bootstrap.sh.tftpl for this contract.
+    assert bootstrap_plan(_contracts()) == conformance_plan()
+
+
+def test_people_get_no_access_without_github_sign_in() -> None:
+    contracts = _contracts()
+    identity = {k: v for k, v in contracts.shared.values["identity"].items() if k != "adapter"}
+    shared = replace(contracts.shared, values={**contracts.shared.values, "identity": identity})
+
+    plan = bootstrap_plan(replace(contracts, shared=shared))
+
+    assert plan is not None and plan.person_access is None
+
+
+def test_a_stage_on_glue_is_left_out() -> None:
+    dev_only = bootstrap_plan(_contracts(prod={"catalog": _GLUE}))
+
+    assert dev_only is not None and [stage.stage for stage in dev_only.stages] == ["dev"]
+    assert bootstrap_plan(_contracts(dev={"catalog": _GLUE}, prod={"catalog": _GLUE})) is None
+
+
+def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake, client = polaris
+    forwarded: list[tuple[str, int, str]] = []
+    read: list[tuple[str, str, str]] = []
+
+    @contextmanager
+    def port_forward(service: str, port: int, namespace: str, **_: Any) -> Iterator[int]:
+        forwarded.append((service, port, namespace))
+        yield int(client.config.base_url.rsplit(":", 1)[1])
+
+    def secret_value(name: str, key: str, namespace: str, **_: Any) -> str:
+        read.append((name, key, namespace))
+        return dict(zip(("ROOT_CLIENT_ID", "ROOT_CLIENT_SECRET"), ROOT, strict=True))[key]
+
+    monkeypatch.setattr(k8s, "port_forward", port_forward)
+    monkeypatch.setattr(k8s, "secret_value", secret_value)
+
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+
+    assert forwarded == [("polaris", 8181, "olf-system")]
+    assert {(name, namespace) for name, _, namespace in read} == {("polaris-bootstrap-credentials", "olf-system")}
+    assert set(fake.catalogs) == {"lakehouse_dev", "lakehouse_prod"}
+    assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
+
+
+def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "port_forward", Mock(side_effect=AssertionError("no Polaris to reach")))
+
+    bootstrap_from_contract(_contracts(dev={"catalog": _GLUE}, prod={"catalog": _GLUE}), environ=_ENVIRON)

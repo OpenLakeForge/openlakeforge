@@ -1,4 +1,4 @@
-"""The platform phase bootstraps OpenMetadata from the applied provider contract (#562)."""
+"""The platform phase bootstraps Polaris and OpenMetadata from the applied provider contract (#562)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from olf.infra.deployment.engine import DeploymentEngine, DeploymentPhase
 from olf.infra.openmetadata import _platform, _replication
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
 from olf.infra.openmetadata._stage_services import StageServices
+from olf.infra.polaris import PolarisError
 
 # Captured from the local root applied with openlakeforge.conformance.yaml: DEV and PROD, both
 # governed and with analytics, Trino on TLS.
@@ -55,11 +56,16 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["calls"].append("replicate")
         seen["replicated"] = (shared, tuple(governed), tuple(revoked))
 
+    def bootstrap_polaris(contracts: ProviderContracts, *, environ: Any) -> None:
+        seen["calls"].append("polaris")
+        seen["polaris"] = (sorted(contracts.stages), environ["KUBECONFIG"])
+
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *_a, **_k: _CONTRACT)
     monkeypatch.setattr("olf.infra.k8s.configmap_data", lambda *_a, **_k: seen["configmap"])
     monkeypatch.setattr("olf.infra.k8s.port_forward", port_forward)
     monkeypatch.setattr(_platform, "run_bootstrap", run_bootstrap)
     monkeypatch.setattr(_replication, "replicate_ingestion_bot", replicate)
+    monkeypatch.setattr("olf.infra.polaris_bootstrap.bootstrap_from_contract", bootstrap_polaris)
     return seen
 
 
@@ -69,7 +75,8 @@ def test_the_platform_phase_bootstraps_openmetadata_after_the_apply_from_the_con
 
     DeploymentEngine(provider).deploy(DeploymentPhase.PLATFORM)
 
-    assert cluster["calls"] == ["platform_up", "bootstrap", "replicate"]
+    assert cluster["calls"] == ["platform_up", "polaris", "bootstrap", "replicate"]
+    assert cluster["polaris"] == ([StageName.DEV, StageName.PROD], provider.env["KUBECONFIG"])
     assert cluster["replicated"] == ("olf-system", ("olf-dev", "olf-prod"), ())
     assert cluster["forwarded"] == ("openmetadata", 8585, "olf-system")
     given = cluster["bootstrap"]
@@ -138,3 +145,19 @@ def test_the_platform_phase_fails_when_the_apply_left_no_contract(monkeypatch: p
         DeploymentEngine(_Provider(calls)).deploy(DeploymentPhase.PLATFORM)
 
     assert calls == ["platform_up"]
+
+
+def test_a_failed_polaris_bootstrap_stops_the_platform_phase_before_openmetadata(
+    cluster: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cluster["calls"] = []
+
+    def refuse(*_a: Any, **_k: Any) -> None:
+        raise PolarisError("Polaris principal 'trino-dev' exists but credential Secret 'polaris-dev-trino-creds' ...")
+
+    monkeypatch.setattr("olf.infra.polaris_bootstrap.bootstrap_from_contract", refuse)
+
+    with pytest.raises(DeploymentPreconditionError, match="Polaris bootstrap: Polaris principal 'trino-dev'"):
+        DeploymentEngine(_Provider(cluster["calls"])).deploy(DeploymentPhase.PLATFORM)
+
+    assert cluster["calls"] == ["platform_up"]
