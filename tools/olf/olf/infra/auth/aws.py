@@ -87,7 +87,7 @@ def _sso_client(service: Literal["sso", "sso-oidc"], *, region: str) -> Any:
     anything earlier in the process makes a bare `boto3.client()`/
     `boto3.Session()` call before `AWS_CONFIG_FILE`/`AWS_PROFILE` are set -
     exactly what happens between resolving foundation facts and the
-    artifacts phase's `_applied_authentication_environment` overlay - every
+    artifacts phase's contract block, which applies them - every
     later bare call keeps resolving profiles against the stale config file,
     raising `ProfileNotFound` for a profile the *current* `AWS_CONFIG_FILE`
     genuinely defines. Reproduced directly: a prior bare `boto3.client()`
@@ -254,20 +254,44 @@ def client_options(
     return options
 
 
+def _boto3_session(environ: Mapping[str, str], **kwargs: Any) -> Any:
+    """`boto3.Session` that reads its config and credentials files from `environ`, not this process's environment."""
+    files = {
+        name: environ[variable]
+        for variable, name in (("AWS_CONFIG_FILE", "config_file"), ("AWS_SHARED_CREDENTIALS_FILE", "credentials_file"))
+        if environ.get(variable)
+    }
+    if files:
+        import botocore.session
+
+        botocore_session = botocore.session.Session()
+        for name, value in files.items():
+            botocore_session.set_config_variable(name, value)
+        kwargs["botocore_session"] = botocore_session
+    return boto3.Session(**kwargs)
+
+
 def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any:
-    """Return a boto3 session sourced from OLF state or normal SDK discovery."""
-    if _uses_aws_automation(environ) or _uses_external_aws_profile(environ):
+    """Return a boto3 session sourced from OLF state or normal SDK discovery.
+
+    The profile, region and config files come from `environ`: the deploy's selected credentials are not in
+    this process's environment, where botocore would otherwise look for them.
+    """
+    region = region or environ.get("AWS_REGION") or environ.get("AWS_DEFAULT_REGION") or None
+    if _uses_aws_automation(environ):
         # An explicit AWS_PROFILE disables botocore's environment-credential
         # provider, so injected automation keys/web-identity tokens would be
         # silently ignored. Let botocore's own chain apply normal precedence.
-        return boto3.Session(region_name=region)
+        return _boto3_session(environ, region_name=region)
+    if _uses_external_aws_profile(environ):
+        return _boto3_session(environ, profile_name=environ.get("AWS_PROFILE") or None, region_name=region)
     state = load_state("aws", environ)
     if state is None:
-        return boto3.Session(profile_name=environ.get("AWS_PROFILE"), region_name=region)
+        return _boto3_session(environ, profile_name=environ.get("AWS_PROFILE"), region_name=region)
     if _aws_instance_profile_available():
-        return boto3.Session(region_name=region)
+        return _boto3_session(environ, region_name=region)
     if state.get("source") == "profile":
-        return boto3.Session(profile_name=str(state["profile"]), region_name=region)
+        return _boto3_session(environ, profile_name=str(state["profile"]), region_name=region)
     if state.get("source") != "olf-sso":
         raise AuthenticationError("unknown AWS authentication source; run 'olf infra auth login --provider aws'.")
     state = _refresh_aws_access_token(state, environ)
