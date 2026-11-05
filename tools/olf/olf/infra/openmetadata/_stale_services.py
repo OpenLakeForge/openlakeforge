@@ -1,6 +1,6 @@
 """Removing OpenMetadata services that no longer report to governance, for the bootstrap (#562).
 
-Ports `remove_service` from the governance module's `bootstrap.sh.tftpl`. Look up by name,
+Ports `remove_service` from the governance module's former `bootstrap.sh.tftpl`. Look up by name,
 delete by id, the pipeline before the service that owns it -- so the common path issues no
 delete at all, and a rerun after a partial removal finishes it.
 """

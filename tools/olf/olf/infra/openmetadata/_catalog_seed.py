@@ -1,6 +1,6 @@
 """The catalog half of the OpenMetadata bootstrap: OpenLineage, the lakehouse service, stage databases.
 
-Ports the middle steps of the governance module's `bootstrap.sh.tftpl` (#562). Every call is a
+Ports the middle steps of the governance module's former `bootstrap.sh.tftpl` (#562). Every call is a
 PUT upsert, so a rerun converges.
 """
 

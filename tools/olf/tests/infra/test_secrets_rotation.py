@@ -276,6 +276,29 @@ def test_the_apply_is_the_targeted_one_not_the_platform_path(tmp_path: Path, mon
     assert seen == [(("config", "tools"), {"env": {"K": "v"}, "extra_args": secrets_rotation.APPLY_ARGS})]
 
 
+def test_the_openmetadata_bootstrap_runs_on_the_local_provider_and_reports_a_failure_as_a_rotation_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.infra.deployment import governance
+
+    provider = SimpleNamespace(config="config", tools="tools", env={})
+    monkeypatch.setattr(secrets_rotation, "_local_provider", lambda _ctx: provider)
+    seen: list[Any] = []
+    monkeypatch.setattr(governance, "bootstrap_openmetadata", seen.append)
+
+    secrets_rotation.bootstrap_openmetadata(context(tmp_path))
+
+    assert seen == [provider]
+
+    def fail(_provider: Any) -> None:
+        raise DeploymentPreconditionError("OpenMetadata bootstrap failed")
+
+    monkeypatch.setattr(governance, "bootstrap_openmetadata", fail)
+    with pytest.raises(secrets_rotation.RotationError, match="OpenMetadata bootstrap failed"):
+        secrets_rotation.bootstrap_openmetadata(context(tmp_path))
+
+
 def test_the_state_check_refuses_when_the_core_objects_are_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,6 +1,6 @@
 """The per-stage pipeline and dashboard services of the OpenMetadata bootstrap (#562).
 
-Ports the stage loop of the governance module's `bootstrap.sh.tftpl`. Each governed stage gets a
+Ports the stage loop of the governance module's former `bootstrap.sh.tftpl`. Each governed stage gets a
 `dagster_<stage>` pipeline service, and each with analytics a `superset_<stage>` dashboard service,
 named as the contract requires (provider_contracts rejects any other). Each service gets one
 metadata ingestion pipeline, created paused and deployed without a run: the Dagster connector still

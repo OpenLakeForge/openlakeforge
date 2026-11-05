@@ -158,6 +158,17 @@ def apply_platform(context: Any, extra_args: list[str]) -> None:
         raise RotationError(str(exc)) from exc
 
 
+def bootstrap_openmetadata(context: Any) -> None:
+    """olf's OpenMetadata bootstrap, which the platform phase of `olf infra deploy` runs after the apply."""
+    from olf.common.deployment.errors import DeploymentError
+    from olf.infra.deployment.governance import bootstrap_openmetadata as bootstrap
+
+    try:
+        bootstrap(_local_provider(context))
+    except DeploymentError as exc:
+        raise RotationError(str(exc)) from exc
+
+
 def portal_url(context: Any) -> str | None:
     """The portal's URL from the access contract, when it can be read."""
     from olf.common.contract_state import load_provider_contracts

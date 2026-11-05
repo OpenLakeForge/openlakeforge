@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from olf.infra import k8s
 
-# Name of the Secret the governance bootstrap Job writes (modules/governance/openmetadata). Not
+# Name of the Secret `olf infra openmetadata bootstrap` writes (olf.infra.openmetadata._bootstrap). Not
 # `*_SECRET`: CodeQL treats any identifier containing "secret" as a secret value and flags the
 # error message that names this Secret as clear-text logging.
 AUTOMATION_BOT = "openmetadata-automation-bot"
@@ -17,7 +17,7 @@ ADMIN_SECRET = "openmetadata-admin"
 def admin_password(
     namespace: str, override: str = "", *, kube_context: str | None = None, environ: Mapping[str, str] | None = None
 ) -> str:
-    """The built-in admin's password: an explicit override, else the Secret the bootstrap Job created."""
+    """The built-in admin's password: an explicit override, else the Secret the bootstrap created."""
     return override or k8s.secret_value(
         ADMIN_SECRET, "admin-password", namespace, kube_context=kube_context, environ=environ
     )

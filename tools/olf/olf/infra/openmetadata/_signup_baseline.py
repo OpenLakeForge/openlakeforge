@@ -1,6 +1,6 @@
 """The read-only baseline SSO self-signup relies on, for the bootstrap (#562).
 
-Ports the SSO block at the end of the governance module's `bootstrap.sh.tftpl`. Self-signup
+Ports the SSO block at the end of the governance module's former `bootstrap.sh.tftpl`. Self-signup
 makes every admitted person a user, and every user inherits the Organization default role
 (DataConsumer, which edits descriptions, tags and tiers) and may take ownership of unowned
 assets. Read-only is the Organization policy without either (identity-service-permissions.md).

@@ -374,7 +374,7 @@ def list_openmetadata_domains(environ: Mapping[str, str] | None = None) -> list[
                 raise typer.Exit(
                     code=fail(
                         f"No OpenMetadata automation token: Secret {AUTOMATION_BOT} is missing from namespace "
-                        f"{namespace}. The governance bootstrap Job writes it; rerun `olf infra deploy` to recreate it."
+                        f"{namespace}. The OpenMetadata bootstrap writes it; rerun `olf infra deploy` to recreate it."
                     )
                 )
             return route.client(OpenMetadataClient, token=token).list_domains()

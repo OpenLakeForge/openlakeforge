@@ -21,13 +21,12 @@ class Cluster:
         self.jobs = {
             ("olf-system", "postgresql-credentials-abc"): "uid-1",
             ("olf-dev", "superset-credentials-def"): "uid-2",
-            ("olf-system", "openmetadata-bootstrap-3"): "uid-4",
-            ("olf-system", "openmetadata-credential-replication-1a"): "uid-5",
             ("olf-system", "dagster-daemon"): "uid-3",  # not a credential Job
         }
         self.recreates = recreates
         self.deleted: list[tuple[str, str]] = []
         self.applies = 0
+        self.steps: list[str] = []
 
     def kubectl(self, _cfg: object, args: list[str], **_kwargs: object) -> str:
         if args[:2] == ["get", "jobs"]:
@@ -41,9 +40,13 @@ class Cluster:
 
     def apply(self, _context: object, _args: list[str]) -> None:
         self.applies += 1
+        self.steps.append("apply")
         if self.recreates:
             for ns, name in self.deleted:
                 self.jobs[(ns, name)] = f"new-{name}"
+
+    def bootstrap(self, _context: object) -> None:
+        self.steps.append("bootstrap")
 
 
 def _run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cluster: Cluster, after: dict[str, str]) -> None:
@@ -55,10 +58,11 @@ def _run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cluster: Cluster, afte
     monkeypatch.setattr(secrets_rotation, "check_platform_state", lambda _ctx: None)
     monkeypatch.setattr(secrets_rotation, "builds_superset_image", lambda _ctx: False)
     monkeypatch.setattr(secrets_rotation, "apply_platform", cluster.apply)
+    monkeypatch.setattr(secrets_rotation, "bootstrap_openmetadata", cluster.bootstrap)
     preservation.check_credential_preservation(replace(e2e_cfg(tmp_path), deployment=object()))
 
 
-def test_unchanged_credentials_pass_once_the_credential_jobs_are_recreated(
+def test_unchanged_credentials_pass_once_the_jobs_are_recreated_and_the_openmetadata_bootstrap_reruns(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     cluster = Cluster()
@@ -67,7 +71,8 @@ def test_unchanged_credentials_pass_once_the_credential_jobs_are_recreated(
 
     assert cluster.applies == 1
     assert cluster.jobs[("olf-system", "dagster-daemon")] == "uid-3"
-    assert ("olf-system", "openmetadata-credential-replication-1a") in cluster.deleted
+    # The admin password is olf's to create, after the apply, as `olf infra deploy` does (#562).
+    assert cluster.steps == ["apply", "bootstrap"]
 
 
 def test_an_apply_that_leaves_the_jobs_deleted_fails_instead_of_passing_untested(
@@ -115,7 +120,7 @@ def test_the_drill_is_skipped_on_a_stack_with_a_locally_built_superset_image(
 
     preservation.check_credential_preservation(replace(e2e_cfg(tmp_path), deployment=object()))
 
-    assert cluster.applies == 0 and len(cluster.jobs) == 5
+    assert cluster.applies == 0 and len(cluster.jobs) == 3
 
 
 def test_the_drill_is_skipped_without_a_resolved_deployment(tmp_path: Path) -> None:
