@@ -7,6 +7,7 @@ from typing import Any
 from zipfile import ZipFile
 
 import pytest
+from _fake_route import FakeRoute
 
 from olf.infra.e2e import _perimeter_bearer as bearer
 from olf.infra.e2e._shell import E2EError
@@ -16,7 +17,7 @@ _real_tamper = bearer.tamper_signature
 ADMITTED = {"data-engineer", "platform-admin"}
 
 
-def _server(monkeypatch: pytest.MonkeyPatch, decide: Any) -> list[str | None]:
+def _server(decide: Any) -> tuple[FakeRoute, list[str | None]]:
     seen: list[str | None] = []
 
     def get(_url: str, headers: dict[str, str], **_kwargs: Any) -> Any:
@@ -24,8 +25,7 @@ def _server(monkeypatch: pytest.MonkeyPatch, decide: Any) -> list[str | None]:
         seen.append(token)
         return SimpleNamespace(status_code=decide(token))
 
-    monkeypatch.setattr(bearer.requests, "get", get)
-    return seen
+    return FakeRoute(get=get), seen
 
 
 def _perimeter(token: str | None) -> int:
@@ -40,8 +40,9 @@ def _marked_tampering(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bearer, "tamper_signature", lambda token: f"bad:{token}")
 
 
-def _check(other: Any = lambda role: f"other:{role}") -> None:
+def _check(route: FakeRoute, other: Any = lambda role: f"other:{role}") -> None:
     bearer.check_bearer_decisions(
+        route,
         URL,
         ["platform-admin", "data-engineer", "analyst"],
         lambda role: role in ADMITTED,
@@ -50,9 +51,9 @@ def _check(other: Any = lambda role: f"other:{role}") -> None:
     )
 
 
-def test_the_floor_decides_for_a_cli_token_and_every_other_token_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _server(monkeypatch, _perimeter)
-    _check()
+def test_the_floor_decides_for_a_cli_token_and_every_other_token_is_refused() -> None:
+    route, seen = _server(_perimeter)
+    _check(route)
     assert None in seen and "other:platform-admin" in seen and "bad:cli:platform-admin" in seen
 
 
@@ -65,21 +66,21 @@ def test_the_floor_decides_for_a_cli_token_and_every_other_token_is_refused(monk
         (lambda token: 202 if token and token.startswith("other:") else _perimeter(token), "another client"),
     ],
 )
-def test_a_wrong_decision_fails_the_check(monkeypatch: pytest.MonkeyPatch, decide: Any, match: str) -> None:
-    _server(monkeypatch, decide)
+def test_a_wrong_decision_fails_the_check(decide: Any, match: str) -> None:
+    route, _seen = _server(decide)
     with pytest.raises(E2EError, match=match):
-        _check()
+        _check(route)
 
 
-def test_a_tampered_signature_that_is_accepted_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    _server(monkeypatch, lambda token: 202 if token and token.startswith("bad:") else _perimeter(token))
+def test_a_tampered_signature_that_is_accepted_fails() -> None:
+    route, _seen = _server(lambda token: 202 if token and token.startswith("bad:") else _perimeter(token))
     with pytest.raises(E2EError, match="tampered"):
-        _check()
+        _check(route)
 
 
-def test_the_other_client_case_is_left_out_without_a_token_source(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _server(monkeypatch, _perimeter)
-    _check(other=None)
+def test_the_other_client_case_is_left_out_without_a_token_source() -> None:
+    route, seen = _server(_perimeter)
+    _check(route, other=None)
     assert not any(token and token.startswith("other:") for token in seen)
 
 
@@ -90,13 +91,16 @@ def test_tampering_changes_the_signature_but_keeps_the_token_shape() -> None:
     assert _real_tamper("a.b.cAcccc") != "a.b.cAcccc"
 
 
-def _api_check(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> list[str]:
+def _api_check(answers: dict[str, Any]) -> list[str]:
     paths: list[str] = []
-    monkeypatch.setattr(bearer.requests, "get", lambda url, headers, **kw: _get(paths, answers, url, headers))
     # The launch route shares its path with the run list; POST answers from the "POST <path>" key.
     posts = {path.removeprefix("POST "): answer for path, answer in answers.items() if path.startswith("POST ")}
-    monkeypatch.setattr(bearer.requests, "post", lambda url, headers, **kw: _get(paths, posts, url, headers))
+    route = FakeRoute(
+        get=lambda url, headers, **kw: _get(paths, answers, url, headers),
+        post=lambda url, headers, **kw: _get(paths, posts, url, headers),
+    )
     bearer.check_platform_api(
+        route,
         "https://olf.localhost",
         ["platform-admin", "viewer"],
         lambda role: f"cli:{role}",
@@ -136,8 +140,8 @@ HEALTHY = {
 }
 
 
-def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: pytest.MonkeyPatch) -> None:
-    paths = _api_check(monkeypatch, HEALTHY)
+def test_the_platform_api_answers_each_role_through_the_perimeter() -> None:
+    paths = _api_check(HEALTHY)
     assert "/api/healthz" in paths and paths.count("/api/v1/whoami") >= 2
     assert paths.count("/api/v1/stages/dev/logs") >= 2
     # Two launches, then the run list's decisions and the one read that finds a run to show.
@@ -166,12 +170,12 @@ def test_the_platform_api_answers_each_role_through_the_perimeter(monkeypatch: p
         ),
     ],
 )
-def test_a_wrong_platform_api_answer_fails(monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], match: str) -> None:
+def test_a_wrong_platform_api_answer_fails(change: dict[str, Any], match: str) -> None:
     with pytest.raises(E2EError, match=match):
-        _api_check(monkeypatch, {**HEALTHY, **change})
+        _api_check({**HEALTHY, **change})
 
 
-def test_on_a_stage_outside_the_launch_row_every_role_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_on_a_stage_outside_the_launch_row_every_role_is_refused() -> None:
     statuses: list[tuple[str, int]] = []
 
     def post(url: str, headers: dict[str, str], **kw: Any) -> Any:
@@ -179,8 +183,8 @@ def test_on_a_stage_outside_the_launch_row_every_role_is_refused(monkeypatch: py
         statuses.append((headers["Authorization"], 403))
         return SimpleNamespace(status_code=403)
 
-    monkeypatch.setattr(bearer.requests, "post", post)
     bearer.check_launch_audit(
+        FakeRoute(post=post),
         "https://olf.localhost",
         ["platform-admin", "viewer"],
         lambda role: f"cli:{role}",
@@ -190,7 +194,7 @@ def test_on_a_stage_outside_the_launch_row_every_role_is_refused(monkeypatch: py
     assert [auth for auth, _ in statuses] == ["Bearer cli:platform-admin", "Bearer cli:viewer"]
 
 
-def _import_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, answer: Any) -> list[tuple[str, int]]:
+def _import_check(tmp_path: Path, stage: str, answer: Any) -> list[tuple[str, int]]:
     (tmp_path / "dashboards").mkdir()
     (tmp_path / "metadata.yaml").write_text("version: 1.0.0\n")
     (tmp_path / "dashboards/orders.yaml").write_text("slug: orders\n")
@@ -206,8 +210,8 @@ def _import_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, a
         seen.append((role, status))
         return SimpleNamespace(status_code=status, text="")
 
-    monkeypatch.setattr(bearer.requests, "post", post)
     bearer.check_report_import(
+        FakeRoute(post=post),
         "https://olf.localhost",
         ["platform-admin", "data-engineer", "analyst", "viewer"],
         lambda role: f"cli:{role}",
@@ -218,19 +222,13 @@ def _import_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, a
     return seen
 
 
-def test_a_data_engineer_imports_the_projects_report_on_dev_and_an_analyst_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    seen = _import_check(
-        monkeypatch, tmp_path, "dev", lambda role: 200 if role in {"platform-admin", "data-engineer"} else 403
-    )
+def test_a_data_engineer_imports_the_projects_report_on_dev_and_an_analyst_is_refused(tmp_path: Path) -> None:
+    seen = _import_check(tmp_path, "dev", lambda role: 200 if role in {"platform-admin", "data-engineer"} else 403)
     assert seen == [("platform-admin", 200), ("data-engineer", 200), ("analyst", 403), ("viewer", 403)]
 
 
-def test_on_a_stage_outside_the_import_row_every_role_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    seen = _import_check(monkeypatch, tmp_path, "prod", lambda role: 403)
+def test_on_a_stage_outside_the_import_row_every_role_is_refused(tmp_path: Path) -> None:
+    seen = _import_check(tmp_path, "prod", lambda role: 403)
     assert {status for _, status in seen} == {403}
 
 
@@ -244,6 +242,6 @@ def test_on_a_stage_outside_the_import_row_every_role_is_refused(
         (lambda role: 200, "analyst importing.*expected HTTP 403, got 200"),
     ],
 )
-def test_a_wrong_import_answer_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answer: Any, match: str) -> None:
+def test_a_wrong_import_answer_fails(tmp_path: Path, answer: Any, match: str) -> None:
     with pytest.raises(E2EError, match=match):
-        _import_check(monkeypatch, tmp_path, "dev", answer)
+        _import_check(tmp_path, "dev", answer)

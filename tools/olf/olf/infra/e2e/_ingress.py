@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import re
 import socket
 import ssl
@@ -122,7 +121,7 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
     with _route(cfg) as route:
         url = route.url
         host, port = urlsplit(url).hostname or "", urlsplit(url).port or 443
-        before = _served_serial(host, port)
+        before = _served_serial(host, port, route.verify)
         issuing = {
             "type": "Issuing",
             "status": "True",
@@ -166,7 +165,7 @@ def check_certificate_renewal(cfg: E2EConfig) -> None:
             time.sleep(1)
             handshakes += 1
             try:
-                serial = _served_serial(host, port)
+                serial = _served_serial(host, port, route.verify)
             except OSError as exc:  # ssl.SSLError included
                 failures.append(str(exc))
     evidence = {
@@ -226,10 +225,11 @@ def _skipped(cfg: E2EConfig, drill: str) -> bool:
     return False
 
 
-def _served_serial(host: str, port: int) -> str:
-    # Inside `_route`, *.localhost resolves to loopback and REQUESTS_CA_BUNDLE
-    # holds the local CA, so this verifies exactly what a client would.
-    context = ssl.create_default_context(cafile=os.environ.get("REQUESTS_CA_BUNDLE"))
+def _served_serial(host: str, port: int, verify: bool | str) -> str:
+    # Inside `_route`, *.localhost resolves to loopback and the route's `verify`
+    # is the local CA, so this verifies exactly what a client would.
+    context = ssl.create_default_context(cafile=verify if isinstance(verify, str) else None)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     with (
         socket.create_connection((host, port), timeout=5) as raw,
         context.wrap_socket(raw, server_hostname=host) as tls,

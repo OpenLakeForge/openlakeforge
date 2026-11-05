@@ -19,9 +19,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import requests
-
 from olf.common import log
+from olf.infra import access
 from olf.infra.e2e._identity_github import REQUEST_TIMEOUT, StubAuthorize, stub_host
 from olf.infra.e2e._shell import E2EConfig, E2EError
 from olf.platform import login as login_flow
@@ -41,21 +40,21 @@ def cli_instance(identity: Mapping[str, Any]) -> sessions.Instance:
 
 
 def check_cli_session(
-    cfg: E2EConfig, identity: Mapping[str, Any], role: str, login: str, whoami_url: str | None
+    route: access.Route, cfg: E2EConfig, identity: Mapping[str, Any], role: str, login: str, whoami_url: str | None
 ) -> None:
     """Sign in as `login` with the CLI's own flow, show who is signed in, sign out, and show nobody is."""
     log.step(f"Checking olf login, whoami and logout as {role}...")
     instance = cli_instance(identity)
     with tempfile.TemporaryDirectory(prefix="olf-e2e-home-") as tmp:
         home = Path(tmp)
-        session = _sign_in(cfg, instance, login, home)
+        session = _sign_in(route, cfg, instance, login, home)
         who = sessions.claims(sessions.active_session(instance, home).id_token)
         if who.get("email") != sessions.claims(session.id_token).get("email") or not who.get("groups"):
             raise E2EError(f"olf whoami after olf login as {login} shows {who.get('email')} in {who.get('groups')}")
         if whoami_url:
             # The stored session is the one every platform command sends.
             token = sessions.bearer_token(instance, home)
-            reply = requests.get(
+            reply = route.session().get(
                 whoami_url,
                 headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
                 timeout=REQUEST_TIMEOUT,
@@ -73,7 +72,9 @@ def check_cli_session(
             raise E2EError("olf whoami after olf logout still shows a session")
 
 
-def _sign_in(cfg: E2EConfig, instance: sessions.Instance, login: str, home: Path) -> sessions.Session:
+def _sign_in(
+    route: access.Route, cfg: E2EConfig, instance: sessions.Instance, login: str, home: Path
+) -> sessions.Session:
     announced: queue.Queue[str] = queue.Queue()
     outcome: dict[str, Any] = {}
 
@@ -90,7 +91,7 @@ def _sign_in(cfg: E2EConfig, instance: sessions.Instance, login: str, home: Path
     except queue.Empty as exc:
         raise E2EError(f"olf login printed no sign-in URL: {outcome.get('error')}") from exc
     url = message.splitlines()[-1].strip()
-    browser = requests.Session()
+    browser = route.session()
     browser.mount(f"https://{stub_host(cfg)}", StubAuthorize(login))
     # The redirect ends at the CLI's loopback listener, which answers it and hands the code to the flow.
     landed = browser.get(url, timeout=REQUEST_TIMEOUT)

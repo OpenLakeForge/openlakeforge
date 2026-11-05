@@ -29,7 +29,7 @@ def _drill(monkeypatch: pytest.MonkeyPatch, served: list[str | Exception], condi
     commands: list[list[str]] = []
     serials = iter(served)
 
-    def _served_serial(_host: str, _port: int) -> str:
+    def _served_serial(_host: str, _port: int, _verify: bool | str) -> str:
         serial = next(serials)
         if isinstance(serial, Exception):
             raise serial

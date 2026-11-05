@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
 from olf.common import log
-from olf.infra import trino
+from olf.infra import access, trino
 from olf.infra.e2e._perimeter_bearer import CLI_CLIENT, issue_id_token
 from olf.infra.e2e._shell import E2EConfig, E2EError
 from olf.infra.e2e._trino import PROBE_SCHEMA, list_tables, stage_catalog_name
@@ -115,6 +115,7 @@ def layer_tables(cfg: E2EConfig) -> dict[str, str]:
 
 
 def check_person_access(
+    route: access.Route,
     cfg: E2EConfig,
     identity: Mapping[str, Any],
     stages: list[str],
@@ -137,7 +138,7 @@ def check_person_access(
 
     def bearer(role: str) -> str:
         if role not in tokens or time.monotonic() - tokens[role][0] > TOKEN_REUSE_SECONDS:
-            token = issue_id_token(cfg, identity, roles[role], client["client_id"], loopback, scope=SCOPE)
+            token = issue_id_token(route, cfg, identity, roles[role], client["client_id"], loopback, scope=SCOPE)
             tokens[role] = (time.monotonic(), token)
         return tokens[role][1]
 

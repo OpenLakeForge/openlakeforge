@@ -154,13 +154,13 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
         access_contract = contracts["shared"]["access"]
         routes = {ref: route["url"] for ref, route in access_contract["routes"].items()}
         protected = access_contract["perimeter"]["protected_routes"]
-        check_unauthenticated_requests(identity, protected, routes, login=f"{identity['issuer_url']}/auth")
+        check_unauthenticated_requests(route, identity, protected, routes, login=f"{identity['issuer_url']}/auth")
 
     def person_path_closed() -> None:
         # No person can sign in, so no query reaches Trino as a person; `olf infra query`'s path still answers.
         query_route = contracts["shared"]["access"]["routes"].get("shared/query")
         if "query_api" in identity["roles"]["grants"] and query_route:
-            reply = requests.post(
+            reply = route.session().post(
                 f"{query_route['url'].rstrip('/')}/v1/statement",
                 data=b"SELECT 1",
                 headers={"Accept": "application/json"},
@@ -173,7 +173,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             raise E2EError("The workload path did not answer SELECT 1 with Dex down.")
 
     def walk() -> requests.Response:
-        landing = sign_in_with_stub(portal, login, stub_host(cfg))[1]
+        landing = sign_in_with_stub(route, portal, login, stub_host(cfg))[1]
         log.info(f"Drill sign-in ended at HTTP {landing.status_code} {landing.url}")
         return landing
 
@@ -217,9 +217,9 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
         def records() -> list[dict[str, str]]:
             return break_glass.recent(cluster.kubectl, namespace, limit=20, context=cfg.kube_context) or []
 
-        # Trusts the local CA and pins the ingress hostnames for the sign-in; its URL is unused.
+        # The route carries the local CA and the proxy exemption for the sign-in and the checks.
         with (
-            access.service_url(
+            access.service_route(
                 "shared/portal",
                 service="portal",
                 remote_port=80,
@@ -229,7 +229,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                 kube_context=cfg.kube_context,
                 environ=cfg_environ(cfg),
                 through_ingress=True,
-            ),
+            ) as route,
             github_stub(cfg, {login: team}),
         ):
             try:

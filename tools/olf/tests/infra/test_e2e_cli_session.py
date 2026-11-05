@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from _fake_route import FakeRoute
 
 from olf.infra.e2e import _cli_session as cli
 from olf.infra.e2e._shell import E2EError
@@ -52,19 +53,22 @@ class SignIn:
         sessions.save(instance, session, home)
         return session
 
-    def browser(self) -> Any:
-        sign_in = self
+    def route(self) -> FakeRoute:
+        """One session stand-in for both the browser sign-in and the API call, told apart by the URL."""
 
-        class Browser:
-            def mount(self, prefix: str, adapter: Any) -> None:
-                assert prefix == "https://olf-e2e-github.olf-system.svc"
+        def mount(prefix: str, adapter: Any) -> None:
+            assert prefix == "https://olf-e2e-github.olf-system.svc"
 
-            def get(self, url: str, **_: Any) -> Any:
-                sign_in.urls.append(url)
-                sign_in.reached.set()
-                return SimpleNamespace(url="http://127.0.0.1:5000/callback?code=c&state=s")
+        def get(url: str, **kwargs: Any) -> Any:
+            if url == WHOAMI:
+                return self.api(url, **kwargs)
+            self.urls.append(url)
+            self.reached.set()
+            return SimpleNamespace(url="http://127.0.0.1:5000/callback?code=c&state=s")
 
-        return Browser()
+        return FakeRoute(mount=mount, get=get)
+
+    api: Any = None
 
 
 @pytest.fixture
@@ -72,7 +76,6 @@ def sign_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SignIn:
     monkeypatch.setenv("OLF_HOME", str(tmp_path / "operator"))
     fake = SignIn()
     monkeypatch.setattr(cli.login_flow, "login", fake.login)
-    monkeypatch.setattr(cli.requests, "Session", fake.browser)
     monkeypatch.setattr(cli, "stub_host", lambda cfg: "olf-e2e-github.olf-system.svc")
     return fake
 
@@ -88,9 +91,9 @@ def _api(token: str, role: str, status: int = 200) -> Any:
 def test_login_whoami_and_logout_leave_no_session_and_never_touch_the_operators(
     sign_in: SignIn, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(cli.requests, "get", _api(sign_in.token, "data-engineer"))
+    sign_in.api = _api(sign_in.token, "data-engineer")
 
-    cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", WHOAMI)
+    cli.check_cli_session(sign_in.route(), CFG, IDENTITY, "data-engineer", "olf-e2e-de", WHOAMI)
 
     assert sign_in.urls == ["https://auth.olf.localhost/auth?client_id=olf-cli"]
     assert not (tmp_path / "operator").exists()
@@ -106,17 +109,17 @@ def test_the_instance_is_the_one_a_dex_profile_resolves() -> None:
 
 
 def test_a_stored_session_the_api_does_not_accept_fails(sign_in: SignIn, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli.requests, "get", _api(sign_in.token, "analyst"))
+    sign_in.api = _api(sign_in.token, "analyst")
 
     with pytest.raises(E2EError, match="with the stored session"):
-        cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", WHOAMI)
+        cli.check_cli_session(sign_in.route(), CFG, IDENTITY, "data-engineer", "olf-e2e-de", WHOAMI)
 
 
 def test_a_logout_that_leaves_the_session_fails(sign_in: SignIn, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli.sessions, "delete", lambda instance, home: True)
 
     with pytest.raises(E2EError, match="after olf logout still shows a session"):
-        cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", None)
+        cli.check_cli_session(sign_in.route(), CFG, IDENTITY, "data-engineer", "olf-e2e-de", None)
 
 
 def test_a_login_that_fails_is_reported(monkeypatch: pytest.MonkeyPatch, sign_in: SignIn) -> None:
@@ -128,4 +131,4 @@ def test_a_login_that_fails_is_reported(monkeypatch: pytest.MonkeyPatch, sign_in
     monkeypatch.setattr(cli.login_flow, "login", refused)
 
     with pytest.raises(E2EError, match="access_denied"):
-        cli.check_cli_session(CFG, IDENTITY, "data-engineer", "olf-e2e-de", None)
+        cli.check_cli_session(sign_in.route(), CFG, IDENTITY, "data-engineer", "olf-e2e-de", None)

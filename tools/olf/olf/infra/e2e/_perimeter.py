@@ -4,7 +4,7 @@ These drive the public hostnames on purpose: they test the perimeter itself,
 signing in through Dex's GitHub connector against a stub as per-role users
 (docs/architecture/identity/identity-callers.md).
 Every other e2e path reaches services by port-forward and never sees the
-perimeter (`olf.infra.access.service_url`).
+perimeter (`olf.infra.access.service_route`).
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def check_perimeter(cfg: E2EConfig) -> None:
         return
     routes = {ref: route["url"] for ref, route in access_contract["routes"].items()}
     # The context also trusts the local CA and pins the ingress hostnames the requests need.
-    with access.service_url(
+    with access.service_route(
         "shared/identity",
         service="dex",
         remote_port=5556,
@@ -71,12 +71,17 @@ def check_perimeter(cfg: E2EConfig) -> None:
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
         environ=cfg_environ(cfg),
-    ):
-        _check_dex_perimeter(cfg, identity, perimeter["protected_routes"], routes, list(contracts["stages"]))
+    ) as route:
+        _check_dex_perimeter(route, cfg, identity, perimeter["protected_routes"], routes, list(contracts["stages"]))
 
 
 def _check_dex_perimeter(
-    cfg: E2EConfig, identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str], stages: list[str]
+    route: access.Route,
+    cfg: E2EConfig,
+    identity: Mapping[str, Any],
+    protected: list[str],
+    routes: Mapping[str, str],
+    stages: list[str],
 ) -> None:
     """Sign in through Dex's GitHub connector against the stub and check every role's decisions."""
     if not dex_points_at_stub(cfg):
@@ -97,39 +102,41 @@ def _check_dex_perimeter(
     roles.append(None)
     logins = {role: f"olf-e2e-{role or 'no-team'}-{suffix}" for role in roles}
     teams = {logins[r]: mapping[r] if r else [f"{organization}:olf-e2e-unmapped"] for r in roles}
-    check_unauthenticated_requests(identity, protected, routes, login=f"{identity['issuer_url']}/auth")
+    check_unauthenticated_requests(route, identity, protected, routes, login=f"{identity['issuer_url']}/auth")
 
     def sign_in(url: str, login: str) -> tuple[requests.Session, requests.Response]:
-        return sign_in_with_stub(url, login, stub_host(cfg))
+        return sign_in_with_stub(route, url, login, stub_host(cfg))
 
     with github_stub(cfg, teams):
         for role, login in logins.items():
-            check_role_decisions(identity, protected, routes, role, login, sign_in)
-        check_bearer_tokens(cfg, identity, routes, logins, lambda ref, role: _grants(identity, ref, role))
+            check_role_decisions(route, identity, protected, routes, role, login, sign_in)
+        check_bearer_tokens(route, cfg, identity, routes, logins, lambda ref, role: _grants(identity, ref, role))
         api = routes.get(PLATFORM_API_HOST_REF)
         if CLI_CLIENT in identity.get("clients", {}):
             role = "data-engineer" if "data-engineer" in logins else next(r for r in logins if r is not None)
-            check_cli_session(cfg, identity, role, logins[role], f"{api.rstrip('/')}/api/v1/whoami" if api else None)
+            check_cli_session(
+                route, cfg, identity, role, logins[role], f"{api.rstrip('/')}/api/v1/whoami" if api else None
+            )
             if api:
                 browser, _ = sign_in(routes[PORTAL_REF], logins[role])
                 check_browser_session(identity, api, role, browser)
-        check_person_access(cfg, identity, stages, routes, logins)
+        check_person_access(route, cfg, identity, stages, routes, logins)
 
 
 def check_unauthenticated_requests(
-    identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str], login: str
+    route: access.Route, identity: Mapping[str, Any], protected: list[str], routes: Mapping[str, str], login: str
 ) -> None:
     """No session: a browser is sent to the issuer, an API caller gets 401, forged headers change nothing."""
     log.step("Checking unauthenticated requests are refused at every protected route...")
     for ref in protected:
         for label, headers in (("", {}), (" with forged identity headers", FORGED_HEADERS)):
-            reply = requests.get(routes[ref], headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+            reply = route.session().get(routes[ref], headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
             if reply.status_code != 302 or not reply.headers.get("Location", "").startswith(login):
                 raise E2EError(
                     f"{ref}: an unauthenticated browser request{label} got HTTP {reply.status_code} "
                     f"(Location {reply.headers.get('Location')}), expected a redirect to {login}"
                 )
-        api = requests.get(
+        api = route.session().get(
             routes[ref], headers={"Accept": "application/json"}, allow_redirects=False, timeout=REQUEST_TIMEOUT
         )
         if api.status_code != 401:
@@ -137,6 +144,7 @@ def check_unauthenticated_requests(
 
 
 def check_role_decisions(
+    route: access.Route,
     identity: Mapping[str, Any],
     protected: list[str],
     routes: Mapping[str, str],
@@ -165,7 +173,7 @@ def check_role_decisions(
             reply = browser.get(routes[ref], headers=headers, timeout=REQUEST_TIMEOUT)
             _require_denial(reply, f"{role} at {ref}{label}", routes[PORTAL_REF])
         # A request that skips the UI: the session cookie alone, an API path, no redirect to follow.
-        direct = requests.get(
+        direct = route.session().get(
             f"{routes[ref]}/api/v1/",
             cookies=cookies,
             headers={"Accept": "application/json", **FORGED_HEADERS},

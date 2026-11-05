@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 import requests
 
 from olf.common import log
-from olf.infra import k8s
+from olf.infra import access, k8s
 from olf.infra.e2e._identity_github import REQUEST_TIMEOUT, StubAuthorize, stub_host
 from olf.infra.e2e._shell import E2EConfig, E2EError
 from olf.platform.writes import zip_report
@@ -72,6 +72,7 @@ class _LoopbackRedirect(requests.adapters.BaseAdapter):
 
 
 def issue_id_token(
+    route: access.Route,
     cfg: E2EConfig,
     identity: Mapping[str, Any],
     login: str,
@@ -86,7 +87,7 @@ def issue_id_token(
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(8)
     redirect = urlsplit(redirect_uri)
-    browser = requests.Session()
+    browser = route.session()
     browser.mount(f"https://{stub_host(cfg)}", StubAuthorize(login))
     browser.mount(f"{redirect.scheme}://{redirect.netloc}", _LoopbackRedirect())
     landed = browser.get(
@@ -116,7 +117,7 @@ def issue_id_token(
     }
     if client_secret:
         form["client_secret"] = client_secret
-    reply = requests.post(f"{issuer}/token", data=form, timeout=REQUEST_TIMEOUT)
+    reply = route.session().post(f"{issuer}/token", data=form, timeout=REQUEST_TIMEOUT)
     if reply.status_code != 200 or "id_token" not in reply.json():
         raise E2EError(f"{login}: the {client_id} token exchange got HTTP {reply.status_code}")
     return str(reply.json()["id_token"])
@@ -130,6 +131,7 @@ def tamper_signature(token: str) -> str:
 
 
 def check_bearer_decisions(
+    route: access.Route,
     url: str,
     roles: list[str],
     admits: Callable[[str], bool],
@@ -143,7 +145,7 @@ def check_bearer_decisions(
         headers = {"Accept": "application/json"}
         if token is not None:
             headers["Authorization"] = f"Bearer {token}"
-        return requests.get(url, headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT).status_code
+        return route.session().get(url, headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT).status_code
 
     def require(who: str, got: int, ok: bool) -> None:
         if not ok:
@@ -171,6 +173,7 @@ def check_bearer_decisions(
 
 
 def check_bearer_tokens(
+    route: access.Route,
     cfg: E2EConfig,
     identity: Mapping[str, Any],
     routes: Mapping[str, str],
@@ -193,15 +196,18 @@ def check_bearer_tokens(
     # One sign-in per role serves every check below; each is a full code flow at the stub.
     def cli_token(role: str) -> str:
         if role not in issued:
-            issued[role] = issue_id_token(cfg, identity, logins[role], client_id, loopback)
+            issued[role] = issue_id_token(route, cfg, identity, logins[role], client_id, loopback)
         return issued[role]
 
-    other_token = _other_client_token(cfg, identity, routes, logins)
+    other_token = _other_client_token(route, cfg, identity, routes, logins)
     if other_token is None:
         log.info("Skipping the other-client token case: no superset client secret or reporting route to use.")
-    check_bearer_decisions(f"{routes[ref]}{API_PATH}", roles, lambda role: admits(ref, role), cli_token, other_token)
+    check_bearer_decisions(
+        route, f"{routes[ref]}{API_PATH}", roles, lambda role: admits(ref, role), cli_token, other_token
+    )
     if PLATFORM_API_HOST_REF in routes:
         check_platform_api(
+            route,
             routes[PLATFORM_API_HOST_REF].rstrip("/"),
             roles,
             cli_token,
@@ -214,6 +220,7 @@ def check_bearer_tokens(
                 cfg.repo_root / min(cfg.inventory.dashboards, key=lambda d: d.report_source_dir).report_source_dir
             )
             check_report_import(
+                route,
                 routes[PLATFORM_API_HOST_REF].rstrip("/"),
                 roles,
                 cli_token,
@@ -225,6 +232,7 @@ def check_bearer_tokens(
 
 
 def check_platform_api(
+    route: access.Route,
     base_url: str,
     roles: list[str],
     cli_token: Callable[[str], str],
@@ -240,7 +248,7 @@ def check_platform_api(
 
     def get(path: str, role: str) -> requests.Response:
         headers = {"Accept": "application/json", "Authorization": f"Bearer {cli_token(role)}"}
-        return requests.get(f"{base_url}{path}", headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+        return route.session().get(f"{base_url}{path}", headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
 
     health = get("/api/healthz", roles[0])
     if health.status_code != 200:
@@ -249,18 +257,19 @@ def check_platform_api(
         reply = get("/api/v1/whoami", role)
         if reply.status_code != 200 or reply.json().get("role") != role:
             raise E2EError(f"{base_url}/api/v1/whoami for {role}: got HTTP {reply.status_code} {reply.text[:200]}")
-    check_bearer_decisions(f"{base_url}/api/v1/whoami", roles, lambda role: True, cli_token, other_token)
+    check_bearer_decisions(route, f"{base_url}/api/v1/whoami", roles, lambda role: True, cli_token, other_token)
     # A 2xx needs the API's read-only key to list the stage's log prefix: a key the
     # object store refuses is a 502, so this also proves the SeaweedFS grant. Today's
     # partition may still be empty, which is still a 200.
     logs = f"{base_url}/api/v1/stages/{stage}/logs?date={datetime.now(UTC).date().isoformat()}&limit=1"
     floor = precedence.index(LOGS_FLOOR)
-    check_bearer_decisions(logs, roles, lambda role: precedence.index(role) <= floor, cli_token, other_token)
-    check_platform_reads(base_url, roles, cli_token, other_token, stage=stage, precedence=precedence)
-    check_launch_audit(base_url, roles, cli_token, stage=stage, precedence=precedence)
+    check_bearer_decisions(route, logs, roles, lambda role: precedence.index(role) <= floor, cli_token, other_token)
+    check_platform_reads(route, base_url, roles, cli_token, other_token, stage=stage, precedence=precedence)
+    check_launch_audit(route, base_url, roles, cli_token, stage=stage, precedence=precedence)
 
 
 def check_platform_reads(
+    route: access.Route,
     base_url: str,
     roles: list[str],
     cli_token: Callable[[str], str],
@@ -284,9 +293,9 @@ def check_platform_reads(
 
     runs = f"{base_url}/api/v1/stages/{stage}/runs?limit=1"
     for url in (f"{base_url}/api/v1/stages/{stage}/jobs", runs):
-        check_bearer_decisions(url, roles, reads_dagster, cli_token, other_token)
+        check_bearer_decisions(route, url, roles, reads_dagster, cli_token, other_token)
     reader = next(role for role in roles if reads_dagster(role))
-    reply = requests.get(
+    reply = route.session().get(
         runs,
         headers={"Accept": "application/json", "Authorization": f"Bearer {cli_token(reader)}"},
         allow_redirects=False,
@@ -298,13 +307,19 @@ def check_platform_reads(
             f"{runs} for {reader} listed no run after the suite ran the stage's pipelines: {reply.text[:200]}"
         )
     run = f"{base_url}/api/v1/stages/{stage}/runs/{listed[0]['run_id']}"
-    check_bearer_decisions(run, roles, reads_dagster, cli_token, other_token)
+    check_bearer_decisions(route, run, roles, reads_dagster, cli_token, other_token)
     for path in ("/api/v1/domains", "/api/v1/data-products"):
-        check_bearer_decisions(f"{base_url}{path}", roles, reads_openmetadata, cli_token, other_token)
+        check_bearer_decisions(route, f"{base_url}{path}", roles, reads_openmetadata, cli_token, other_token)
 
 
 def check_launch_audit(
-    base_url: str, roles: list[str], cli_token: Callable[[str], str], *, stage: str, precedence: Sequence[str]
+    route: access.Route,
+    base_url: str,
+    roles: list[str],
+    cli_token: Callable[[str], str],
+    *,
+    stage: str,
+    precedence: Sequence[str],
 ) -> None:
     """The first state-changing route, without changing anything: a launch of a job no stage has.
 
@@ -316,7 +331,7 @@ def check_launch_audit(
     floor = precedence.index(LAUNCH_FLOOR)
     for role in roles:
         headers = {"Accept": "application/json", "Authorization": f"Bearer {cli_token(role)}"}
-        reply = requests.post(
+        reply = route.session().post(
             url, headers=headers, json={"job": ABSENT_JOB}, allow_redirects=False, timeout=REQUEST_TIMEOUT
         )
         permitted = stage in LAUNCH_STAGES and precedence.index(role) <= floor
@@ -329,6 +344,7 @@ def check_launch_audit(
 
 
 def check_report_import(
+    route: access.Route,
     base_url: str,
     roles: list[str],
     cli_token: Callable[[str], str],
@@ -354,7 +370,7 @@ def check_report_import(
             "Authorization": f"Bearer {cli_token(role)}",
             "Content-Type": "application/zip",
         }
-        reply = requests.post(url, headers=headers, data=archive, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+        reply = route.session().post(url, headers=headers, data=archive, allow_redirects=False, timeout=REQUEST_TIMEOUT)
         permitted = stage in IMPORT_STAGES and precedence.index(role) <= floor
         expected = 200 if permitted else 403
         if reply.status_code != expected:
@@ -365,7 +381,11 @@ def check_report_import(
 
 
 def _other_client_token(
-    cfg: E2EConfig, identity: Mapping[str, Any], routes: Mapping[str, str], logins: Mapping[str | None, str]
+    route: access.Route,
+    cfg: E2EConfig,
+    identity: Mapping[str, Any],
+    routes: Mapping[str, str],
+    logins: Mapping[str | None, str],
 ) -> Callable[[str], str] | None:
     """A token issued to superset, a confidential client whose secret is read from its Secret."""
     superset = identity.get("clients", {}).get("superset")
@@ -381,4 +401,4 @@ def _other_client_token(
         return None
     # Dex matches the registered redirect exactly: Superset's own callback (modules/identity/dex).
     redirect = f"{reporting[0].rstrip('/')}/oauth-authorized/olf"
-    return lambda role: issue_id_token(cfg, identity, logins[role], superset["client_id"], redirect, secret)
+    return lambda role: issue_id_token(route, cfg, identity, logins[role], superset["client_id"], redirect, secret)
