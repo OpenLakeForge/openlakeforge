@@ -92,6 +92,9 @@ def run(
     cfg = dataclasses.replace(cfg, deployment=deployment, checks=checks)
     check_commands(cfg)
     kubeconfig = configure_kubeconfig(cfg)
+    if cfg.environ is not None:
+        # kubectl does not expand "~": checks run with cfg.environ, so it carries the resolved path.
+        cfg = dataclasses.replace(cfg, environ={**cfg.environ, "KUBECONFIG": str(kubeconfig)})
     # The checks below shell out to kubectl/helm and read KUBECONFIG from the process environment.
     with _kubeconfig_environment(kubeconfig):
         prepare_kube_context(cfg, kubeconfig)

@@ -559,6 +559,36 @@ def test_run_scopes_kubeconfig_to_the_run_and_restores_it(monkeypatch: pytest.Mo
     assert os.environ["KUBECONFIG"] == "/operator/kubeconfig"
 
 
+def test_run_hands_the_expanded_kubeconfig_to_kubectl_under_an_explicit_environ(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "kubectl").write_text('#!/bin/sh\necho "$KUBECONFIG"\n')
+    (bindir / "kubectl").chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    environ = {
+        **os.environ,
+        "OLF_TOOLCHAIN_MODE": "host",
+        "KUBECONFIG": "~/kc.yaml",
+    }
+    seen: list[str] = []
+    monkeypatch.setattr(_runner, "check_commands", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg, _kubeconfig: None)
+    monkeypatch.setattr(
+        _runner, "check_pods_ready", lambda cfg: seen.append(_shell.kubectl(cfg, ["version"], capture=True).strip())
+    )
+    monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: None)
+    monkeypatch.setattr(_runner, "run_full", lambda _cfg: None)
+
+    _runner.run("aws", suite="smoke", repo_root=E2E_REPO_ROOT, environ=environ)
+
+    # kubectl does not expand "~": the child must get the resolved path, not the raw value.
+    assert seen == [str(tmp_path / "kc.yaml")]
+
+
 def test_configure_kubeconfig_returns_the_path_without_exporting_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
