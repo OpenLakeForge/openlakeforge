@@ -161,6 +161,17 @@ def deploy_openmetadata_metadata(
     typer.echo("Deployed OpenMetadata governance metadata.")
 
 
+def _stage_values(flag: str, values: list[str] | None, stages: tuple[str, ...]) -> dict[str, str]:
+    """Parse repeated STAGE=VALUE options, each stage at most once and one of `stages`."""
+    parsed: dict[str, str] = {}
+    for item in values or ():
+        stage, _, value = item.partition("=")
+        if stage not in stages or stage in parsed or not value:
+            raise typer.Exit(code=fail(f"{flag} {item!r}: expected STAGE=VALUE, STAGE once and one of {stages}."))
+        parsed[stage] = value
+    return parsed
+
+
 @app.command("bootstrap")
 def openmetadata_bootstrap(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
@@ -187,10 +198,26 @@ def openmetadata_bootstrap(
     schema: Annotated[
         list[str] | None, typer.Option("--schema", help="A schema every stage database holds; repeatable.")
     ] = None,
+    dagster_url: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--dagster-url",
+            help="STAGE=URL of a governed stage's Dagster webserver; repeatable. Also removes other stages' services.",
+        ),
+    ] = None,
+    superset_url: Annotated[
+        list[str] | None, typer.Option("--superset-url", help="STAGE=URL of a stage's Superset; repeatable.")
+    ] = None,
+    superset_namespace: Annotated[
+        list[str] | None,
+        typer.Option("--superset-namespace", help="STAGE=NAMESPACE holding that Superset's admin Secret; repeatable."),
+    ] = None,
 ) -> None:
     """Create the admin password, bots and, with --catalog-service, the catalog entities. Idempotent.
 
-    Also removes the unqualified `dagster` and `superset` services registered before #131.
+    With --dagster-url, registers each governed stage's Dagster and Superset services with paused
+    ingestion pipelines. Also removes the unqualified `dagster` and `superset` services registered
+    before #131.
     """
     from olf.infra import k8s
     from olf.infra import openmetadata as om
@@ -199,6 +226,7 @@ def openmetadata_bootstrap(
     from olf.infra.openmetadata._bootstrap import bootstrap_auth
     from olf.infra.openmetadata._catalog_seed import CatalogSeed, bootstrap_catalog
     from olf.infra.openmetadata._signup_baseline import restrict_signup_defaults
+    from olf.infra.openmetadata._stage_services import STAGES, StageServices, bootstrap_stage_services
     from olf.infra.openmetadata._stale_services import remove_legacy_services
 
     seed = (
@@ -216,11 +244,23 @@ def openmetadata_bootstrap(
     )
     if seed and not (trino_namespace and pipeline_service):
         raise typer.Exit(code=fail("--catalog-service needs --trino-namespace and --pipeline-service."))
+    dagster_urls = _stage_values("--dagster-url", dagster_url, STAGES)
+    superset_urls = _stage_values("--superset-url", superset_url, tuple(dagster_urls))
+    superset_namespaces = _stage_values("--superset-namespace", superset_namespace, tuple(superset_urls))
+    if superset_namespaces.keys() != superset_urls.keys():
+        raise typer.Exit(code=fail("Every --superset-url needs a --superset-namespace for the same stage."))
+    stages = [
+        StageServices(stage, url, superset_urls.get(stage, ""), superset_namespaces.get(stage, ""))
+        for stage, url in dagster_urls.items()
+    ]
 
     def run(route: Route, namespace: str) -> None:
         client = bootstrap_auth(route, namespace, email=email, sso=sso, environ=contract)
         if seed:
             bootstrap_catalog(client, seed)
+        # Gated on the flag: without it, every stage's services would be removed as ungoverned.
+        if stages:
+            bootstrap_stage_services(client, stages, environ=contract)
         remove_legacy_services(client)
         if sso:
             restrict_signup_defaults(client)
