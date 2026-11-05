@@ -1,8 +1,9 @@
 """How olf's own clients reach a routed service (ADR 0013, #267).
 
-Every client goes through `service_url`: the contract's ingress route when
-there is one, a `kubectl port-forward` when there is not (AWS and Azure
-contracts carry no routes) or when `OLF_PORT_FORWARD` asks for it.
+Every client goes through `service_route` (or `service_url`, which yields only
+its URL): the contract's ingress route when there is one, a `kubectl
+port-forward` when there is not (AWS and Azure contracts carry no routes) or
+when `OLF_PORT_FORWARD` asks for it.
 
 A route behind the perimeter (ADR 0014) answers a request with no session by
 redirecting to login, so automation never takes it: it port-forwards to the
@@ -18,12 +19,14 @@ import os
 import socket
 import tempfile
 from collections.abc import Iterator, Mapping
-from functools import cache
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import requests
 import requests.utils
+from openlakeforge_services.base import JsonHttpClient
 
 from olf.common import config
 from olf.infra import k8s
@@ -58,6 +61,33 @@ def contract_access(contracts: Mapping[str, Any] | None, *, stage: str | None = 
     return {"issuer": access["issuer"], "routes": routes, **({"protected": protected} if protected else {})}
 
 
+@dataclass(frozen=True)
+class Route:
+    """How a client reaches a service: its base URL, and the proxy exemption and CA that URL needs."""
+
+    url: str
+    # requests reads `no_proxy` from the call, not from `Session.proxies`, so `session()` injects it per request.
+    proxies: Mapping[str, str] = field(default_factory=dict)
+    verify: bool | str = True
+
+    def session(self) -> requests.Session:
+        return _RouteSession(self)
+
+    def client[C: JsonHttpClient](self, cls: type[C], **kwargs: Any) -> C:
+        return cls(self.url, session=self.session(), **kwargs)
+
+
+class _RouteSession(requests.Session):
+    def __init__(self, route: Route) -> None:
+        super().__init__()
+        self._route = route
+
+    def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:  # type: ignore[override]  # narrows requests' keyword list to what olf sends
+        kwargs["proxies"] = {**self._route.proxies, **(kwargs.get("proxies") or {})}
+        kwargs.setdefault("verify", self._route.verify)
+        return super().request(method, url, **kwargs)
+
+
 def _resolve_localhost(host: Any) -> Any:
     # RFC 6761: *.localhost is loopback. Browsers honour that; glibc and macOS
     # often answer NXDOMAIN, and Traefik's host ports bind 127.0.0.1 only.
@@ -73,13 +103,85 @@ def _pinned_getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:
     return _system_getaddrinfo(_resolve_localhost(host), *args, **kwargs)
 
 
-@cache
-def _ca_bundle(shared_namespace: str, kube_context: str | None) -> str:
+# Keyed by the cluster the lookup reaches - namespace, context and kubeconfig - so
+# routes resolved for different deployments never share a trust bundle.
+_CA_BUNDLES: dict[tuple[str, str | None, str | None], str] = {}
+
+
+def _ca_bundle(shared_namespace: str, kube_context: str | None, environ: Mapping[str, str] | None = None) -> str:
     """The public CA bundle plus the cluster's local CA, so one bundle verifies both."""
-    pem = k8s.secret_value(LOCAL_CA_SECRET, LOCAL_CA_KEY, shared_namespace, kube_context=kube_context)
-    bundle = Path(tempfile.mkdtemp(prefix="olf-ca-")) / "ca-bundle.pem"
-    bundle.write_text(Path(requests.utils.DEFAULT_CA_BUNDLE_PATH).read_text() + "\n" + pem)
-    return str(bundle)
+    env = os.environ if environ is None else environ
+    key = (shared_namespace, kube_context or env.get("KUBE_CONTEXT"), env.get("KUBECONFIG"))
+    if key not in _CA_BUNDLES:
+        pem = k8s.secret_value(
+            LOCAL_CA_SECRET, LOCAL_CA_KEY, shared_namespace, kube_context=kube_context, environ=environ
+        )
+        bundle = Path(tempfile.mkdtemp(prefix="olf-ca-")) / "ca-bundle.pem"
+        bundle.write_text(Path(requests.utils.DEFAULT_CA_BUNDLE_PATH).read_text() + "\n" + pem)
+        _CA_BUNDLES[key] = str(bundle)
+    return _CA_BUNDLES[key]
+
+
+@contextlib.contextmanager
+def service_route(
+    ref: str,
+    *,
+    service: str,
+    remote_port: int,
+    namespace: str,
+    log_path: str,
+    shared_namespace: str,
+    local_port: int | None = None,
+    kube_context: str | None = None,
+    through_ingress: bool = False,
+    environ: Mapping[str, str] | None = None,
+) -> Iterator[Route]:
+    """Yield the `Route` to the service bound at contract `ref` for the block.
+
+    Over the ingress, `*.localhost` resolves to loopback and the route's
+    `verify` is the local CA - no /etc/hosts edit, no verify=False. Clients
+    take the proxy exemption and CA from the route (`Route.session()` or
+    `Route.client`); until the ambient writes below go, a bare `requests`
+    call still gets them from the environment. The CA is read from `shared_namespace`, where
+    cert-manager keeps the ClusterIssuer's Secret; callers pass it explicitly
+    because `config.shared_namespace()` falls back to the stage namespace.
+    """
+    env = os.environ if environ is None else environ
+    access = json.loads(env.get(ACCESS_ENV) or "{}")
+    bypass = config.truthy(env.get(PORT_FORWARD_ENV, "")) or (
+        ref in access.get("protected", []) and not through_ingress
+    )
+    url = None if bypass else access.get("routes", {}).get(ref)
+    if url is None:
+        with k8s.port_forward(
+            service,
+            remote_port,
+            namespace,
+            local_port=local_port,
+            log_path=log_path,
+            kube_context=kube_context,
+            environ=environ,
+        ) as port:
+            yield Route(f"http://127.0.0.1:{port}")
+        return
+    socket.getaddrinfo = _pinned_getaddrinfo
+    # requests picks a proxy from the hostname before resolving it, so an
+    # HTTPS_PROXY would carry the request away from the pinned loopback.
+    host = urlsplit(url).hostname or ""
+    overrides = {name: ",".join(filter(None, [host, env.get(name)])) for name in ("NO_PROXY", "no_proxy")}
+    verify: bool | str = True
+    if access.get("issuer") == LOCAL_CA_ISSUER:
+        verify = overrides["REQUESTS_CA_BUNDLE"] = _ca_bundle(shared_namespace, kube_context, environ)
+    previous = {name: os.environ.get(name) for name in overrides}
+    os.environ.update(overrides)
+    try:
+        yield Route(url, {"no_proxy": overrides["NO_PROXY"]}, verify)
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 @contextlib.contextmanager
@@ -94,41 +196,19 @@ def service_url(
     local_port: int | None = None,
     kube_context: str | None = None,
     through_ingress: bool = False,
+    environ: Mapping[str, str] | None = None,
 ) -> Iterator[str]:
-    """Yield the base URL of the service bound at contract `ref` for the block.
-
-    Over the ingress, `*.localhost` resolves to loopback and `requests`
-    verifies against the local CA for the block (REQUESTS_CA_BUNDLE, which a
-    bare `requests.post` honours as well as a session) - no /etc/hosts edit,
-    no verify=False. The CA is read from `shared_namespace`, where
-    cert-manager keeps the ClusterIssuer's Secret; callers pass it explicitly
-    because `config.shared_namespace()` falls back to the stage namespace.
-    """
-    access = json.loads(os.environ.get(ACCESS_ENV) or "{}")
-    bypass = config.truthy(os.environ.get(PORT_FORWARD_ENV, "")) or (
-        ref in access.get("protected", []) and not through_ingress
-    )
-    url = None if bypass else access.get("routes", {}).get(ref)
-    if url is None:
-        with k8s.port_forward(
-            service, remote_port, namespace, local_port=local_port, log_path=log_path, kube_context=kube_context
-        ) as port:
-            yield f"http://127.0.0.1:{port}"
-        return
-    socket.getaddrinfo = _pinned_getaddrinfo
-    # requests picks a proxy from the hostname before resolving it, so an
-    # HTTPS_PROXY would carry the request away from the pinned loopback.
-    host = urlsplit(url).hostname or ""
-    overrides = {name: ",".join(filter(None, [host, os.environ.get(name)])) for name in ("NO_PROXY", "no_proxy")}
-    if access.get("issuer") == LOCAL_CA_ISSUER:
-        overrides["REQUESTS_CA_BUNDLE"] = _ca_bundle(shared_namespace, kube_context)
-    previous = {name: os.environ.get(name) for name in overrides}
-    os.environ.update(overrides)
-    try:
-        yield url
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+    """Yield the base URL of the service bound at contract `ref` for the block; see `service_route`."""
+    with service_route(
+        ref,
+        service=service,
+        remote_port=remote_port,
+        namespace=namespace,
+        log_path=log_path,
+        shared_namespace=shared_namespace,
+        local_port=local_port,
+        kube_context=kube_context,
+        through_ingress=through_ingress,
+        environ=environ,
+    ) as route:
+        yield route.url

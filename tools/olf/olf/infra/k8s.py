@@ -18,11 +18,15 @@ import socket
 import tempfile
 import time
 from collections.abc import Iterator, Mapping
+from typing import TYPE_CHECKING
 
 from olf.common.deployment.errors import CommandExecutionError
 from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired
 from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.toolkit import Toolkit
+
+if TYPE_CHECKING:
+    import requests
 
 _JWT = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
 
@@ -225,17 +229,18 @@ def wait_for_rollout(
     _kubectl(["rollout", "status", kind_name, "-n", namespace, f"--timeout={timeout}"], environ=environ)
 
 
-def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0) -> bool:
+def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0, session: requests.Session | None = None) -> bool:
     """Poll an HTTP endpoint until it answers at all (any status means reachable).
 
-    Through `requests`, so an ingress URL is verified against the bundle
-    `olf.infra.access.service_url` selects.
+    Through `requests`, so an ingress URL is verified against the bundle the
+    `session` of its `olf.infra.access.Route` selects.
     """
     import requests
 
+    client = session or requests
     for _ in range(attempts):
         try:
-            requests.get(url, timeout=2)
+            client.get(url, timeout=2)
             return True
         except requests.RequestException:
             time.sleep(delay)
