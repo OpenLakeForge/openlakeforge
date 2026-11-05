@@ -69,7 +69,6 @@ def test_hourly_refresh_runs_the_same_pod_as_the_job(environ):
 def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
     module = Path(__file__).parents[4] / "infra/terraform/modules/governance/openmetadata"
     assert not (module / "refresh.tf").exists()
-    assert "$catalog_service-metadata-ingestion" not in (module / "templates/bootstrap.sh.tftpl").read_text()
 
 
 def test_a_password_contract_gives_the_crawl_the_openmetadata_principals_password_by_reference():
@@ -88,14 +87,3 @@ def test_without_a_password_contract_the_crawl_carries_no_credential():
 
     assert "authType" not in workflow["source"]["serviceConnection"]["config"]
     assert "TRINO_PASSWORD" not in env
-
-
-@pytest.mark.parametrize("root", ["local", "aws-poc", "azure-poc"])
-def test_every_root_maps_the_lineage_of_trinos_https_listener(root):
-    # dbt names its lineage datasets by the Trino port it connects to, which is the TLS port once workload
-    # authentication is on; OpenMetadata drops a dataset whose namespace it cannot map to the catalog service.
-    terraform = Path(__file__).parents[4] / "infra/terraform"
-    main = (terraform / "environments" / root / "main.tf").read_text()
-    assert "trino_tls_lineage_namespace = module.trino.tls_port == null ? null :" in main
-    template = (terraform / "modules/governance/openmetadata/templates/bootstrap.sh.tftpl").read_text()
-    assert "{($trino_tls):$service}" in template

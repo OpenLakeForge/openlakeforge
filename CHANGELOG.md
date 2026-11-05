@@ -35,8 +35,10 @@ for how a release is cut and verified.
   `terraform apply` finishes, through a port-forward from the operator's machine, with its inputs read
   from the applied provider contract (#562). It then copies the `openmetadata-ingestion-bot` Secret
   into each governed stage's namespace and deletes it from stages no longer governed. The Terraform
-  bootstrap and credential-replication Jobs still run until a follow-up removes them; both write the
-  same Secrets.
+  `openmetadata-bootstrap-*` and `openmetadata-credential-replication-*` Jobs, their shell templates and
+  the `openmetadata-bootstrap` Roles in the stage namespaces are removed; the shared-namespace Role keeps
+  only the `create` the fernet-key Job needs. On a fresh install the Dagster pods of a governed stage
+  wait in `CreateContainerConfigError` until `olf` writes their ingestion-bot Secret after the apply.
 - `olf check dbt` and `olf infra dbt parse` no longer put the project root on `sys.path`; dbt discovery
   never imported `lakehouse_code` (#557).
 - The portal image is 0.4.1, the React Router app. `/` redirects to `/services`, and a new
