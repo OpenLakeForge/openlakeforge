@@ -75,7 +75,7 @@ For `superset`, with the managed kubectl and kubeconfig set as above:
    "$KUBECTL" -n olf-system delete secret dex-client-superset
    ```
 
-2. Re-run the platform phase with the bootstrap Job replaced, so it recreates
+2. Re-run the platform phase with the Dex credential Job replaced, so it recreates
    the missing Secret. Each stage keeps its own Superset copy, made by the
    one-shot `kubernetes_job_v1.oidc_secret` of that stage's `module.superset`:
    add a `-replace` of that Job for each stage.
@@ -95,7 +95,7 @@ For `superset`, with the managed kubectl and kubeconfig set as above:
 
 4. Sign in through the portal.
 
-If the bootstrap Job fails with `Secret <name> exists without key
+If the Dex credential Job fails with `Secret <name> exists without key
 client-secret`, something else created that Secret: fix or delete it and re-run
 step 2. An interrupted bootstrap is safe to re-run.
 

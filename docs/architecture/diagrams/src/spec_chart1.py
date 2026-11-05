@@ -100,8 +100,8 @@ c.icon(BOOTSTRAP[0], EY2, "job", "polaris bootstrap", variant="ephemeral",
 c.icon(BOOTSTRAP[1], EY2, "job", "seaweedfs buckets", variant="ephemeral",
        label2="x4 buckets · no TTL")
 c.icon(BOOTSTRAP[2], EY2, "job", "postgresql bootstrap", variant="ephemeral", label2="no TTL")
-c.icon(BOOTSTRAP[3], EY2, "job", "openmetadata bootstrap", variant="ephemeral",
-       label2="x2 Jobs · no TTL")
+c.icon(BOOTSTRAP[3], EY2, "job", "openmetadata fernet key", variant="ephemeral",
+       label2="no TTL")
 c.icon(BOOTSTRAP[4], EY2, "job", "superset init", variant="ephemeral",
        label2="Helm hook · gone on success")
 c.icon(BOOTSTRAP[5], EY2, "job", "cert-manager check", variant="ephemeral",

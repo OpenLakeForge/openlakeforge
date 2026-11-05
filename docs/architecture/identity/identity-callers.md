@@ -118,7 +118,7 @@ reach the internal Service and never meet forwardAuth. Only the ingress drills
 in `olf e2e` pass `through_ingress=True`.
 
 **Superset and OpenMetadata callers.** Once those accept issuer login,
-OpenMetadata's basic login answers 403, so `olf` and the bootstrap Job use the
+OpenMetadata's basic login answers 403, so `olf` and its bootstrap use the
 admin bot `olf-automation`. Superset's REST `db` login is read from source to
 survive; **to verify** on a running stack
 ([`identity-service-permissions.md`](identity-service-permissions.md)).
