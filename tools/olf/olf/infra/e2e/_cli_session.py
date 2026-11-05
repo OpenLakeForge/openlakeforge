@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 from olf.common import log
 from olf.infra import access
 from olf.infra.e2e._identity_github import REQUEST_TIMEOUT, StubAuthorize, stub_host
-from olf.infra.e2e._shell import E2EConfig, E2EError
+from olf.infra.e2e._shell import E2EConfig, E2EError, user_trust_environment
 from olf.platform import login as login_flow
 from olf.platform import session as sessions
 
@@ -80,7 +80,8 @@ def _sign_in(
 
     def run() -> None:
         try:
-            outcome["session"] = login_flow.login(instance, open_browser=False, announce=announced.put, home=home)
+            with user_trust_environment(route):
+                outcome["session"] = login_flow.login(instance, open_browser=False, announce=announced.put, home=home)
         except Exception as exc:  # noqa: BLE001 - reported in the caller's thread
             outcome["error"] = exc
 

@@ -1,9 +1,8 @@
 """How olf's own clients reach a routed service (ADR 0013, #267).
 
-Every client goes through `service_route` (or `service_url`, which yields only
-its URL): the contract's ingress route when there is one, a `kubectl
-port-forward` when there is not (AWS and Azure contracts carry no routes) or
-when `OLF_PORT_FORWARD` asks for it.
+Every client goes through `service_route`: the contract's ingress route when
+there is one, a `kubectl port-forward` when there is not (AWS and Azure
+contracts carry no routes) or when `OLF_PORT_FORWARD` asks for it.
 
 A route behind the perimeter (ADR 0014) answers a request with no session by
 redirecting to login, so automation never takes it: it port-forwards to the
@@ -144,10 +143,10 @@ def service_route(
     Over the ingress, `*.localhost` resolves to loopback and the route's
     `verify` is the local CA - no /etc/hosts edit, no verify=False. Clients
     take the proxy exemption and CA from the route (`Route.session()` or
-    `Route.client`); until the ambient writes below go, a bare `requests`
-    call still gets them from the environment. The CA is read from `shared_namespace`, where
-    cert-manager keeps the ClusterIssuer's Secret; callers pass it explicitly
-    because `config.shared_namespace()` falls back to the stage namespace.
+    `Route.client`); the process environment is never written. The CA is read
+    from `shared_namespace`, where cert-manager keeps the ClusterIssuer's
+    Secret; callers pass it explicitly because `config.shared_namespace()`
+    falls back to the stage namespace.
     """
     env = os.environ if environ is None else environ
     access = json.loads(env.get(ACCESS_ENV) or "{}")
@@ -167,51 +166,14 @@ def service_route(
         ) as port:
             yield Route(f"http://127.0.0.1:{port}")
         return
+    # A deliberate ambient pin, process-wide and never restored; outside the scope of #559.
     socket.getaddrinfo = _pinned_getaddrinfo
     # requests picks a proxy from the hostname before resolving it, so an
     # HTTPS_PROXY would carry the request away from the pinned loopback.
     host = urlsplit(url).hostname or ""
-    overrides = {name: ",".join(filter(None, [host, env.get(name)])) for name in ("NO_PROXY", "no_proxy")}
+    # Both spellings: requests honours `no_proxy` and `NO_PROXY`, and an operator may set either.
+    no_proxy = ",".join(filter(None, [host, env.get("no_proxy"), env.get("NO_PROXY")]))
     verify: bool | str = True
     if access.get("issuer") == LOCAL_CA_ISSUER:
-        verify = overrides["REQUESTS_CA_BUNDLE"] = _ca_bundle(shared_namespace, kube_context, environ)
-    previous = {name: os.environ.get(name) for name in overrides}
-    os.environ.update(overrides)
-    try:
-        yield Route(url, {"no_proxy": overrides["NO_PROXY"]}, verify)
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
-
-
-@contextlib.contextmanager
-def service_url(
-    ref: str,
-    *,
-    service: str,
-    remote_port: int,
-    namespace: str,
-    log_path: str,
-    shared_namespace: str,
-    local_port: int | None = None,
-    kube_context: str | None = None,
-    through_ingress: bool = False,
-    environ: Mapping[str, str] | None = None,
-) -> Iterator[str]:
-    """Yield the base URL of the service bound at contract `ref` for the block; see `service_route`."""
-    with service_route(
-        ref,
-        service=service,
-        remote_port=remote_port,
-        namespace=namespace,
-        log_path=log_path,
-        shared_namespace=shared_namespace,
-        local_port=local_port,
-        kube_context=kube_context,
-        through_ingress=through_ingress,
-        environ=environ,
-    ) as route:
-        yield route.url
+        verify = _ca_bundle(shared_namespace, kube_context, environ)
+    yield Route(url, {"no_proxy": no_proxy}, verify)

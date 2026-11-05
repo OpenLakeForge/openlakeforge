@@ -6,6 +6,7 @@ import contextlib
 import datetime
 import ipaddress
 import json
+import os
 import ssl
 import threading
 from collections.abc import Callable, Iterator
@@ -26,7 +27,7 @@ from openlakeforge_services.superset import SupersetClient
 
 from olf.infra import access, k8s
 from olf.infra.e2e import _dagster, _identity_github, _ingress, _perimeter, _perimeter_bearer
-from olf.infra.e2e._shell import E2EError
+from olf.infra.e2e._shell import E2EError, user_trust_environment
 
 
 @contextlib.contextmanager
@@ -219,3 +220,36 @@ def test_the_served_certificate_is_read_with_the_ca_the_route_carries(
         assert _ingress._served_serial("127.0.0.1", port, str(cert))
         with pytest.raises(ssl.SSLError):
             _ingress._served_serial("127.0.0.1", port, True)
+
+
+def test_the_user_trust_environment_sets_what_a_user_would_set_for_its_block_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_PROXY", "internal.corp")
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    route = access.Route("https://x.olf.localhost", {"no_proxy": "x.olf.localhost,internal.corp"}, "/ca.pem")
+
+    with user_trust_environment(route):
+        assert os.environ["REQUESTS_CA_BUNDLE"] == "/ca.pem"
+        assert os.environ["NO_PROXY"] == os.environ["no_proxy"] == "x.olf.localhost,internal.corp"
+
+    assert os.environ["NO_PROXY"] == "internal.corp"
+    assert "no_proxy" not in os.environ and "REQUESTS_CA_BUNDLE" not in os.environ
+
+
+def test_the_user_trust_environment_is_restored_when_its_block_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/operator.pem")
+
+    with pytest.raises(RuntimeError), user_trust_environment(access.Route("", {}, "/ca.pem")):
+        raise RuntimeError("boom")
+
+    assert os.environ["REQUESTS_CA_BUNDLE"] == "/operator.pem"
+
+
+def test_a_route_with_nothing_to_trust_leaves_the_environment_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    before = dict(os.environ)
+
+    with user_trust_environment(access.Route("http://127.0.0.1:1")):
+        assert dict(os.environ) == before
