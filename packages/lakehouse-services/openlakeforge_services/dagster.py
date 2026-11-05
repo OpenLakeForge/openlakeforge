@@ -95,6 +95,7 @@ class DagsterClient:
         repository: tuple[str, str] | None = None,
         launch_key: str | None = None,
         key_tag: str = E2E_KEY_TAG,
+        run_config: Mapping[str, Any] | None = None,
     ) -> str:
         """Launch `job_name` and return its run id.
 
@@ -102,7 +103,8 @@ class DagsterClient:
         lost is found rather than launched twice. The defaults are the e2e's:
         wait for the job's code location, and a fresh key under E2E_KEY_TAG. A
         caller that must not block or reload code locations passes the
-        `repository` it found itself.
+        `repository` it found itself. `run_config` is the run's config, as the
+        launchpad takes it (`{"ops": {<op>: {"config": {...}}}}`).
         """
         location_name, repository_name = repository or self.wait_for_repository(job_name)
         launch_key = launch_key or f"openlakeforge-e2e-{job_name}-{uuid.uuid4().hex}"
@@ -114,7 +116,7 @@ class DagsterClient:
                     "repositoryName": repository_name,
                     "pipelineName": job_name,
                 },
-                "runConfigData": {},
+                "runConfigData": dict(run_config or {}),
                 "mode": "default",
                 "executionMetadata": {
                     "tags": [{"key": key, "value": value} for key, value in run_tags.items()],

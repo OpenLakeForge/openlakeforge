@@ -2,7 +2,8 @@
 
 Split by capability into `_shell` (config/error type + process/kubectl
 primitives), `_runner` (environment setup, suite dispatch, full-suite
-assertion inventory), `_health`, `_dagster`, `_trino`, `_layers`,
+assertion inventory), `_health`, `_dagster`, `_trino`, `_maintenance`
+(Silver and Gold maintenance jobs), `_layers`,
 `_assertions` (OpenMetadata/Superset), `_artifacts`, `_ingress` (Traefik
 restart and certificate renewal drills), and `_preflight`
 (AWS provider checks). This module re-exports only the surface consumed by
