@@ -22,7 +22,7 @@ def deploy_enabled_artifacts(
     environ: Mapping[str, str],
     *,
     deploy_reports: Callable[[Mapping[str, str]], None],
-    deploy_metadata: Callable[[], None],
+    deploy_metadata: Callable[[Mapping[str, str]], None],
     report: Callable[[str], None],
 ) -> None:
     """Deploy artifacts for enabled optional layers and report skipped layers."""
@@ -34,6 +34,6 @@ def deploy_enabled_artifacts(
 
     if enabled(environ, "governance"):
         report("Deploying OpenMetadata governance metadata...")
-        deploy_metadata()
+        deploy_metadata(environ)
     else:
         report("Skipping OpenMetadata governance metadata: governance layer is disabled.")

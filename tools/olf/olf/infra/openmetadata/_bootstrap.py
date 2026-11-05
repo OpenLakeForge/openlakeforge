@@ -9,6 +9,7 @@ from __future__ import annotations
 import secrets
 import string
 import time
+from collections.abc import Mapping
 
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
@@ -36,21 +37,21 @@ def new_admin_password() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(24)) + "Aa1!"
 
 
-def ensure_admin_password(namespace: str) -> str:
+def ensure_admin_password(namespace: str, environ: Mapping[str, str] | None = None) -> str:
     """The admin password, created only if missing so Terraform never holds it (#400).
 
     Stored before OpenMetadata is told about it: a Job that dies in between retries
     with the Secret, never without the password.
     """
     try:
-        existing = k8s.secret_value(ADMIN_SECRET, "admin-password", namespace)
+        existing = k8s.secret_value(ADMIN_SECRET, "admin-password", namespace, environ=environ)
     except k8s.KubectlError:
         existing = ""
     if existing:
         return existing
     password = new_admin_password()
     # create-only: if the read above failed for another reason, an existing password is never replaced
-    k8s.write_secret(ADMIN_SECRET, namespace, {"admin-password": password}, overwrite=False)
+    k8s.write_secret(ADMIN_SECRET, namespace, {"admin-password": password}, overwrite=False, environ=environ)
     return password
 
 
@@ -122,7 +123,9 @@ def _bearer_token(client: OpenMetadataClient, user_id: str, who: str) -> str:
     return token
 
 
-def ensure_automation_bot(client: OpenMetadataClient, base_url: str, namespace: str) -> None:
+def ensure_automation_bot(
+    client: OpenMetadataClient, base_url: str, namespace: str, environ: Mapping[str, str] | None = None
+) -> None:
     """Create the admin bot `olf` and later runs use instead of a person, and store its token."""
     user = client.request(
         "PUT",
@@ -153,31 +156,35 @@ def ensure_automation_bot(client: OpenMetadataClient, base_url: str, namespace: 
     me = OpenMetadataClient(base_url, token=token).request("GET", "/api/v1/users/loggedInUser")
     if not me.get("isAdmin"):
         raise OpenMetadataError(f"The {_BOT} bot is not an administrator")
-    k8s.write_secret(AUTOMATION_BOT, namespace, {AUTOMATION_JWT_KEY: token})
+    k8s.write_secret(AUTOMATION_BOT, namespace, {AUTOMATION_JWT_KEY: token}, environ=environ)
 
 
-def ensure_ingestion_bot_token(client: OpenMetadataClient, namespace: str) -> None:
+def ensure_ingestion_bot_token(
+    client: OpenMetadataClient, namespace: str, environ: Mapping[str, str] | None = None
+) -> None:
     """Keep the ingestion bot's working credential, or mint one when it is missing or stale."""
     user = client.request("GET", "/api/v1/users/name/ingestion-bot")
     if not user.get("id"):
         raise OpenMetadataError(f"Failed to find ingestion-bot user: {user}")
-    stored = k8s.secret_value(INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, namespace, missing_ok=True)
+    stored = k8s.secret_value(INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, namespace, missing_ok=True, environ=environ)
     # Stage Secrets are replicated by a one-shot Terraform Job. Rotating a
     # working token here would revoke every stage's unchanged copy.
     if stored and _token_works(client.base_url, stored, user_id=user["id"]):
         return
     token = _bearer_token(client, user["id"], "ingestion-bot")
-    k8s.write_secret(INGESTION_BOT_SECRET, namespace, {INGESTION_BOT_JWT_KEY: token})
+    k8s.write_secret(INGESTION_BOT_SECRET, namespace, {INGESTION_BOT_JWT_KEY: token}, environ=environ)
 
 
-def bootstrap_auth(base_url: str, namespace: str, *, email: str, sso: bool) -> OpenMetadataClient:
+def bootstrap_auth(
+    base_url: str, namespace: str, *, email: str, sso: bool, environ: Mapping[str, str] | None = None
+) -> OpenMetadataClient:
     """Admin login, the automation bot (SSO only) and the ingestion bot token; returns the admin client."""
-    password = ensure_admin_password(namespace)
+    password = ensure_admin_password(namespace, environ)
     wait_healthy(base_url)
-    stored = automation_token(namespace)
+    stored = automation_token(namespace, environ=environ)
     client = admin_client(base_url, email, password, stored)
     # Created while basic login still works; with SSO off basic login keeps working, so no bot.
     if sso and client.token != stored:
-        ensure_automation_bot(client, base_url, namespace)
-    ensure_ingestion_bot_token(client, namespace)
+        ensure_automation_bot(client, base_url, namespace, environ)
+    ensure_ingestion_bot_token(client, namespace, environ)
     return client

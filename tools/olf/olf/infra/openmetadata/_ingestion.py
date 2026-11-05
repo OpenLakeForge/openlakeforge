@@ -96,8 +96,8 @@ def ingestion_job(
         "command": [
             "sh",
             "-c",
-            f"printf '%s' \"$OM_WORKFLOW\" | sed -e \"s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|\""
-            f" -e \"s|{_PASSWORD_PLACEHOLDER}|${{{_PASSWORD_ENV}:-}}|\" > /tmp/workflow.yaml"
+            f'printf \'%s\' "$OM_WORKFLOW" | sed -e "s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|"'
+            f' -e "s|{_PASSWORD_PLACEHOLDER}|${{{_PASSWORD_ENV}:-}}|" > /tmp/workflow.yaml'
             " && metadata ingest -c /tmp/workflow.yaml",
         ],
         "env": [
@@ -163,8 +163,11 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
 
 
 def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: str) -> None:
-    catalog = yaml.safe_load((config.distribution_root() / "release/component-catalog.yaml").read_text())
-    om_host = f"{config.env('OPENMETADATA_SERVICE', 'openmetadata')}:{config.env('OPENMETADATA_SERVICE_PORT', '8585')}"
+    catalog = yaml.safe_load((config.distribution_root(environ=environ) / "release/component-catalog.yaml").read_text())
+    om_host = (
+        f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}:"
+        f"{config.env('OPENMETADATA_SERVICE_PORT', '8585', environ=environ)}"
+    )
     job = ingestion_job(
         environ,
         image=catalog["components"]["images"]["openmetadata_ingestion"],
@@ -173,5 +176,5 @@ def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: 
         om_api=f"http://{om_host}/api",
     )
     # Applied first so the schedule survives a failed first crawl.
-    k8s.apply_manifest(ingestion_cronjob(job, catalog=environ["OPENLAKEFORGE_CATALOG_NAME"]))
-    k8s.run_job(job, timeout_seconds=1800)
+    k8s.apply_manifest(ingestion_cronjob(job, catalog=environ["OPENLAKEFORGE_CATALOG_NAME"]), environ=environ)
+    k8s.run_job(job, timeout_seconds=1800, environ=environ)

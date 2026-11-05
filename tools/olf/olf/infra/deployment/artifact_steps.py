@@ -46,6 +46,8 @@ def deploy_optional_layer_artifacts(environ: Mapping[str, str], *, allow_missing
     layers.deploy_enabled_artifacts(
         environ,
         deploy_reports=lambda contract: deploy_superset_reports(environ=contract),
-        deploy_metadata=lambda: deploy_openmetadata_metadata(allow_missing_assets=allow_missing_assets),
+        deploy_metadata=lambda contract: deploy_openmetadata_metadata(
+            allow_missing_assets=allow_missing_assets, environ=contract
+        ),
         report=log.step,
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -347,7 +348,7 @@ def _build_report_harness(
     metadata_allow_missing: list[bool | None] = []
     environ_seen: list[str | None] = []
 
-    def _fake_deploy_metadata(*, allow_missing_assets: bool | None = None) -> None:
+    def _fake_deploy_metadata(*, environ: Mapping[str, str], allow_missing_assets: bool | None = None) -> None:
         metadata_calls.append(None)
         metadata_allow_missing.append(allow_missing_assets)
         environ_seen.append(os.environ.get("OPENMETADATA_ALLOW_MISSING_ASSETS"))

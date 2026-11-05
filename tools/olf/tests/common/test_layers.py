@@ -12,7 +12,7 @@ def test_deploy_enabled_artifacts_only_runs_enabled_layers() -> None:
     deploy_enabled_artifacts(
         {"OPENLAKEFORGE_ANALYTICS_ENABLED": "false", "OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"},
         deploy_reports=lambda _environ: deployed.append("reports"),
-        deploy_metadata=lambda: deployed.append("metadata"),
+        deploy_metadata=lambda _environ: deployed.append("metadata"),
         report=messages.append,
     )
 
@@ -30,11 +30,11 @@ def test_deploy_enabled_artifacts_runs_both_layers_by_default() -> None:
     deploy_enabled_artifacts(
         contract,
         deploy_reports=lambda environ: deployed.append(f"reports:{environ['OPENLAKEFORGE_ANALYTICS_ENABLED']}"),
-        deploy_metadata=lambda: deployed.append("metadata"),
+        deploy_metadata=lambda environ: deployed.append(f"metadata:{environ['OPENLAKEFORGE_ANALYTICS_ENABLED']}"),
         report=lambda _message: None,
     )
 
-    assert deployed == ["reports:true", "metadata"]
+    assert deployed == ["reports:true", "metadata:true"]
 
 
 def test_enabled_rejects_unknown_layer() -> None:

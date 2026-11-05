@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Annotated
@@ -42,14 +42,14 @@ class _GovernanceService:
             yield base_url
 
 
-def _governance_service() -> _GovernanceService:
-    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+def _governance_service(environ: Mapping[str, str] | None = None) -> _GovernanceService:
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=environ)
     return _GovernanceService(
         # OpenMetadata is deployed once per cluster, in the shared namespace -
         # `config.namespace()` is the selected stage's.
-        namespace=config.shared_namespace(),
-        service=config.env("OPENMETADATA_SERVICE", "openmetadata"),
-        remote_port=int(config.env("OPENMETADATA_SERVICE_PORT", "8585")),
+        namespace=config.shared_namespace(environ=environ),
+        service=config.env("OPENMETADATA_SERVICE", "openmetadata", environ=environ),
+        remote_port=int(config.env("OPENMETADATA_SERVICE_PORT", "8585", environ=environ)),
         log_path=f"{log_prefix}-openmetadata-port-forward.log",
     )
 
@@ -75,11 +75,13 @@ def openmetadata_deploy_metadata(
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
-    ):
-        deploy_openmetadata_metadata()
+    ) as contract:
+        deploy_openmetadata_metadata(environ=contract)
 
 
-def deploy_openmetadata_metadata(*, allow_missing_assets: bool | None = None) -> None:
+def deploy_openmetadata_metadata(
+    *, allow_missing_assets: bool | None = None, environ: Mapping[str, str] | None = None
+) -> None:
     """Seed OpenMetadata domains, data products, and medallion containers.
 
     ``allow_missing_assets`` overrides ``OPENMETADATA_ALLOW_MISSING_ASSETS`` when not None.
@@ -90,12 +92,15 @@ def deploy_openmetadata_metadata(*, allow_missing_assets: bool | None = None) ->
     from olf.infra.openmetadata._role_sync import apply_role_sync
     from olf.infra.openmetadata._sso import apply_sso
 
-    project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
-    governance = _governance_service()
+    source = os.environ if environ is None else environ
+    project = ProjectSpec(
+        root=config.project_root(environ=source), distribution_root=config.distribution_root(environ=source)
+    )
+    governance = _governance_service(source)
     namespace = governance.namespace
 
     log.step(f"Waiting for OpenMetadata deployment {governance.service}...")
-    k8s.wait_for_rollout(f"deployment/{governance.service}", namespace)
+    k8s.wait_for_rollout(f"deployment/{governance.service}", namespace, environ=source)
 
     # Before anything talks to the server: it restarts when SSO is applied.
     try:
@@ -105,38 +110,42 @@ def deploy_openmetadata_metadata(*, allow_missing_assets: bool | None = None) ->
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     try:
-        log.step(apply_role_sync(namespace, om_url=f"http://{governance.service}:{governance.remote_port}"))
+        log.step(
+            apply_role_sync(namespace, om_url=f"http://{governance.service}:{governance.remote_port}", environ=source)
+        )
     except (k8s.KubectlError, DeploymentProfileError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     with governance.url() as base_url:
         try:
-            token = automation_token(namespace)
-            override = config.env("OPENMETADATA_ADMIN_PASSWORD")
-            password = override if token else admin_password(namespace, override)
+            token = automation_token(namespace, environ=source)
+            override = config.env("OPENMETADATA_ADMIN_PASSWORD", environ=source)
+            password = override if token else admin_password(namespace, override, environ=source)
             cfg = om.OpenMetadataConfig.from_environment(
-                os.environ,
+                source,
                 base_url=base_url,
-                admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
+                admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=source),
                 admin_password=password,
-                metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
-                metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
+                metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root), environ=source),
+                metadata_source_dir=source.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
                 allow_missing_assets=(
-                    config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false"))
+                    config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false", environ=source))
                     if allow_missing_assets is None
                     else allow_missing_assets
                 ),
                 catalog_service=(
-                    config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER")
+                    config.env("OPENMETADATA_CATALOG_SERVICE", environ=source)
+                    or config.env("OPENLAKEFORGE_CATALOG_PROVIDER", environ=source)
                 ),
                 catalog_database=(
-                    config.env("OPENMETADATA_CATALOG_DATABASE") or config.env("OPENLAKEFORGE_CATALOG_NAME")
+                    config.env("OPENMETADATA_CATALOG_DATABASE", environ=source)
+                    or config.env("OPENLAKEFORGE_CATALOG_NAME", environ=source)
                 ),
             )
             # Before the seeding, which fails on tables OpenMetadata has not
             # crawled yet. Once per artifacts deploy, no CronJob: the pipeline
             # it replaces was deployed paused and never scheduled.
             log.step("Crawling Trino into OpenMetadata...")
-            run_trino_ingestion(os.environ, namespace=namespace, service=cfg.catalog_service)
+            run_trino_ingestion(source, namespace=namespace, service=cfg.catalog_service)
             client = om.OpenMetadataClient(cfg.base_url, token=token)
             om.OpenMetadataDeployer(cfg, client).deploy()
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
@@ -193,11 +202,10 @@ def openmetadata_bootstrap(
         raise typer.Exit(code=fail("--catalog-service needs --trino-namespace and --pipeline-service."))
 
     def run(base_url: str, namespace: str) -> None:
-        client = bootstrap_auth(base_url, namespace, email=email, sso=sso)
+        client = bootstrap_auth(base_url, namespace, email=email, sso=sso, environ=contract)
         if seed:
             bootstrap_catalog(client, seed)
 
-    email = config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org")
     with provider_contract_environment(
         provider=provider,
         profile="",
@@ -205,8 +213,9 @@ def openmetadata_bootstrap(
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
-    ):
-        governance = _governance_service()
+    ) as contract:
+        email = config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=contract)
+        governance = _governance_service(contract)
         try:
             if om_url:
                 run(om_url, governance.namespace)
@@ -239,8 +248,8 @@ def openmetadata_list_domains(
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
-    ):
-        domains = sorted(list_openmetadata_domains())
+    ) as contract:
+        domains = sorted(list_openmetadata_domains(environ=contract))
     if json_output:
         typer.echo(json.dumps([{"name": name, "displayName": display} for name, display in domains], indent=2))
     elif not domains:
@@ -252,7 +261,7 @@ def openmetadata_list_domains(
             typer.echo(f"{name:<{width}}  {display}")
 
 
-def list_openmetadata_domains() -> list[tuple[str, str]]:
+def list_openmetadata_domains(environ: Mapping[str, str] | None = None) -> list[tuple[str, str]]:
     """Read every domain's name and display name from the deployed OpenMetadata."""
     from openlakeforge_services.base import ServiceClientError
     from openlakeforge_services.openmetadata import OpenMetadataClient
@@ -261,20 +270,20 @@ def list_openmetadata_domains() -> list[tuple[str, str]]:
     from olf.infra import k8s
     from olf.infra.openmetadata._auth import AUTOMATION_BOT, automation_token
 
-    if not layers.enabled(os.environ, "governance"):
+    if not layers.enabled(os.environ if environ is None else environ, "governance"):
         raise typer.Exit(
             code=fail(
                 "OpenMetadata is not deployed: the governance layer is disabled. "
                 "Set `preset: full` in openlakeforge.yaml and run `olf infra deploy`."
             )
         )
-    governance = _governance_service()
+    governance = _governance_service(environ)
     namespace = governance.namespace
     try:
         with governance.url() as base_url:
             # Read after the port-forward is up, so an unreachable cluster is
             # reported as unreachable rather than as a missing Secret.
-            token = automation_token(namespace)
+            token = automation_token(namespace, environ=environ)
             if not token:
                 raise typer.Exit(
                     code=fail(
