@@ -13,7 +13,7 @@ from openlakeforge_services import reports
 
 from olf.common import report_bundles
 from olf.common.profile import resolve_topology, validate_deployment_profile
-from olf.infra import k8s, superset
+from olf.infra import access, k8s, superset
 from olf.infra.contracts import build_contract_env
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -165,8 +165,8 @@ def test_deploy_reports_still_fails_for_a_declared_but_missing_bundle(
 
 def _serve(monkeypatch: pytest.MonkeyPatch, server: FakeSuperset) -> None:
     @contextlib.contextmanager
-    def base_url(_namespace: str, *, environ: Mapping[str, str]) -> Iterator[str]:
-        yield server.url
+    def base_url(_namespace: str, *, environ: Mapping[str, str]) -> Iterator[access.Route]:
+        yield access.Route(server.url)
 
     monkeypatch.setattr(superset, "superset_base_url", base_url)
 

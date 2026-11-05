@@ -127,20 +127,21 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
 
 
 @contextlib.contextmanager
-def superset_base_url(namespace: str, *, environ: Mapping[str, str] | None = None) -> Iterator[str]:
-    """Yield the base URL of this namespace's Superset API for the block."""
+def superset_base_url(namespace: str, *, environ: Mapping[str, str] | None = None) -> Iterator[access.Route]:
+    """Yield the route to this namespace's Superset API for the block."""
     log.step("Waiting for Superset web deployment...")
     k8s.wait_for_rollout("deployment/superset", namespace, environ=environ)
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=environ)
-    with access.service_url(
+    with access.service_route(
         f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev', environ=environ)}/reporting",
         service="superset",
         remote_port=8088,
         namespace=namespace,
         log_path=f"{log_prefix}-superset-port-forward.log",
         shared_namespace=config.shared_namespace(environ=environ),
-    ) as url:
-        yield url
+        environ=environ,
+    ) as route:
+        yield route
 
 
 def admin_password_for(
@@ -190,9 +191,9 @@ def deploy_reports(
     trino_password = (
         k8s.secret_value(credential_secret, "password", namespace, environ=environ) if credential_secret else ""
     )
-    with superset_base_url(namespace, environ=environ) as base_url:
+    with superset_base_url(namespace, environ=environ) as route:
         password = admin_password_for(namespace, admin_password, environ=environ)
-        client = SupersetClient(base_url, username=admin_username, password=password)
+        client = route.client(SupersetClient, username=admin_username, password=password)
         client.login()
         reports.import_reports(
             client,
@@ -220,9 +221,9 @@ def export_report(
     schema_prefix: str = "",
     environ: Mapping[str, str] | None = None,
 ) -> None:
-    with superset_base_url(namespace, environ=environ) as base_url:
+    with superset_base_url(namespace, environ=environ) as route:
         password = admin_password_for(namespace, admin_password, environ=environ)
-        client = SupersetClient(base_url, username=admin_username, password=password)
+        client = route.client(SupersetClient, username=admin_username, password=password)
         client.login()
         reports.export_report(
             client,

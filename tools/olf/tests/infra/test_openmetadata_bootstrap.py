@@ -12,7 +12,7 @@ import pytest
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
-from olf.infra import k8s
+from olf.infra import access, k8s
 from olf.infra.openmetadata import _auth, _bootstrap
 
 EMAIL = "admin@open-metadata.org"
@@ -134,7 +134,7 @@ def store(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, str], dict[str, st
 
 
 def _run(om: FakeServer, *, sso: bool = False) -> None:
-    _bootstrap.bootstrap_auth(om.url, "ns", email=EMAIL, sso=sso)
+    _bootstrap.bootstrap_auth(access.Route(om.url), "ns", email=EMAIL, sso=sso)
 
 
 def test_first_run_changes_the_default_password_and_stores_the_ingestion_token(om: FakeServer, store: dict) -> None:
@@ -229,7 +229,7 @@ def test_the_command_bootstraps_the_shared_namespace(monkeypatch: pytest.MonkeyP
 
     assert result.exit_code == 0, result.output
     assert [(args, (kwargs["email"], kwargs["sso"])) for args, kwargs in calls] == [
-        (("http://om:8585", "olf-shared"), (EMAIL, True))
+        ((access.Route("http://om:8585"), "olf-shared"), (EMAIL, True))
     ]
 
 

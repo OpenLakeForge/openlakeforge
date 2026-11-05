@@ -7,7 +7,7 @@ import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -16,6 +16,9 @@ from olf.common.log import fail
 from olf.common.profile import DeploymentProfileError
 from olf.common.project import ProjectSpec
 from olf.infra.openmetadata._ingestion import run_trino_ingestion
+
+if TYPE_CHECKING:
+    from olf.infra.access import Route
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 
@@ -28,18 +31,19 @@ class _GovernanceService:
     log_path: str
 
     @contextmanager
-    def url(self) -> Iterator[str]:
+    def url(self, environ: Mapping[str, str] | None = None) -> Iterator[Route]:
         from olf.infra import access
 
-        with access.service_url(
+        with access.service_route(
             "shared/governance_service",
             service=self.service,
             remote_port=self.remote_port,
             namespace=self.namespace,
             log_path=self.log_path,
             shared_namespace=self.namespace,
-        ) as base_url:
-            yield base_url
+            environ=environ,
+        ) as route:
+            yield route
 
 
 def _governance_service(environ: Mapping[str, str] | None = None) -> _GovernanceService:
@@ -105,7 +109,11 @@ def deploy_openmetadata_metadata(
     # Before anything talks to the server: it restarts when SSO is applied.
     try:
         apply_sso(
-            namespace, service=governance.service, remote_port=governance.remote_port, log_path=governance.log_path
+            namespace,
+            service=governance.service,
+            remote_port=governance.remote_port,
+            log_path=governance.log_path,
+            environ=source,
         )
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
@@ -115,14 +123,14 @@ def deploy_openmetadata_metadata(
         )
     except (k8s.KubectlError, DeploymentProfileError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    with governance.url() as base_url:
+    with governance.url(source) as route:
         try:
             token = automation_token(namespace, environ=source)
             override = config.env("OPENMETADATA_ADMIN_PASSWORD", environ=source)
             password = override if token else admin_password(namespace, override, environ=source)
             cfg = om.OpenMetadataConfig.from_environment(
                 source,
-                base_url=base_url,
+                base_url=route.url,
                 admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=source),
                 admin_password=password,
                 metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root), environ=source),
@@ -146,7 +154,7 @@ def deploy_openmetadata_metadata(
             # it replaces was deployed paused and never scheduled.
             log.step("Crawling Trino into OpenMetadata...")
             run_trino_ingestion(source, namespace=namespace, service=cfg.catalog_service)
-            client = om.OpenMetadataClient(cfg.base_url, token=token)
+            client = route.client(om.OpenMetadataClient, token=token)
             om.OpenMetadataDeployer(cfg, client).deploy()
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
@@ -181,6 +189,7 @@ def openmetadata_bootstrap(
     """Create the admin password, bots and, with --catalog-service, the catalog entities. Idempotent."""
     from olf.infra import k8s
     from olf.infra import openmetadata as om
+    from olf.infra.access import Route
     from olf.infra.commands.runtime import provider_contract_environment
     from olf.infra.openmetadata._bootstrap import bootstrap_auth
     from olf.infra.openmetadata._catalog_seed import CatalogSeed, bootstrap_catalog
@@ -201,8 +210,8 @@ def openmetadata_bootstrap(
     if seed and not (trino_namespace and pipeline_service):
         raise typer.Exit(code=fail("--catalog-service needs --trino-namespace and --pipeline-service."))
 
-    def run(base_url: str, namespace: str) -> None:
-        client = bootstrap_auth(base_url, namespace, email=email, sso=sso, environ=contract)
+    def run(route: Route, namespace: str) -> None:
+        client = bootstrap_auth(route, namespace, email=email, sso=sso, environ=contract)
         if seed:
             bootstrap_catalog(client, seed)
 
@@ -218,10 +227,10 @@ def openmetadata_bootstrap(
         governance = _governance_service(contract)
         try:
             if om_url:
-                run(om_url, governance.namespace)
+                run(Route(om_url), governance.namespace)
             else:
-                with governance.url() as base_url:
-                    run(base_url, governance.namespace)
+                with governance.url(contract) as route:
+                    run(route, governance.namespace)
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo("OpenMetadata bootstrap complete.")
@@ -280,7 +289,7 @@ def list_openmetadata_domains(environ: Mapping[str, str] | None = None) -> list[
     governance = _governance_service(environ)
     namespace = governance.namespace
     try:
-        with governance.url() as base_url:
+        with governance.url(environ) as route:
             # Read after the port-forward is up, so an unreachable cluster is
             # reported as unreachable rather than as a missing Secret.
             token = automation_token(namespace, environ=environ)
@@ -291,7 +300,7 @@ def list_openmetadata_domains(environ: Mapping[str, str] | None = None) -> list[
                         f"{namespace}. The governance bootstrap Job writes it; rerun `olf infra deploy` to recreate it."
                     )
                 )
-            return OpenMetadataClient(base_url, token=token).list_domains()
+            return route.client(OpenMetadataClient, token=token).list_domains()
     except k8s.KubectlError as exc:
         raise typer.Exit(
             code=fail(f"OpenMetadata is not reachable in namespace {namespace}; is the platform deployed? {exc}")

@@ -31,11 +31,11 @@ def stage(monkeypatch: pytest.MonkeyPatch, fake_openmetadata: FakeOpenMetadata) 
     monkeypatch.setenv("OPENLAKEFORGE_SHARED_NAMESPACE", "olf-shared")
 
     @contextlib.contextmanager
-    def service_url(ref: str, **_kwargs: object) -> Iterator[str]:
+    def service_route(ref: str, **_kwargs: object) -> Iterator[access.Route]:
         assert ref == "shared/governance_service"
-        yield fake_openmetadata.url
+        yield access.Route(fake_openmetadata.url)
 
-    monkeypatch.setattr(access, "service_url", service_url)
+    monkeypatch.setattr(access, "service_route", service_route)
     monkeypatch.setattr(_auth, "automation_token", lambda namespace, **_kwargs: fake_openmetadata.token)
     fake_openmetadata.domains = list(_DOMAINS)
     return fake_openmetadata
@@ -92,11 +92,11 @@ def test_disabled_governance_layer_says_how_to_enable_it(
 
 def test_unreachable_service_is_reported(stage: FakeOpenMetadata, monkeypatch: pytest.MonkeyPatch) -> None:
     @contextlib.contextmanager
-    def unreachable(_ref: str, **_kwargs: object) -> Iterator[str]:
+    def unreachable(_ref: str, **_kwargs: object) -> Iterator[access.Route]:
         raise k8s.KubectlError("kubectl port-forward exited before localhost:1 became ready.")
-        yield ""
+        yield access.Route("")
 
-    monkeypatch.setattr(access, "service_url", unreachable)
+    monkeypatch.setattr(access, "service_route", unreachable)
 
     result = runner.invoke(app, ["infra", "openmetadata", "list-domains"])
 

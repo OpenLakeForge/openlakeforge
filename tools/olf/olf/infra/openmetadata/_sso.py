@@ -27,11 +27,11 @@ PROBE_DELAY = 5.0
 _PROBE = 'wget -q -T 5 -O /dev/null "$0" || SSL_CERT_FILE=/etc/olf/oidc-ca/ca.crt wget -q -T 5 -O /dev/null "$0"'
 
 
-def _wait_for_issuer(service: str, namespace: str, url: str) -> None:
+def _wait_for_issuer(service: str, namespace: str, url: str, environ: Mapping[str, str] | None = None) -> None:
     """Probe from the OpenMetadata pod: the operator's machine may not resolve the issuer."""
     deadline = time.monotonic() + PROBE_ATTEMPTS * PROBE_DELAY
     while True:
-        if k8s.exec_succeeds(service, namespace, ["sh", "-c", _PROBE, url]):
+        if k8s.exec_succeeds(service, namespace, ["sh", "-c", _PROBE, url], environ=environ):
             return
         if time.monotonic() >= deadline:
             break
@@ -55,45 +55,51 @@ def _demote_local_admin(client: OpenMetadataClient) -> None:
         )
 
 
-def apply_sso(namespace: str, *, service: str, remote_port: int, log_path: str) -> None:
+def apply_sso(
+    namespace: str, *, service: str, remote_port: int, log_path: str, environ: Mapping[str, str] | None = None
+) -> None:
     """Apply the published security configuration, restarting the server on its first application."""
-    data = k8s.configmap_data(CONFIGMAP, namespace)
+    data = k8s.configmap_data(CONFIGMAP, namespace, environ=environ)
     if data is None:  # no spec.identity: basic login stays
         return
     config = json.loads(data["config.json"])
-    token = automation_token(namespace)
+    token = automation_token(namespace, environ=environ)
     if token is None:
         raise OpenMetadataError(f"The OpenMetadata automation bot token Secret is missing in {namespace}.")
     oidc = config["authenticationConfiguration"]
     # What GET /system/config/auth reports back; any difference re-applies.
     desired = {key: oidc[key] for key in ("provider", "authority", "clientId", "callbackUrl")}
-    with access.service_url(
+    with access.service_route(
         "shared/governance_service",
         service=service,
         remote_port=remote_port,
         namespace=namespace,
         log_path=log_path,
         shared_namespace=namespace,
-    ) as base_url:
-        client = OpenMetadataClient(base_url, token=token)
+        environ=environ,
+    ) as route:
+        client = route.client(OpenMetadataClient, token=token)
         current: Mapping[str, object] = client.request("GET", "/api/v1/system/config/auth")
         # Always PUT: the client secret is not readable back, and a rotation
         # changes nothing else. Only a first application needs the restart.
         first = not all(current.get(key) == value for key, value in desired.items())
-        _wait_for_issuer(service, namespace, oidc["oidcConfiguration"]["discoveryUri"])
-        oidc["oidcConfiguration"]["secret"] = k8s.secret_value(data["secret_name"], data["secret_key"], namespace)
+        _wait_for_issuer(service, namespace, oidc["oidcConfiguration"]["discoveryUri"], environ)
+        oidc["oidcConfiguration"]["secret"] = k8s.secret_value(
+            data["secret_name"], data["secret_key"], namespace, environ=environ
+        )
         client.request("PUT", "/api/v1/system/security/config", json_body=config, ok_statuses=(200, 201))
     # The handler is built from the stored configuration at startup, and the
     # one the PUT built may predate the issuer answering.
     if first:
-        k8s.restart_deployment(service, namespace)
+        k8s.restart_deployment(service, namespace, environ=environ)
     # After the restart: startup re-promotes anything in the configured admin list.
-    with access.service_url(
+    with access.service_route(
         "shared/governance_service",
         service=service,
         remote_port=remote_port,
         namespace=namespace,
         log_path=log_path,
         shared_namespace=namespace,
-    ) as base_url:
-        _demote_local_admin(OpenMetadataClient(base_url, token=token))
+        environ=environ,
+    ) as route:
+        _demote_local_admin(route.client(OpenMetadataClient, token=token))
