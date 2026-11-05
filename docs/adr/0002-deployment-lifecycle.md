@@ -50,7 +50,9 @@ Once the apply finishes, the platform phase runs the OpenMetadata bootstrap
 `deployment/governance.py`, called by the engine after `platform_up`. Its
 inputs come from the applied provider contract alone, so it reads no user code.
 It runs before artifacts because `deploy-metadata` logs in with the
-credentials it creates.
+credentials it creates. It then copies the ingestion-bot Secret into each
+governed stage's namespace, where Dagster mounts it, and deletes it from the
+enabled stages that are not governed.
 
 ### The platform phase owns namespaces, and which services repeat
 
@@ -167,6 +169,8 @@ Gold grants with it is in [ADR 0019](0019-data-plane-authorization-deferral.md#5
 2026-11-05: The platform phase runs the OpenMetadata bootstrap from `olf` after
 the apply (#562). The Terraform bootstrap Job still runs inside the apply until
 a follow-up removes it; every step is idempotent, so both running converge.
+The same run then replicates the ingestion-bot Secret into the governed stage
+namespaces, which the Terraform credential-replication Job also still does.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

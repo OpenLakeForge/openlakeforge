@@ -126,6 +126,18 @@ def secret_value(
     return base64.b64decode(raw).decode("utf-8")
 
 
+def secret_data(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
+    """The Secret's base64-encoded data, or None when it does not exist. Captured, so never printed."""
+    raw = _kubectl(
+        ["get", "secret", name, "-n", namespace, "-o", "json", "--ignore-not-found"], capture=True, environ=environ
+    )
+    return (json.loads(raw).get("data") or {}) if raw else None
+
+
+def delete_secret(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    _kubectl(["delete", "secret", name, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
+
+
 def configmap_data(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
     """The ConfigMap's data, or None when it does not exist."""
     raw = _kubectl(
