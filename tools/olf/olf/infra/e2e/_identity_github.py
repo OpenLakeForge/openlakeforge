@@ -30,6 +30,7 @@ import requests
 import yaml
 
 from olf.common import log
+from olf.infra import access
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 REQUEST_TIMEOUT = 15
@@ -167,13 +168,15 @@ def _wait_until_dex_reaches(cfg: E2EConfig, *, attempts: int = 30, delay: float 
     raise E2EError(f"Dex could not reach {stub_host(cfg)} within {attempts * delay:.0f}s")
 
 
-def sign_in_with_stub(url: str, login: str, stub: str) -> tuple[requests.Session, requests.Response]:
+def sign_in_with_stub(
+    route: access.Route, url: str, login: str, stub: str
+) -> tuple[requests.Session, requests.Response]:
     """Open `url` and follow redirects to the end, signing in as `login` at the stub.
 
     The response is the last one: the page `url` serves once signed in, or
     Dex's error page when the connector refused the login.
     """
-    browser = requests.Session()
+    browser = route.session()
     browser.mount(f"https://{stub}", StubAuthorize(login))
     return browser, browser.get(url, timeout=REQUEST_TIMEOUT)
 

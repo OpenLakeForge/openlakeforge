@@ -73,9 +73,8 @@ def _dashboard_load(
     datasets: Sequence[Mapping[str, Any]],
     headers: Mapping[str, str],
     cookies: MutableMapping[str, str],
-    session: requests.Session | None = None,
+    session: requests.Session,
 ) -> Callable[[], None]:
-    session = session or requests.Session()  # keep-alive, as a browser has
     session.cookies.update(cookies)
     csrf = session.get(f"{base}/api/v1/security/csrf_token/", headers=headers, timeout=REQUEST_TIMEOUT)
     csrf.raise_for_status()
@@ -119,7 +118,7 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
     login = f"olf-e2e-latency-{secrets.token_hex(3)}"
     log.step("Measuring the perimeter's added dashboard latency...")
     with (
-        access.service_url(
+        access.service_route(
             "shared/identity",
             service="dex",
             remote_port=5556,
@@ -128,7 +127,7 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
             shared_namespace=cfg.platform_namespace,
             kube_context=cfg.kube_context,
             environ=cfg_environ(cfg),
-        ),
+        ) as dex_route,
         github_stub(cfg, {login: identity["role_mapping"][role]}),
         access.service_route(
             ref,
@@ -143,7 +142,7 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
         ) as superset_route,
     ):
         direct_url, api = superset_route.url, superset_route.session()
-        browser, _ = sign_in_with_stub(routes[PORTAL_REF], login, stub_host(cfg))
+        browser, _ = sign_in_with_stub(dex_route, routes[PORTAL_REF], login, stub_host(cfg))
         cookies = {c.name: c.value or "" for c in browser.cookies}
         # Superset's own API login is the same on both paths; only the route differs.
         password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context)
@@ -164,7 +163,9 @@ def check_perimeter_latency(cfg: E2EConfig) -> None:
             result = chart.json()["result"]
             datasets.append({"id": result["datasource_id"], "type": result["datasource_type"]})
         direct = summarize(_timed_loads(_dashboard_load(direct_url, slug, datasets, headers, {}, api)))
-        via = summarize(_timed_loads(_dashboard_load(routes[ref], slug, datasets, headers, cookies)))
+        via = summarize(
+            _timed_loads(_dashboard_load(routes[ref], slug, datasets, headers, cookies, dex_route.session()))
+        )
     added = require_acceptable(direct, via)
     log.info(
         f"Dashboard load ({len(chart_ids)} charts, {SAMPLES} samples): direct {direct[0]:.0f}/{direct[1]:.0f} ms, "

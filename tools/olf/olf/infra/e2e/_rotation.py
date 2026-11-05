@@ -48,7 +48,7 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
         raise E2EError("the profile maps no team to any role; the sign-in after rotation would admit nobody")
     login = f"olf-e2e-rotation-{secrets.token_hex(3)}"
     portal = access_contract["routes"][PORTAL_REF]["url"]
-    with access.service_url(
+    with access.service_route(
         "shared/identity",
         service="dex",
         remote_port=5556,
@@ -57,9 +57,9 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
         environ=cfg_environ(cfg),
-    ):
+    ) as route:
         with github_stub(cfg, {login: mapping[role]}):
-            _browser, landing = sign_in_with_stub(portal, login, stub_host(cfg))
+            _browser, landing = sign_in_with_stub(route, portal, login, stub_host(cfg))
     # An unauthenticated request to the portal is redirected to the issuer, so the portal's own page here
     # means the proxy accepted the token Dex issued with the rotated client secret.
     if (

@@ -11,6 +11,7 @@ import threading
 from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -24,7 +25,8 @@ from openlakeforge_services.openmetadata import OpenMetadataClient
 from openlakeforge_services.superset import SupersetClient
 
 from olf.infra import access, k8s
-from olf.infra.e2e import _dagster
+from olf.infra.e2e import _dagster, _identity_github, _ingress, _perimeter, _perimeter_bearer
+from olf.infra.e2e._shell import E2EError
 
 
 @contextlib.contextmanager
@@ -147,3 +149,73 @@ def test_every_client_family_trusts_the_ca_the_route_carries(
             with pytest.raises((requests.exceptions.SSLError, TransientServiceError)):
                 untrusted()
         assert hits == []
+
+
+_CFG: Any = SimpleNamespace(platform_namespace="olf-system")
+
+
+def _perimeter_helpers(route: access.Route) -> dict[str, Callable[[], Any]]:
+    """The e2e helpers that used to rely on the ambient proxy exemption and CA, each aimed at `route.url`."""
+    identity = {"issuer_url": route.url}
+    return {
+        "sign_in_with_stub": lambda: _identity_github.sign_in_with_stub(route, route.url, "u", "stub.invalid"),
+        "check_unauthenticated_requests": lambda: _perimeter.check_unauthenticated_requests(
+            route, identity, ["ref"], {"ref": route.url}, login=route.url
+        ),
+        "check_bearer_decisions": lambda: _perimeter_bearer.check_bearer_decisions(
+            route, route.url, ["r"], lambda _role: True, lambda role: f"a.b.{role}", None
+        ),
+        "issue_id_token": lambda: _perimeter_bearer.issue_id_token(
+            route, _CFG, identity, "u", "olf-cli", "http://127.0.0.1:1/callback"
+        ),
+    }
+
+
+def _reaches(call: Callable[[], Any]) -> None:
+    # The fixture server answers 200 to everything, so a helper that reached it ends in its own check failing.
+    with contextlib.suppress(E2EError):
+        call()
+
+
+@pytest.mark.parametrize("helper", list(_perimeter_helpers(access.Route("")).keys()))
+def test_every_perimeter_helper_trusts_the_ca_the_route_carries(
+    helper: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    cert, key = _self_signed(tmp_path)
+    hits: list[tuple[str, str]] = []
+    with _server("tls", hits, tls=(cert, key)) as url:
+        _reaches(_perimeter_helpers(access.Route(url, verify=str(cert)))[helper])
+        assert hits and {label for label, _ in hits} == {"tls"}
+
+        hits.clear()
+        with pytest.raises(requests.exceptions.SSLError):
+            _perimeter_helpers(access.Route(url))[helper]()
+        assert hits == []
+
+
+@pytest.mark.parametrize("helper", list(_perimeter_helpers(access.Route("")).keys()))
+def test_every_perimeter_helper_bypasses_the_proxy_the_route_exempts(
+    helper: str, proxy_in_the_environment: list[tuple[str, str]]
+) -> None:
+    hits = proxy_in_the_environment
+    with _server("direct", hits) as url:
+        _reaches(_perimeter_helpers(access.Route(url, {"no_proxy": "127.0.0.1"}))[helper])
+        assert hits and {label for label, _ in hits} == {"direct"}
+
+        hits.clear()
+        _reaches(_perimeter_helpers(access.Route(url))[helper])
+        assert hits and {label for label, _ in hits} == {"proxy"}
+
+
+def test_the_served_certificate_is_read_with_the_ca_the_route_carries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    cert, key = _self_signed(tmp_path)
+    with _server("tls", [], tls=(cert, key)) as url:
+        port = int(url.rsplit(":", 1)[1])
+        assert _ingress._served_serial("127.0.0.1", port, str(cert))
+        with pytest.raises(ssl.SSLError):
+            _ingress._served_serial("127.0.0.1", port, True)
