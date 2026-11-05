@@ -18,7 +18,7 @@ from openlakeforge_services.superset import SupersetClient
 from olf.common import config, log
 from olf.infra import access, k8s, superset
 from olf.infra.contracts import CONTRACT_STAGE_ENV
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password, automation_token
 
@@ -28,7 +28,7 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
     assert cfg.superset_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
     with access.service_url(
-        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev')}/reporting",
+        f"stage/{config.env(CONTRACT_STAGE_ENV, 'dev', environ=cfg_environ(cfg))}/reporting",
         service="superset",
         remote_port=8088,
         namespace=cfg.namespace,
@@ -107,9 +107,11 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
     ) as base_url:
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
-        token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context)
+        token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
         client = OpenMetadataClient(base_url, token=token)
-        password = "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context)
+        password = (
+            "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
+        )
         assert_openmetadata_assets(client, cfg.inventory, password)
         stages = load_provider_contracts_or_raise(cfg).get("stages")
         if not stages:
@@ -117,7 +119,7 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             log.info("Skipping OpenMetadata stage roots: the provider contract has no stage index.")
             return
         stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
-        database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "")
+        database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=cfg_environ(cfg))
         assert_openmetadata_stage_roots(
             client,
             stage=stage,

@@ -21,8 +21,10 @@ from conftest import e2e_cfg
 from typer.testing import CliRunner
 
 from olf.cli import app
+from olf.infra.auth import aws_session
 from olf.infra.deployment.contract_env import ContractEnvironment
-from olf.infra.e2e import _isolation, _runner, _shell, _trino
+from olf.infra.e2e import _assertions, _isolation, _preflight, _runner, _shell, _trino
+from olf.infra.e2e._shell import E2EError
 
 runner = CliRunner()
 ROOT = Path(__file__).resolve().parents[4]
@@ -187,3 +189,121 @@ def test_e2e_probes_still_read_the_process_environment_by_default(
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "lakehouse_ambient")
 
     assert _trino.stage_catalog_name(e2e_cfg(tmp_path)) == "lakehouse_ambient"
+
+
+def _stub_openmetadata(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The port-forward, HTTP wait and OpenMetadata checks are replaced; the secret lookups stay real."""
+    seen: dict[str, Any] = {"stages": []}
+
+    @contextmanager
+    def service_url(stage_path: str, **_kwargs: Any) -> Iterator[str]:
+        seen["stages"].append(stage_path)
+        yield "http://openmetadata.invalid"
+
+    class Client:
+        def __init__(self, _base_url: str, *, token: str | None = None) -> None:
+            seen["token"] = token
+
+    monkeypatch.setattr(_assertions.access, "service_url", service_url)
+    monkeypatch.setattr(_assertions.k8s, "http_wait", lambda *_a, **_kw: True)
+    monkeypatch.setattr(_assertions, "OpenMetadataClient", Client)
+    monkeypatch.setattr(
+        _assertions, "assert_openmetadata_assets", lambda _c, _i, password: seen.update(password=password)
+    )
+    monkeypatch.setattr(_assertions, "assert_openmetadata_stage_roots", lambda _c, **kw: seen.update(roots=kw))
+    monkeypatch.setattr(_assertions, "assert_openmetadata_stage_lineage", lambda *_a, **_kw: None)
+    monkeypatch.setattr(_assertions, "load_provider_contracts_or_raise", lambda _cfg: {"stages": {"prod": {}}})
+    monkeypatch.setattr(_assertions, "product_gold_tables", lambda *_a, **_kw: [])
+    return seen
+
+
+def test_openmetadata_assertions_read_the_contract_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path
+) -> None:
+    contract = _runtime_contract(tmp_path, kubectl_log)
+    contract.environ["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] = "trino.lakehouse_prod"
+    cfg = replace(e2e_cfg(tmp_path), kube_context="ctx-from-contract", environ=contract, openmetadata_local_port=1)
+    seen = _stub_openmetadata(monkeypatch)
+
+    _assertions.check_openmetadata_assets(cfg)
+
+    assert seen["token"].startswith("openmetadata-")
+    assert seen["roots"]["database_fqn"] == "trino.lakehouse_prod"
+    for call in _calls(kubectl_log):
+        assert call["argv"][:2] == ["--context", "ctx-from-contract"]
+        assert call["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
+        assert call["marker"] == "from-contract"
+
+
+def test_openmetadata_assertions_fall_back_to_the_admin_password_through_the_contract_kubectl(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path
+) -> None:
+    cfg = replace(
+        e2e_cfg(tmp_path),
+        kube_context="ctx-from-contract",
+        environ=_runtime_contract(tmp_path, kubectl_log),
+        openmetadata_local_port=1,
+    )
+    seen = _stub_openmetadata(monkeypatch)
+    monkeypatch.setattr(_assertions, "automation_token", lambda *_a, **_kw: None)
+
+    _assertions.check_openmetadata_assets(cfg)
+
+    assert seen["password"].endswith(":admin-password")
+    assert {call["kubeconfig"] for call in _calls(kubectl_log)} == {str(tmp_path / "contract/kubeconfig")}
+
+
+def test_superset_assertions_use_the_contract_stage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = replace(
+        e2e_cfg(tmp_path), environ=_contract(tmp_path, {"OPENLAKEFORGE_CONTRACT_STAGE": "prod"}), superset_local_port=1
+    )
+    seen = _stub_openmetadata(monkeypatch)
+    monkeypatch.setattr(_assertions.k8s, "http_wait", lambda *_a, **_kw: False)
+
+    with pytest.raises(E2EError, match="Superset endpoint did not become reachable"):
+        _assertions.check_superset_dashboards(cfg)
+
+    assert seen["stages"] == ["stage/prod/reporting"]
+
+
+def test_aws_preflight_builds_its_session_from_the_contract_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth = tmp_path / "olf-home" / "auth"
+    auth.mkdir(parents=True)
+    (auth / "aws.json").write_text(json.dumps({"source": "profile", "profile": "saved-profile"}))
+    config_file = tmp_path / "aws-config"
+    config_file.write_text("[profile saved-profile]\nregion = us-west-2\n")
+    # The SDK's own config lookup still reads the process; the profile choice must come from the contract.
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    monkeypatch.setattr("olf.infra.auth.aws._aws_instance_profile_available", lambda: False)
+    monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+    monkeypatch.setattr(
+        _preflight,
+        "load_provider_contracts_or_raise",
+        lambda _cfg: {
+            "shared": {"ops_storage": {"bucket_name": "ops"}},
+            "stages": {"prod": {"catalog": {"catalog_name": "lakehouse_prod"}}},
+        },
+    )
+    sessions: list[Any] = []
+
+    def capture(environ: Any, *, region: str | None = None) -> Any:
+        session = aws_session(environ, region=region)
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(_preflight, "aws_session", capture)
+    cfg = replace(
+        e2e_cfg(tmp_path, env="aws", suite="smoke"),
+        environ=_contract(
+            tmp_path, {"OLF_HOME": str(tmp_path / "olf-home"), "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_prod"}
+        ),
+    )
+
+    with pytest.raises(E2EError):  # the profile has no credentials; only the session it built is under test
+        _preflight.check_aws_storage_and_glue(cfg)
+
+    (session,) = sessions
+    assert (session.profile_name, session.region_name) == ("saved-profile", "eu-central-1")
