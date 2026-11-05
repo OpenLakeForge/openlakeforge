@@ -26,7 +26,7 @@ from olf.infra import access
 from olf.infra import openmetadata as om
 from olf.infra.deployment import artifact_steps
 from olf.infra.deployment.contract_env import ContractEnvironment
-from olf.infra.openmetadata import _bootstrap, _role_sync, _sso
+from olf.infra.openmetadata import _bootstrap, _role_sync, _sso, _stale_services
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 runner = CliRunner()
@@ -285,6 +285,7 @@ def test_bootstrap_logs_in_with_the_contract_admin_email_and_the_password_kubect
     monkeypatch.setattr(_bootstrap, "wait_healthy", lambda _base_url: None)
     monkeypatch.setattr(_bootstrap, "admin_client", admin_client)
     monkeypatch.setattr(_bootstrap, "_token_works", lambda *_a, **_k: True)  # the network edge
+    monkeypatch.setattr(_stale_services, "remove_legacy_services", lambda _client: None)
 
     result = runner.invoke(app, ["infra", "openmetadata", "bootstrap", "--om-url", "http://om.test"])
 

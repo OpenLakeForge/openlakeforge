@@ -171,7 +171,9 @@ def openmetadata_bootstrap(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
     om_url: str = typer.Option("", "--om-url", help="OpenMetadata URL; default is a port-forward to the service."),
-    sso: bool = typer.Option(False, "--sso", help="Also create the admin automation bot SSO needs."),
+    sso: bool = typer.Option(
+        False, "--sso", help="Also create the admin automation bot and the read-only signup baseline SSO needs."
+    ),
     catalog_service: str = typer.Option(
         "", "--catalog-service", help="Also seed OpenLineage, this lakehouse database service and its databases."
     ),
@@ -186,13 +188,18 @@ def openmetadata_bootstrap(
         list[str] | None, typer.Option("--schema", help="A schema every stage database holds; repeatable.")
     ] = None,
 ) -> None:
-    """Create the admin password, bots and, with --catalog-service, the catalog entities. Idempotent."""
+    """Create the admin password, bots and, with --catalog-service, the catalog entities. Idempotent.
+
+    Also removes the unqualified `dagster` and `superset` services registered before #131.
+    """
     from olf.infra import k8s
     from olf.infra import openmetadata as om
     from olf.infra.access import Route
     from olf.infra.commands.runtime import provider_contract_environment
     from olf.infra.openmetadata._bootstrap import bootstrap_auth
     from olf.infra.openmetadata._catalog_seed import CatalogSeed, bootstrap_catalog
+    from olf.infra.openmetadata._signup_baseline import restrict_signup_defaults
+    from olf.infra.openmetadata._stale_services import remove_legacy_services
 
     seed = (
         CatalogSeed(
@@ -214,6 +221,9 @@ def openmetadata_bootstrap(
         client = bootstrap_auth(route, namespace, email=email, sso=sso, environ=contract)
         if seed:
             bootstrap_catalog(client, seed)
+        remove_legacy_services(client)
+        if sso:
+            restrict_signup_defaults(client)
 
     with provider_contract_environment(
         provider=provider,
