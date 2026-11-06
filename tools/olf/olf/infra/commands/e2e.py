@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import typer
 
@@ -10,6 +11,12 @@ from olf.common.log import fail
 from olf.infra.commands._shared import applied_runtime_environment, deployment_context, deployment_context_for_profile
 
 app = typer.Typer(help="End-to-end environment validation.")
+durability_app = typer.Typer(help="Read-only check that data survived an upgrade or a restore; launches no pipeline.")
+app.add_typer(durability_app, name="durability")
+
+_STAGE = typer.Option("", "--stage", help="Stage to read: dev, uat, or prod. Defaults to dev.")
+_FILE = typer.Option("", "--file", "-f", help="Deployment Profile v1 path the deployment was created from.")
+_ROOT = typer.Option("", "--project-root", help="Writable project root; defaults to the current directory.")
 
 
 @app.command("run")
@@ -145,3 +152,59 @@ def e2e_stage_buckets(
     except (E2EError, DeploymentError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     print(json.dumps(objects, indent=1, sort_keys=True))
+
+
+def _run_durability(action: str, path: str, *, stage: str, profile_file: str, project_root: str) -> None:
+    from olf.common.deployment.errors import DeploymentError
+    from olf.infra import e2e
+
+    if profile_file:
+        context = deployment_context_for_profile(profile_file, stage=stage)
+        if context.provider.value != "local":
+            raise typer.Exit(
+                code=fail(f"{profile_file} targets provider {context.provider.value!r}; only local is supported.")
+            )
+    else:
+        context = deployment_context(
+            "local", profile="", namespace="", cluster_name="", project_root=project_root, stage=stage
+        )
+    try:
+        with applied_runtime_environment(context, env="local") as contract:
+            cfg = e2e.connect(
+                "local",
+                namespace=context.namespace,
+                shared_namespace=context.shared_namespace,
+                kube_context=contract.kube_context,
+                repo_root=context.paths.repo_root,
+                distribution_root=context.paths.distribution_root,
+                deployment=context,
+                environ=contract,
+            )
+            (e2e.capture_to_file if action == "capture" else e2e.verify_file)(cfg, Path(path))
+    except (e2e.E2EError, DeploymentError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+
+
+@durability_app.command("capture")
+def durability_capture(
+    output: str = typer.Option(..., "--output", help="Baseline file to write."),
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Record a stage's tables, runs, dashboards, entities, activation pointers and objects.
+
+    The baseline holds counts, ids and names, and is refused if it holds a Secret value.
+    """
+    _run_durability("capture", output, stage=stage, profile_file=profile_file, project_root=project_root)
+
+
+@durability_app.command("verify")
+def durability_verify(
+    baseline: str = typer.Option(..., "--baseline", help="Baseline file `capture` wrote."),
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Report everything the baseline held that is missing or changed; exits non-zero if anything is."""
+    _run_durability("verify", baseline, stage=stage, profile_file=profile_file, project_root=project_root)

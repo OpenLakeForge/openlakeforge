@@ -66,7 +66,7 @@ class FullAssertion:
     tier: Literal["core", "drill"] = "core"
 
 
-def run(
+def connect(
     env: Environment,
     *,
     suite: Suite | None = None,
@@ -78,7 +78,8 @@ def run(
     distribution_root: Path | None = None,
     deployment: Any = None,
     environ: Mapping[str, str],
-) -> None:
+) -> E2EConfig:
+    """The config for a run, with its tools checked and its kube context ready."""
     cfg = prepare_config(
         env,
         suite=suite,
@@ -95,6 +96,34 @@ def run(
     # kubectl does not expand "~": checks run with cfg.environ, so it carries the resolved path.
     cfg = dataclasses.replace(cfg, environ={**environ, "KUBECONFIG": str(kubeconfig)})
     prepare_kube_context(cfg, kubeconfig)
+    return cfg
+
+
+def run(
+    env: Environment,
+    *,
+    suite: Suite | None = None,
+    checks: Checks = "all",
+    namespace: str = "olf-dev",
+    shared_namespace: str = "",
+    kube_context: str = "",
+    repo_root: Path | None = None,
+    distribution_root: Path | None = None,
+    deployment: Any = None,
+    environ: Mapping[str, str],
+) -> None:
+    cfg = connect(
+        env,
+        suite=suite,
+        checks=checks,
+        namespace=namespace,
+        shared_namespace=shared_namespace,
+        kube_context=kube_context,
+        repo_root=repo_root,
+        distribution_root=distribution_root,
+        deployment=deployment,
+        environ=environ,
+    )
     check_pods_ready(cfg)
     if cfg.suite == "smoke":
         run_smoke(cfg)
