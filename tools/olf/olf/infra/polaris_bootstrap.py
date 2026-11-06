@@ -11,6 +11,8 @@ Credentials travel from the Polaris response straight into a Secret manifest on 
 
 from __future__ import annotations
 
+import hashlib
+import json
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,6 +28,10 @@ ROOT_CREDENTIALS_SECRET = "polaris-bootstrap-credentials"
 SEAWEEDFS_VENDING_ROLE = "arn:aws:iam::000000000000:role/polaris-vending"
 # The Dex module's GitHub connector id, which names the one principal every person's token maps to.
 DEX_CONNECTOR = "github"
+# The label the Trino chart puts on the coordinator and worker Deployments.
+TRINO_SELECTOR = "app.kubernetes.io/name=trino"
+# The pod-template annotation that names the Polaris credentials Trino's pods started with.
+TRINO_CREDENTIALS_ANNOTATION = "openlakeforge.io/polaris-credentials"
 DROP_WITH_PURGE = "polaris.config.drop-with-purge.enabled"
 MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
 MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
@@ -501,3 +507,31 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
         client = PolarisClient(root)
         client.login()
         run_bootstrap(client, plan, environ=environ)
+    _roll_trino_onto_its_credentials(plan, environ=environ)
+
+
+def trino_credentials(plan: BootstrapPlan) -> set[Credential]:
+    """The credentials Trino's pods read from their environment, so only at start: each stage's workload
+    catalog and, with people's access, each stage's people catalog."""
+    return {stage.trino for stage in plan.stages} | set(plan.person_access.people if plan.person_access else ())
+
+
+def _roll_trino_onto_its_credentials(plan: BootstrapPlan, *, environ: Mapping[str, str]) -> None:
+    """Restart Trino when the credentials it reads differ from those its pods started with.
+
+    Trino holds a catalog's credential from its start, so a rotated one fails every query on that catalog until
+    the pods restart. The pod template carries a digest of the credential Secrets: a run that changed none leaves
+    it, and so Trino, alone, and a run that failed after storing one is followed by a rerun that still restarts.
+    """
+    digest = hashlib.sha256()
+    for credential in sorted(trino_credentials(plan), key=lambda c: (c.namespace, c.secret)):
+        data = k8s.secret_data(credential.secret, credential.namespace, environ=environ)
+        digest.update(json.dumps([credential.namespace, credential.secret, data], sort_keys=True).encode())
+    namespace = plan.shared_namespace
+    changed = k8s.annotate_pod_templates(
+        TRINO_SELECTOR, namespace, TRINO_CREDENTIALS_ANNOTATION, digest.hexdigest(), environ=environ
+    )
+    if changed:
+        log.step(f"Restarting Trino in '{namespace}': its Polaris credentials changed...")
+    for deployment in changed:
+        k8s.wait_for_rollout(deployment, namespace, environ=environ)
