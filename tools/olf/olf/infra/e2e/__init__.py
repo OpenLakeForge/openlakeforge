@@ -12,7 +12,8 @@ restart and certificate renewal drills), and `_preflight`
 
 from __future__ import annotations
 
-from olf.infra.e2e._runner import run
+from olf.infra.e2e._durability import capture_to_file, verify_file
+from olf.infra.e2e._runner import connect, run
 from olf.infra.e2e._shell import E2EError
 
-__all__ = ["E2EError", "run"]
+__all__ = ["E2EError", "capture_to_file", "connect", "run", "verify_file"]

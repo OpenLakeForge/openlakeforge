@@ -16,6 +16,9 @@ for how a release is cut and verified.
 
 ### Added
 
+- `olf infra e2e durability capture` and `verify` record a local stage's tables, snapshot ids, Dagster runs,
+  Superset dashboards, OpenMetadata entities, activation pointer and bucket contents (key and size), then report
+  everything missing or changed afterwards, without launching a pipeline (#908).
 - A `gold_maintenance` Dagster job expires snapshots and removes orphan files of the Gold tables through
   Trino's Iceberg procedures, with the stage's dbt Trino identity and a dry run. Its `gold_maintenance_weekly`
   schedule exists only on prod and ships `STOPPED`, like Silver's. See `docs/architecture/floe-validation.md`.

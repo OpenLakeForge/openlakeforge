@@ -224,13 +224,26 @@ def stage_bucket_objects(
     `layers`, listed with the platform's S3 identity (the stage identities are
     denied each other's). Also the nightly's before/after view of a promotion,
     which must leave the target stage's buckets untouched."""
+    items = stage_bucket_items(provider_contracts, stage, layers, namespace=namespace, environ=environ)
+    return {path: item["ETag"] for path, item in items.items()}
+
+
+def stage_bucket_items(
+    provider_contracts: dict[str, Any],
+    stage: str,
+    layers: tuple[str, ...],
+    *,
+    namespace: str,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Mapping[str, Any]]:
+    """`<bucket>/<key>` -> the S3 listing entry (`ETag`, `Size`, ...) of every object `stage_bucket_objects` covers."""
     from botocore.exceptions import BotoCoreError, ClientError
 
     identity = _s3_identity(namespace, "seaweedfs-s3-creds", environ=environ)
     if identity is None:
         raise E2EError(f"no-copy probe: seaweedfs-s3-creds not found in {namespace}.")
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=environ)
-    objects: dict[str, str] = {}
+    objects: dict[str, Mapping[str, Any]] = {}
     with k8s.port_forward(
         "seaweedfs-s3", 8333, namespace, log_path=f"{log_prefix}-isolation-s3-admin.log", environ=environ
     ) as port:
@@ -240,7 +253,7 @@ def stage_bucket_objects(
             bucket = _stage_bucket(provider_contracts, stage, layer)
             try:
                 for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
-                    objects.update({f"{bucket}/{item['Key']}": item["ETag"] for item in page.get("Contents", [])})
+                    objects.update({f"{bucket}/{item['Key']}": item for item in page.get("Contents", [])})
             except (BotoCoreError, ClientError) as exc:
                 raise E2EError(f"could not list {stage}'s {layer} bucket {bucket!r}: {exc}") from exc
     return objects

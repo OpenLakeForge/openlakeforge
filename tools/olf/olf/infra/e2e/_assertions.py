@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 import urllib.parse
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +24,9 @@ from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password, automation_token
 
 
-def check_superset_dashboards(cfg: E2EConfig) -> None:
-    log.step("Checking Superset report imports...")
+@contextmanager
+def superset_client(cfg: E2EConfig) -> Iterator[SupersetClient]:
+    """A Superset client for this run's stage, reached through its service route."""
     assert cfg.superset_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
     with access.service_route(
@@ -40,11 +42,17 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
     ) as route:
         if not k8s.http_wait(f"{route.url}/health", attempts=90, delay=2, session=route.session()):
             raise E2EError("Superset endpoint did not become reachable.")
-        try:
-            password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context, environ=cfg.environ)
-            dashboards = route.client(SupersetClient, password=password).dashboards()
-        except ServiceClientError as exc:
-            raise E2EError(str(exc)) from exc
+        password = superset.admin_password_for(cfg.namespace, kube_context=cfg.kube_context, environ=cfg.environ)
+        yield route.client(SupersetClient, password=password)
+
+
+def check_superset_dashboards(cfg: E2EConfig) -> None:
+    log.step("Checking Superset report imports...")
+    try:
+        with superset_client(cfg) as client:
+            dashboards = client.dashboards()
+    except ServiceClientError as exc:
+        raise E2EError(str(exc)) from exc
     assert_superset_dashboards(dashboards, discovered_dashboards(cfg))
 
 
@@ -92,8 +100,10 @@ def assert_superset_dashboards(dashboards: list[Mapping[str, Any]], expected: Ma
         raise E2EError("missing Superset dashboards: " + ", ".join(missing))
 
 
-def check_openmetadata_assets(cfg: E2EConfig) -> None:
-    log.step("Checking OpenMetadata domains and data products...")
+@contextmanager
+def openmetadata_client(cfg: E2EConfig) -> Iterator[tuple[OpenMetadataClient, str | None]]:
+    """An OpenMetadata client for the shared platform, reached through its service route, and the automation token
+    it carries (None when it must log in as the admin)."""
     assert cfg.openmetadata_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-openmetadata-port-forward.log"
     with access.service_route(
@@ -110,7 +120,12 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         if not k8s.http_wait(f"{route.url}/api/v1/system/config/jwks", attempts=90, delay=2, session=route.session()):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
         token = automation_token(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
-        client = route.client(OpenMetadataClient, token=token)
+        yield route.client(OpenMetadataClient, token=token), token
+
+
+def check_openmetadata_assets(cfg: E2EConfig) -> None:
+    log.step("Checking OpenMetadata domains and data products...")
+    with openmetadata_client(cfg) as (client, token):
         password = (
             "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
         )
