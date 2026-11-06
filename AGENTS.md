@@ -299,7 +299,7 @@ protection — that 404 is not evidence that `main` is unprotected.
 When a change touches the deployed stack, verify at runtime as well:
 
 ```bash
-uv run --project tools/olf olf infra deploy
+uv run --project tools/olf olf infra deploy --provider local
 uv run --project tools/olf olf infra e2e run --env local
 ```
 
