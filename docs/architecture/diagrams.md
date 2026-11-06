@@ -43,8 +43,8 @@ show *how* it runs.
 
 ## Chart 1 — Cluster Pod Census
 
-*Every pod across the deployment's namespaces, grouped by service — verified with `helm template` against
-this repo's own values.*
+*Every pod across the deployment's namespaces, grouped by service — counted from this repo's Terraform
+modules and Helm values (`infra/terraform/environments/local/main.tf`, `infra/helm/values/local/`).*
 
 Thirty pods run at steady state for the Full preset with DEV and PROD and
 `spec.identity` set (the shape of `openlakeforge.conformance.yaml`). Per stage,
