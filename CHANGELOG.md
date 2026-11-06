@@ -140,6 +140,8 @@ for how a release is cut and verified.
   `olf-system` is not deleted), and Trino restarts to drop its HTTPS listener. Re-register the GitHub App (`olf infra secrets rotate github-app`) after a
   scheme change, because its callback URL names the scheme.
 
+- A GitHub Enterprise `identity.github.host` needs `spec.access.issuer: local-ca`: Dex reads its `rootCA` from the published local CA, which `none` no longer publishes. The plan refuses the combination.
+
 - If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3,
   and its shared services still run in the `lakehouse` namespace. The platform apply refuses to
   replace that namespace, because it would destroy the SeaweedFS, PostgreSQL and Polaris data inside
