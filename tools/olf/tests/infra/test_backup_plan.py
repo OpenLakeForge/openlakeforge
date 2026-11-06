@@ -25,7 +25,14 @@ def _contracts() -> ProviderContracts:
 
 
 def _slim(contracts: ProviderContracts) -> ProviderContracts:
-    stages = {name: replace(stage, reporting=None, governance=None) for name, stage in contracts.stages.items()}
+    # Without access, Trino workload authentication is off, so no query binding carries a CA ConfigMap.
+    no_tls = {"tls_port", "ca_configmap_name"}
+    stages = {
+        name: replace(
+            stage, reporting=None, governance=None, query={k: v for k, v in stage.query.items() if k not in no_tls}
+        )
+        for name, stage in contracts.stages.items()
+    }
     values = {key: value for key, value in contracts.shared.values.items() if key not in {"access", "identity"}}
     return replace(contracts, stages=stages, shared=replace(contracts.shared, values=values))
 
