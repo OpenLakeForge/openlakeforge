@@ -101,7 +101,7 @@ olf product new sales/accounts_report --input crm/accounts --gold-table mart_acc
 ## Deploy
 
 ```bash
-olf infra deploy --provider local
+olf infra deploy
 ```
 
 The first deploy takes several minutes while images download. `olf infra deploy`
@@ -124,7 +124,7 @@ Every phase reconciles what already exists, so running it again is safe.
 | `full` | Slim plus OpenMetadata (governance, lineage) and Superset (dashboards) |
 
 Set `preset: full` under `spec` in `openlakeforge.yaml` and run
-`olf infra deploy --provider local` again. The change applies in place: nothing
+`olf infra deploy` again. The change applies in place: nothing
 already deployed is removed. Setting `preset: slim` removes the two services
 the same way.
 
@@ -145,7 +145,7 @@ In a source checkout of the repository, the kubeconfig is
 ## Access the services
 
 ```bash
-olf infra status --provider local
+olf infra status
 ```
 
 The `URLs` section lists every service. With the default profile:
@@ -208,7 +208,7 @@ Polaris and SeaweedFS have no route. `olf infra forward` port-forwards every ser
 to fixed ports on `localhost` until you press Ctrl-C:
 
 ```bash
-olf infra forward --provider local
+olf infra forward
 ```
 
 | Port | Service |
@@ -243,13 +243,13 @@ until you deploy again without it.
 3. Deploy with the file:
 
    ```bash
-   olf infra deploy --provider local --var-file portal-preview.tfvars
+   olf infra deploy --var-file portal-preview.tfvars
    ```
 
 4. To go back to the pinned image, deploy without the file:
 
    ```bash
-   olf infra deploy --provider local
+   olf infra deploy
    ```
 
 The reference must be pinned by digest, or Terraform refuses the plan. `olf`
@@ -258,7 +258,7 @@ does not prefetch this image: the kind nodes pull it from the registry.
 ## Tear down
 
 ```bash
-olf infra destroy --provider local
+olf infra destroy
 ```
 
 It destroys the platform services, then the kind cluster. The cluster holds
@@ -269,13 +269,13 @@ cluster has a new CA: run `olf infra access trust` again.
 
 | To remove | Run |
 | --- | --- |
-| Only the platform, keeping the cluster | `olf infra destroy --provider local --phase platform` |
-| Only the cluster, after the platform | `olf infra destroy --provider local --phase foundation` |
+| Only the platform, keeping the cluster | `olf infra destroy --phase platform` |
+| Only the cluster, after the platform | `olf infra destroy --phase foundation` |
 | The managed toolchain under `~/.openlakeforge` | `olf toolchain clean --all` |
 
 `--phase foundation` refuses to run while platform namespaces exist; `--force`
 overrides that and loses them. After `--phase platform`, bring the platform
-back with `olf infra deploy --provider local --phase platform`, then
+back with `olf infra deploy --phase platform`, then
 `--phase artifacts`.
 
 ## Contributor checkout
@@ -286,7 +286,7 @@ commands through uv from its root:
 ```bash
 git clone https://github.com/OpenLakeForge/openlakeforge.git
 cd openlakeforge
-uv run --project tools/olf --locked olf infra deploy --provider local
+uv run --project tools/olf --locked olf infra deploy
 ```
 
 The contributor workflow and its gates are in
