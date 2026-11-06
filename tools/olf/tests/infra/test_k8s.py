@@ -339,3 +339,132 @@ def test_kubectl_does_not_get_back_a_variable_the_contract_unset(
 
     assert k8s.exec_succeeds("dep", "ns", ["true"], environ=contract)
     assert not k8s.exec_succeeds("dep", "ns", ["true"], environ=environ)
+
+
+def test_exec_to_file_streams_stdout_to_the_file_and_reports_stderr_on_failure(
+    monkeypatch: pytest.MonkeyPatch, fake_kubectl: Path, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("KUBE_CONTEXT", "ctx")
+    destination = tmp_path / "out.dump"
+
+    k8s.exec_to_file("postgresql-0", "olf-system", ["pg_dump", "db"], destination, container="postgresql")
+
+    assert (
+        destination.read_text() == "args: --context ctx exec postgresql-0 -n olf-system -c postgresql -- pg_dump db\n"
+    )
+
+    monkeypatch.setenv("FAKE_KUBECTL_RC", "1")
+    with pytest.raises(k8s.KubectlError, match=r"pg_dump failed: err$"):
+        k8s.exec_to_file("postgresql-0", "olf-system", ["pg_dump", "db"], destination)
+
+
+def test_a_deployment_scaled_to_zero_reports_the_replicas_it_remembered(monkeypatch: pytest.MonkeyPatch) -> None:
+    items = [
+        {"metadata": {"name": "up"}, "spec": {"replicas": 2}},
+        {"metadata": {"name": "down", "annotations": {k8s.REPLICAS_ANNOTATION: "3"}}, "spec": {"replicas": 0}},
+        {"metadata": {"name": "never"}, "spec": {"replicas": 0}},
+    ]
+    monkeypatch.setattr(k8s, "_kubectl", lambda *_a, **_k: json.dumps({"items": items}))
+
+    assert k8s.deployment_replica_counts("olf-dev") == {"up": 2, "down": 3, "never": 0}
+
+
+class _FakeDeployment:
+    """One Deployment as the API server holds it: replicas, annotations and the pods actually running.
+
+    A scale changes only the desired count. Surplus pods terminate one per `get pods` poll, unless `stuck`;
+    `rollout status` returns once the running pods match the desired count.
+    """
+
+    def __init__(self, name: str, replicas: int, *, stuck: bool = False) -> None:
+        self.name, self.replicas, self.pods, self.stuck = name, replicas, replicas, stuck
+        self.annotations: dict[str, str] = {}
+
+    def kubectl(self, args: list[str], **_: object) -> str:
+        if args[0] == "annotate":
+            change = args[4]
+            if change.endswith("-"):
+                self.annotations.pop(change[:-1], None)
+            else:
+                key, value = change.split("=", 1)
+                self.annotations[key] = value
+        elif args[0] == "scale":
+            self.replicas = int(args[2].removeprefix("--replicas="))
+        elif args[:2] == ["rollout", "status"]:
+            self.pods = self.replicas
+        elif args[:2] == ["get", "pods"]:
+            running = "".join(f"pod/{self.name}-{i}\n" for i in range(self.pods))
+            if self.pods > self.replicas and not self.stuck:
+                self.pods -= 1
+            return running
+        elif "jsonpath={.spec.selector.matchLabels}" in args:
+            return json.dumps({"app": self.name})
+        elif args[:2] == ["get", "deployment"]:
+            item = {
+                "metadata": {"name": self.name, "annotations": self.annotations},
+                "spec": {"replicas": self.replicas},
+            }
+            return json.dumps({"items": [item]})
+        return ""
+
+
+def test_scale_to_zero_returns_only_once_the_pods_are_gone(monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon = _FakeDeployment("dagster-daemon", 2)
+    monkeypatch.setattr(k8s, "_kubectl", daemon.kubectl)
+
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 0, poll_seconds=0)
+
+    assert (daemon.replicas, daemon.pods) == (0, 0)
+
+
+def test_scale_to_zero_fails_when_the_pods_never_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon = _FakeDeployment("dagster-daemon", 1, stuck=True)
+    monkeypatch.setattr(k8s, "_kubectl", daemon.kubectl)
+
+    with pytest.raises(k8s.KubectlError, match="did not stop"):
+        k8s.scale_deployment("dagster-daemon", "olf-dev", 0, timeout_seconds=0, poll_seconds=0)
+
+
+def test_scale_up_returns_once_the_rollout_has_the_pods_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Stuck pods would make a wait-for-pods-to-go loop time out at once; a scale-up must wait on the rollout.
+    daemon = _FakeDeployment("dagster-daemon", 0, stuck=True)
+    monkeypatch.setattr(k8s, "_kubectl", daemon.kubectl)
+
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 1, timeout_seconds=0, poll_seconds=0)
+
+    assert (daemon.replicas, daemon.pods) == (1, 1)
+
+
+def test_a_deployment_scaled_to_zero_with_remember_still_reports_its_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    superset = _FakeDeployment("superset", 2)
+    monkeypatch.setattr(k8s, "_kubectl", superset.kubectl)
+
+    k8s.scale_deployment("superset", "olf-dev", 0, remember=2, poll_seconds=0)
+
+    # A rerun after an interruption here reads the count back from the Deployment, not from the caller.
+    assert superset.replicas == 0
+    assert k8s.deployment_replica_counts("olf-dev") == {"superset": 2}
+
+
+def test_scaling_back_up_with_remember_zero_drops_the_remembered_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    superset = _FakeDeployment("superset", 2)
+    monkeypatch.setattr(k8s, "_kubectl", superset.kubectl)
+    k8s.scale_deployment("superset", "olf-dev", 0, remember=2, poll_seconds=0)
+
+    k8s.scale_deployment("superset", "olf-dev", 2, remember=0)
+
+    assert superset.replicas == 2
+    assert k8s.REPLICAS_ANNOTATION not in superset.annotations
+    # Scaled to 0 later by someone else, it no longer reports the count this scale-down remembered.
+    superset.replicas = 0
+    assert k8s.deployment_replica_counts("olf-dev") == {"superset": 0}
+
+
+def test_scaling_without_remember_leaves_no_annotation(monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon = _FakeDeployment("dagster-daemon", 1)
+    monkeypatch.setattr(k8s, "_kubectl", daemon.kubectl)
+
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 0, poll_seconds=0)
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 1)
+
+    assert daemon.annotations == {}
