@@ -26,7 +26,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Gold | The business layer: marts that dbt-trino builds from Silver. Namespace `<product>_gold`. |
 | Iceberg | The open table format for Silver and Gold tables. |
 | Identity | The `spec.identity` block: which OIDC issuer signs people in (`github` or `external`) and how its claims map to canonical roles. Without it, authentication is off. |
-| Issuer (access) | `spec.access.issuer`: the certificate issuer for the routes. `local-ca` signs with a local CA; `none` serves plain HTTP. |
+| Issuer (access) | `spec.access.issuer`: the certificate issuer for the routes. `none` (the local default) serves plain HTTP and deploys no cert-manager or CA; `local-ca` signs with a CA the platform creates. |
 | Issuer (identity) | `spec.identity.issuer`: the OIDC issuer, `github` or `external`. |
 | Lakehouse | The whole project: the sources, domains, products and dashboards that `lakehouse_code/` holds, with domains and products named in `governance.yml`. |
 | Medallion layers | Bronze, Silver and Gold: three layers, each owned by one tool. |

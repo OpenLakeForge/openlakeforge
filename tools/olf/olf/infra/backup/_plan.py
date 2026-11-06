@@ -73,11 +73,9 @@ def plan_from_contract(
             secrets.append((shared_namespace, "openmetadata-automation-bot"))
     if github_oauth_secret:
         secrets.append((shared_namespace, github_oauth_secret))
-    # cert-manager, and so the local CA, exists for TLS ingress or for Trino's own certificate
-    # (`environments/local/main.tf`, module "cert_manager"); a port-forward deployment has neither.
-    ingress = (shared.get("access") or {}).get("implementation") == "access.ingress"
-    trino_tls = any(stage.query.get("ca_configmap_name") for stage in stages)
-    if ingress or trino_tls:
+    # cert-manager, and so the local CA, is deployed only for the `local-ca` issuer
+    # (`environments/local/main.tf`, module "cert_manager"); `none` and a port-forward deployment have neither.
+    if (shared.get("access") or {}).get("issuer") == "local-ca":
         secrets.append((shared_namespace, LOCAL_CA_SECRET))
 
     return BackupPlan(

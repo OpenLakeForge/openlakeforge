@@ -230,9 +230,9 @@ variable "access_base_domain" {
 }
 
 variable "access_issuer" {
-  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` serves every route over plain HTTP: no route certificates and no browser-facing CA."
+  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` serves every route over plain HTTP: no cert-manager, no route certificates and no CA. `local-ca` adds all three."
   type        = string
-  default     = "local-ca"
+  default     = "none"
 
   validation {
     condition     = contains(["local-ca", "none"], var.access_issuer)

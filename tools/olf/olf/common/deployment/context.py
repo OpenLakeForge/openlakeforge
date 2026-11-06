@@ -150,15 +150,23 @@ class DeploymentPaths:
 class DeploymentFeatures:
     governance_enabled: bool
     analytics_enabled: bool
+    # Routes are served over HTTPS, so cert-manager and its images are needed. True unless the topology says
+    # otherwise, so a caller that builds features by hand keeps the full set.
+    route_tls: bool = True
+
+    @staticmethod
+    def _route_tls(topology: DeploymentTopology) -> bool:
+        return topology.access is not None and topology.access.issuer != "none"
 
     @classmethod
     def for_stage(cls, topology: DeploymentTopology, stage: StageName) -> DeploymentFeatures:
         resolved = topology.stage(stage)
         if resolved is None or not resolved.enabled:
-            return cls(governance_enabled=False, analytics_enabled=False)
+            return cls(governance_enabled=False, analytics_enabled=False, route_tls=cls._route_tls(topology))
         return cls(
             governance_enabled=resolved.capabilities.governance,
             analytics_enabled=resolved.capabilities.analytics,
+            route_tls=cls._route_tls(topology),
         )
 
     @classmethod
@@ -173,6 +181,7 @@ class DeploymentFeatures:
         return cls(
             governance_enabled=any(stage.capabilities.governance for stage in enabled),
             analytics_enabled=any(stage.capabilities.analytics for stage in enabled),
+            route_tls=cls._route_tls(topology),
         )
 
 

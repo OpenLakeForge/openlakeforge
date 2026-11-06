@@ -174,3 +174,28 @@ def test_only_the_submission_carries_the_extra_credentials_and_each_page_a_fresh
         "test",
     )
     assert fake.calls[0]["allow_redirects"] is False
+
+
+def test_basic_credentials_authenticate_a_workload_principal_and_replace_the_bearer() -> None:
+    import base64
+
+    fake = FakeTrino(_page([[1]], f"{URL}/1"), _page([[2]], columns=False))
+    client = TrinoStatementClient(
+        URL, catalog="dev", user="olf-prod-runtime", source="test", send=fake, basic=("olf-dev-runtime", "s3cret")
+    )
+
+    client.run("SELECT 1", bearer=lambda: SECRET)
+
+    expected = "Basic " + base64.b64encode(b"olf-dev-runtime:s3cret").decode()
+    assert [call["headers"]["Authorization"] for call in fake.calls] == [expected, expected]
+    # The claimed user is the client's, apart from the authenticated principal.
+    assert {call["headers"]["X-Trino-User"] for call in fake.calls} == {"olf-prod-runtime"}
+    assert SECRET not in json.dumps([call["headers"] for call in fake.calls])
+
+
+def test_no_bearer_and_no_basic_credentials_send_no_authorization_header() -> None:
+    fake = FakeTrino(_page([[1]]))
+
+    _client(fake).run("SELECT 1", bearer=lambda: "")
+
+    assert "Authorization" not in fake.calls[0]["headers"]

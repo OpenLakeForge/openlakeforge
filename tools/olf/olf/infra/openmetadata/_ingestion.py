@@ -44,6 +44,8 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
     }
     if _password_secret(environ):
         connection["authType"] = {"password": _PASSWORD_PLACEHOLDER}
+        # The `trino` client (0.339 and later) refuses a password over HTTP unless told the network is trusted.
+        connection["connectionArguments"] = {"allow_insecure_auth": True}
     return {
         "source": {
             "type": "trino",

@@ -124,10 +124,10 @@ class ProviderSpec:
 class AccessSpec:
     """Where user-facing services are published (ADR 0013). Declaring the block
     turns the ingress on; the defaults are the local install: `*.olf.localhost`
-    names and a local CA. Without the block there is no ingress at all."""
+    names over plain HTTP. Without the block there is no ingress at all."""
 
     base_domain: str = "olf.localhost"
-    issuer: str = "local-ca"
+    issuer: str = "none"
 
 
 def is_secret_name(value: object) -> bool:
@@ -439,7 +439,10 @@ def _validate_access(document: object, *, source: str, provider: Provider) -> Ac
     base_domain = document.get("base_domain", defaults.base_domain)
     if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
         raise DeploymentProfileError(f"{source}: spec.access.base_domain must be a lowercase DNS name with a dot")
-    issuer = _identifier(document.get("issuer", defaults.issuer), field="spec.access.issuer", source=source)
+    # Plain HTTP is only valid on the local provider, so the other providers (whose roots do not read the
+    # block) keep the issuer a real install would name.
+    default_issuer = defaults.issuer if provider == Provider.LOCAL else "local-ca"
+    issuer = _identifier(document.get("issuer", default_issuer), field="spec.access.issuer", source=source)
     # Plain HTTP is safe only where the browser treats the host as loopback and a
     # secure context: *.localhost, on the local kind cluster (ADR 0013).
     if issuer == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):

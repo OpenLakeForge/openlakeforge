@@ -11,7 +11,7 @@ show *how* it runs.
 
 | **30** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — Full preset, DEV + PROD, identity on: 23 Deployments, 7 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — Full preset, DEV + PROD, identity on, `issuer: local-ca`: 23 Deployments, 7 StatefulSets (three Deployments fewer with the default `issuer: none`, which deploys no cert-manager) | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
@@ -56,8 +56,9 @@ enabled stage and per stage with analytics (`for_each` in
 Shared, SeaweedFS runs four (three StatefulSets and an S3-gateway Deployment),
 OpenMetadata two, and PostgreSQL, Polaris and Trino one each. Trino is
 deliberately coordinator-only at the default `spec.query.size`. The ingress adds
-five single-replica Deployments in `olf-system`: Traefik, the cert-manager
-controller, cainjector, and webhook, and the portal, which serves the landing
+five single-replica Deployments in `olf-system` (two with the default plain-HTTP
+routes): Traefik and the portal, plus, only with `issuer: local-ca`, the cert-manager
+controller, cainjector and webhook. The portal serves the landing
 page at the base domain. With `spec.identity` the identity row adds four more:
 Dex, one oauth2-proxy per distinct role floor (two: `viewer` and
 `data-engineer`, from `release/identity-roles.yaml`) and the platform API,

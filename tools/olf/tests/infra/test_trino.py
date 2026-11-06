@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
+import contextlib
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -37,117 +41,143 @@ def test_only_aws_prefixes_glue_namespaces() -> None:
     assert trino.glue_namespace_prefix("local", "lakehouse_dev") == ""
 
 
-def test_exec_args_set_the_stage_catalog_as_the_session_default() -> None:
-    args = trino.exec_args(_target(), "SELECT 1", output_format="ALIGNED")
+class _Response:
+    def __init__(self, status: int, body: dict[str, Any] | None = None) -> None:
+        self.status_code = status
+        self._body = body
 
-    assert args[args.index("--catalog") + 1] == "lakehouse_prod"
-    assert args[args.index("--user") + 1] == "olf-prod-runtime"
-    assert args[args.index("-n") + 1] == "olf-system"
-    assert args[-2:] == ["--execute", "SELECT 1"]
+    def json(self) -> dict[str, Any]:
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
 
 
-@pytest.mark.parametrize(
-    ("stderr", "expected"),
-    [
-        ("Query failed: Access Denied: Cannot select from table x", "denied the query for olf-prod-runtime"),
-        ("Query failed: Catalog 'lakehouse_prod' does not exist", "does not look deployed"),
-        ('Error from server (NotFound): deployments.apps "trino-coordinator" not found', "does not look deployed"),
-        ("Query failed: line 1:8: Column 'x' cannot be resolved", "Column 'x' cannot be resolved"),
-    ],
-)
-def test_run_sql_explains_failures(stderr: str, expected: str) -> None:
+class _Trino:
+    """A transport that records each request and answers the first with `body`."""
+
+    def __init__(self, body: dict[str, Any] | None = None, *, status: int = 200) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self._answer = _Response(
+            status,
+            body
+            if body is not None
+            else {"id": "q1", "columns": [{"name": "c", "type": "integer"}], "data": [[1], [2]]},
+        )
+
+    def __call__(self, method: str, url: str, *, headers: dict[str, str], data: bytes | None = None, **_: Any):  # noqa: ANN204
+        self.requests.append({"method": method, "url": url, "headers": headers, "sql": data})
+        return self._answer
+
+    @property
+    def first(self) -> dict[str, Any]:
+        return self.requests[0]
+
+
+@contextlib.contextmanager
+def _forward(_target: trino.TrinoTarget, _environ: object) -> Iterator[int]:
+    yield 18080
+
+
+def _run(trino_service: _Trino, *, runner=None, **kwargs: Any) -> str:  # noqa: ANN001
+    kwargs.setdefault("output_format", "csv")
+    return trino.run_sql(
+        _target(), "SELECT 1", kubectl="kubectl", runner=runner, forward=_forward, send=trino_service, **kwargs
+    )
+
+
+def _lookup_runner(password: str):  # noqa: ANN202
     def runner(command, stdin):  # noqa: ANN001, ANN202
-        return _result(command, 1, stdout="", stderr=stderr)
+        return _result(command, 0, stdout=base64.b64encode(password.encode()).decode(), stderr="")
 
-    with pytest.raises(trino.TrinoQueryError, match=expected):
-        trino.run_sql(_target(), "SELECT 1", output_format="ALIGNED", kubectl="kubectl", runner=runner)
-
-
-@pytest.mark.parametrize(
-    ("stdout", "stderr", "expected"),
-    [
-        ("Query failed: line 1:8: Column 'x' cannot be resolved", "", "Column 'x' cannot be resolved"),
-        ("", "", "the query failed without any output."),
-    ],
-)
-def test_run_sql_falls_back_when_stderr_is_empty(stdout: str, stderr: str, expected: str) -> None:
-    def runner(command, stdin):  # noqa: ANN001, ANN202, ARG001
-        return _result(command, 1, stdout=stdout, stderr=stderr)
-
-    with pytest.raises(trino.TrinoQueryError) as exc_info:
-        trino.run_sql(_target(), "SELECT 1", output_format="ALIGNED", kubectl="kubectl", runner=runner)
-
-    assert expected in str(exc_info.value)
+    return runner
 
 
-def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
-    seen: list[list[str]] = []
-
-    def runner(command, stdin):  # noqa: ANN001, ANN202
-        seen.append(list(command))
-        return _result(command, 0, stdout="" if "get" in command else "42\n", stderr="")
-
-    assert trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner) == "42\n"
-    assert all(command[:3] == ["kubectl", "--context", "kind-openlakeforge-local"] for command in seen)
+def _basic(headers: dict[str, str]) -> tuple[str, str]:
+    scheme, _, encoded = headers["Authorization"].partition(" ")
+    assert scheme == "Basic"
+    user, _, password = base64.b64decode(encoded).decode().partition(":")
+    return user, password
 
 
-def test_run_sql_reads_no_secret_and_sends_no_stdin_without_a_named_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_sql_sends_the_statement_to_the_forwarded_port_as_the_stage_runtime_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
-    calls: list[tuple[list[str], str]] = []
+    service = _Trino()
+
+    assert _run(service) == "c\n1\n2\n"
+    assert service.first["url"] == "http://127.0.0.1:18080/v1/statement"
+    assert service.first["sql"] == b"SELECT 1"
+    assert service.first["headers"]["X-Trino-Catalog"] == "lakehouse_prod"
+    assert service.first["headers"]["X-Trino-User"] == "olf-prod-runtime"
+
+
+def test_run_sql_reads_no_secret_and_sends_no_credential_without_a_named_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    service = _Trino()
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
-        calls.append((list(command), stdin))
-        return _result(command, 0, stdout="1\n", stderr="")
+        raise AssertionError(f"kubectl must not run: {command}")
 
-    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
+    _run(service, runner=runner)
 
-    ((query, stdin),) = calls
-    assert "get" not in query
-    assert stdin == ""
+    assert "Authorization" not in service.first["headers"]
 
 
-def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    import base64
-
+def test_run_sql_authenticates_as_the_principal_with_the_password_from_its_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
-
-    calls: list[tuple[list[str], str]] = []
+    service = _Trino()
+    looked_up: list[list[str]] = []
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
-        calls.append((list(command), stdin))
-        stdout = base64.b64encode(b"s3cret").decode() if "get" in command else "1\n"
-        return _result(command, 0, stdout=stdout, stderr="")
+        looked_up.append(list(command))
+        return _lookup_runner("s3cret")(command, stdin)
 
-    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
+    _run(service, runner=runner)
 
-    (lookup, _), (query, stdin) = calls
-    assert "trino-credential-olf-prod-runtime" in lookup
-    assert stdin == "s3cret\n"
-    assert not any("s3cret" in part for part in query)
+    assert "trino-credential-olf-prod-runtime" in looked_up[0]
+    assert looked_up[0][:3] == ["kubectl", "--context", "kind-openlakeforge-local"]
+    assert _basic(service.first["headers"]) == ("olf-prod-runtime", "s3cret")
+    assert "s3cret" not in service.first["url"]
 
 
-def test_the_pod_script_reads_the_password_only_when_the_pod_enforces_one(tmp_path: Path) -> None:
-    import subprocess as sp
+def test_a_claimed_session_user_is_sent_apart_from_the_authenticated_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    service = _Trino()
 
-    (tmp_path / "trino").write_text('#!/bin/sh\nprintf "%s|%s\\n" "$TRINO_PASSWORD" "$*"\n')
-    (tmp_path / "trino").chmod(0o755)
-    password_file = tmp_path / "password.db"
+    _run(service, runner=_lookup_runner("s3cret"), session_user="olf-dev-runtime")
 
-    def run(stdin: str) -> str:
-        script = trino.cli_script(str(tmp_path / "absent-ca")).replace(trino.TRINO_PASSWORD_FILE, str(password_file))
-        return sp.run(
-            ["sh", "-c", script, "trino", "--user", "u"],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            check=True,
-            env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
-        ).stdout.strip()
+    assert service.first["headers"]["X-Trino-User"] == "olf-dev-runtime"
+    assert _basic(service.first["headers"])[0] == "olf-prod-runtime"
 
-    assert run("ignored\n") == "|--user u"
-    password_file.write_text("u hash")
-    assert run("pw\n") == "pw|--password --user u"
-    assert run("\n") == "|--user u"
+
+def _no_secret_runner(command, stdin):  # noqa: ANN001, ANN202
+    raise AssertionError("an explicit password needs no Secret")
+
+
+def test_an_explicit_password_replaces_the_one_in_the_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    service = _Trino()
+
+    _run(service, runner=_no_secret_runner, password="wrong")
+
+    assert _basic(service.first["headers"]) == ("olf-prod-runtime", "wrong")
+
+
+def test_an_empty_password_sends_no_credential_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    service = _Trino()
+
+    _run(service, runner=_no_secret_runner, password="")
+
+    assert "Authorization" not in service.first["headers"]
+    assert service.first["headers"]["X-Trino-User"] == "olf-prod-runtime"
 
 
 def test_run_sql_stops_when_the_password_secret_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,31 +188,111 @@ def test_run_sql_stops_when_the_password_secret_cannot_be_read(monkeypatch: pyte
         calls.append(list(command))
         return _result(command, 1, stdout="", stderr="forbidden")
 
+    service = _Trino()
     with pytest.raises(trino.TrinoQueryError, match=r"(?s)trino-credential-olf-prod-runtime.*RBAC"):
-        trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
-    assert len(calls) == 1
+        _run(service, runner=runner)
+    assert len(calls) == 1 and service.requests == []
 
 
 def test_run_sql_reads_the_credential_secret_from_the_given_environ(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "from-os-environ")
-    calls: list[list[str]] = []
+    service = _Trino()
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
-        calls.append(list(command))
-        return _result(command, 0, stdout="1\n", stderr="")
+        raise AssertionError("the given environ names no credential")
 
-    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner, environ={})
+    _run(service, runner=runner, environ={})
 
-    assert len(calls) == 1 and "get" not in calls[0]
+    assert "Authorization" not in service.first["headers"]
 
 
 def test_default_runner_gives_the_kubectl_child_the_given_environ(tmp_path: Path) -> None:
     script = tmp_path / "kubectl"
-    script.write_text('#!/bin/sh\necho "kc=$KUBECONFIG"\n')
+    script.write_text('#!/bin/sh\nprintf "%s" "$KUBECONFIG" | base64\n')
     script.chmod(0o755)
+    service = _Trino()
 
-    out = trino.run_sql(
-        _target(), "SELECT 1", output_format="CSV_HEADER", kubectl=str(script), environ={"KUBECONFIG": "/given"}
+    trino.run_sql(
+        _target(),
+        "SELECT 1",
+        output_format="csv",
+        kubectl=str(script),
+        environ={"KUBECONFIG": "/given", "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential"},
+        forward=_forward,
+        send=service,
     )
 
-    assert out == "kc=/given\n"
+    assert _basic(service.first["headers"]) == ("olf-prod-runtime", "/given")
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Access Denied: Cannot select from table x", "denied the query for olf-prod-runtime"),
+        ("Catalog 'lakehouse_prod' does not exist", "does not look deployed"),
+        ("line 1:8: Column 'x' cannot be resolved", "Column 'x' cannot be resolved"),
+    ],
+)
+def test_run_sql_explains_a_failed_query(monkeypatch: pytest.MonkeyPatch, message: str, expected: str) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    service = _Trino({"error": {"message": message, "errorName": "X"}})
+
+    with pytest.raises(trino.TrinoQueryError, match=expected):
+        _run(service)
+
+
+def test_run_sql_reports_a_refused_credential_with_the_http_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+
+    with pytest.raises(trino.TrinoQueryError, match="401"):
+        _run(_Trino(status=401))
+
+
+def test_run_sql_explains_a_port_forward_that_never_started(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+
+    @contextlib.contextmanager
+    def failing(_target: trino.TrinoTarget, _environ: object) -> Iterator[int]:
+        raise trino.k8s.KubectlError("Unable to connect to the server")
+        yield 0  # pragma: no cover
+
+    with pytest.raises(trino.TrinoQueryError, match="cannot reach the cluster"):
+        trino.run_sql(_target(), "SELECT 1", output_format="csv", kubectl="kubectl", forward=failing, send=_Trino())
+
+
+@pytest.mark.parametrize(
+    ("output_format", "expected"),
+    [
+        ("bare", "1,x\n2,\n"),
+        ("csv", "a,b\n1,x\n2,\n"),
+    ],
+)
+def test_results_render_for_scripts_and_for_people(output_format: str, expected: str) -> None:
+    result = trino.statements.TrinoResult(["a", "b"], [[1, "x"], [2, None]])
+
+    assert trino.render(result, output_format) == expected
+
+
+def test_bare_output_prints_booleans_as_trino_does() -> None:
+    result = trino.statements.TrinoResult(["a"], [[True], [False]])
+
+    assert trino.render(result, "bare") == "true\nfalse\n"
+
+
+def test_the_default_forward_targets_the_coordinator_service_in_its_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    @contextlib.contextmanager
+    def port_forward(service: str, remote_port: int, namespace: str, **kwargs: Any) -> Iterator[int]:
+        seen.update(service=service, remote_port=remote_port, namespace=namespace, **kwargs)
+        yield 4242
+
+    monkeypatch.setattr(trino.k8s, "port_forward", port_forward)
+    environ = {"KUBECONFIG": "/given"}
+
+    with trino._port_forward(_target(), environ) as port:
+        assert port == 4242
+
+    assert (seen["service"], seen["remote_port"], seen["namespace"]) == ("trino", 8080, "olf-system")
+    assert seen["kube_context"] == "kind-openlakeforge-local"
+    assert seen["environ"] is environ

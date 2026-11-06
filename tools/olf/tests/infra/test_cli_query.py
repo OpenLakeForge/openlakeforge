@@ -40,7 +40,7 @@ def _unexpected_toolchain_lookup(**_kwargs: object) -> None:
 def calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     seen: list[dict] = []
 
-    def run_sql(target, sql, *, output_format, kubectl, runner=None, environ=None):  # noqa: ANN001, ANN202, ARG001
+    def run_sql(target, sql, *, output_format, kubectl, **_kwargs):  # noqa: ANN001, ANN202, ARG001
         seen.append({"target": target, "sql": sql, "format": output_format})
         return "ok\n"
 
@@ -73,7 +73,7 @@ def test_query_runs_against_the_selected_stage_catalog(tmp_path: Path, calls: li
         "lakehouse_prod",
         "olf-system",
     )
-    assert call["format"] == "CSV_HEADER"
+    assert call["format"] == "csv"
 
 
 def test_query_reads_the_sql_from_a_file(tmp_path: Path, calls: list[dict]) -> None:

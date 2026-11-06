@@ -69,7 +69,11 @@ resource "kubernetes_config_map_v1_data" "corefile" {
   force         = true
 }
 
+# The CA is published only for HTTPS routes: with plain HTTP there is no
+# certificate to trust, and cert-manager is not deployed.
 resource "kubernetes_service_account_v1" "publish_ca" {
+  count = var.publish_ca ? 1 : 0
+
   metadata {
     name      = "publish-local-ca"
     namespace = var.namespace
@@ -78,7 +82,7 @@ resource "kubernetes_service_account_v1" "publish_ca" {
 }
 
 resource "kubernetes_role_v1" "publish_ca" {
-  for_each = toset(local.trust_namespaces)
+  for_each = toset(var.publish_ca ? local.trust_namespaces : [])
 
   metadata {
     name      = "publish-local-ca"
@@ -120,12 +124,14 @@ resource "kubernetes_role_binding_v1" "publish_ca" {
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account_v1.publish_ca.metadata[0].name
+    name      = kubernetes_service_account_v1.publish_ca[0].metadata[0].name
     namespace = var.namespace
   }
 }
 
 resource "kubernetes_job_v1" "publish_ca" {
+  count = var.publish_ca ? 1 : 0
+
   metadata {
     name      = "publish-local-ca-${local.publish_revision}"
     namespace = var.namespace
@@ -145,7 +151,7 @@ resource "kubernetes_job_v1" "publish_ca" {
 
       spec {
         restart_policy       = "Never"
-        service_account_name = kubernetes_service_account_v1.publish_ca.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.publish_ca[0].metadata[0].name
 
         container {
           name    = "publish"
@@ -195,4 +201,14 @@ resource "kubernetes_job_v1" "publish_ca" {
   }
 
   depends_on = [kubernetes_role_binding_v1.publish_ca]
+}
+
+moved {
+  from = kubernetes_service_account_v1.publish_ca
+  to   = kubernetes_service_account_v1.publish_ca[0]
+}
+
+moved {
+  from = kubernetes_job_v1.publish_ca
+  to   = kubernetes_job_v1.publish_ca[0]
 }

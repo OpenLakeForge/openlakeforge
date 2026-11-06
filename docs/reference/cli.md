@@ -72,7 +72,7 @@ All `new` commands validate the result before writing and accept
 | `olf infra plan` | Show the Terraform plan of the foundation or platform. |
 | `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |
-| `olf infra access trust` | Export the local CA and print the commands to trust it. |
+| `olf infra access trust` | Export the local CA and print the commands to trust it. Only for `issuer: local-ca`; plain HTTP has no CA. |
 | `olf infra github connect` | Create the GitHub App for sign-in and store its credentials. |
 | `olf infra auth login\|status\|logout --provider aws\|azure` | Authenticate to a cloud through its SDK. |
 | `olf infra diagnostics collect <dir>` | Write host and cluster evidence for a bug report (`--namespace`, `--kube-context`). |

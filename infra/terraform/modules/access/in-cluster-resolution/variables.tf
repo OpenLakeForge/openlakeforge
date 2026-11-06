@@ -36,3 +36,9 @@ variable "trust_namespace_uids" {
   type        = list(string)
   default     = []
 }
+
+variable "publish_ca" {
+  description = "Publish the local CA root as a ConfigMap in every trust namespace. False when the routes are plain HTTP: there is no certificate to trust and the CA does not exist."
+  type        = bool
+  default     = true
+}

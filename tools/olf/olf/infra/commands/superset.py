@@ -101,6 +101,7 @@ def deploy_superset_reports(stage: str = "", environ: Mapping[str, str] | None =
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin", environ=environ),
         admin_password=config.env("SUPERSET_ADMIN_PASSWORD", environ=environ),
         schema_prefix=target.schema_prefix,
+        extra=target.extra,
         credential_secret=target.credential_secret,
         environ=environ,
     )

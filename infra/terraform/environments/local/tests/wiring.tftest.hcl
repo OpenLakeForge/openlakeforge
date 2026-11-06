@@ -63,6 +63,7 @@ run "dex_with_password_authentication_serves_person_queries" {
 
   variables {
     trino_workload_authentication = "password"
+    access_issuer                 = "local-ca"
   }
 
   assert {
@@ -214,4 +215,45 @@ run "portal_image_must_be_pinned_by_digest" {
   }
 
   expect_failures = [var.portal_image]
+}
+
+run "plain_http_is_the_default_and_deploys_no_cert_manager_or_ca" {
+  command = plan
+
+  variables {
+    trino_workload_authentication = "password"
+  }
+
+  assert {
+    condition     = length(module.cert_manager) == 0
+    error_message = "plain HTTP needs no cert-manager: nothing in the cluster is encrypted"
+  }
+
+  assert {
+    condition     = module.in_cluster_resolution[0].ca_configmap_name == null
+    error_message = "no certificate exists to publish, so no CA ConfigMap is named"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).public_origin == "http://olf.localhost"
+    error_message = "the portal's origin follows the plain-HTTP route scheme"
+  }
+}
+
+run "the_local_ca_issuer_deploys_cert_manager_and_publishes_the_ca" {
+  command = plan
+
+  variables {
+    access_issuer = "local-ca"
+  }
+
+  assert {
+    condition     = length(module.cert_manager) == 1
+    error_message = "HTTPS routes need cert-manager and its ClusterIssuer"
+  }
+
+  assert {
+    condition     = module.in_cluster_resolution[0].ca_configmap_name == "olf-local-ca"
+    error_message = "pods that call the issuer's public URL trust the published CA"
+  }
 }

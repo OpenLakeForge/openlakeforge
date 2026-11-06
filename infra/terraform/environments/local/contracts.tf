@@ -317,11 +317,15 @@ locals {
   trino_workload_authentication = coalesce(var.trino_workload_authentication, local.access_enabled ? "password" : "off")
   identity_enabled              = var.identity_issuer != null
   # Route TLS (route certificates) is the one TLS-specific switch; `issuer:
-  # none` is plain HTTP on *.localhost. cert-manager and the local CA stay
-  # deployed with spec.access: pods still mount the CA ConfigMap, and Trino's
-  # internal certificate (ADR 0016) needs the issuer.
+  # none` is plain HTTP on *.localhost. cert-manager, the local CA and the CA
+  # ConfigMap that pods mount exist only with route TLS: nothing else in the
+  # cluster is encrypted (ADR 0016).
   route_tls    = local.access_enabled && var.access_issuer != "none"
   route_scheme = local.route_tls ? "https" : "http"
+  # The fixed name in_cluster_resolution publishes. A literal rather than that
+  # module's output, because the module waits on Traefik's dependencies, which
+  # wait on routes built from the contract: a cycle.
+  ca_configmap_name = local.route_tls ? "olf-local-ca" : null
   # coalesce() skips "" too, so it fails on a null quickstart domain.
   base_domain = var.access_base_domain == null ? "" : var.access_base_domain
 

@@ -34,6 +34,15 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Nothing inside the cluster is encrypted any more (#932). Trino serves its `PASSWORD` authentication on the
+  HTTP listener (`http-server.authentication.allow-insecure-over-http`), so its serving certificate, HTTPS
+  listener and Traefik transport are gone, and the query contract no longer carries `tls_port` or
+  `ca_configmap_name`. `spec.access.issuer` defaults to `none` (plain HTTP) on the local provider, and
+  cert-manager, the local CA and the `olf-local-ca` ConfigMap are deployed only with `issuer: local-ca`. `olf
+  infra query` and `olf e2e` reach Trino through a port-forward and its REST protocol, not the in-pod CLI.
+  ADR 0016 records the trade: a password crosses the pod network in cleartext. The new HTTP configuration was
+  not run end to end before this entry; run `olf infra e2e run --env local`.
+
 - `--provider` is now optional on `olf infra deploy|plan|doctor|destroy|status|forward` and on the commands that
   read a deployed stack's contracts (`olf infra dbt`, `catalog`, `superset`, `openmetadata`): it defaults to the
   Deployment Profile's `spec.provider.type` instead of silently to `local`, so `olf infra deploy` is enough.
@@ -121,6 +130,12 @@ for how a release is cut and verified.
   runtimes is unchanged.
 
 ### Migration
+
+- A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP.
+  Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Existing clusters need `olf infra
+  deploy` to apply the change: cert-manager and the local CA issuer are removed with `none` (a leftover `local-ca` Secret in
+  `olf-system` is not deleted), and Trino restarts to drop its HTTPS listener. Re-register the GitHub App (`olf infra secrets rotate github-app`) after a
+  scheme change, because its callback URL names the scheme.
 
 - If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3,
   and its shared services still run in the `lakehouse` namespace. The platform apply refuses to

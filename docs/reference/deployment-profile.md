@@ -41,7 +41,7 @@ spec:
       enabled: true
   access:
     base_domain: olf.localhost
-    issuer: local-ca
+    issuer: none
   identity:
     issuer: github
     github:
@@ -336,7 +336,7 @@ Without it there is no ingress at all.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `base_domain` | string | `olf.localhost` | Lowercase DNS name with at least one dot. Every service host is `<service>.<base_domain>` or `<service>-<stage>.<base_domain>`, and the portal is served at the base domain itself. |
-| `issuer` | string, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` | `local-ca` | The certificate issuer. The local provider ships only `local-ca` (a CA the platform creates) and `none`, which serves plain HTTP. |
+| `issuer` | string, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` | `none` on `local`, `local-ca` elsewhere | The certificate issuer. The local provider ships `none`, which serves plain HTTP and deploys no cert-manager or CA, and `local-ca` (a CA the platform creates, with cert-manager), which serves HTTPS. Only the routes are encrypted. Plain HTTP is valid only on `local` with a `*.localhost` base domain. |
 
 ### `spec.identity`
 

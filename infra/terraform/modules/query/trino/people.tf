@@ -22,7 +22,7 @@ locals {
     ],
     # The key requests use their own HTTP client (prefix `jwk`), separate from
     # the Web UI one.
-    local.people_https ? ["jwk.http-client.trust-store-path=${local.ca_mount_path}/ca.crt"] : [],
+    local.people_https && var.ca_configmap_name != null ? ["jwk.http-client.trust-store-path=${local.ca_mount_path}/ca.crt"] : [],
   )
 
   people_catalog_env = flatten([

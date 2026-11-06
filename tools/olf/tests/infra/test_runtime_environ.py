@@ -114,8 +114,34 @@ def _write_profile(path: Path) -> None:
     )
 
 
+@pytest.fixture
+def trino_service(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Stands in for the port-forward and the coordinator; records each statement request."""
+    from olf.infra import trino
+
+    requests_seen: list[dict[str, Any]] = []
+
+    class _Page:
+        status_code = 200
+
+        def json(self) -> dict[str, Any]:
+            return {"id": "q", "columns": [{"name": "c", "type": "varchar"}], "data": [["rows-from-trino"]]}
+
+    @contextmanager
+    def forward(_target: Any, _environ: Any) -> Iterator[int]:
+        yield 18080
+
+    def send(method: str, url: str, *, headers: dict[str, str], **_kwargs: Any) -> _Page:
+        requests_seen.append({"method": method, "url": url, "headers": headers})
+        return _Page()
+
+    monkeypatch.setattr(trino, "_port_forward", forward)
+    monkeypatch.setattr(trino.requests, "request", send)
+    return requests_seen
+
+
 def test_query_runs_kubectl_with_the_contract_environment(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path, trino_service: list[dict[str, Any]]
 ) -> None:
     _apply(monkeypatch, _runtime_contract(tmp_path, kubectl_log))
     profile = tmp_path / "openlakeforge.yaml"
@@ -125,18 +151,18 @@ def test_query_runs_kubectl_with_the_contract_environment(
 
     assert result.exit_code == 0, result.output
     assert "rows-from-trino" in result.output
-    password_lookup, execution = _calls(kubectl_log)
-    # The contract names a credential Secret, so the password is read before the query runs.
+    (password_lookup,) = _calls(kubectl_log)
+    # The contract names a credential Secret, so the password is read through kubectl before the query runs.
     assert "secret" in password_lookup["argv"]
-    assert execution["argv"][execution["argv"].index("--catalog") + 1] == "lakehouse_prod"
-    for call in (password_lookup, execution):
-        assert call["argv"][:2] == ["--context", "ctx-from-contract"]
-        assert call["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
-        assert call["marker"] == "from-contract"
+    assert password_lookup["argv"][:2] == ["--context", "ctx-from-contract"]
+    assert password_lookup["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
+    assert password_lookup["marker"] == "from-contract"
+    assert trino_service[0]["headers"]["X-Trino-Catalog"] == "lakehouse_prod"
+    assert trino_service[0]["headers"]["Authorization"].startswith("Basic ")
 
 
 def test_query_sends_no_password_when_the_contract_names_no_credential(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path, trino_service: list[dict[str, Any]]
 ) -> None:
     _apply(monkeypatch, _runtime_contract(tmp_path, kubectl_log, credential=False))
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "ambient-credential")
@@ -146,8 +172,8 @@ def test_query_sends_no_password_when_the_contract_names_no_credential(
     result = runner.invoke(app, ["infra", "query", "-f", str(profile), "SELECT 1"])
 
     assert result.exit_code == 0, result.output
-    (execution,) = _calls(kubectl_log)
-    assert "exec" in execution["argv"]
+    assert not kubectl_log.exists()
+    assert "Authorization" not in trino_service[0]["headers"]
 
 
 def test_product_run_builds_the_e2e_config_from_the_contract(

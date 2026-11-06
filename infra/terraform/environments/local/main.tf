@@ -241,7 +241,7 @@ module "seaweedfs" {
 
 module "cert_manager" {
   source = "../../modules/access/cert-manager"
-  count  = local.access_enabled ? 1 : 0
+  count  = local.route_tls ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
@@ -385,6 +385,7 @@ module "in_cluster_resolution" {
 
   namespace        = kubernetes_namespace_v1.shared.metadata[0].name
   base_domain      = local.base_domain
+  publish_ca       = local.route_tls
   trust_namespaces = values(local.stage_namespaces)
   trust_namespace_uids = concat(
     [kubernetes_namespace_v1.shared.metadata[0].uid],
@@ -403,12 +404,11 @@ module "dex" {
   source = "../../modules/identity/dex"
   count  = local.identity_dex ? 1 : 0
 
-  namespace = kubernetes_namespace_v1.shared.metadata[0].name
-  hostname  = "auth.${local.base_domain}"
-  scheme    = local.route_scheme
-  github    = var.identity_github
-  # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
-  ca_configmap_name   = "olf-local-ca"
+  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
+  hostname            = "auth.${local.base_domain}"
+  scheme              = local.route_scheme
+  github              = var.identity_github
+  ca_configmap_name   = local.ca_configmap_name
   clients             = local.identity_client_redirects
   public_clients      = local.identity_public_clients
   trusted_peers       = { for name in local.identity_public_clients : name => ["perimeter"] }
@@ -492,7 +492,7 @@ module "trino" {
   stage_namespaces        = local.stage_namespaces
   workload_authentication = local.trino_workload_authentication
   # Published by in_cluster_resolution, which module.polaris below waits for.
-  ca_configmap_name = local.route_tls ? "olf-local-ca" : null
+  ca_configmap_name = local.ca_configmap_name
   # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
   web_ui_fixed_user = local.route_tls ? null : "olf-web"
@@ -547,7 +547,7 @@ module "openmetadata" {
     client_id         = local.identity_oidc.clients.openmetadata.client_id
     secret_ref        = local.identity_oidc.clients.openmetadata.secret_ref
     base_url          = "${local.route_scheme}://openmetadata.${local.base_domain}"
-    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
+    ca_configmap_name = local.ca_configmap_name
   }
 
   depends_on = [
@@ -590,7 +590,7 @@ module "superset" {
     client_id         = local.identity_oidc.clients.superset.client_id
     secret_ref        = local.identity_oidc.clients.superset.secret_ref
     secret_namespace  = kubernetes_namespace_v1.shared.metadata[0].name
-    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
+    ca_configmap_name = local.ca_configmap_name
   }
 
   depends_on = [

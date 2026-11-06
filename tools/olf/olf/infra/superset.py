@@ -12,8 +12,10 @@ import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from openlakeforge_services import reports
+from openlakeforge_services.reports import INSECURE_AUTH_EXTRA
 from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, layers, log
@@ -39,6 +41,8 @@ class StageReportTarget:
     namespace: str
     sqlalchemy_uri: str
     schema_prefix: str
+    # Superset's per-database `extra`, set only while its Trino connection sends a password (ADR 0016).
+    extra: dict[str, Any] | None = None
     # Secret in `namespace` holding this stage's Trino password; empty while
     # Trino takes no password.
     credential_secret: str = ""
@@ -114,6 +118,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         namespace=namespace,
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
+        extra=INSECURE_AUTH_EXTRA if credential_secret else None,
         credential_secret=credential_secret,
     )
 
@@ -156,6 +161,7 @@ def deploy_reports(
     admin_username: str,
     admin_password: str,
     schema_prefix: str = "",
+    extra: dict[str, Any] | None = None,
     credential_secret: str = "",
     environ: Mapping[str, str] | None = None,
 ) -> None:
@@ -193,6 +199,7 @@ def deploy_reports(
             work_dir=work_dir,
             sqlalchemy_uri=sqlalchemy_uri,
             schema_prefix=schema_prefix,
+            extra=extra,
             database_password=trino_password,
             progress=log,
         )

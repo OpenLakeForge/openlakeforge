@@ -40,10 +40,7 @@ output "properties" { value = local.config_properties }
 
 AUTH = [
     "http-server.process-forwarded=true",
-    "http-server.http.enabled=false",
-    "discovery.uri=https://localhost:8443",
-    "internal-communication.https.required=true",
-    "internal-communication.https.truststore.path=/etc/trino/tls/ca.crt",
+    "http-server.authentication.allow-insecure-over-http=true",
     "internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SECRET}",
 ]
 STAGES = "query.max-stage-count=300"

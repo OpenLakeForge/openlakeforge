@@ -107,7 +107,7 @@ variable "oidc" {
     client_id         = string
     secret_ref        = object({ name = string, key = string })
     secret_namespace  = string
-    ca_configmap_name = string
+    ca_configmap_name = optional(string)
   })
   default = null
 }

@@ -7,6 +7,7 @@ Messages carry hostnames and Trino's own error text, never a token.
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -134,6 +135,10 @@ class TrinoStatementClient:
     send: Callable[..., requests.Response] = field(default=requests.request, repr=False)
     # The default schema for unqualified names (`X-Trino-Schema`); None sends no header, as `olf query` does.
     schema: str | None = None
+    # A workload principal's (user, password) for Trino's PASSWORD authentication (ADR 0016). It replaces the bearer
+    # and is sent as-is: the caller names an address it trusts, because the Python Trino client refuses a password
+    # over HTTP and this one does not.
+    basic: tuple[str, str] | None = None
 
     def submit(
         self, sql: str, bearer: str, extra_credentials: Mapping[str, str] | None = None
@@ -196,8 +201,12 @@ class TrinoStatementClient:
             "X-Trino-User": self.user,
             "X-Trino-Catalog": self.catalog,
             "X-Trino-Source": self.source,
-            "Authorization": f"Bearer {bearer}",
         }
+        if self.basic is not None:
+            credential = base64.b64encode(f"{self.basic[0]}:{self.basic[1]}".encode()).decode("ascii")
+            headers["Authorization"] = f"Basic {credential}"
+        elif bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
         if self.schema:
             headers["X-Trino-Schema"] = self.schema
         return headers
