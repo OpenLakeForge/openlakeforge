@@ -307,3 +307,24 @@ def test_a_requested_capability_is_advertised_and_otherwise_none_is() -> None:
     plain, asking = (call["headers"] for call in fake.calls)
     assert "X-Trino-Client-Capabilities" not in plain
     assert asking["X-Trino-Client-Capabilities"] == "PARAMETRIC_DATETIME"
+
+
+def test_prepared_statements_are_carried_in_the_form_trino_sent_them_and_dropped_when_deallocated() -> None:
+    from openlakeforge_services.trino import TrinoSession
+
+    session = TrinoSession()
+    fake = FakeTrino(
+        (200, {"id": "q1"}, {"X-Trino-Added-Prepare": "p%201=SELECT+%3F+FROM+t"}),
+        (200, {"id": "q2"}, {"X-Trino-Deallocated-Prepare": "p%201"}),
+        (200, {"id": "q3"}),
+    )
+    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
+
+    for statement in ("PREPARE p 1 FROM SELECT ? FROM t", "EXECUTE p 1 USING 1", "SELECT 1"):
+        client.run(statement, bearer=lambda: "")
+
+    headers = [call["headers"] for call in fake.calls]
+    assert "X-Trino-Prepared-Statement" not in headers[0]
+    # Name and statement go back exactly as Trino wrote them, which is how it decodes them.
+    assert headers[1]["X-Trino-Prepared-Statement"] == "p%201=SELECT+%3F+FROM+t"
+    assert "X-Trino-Prepared-Statement" not in headers[2]

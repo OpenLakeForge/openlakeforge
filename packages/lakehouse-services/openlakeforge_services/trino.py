@@ -130,6 +130,9 @@ class TrinoSession:
     schema: str | None = None
     properties: dict[str, str] = field(default_factory=dict)
     transaction_id: str | None = None
+    # PREPARE d statements are session state the client carries, not something the server keeps. Held exactly as
+    # Trino sends them, name and statement both still encoded, because it reads them back in the same form.
+    prepared: dict[str, str] = field(default_factory=dict)
 
     def update(self, headers: Mapping[str, str]) -> None:
         """Apply the `X-Trino-Set-*`, `Clear-*` and transaction headers of one response.
@@ -148,6 +151,11 @@ class TrinoSession:
             self.properties[name] = unquote_plus(setting)
         for name in filter(None, (headers.get("X-Trino-Clear-Session") or "").split(",")):
             self.properties.pop(name.strip(), None)
+        for assignment in filter(None, (headers.get("X-Trino-Added-Prepare") or "").split(",")):
+            name, _, statement = assignment.strip().partition("=")
+            self.prepared[name] = statement
+        for name in filter(None, (headers.get("X-Trino-Deallocated-Prepare") or "").split(",")):
+            self.prepared.pop(name.strip(), None)
         if value := headers.get("X-Trino-Started-Transaction-Id"):
             self.transaction_id = value
         if headers.get("X-Trino-Clear-Transaction-Id"):
@@ -265,6 +273,8 @@ class TrinoStatementClient:
             headers["X-Trino-Session"] = ",".join(
                 f"{name}={quote(value, safe='')}" for name, value in session.properties.items()
             )
+        if session.prepared:
+            headers["X-Trino-Prepared-Statement"] = ",".join(f"{name}={value}" for name, value in session.prepared.items())
         # A request without this header tells Trino the client cannot run transactions, so `START TRANSACTION` is
         # refused; `NONE` says it can and none is open, as the Java client sends (`StatementClientV1`).
         headers["X-Trino-Transaction-Id"] = session.transaction_id or "NONE"
