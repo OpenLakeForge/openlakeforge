@@ -21,11 +21,6 @@ WRITE_ALLOWLIST = {
         "dlt resolves `dlt.config.value`/`dlt.secrets.value` from the process environment itself, so the check's "
         "source bindings can reach it no other way; restored on exit"
     ),
-    ("infra/e2e/_runner.py", "_kubeconfig_environment"): (
-        "`e2e.run(environ=None)` reaches kubectl through the process environment, so the resolved kubeconfig is "
-        "put there; the CLI and smoke always pass a contract environment, so it can go once `environ` is required; "
-        "restored on exit"
-    ),
     ("infra/e2e/_shell.py", "user_trust_environment"): (
         "drives the CLI's documented NO_PROXY/REQUESTS_CA_BUNDLE contract (docs/reference/cli.md) the way a user "
         "sets it; restored on exit"
@@ -52,7 +47,6 @@ READ_ALLOWLIST = {
     ("infra/commands/runtime.py", "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR"): "CLI root: operator override",
     ("infra/commands/source.py", "var"): "CLI root: the source secrets the operator exports",
     ("infra/deployment/local/platform.py", "CI"): "CI flag: never prompt",
-    ("infra/e2e/_runner.py", "KUBECONFIG"): "saved by `_kubeconfig_environment` to restore on exit",
     ("infra/e2e/_shell.py", "name"): "saved by `user_trust_environment` to restore on exit",
     ("infra/e2e/github_stub.py", "STUB_USERS"): "runs in the stub pod, which sets it",
     ("platform/session.py", "NO_PROXY"): "the CLI's documented proxy contract",

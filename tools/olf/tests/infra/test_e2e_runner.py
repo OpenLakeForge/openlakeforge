@@ -83,7 +83,7 @@ def test_aws_default_suite_includes_smoke_and_full_checks(monkeypatch: pytest.Mo
     monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(_runner, "run_full", lambda _cfg: calls.append("full"))
 
-    _runner.run("aws", repo_root=E2E_REPO_ROOT)
+    _runner.run("aws", repo_root=E2E_REPO_ROOT, environ={"KUBECONFIG": str(tmp_path / "kc.yaml")})
 
     assert calls == ["smoke", "full"]
 
@@ -97,7 +97,7 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(_runner, "run_full", lambda _cfg: calls.append("full"))
 
-    _runner.run("aws", suite="smoke", repo_root=E2E_REPO_ROOT)
+    _runner.run("aws", suite="smoke", repo_root=E2E_REPO_ROOT, environ={"KUBECONFIG": str(tmp_path / "kc.yaml")})
 
     assert calls == ["smoke"]
 
@@ -548,20 +548,23 @@ def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
         _runner.check_commands(e2e_cfg(tmp_path))
 
 
-def test_run_scopes_kubeconfig_to_the_run_and_restores_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    seen: list[str | None] = []
+def test_run_leaves_the_process_kubeconfig_alone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: list[tuple[str | None, str | None]] = []
     monkeypatch.setenv("KUBECONFIG", "/operator/kubeconfig")
     monkeypatch.setattr(_runner, "check_commands", lambda _cfg: None)
     monkeypatch.setattr(_runner, "prepare_kube_context", lambda _cfg, _kubeconfig: None)
-    monkeypatch.setattr(_runner, "check_pods_ready", lambda _cfg: seen.append(os.environ.get("KUBECONFIG")))
+    monkeypatch.setattr(
+        _runner,
+        "check_pods_ready",
+        lambda cfg: seen.append((os.environ.get("KUBECONFIG"), cfg.environ.get("KUBECONFIG"))),
+    )
     monkeypatch.setattr(_runner, "run_smoke", lambda _cfg: None)
     monkeypatch.setattr(_runner, "run_full", lambda _cfg: None)
     monkeypatch.setattr(_runner, "configure_kubeconfig", lambda _cfg: tmp_path / "run.yaml")
 
-    _runner.run("aws", suite="smoke", repo_root=E2E_REPO_ROOT)
+    _runner.run("aws", suite="smoke", repo_root=E2E_REPO_ROOT, environ={})
 
-    assert seen == [str(tmp_path / "run.yaml")]
-    assert os.environ["KUBECONFIG"] == "/operator/kubeconfig"
+    assert seen == [("/operator/kubeconfig", str(tmp_path / "run.yaml"))]
 
 
 def test_run_hands_the_expanded_kubeconfig_to_kubectl_under_an_explicit_environ(

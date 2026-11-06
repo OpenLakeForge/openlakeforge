@@ -56,7 +56,7 @@ def check_break_glass(cfg: E2EConfig) -> None:
     name = break_glass.open_session(cluster, "dex", REASON, 1, local_port=LOCAL_PORT, run=reach)
     if answered != [200]:
         raise E2EError(f"Dex did not answer through the break-glass path (statuses {answered}).")
-    records = break_glass.recent(cluster.kubectl, cfg.platform_namespace, context=cfg.kube_context) or []
+    records = break_glass.recent(cluster.kubectl, cfg.platform_namespace, **cluster.kw) or []
     mine = next((r for r in records if r.get("reason") == REASON and r.get("ended")), None)
     if not mine or not mine.get("user") or "duration_seconds" not in mine:
         raise E2EError(f"No complete break-glass record {name} in {cfg.platform_namespace}: {records}")

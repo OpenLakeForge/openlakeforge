@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -78,7 +77,7 @@ def run(
     repo_root: Path | None = None,
     distribution_root: Path | None = None,
     deployment: Any = None,
-    environ: Mapping[str, str] | None = None,
+    environ: Mapping[str, str],
 ) -> None:
     cfg = prepare_config(
         env,
@@ -93,19 +92,16 @@ def run(
     cfg = dataclasses.replace(cfg, deployment=deployment, checks=checks)
     check_commands(cfg)
     kubeconfig = configure_kubeconfig(cfg)
-    if cfg.environ is not None:
-        # kubectl does not expand "~": checks run with cfg.environ, so it carries the resolved path.
-        cfg = dataclasses.replace(cfg, environ={**cfg.environ, "KUBECONFIG": str(kubeconfig)})
-    # The checks below shell out to kubectl/helm and read KUBECONFIG from the process environment.
-    with _kubeconfig_environment(kubeconfig):
-        prepare_kube_context(cfg, kubeconfig)
-        check_pods_ready(cfg)
-        if cfg.suite == "smoke":
+    # kubectl does not expand "~": checks run with cfg.environ, so it carries the resolved path.
+    cfg = dataclasses.replace(cfg, environ={**environ, "KUBECONFIG": str(kubeconfig)})
+    prepare_kube_context(cfg, kubeconfig)
+    check_pods_ready(cfg)
+    if cfg.suite == "smoke":
+        run_smoke(cfg)
+    else:
+        if cfg.env == "aws":
             run_smoke(cfg)
-        else:
-            if cfg.env == "aws":
-                run_smoke(cfg)
-            run_full(cfg)
+        run_full(cfg)
     log.info(f"{cfg.env.capitalize()} OpenLakeForge {cfg.suite} e2e validation passed.")
 
 
@@ -279,20 +275,6 @@ def configure_kubeconfig(cfg: E2EConfig) -> Path:
     kubeconfig = kubeconfig.resolve()
     kubeconfig.parent.mkdir(parents=True, exist_ok=True)
     return kubeconfig
-
-
-@contextmanager
-def _kubeconfig_environment(kubeconfig: Path) -> Iterator[None]:
-    """Expose `kubeconfig` as KUBECONFIG for the run, then put the previous value back."""
-    previous = os.environ.get("KUBECONFIG")
-    os.environ["KUBECONFIG"] = str(kubeconfig)
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop("KUBECONFIG", None)
-        else:
-            os.environ["KUBECONFIG"] = previous
 
 
 def kube_context_is_ready(kube_context: str, *, environ: Mapping[str, str] | None = None) -> bool:

@@ -217,7 +217,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             return probe(url, verify=verify, service=service, cluster=cluster, tls_port=tls_port, reason=reason)
 
         def records() -> list[dict[str, str]]:
-            return break_glass.recent(cluster.kubectl, namespace, limit=20, context=cfg.kube_context) or []
+            return break_glass.recent(cluster.kubectl, namespace, limit=20, **cluster.kw) or []
 
         # The route carries the local CA and the proxy exemption for the sign-in and the checks.
         with (
