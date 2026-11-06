@@ -107,7 +107,7 @@ Keep it out of git. The same file applies to the cluster and the platform.
 ## 4. Deploy
 
 ```bash
-olf infra deploy --provider aws
+olf infra deploy
 ```
 
 It runs three phases, which you can also run one at a time with `--phase`:
@@ -130,7 +130,7 @@ your machine, on the same ports as locally (Dagster on
 `8585`), and stop with Ctrl-C:
 
 ```bash
-olf infra forward --provider aws
+olf infra forward
 ```
 
 Run the end-to-end suite after you stop `olf infra forward`: `olf` runs one command
@@ -147,7 +147,7 @@ ends with `... e2e validation passed.`
 ## 6. Tear down
 
 ```bash
-olf infra destroy --provider aws
+olf infra destroy
 ```
 
 It removes the platform (RDS, buckets, Helm releases), then the foundation

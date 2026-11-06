@@ -45,7 +45,7 @@ sign-in. `lakehouse_code/` holds three example data products:
 ## 2. Deploy
 
 ```bash
-olf infra deploy --provider local
+olf infra deploy
 ```
 
 `olf infra deploy` creates the kind cluster, deploys the platform services, builds
@@ -55,7 +55,7 @@ with Dagster.
 ## 3. Open the portal
 
 ```bash
-olf infra status --provider local
+olf infra status
 ```
 
 Its `URLs` section lists every service. Open the portal:
@@ -109,7 +109,7 @@ olf infra query "SELECT * FROM order_revenue_gold.mart_order_revenue_by_day LIMI
 ## Tear down
 
 ```bash
-olf infra destroy --provider local
+olf infra destroy
 ```
 
 ## Next
