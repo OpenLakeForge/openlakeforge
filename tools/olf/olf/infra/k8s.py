@@ -182,6 +182,11 @@ def annotate_pod_templates(
     return changed
 
 
+def wait_for_deployments(selector: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Wait for the rollout of every Deployment the label selector matches."""
+    _kubectl(["rollout", "status", "deployment", "-l", selector, "-n", namespace, "--timeout=300s"], environ=environ)
+
+
 def _free_local_port() -> int:
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.bind(("127.0.0.1", 0))

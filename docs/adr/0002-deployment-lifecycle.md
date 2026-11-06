@@ -177,10 +177,15 @@ namespaces (#562). The Terraform bootstrap and credential-replication Jobs that
 did both inside the apply, and their shell templates, are deleted.
 
 2026-11-05: The platform phase also runs the Polaris bootstrap from `olf`
-after the apply (#562). The Terraform `polaris-bootstrap-*` Job still runs
-inside the apply until a follow-up removes it; a test runs the Job's rendered
-script and `olf`'s port against the same fake Polaris and namespaces and
-checks both leave the same state, in either order.
+after the apply (#562).
+
+2026-11-06: The Terraform `polaris-bootstrap-*` Job and its shell templates are
+deleted (#562), so `olf`'s run is the only one. Trino reads its Polaris
+credentials only at start, so `olf` stamps a digest of them on Trino's pod
+template: a changed credential rolls Trino out, including one rotated by a run
+that failed before the restart. `olf` waits for Trino's rollout on every deploy:
+Helm no longer waits for a Trino whose credentials exist only once the apply has
+finished.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

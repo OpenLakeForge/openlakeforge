@@ -96,7 +96,6 @@ variable "catalog_contract" {
     trino_credentials_secret_name = optional(string)
     trino_client_id_key           = optional(string)
     trino_client_secret_key       = optional(string)
-    bootstrap_run_id              = optional(string)
     catalog_type                  = optional(string)
     catalog_provider              = optional(string)
     catalog_name                  = optional(string)
@@ -132,7 +131,6 @@ variable "stage_catalog_contracts" {
     trino_credentials_secret_name = optional(string)
     trino_client_id_key           = optional(string)
     trino_client_secret_key       = optional(string)
-    bootstrap_run_id              = optional(string)
     catalog_type                  = optional(string)
     catalog_provider              = optional(string)
     catalog_name                  = optional(string)
@@ -149,11 +147,6 @@ variable "stage_catalog_contracts" {
     ingress_mode                  = optional(string)
   }))
   default = {}
-}
-
-variable "catalog_bootstrap_revision" {
-  description = "Content revision used to force Trino pod rollouts when Polaris bootstrap credentials or grants change."
-  type        = string
 }
 
 variable "stage_namespaces" {

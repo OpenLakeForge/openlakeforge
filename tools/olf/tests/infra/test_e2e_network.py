@@ -102,8 +102,10 @@ def test_serviceaccount_groups_reach_every_olf_account() -> None:
 
 def test_secret_pins_must_match_the_documented_names() -> None:
     sa = ("olf-system", "polaris-bootstrap")
-    assert not _grants([_rule(["secrets"], ["create"]), _rule(["secrets"], ["get"], ["polaris-dev-trino-creds"])], sa)
+    assert not _grants([_rule(["secrets"], ["create"]), _rule(["secrets"], ["get"], ["polaris-token-broker"])], sa)
     assert _grants([_rule(["secrets"], ["get"], ["postgresql"])], sa)
+    # olf writes the principal Secrets now (#562), so the token-key Job's Role may not name one.
+    assert _grants([_rule(["secrets"], ["get"], ["polaris-dev-trino-creds"])], sa)
     assert _grants([_rule(["secrets"], ["get"], ["anything"])], ("olf-system", "worker"))
 
 

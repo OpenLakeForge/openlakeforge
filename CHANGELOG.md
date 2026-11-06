@@ -34,11 +34,15 @@ for how a release is cut and verified.
 - The platform phase now runs the Polaris bootstrap from `olf` once `terraform apply` finishes, as root
   through a port-forward from the operator's machine, with its inputs read from the applied provider
   contract (#562): the stage catalogs, the workload principals with their credential Secrets and grants,
-  and people's roles. The Terraform `polaris-bootstrap-*` Job still runs inside the apply; both leave the
-  same state, so either one after the other changes nothing. Trino reads its catalog credentials only at
-  start, so `olf` stamps a digest of them on the Trino pod template: when a credential changed since the
-  pods started, the Deployments roll out and `olf` waits for them, and a rerun that finds the digest
-  current restarts nothing. A run that failed after rotating a credential is caught up by the next one.
+  and people's roles. Trino reads its catalog credentials only at start, so `olf` stamps a digest of
+  them on the Trino pod template: when a credential changed since the pods started, the Deployments roll
+  out, and a rerun that finds the digest current restarts nothing. A run that failed after rotating a
+  credential is caught up by the next one. The Terraform `polaris-bootstrap-*` and
+  `polaris-credential-replication-*` Jobs, their shell templates, the Trino rollout trigger they fed and
+  the `polaris-bootstrap` Roles in the stage namespaces are removed; the shared-namespace Role keeps only
+  what the token-key Job needs. With a Polaris catalog, Helm no longer waits for Trino, whose pods wait in
+  `CreateContainerConfigError` on a fresh install until `olf` writes their credentials; `olf` then waits
+  for the Trino rollout on every deploy.
 - With governance on, the platform phase now runs the OpenMetadata bootstrap from `olf` once
   `terraform apply` finishes, through a port-forward from the operator's machine, with its inputs read
   from the applied provider contract (#562). It then copies the `openmetadata-ingestion-bot` Secret

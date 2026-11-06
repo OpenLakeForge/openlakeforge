@@ -210,9 +210,3 @@ resource "terraform_data" "polaris_release_revision" {
     helm_release.polaris.metadata.revision,
   ]
 }
-
-resource "terraform_data" "polaris_bootstrap_revision" {
-  triggers_replace = [
-    var.bootstrap_revision,
-  ]
-}

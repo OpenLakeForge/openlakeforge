@@ -40,8 +40,6 @@ workloads:
   opensearch: {app.kubernetes.io/name: opensearch} # instance label unread: the dependencies chart is not rendered here
   bucket-bootstrap: {openlakeforge.io/job: bucket-bootstrap}
   catalog-metastore-bootstrap: {openlakeforge.io/job: catalog-metastore-bootstrap}
-  catalog-bootstrap: {openlakeforge.io/job: catalog-bootstrap}
-  catalog-credential-replication: {openlakeforge.io/job: catalog-credential-replication}
   dex-credentials: {openlakeforge.io/job: dex-credentials}
   perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
@@ -171,16 +169,6 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     ports: [8181] # its first step probes the token endpoint
     tag: V
-  - id: F19
-    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-bootstrap}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
-    ports: [8181]
-    tag: V
-  - id: F19
-    from: {scope: shared, pods: {app.kubernetes.io/name: polaris, openlakeforge.io/job: catalog-credential-replication}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
-    ports: [8181]
-    tag: V
   - id: F1
     from: {scope: any}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
@@ -245,7 +233,7 @@ flows:
     ports: [9200]
     tag: V
   - id: F20
-    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: catalog-bootstrap}}, {scope: shared, pods: {openlakeforge.io/job: catalog-credential-replication}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: trino-credentials}}, {scope: shared, pods: {openlakeforge.io/job: postgresql-credentials}}]
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: trino-credentials}}, {scope: shared, pods: {openlakeforge.io/job: postgresql-credentials}}]
     to: {scope: apiserver}
     ports: [443, 6443]
     tag: T # Service port and endpoint port; DNAT order is unconfirmed

@@ -66,8 +66,6 @@ locals {
       CATALOG
       : <<-CATALOG
         # openlakeforge.catalog-provider=${coalesce(try(contract.catalog_provider, null), "polaris")}
-        # openlakeforge.polaris-bootstrap-run=${try(contract.bootstrap_run_id, "")}
-        # openlakeforge.polaris-bootstrap-revision=${var.catalog_bootstrap_revision}
         connector.name=iceberg
         iceberg.catalog.type=rest
         iceberg.rest-catalog.uri=${try(contract.rest_uri, "")}
@@ -277,7 +275,11 @@ resource "helm_release" "trino" {
   version    = local.version
   namespace  = var.namespace
 
-  wait    = true
+  # A Polaris catalog's credential Secret is written by olf's bootstrap after
+  # the apply (#562), so on a fresh install, or with a new stage, the pods wait
+  # in CreateContainerConfigError until it exists and Helm cannot wait for
+  # them. olf restarts Trino when it writes one and then waits for the rollout.
+  wait    = length(local.catalog_secret_env) == 0
   timeout = 600
 
   values = concat([
