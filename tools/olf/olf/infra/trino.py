@@ -202,6 +202,7 @@ def run_sql(
                 send=send or _loopback_session().request,
                 basic=(target.user, password) if password else None,
                 session=statements.TrinoSession(),
+                capabilities=("PARAMETRIC_DATETIME",),
             )
             results = [client.run(statement, bearer=lambda: "") for statement in split_statements(sql)]
     except TrinoQueryError:

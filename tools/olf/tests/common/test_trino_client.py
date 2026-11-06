@@ -218,7 +218,9 @@ def test_a_shared_session_carries_use_set_session_and_a_transaction_to_the_next_
     client.run("SELECT 1", bearer=lambda: "")
 
     first, second = (call["headers"] for call in fake.calls)
-    assert "X-Trino-Schema" not in first and "X-Trino-Transaction-Id" not in first
+    assert "X-Trino-Schema" not in first
+    # Open transactions are announced as none until Trino starts one.
+    assert first["X-Trino-Transaction-Id"] == "NONE"
     assert second["X-Trino-Schema"] == "order_revenue_gold"
     assert second["X-Trino-Transaction-Id"] == "tx-1"
     assert second["X-Trino-Session"] == "query_max_stage_count=300,time_zone=Europe%2FParis"
@@ -276,3 +278,32 @@ def test_a_catalog_scoped_property_name_and_a_percent_in_a_schema_are_not_decode
 
     assert session.schema == "100%25"
     assert session.properties == {}
+
+
+def test_a_session_asks_to_start_transactions_and_forgets_one_that_ends() -> None:
+    from openlakeforge_services.trino import TrinoSession
+
+    fake = FakeTrino(
+        (200, {"id": "q1"}, {"X-Trino-Started-Transaction-Id": "tx-9"}),
+        (200, {"id": "q2"}, {"X-Trino-Clear-Transaction-Id": "true"}),
+        (200, {"id": "q3"}),
+    )
+    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=TrinoSession())
+
+    for statement in ("START TRANSACTION", "COMMIT", "SELECT 1"):
+        client.run(statement, bearer=lambda: "")
+
+    assert [call["headers"]["X-Trino-Transaction-Id"] for call in fake.calls] == ["NONE", "tx-9", "NONE"]
+
+
+def test_a_requested_capability_is_advertised_and_otherwise_none_is() -> None:
+    fake = FakeTrino((200, {"id": "q1"}), (200, {"id": "q2"}))
+
+    _client(fake).run("SELECT 1", bearer=lambda: "")
+    TrinoStatementClient(
+        URL, catalog="dev", user="u", source="test", send=fake, capabilities=("PARAMETRIC_DATETIME",)
+    ).run("SELECT 1", bearer=lambda: "")
+
+    plain, asking = (call["headers"] for call in fake.calls)
+    assert "X-Trino-Client-Capabilities" not in plain
+    assert asking["X-Trino-Client-Capabilities"] == "PARAMETRIC_DATETIME"

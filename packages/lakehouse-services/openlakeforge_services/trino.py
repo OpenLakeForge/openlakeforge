@@ -175,6 +175,9 @@ class TrinoStatementClient:
     basic: tuple[str, str] | None = None
     # Shared across the statements of one session; None keeps every request independent.
     session: TrinoSession | None = field(default=None, repr=False)
+    # `X-Trino-Client-Capabilities`. Without PARAMETRIC_DATETIME Trino rounds every timestamp and time to three
+    # fractional digits (`JsonEncodingUtils`); the Java client advertises it, and a caller that prints results asks.
+    capabilities: tuple[str, ...] = ()
 
     def submit(
         self, sql: str, bearer: str, extra_credentials: Mapping[str, str] | None = None
@@ -245,6 +248,8 @@ class TrinoStatementClient:
             headers["Authorization"] = f"Bearer {bearer}"
         if self.schema:
             headers["X-Trino-Schema"] = self.schema
+        if self.capabilities:
+            headers["X-Trino-Client-Capabilities"] = ",".join(self.capabilities)
         if self.session is not None:
             self._apply_session(headers, self.session)
         return headers
@@ -260,8 +265,9 @@ class TrinoStatementClient:
             headers["X-Trino-Session"] = ",".join(
                 f"{name}={quote(value, safe='')}" for name, value in session.properties.items()
             )
-        if session.transaction_id:
-            headers["X-Trino-Transaction-Id"] = session.transaction_id
+        # A request without this header tells Trino the client cannot run transactions, so `START TRANSACTION` is
+        # refused; `NONE` says it can and none is open, as the Java client sends (`StatementClientV1`).
+        headers["X-Trino-Transaction-Id"] = session.transaction_id or "NONE"
 
     def _checked(self, uri: str) -> str:
         # The URI comes from the response body: followed blindly, it sends the person's token wherever Trino says.

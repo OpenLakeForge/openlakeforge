@@ -115,6 +115,9 @@ def test_run_sql_sends_the_statement_to_the_forwarded_port_as_the_stage_runtime_
     assert service.first["sql"] == b"SELECT 1"
     assert service.first["headers"]["X-Trino-Catalog"] == "lakehouse_prod"
     assert service.first["headers"]["X-Trino-User"] == "olf-prod-runtime"
+    # Full-precision timestamps, and transactions the statements may start, as the CLI offered both.
+    assert service.first["headers"]["X-Trino-Client-Capabilities"] == "PARAMETRIC_DATETIME"
+    assert service.first["headers"]["X-Trino-Transaction-Id"] == "NONE"
 
 
 def test_run_sql_reads_no_secret_and_sends_no_credential_without_a_named_credential(
