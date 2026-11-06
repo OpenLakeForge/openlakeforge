@@ -72,31 +72,14 @@ def cluster_operations(
                 )
             return clients[0]
 
-        def runs_in_flight(namespace: str) -> list[str]:
-            with k8s.port_forward(
-                DAGSTER_WEBSERVER_SERVICE_NAME,
-                80,
-                namespace,
-                log_path=f"{log_prefix}-backup-dagster.log",
-                environ=environ,
-            ) as port:
-                try:
-                    route = access.Route(f"http://127.0.0.1:{port}", {"no_proxy": "127.0.0.1"})
-                    result = DagsterClient(f"{route.url}/graphql", request_json=_graphql_over(route)).graphql(
-                        _IN_FLIGHT_QUERY, {"filter": {"statuses": list(_IN_FLIGHT)}}
-                    )["runsOrError"]
-                except ServiceClientError as exc:
-                    raise BackupError(f"cannot list the Dagster runs in {namespace}: {exc}") from exc
-            if result.get("__typename") != "Runs":
-                raise BackupError(f"cannot list the Dagster runs in {namespace}: {result.get('message', result)}")
-            return [run["runId"] for run in result["results"]]
-
         yield Operations(
             daemon_replicas=lambda namespace: k8s.deployment_replicas(DAEMON_DEPLOYMENT, namespace, environ=environ),
             scale_daemon=lambda namespace, replicas: k8s.scale_deployment(
                 DAEMON_DEPLOYMENT, namespace, replicas, environ=environ
             ),
-            runs_in_flight=runs_in_flight,
+            runs_in_flight=lambda namespace: dagster_runs_in_flight(
+                namespace, log_path=f"{log_prefix}-backup-dagster.log", environ=environ
+            ),
             dump_database=lambda name, destination: k8s.exec_to_file(
                 POSTGRES_POD,
                 shared_namespace,
@@ -108,6 +91,21 @@ def cluster_operations(
             copy_bucket=lambda bucket, destination: _copy_bucket(s3_client(), bucket, destination),
             read_secret=lambda namespace, name: k8s.secret_with_type(name, namespace, environ=environ),
         )
+
+
+def dagster_runs_in_flight(namespace: str, *, log_path: str, environ: Mapping[str, str]) -> list[str]:
+    """The ids of the queued and running Dagster runs of the stage in `namespace`, asked of its webserver."""
+    with k8s.port_forward(DAGSTER_WEBSERVER_SERVICE_NAME, 80, namespace, log_path=log_path, environ=environ) as port:
+        try:
+            route = access.Route(f"http://127.0.0.1:{port}", {"no_proxy": "127.0.0.1"})
+            result = DagsterClient(f"{route.url}/graphql", request_json=_graphql_over(route)).graphql(
+                _IN_FLIGHT_QUERY, {"filter": {"statuses": list(_IN_FLIGHT)}}
+            )["runsOrError"]
+        except ServiceClientError as exc:
+            raise BackupError(f"cannot list the Dagster runs in {namespace}: {exc}") from exc
+    if result.get("__typename") != "Runs":
+        raise BackupError(f"cannot list the Dagster runs in {namespace}: {result.get('message', result)}")
+    return [run["runId"] for run in result["results"]]
 
 
 def _copy_bucket(client: Any, bucket: str, destination: Path) -> dict[str, int]:

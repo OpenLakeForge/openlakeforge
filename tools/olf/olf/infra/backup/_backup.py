@@ -75,7 +75,7 @@ def run_backup(
             log.step(f"Pausing the Dagster daemon in {namespace}...")
             paused[namespace] = ops.daemon_replicas(namespace)
             ops.scale_daemon(namespace, 0)
-        _refuse_runs_in_flight(stages, ops)
+        refuse_runs_in_flight(stages, ops.runs_in_flight, action="back up")
         databases = _dump_databases(directory, plan, ops)
         buckets = _copy_buckets(directory, plan, ops)
         secrets = _bundle_secrets(directory, plan, passphrase, ops)
@@ -100,11 +100,16 @@ def run_backup(
     return manifest
 
 
-def _refuse_runs_in_flight(stages: Mapping[str, str], ops: Operations) -> None:
-    busy = {stage: runs for stage, namespace in stages.items() if (runs := ops.runs_in_flight(namespace))}
+def refuse_runs_in_flight(
+    stages: Mapping[str, str], runs_in_flight: Callable[[str], list[str]], *, action: str
+) -> None:
+    """Raise when any stage (stage name -> namespace) has a Dagster run queued or running."""
+    busy = {stage: runs for stage, namespace in stages.items() if (runs := runs_in_flight(namespace))}
     if busy:
         found = "; ".join(f"{stage}: {', '.join(runs)}" for stage, runs in sorted(busy.items()))
-        raise BackupError(f"refusing to back up while Dagster runs are in flight ({found}). Wait for them, then retry.")
+        raise BackupError(
+            f"refusing to {action} while Dagster runs are in flight ({found}). Wait for them, then retry."
+        )
 
 
 def _dump_databases(directory: Path, plan: BackupPlan, ops: Operations) -> tuple[DatabaseDump, ...]:
