@@ -169,7 +169,10 @@ def run_sql(
     forward: Callable[[TrinoTarget, Mapping[str, str] | None], contextlib.AbstractContextManager[int]] | None = None,
     send: Callable[..., requests.Response] | None = None,
 ) -> str:
-    """Run `sql` once and return the rendered result; raise `TrinoQueryError` with an explanation on failure.
+    """Run each statement of `sql` and return the rendered results; raise `TrinoQueryError` with an explanation.
+
+    Trino's REST endpoint takes one statement and rejects a trailing `;`, which the CLI's `--execute` did not, so the
+    text is split here (`split_statements`) and the results of the statements that return columns follow each other.
 
     The runtime principal authenticates with the password in its Secret when the contract names one. The overrides
     are for the isolation probes: `password` of `""` sends none, another value replaces the Secret's, and
@@ -194,10 +197,10 @@ def run_sql(
                 catalog=target.catalog,
                 user=session_user or target.user,
                 source="olf-infra-query",
-                send=send or requests.request,
+                send=send or _loopback_session().request,
                 basic=(target.user, password) if password else None,
             )
-            result = client.run(sql, bearer=lambda: "")
+            results = [client.run(statement, bearer=lambda: "") for statement in split_statements(sql)]
     except TrinoQueryError:
         raise
     except statements.TrinoQueryError as exc:
@@ -206,7 +209,66 @@ def run_sql(
         raise TrinoQueryError(explain_failure(target, str(exc))) from exc
     except (OSError, ExecutableNotFoundError, k8s.KubectlError) as exc:
         raise TrinoQueryError(explain_failure(target, f"could not reach Trino through kubectl: {exc}")) from exc
-    return render(result, output_format)
+    return "".join(render(result, output_format) for result in results if result.columns)
+
+
+def split_statements(sql: str) -> list[str]:
+    """The statements of `sql`, split on `;` outside quotes and comments, without empty ones.
+
+    A semicolon inside a string, a quoted identifier, a `--` comment or a `/* */` comment belongs to it. The quote
+    handling needs no escape case: `''` and `""` close and reopen the quote in one step.
+    """
+    statements_: list[str] = []
+    current: list[str] = []
+    quote = ""
+    i = 0
+    while i < len(sql):
+        char = sql[i]
+        pair = sql[i : i + 2]
+        if quote:
+            end = {"'": "'", '"': '"', "--": "\n", "/*": "*/"}[quote]
+            if sql.startswith(end, i):
+                current.append(end)
+                i += len(end)
+                quote = ""
+                continue
+        elif char in "'\"":
+            quote = char
+        elif pair in ("--", "/*"):
+            quote = pair
+            current.append(pair)
+            i += 2
+            continue
+        elif char == ";":
+            statements_.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    statements_.append("".join(current))
+    return [statement.strip() for statement in statements_ if _has_code(statement)]
+
+
+def _has_code(statement: str) -> bool:
+    """False for text that is only whitespace and comments: Trino rejects an empty statement."""
+    rest = statement
+    while True:
+        rest = rest.lstrip()
+        if rest.startswith("--"):
+            rest = rest.partition("\n")[2]
+        elif rest.startswith("/*"):
+            rest = rest.partition("*/")[2]
+        else:
+            return bool(rest)
+
+
+def _loopback_session() -> requests.Session:
+    """A session that ignores `HTTP_PROXY` and friends: the request goes to the port-forward on loopback, and the
+    stage's password must not be handed to a workstation proxy on the way."""
+    session = requests.Session()
+    session.trust_env = False
+    return session
 
 
 def _subprocess_runner(

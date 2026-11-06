@@ -57,6 +57,7 @@ class _Trino:
 
     def __init__(self, body: dict[str, Any] | None = None, *, status: int = 200) -> None:
         self.requests: list[dict[str, Any]] = []
+        self.then: list[_Response] = []  # answers for the requests after the first, in order
         self._answer = _Response(
             status,
             body
@@ -66,7 +67,7 @@ class _Trino:
 
     def __call__(self, method: str, url: str, *, headers: dict[str, str], data: bytes | None = None, **_: Any):  # noqa: ANN204
         self.requests.append({"method": method, "url": url, "headers": headers, "sql": data})
-        return self._answer
+        return self.then.pop(0) if self.then and len(self.requests) > 1 else self._answer
 
     @property
     def first(self) -> dict[str, Any]:
@@ -78,10 +79,10 @@ def _forward(_target: trino.TrinoTarget, _environ: object) -> Iterator[int]:
     yield 18080
 
 
-def _run(trino_service: _Trino, *, runner=None, **kwargs: Any) -> str:  # noqa: ANN001
+def _run(trino_service: _Trino, *, runner=None, sql: str = "SELECT 1", **kwargs: Any) -> str:  # noqa: ANN001
     kwargs.setdefault("output_format", "csv")
     return trino.run_sql(
-        _target(), "SELECT 1", kubectl="kubectl", runner=runner, forward=_forward, send=trino_service, **kwargs
+        _target(), sql, kubectl="kubectl", runner=runner, forward=_forward, send=trino_service, **kwargs
     )
 
 
@@ -296,3 +297,73 @@ def test_the_default_forward_targets_the_coordinator_service_in_its_namespace(mo
     assert (seen["service"], seen["remote_port"], seen["namespace"]) == ("trino", 8080, "olf-system")
     assert seen["kube_context"] == "kind-openlakeforge-local"
     assert seen["environ"] is environ
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1", ["SELECT 1"]),
+        ("SELECT 1;", ["SELECT 1"]),
+        ("SELECT 1; SELECT 2;\n", ["SELECT 1", "SELECT 2"]),
+        ("SELECT 'a;b'; SELECT 2", ["SELECT 'a;b'", "SELECT 2"]),
+        ("SELECT 'it''s;'; SELECT 2", ["SELECT 'it''s;'", "SELECT 2"]),
+        ('SELECT "a;b" FROM t; SELECT 2', ['SELECT "a;b" FROM t', "SELECT 2"]),
+        ("SELECT 1 -- one; two\n; SELECT 2", ["SELECT 1 -- one; two", "SELECT 2"]),
+        ("SELECT /* a; b */ 1; SELECT 2", ["SELECT /* a; b */ 1", "SELECT 2"]),
+        (";;  ;", []),
+        ("-- only a comment\n", []),
+        ("SELECT 1;\n-- trailing comment", ["SELECT 1"]),
+    ],
+)
+def test_statements_split_outside_quotes_and_comments(sql: str, expected: list[str]) -> None:
+    assert trino.split_statements(sql) == expected
+
+
+def test_run_sql_runs_each_statement_and_prints_the_ones_that_return_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    service = _Trino({"id": "q0"})  # CREATE SCHEMA returns no columns
+    service.then = [_Response(200, {"id": "q1", "columns": [{"name": "c", "type": "integer"}], "data": [[1], [2]]})]
+
+    output = _run(service, sql="CREATE SCHEMA x; SELECT 1;", output_format="bare")
+
+    assert [request["sql"] for request in service.requests] == [b"CREATE SCHEMA x", b"SELECT 1"]
+    assert output == "1\n2\n"
+
+
+def test_the_default_transport_ignores_environment_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The password rides this request, so a workstation proxy must never see it."""
+    import http.server
+    import threading
+
+    def server(hits: list[str]) -> http.server.HTTPServer:
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                hits.append(self.path)
+                self.send_response(204)
+                self.end_headers()
+
+            def log_message(self, *_args: object) -> None:
+                pass
+
+        listener = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=listener.serve_forever, daemon=True).start()
+        return listener
+
+    direct: list[str] = []
+    via_proxy: list[str] = []
+    target, proxy = server(direct), server(via_proxy)
+    for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.setenv(name, f"http://127.0.0.1:{proxy.server_port}")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
+    try:
+        response = trino._loopback_session().request(
+            "GET", f"http://127.0.0.1:{target.server_port}/v1/info", headers={"Authorization": "Basic secret"}
+        )
+    finally:
+        for listener in (target, proxy):
+            listener.shutdown()
+            listener.server_close()
+
+    assert response.status_code == 204
+    assert (direct, via_proxy) == (["/v1/info"], [])

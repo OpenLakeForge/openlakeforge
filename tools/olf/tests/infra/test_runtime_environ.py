@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -136,7 +137,7 @@ def trino_service(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         return _Page()
 
     monkeypatch.setattr(trino, "_port_forward", forward)
-    monkeypatch.setattr(trino.requests, "request", send)
+    monkeypatch.setattr(trino, "_loopback_session", lambda: SimpleNamespace(request=send))
     return requests_seen
 
 
