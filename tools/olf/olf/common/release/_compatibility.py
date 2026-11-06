@@ -159,6 +159,12 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
         "supported upgrade path guarantee prior to `v0.1.0-alpha.1`."
     )
     lines.append("")
+    lines.append(
+        "Platform state written before v0.3 is not supported: `olf` refuses its schema `2.0.0` provider "
+        "contract. Upgrade from state written by v0.3 or later; to bring older state forward, redeploy the "
+        "platform phase (`olf infra deploy --phase platform`) with a current release first."
+    )
+    lines.append("")
 
     return COMPATIBILITY_MATRIX_HEADER + "\n".join(lines)
 

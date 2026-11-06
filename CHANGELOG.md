@@ -99,8 +99,16 @@ for how a release is cut and verified.
   `olf infra project image`, `olf infra project build` and
   `olf infra project deploy`.
 
+- Platform state written before v0.3 is no longer supported. `olf` no longer reads the schema `2.0.0`
+  provider contract that earlier releases left in Terraform state: it refuses it, naming the supported
+  version, and the v2 reader is removed (#114). The `2.0.0` environment contract that `olf` exports to
+  runtimes is unchanged.
+
 ### Migration
 
+- If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3:
+  run `olf infra deploy --phase platform` from a current release first, which rewrites it as schema
+  `3.0.0`, then rerun the command.
 - In a project's `lakehouse_code/` (for example `definitions.py`), replace
   `openlakeforge_domain` with `openlakeforge_core` in every import.
 - A requirement on `openlakeforge-domain-model` becomes `openlakeforge-core`.

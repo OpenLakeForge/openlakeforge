@@ -137,12 +137,9 @@ class ProviderContracts:
     deployment: Mapping[str, Any]
     shared: SharedPlatformContract
     stages: Mapping[StageName, StageContract]
-    compatibility_v2: bool = False
 
     def for_stage(self, stage: StageName | str | None = None) -> StageContract:
         if stage is None:
-            if self.compatibility_v2:
-                return self.stages[StageName.DEV]
             raise ProviderContractError("native provider-contract v3 requires an explicit stage")
         stage_name = _stage_name(stage)
         try:

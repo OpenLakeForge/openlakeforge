@@ -11,7 +11,18 @@ from urllib.parse import urlsplit
 
 V2_SCHEMA_VERSION = "2.0.0"
 V3_SCHEMA_VERSION = "3.0.0"
-SUPPORTED_SCHEMA_VERSIONS = frozenset({V2_SCHEMA_VERSION, V3_SCHEMA_VERSION})
+# V2_SCHEMA_VERSION is still the version `as_v2_environment_contract` exports to
+# runtimes; it is no longer accepted when parsing a provider contract.
+SUPPORTED_SCHEMA_VERSIONS = frozenset({V3_SCHEMA_VERSION})
+
+
+def unsupported_schema_version_message(schema_version: object) -> str:
+    return (
+        f"provider_contracts.schema_version {schema_version!r} is unsupported; "
+        f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}. Platform state written before v0.3 "
+        f"(schema {V2_SCHEMA_VERSION}) is no longer supported: redeploy the platform phase "
+        "with a current release first"
+    )
 
 
 class ProviderContractError(ValueError):

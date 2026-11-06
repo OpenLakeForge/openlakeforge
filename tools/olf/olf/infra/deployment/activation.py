@@ -160,10 +160,6 @@ def _selected_stage(  # noqa: ANN001
 ) -> tuple[Mapping[str, Any], StageContract]:
     """The stage's parsed bindings, refusing a platform activation cannot serve."""
     parsed = parse_provider_contracts(raw_contract, topology, distribution_root=distribution_root)
-    if parsed.compatibility_v2 or parsed.schema_version != "3.0.0":
-        raise ActivationError(
-            "olf infra project deploy requires a native provider-contract v3 platform; v2 is DEV compatibility only."
-        )
     return parsed.deployment, parsed.for_stage(stage)
 
 

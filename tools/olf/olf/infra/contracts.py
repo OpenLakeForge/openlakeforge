@@ -31,7 +31,7 @@ from openlakeforge_core import inventory_for
 
 from olf.common.contract_validation import V2_SCHEMA_VERSION
 from olf.common.profile import DeploymentTopology, StageName
-from olf.common.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.common.provider_contracts import parse_provider_contracts
 from olf.infra.access import ACCESS_ENV, contract_access
 
 if TYPE_CHECKING:
@@ -409,21 +409,8 @@ def build_contract_env(
         # process environment does not for an installed payload.
         dist = base.get("OLF_DISTRIBUTION_ROOT")
         parsed = parse_provider_contracts(contracts, topology, distribution_root=Path(dist) if dist else None)
-        native_v3 = not parsed.compatibility_v2
-        if parsed.compatibility_v2 and stage is not None and StageName(stage) != StageName.DEV:
-            # The v2 payload carries one stage's bindings with no stage index,
-            # so there is nothing to select: returning it for another stage
-            # would hand that stage DEV's namespace, catalog, and capability
-            # flags while reporting success. #114 emits v3, which can answer
-            # this properly.
-            raise ProviderContractError(
-                f"provider contract v2 describes only the DEV stage; it cannot serve {StageName(stage).value!r} "
-                "(#114 switches the roots to v3)"
-            )
-        resolved_contract = (
-            dict(contracts) if parsed.compatibility_v2 else parsed.for_stage(stage).as_v2_environment_contract()
-        )
-        _apply_provider_contracts(env, resolved_contract)
+        native_v3 = True
+        _apply_provider_contracts(env, parsed.for_stage(stage).as_v2_environment_contract())
         _apply_default_contract_env(env, base, repo_root)
         # Provenance, not a binding: which stage an applied contract actually
         # served. Set here and unset below, never defaulted, so a value left
