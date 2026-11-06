@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -53,8 +54,12 @@ def test_a_download_that_is_not_the_listed_size_fails(tmp_path: Path) -> None:
 
 
 def test_the_command_is_registered_and_has_no_passphrase_option() -> None:
-    result = CliRunner().invoke(app, ["infra", "backup", "--help"])
+    # Rich styles option names with ANSI codes in CI; render plain, and strip what is left.
+    result = CliRunner().invoke(
+        app, ["infra", "backup", "--help"], env={"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
+    )
+    output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
 
     assert result.exit_code == 0
-    assert "--output" in result.output and "OLF_BACKUP_PASSPHRASE" in result.output
-    assert "--passphrase" not in result.output
+    assert "--output" in output and "OLF_BACKUP_PASSPHRASE" in output
+    assert "--passphrase" not in output
