@@ -42,6 +42,11 @@ def test_a_key_that_climbs_out_of_the_backup_is_refused(tmp_path: Path) -> None:
     assert not (tmp_path / "escape").exists()
 
 
+def test_keys_that_resolve_to_the_same_file_are_refused(tmp_path: Path) -> None:
+    with pytest.raises(BackupError, match="map to the same backup file"):
+        _copy_bucket(FakeS3({"a/b": b"one", "a//b": b"two"}), "b", tmp_path / "b")
+
+
 def test_a_download_that_is_not_the_listed_size_fails(tmp_path: Path) -> None:
     with pytest.raises(BackupError, match="is 3 bytes, not 9"):
         _copy_bucket(FakeS3({"a": b"abc"}, listed_size={"a": 9}), "b", tmp_path / "b")

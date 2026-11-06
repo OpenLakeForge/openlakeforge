@@ -114,6 +114,7 @@ def _copy_bucket(client: Any, bucket: str, destination: Path) -> dict[str, int]:
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
     inventory: dict[str, int] = {}
+    written: dict[Path, str] = {}  # destination -> the key stored there
     for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
         for item in page.get("Contents", []):
             key, size = item["Key"], int(item["Size"])
@@ -122,6 +123,12 @@ def _copy_bucket(client: Any, bucket: str, destination: Path) -> dict[str, int]:
             target = (root / key).resolve()
             if not target.is_relative_to(root):
                 raise BackupError(f"object key {key!r} in bucket {bucket} would be written outside the backup.")
+            # Distinct keys such as `a//b` and `a/b` resolve to one file: the second would overwrite the first.
+            if target in written:
+                raise BackupError(
+                    f"object keys {written[target]!r} and {key!r} in bucket {bucket} map to the same backup file."
+                )
+            written[target] = key
             target.parent.mkdir(parents=True, exist_ok=True)
             client.download_file(bucket, key, str(target))
             if target.stat().st_size != size:
