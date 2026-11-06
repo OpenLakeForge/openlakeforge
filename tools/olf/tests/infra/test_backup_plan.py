@@ -13,14 +13,7 @@ from olf.infra.backup._plan import plan_from_contract
 
 
 def _slim(contracts: ProviderContracts) -> ProviderContracts:
-    # Without access, Trino workload authentication is off, so no query binding carries a CA ConfigMap.
-    no_tls = {"tls_port", "ca_configmap_name"}
-    stages = {
-        name: replace(
-            stage, reporting=None, governance=None, query={k: v for k, v in stage.query.items() if k not in no_tls}
-        )
-        for name, stage in contracts.stages.items()
-    }
+    stages = {name: replace(stage, reporting=None, governance=None) for name, stage in contracts.stages.items()}
     values = {key: value for key, value in contracts.shared.values.items() if key not in {"access", "identity"}}
     return replace(contracts, stages=stages, shared=replace(contracts.shared, values=values))
 
@@ -85,24 +78,23 @@ def test_a_cloud_deployment_is_refused_rather_than_planned_with_local_names() ->
         plan_from_contract(aws, shared_namespace="olf-system")
 
 
-def _port_forward(contracts: ProviderContracts, *, trino_tls: bool) -> ProviderContracts:
-    access = {**contracts.shared.values["access"], "implementation": "access.port_forward"}
-    shared = replace(contracts.shared, values={**contracts.shared.values, "access": access})
-    stages = {
-        name: replace(
-            stage,
-            query={k: v for k, v in stage.query.items() if trino_tls or k not in {"tls_port", "ca_configmap_name"}},
-        )
-        for name, stage in contracts.stages.items()
-    }
-    return replace(contracts, shared=shared, stages=stages)
+def _access(contracts: ProviderContracts, **changes: object) -> ProviderContracts:
+    access = {**contracts.shared.values["access"], **changes}
+    return replace(contracts, shared=replace(contracts.shared, values={**contracts.shared.values, "access": access}))
 
 
-def test_a_port_forward_deployment_without_trino_tls_plans_no_local_ca() -> None:
-    plan = plan_from_contract(_port_forward(full_contracts(), trino_tls=False), shared_namespace="olf-system")
+def test_a_port_forward_deployment_plans_no_local_ca() -> None:
+    plan = plan_from_contract(
+        _access(full_contracts(), implementation="access.port_forward", issuer=None), shared_namespace="olf-system"
+    )
     assert "local-ca" not in {secret.name for secret in plan.secrets}
 
 
-def test_trino_tls_alone_still_plans_the_local_ca() -> None:
-    plan = plan_from_contract(_port_forward(full_contracts(), trino_tls=True), shared_namespace="olf-system")
+def test_an_ingress_without_an_issuer_plans_no_local_ca() -> None:
+    plan = plan_from_contract(_access(full_contracts(), issuer="none"), shared_namespace="olf-system")
+    assert "local-ca" not in {secret.name for secret in plan.secrets}
+
+
+def test_the_local_ca_issuer_plans_the_local_ca() -> None:
+    plan = plan_from_contract(_access(full_contracts(), issuer="local-ca"), shared_namespace="olf-system")
     assert "local-ca" in {secret.name for secret in plan.secrets}

@@ -111,9 +111,9 @@ def test_export_report_leaves_a_stage_neutral_assets_bundle(tmp_path: Path, fake
             yaml.safe_dump(
                 {
                     "database_name": "Trino",
-                    "sqlalchemy_uri": "trino://olf-prod@trino:8443/lakehouse_prod",
+                    "sqlalchemy_uri": "trino://olf-prod@trino:8080/lakehouse_prod",
                     "uuid": _DATABASE_UUID,
-                    "extra": reports.TLS_EXTRA,
+                    "extra": reports.INSECURE_AUTH_EXTRA,
                 }
             ),
         )

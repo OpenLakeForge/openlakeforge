@@ -122,8 +122,9 @@ then run the prefetch step again.
 
 ## A browser or curl cannot open a service
 
-With HTTPS, the browser must trust the local CA (`olf infra access trust`), and
-command-line tools may need `--resolve` for `*.localhost` names. See
+With the default plain-HTTP routes there is nothing to trust. If the profile sets
+`spec.access.issuer: local-ca`, the browser must trust the local CA (`olf infra
+access trust`). Command-line tools may need `--resolve` for `*.localhost` names. See
 [Access the services](local-installation.md#access-the-services). With sign-in
 on, see [Troubleshoot sign-in](identity/connect-github.md#troubleshooting).
 

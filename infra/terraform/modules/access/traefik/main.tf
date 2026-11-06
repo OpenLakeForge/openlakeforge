@@ -16,22 +16,7 @@ locals {
     }
   }
   namespace_hosts = { for route in values(var.routes) : route.namespace => route.tls_host... }
-  # The file provider carries both the middlewares and the transports a backend
-  # that speaks HTTPS is verified with. Null (no provider content) when neither
-  # is set, so a cluster without them gets the same values as before.
-  dynamic_config = var.dynamic_config == null && length(var.backend_transports) == 0 ? null : {
-    http = merge(try(var.dynamic_config.http, {}), {
-      for key, transports in {
-        serversTransports = {
-          for name, transport in var.backend_transports : name => {
-            rootCAs    = ["/etc/traefik/backend-ca/${name}/ca.crt"]
-            serverName = transport.server_name
-          }
-        }
-      } : key => transports if length(var.backend_transports) > 0
-    })
-  }
-  secret_name = "openlakeforge-routes-tls"
+  secret_name     = "openlakeforge-routes-tls"
   primary_group = {
     for namespace in keys(local.namespace_hosts) : namespace => sort(distinct([for route in values(var.routes) : route.group if route.namespace == namespace]))[0]
   }
@@ -54,11 +39,7 @@ resource "helm_release" "traefik" {
     var.route_tls ? [yamlencode({ tlsStore = { default = { defaultCertificate = { secretName = local.secret_name } } } })] : [],
     # Plain HTTP serves web only; 443 is not published on the host.
     var.route_tls ? [] : [yamlencode({ ports = { websecure = { hostPort = null } } })],
-    local.dynamic_config == null ? [] : [yamlencode({ providers = { file = { enabled = true, content = local.dynamic_config } } })],
-    # The chart mounts each Secret by its own name; it holds the CA as ca.crt.
-    length(var.backend_transports) == 0 ? [] : [yamlencode({
-      volumes = [for name, transport in var.backend_transports : { name = transport.ca_secret, mountPath = "/etc/traefik/backend-ca/${name}", type = "secret" }]
-    })],
+    var.dynamic_config == null ? [] : [yamlencode({ providers = { file = { enabled = true, content = var.dynamic_config } } })],
   )
 }
 

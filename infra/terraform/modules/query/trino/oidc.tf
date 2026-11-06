@@ -15,7 +15,7 @@
 locals {
   oidc_enabled = var.web_ui_oidc != null
   oidc_prefix  = "http-server.authentication.oauth2"
-  oidc_properties = !local.oidc_enabled ? [] : [
+  oidc_properties = !local.oidc_enabled ? [] : concat([
     "web-ui.authentication.type=oauth2",
     "${local.oidc_prefix}.issuer=${var.web_ui_oidc.issuer_url}",
     "${local.oidc_prefix}.oidc.discovery=false",
@@ -30,11 +30,11 @@ locals {
     "${local.oidc_prefix}.scopes=openid,email,offline_access",
     "${local.oidc_prefix}.refresh-tokens=true",
     "${local.oidc_prefix}.principal-field=email",
-    # The issuer's certificate is signed by the local CA. This HTTP client
-    # fetches the signing keys and exchanges the code; it is separate from the
-    # internal-communication one.
-    "oauth2-jwk.http-client.trust-store-path=/etc/trino/tls/ca.crt",
-  ]
+    ],
+    # An issuer signed by the local CA: this HTTP client fetches the signing
+    # keys and exchanges the code. A public certificate needs no mount.
+    var.ca_configmap_name == null ? [] : ["oauth2-jwk.http-client.trust-store-path=${local.ca_mount_path}/ca.crt"],
+  )
   oidc_env = !local.oidc_enabled ? [] : [
     {
       name = "TRINO_OIDC_CLIENT_SECRET"

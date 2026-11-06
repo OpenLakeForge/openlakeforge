@@ -134,7 +134,6 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "openmetadata_deps_chart_package_path",
         "superset_chart_package_path",
         "traefik_chart_package_path",
-        "cert_manager_chart_package_path",
     }
 
 
@@ -148,7 +147,7 @@ def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_iss
     )
     secured = replace(_github_config(tmp_path).context.topology, access=AccessSpec())
     variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
-    assert (variables["access_base_domain"], variables["access_issuer"]) == ("olf.localhost", "local-ca")
+    assert (variables["access_base_domain"], variables["access_issuer"]) == ("olf.localhost", "none")
     assert variables["identity_issuer"] == "github"
     assert "identity_external" not in variables
 
@@ -215,7 +214,6 @@ def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_p
         "seaweedfs",
         "polaris",
         "traefik",
-        "cert-manager",
     ]
     assert "openmetadata_chart_package_path" not in variables
     assert "openmetadata_deps_chart_package_path" not in variables
@@ -372,7 +370,8 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: b
 
     from olf.common.profile import AccessSpec
 
-    topology = replace(_topology(analytics=False), access=AccessSpec()) if with_access else None
+    access = AccessSpec(issuer="local-ca")
+    topology = replace(_topology(analytics=False), access=access) if with_access else None
     config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
     config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.foundation_state_path.write_text("{}")
@@ -390,6 +389,38 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: b
     # Dropping spec.access destroys the module that owns the Corefile key.
     restored = any("patch" in c.argv and "coredns" in c.argv for c in runner.calls)
     assert restored is not with_access
+
+
+def test_plain_http_routes_wait_for_no_local_ca_and_keep_the_corefile(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.common.profile import AccessSpec
+
+    topology = replace(_topology(analytics=False), access=AccessSpec(issuer="none"))
+    config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    runner = _PlatformScriptedRunner(namespace_exists=False, seaweedfs_in_state=True)
+
+    platform.platform_up(config, _toolkit(runner), env={})
+
+    assert not any("certificate/local-ca-probe" in c.argv for c in runner.calls)
+    # The ingress is still on, so the CoreDNS rewrite stays: pods reach the routes by their public names.
+    assert not any("patch" in c.argv and "coredns" in c.argv for c in runner.calls)
+    assert "cert-manager" not in [setting.name for setting in config.charts.values()]
+
+
+@pytest.mark.parametrize(("issuer", "fetched"), [("local-ca", True), ("none", False)])
+def test_cert_manager_is_fetched_only_for_https_routes(tmp_path: Path, issuer: str, fetched: bool) -> None:
+    from dataclasses import replace
+
+    from olf.common.profile import AccessSpec
+
+    topology = replace(_topology(analytics=False), access=AccessSpec(issuer=issuer))
+    config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
+
+    assert ("cert-manager" in [setting.name for setting in config.charts.values()]) is fetched
+    assert ("cert_manager_chart_package_path" in platform.platform_apply_variables(config)) is fetched
 
 
 def test_platform_up_recovers_from_drifted_state(tmp_path: Path) -> None:
@@ -883,7 +914,7 @@ def test_status_renders_certificates_only_when_access_is_declared(
     from olf.common.profile import AccessSpec
     from olf.infra.deployment.local.provider import LocalProvider
 
-    topology = replace(_topology(), access=AccessSpec() if declared else None)
+    topology = replace(_topology(), access=AccessSpec(issuer="local-ca") if declared else None)
     context = SimpleNamespace(
         topology=topology, shared_namespace="olf-system", namespace_for=lambda stage: "olf-dev", enabled_stages=()
     )

@@ -317,11 +317,15 @@ locals {
   trino_workload_authentication = coalesce(var.trino_workload_authentication, local.access_enabled ? "password" : "off")
   identity_enabled              = var.identity_issuer != null
   # Route TLS (route certificates) is the one TLS-specific switch; `issuer:
-  # none` is plain HTTP on *.localhost. cert-manager and the local CA stay
-  # deployed with spec.access: pods still mount the CA ConfigMap, and Trino's
-  # internal certificate (ADR 0016) needs the issuer.
+  # none` is plain HTTP on *.localhost. cert-manager, the local CA and the CA
+  # ConfigMap that pods mount exist only with route TLS: nothing else in the
+  # cluster is encrypted (ADR 0016).
   route_tls    = local.access_enabled && var.access_issuer != "none"
   route_scheme = local.route_tls ? "https" : "http"
+  # The fixed name in_cluster_resolution publishes. A literal rather than that
+  # module's output, because the module waits on Traefik's dependencies, which
+  # wait on routes built from the contract: a cycle.
+  ca_configmap_name = local.route_tls ? "olf-local-ca" : null
   # coalesce() skips "" too, so it fails on a null quickstart domain.
   base_domain = var.access_base_domain == null ? "" : var.access_base_domain
 
@@ -420,7 +424,7 @@ locals {
         tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
         service_name = module.trino.service_name
-        service_port = module.trino.route_port
+        service_port = module.trino.http_port
       }
     },
     local.identity_deployed ? {
@@ -642,17 +646,12 @@ module "provider_contract" {
       service_account      = local.stage_service_accounts[name]
       catalog_endpoint_ref = "shared/catalog_service"
       query_catalog_name   = local.stage_catalog_contracts[name].catalog_name
-      # tls_port and ca_configmap_name appear only while Trino serves HTTPS
-      # (ADR 0016): strings, filtered by a for expression so the absent case
-      # is an empty map of the same type. The ConfigMap name is a literal
-      # because module.in_cluster_resolution waits on Traefik, which waits on
-      # routes built from this contract: a cycle.
+      # Present only when Trino requires a password (ADR 0016), filtered by a
+      # for expression so the absent case is an empty map of the same type.
+      # The Secret is in the stage namespace.
       query_extra = {
         for key, value in tomap({
-          # Present only when Trino requires a password; the Secret is in the stage namespace.
           credential_secret_name = module.trino.credential_secret_name,
-          tls_port               = module.trino.tls_port == null ? null : tostring(module.trino.tls_port),
-          ca_configmap_name      = module.trino.tls_port == null ? null : "olf-local-ca",
         }) : key => value if value != null
       }
       # Deterministic OpenMetadata pipeline- and dashboard-service roots (#131).

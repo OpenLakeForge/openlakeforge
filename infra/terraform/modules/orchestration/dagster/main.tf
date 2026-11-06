@@ -185,10 +185,7 @@ locals {
     : "${var.query_contract.service_name}.${var.query_contract.service_namespace}"
   )
 
-  query_tls = try(var.query_contract.tls_port, null) != null && try(var.query_contract.ca_configmap_name, null) != null
-  query_ca  = "/etc/olf/query-ca/ca.crt"
-
-  query_env = concat([
+  query_env = [
     {
       name  = "OPENLAKEFORGE_QUERY_TRINO_HOST"
       value = local.query_host
@@ -201,21 +198,7 @@ locals {
       name  = "OPENLAKEFORGE_QUERY_TRINO_CATALOG"
       value = var.query_contract.catalog_name
     },
-    ], local.query_tls ? [
-    {
-      # Not the PORT above, which other callers still pair with http.
-      name  = "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"
-      value = tostring(var.query_contract.tls_port)
-    },
-    {
-      name  = "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"
-      value = "https"
-    },
-    {
-      name  = "OPENLAKEFORGE_QUERY_TRINO_CA"
-      value = local.query_ca
-    },
-  ] : [])
+  ]
 
   dbt_env = concat([
     {

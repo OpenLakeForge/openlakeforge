@@ -24,11 +24,10 @@ import yaml
 from .progress import SILENT, Progress
 from .superset import SupersetClient
 
-# Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
-SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
-# Superset's per-database `extra` while Trino serves HTTPS (ADR 0016). Export
-# strips exactly these keys, so they live beside the code that adds them.
-TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
+# Superset's per-database `extra` while its Trino connection sends a password (ADR 0016). The `trino` client
+# (0.339 and later, which the Superset image takes) refuses a password over HTTP unless told the network is
+# trusted. Export strips exactly these keys, so they live beside the code that adds them.
+INSECURE_AUTH_EXTRA = {"engine_params": {"connect_args": {"allow_insecure_auth": True}}}
 # The placeholder a checked-in database YAML carries. `build_report_bundle`
 # replaces it with the target stage's connection, and `unpack_export_bundle`
 # puts it back so an exported bundle promotes unchanged.
@@ -123,7 +122,7 @@ def _neutral_database(document: dict[str, Any]) -> None:
     connect_args = engine_params.get("connect_args") if isinstance(engine_params, dict) else None
     if not isinstance(engine_params, dict) or not isinstance(connect_args, dict):
         return
-    for key, value in TLS_EXTRA["engine_params"]["connect_args"].items():
+    for key, value in INSECURE_AUTH_EXTRA["engine_params"]["connect_args"].items():
         if connect_args.get(key) == value:
             del connect_args[key]
     if not connect_args:

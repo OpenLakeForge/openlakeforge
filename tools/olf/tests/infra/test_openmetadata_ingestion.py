@@ -13,7 +13,7 @@ BASE = {
     "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME": "openmetadata-ingestion-bot",
     "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY": "OPENMETADATA_INGESTION_BOT_JWT",
 }
-TLS = {**BASE, "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca"}
+PASSWORD = {**BASE, "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential"}
 
 
 def _build(environ):
@@ -25,7 +25,7 @@ def _build(environ):
     return job, pod, yaml.safe_load(env["OM_WORKFLOW"]["value"]), env
 
 
-def test_http_contract_crawls_the_http_port_without_a_ca():
+def test_a_contract_without_a_credential_crawls_the_http_port_with_no_extra_arguments():
     job, pod, workflow, _ = _build(BASE)
     connection = workflow["source"]["serviceConnection"]["config"]
     assert connection["hostPort"] == "trino.olf-system:8080"
@@ -34,16 +34,15 @@ def test_http_contract_crawls_the_http_port_without_a_ca():
     assert pod["containers"][0]["image"] == "ingestion@sha256:abc"
 
 
-def test_tls_contract_verifies_against_the_mounted_ca():
-    _, pod, workflow, _ = _build(TLS)
+def test_a_password_contract_crawls_the_http_port_and_opts_into_insecure_auth():
+    _, pod, workflow, _ = _build(PASSWORD)
     connection = workflow["source"]["serviceConnection"]["config"]
-    assert connection["hostPort"] == "trino.olf-system:8443"
-    assert connection["connectionArguments"] == {"http_scheme": "https", "verify": "/etc/olf/query-ca/ca.crt"}
-    assert pod["volumes"] == [{"name": "query-ca", "configMap": {"name": "olf-local-ca"}}]
-    assert pod["containers"][0]["volumeMounts"][0]["mountPath"] == "/etc/olf/query-ca"
+    assert connection["hostPort"] == "trino.olf-system:8080"
+    assert connection["connectionArguments"] == {"allow_insecure_auth": True}
+    assert "volumes" not in pod
 
 
-@pytest.mark.parametrize("environ", [BASE, TLS])
+@pytest.mark.parametrize("environ", [BASE, PASSWORD])
 def test_bot_token_is_a_secret_reference_never_a_value(environ):
     job, _, workflow, env = _build(environ)
     assert env["OM_BOT_JWT"]["valueFrom"]["secretKeyRef"] == {
@@ -55,7 +54,7 @@ def test_bot_token_is_a_secret_reference_never_a_value(environ):
     assert "eyJ" not in json.dumps(job)
 
 
-@pytest.mark.parametrize("environ", [BASE, TLS])
+@pytest.mark.parametrize("environ", [BASE, PASSWORD])
 def test_hourly_refresh_runs_the_same_pod_as_the_job(environ):
     job, _, _, _ = _build(environ)
     cron = ingestion_cronjob(job, catalog="lakehouse_dev")
@@ -72,7 +71,7 @@ def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
 
 
 def test_a_password_contract_gives_the_crawl_the_openmetadata_principals_password_by_reference():
-    _, pod, workflow, env = _build({**TLS, "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential"})
+    _, pod, workflow, env = _build(PASSWORD)
 
     assert env["TRINO_PASSWORD"]["valueFrom"]["secretKeyRef"] == {
         "name": "trino-credential-openmetadata",
@@ -83,7 +82,7 @@ def test_a_password_contract_gives_the_crawl_the_openmetadata_principals_passwor
 
 
 def test_without_a_password_contract_the_crawl_carries_no_credential():
-    _, _, workflow, env = _build(TLS)
+    _, _, workflow, env = _build(BASE)
 
     assert "authType" not in workflow["source"]["serviceConnection"]["config"]
     assert "TRINO_PASSWORD" not in env

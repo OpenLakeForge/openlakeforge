@@ -147,10 +147,11 @@ class ImageSettings:
         )
 
 
-_ALWAYS_CHARTS = ("trino", "dagster", "seaweedfs", "polaris", "traefik", "cert-manager")
+_ALWAYS_CHARTS = ("trino", "dagster", "seaweedfs", "polaris", "traefik")
+_ROUTE_TLS_CHARTS = ("cert-manager",)
 _GOVERNANCE_CHARTS = ("openmetadata", "openmetadata-dependencies")
 _ANALYTICS_CHARTS = ("superset",)
-_ALL_CHARTS = _ALWAYS_CHARTS + _GOVERNANCE_CHARTS + _ANALYTICS_CHARTS
+_ALL_CHARTS = _ALWAYS_CHARTS + _ROUTE_TLS_CHARTS + _GOVERNANCE_CHARTS + _ANALYTICS_CHARTS
 
 
 def _local_chart_names(features: DeploymentFeatures) -> tuple[str, ...]:
@@ -159,6 +160,8 @@ def _local_chart_names(features: DeploymentFeatures) -> tuple[str, ...]:
     downloading and verifying charts it cannot use.
     """
     names = list(_ALWAYS_CHARTS)
+    if features.route_tls:
+        names.extend(_ROUTE_TLS_CHARTS)
     if features.governance_enabled:
         names.extend(_GOVERNANCE_CHARTS)
     if features.analytics_enabled:

@@ -285,7 +285,11 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
-                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    **(
+                        {"access": {"issuer": "local-ca"}}
+                        if contract["shared"]["access"]["implementation"] == "access.ingress"
+                        else {}
+                    ),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
                     **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {
@@ -319,7 +323,11 @@ def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
-                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    **(
+                        {"access": {"issuer": "local-ca"}}
+                        if contract["shared"]["access"]["implementation"] == "access.ingress"
+                        else {}
+                    ),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
                     **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {stage.value: {"enabled": True} for stage in enabled},

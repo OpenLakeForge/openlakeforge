@@ -23,9 +23,12 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | Field | Default | Real install |
    | --- | --- | --- |
    | `base_domain` | `olf.localhost` | e.g. `olf.example.com` |
-   | `issuer` | `local-ca` | an ACME (Let's Encrypt) or organisational CA issuer |
+   | `issuer` | `none` (plain HTTP) | an ACME (Let's Encrypt) or organisational CA issuer |
 
-   The defaults need neither a purchased domain nor a public server.
+   The defaults need neither a purchased domain nor a public server, nor a
+   certificate. `local-ca`, a CA the platform creates, is opt-in HTTPS for a
+   local install; the other providers' default stays `local-ca` because they do
+   not read the block yet and `none` is local-only (decision 9).
 
    **The block is the switch (#399).** A profile with no `spec.access` is a
    quickstart: no Traefik, cert-manager, local CA, CoreDNS rewrite, portal or
@@ -69,14 +72,16 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    by redirecting to login. Only a caller that tests the ingress itself passes
    `through_ingress=True`. They resolve
    `*.localhost` to `127.0.0.1` in-process and, for the `local-ca` issuer,
-   verify against the CA read from the cluster — no `/etc/hosts` edit and no
-   disabled verification. Users trust that CA once with `olf infra access trust`.
+   verify against the CA read from the cluster when the issuer is `local-ca` —
+   no `/etc/hosts` edit and no disabled verification. Users trust that CA once
+   with `olf infra access trust`; with `none` there is no CA to trust.
 6. **Local adapter: Traefik terminates TLS, cert-manager issues.** On kind,
    Traefik binds host ports 80/443 on `127.0.0.1` through the control-plane
-   node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
-   self-signed once and never rotated by a re-deploy; `olf infra deploy` waits for
-   a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
-   the only value the contract accepts. One wildcard
+   node. With the `local-ca` issuer, cert-manager signs from a ClusterIssuer
+   whose root is self-signed once and never rotated by a re-deploy; `olf infra
+   deploy` waits for a probe certificate from it. cert-manager exists only for
+   this: the route certificate is the one thing it issues (ADR 0016 no longer
+   asks it for Trino's). `tls_mode` is `ingress-terminated` with that issuer. One wildcard
    certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
    does not match the apex), is issued in the shared namespace by
    cert-manager's ingress-shim and is Traefik's default certificate
@@ -113,15 +118,17 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    issuer's public URL from inside the cluster, and `*.localhost` must not
    resolve to the pod's own loopback there. The local root adds a CoreDNS
    `rewrite` sending `<base_domain>` and every name under it to the Traefik
-   Service, and publishes the local CA root as ConfigMap `olf-local-ca`
-   (key `ca.crt`) in `olf-system` and every stage namespace for pods to
-   mount. The URL, certificate and token `iss` are then the same as in a
-   browser. The rewrite replaces the cluster's `Corefile` key, so it is
-   removed with the cluster.
+   Service, with either issuer. With `local-ca` it also publishes the CA root
+   as ConfigMap `olf-local-ca` (key `ca.crt`) in `olf-system` and every stage
+   namespace for pods to mount; with `none` there is no certificate and no
+   ConfigMap, and the consumers (Dex, Superset, OpenMetadata, the perimeter,
+   Polaris, the platform API, Trino's Web UI sign-in) mount nothing. The URL,
+   certificate and token `iss` are then the same as in a browser. The rewrite
+   replaces the cluster's `Corefile` key, so it is removed with the cluster.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
-9. **Development mode: `issuer: none`, plain HTTP on `*.localhost`.** The
+9. **Plain HTTP on `*.localhost` is the local default: `issuer: none`.** The
    local provider accepts `spec.access.issuer: none` only for a `base_domain`
    ending in `.localhost`, so a first-time user reaches every service, and
    tests sign-in, without trusting a certificate. Browsers resolve
@@ -130,10 +137,12 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
    `127.0.0.1:80` mapping is the only exposure. Routes and the contract use
    `http://`, `tls_mode` is `none` (accepted exactly with this issuer), Traefik
    serves the `web` entrypoint with no `tls` block and publishes no host port
-   443. cert-manager and the local CA stay deployed: Trino's internal
-   certificate (ADR 0016) and the CA ConfigMap the pods mount are
-   independent of the routes. Not for any other provider or a public domain;
-   the validator rejects both, and public exposure (#340) must reject it too.
+   443. cert-manager, the local CA and the CA ConfigMap are not deployed: the
+   in-cluster hop to Trino is plain HTTP (ADR 0016), so nothing else needs a
+   certificate. Not for any other provider or a public domain; the validator
+   rejects both, and public exposure (#340) must reject it too. A profile that
+   wants browser HTTPS says `issuer: local-ca`; the conformance profile does,
+   so the nightly keeps exercising the TLS routes.
 
 ## Consequences
 
@@ -142,7 +151,8 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 - Changing `base_domain` changes every user-facing URL; it is deployment
   configuration, not product intent, and stays out of `governance.yml`.
 
-- The ingress and portal add five pods to the local footprint, all in `olf-system`:
+- The ingress and portal add the pods below to the local footprint, all in
+  `olf-system`; the three cert-manager rows exist only with `issuer: local-ca`:
 
   | Pod | CPU request | Memory request / limit |
   | --- | --- | --- |
@@ -164,6 +174,11 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+In-cluster TLS removed (#932): `issuer: none` became the local default, and
+cert-manager, the local CA and `olf-local-ca` are deployed only with `local-ca`.
+Trino's certificate, the reason they stayed with `none` in decision 9, went with
+ADR 0016's HTTPS listener. The CoreDNS rewrite is unchanged.
 
 #666 added the platform API's row to the footprint table: a path (`/api`) on
 the portal's host, deployed with `spec.identity` (ADR 0021).

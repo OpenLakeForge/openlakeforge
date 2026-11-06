@@ -8,6 +8,12 @@ from olf.infra.e2e import _trino
 from olf.infra.e2e._shell import E2EError
 
 
+@pytest.fixture(autouse=True)
+def _kubectl_on_the_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `trino_query` resolves the binary before `run_sql` is reached; none is installed in CI.
+    monkeypatch.setattr(_trino, "_kubectl_executable", lambda *_args: "kubectl")
+
+
 def test_check_catalog_namespaces_reports_missing_descriptor_namespace(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -61,17 +67,35 @@ def test_parse_trino_scalar_returns_last_non_empty_line() -> None:
     assert _trino.parse_trino_scalar("\n15\r\n") == "15"
 
 
-def test_trino_scalar_requests_transient_kubectl_retries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls: list[dict] = []
+def test_a_transient_failure_reaching_trino_is_retried_but_a_query_failure_is_not(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    answers = iter(
+        [trino.TrinoQueryError("cannot reach Trino at 127.0.0.1: ConnectionError"), "6\n"],
+    )
+    attempts: list[str] = []
 
-    def kubectl(_cfg, args, *, capture=False, retry_transient=False, input_text=None):
-        calls.append({"args": args, "capture": capture, "retry_transient": retry_transient})
-        return "" if args[0] == "get" else "6\n"
+    def run_sql(_target, sql, **_kwargs):  # noqa: ANN001, ANN202
+        attempts.append(sql)
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
-    monkeypatch.setattr(_trino, "kubectl", kubectl)
+    monkeypatch.setattr(trino, "run_sql", run_sql)
+    monkeypatch.setattr(_trino.time, "sleep", lambda _seconds: None)
 
     assert _trino.trino_scalar(e2e_cfg(tmp_path), "SELECT count(*) FROM iceberg.test.table") == "6"
-    assert all(call["capture"] and call["retry_transient"] for call in calls)
+    assert len(attempts) == 2
+
+    attempts.clear()
+
+    def denied(*_args: object, **_kwargs: object) -> str:
+        raise trino.TrinoQueryError("Access Denied")
+
+    monkeypatch.setattr(trino, "run_sql", denied)
+    with pytest.raises(E2EError, match="Access Denied"):
+        _trino.trino_query(e2e_cfg(tmp_path), "SELECT 1")
 
 
 def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
@@ -140,54 +164,44 @@ def test_shared_services_are_queried_in_the_shared_namespace(
     own; only Dagster and Superset live in the stage namespace."""
     from dataclasses import replace
 
-    commands: list[list[str]] = []
+    targets: list[trino.TrinoTarget] = []
 
-    def _fake_kubectl(_cfg, args, **_kwargs):  # noqa: ANN001, ANN202
-        commands.append(args)
-        return "" if args[0] == "get" else "trino-coordinator-1\n"
+    def run_sql(target, _sql, **_kwargs):  # noqa: ANN001, ANN202
+        targets.append(target)
+        return "1\n"
 
-    monkeypatch.setattr(_trino, "kubectl", _fake_kubectl)
-    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+    monkeypatch.setattr(trino, "run_sql", run_sql)
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
 
     _trino.trino_query(cfg, "SELECT 1")
 
-    assert commands[-1][:4] == ["exec", "-i", "-n", "olf-system"]
-    assert commands[0][:2] == ["get", "secret"]
+    assert targets[0].namespace == "olf-system"
 
 
-@pytest.mark.parametrize("tls", [False, True])
-def test_trino_query_uses_https_only_when_the_coordinator_serves_it(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tls: bool
+@pytest.mark.parametrize(
+    ("credential", "password", "expected"),
+    [
+        ("trino-credential", None, None),
+        ("trino-credential", "", ""),
+        ("trino-credential", "wrong", "wrong"),
+        ("", "wrong", None),
+    ],
+    ids=("secret", "none-sent", "override", "no-credential-in-contract"),
+)
+def test_the_password_follows_the_contract_and_the_probe_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, credential: str, password: str | None, expected: str | None
 ) -> None:
-    """Run the command the coordinator pod would run, with a stub `trino`."""
-    import subprocess
+    """None lets `run_sql` read the principal's Secret; a contract without a credential never sends one."""
+    seen: list[dict] = []
+    monkeypatch.setattr(trino, "run_sql", lambda _t, _s, **kwargs: seen.append(kwargs) or "1\n")
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", credential)
+    cfg = e2e_cfg(tmp_path)
 
-    stub = tmp_path / "trino"
-    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
-    stub.chmod(0o755)
-    ca = tmp_path / "ca.crt"
-    if tls:
-        ca.write_text("pem")
-    monkeypatch.setattr(trino, "TRINO_CA", str(ca))
-    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    _trino.trino_query(cfg, "SELECT 1", password=password, session_user="olf-prod-runtime")
 
-    def _run_in_pod(_cfg, args, **kwargs):  # noqa: ANN001, ANN202
-        if args[0] != "exec":
-            return ""
-        return subprocess.run(
-            args[args.index("--") + 1 :], capture_output=True, text=True, check=True, input=kwargs.get("input_text")
-        ).stdout
-
-    monkeypatch.setattr(_trino, "kubectl", _run_in_pod)
-
-    argv = _trino.trino_query(e2e_cfg(tmp_path), "SELECT 1").splitlines()
-
-    assert argv[-2:] == ["--execute", "SELECT 1"]
-    assert ("--server" in argv) is tls
-    if tls:
-        assert argv[argv.index("--server") + 1] == "https://localhost:8443"
-        assert argv[argv.index("--truststore-path") + 1] == str(ca)
+    assert seen[0]["password"] == expected
+    assert seen[0]["session_user"] == "olf-prod-runtime"
+    assert seen[0]["output_format"] == "bare"
 
 
 def test_check_trino_write_appends_and_drops_a_dbt_temporary_view(
@@ -218,21 +232,3 @@ def test_polaris_token_key_is_created_in_cluster_and_wired_by_name() -> None:
     helm = next(b["polaris"] for r in doc["resource"] for k, b in r.items() if k == "helm_release")
     values = str(helm["values"])
     assert "tokenBroker" in values and "symmetric-key" in values and "local.token_broker_secret" in values
-
-
-def test_trino_query_reads_no_credential_unless_the_contract_names_one(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
-    calls: list[tuple[list[str], dict]] = []
-
-    def _fake_kubectl(_cfg, args, **kwargs):  # noqa: ANN001, ANN202
-        calls.append((args, kwargs))
-        return "trino-coordinator-1\n"
-
-    monkeypatch.setattr(_trino, "kubectl", _fake_kubectl)
-
-    _trino.trino_query(e2e_cfg(tmp_path), "SELECT 1")
-
-    assert all(args[:2] != ["get", "secret"] for args, _ in calls)
-    assert calls[-1][1]["input_text"] is None

@@ -84,12 +84,6 @@ variable "postgresql_contract" {
   })
 }
 
-variable "trino_ca_configmap_name" {
-  description = "ConfigMap holding the CA that signs Trino's certificate. When set, it is mounted at /etc/olf/query-ca in every Superset pod so the Trino database connection can verify the HTTPS listener (ADR 0016). Null leaves the pods unchanged."
-  type        = string
-  default     = null
-}
-
 variable "postgresql_ssl_mode" {
   description = "PostgreSQL sslmode used by Superset metadata connections."
   type        = string
@@ -113,7 +107,7 @@ variable "oidc" {
     client_id         = string
     secret_ref        = object({ name = string, key = string })
     secret_namespace  = string
-    ca_configmap_name = string
+    ca_configmap_name = optional(string)
   })
   default = null
 }

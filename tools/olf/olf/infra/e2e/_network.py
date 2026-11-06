@@ -127,7 +127,7 @@ def stage_wide(document: dict[str, Any]) -> set[str]:
 
 
 def workload_ports(document: dict[str, Any], workload: str) -> list[int]:
-    """The ports a flow row opens to the workload; the served one varies (Trino: 8080, or 8443 with TLS)."""
+    """The ports a flow row opens to the workload; the served one can vary by provider."""
     labels = document["workloads"][workload]
     for row in document["flows"]:
         if row["to"].get("pods") == labels:

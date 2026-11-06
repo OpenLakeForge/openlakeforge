@@ -14,7 +14,7 @@ variables {
 
   bootstrap_job_image = "bootstrap:test"
   query_endpoints = {
-    dev = { statement_url = "https://trino.olf-system.svc.cluster.local:8443/v1/statement", catalog = "dev" }
+    dev = { statement_url = "http://trino.olf-system.svc.cluster.local:8080/v1/statement", catalog = "dev" }
   }
 }
 
@@ -80,7 +80,7 @@ run "query_endpoints_and_signing_key_are_wired_with_person_query" {
   assert {
     condition = (
       jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).query_endpoints.dev.catalog == "dev"
-      && startswith(jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).query_endpoints.dev.statement_url, "https://trino.")
+      && startswith(jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).query_endpoints.dev.statement_url, "http://trino.")
     )
     error_message = "each stage's statement URL and catalog must reach settings.json"
   }

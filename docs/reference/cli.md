@@ -74,7 +74,7 @@ All `new` commands validate the result before writing and accept
 | `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |
 | `olf infra backup --output <dir>` | Back up a local deployment into a new directory (`-f <profile>`, `--project-root`): a `pg_dump` of each database (`polaris` first), a copy of every stage bucket and the ops bucket with a key-and-size inventory, the data-bound Secrets and `local-ca` sealed in `secrets.enc`, then `manifest.json` and `SHA256SUMS`. It stops every stage's Dagster daemon for the length of the backup, refuses to start while a run is in flight, and always starts the daemon again. The passphrase for `secrets.enc` comes from `OLF_BACKUP_PASSPHRASE` or a prompt, never an argument; without it the Secrets cannot be restored. The directory holds all the data, so store it as you would the cluster. |
-| `olf infra access trust` | Export the local CA and print the commands to trust it. |
+| `olf infra access trust` | Export the local CA and print the commands to trust it. Only for `issuer: local-ca`; plain HTTP has no CA. |
 | `olf infra github connect` | Create the GitHub App for sign-in and store its credentials. |
 | `olf infra auth login\|status\|logout --provider aws\|azure` | Authenticate to a cloud through its SDK. |
 | `olf infra diagnostics collect <dir>` | Write host and cluster evidence for a bug report (`--namespace`, `--kube-context`). |
