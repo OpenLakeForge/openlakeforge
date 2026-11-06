@@ -392,8 +392,8 @@ def _contracts(**stage_changes: dict[str, Any]) -> ProviderContracts:
     return replace(contracts, stages=stages)
 
 
-def test_the_plan_from_the_contract_is_what_the_job_is_rendered_with() -> None:
-    # conformance_plan() holds the values the local root hands bootstrap.sh.tftpl for this contract.
+def test_the_plan_from_the_contract_names_every_stage_principal_and_secret() -> None:
+    # conformance_plan() holds the catalogs, principals and Secrets the local root's DEV and PROD stages use.
     assert bootstrap_plan(_contracts()) == conformance_plan()
 
 
@@ -509,6 +509,20 @@ def test_trino_keeps_running_when_nothing_it_reads_changed(
 
     assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
     assert _trino_restarts(cluster) == []
+
+
+def test_every_deploy_waits_for_trino_which_helm_no_longer_waits_for(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
+) -> None:
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    cluster.argv.clear()
+
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+
+    selector = ["deployment", "-l", "app.kubernetes.io/name=trino", "-n", "olf-system"]
+    assert [argv for argv in cluster.argv if argv[0] == "rollout"] == [
+        ["rollout", "status", *selector, "--timeout=300s"]
+    ]
 
 
 def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6,16 +6,6 @@
 locals {
   person_access_enabled = var.person_access != null
 
-  # Each stage row of data_access is one of three shapes, which `olf`
-  # validates: every layer write, every layer read, or Gold read alone.
-  person_catalog_roles = {
-    for role, stages in try(var.person_access.data_access, {}) : "olf-${role}" => {
-      for stage, layers in stages : local.stage_catalogs[stage].catalog_name => (
-        try(layers.gold, "") == "write" ? "olf-write" : length(layers) == 3 ? "olf-read" : "olf-gold-read"
-      ) if contains(keys(local.stage_catalogs), stage)
-    }
-  }
-
   # A token whose groups map to no role would have an empty role set, which
   # Polaris answers by activating every role of the principal. The connector
   # id, which every token carries, is read as a role too and maps to
@@ -77,19 +67,4 @@ locals {
     extraVolumes      = local.person_https ? [{ name = "olf-oidc-ca", configMap = { name = var.person_access.ca_configmap_name } }] : []
     extraVolumeMounts = local.person_https ? [{ name = "olf-oidc-ca", mountPath = "/etc/olf/oidc-ca", readOnly = true }] : []
   })]
-
-  person_access_script = !local.person_access_enabled ? "" : templatefile("${path.module}/templates/person-access.sh.tftpl", {
-    person_access = jsonencode({
-      principal = var.person_access.principal_name
-      catalog_roles = {
-        olf-write     = ["CATALOG_MANAGE_CONTENT"]
-        olf-read      = ["TABLE_READ_DATA", "NAMESPACE_READ_PROPERTIES", "VIEW_READ_PROPERTIES"]
-        olf-gold-read = ["NAMESPACE_LIST"]
-      }
-      catalogs = [for stage in values(local.stage_catalogs) : stage.catalog_name]
-      people   = [for stage in keys(local.stage_catalogs) : { principal = "trino-people-${stage}", secret = local.people_secret_names[stage] }]
-      # olf-signed-in is reconciled to hold no catalog role at all.
-      assigned = merge({ olf-signed-in = {} }, local.person_catalog_roles)
-    })
-  })
 }

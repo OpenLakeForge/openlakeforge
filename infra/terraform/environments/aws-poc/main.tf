@@ -521,13 +521,12 @@ resource "aws_eks_pod_identity_association" "stage_workloads" {
 module "trino" {
   source = "../../modules/query/trino"
 
-  namespace                  = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file           = "${path.root}/../../../helm/values/local/trino.yaml"
-  chart_package_path         = var.trino_chart_package_path
-  storage_contract           = local.storage_contract
-  catalog_contract           = local.catalog_contract
-  stage_catalog_contracts    = local.stage_catalog_contracts
-  catalog_bootstrap_revision = "aws-glue"
+  namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file        = "${path.root}/../../../helm/values/local/trino.yaml"
+  chart_package_path      = var.trino_chart_package_path
+  storage_contract        = local.storage_contract
+  catalog_contract        = local.catalog_contract
+  stage_catalog_contracts = local.stage_catalog_contracts
   # EKS Pod Identity binds the shared workload role to the "trino" service
   # account (aws_eks_pod_identity_association.shared_workloads). Force the
   # Trino chart to create and run under that SA; annotations stay empty

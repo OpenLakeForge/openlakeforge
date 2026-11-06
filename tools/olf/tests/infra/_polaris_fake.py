@@ -1,15 +1,13 @@
-"""A Polaris management API and a Kubernetes namespace store, shared by olf's bootstrap and the Terraform Job's script.
+"""A Polaris management API and a Kubernetes namespace store for olf's bootstrap.
 
 `FakePolaris` answers as Polaris does: 409 on a repeated create, 500 on a repeated assignment or grant, one-time
-credentials on a principal create or rotate, compact JSON (the script parses it with sed). `Cluster` keeps Secrets
-and ConfigMaps in a JSON file, so olf's kubectl calls (in process) and the script's (through `kubectl_shim`) see
-the same objects.
+credentials on a principal create or rotate. `Cluster` keeps Secrets and ConfigMaps in a JSON file and answers
+olf's kubectl calls from it.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -20,7 +18,7 @@ from urllib.parse import unquote
 
 ROOT = ("root", "root-secret-value")
 STAGES = ("dev", "prod")
-# What person_access.tf renders for release/identity-roles.yaml with DEV and PROD enabled.
+# What release/identity-roles.yaml grants each role on DEV's and PROD's catalogs.
 ASSIGNED = {
     "olf-signed-in": {},
     "olf-platform-admin": {"lakehouse_dev": "olf-write", "lakehouse_prod": "olf-write"},
@@ -290,37 +288,3 @@ class Cluster:
         if check and returncode:
             raise CommandExecutionError(command, returncode, stderr="AlreadyExists")
         return CommandResult(tuple(argv), returncode, stdout, "", 0.0)
-
-
-def kubectl_shim(directory: Path, cluster: Cluster) -> Path:
-    """A `kubectl` for the Job's script, answering the calls it makes from `cluster`."""
-    directory.mkdir(parents=True, exist_ok=True)
-    shim = directory / "kubectl"
-    shim.write_text(
-        f"#!{sys.executable}\n"
-        + f"""
-import json, sys
-path = {str(cluster.path)!r}
-args = sys.argv[1:]
-objects = json.load(open(path))
-verb, kind = args[0], args[1]
-if verb == "create" and kind == "secret":
-    kind, name, rest = "secret", args[3], args[4:]
-else:
-    name, rest = args[2], args[3:]
-namespace = rest[rest.index("-n") + 1]
-key = f"{{kind}}/{{namespace}}/{{name}}"
-if verb == "get":
-    sys.exit(0 if key in objects else 1)
-if verb == "delete":
-    objects.pop(key, None)
-elif verb == "create":
-    if key in objects:
-        sys.exit("AlreadyExists")
-    literals = [a.split("=", 1)[1] for a in rest if a.startswith("--from-literal=")]
-    objects[key] = dict(literal.split("=", 1) for literal in literals)
-json.dump(objects, open(path, "w"), sort_keys=True)
-"""
-    )
-    shim.chmod(0o755)
-    return directory

@@ -66,7 +66,7 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("*-credentials", ("*-client-*",)),  # dex-credentials
     ("*-cookie", ("*-cookie",)),
     ("*-oidc-secret", ("oidc-client-*", "*-client-*")),
-    ("polaris-bootstrap", ("polaris-*",)),
+    ("polaris-bootstrap", ("polaris-token-broker", "polaris-bootstrap-credentials")),
     (
         "openmetadata-bootstrap",
         ("openmetadata-fernet-key",),

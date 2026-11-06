@@ -32,31 +32,12 @@ variable "base_values_file" {
   type        = string
 }
 
-variable "workload_namespaces" {
-  description = "Namespaces the bootstrap job replicates principal credential Secrets into, for workloads that run outside this module's namespace."
-  type        = list(string)
-  default     = []
-}
-
-variable "replicate_credentials" {
-  description = "Whether every principal Secret is copied to every workload namespace. Stage isolation uses direct stage-targeted Secrets instead."
-  type        = bool
-  default     = true
-}
-
 variable "stage_catalogs" {
-  description = "Stage-owned Polaris catalogs, principals, and target namespaces. Empty keeps the legacy single-catalog interface for v0.2 migration."
+  description = "Stage-owned Polaris catalogs and the Secrets olf's bootstrap writes their principals' credentials to. Empty keeps the legacy single-catalog interface for v0.2 migration."
   type = map(object({
-    namespace                        = string
     catalog_name                     = string
-    bronze_bucket_name               = string
-    silver_bucket_name               = string
-    gold_bucket_name                 = string
-    trino_principal_name             = string
     trino_credentials_secret_name    = string
-    floe_principal_name              = string
     floe_credentials_secret_name     = string
-    deployer_principal_name          = string
     deployer_credentials_secret_name = string
   }))
   default = {}
@@ -65,39 +46,6 @@ variable "stage_catalogs" {
 variable "catalog_name" {
   description = "Polaris catalog name."
   type        = string
-}
-
-variable "principal_name" {
-  description = "Polaris service principal name for Trino."
-  type        = string
-}
-
-variable "principal_role" {
-  description = "Polaris principal role granted to Trino."
-  type        = string
-}
-
-variable "catalog_role" {
-  description = "Polaris catalog role granted to the Trino principal role."
-  type        = string
-}
-
-variable "floe_principal_name" {
-  description = "Polaris service principal name for Floe."
-  type        = string
-  default     = "floe"
-}
-
-variable "floe_principal_role" {
-  description = "Polaris principal role granted to Floe."
-  type        = string
-  default     = "data-writer"
-}
-
-variable "floe_catalog_role" {
-  description = "Polaris catalog role granted to the Floe principal role."
-  type        = string
-  default     = "catalog-writer"
 }
 
 variable "storage_contract" {
@@ -118,9 +66,6 @@ variable "storage_contract" {
     auth_mode               = optional(string)
     ssl_mode                = optional(string)
     ingress_mode            = optional(string)
-    # Set by a storage adapter whose STS can vend table-scoped credentials.
-    sts_role_arn = optional(string)
-    sts_endpoint = optional(string)
   })
 }
 
@@ -138,19 +83,19 @@ variable "bootstrap_secret_name" {
 }
 
 variable "trino_credentials_secret_name" {
-  description = "Kubernetes Secret written by the bootstrap job with Trino OAuth credentials."
+  description = "Kubernetes Secret olf's bootstrap writes with Trino OAuth credentials."
   type        = string
   default     = "polaris-trino-creds"
 }
 
 variable "floe_credentials_secret_name" {
-  description = "Kubernetes Secret written by the bootstrap job with Floe OAuth credentials."
+  description = "Kubernetes Secret olf's bootstrap writes with Floe OAuth credentials."
   type        = string
   default     = "polaris-floe-creds"
 }
 
 variable "bootstrap_job_image" {
-  description = "Image used by the Polaris bootstrap Kubernetes Job."
+  description = "Image of the Job that creates the token-broker key and the root credentials when missing."
   type        = string
   default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
 }
@@ -161,58 +106,16 @@ variable "metastore_bootstrap_job_image" {
   default     = "apache/polaris-admin-tool:1.4.0@sha256:7ef7557b528964e792caeaef3908434bd99c7d2f994caa654da1d77c6b428a80"
 }
 
-variable "om_principal_name" {
-  description = "Polaris service principal name for OpenMetadata (read-only catalog discovery)."
-  type        = string
-  default     = "openmetadata"
-}
-
-variable "om_principal_role" {
-  description = "Polaris principal role granted to the OpenMetadata principal."
-  type        = string
-  default     = "data-reader"
-}
-
-variable "om_catalog_role" {
-  description = "Polaris catalog role granted to the OpenMetadata principal role."
-  type        = string
-  default     = "catalog-reader"
-}
-
 variable "om_credentials_secret_name" {
-  description = "Kubernetes Secret written by the bootstrap job with OpenMetadata OAuth credentials."
+  description = "Kubernetes Secret olf's bootstrap writes with OpenMetadata OAuth credentials."
   type        = string
   default     = "polaris-om-creds"
 }
 
-variable "deployer_principal_name" {
-  description = "Polaris service principal used by `olf infra catalog sync-namespaces` in Phase 2."
-  type        = string
-  default     = "deployer"
-}
-
-variable "deployer_principal_role" {
-  description = "Polaris principal role granted to the Phase 2 deployer principal."
-  type        = string
-  default     = "namespace-admin"
-}
-
-variable "deployer_catalog_role" {
-  description = "Polaris catalog role granted to the deployer principal role."
-  type        = string
-  default     = "catalog-namespace-admin"
-}
-
 variable "deployer_credentials_secret_name" {
-  description = "Kubernetes Secret written by the bootstrap job with deployer OAuth credentials."
+  description = "Kubernetes Secret olf's bootstrap writes with deployer OAuth credentials."
   type        = string
   default     = "polaris-deployer-creds"
-}
-
-variable "bootstrap_revision" {
-  description = "Revision of the Polaris bootstrap script used to replace the bootstrap job when the script changes."
-  type        = string
-  default     = "manual"
 }
 
 variable "person_access" {

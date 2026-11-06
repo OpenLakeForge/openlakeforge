@@ -14,7 +14,7 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
           "openlakeforge.io/job"       = "catalog-metastore-bootstrap"
           "openlakeforge.io/readiness" = "required"
         })
-        annotations = local.bootstrap_annotations
+        annotations = local.metastore_bootstrap_annotations
       }
 
       spec {
@@ -128,100 +128,6 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
   lifecycle {
     replace_triggered_by = [
       terraform_data.polaris_release_revision,
-      terraform_data.polaris_bootstrap_revision,
-    ]
-  }
-}
-
-resource "kubernetes_job_v1" "bootstrap" {
-  metadata {
-    name      = local.bootstrap_job_name
-    namespace = var.namespace
-    labels    = local.labels
-  }
-
-  spec {
-    backoff_limit = 3
-
-    template {
-      metadata {
-        labels = merge(local.labels, {
-          "openlakeforge.io/job"       = "catalog-bootstrap"
-          "openlakeforge.io/readiness" = "required"
-        })
-        annotations = local.bootstrap_annotations
-      }
-
-      spec {
-        restart_policy       = "Never"
-        service_account_name = kubernetes_service_account_v1.bootstrap.metadata[0].name
-
-        container {
-          name  = "bootstrap"
-          image = var.bootstrap_job_image
-
-          command = ["/bin/sh", "-ec"]
-          args    = [local.bootstrap_script]
-
-          env {
-            name = "NAMESPACE"
-            value_from {
-              field_ref {
-                field_path = "metadata.namespace"
-              }
-            }
-          }
-
-          env {
-            name = "ROOT_CLIENT_ID"
-            value_from {
-              secret_key_ref {
-                name = var.bootstrap_secret_name
-                key  = "ROOT_CLIENT_ID"
-              }
-            }
-          }
-
-          env {
-            name = "ROOT_CLIENT_SECRET"
-            value_from {
-              secret_key_ref {
-                name = var.bootstrap_secret_name
-                key  = "ROOT_CLIENT_SECRET"
-              }
-            }
-          }
-
-          resources {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              memory = "128Mi"
-            }
-          }
-        }
-      }
-    }
-  }
-
-  wait_for_completion = true
-
-  timeouts {
-    create = "5m"
-    update = "5m"
-  }
-
-  depends_on = [
-    kubernetes_job_v1.metastore_bootstrap,
-    kubernetes_role_binding_v1.bootstrap,
-  ]
-
-  lifecycle {
-    replace_triggered_by = [
-      terraform_data.polaris_release_revision,
-      terraform_data.polaris_bootstrap_revision,
     ]
   }
 }

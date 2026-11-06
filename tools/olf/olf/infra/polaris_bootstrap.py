@@ -1,9 +1,8 @@
 """The Polaris bootstrap: stage catalogs, workload principals and their grants, and people's roles (#562).
 
-Ported from the catalog module's `bootstrap.sh.tftpl` and `person-access.sh.tftpl`, which the
-`polaris-bootstrap-<revision>` Job runs during `terraform apply`. Until that Job is deleted both run,
-the Job first, so every step reads the current state and writes only what is missing: each converges
-on the state the other leaves. The calls and their payloads are the template's own.
+The platform phase runs it once `terraform apply` has finished; it replaced the catalog module's
+`polaris-bootstrap-<revision>` Job and its shell templates. Every step reads the current state and
+writes only what is missing, so a rerun changes nothing and a step that failed is repaired by the next.
 
 Credentials travel from the Polaris response straight into a Secret manifest on kubectl's stdin
 (`k8s.write_secret`); none is logged, put in argv, or quoted in an error.
@@ -347,7 +346,7 @@ def reconcile_person_access(
 
 
 def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mapping[str, str] | None = None) -> None:
-    """Every step of the template, in its order. `client` is logged in as the root principal."""
+    """Every step, in order. `client` is logged in as the root principal."""
     for stage in plan.stages:
         ensure_catalog(client, stage, plan.sts)
     for stage in plan.stages:
@@ -413,7 +412,7 @@ def _stage_credential(stage: StageContract, role: str) -> Credential:
 
 
 def _person_access(contracts: ProviderContracts, stages: Mapping[str, str], shared: str) -> PersonAccess | None:
-    """`person_access.tf`'s rendering of data_access, for the Dex that GitHub sign-in deploys (ADR 0019)."""
+    """data_access as Polaris roles and grants, for the Dex that GitHub sign-in deploys (ADR 0019)."""
     identity = contracts.shared.values.get("identity") or {}
     if identity.get("adapter") != "dex":
         return None
@@ -438,7 +437,7 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
     """The plan for every enabled stage whose catalog is Polaris; None when none is (Glue needs no bootstrap).
 
     Stage catalogs, buckets, namespaces and the Floe and deployer Secrets come from the contract. The other
-    principal and Secret names are the catalog module's and the environment roots' fixed ones.
+    Secret names are the environment roots' fixed ones (`stage_catalogs`), which Trino and OpenMetadata read.
     """
     stages = sorted(
         (stage for stage in contracts.stages.values() if stage.catalog.get("catalog_provider") == "polaris"),
@@ -448,8 +447,8 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
         return None
     shared = polaris_service(contracts)[2]
     storage = stages[0].storage
-    # The catalog module vends credentials when the storage adapter offers an STS, and SeaweedFS, the only
-    # storage behind Polaris, always does, on its S3 port.
+    # A catalog vends credentials when the storage adapter offers an STS, and SeaweedFS, the only storage
+    # behind Polaris, always does, on its S3 port.
     sts = (
         CatalogSts(SEAWEEDFS_VENDING_ROLE, storage["region"], storage["endpoint"], storage["endpoint"])
         if str(storage.get("implementation", "")).startswith("storage.s3_compatible.seaweedfs")
@@ -508,6 +507,9 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
         client.login()
         run_bootstrap(client, plan, environ=environ)
     _roll_trino_onto_its_credentials(plan, environ=environ)
+    # Helm does not wait for Trino while it reads a Polaris credential, which exists only from here on
+    # (modules/query/trino), so this is where a deploy finds out that Trino does not come up.
+    k8s.wait_for_deployments(TRINO_SELECTOR, plan.shared_namespace, environ=environ)
 
 
 def trino_credentials(plan: BootstrapPlan) -> set[Credential]:

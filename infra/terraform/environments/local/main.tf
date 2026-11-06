@@ -146,10 +146,6 @@ locals {
       }
     } : {},
   )
-  polaris_bootstrap_hash = sha256(join("", [
-    for f in sort(fileset("${path.root}/../../modules/catalog/polaris", "**/*.{tf,tftpl}")) :
-    filesha256("${path.root}/../../modules/catalog/polaris/${f}")
-  ]))
 }
 
 resource "kubernetes_namespace_v1" "shared" {
@@ -454,18 +450,12 @@ moved {
 module "polaris" {
   source = "../../modules/catalog/polaris"
 
-  namespace             = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file      = "${path.root}/../../../helm/values/local/polaris.yaml"
-  chart_package_path    = var.polaris_chart_package_path
-  catalog_name          = "lakehouse_${local.selected_stage}"
-  principal_name        = "trino"
-  principal_role        = "data-engineer"
-  catalog_role          = "catalog-admin"
-  storage_contract      = local.storage_contract
-  postgresql_contract   = local.metadata_database_contract
-  bootstrap_revision    = local.polaris_bootstrap_hash
-  workload_namespaces   = values(local.stage_namespaces)
-  replicate_credentials = false
+  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file    = "${path.root}/../../../helm/values/local/polaris.yaml"
+  chart_package_path  = var.polaris_chart_package_path
+  catalog_name        = "lakehouse_${local.selected_stage}"
+  storage_contract    = local.storage_contract
+  postgresql_contract = local.metadata_database_contract
   # People's Dex tokens (ADR 0019): the GitHub connector's id names the one
   # principal every person's token maps to.
   person_access = local.identity_dex ? {
@@ -477,17 +467,10 @@ module "polaris" {
     ca_configmap_name = module.in_cluster_resolution[0].ca_configmap_name
   } : null
   stage_catalogs = {
-    for name, binding in local.stage_storage : name => {
-      namespace                        = local.stage_namespaces[name]
+    for name in keys(local.stage_storage) : name => {
       catalog_name                     = "lakehouse_${name}"
-      bronze_bucket_name               = binding.bronze_bucket_name
-      silver_bucket_name               = binding.silver_bucket_name
-      gold_bucket_name                 = binding.gold_bucket_name
-      trino_principal_name             = "trino-${name}"
       trino_credentials_secret_name    = "polaris-${name}-trino-creds"
-      floe_principal_name              = "floe-${name}"
       floe_credentials_secret_name     = "polaris-${name}-floe-creds"
-      deployer_principal_name          = "deployer-${name}"
       deployer_credentials_secret_name = "polaris-${name}-deployer-creds"
     }
   }
@@ -503,14 +486,13 @@ module "polaris" {
 module "trino" {
   source = "../../modules/query/trino"
 
-  namespace                  = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file           = "${path.root}/../../../helm/values/local/trino.yaml"
-  chart_package_path         = var.trino_chart_package_path
-  query_sizing               = var.query_sizing
-  storage_contract           = local.storage_contract
-  catalog_contract           = local.catalog_contract
-  stage_catalog_contracts    = local.stage_catalog_contracts
-  catalog_bootstrap_revision = local.polaris_bootstrap_hash
+  namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file        = "${path.root}/../../../helm/values/local/trino.yaml"
+  chart_package_path      = var.trino_chart_package_path
+  query_sizing            = var.query_sizing
+  storage_contract        = local.storage_contract
+  catalog_contract        = local.catalog_contract
+  stage_catalog_contracts = local.stage_catalog_contracts
 
   stage_namespaces        = local.stage_namespaces
   workload_authentication = local.trino_workload_authentication

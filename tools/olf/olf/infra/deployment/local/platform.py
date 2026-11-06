@@ -34,7 +34,6 @@ _APP_SECRET_KEYS = ("app-id", "app-slug", "private-key")
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
 _SHARED_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = (
-    "polaris-bootstrap-",
     "polaris-metastore-bootstrap-",
     "dex-credentials-",
     "oauth2-proxy-cookie-",
