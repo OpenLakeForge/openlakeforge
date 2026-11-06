@@ -13,7 +13,7 @@ variable "image" {
   description = "openlakeforge-portal image, pinned by digest (release/component-catalog.yaml, portal)."
   type        = string
   nullable    = false # a caller passing null (the local root's unset portal_image) gets the pin below
-  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.4.1@sha256:a12027ed534ac293b49dcfef54b5a1f6b02657a8cfb0b6b97cf5ab37721efb88"
+  default     = "ghcr.io/openlakeforge/openlakeforge-portal:0.5.1@sha256:8e4659a7c368b3c1c90b6d578ddafd487990488eff5e75ebdd30fafa4c664140"
 }
 
 variable "links" {
