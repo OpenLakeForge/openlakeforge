@@ -46,6 +46,7 @@ from olf.infra.commands import (
     openmetadata,
     platform,
     query,
+    restore,
     secrets,
     smoke,
     superset,
@@ -179,6 +180,7 @@ _infra_command("destroy", deployment.destroy)
 _infra_command("status", deployment.status)
 _infra_command("forward", deployment.forward)
 _infra_command("break-glass", break_glass.break_glass_command)
+infra_app.command("restore")(restore.restore)
 infra_app.command("query")(query.query)
 # Born after the 2b move: there is no pre-2b top-level path to alias.
 infra_app.command("backup")(backup.backup)

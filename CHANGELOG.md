@@ -19,6 +19,11 @@ for how a release is cut and verified.
 - `olf infra backup --output <dir>` backs up a local deployment: each PostgreSQL database, every stage bucket and
   the ops bucket, and the data-bound Secrets and `local-ca` sealed under a passphrase, with a manifest and
   `SHA256SUMS`. It pauses the Dagster daemon while it runs and refuses to start with a run in flight (#910).
+- `olf infra restore --from DIR` puts a backup back onto a local platform that is deployed from the same release
+  and profile. It pauses the Dagster daemons and refuses while a run is in flight, suspends the CronJobs of the
+  stages, scales the database clients down, replaces the backed-up Secrets, recreates and reloads every database with its grants, makes each bucket
+  equal to the backup's (objects written after it are deleted), scales back up (shared services, then stages, then the daemons) and runs `olf infra deploy`, which
+  builds the project from the current checkout (#911).
 - `olf infra e2e durability capture` and `verify` record a local stage's tables, snapshot ids, Dagster runs,
   Superset dashboards, OpenMetadata entities, activation pointer and bucket contents (key and size), then report
   everything missing or changed afterwards, without launching a pipeline (#908).

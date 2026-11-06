@@ -1,8 +1,12 @@
-"""The steps that put a backup's data back (#911): Secrets, databases and objects.
+"""Restore a backup (#911) onto a platform of the same release and profile that is already deployed.
 
-Each step replaces what is there with what the backup holds, and none of them stops the workloads that use it;
-the caller does that first. Secret names come from the manifest, never from the decrypted bundle, so nothing read
-out of `secrets.enc` reaches a log line or an error.
+The order is the point. Nothing is changed until `_preflight.preflight` has passed. The Dagster daemons are scaled
+to 0 first and the runs already launched (separate Kubernetes Jobs that scaling a Deployment does not stop) are
+counted: any run in flight refuses the restore before anything else is touched. Then the workloads that hold the
+databases open are scaled to 0. The Secrets come back next, because the restored `polaris` database names
+principals whose credentials only the restored Secrets hold. Then each database is recreated and loaded, and each
+bucket is made equal to the backup's. Scaling back up is the last step; the reconcile `olf infra deploy` is the
+caller's, so that the Polaris bootstrap keeps the restored principals instead of minting new ones.
 """
 
 from __future__ import annotations
@@ -11,17 +15,23 @@ import base64
 import binascii
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from olf.common import config, log
 from olf.infra import k8s, s3
 from olf.infra.backup import BackupError
+from olf.infra.backup._backup import DAEMON_DEPLOYMENT, refuse_runs_in_flight
 from olf.infra.backup._manifest import DatabaseDump, Manifest, SecretRef
+from olf.infra.backup._preflight import is_workload, preflight
+from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 
 POSTGRES_POD = "postgresql-0"
 POSTGRES_CONTAINER = "postgresql"
+# Deployments in the shared namespace that hold a database open or read the restored Secrets. SeaweedFS, Traefik
+# and cert-manager stay up: the objects are uploaded through SeaweedFS, and cert-manager owns `local-ca`.
+SHARED_WORKLOADS = ("openmetadata", "polaris", "trino", "dex", "platform-api")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -52,6 +62,71 @@ def _inside(directory: Path, relative: str) -> Path:
     if not path.is_relative_to(directory.resolve()):
         raise BackupError(f"{relative!r} leaves the backup directory")
     return path
+
+
+def _clients(
+    shared_namespace: str, stage_namespaces: tuple[str, ...], environ: Mapping[str, str] | None
+) -> dict[tuple[str, str], int]:
+    """The Deployments to stop, each with the replica count it runs (or was left with by a failed restore)."""
+    workloads: dict[tuple[str, str], int] = {}
+    for namespace in dict.fromkeys(stage_namespaces):
+        if namespace != shared_namespace:
+            workloads |= {
+                (namespace, name): count
+                for name, count in k8s.deployment_replica_counts(namespace, environ=environ).items()
+            }
+    shared = k8s.deployment_replica_counts(shared_namespace, environ=environ)
+    workloads |= {
+        (shared_namespace, name): count for name, count in shared.items() if is_workload(name, SHARED_WORKLOADS)
+    }
+    return {key: count for key, count in workloads.items() if count > 0}
+
+
+def _scale_down(workloads: Mapping[tuple[str, str], int], environ: Mapping[str, str] | None) -> None:
+    """Scale each Deployment to 0, keeping its count on it so that a rerun scales it back to the same."""
+    for (namespace, name), count in workloads.items():
+        k8s.scale_deployment(name, namespace, 0, remember=count, environ=environ)
+        log.info(f"Scaled {namespace}/{name} to 0 (was {count}).")
+
+
+def _scale_up(
+    workloads: Mapping[tuple[str, str], int], shared_namespace: str, environ: Mapping[str, str] | None
+) -> None:
+    """Scale back up in the order the platform depends on: the shared services, the stages' Deployments, and last
+    the daemons, which launch the scheduled and catch-up runs that use all of them."""
+
+    def rank(key: tuple[str, str]) -> int:
+        return 0 if key[0] == shared_namespace else 2 if key[1] == DAEMON_DEPLOYMENT else 1
+
+    for (namespace, name), count in sorted(workloads.items(), key=lambda item: rank(item[0])):
+        k8s.scale_deployment(name, namespace, count, remember=0, environ=environ)
+        log.info(f"Scaled {namespace}/{name} back to {count}.")
+
+
+def _refuse_active_runs(
+    stage_namespaces: Mapping[str, str],
+    runs_in_flight: Callable[[str], list[str]],
+    daemons: Mapping[tuple[str, str], int],
+    shared_namespace: str,
+    environ: Mapping[str, str] | None,
+) -> None:
+    """Stop the daemons so that no run starts, then refuse while one is in flight, resuming them if so.
+
+    A stage whose webserver is already at 0 was stopped by an earlier failed restore, which passed this check with
+    its daemon stopped before it: it is not asked again, since there is nothing to ask.
+    """
+
+    def serving_runs(namespace: str) -> list[str]:
+        if not k8s.deployment_replicas(DAGSTER_WEBSERVER_SERVICE_NAME, namespace, environ=environ):
+            return []
+        return runs_in_flight(namespace)
+
+    try:
+        _scale_down(daemons, environ)
+        refuse_runs_in_flight(stage_namespaces, serving_runs, action="restore")
+    except BaseException:
+        _scale_up(daemons, shared_namespace, environ)
+        raise
 
 
 def _replace_secrets(
@@ -161,3 +236,53 @@ def _upload_objects(
                 )
                 raise BackupError(f"bucket {bucket.name} does not match its inventory (key and size) at: {wrong[:5]}")
             log.info(f"Restored bucket {bucket.name}: {len(inventory)} objects.")
+
+
+def restore(
+    directory: Path,
+    *,
+    passphrase: str,
+    release: str,
+    profile: Path,
+    stage_namespaces: Mapping[str, str],
+    shared_namespace: str,
+    runs_in_flight: Callable[[str], list[str]],
+    environ: Mapping[str, str] | None,
+) -> None:
+    """Replace the platform's state with the backup's, leaving its workloads running again.
+
+    Nothing is changed until the backup and the platform are checked and no Dagster run is in flight. A failure
+    after that leaves the workloads scaled to 0, so nothing serves half-restored data; the error says how to recover.
+    """
+    manifest, secrets = preflight(
+        directory,
+        passphrase=passphrase,
+        release=release,
+        profile=profile,
+        stage_namespaces=stage_namespaces,
+        shared_namespace=shared_namespace,
+        environ=environ,
+    )
+    workloads = _clients(shared_namespace, tuple(stage_namespaces.values()), environ)
+    daemons = {key: count for key, count in workloads.items() if key[1] == DAEMON_DEPLOYMENT}
+    _refuse_active_runs(stage_namespaces, runs_in_flight, daemons, shared_namespace, environ)
+    namespaces = tuple(dict.fromkeys(stage_namespaces.values()))
+    try:
+        for namespace in namespaces:  # the log archiver uploads to the ops bucket every 15 minutes, even when idle
+            k8s.suspend_cronjobs(namespace, environ=environ)
+        _scale_down({key: count for key, count in workloads.items() if key not in daemons}, environ)
+        _replace_secrets(manifest.secrets, secrets, environ)
+        for dump in manifest.databases:
+            _restore_database(directory, dump, shared_namespace, environ)
+        _upload_objects(directory, manifest, shared_namespace, environ)
+        _scale_up(workloads, shared_namespace, environ)
+        for namespace in namespaces:
+            k8s.resume_cronjobs(namespace, environ=environ)
+    except Exception as exc:
+        left = ", ".join(f"{namespace}/{name} (was {count})" for (namespace, name), count in workloads.items())
+        raise BackupError(
+            f"restore failed: {exc}\nThe workloads were left scaled to 0 so nothing serves half-restored data, "
+            f"and the CronJobs stay suspended: {left}.\nFix the cause and run the same "
+            f"`olf infra restore --from {directory}` again; it replaces everything and remembers each workload's "
+            "replica count and each CronJob's suspension."
+        ) from exc

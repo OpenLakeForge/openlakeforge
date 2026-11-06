@@ -19,7 +19,7 @@ import tempfile
 import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from olf.common.deployment.errors import CommandExecutionError
 from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired, unsets_of
@@ -279,6 +279,57 @@ def deployment_replica_counts(namespace: str, *, environ: Mapping[str, str] | No
         remembered = (item["metadata"].get("annotations") or {}).get(REPLICAS_ANNOTATION)
         counts[item["metadata"]["name"]] = int(remembered) if replicas == 0 and remembered else replicas
     return counts
+
+
+CRONJOB_SUSPENDED_ANNOTATION = "openlakeforge.io/suspended-before-restore"
+
+
+def _cronjobs(namespace: str, environ: Mapping[str, str] | None) -> list[dict[str, Any]]:
+    raw = _kubectl(["get", "cronjob", "-n", namespace, "-o", "json"], capture=True, environ=environ)
+    return json.loads(raw or "{}").get("items", [])
+
+
+def _patch_cronjob(name: str, namespace: str, patch: dict[str, Any], environ: Mapping[str, str] | None) -> None:
+    _kubectl(["patch", "cronjob", name, "-n", namespace, "--type=merge", "-p", json.dumps(patch)], environ=environ)
+
+
+def suspend_cronjobs(
+    namespace: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+    timeout_seconds: float = 120.0,
+    poll_seconds: float = 2.0,
+) -> None:
+    """Suspend every CronJob, then wait until none has a Job running.
+
+    Each CronJob keeps whether it was suspended before in an annotation that `resume_cronjobs` reads, and a CronJob
+    that already has it keeps the first answer, so a rerun after a failure still restores the original state.
+    """
+    for item in _cronjobs(namespace, environ):
+        patch: dict[str, Any] = {"spec": {"suspend": True}}
+        if CRONJOB_SUSPENDED_ANNOTATION not in (item["metadata"].get("annotations") or {}):
+            was = str(bool(item["spec"].get("suspend"))).lower()
+            patch["metadata"] = {"annotations": {CRONJOB_SUSPENDED_ANNOTATION: was}}
+        _patch_cronjob(item["metadata"]["name"], namespace, patch, environ)
+    deadline = time.monotonic() + timeout_seconds
+    while busy := [
+        item["metadata"]["name"] for item in _cronjobs(namespace, environ) if item.get("status", {}).get("active")
+    ]:
+        if time.monotonic() >= deadline:
+            raise KubectlError(f"the CronJobs {busy} in {namespace} still have Jobs running after {timeout_seconds}s")
+        time.sleep(poll_seconds)
+
+
+def resume_cronjobs(namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Give each CronJob `suspend_cronjobs` suspended the suspension it had before."""
+    for item in _cronjobs(namespace, environ):
+        was = (item["metadata"].get("annotations") or {}).get(CRONJOB_SUSPENDED_ANNOTATION)
+        if was is not None:
+            patch = {
+                "spec": {"suspend": was == "true"},
+                "metadata": {"annotations": {CRONJOB_SUSPENDED_ANNOTATION: None}},
+            }
+            _patch_cronjob(item["metadata"]["name"], namespace, patch, environ)
 
 
 def annotate_pod_templates(
