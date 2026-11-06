@@ -65,8 +65,10 @@ are discarded.
 
 Precedent already in the tree: `olf`'s Polaris bootstrap creates the per-stage
 principal Secrets and handles "principal exists, Secret missing" by rotating
-the principal; `olf`'s OpenMetadata bootstrap, run by `olf infra deploy` after
-the platform apply, writes the ingestion-bot Secret. Neither puts the value in
+the principal for a stage-namespace Secret, which a re-enabled stage loses, and
+by stopping for a shared-namespace one, whose client may still be in use;
+`olf`'s OpenMetadata bootstrap, run by `olf infra deploy` after the platform
+apply, writes the ingestion-bot Secret. Neither puts the value in
 Terraform state.
 
 ## Identity credentials
