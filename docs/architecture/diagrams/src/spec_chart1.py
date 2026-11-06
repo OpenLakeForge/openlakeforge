@@ -95,8 +95,7 @@ c.icon(SCHEDULED[2], EY1, "job", "OM ingestion", variant="ephemeral",
 # lower — one-shot, created by Terraform (or a Helm hook) at platform apply
 c.box(68, ROW3 + 202, 1058, 142, "Bootstrap · once per platform apply (Phase 1)",
       color="ephemeral", title_size=13)
-c.icon(BOOTSTRAP[0], EY2, "job", "polaris bootstrap", variant="ephemeral",
-       label2="x2 Jobs · no TTL")
+c.icon(BOOTSTRAP[0], EY2, "job", "polaris metastore", variant="ephemeral", label2="no TTL")
 c.icon(BOOTSTRAP[1], EY2, "job", "seaweedfs buckets", variant="ephemeral",
        label2="x4 buckets · no TTL")
 c.icon(BOOTSTRAP[2], EY2, "job", "postgresql bootstrap", variant="ephemeral", label2="no TTL")

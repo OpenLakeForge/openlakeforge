@@ -63,7 +63,7 @@ are discarded.
 | After the Secrets, before Dex restarted | Dex still holds the old values. Consumers that started on the new ones fail token requests until Dex restarts, then recover on retry. |
 | During a rotation (Secret deleted, new one created, consumers not restarted) | Same as above; a completed sign-in, as the rotation runbook says, is the completion check. |
 
-Precedent already in the tree: the Polaris bootstrap Job creates the per-stage
+Precedent already in the tree: `olf`'s Polaris bootstrap creates the per-stage
 principal Secrets and handles "principal exists, Secret missing" by rotating
 the principal; `olf`'s OpenMetadata bootstrap, run by `olf infra deploy` after
 the platform apply, writes the ingestion-bot Secret. Neither puts the value in

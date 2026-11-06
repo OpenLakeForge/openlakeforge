@@ -27,11 +27,11 @@ show *how* it runs.
 > Purple splits three ways by **what creates the Job**, which is also how chart 1 groups
 > them. *Per pipeline run*: Dagster's `K8sRunLauncher` creates the run pod, which creates
 > one Floe Job per domain — both TTL-collected within the hour, so the pipeline scales
-> to zero between runs. *Bootstrap*: for one full stage, six Terraform
-> `kubernetes_job_v1` resource blocks (two Polaris, two OpenMetadata, PostgreSQL,
-> SeaweedFS) plus two Helm hooks (Superset's init, cert-manager's startup API check) —
-> the SeaweedFS block uses `for_each` over four bucket names, so it alone creates four
-> Jobs, for eleven Jobs total. Terraform's Jobs and Superset's hook run per platform
+> to zero between runs. *Bootstrap*: for one full stage, four Terraform
+> `kubernetes_job_v1` resource blocks (Polaris's metastore, OpenMetadata's Fernet key,
+> PostgreSQL, SeaweedFS) plus two Helm hooks (Superset's init, cert-manager's startup
+> API check) — the SeaweedFS block uses `for_each` over four bucket names, so it alone
+> creates four Jobs, for nine Jobs total. Terraform's Jobs and Superset's hook run per platform
 > apply; cert-manager's hook is `post-install` only, so it runs on the first apply. The
 > Helm hooks are deleted on success and the rest persist until the next apply.
 > *Scheduled*: two `kubernetes_cron_job_v1`
@@ -64,10 +64,11 @@ The purple band underneath is everything that is *not* in that 20, split by what
 it. **Per pipeline run**: the run pod and its Floe Jobs, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: six grouped
-categories — Polaris (metastore bootstrap and principal bootstrap), SeaweedFS (one Job
-per bucket, four buckets), PostgreSQL, OpenMetadata (its Fernet key; `olf` bootstraps
-OpenMetadata after the apply, with no Job), Superset's Helm hook, and cert-manager's
-startup API check hook — ten one-shot Jobs for one full stage, firing once per platform
+categories — Polaris (its metastore; `olf` bootstraps the catalogs and principals
+after the apply, with no Job), SeaweedFS (one Job per bucket, four buckets),
+PostgreSQL, OpenMetadata (its Fernet key; `olf` bootstraps OpenMetadata after the
+apply, with no Job), Superset's Helm hook, and cert-manager's startup API check hook
+— nine one-shot Jobs for one full stage, firing once per platform
 apply (phase 2), except cert-manager's check, which runs only on first install.
 **Scheduled**: the two CronJobs on the cluster clock (log archive every 15 minutes,
 OpenMetadata catalog refresh hourly).
@@ -228,7 +229,7 @@ release readiness; pull requests also run the bounded slim kind smoke.
 | trino | `polaris-trino-creds` | data-engineer / catalog-admin |
 | floe | `polaris-floe-creds` | data-writer / catalog-writer |
 | openmetadata | `polaris-om-creds` | data-reader / catalog-reader |
-| (root) | `polaris-bootstrap-credentials` | bootstrap Job only |
+| (root) | `polaris-bootstrap-credentials` | the metastore Job and `olf`'s bootstrap only |
 
 dbt has **no** Polaris principal — the bootstrap deletes the old `polaris-dbt-creds`;
 Gold SQL runs in Trino, so Gold catalog access uses `polaris-trino-creds`. Plus
