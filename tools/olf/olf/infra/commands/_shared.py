@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 
-from olf.common import config, log
+from olf.common import config
 from olf.common.log import fail
 from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
 
@@ -19,42 +19,56 @@ if TYPE_CHECKING:
     from olf.infra.deployment.contract_env import ContractEnvironment
 
 
+PROVIDER_HELP = "Defaults to the Deployment Profile's spec.provider.type."
+
+
 def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa: ANN001, ANN202
     """Resolve the run's effective `DeploymentTopology`.
 
-    An explicit `--profile slim|full` selects the deprecated v0.2 shorthand
-    (ADR 0011): one enabled DEV stage using that preset's capability
-    defaults. With no `--profile`, the project-root Deployment Profile is
+    The project-root Deployment Profile names the provider (`spec.provider.type`),
+    so `provider=None` means "whatever the profile says"; an explicit provider
+    must match it, because a profile for one provider cannot describe a
+    deployment to another. An explicit `--profile slim|full` selects the
+    deprecated v0.2 shorthand (ADR 0011): one enabled DEV stage using that
+    preset's capability defaults. With no `--profile`, the profile is
     authoritative.
 
-    Two cases fall back to that same single-DEV shorthand rather than to a
-    guess: no profile file at all (a directory that is not an OpenLakeForge
-    project yet -- `olf check contracts` is what requires one), and a profile
-    that targets a different provider than the one requested, which cannot
-    describe this deployment. A profile file that exists but is invalid fails
-    closed instead: it was written to be used.
+    No profile file at all (a directory that is not an OpenLakeForge project
+    yet -- `olf check contracts` is what requires one) falls back to that same
+    single-DEV shorthand on `local` rather than to a guess. A profile file
+    that exists but is invalid fails closed instead: it was written to be used.
     """
-    from olf.common.profile import DeploymentProfileError, Preset, legacy_single_stage_topology, load_deployment_profile
+    from olf.common.profile import (
+        DeploymentProfileError,
+        Preset,
+        Provider,
+        legacy_single_stage_topology,
+        load_deployment_profile,
+    )
     from olf.common.profile import resolve_topology as resolve
 
-    if preset:
-        return legacy_single_stage_topology(provider=provider, preset=Preset(preset))
     profile_path = project_root / "openlakeforge.yaml"
-    if not profile_path.is_file():
-        return legacy_single_stage_topology(provider=provider, preset=Preset.FULL)
-    try:
-        from olf.common.distribution import runtime_layout
+    profile = None
+    if profile_path.is_file():
+        try:
+            from olf.common.distribution import runtime_layout
 
-        layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(project_root)})
-        profile = load_deployment_profile(profile_path, distribution_root=layout.distribution_root)
-    except (DeploymentProfileError, OSError) as exc:
-        raise typer.Exit(code=fail(f"{profile_path}: {exc}")) from exc
-    if profile.provider.type != provider:
-        log.warn(
-            f"{profile_path} targets provider {profile.provider.type.value!r}; "
-            f"--provider {provider.value!r} resolves a single DEV stage instead."
+            layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(project_root)})
+            profile = load_deployment_profile(profile_path, distribution_root=layout.distribution_root)
+        except (DeploymentProfileError, OSError) as exc:
+            raise typer.Exit(code=fail(f"{profile_path}: {exc}")) from exc
+        if provider is not None and profile.provider.type != provider:
+            raise typer.Exit(
+                code=fail(
+                    f"--provider {provider.value!r} does not match {profile_path}, which targets provider "
+                    f"{profile.provider.type.value!r}. Drop --provider to use the profile's."
+                )
+            )
+    if profile is None or preset:
+        return legacy_single_stage_topology(
+            provider=provider or (profile.provider.type if profile else Provider.LOCAL),
+            preset=Preset(preset) if preset else Preset.FULL,
         )
-        return legacy_single_stage_topology(provider=provider, preset=profile.preset)
     return resolve(profile)
 
 
@@ -85,28 +99,17 @@ def deployment_context(
     from olf.common.distribution import DistributionError, runtime_layout
     from olf.common.profile import Provider, StageName
 
-    try:
-        resolved_provider = Provider(provider)
-    except ValueError as exc:
-        raise typer.Exit(code=fail(f"unknown --provider: {provider!r}")) from exc
+    requested_provider = None
+    if provider:
+        try:
+            requested_provider = Provider(provider)
+        except ValueError as exc:
+            raise typer.Exit(code=fail(f"unknown --provider: {provider!r}")) from exc
     if profile:
         try:
             Profile(profile)
         except ValueError as exc:
             raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
-    if namespace:
-        # Every stage-aware root (local, azure, aws - #114) derives
-        # `olf-system` and `olf-<stage>` from the resolved topology, so an
-        # override here would only rename what the artifacts and forwarding
-        # paths look for -- never what Terraform creates. Rejecting it beats
-        # a platform that applies cleanly while every later phase points at
-        # a namespace nobody made.
-        raise typer.Exit(
-            code=fail(
-                f"--namespace is not supported for the {resolved_provider.value} provider: namespaces are "
-                "derived from the Deployment Profile (olf-system plus olf-<stage>). Use --stage to select a stage."
-            )
-        )
     if stage:
         try:
             StageName(stage)
@@ -123,7 +126,21 @@ def deployment_context(
     except DistributionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
-    topology = resolve_topology(layout.project_root, provider=resolved_provider, preset=profile)
+    topology = resolve_topology(layout.project_root, provider=requested_provider, preset=profile)
+    resolved_provider = topology.provider
+    if namespace:
+        # Every stage-aware root (local, azure, aws - #114) derives
+        # `olf-system` and `olf-<stage>` from the resolved topology, so an
+        # override here would only rename what the artifacts and forwarding
+        # paths look for -- never what Terraform creates. Rejecting it beats
+        # a platform that applies cleanly while every later phase points at
+        # a namespace nobody made.
+        raise typer.Exit(
+            code=fail(
+                f"--namespace is not supported for the {resolved_provider.value} provider: namespaces are "
+                "derived from the Deployment Profile (olf-system plus olf-<stage>). Use --stage to select a stage."
+            )
+        )
     kwargs: dict[str, Any] = {
         "repo_root": layout.project_root,
         "distribution_root": layout.distribution_root,

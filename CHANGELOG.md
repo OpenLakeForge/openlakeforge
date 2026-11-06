@@ -31,6 +31,11 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `--provider` is now optional on `olf infra deploy|plan|doctor|destroy|status|forward` and on the commands that
+  read a deployed stack's contracts (`olf infra dbt`, `catalog`, `superset`, `openmetadata`): it defaults to the
+  Deployment Profile's `spec.provider.type` instead of silently to `local`, so `olf infra deploy` is enough.
+  A `--provider` that contradicts `openlakeforge.yaml` now fails instead of warning and resolving a single DEV
+  stage; with no `openlakeforge.yaml` the default stays `local`. `olf infra auth` still requires `--provider`.
 - The platform phase now runs the Polaris bootstrap from `olf` once `terraform apply` finishes, as root
   through a port-forward from the operator's machine, with its inputs read from the applied provider
   contract (#562): the stage catalogs, the workload principals with their credential Secrets and grants,
