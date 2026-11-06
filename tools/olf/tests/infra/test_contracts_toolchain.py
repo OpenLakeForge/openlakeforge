@@ -63,7 +63,7 @@ def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
     def _fake_run(_self, argv, **kwargs):  # noqa: ANN001, ANN202
         captured["argv"] = argv
         captured["env"] = kwargs.get("env")
-        return CommandResult(tuple(argv), 0, '{"schema_version": "2.0.0"}', "", 0.0)
+        return CommandResult(tuple(argv), 0, '{"schema_version": "3.0.0"}', "", 0.0)
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
     monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _fake_run)
@@ -77,7 +77,7 @@ def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
 
     result = load_provider_contracts(str(terraform_dir), environ=environ)
 
-    assert result == {"schema_version": "2.0.0"}
+    assert result == {"schema_version": "3.0.0"}
     argv = captured["argv"]
     assert argv[0] == "/usr/local/bin/terraform"
     assert argv[1] == f"-chdir={terraform_dir}"
@@ -129,7 +129,7 @@ def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.
     def _fake_run(_self, argv, **kwargs):  # noqa: ANN001, ANN202
         captured["argv"] = argv
         captured["env"] = kwargs.get("env")
-        return CommandResult(tuple(argv), 0, '{"schema_version": "2.0.0"}', "", 0.0)
+        return CommandResult(tuple(argv), 0, '{"schema_version": "3.0.0"}', "", 0.0)
 
     monkeypatch.setattr("olf.common.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
     monkeypatch.setattr("olf.common.contract_state.ProcessRunner.run", _fake_run)
@@ -139,7 +139,7 @@ def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.
 
     result = load_provider_contracts(str(terraform_dir), environ=environ)
 
-    assert result == {"schema_version": "2.0.0"}
+    assert result == {"schema_version": "3.0.0"}
     argv = captured["argv"]
     assert argv == [
         "/usr/local/bin/terraform",

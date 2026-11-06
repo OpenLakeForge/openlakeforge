@@ -201,8 +201,8 @@ class LocalProvider:
             log.info(f"Install the GitHub App on {github.organization}{qualifier}: {link}")
 
     def status(self) -> StatusReport:
+        from olf.common.provider_contracts import ProviderContractError
         from olf.infra.access import contract_access
-        from olf.infra.contracts import ProviderContractError
         from olf.infra.deployment.status import collect_status
 
         try:
@@ -312,7 +312,7 @@ class LocalProvider:
                 )
             )
         if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
-            from olf.infra.contracts import ProviderContractError
+            from olf.common.provider_contracts import ProviderContractError
 
             contract_dir = self._contract_dir()
             try:
