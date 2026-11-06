@@ -17,8 +17,8 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | Command | Purpose |
 | --- | --- |
 | `olf init [--empty] [--stages dev,prod] [--preset slim\|full] [--name N] [--profile-only]` | Create a writable `lakehouse_code/` project and its Deployment Profile in the current directory from the packaged demo, or an empty transitional project; `--profile-only` writes only `openlakeforge.yaml` into an existing project. |
-| `olf infra doctor --provider P [--phase PHASE]` / `olf infra plan --provider P [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options; provisions the managed toolchain as a side effect. |
-| `olf infra deploy\|destroy\|status\|forward --provider P` | Orchestrate a provider lifecycle without shell wrappers. |
+| `olf infra doctor [--provider P] [--phase PHASE]` / `olf infra plan [--provider P] [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options; provisions the managed toolchain as a side effect. |
+| `olf infra deploy\|destroy\|status\|forward [--provider P]` | Orchestrate a provider lifecycle without shell wrappers. |
 | `olf infra auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0008). |
 | `olf toolchain list\|install\|path\|clean` | Inspect, provision, or remove the managed Terraform/Helm/kubectl/kind toolchain under `OLF_HOME`. |
 | `olf check structure\|docs\|skills\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates; `docs` validates `docs/navigation.yaml` and every relative docs link; `skills` validates the agent skills under `skills/` and every `olf` command they show. |

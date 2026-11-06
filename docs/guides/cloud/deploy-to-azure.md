@@ -104,7 +104,7 @@ Other settings are environment variables:
 ## 4. Deploy
 
 ```bash
-olf infra deploy --provider azure
+olf infra deploy
 ```
 
 It runs three phases, which you can also run one at a time with `--phase`:
@@ -127,7 +127,7 @@ your machine, on the same ports as locally (Dagster on
 with Ctrl-C:
 
 ```bash
-olf infra forward --provider azure
+olf infra forward
 ```
 
 Run the end-to-end suite after you stop `olf infra forward`: `olf` runs one command
@@ -144,7 +144,7 @@ Full also the dashboards and OpenMetadata. It ends with
 ## 6. Tear down
 
 ```bash
-olf infra destroy --provider azure
+olf infra destroy
 ```
 
 It removes the platform, then AKS and ACR. With

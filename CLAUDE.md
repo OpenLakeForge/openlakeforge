@@ -11,8 +11,8 @@ stale copy is worse than none.
 ## Quick reference
 
 ```bash
-uv run --project tools/olf --locked olf infra deploy --provider local   # bring up the local kind stack
-uv run --project tools/olf --locked olf infra destroy --provider local  # bring down the local stack
+uv run --project tools/olf --locked olf infra deploy   # bring up the local kind stack
+uv run --project tools/olf --locked olf infra destroy  # bring down the local stack
 uv run --project tools/olf --locked olf infra e2e run --env local        # full runtime verification
 ```
 

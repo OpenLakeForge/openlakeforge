@@ -33,7 +33,7 @@ every bundle as the stage's Superset admin. See
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--provider` | `local` | `local`, `aws` or `azure` |
+| `--provider` | the profile's `spec.provider.type` | `local`, `aws` or `azure`; must match the profile when both are given. Without an `openlakeforge.yaml`, `local` |
 | `--phase` | `all` | One phase; see each command |
 | `--stage` | `dev` | `dev`, `uat` or `prod` |
 | `--project-root` | current directory | The project holding `openlakeforge.yaml` |
