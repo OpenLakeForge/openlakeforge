@@ -67,7 +67,13 @@ def test_the_trino_probe_script_sends_a_wrong_password_and_then_none() -> None:
 
     class Handler(socketserver.BaseRequestHandler):
         def handle(self) -> None:
-            seen.append(self.request.recv(4096))
+            data = b""
+            while b"SELECT 1" not in data:  # the probe writes the request in two parts
+                chunk = self.request.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            seen.append(data)
             self.request.sendall(b"HTTP/1.1 401 Unauthorized\r\n\r\nreply")
 
     with socketserver.TCPServer(("127.0.0.1", 0), Handler) as server:
