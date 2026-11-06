@@ -403,21 +403,66 @@ def test_a_deployment_scaled_to_zero_reports_the_replicas_it_remembered(monkeypa
     assert k8s.deployment_replica_counts("olf-dev") == {"up": 2, "down": 3, "never": 0}
 
 
-def test_scaling_to_zero_remembers_the_count_and_scaling_up_forgets_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        k8s, "_kubectl", lambda args, **_k: calls.append(args) or ('{"app": "s"}' if "jsonpath" in args[-1] else "")
-    )
+class _FakeDeployment:
+    """One Deployment as the API server holds it: replicas, annotations and the pods they run."""
+
+    def __init__(self, name: str, replicas: int) -> None:
+        self.name, self.replicas = name, replicas
+        self.annotations: dict[str, str] = {}
+
+    def kubectl(self, args: list[str], **_: object) -> str:
+        if args[0] == "annotate":
+            change = args[4]
+            if change.endswith("-"):
+                self.annotations.pop(change[:-1], None)
+            else:
+                key, value = change.split("=", 1)
+                self.annotations[key] = value
+        elif args[0] == "scale":
+            self.replicas = int(args[2].removeprefix("--replicas="))
+        elif args[:2] == ["get", "pods"]:
+            return "".join(f"pod/{self.name}-{i}\n" for i in range(self.replicas))
+        elif "jsonpath={.spec.selector.matchLabels}" in args:
+            return json.dumps({"app": self.name})
+        elif args[:2] == ["get", "deployment"]:
+            item = {
+                "metadata": {"name": self.name, "annotations": self.annotations},
+                "spec": {"replicas": self.replicas},
+            }
+            return json.dumps({"items": [item]})
+        return ""
+
+
+def test_a_deployment_scaled_to_zero_with_remember_still_reports_its_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    superset = _FakeDeployment("superset", 2)
+    monkeypatch.setattr(k8s, "_kubectl", superset.kubectl)
 
     k8s.scale_deployment("superset", "olf-dev", 0, remember=2, poll_seconds=0)
+
+    # A rerun after an interruption here reads the count back from the Deployment, not from the caller.
+    assert superset.replicas == 0
+    assert k8s.deployment_replica_counts("olf-dev") == {"superset": 2}
+
+
+def test_scaling_back_up_with_remember_zero_drops_the_remembered_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    superset = _FakeDeployment("superset", 2)
+    monkeypatch.setattr(k8s, "_kubectl", superset.kubectl)
+    k8s.scale_deployment("superset", "olf-dev", 0, remember=2, poll_seconds=0)
+
     k8s.scale_deployment("superset", "olf-dev", 2, remember=0)
 
-    key = k8s.REPLICAS_ANNOTATION
-    changes = [args for args in calls if args[0] in ("annotate", "scale", "rollout")]
-    assert changes == [
-        ["annotate", "deployment/superset", "-n", "olf-dev", f"{key}=2", "--overwrite"],
-        ["scale", "deployment/superset", "--replicas=0", "-n", "olf-dev"],
-        ["scale", "deployment/superset", "--replicas=2", "-n", "olf-dev"],
-        ["rollout", "status", "deployment/superset", "-n", "olf-dev", "--timeout=300s"],
-        ["annotate", "deployment/superset", "-n", "olf-dev", f"{key}-"],
-    ]
+    assert superset.replicas == 2
+    assert k8s.REPLICAS_ANNOTATION not in superset.annotations
+    # Scaled to 0 later by someone else, it no longer reports the count this scale-down remembered.
+    superset.replicas = 0
+    assert k8s.deployment_replica_counts("olf-dev") == {"superset": 0}
+
+
+def test_scaling_without_remember_leaves_no_annotation(monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon = _FakeDeployment("dagster-daemon", 1)
+    monkeypatch.setattr(k8s, "_kubectl", daemon.kubectl)
+
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 0, poll_seconds=0)
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 1)
+
+    assert daemon.annotations == {}
