@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from olf.common.provider_contracts import ProviderContracts
+from olf.infra.backup import BackupError
 from olf.infra.backup._manifest import SecretRef
 from olf.infra.polaris_bootstrap import ROOT_CREDENTIALS_SECRET, bootstrap_plan
 
@@ -35,6 +36,11 @@ def plan_from_contract(
 ) -> BackupPlan:
     """`github_oauth_secret` is the Secret `spec.identity.github.oauth_app_secret_ref` names; it is the
     operator's, created out-of-band, so the contract does not carry it."""
+    provider = contracts.deployment.get("provider")
+    if provider != "local":
+        # The names below are the local root's; a cloud root names its databases and catalog differently, and
+        # its managed services back up their own state (#531: cloud restore follows #47).
+        raise BackupError(f"olf infra backup supports the local provider only; this deployment is {provider!r}.")
     shared = contracts.shared.values
     stages = sorted(contracts.stages.values(), key=lambda stage: stage.name.value)
     governed = bool(contracts.governed_stages)
@@ -49,9 +55,10 @@ def plan_from_contract(
     buckets = [stage.storage[layer]["bucket_name"] for stage in stages for layer in LAYERS]
     buckets.append(shared["ops_storage"]["bucket_name"])
 
-    secrets = [(shared_namespace, ROOT_CREDENTIALS_SECRET)]
+    secrets: list[tuple[str, str]] = []
     polaris = bootstrap_plan(contracts)
     if polaris is not None:
+        secrets.append((shared_namespace, ROOT_CREDENTIALS_SECRET))
         credentials = [polaris.openmetadata]
         for stage in polaris.stages:
             credentials += [stage.trino, stage.floe, stage.deployer]

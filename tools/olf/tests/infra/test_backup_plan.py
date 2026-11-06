@@ -6,10 +6,12 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from conftest import CONFORMANCE_PROFILE
 
 from olf.common.profile import StageName
 from olf.common.provider_contracts import ProviderContracts, parse_provider_contracts
+from olf.infra.backup import BackupError
 from olf.infra.backup._plan import plan_from_contract
 from olf.infra.commands._shared import deployment_context_for_profile
 
@@ -79,3 +81,10 @@ def test_a_stage_without_analytics_or_governance_or_dex_is_not_planned() -> None
         {"superset-credentials", "openmetadata-fernet-key", "github-oauth-app", "local-ca", "openmetadata-admin"}
     )
     assert ("olf-system", "polaris-bootstrap-credentials") in {(ref.namespace, ref.name) for ref in plan.secrets}
+
+
+def test_a_cloud_deployment_is_refused_rather_than_planned_with_local_names() -> None:
+    contracts = _contracts()
+    aws = replace(contracts, deployment={**contracts.deployment, "provider": "aws"})
+    with pytest.raises(BackupError, match="local provider only"):
+        plan_from_contract(aws, shared_namespace="olf-system")
