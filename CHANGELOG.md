@@ -35,9 +35,10 @@ for how a release is cut and verified.
   through a port-forward from the operator's machine, with its inputs read from the applied provider
   contract (#562): the stage catalogs, the workload principals with their credential Secrets and grants,
   and people's roles. The Terraform `polaris-bootstrap-*` Job still runs inside the apply; both leave the
-  same state, so either one after the other changes nothing. When `olf` stores a new credential for a
-  Trino catalog, it restarts the Trino Deployments and waits for them, since Trino reads that credential
-  only at start; a rerun that changes no credential restarts nothing.
+  same state, so either one after the other changes nothing. Trino reads its catalog credentials only at
+  start, so `olf` stamps a digest of them on the Trino pod template: when a credential changed since the
+  pods started, the Deployments roll out and `olf` waits for them, and a rerun that finds the digest
+  current restarts nothing. A run that failed after rotating a credential is caught up by the next one.
 - With governance on, the platform phase now runs the OpenMetadata bootstrap from `olf` once
   `terraform apply` finishes, through a port-forward from the operator's machine, with its inputs read
   from the applied provider contract (#562). It then copies the `openmetadata-ingestion-bot` Secret

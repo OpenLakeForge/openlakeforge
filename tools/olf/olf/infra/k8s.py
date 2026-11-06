@@ -163,10 +163,23 @@ def restart_deployment(deployment: str, namespace: str, *, environ: Mapping[str,
     wait_for_rollout(f"deployment/{deployment}", namespace, environ=environ)
 
 
-def restart_deployments(selector: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
-    """Restart every Deployment the label selector matches, then wait for each rollout."""
-    _kubectl(["rollout", "restart", "deployment", "-l", selector, "-n", namespace], environ=environ)
-    _kubectl(["rollout", "status", "deployment", "-l", selector, "-n", namespace, "--timeout=300s"], environ=environ)
+def annotate_pod_templates(
+    selector: str, namespace: str, key: str, value: str, *, environ: Mapping[str, str] | None = None
+) -> list[str]:
+    """Set a pod-template annotation on every Deployment the selector matches, returning those it changed.
+
+    A changed pod template rolls the Deployment out; one whose annotation already holds `value` is left alone.
+    """
+    raw = _kubectl(["get", "deployment", "-l", selector, "-n", namespace, "-o", "json"], capture=True, environ=environ)
+    changed = []
+    for item in json.loads(raw or "{}").get("items", []):
+        annotations = item["spec"]["template"]["metadata"].get("annotations") or {}
+        if annotations.get(key) != value:
+            changed.append(f"deployment/{item['metadata']['name']}")
+    patch = json.dumps({"spec": {"template": {"metadata": {"annotations": {key: value}}}}})
+    for deployment in changed:
+        _kubectl(["patch", deployment, "-n", namespace, "--type=merge", "-p", patch], environ=environ)
+    return changed
 
 
 def _free_local_port() -> int:

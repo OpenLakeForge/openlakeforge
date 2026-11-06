@@ -257,8 +257,23 @@ class Cluster:
         self.argv.append(argv)
         objects = self.load()
         stdout, returncode = "", 0
-        if argv[0] == "get":
-            stdout = "found\n" if f"{argv[1]}/{argv[4]}/{argv[2]}" in objects else ""
+        if argv[:2] == ["get", "deployment"]:  # by label selector: every Deployment in the namespace
+            prefix = f"deployment/{argv[5]}/"
+            items = [
+                {
+                    "metadata": {"name": key.removeprefix(prefix)},
+                    "spec": {"template": {"metadata": {"annotations": data}}},
+                }
+                for key, data in objects.items()
+                if key.startswith(prefix)
+            ]
+            stdout = json.dumps({"items": items})
+        elif argv[0] == "get":
+            data = objects.get(f"{argv[1]}/{argv[4]}/{argv[2]}")
+            stdout = "" if data is None else json.dumps({"data": data}) if "json" in argv else "found\n"
+        elif argv[0] == "patch":  # a Deployment's pod-template annotations
+            key = f"deployment/{argv[3]}/{argv[1].removeprefix('deployment/')}"
+            objects[key] = {**objects[key], **json.loads(argv[-1])["spec"]["template"]["metadata"]["annotations"]}
         elif argv[0] == "delete":
             objects.pop(f"{argv[1]}/{argv[4]}/{argv[2]}", None)
         elif argv[0] in {"create", "apply"}:

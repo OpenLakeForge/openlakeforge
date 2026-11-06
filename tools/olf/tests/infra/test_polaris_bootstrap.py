@@ -434,8 +434,12 @@ def forwarded(polaris: tuple[FakePolaris, PolarisClient], monkeypatch: pytest.Mo
     return calls
 
 
-def _trino_restarts(cluster: Cluster) -> list[list[str]]:
-    return [argv for argv in cluster.argv if argv[:2] == ["rollout", "restart"]]
+_TRINO = ("deployment/olf-system/trino-coordinator", "deployment/olf-system/trino-worker")
+
+
+def _trino_restarts(cluster: Cluster) -> list[str]:
+    """The Trino Deployments a run patched, which rolls them out."""
+    return [argv[1] for argv in cluster.argv if argv[0] == "patch"]
 
 
 def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
@@ -450,24 +454,51 @@ def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
     assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
 
 
-def test_trino_restarts_when_the_bootstrap_stores_a_credential_it_reads(
+def test_trino_restarts_when_a_credential_it_reads_changes(
     polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
 ) -> None:
+    for deployment in _TRINO:
+        cluster.put(*deployment.split("/"), {})
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
-    restart = ["rollout", "restart", "deployment", "-l", "app.kubernetes.io/name=trino", "-n", "olf-system"]
-    assert _trino_restarts(cluster) == [restart]
+    restarted = ["deployment/trino-coordinator", "deployment/trino-worker"]
+    assert _trino_restarts(cluster) == restarted
+    assert ["rollout", "status", "deployment/trino-worker", "-n", "olf-system", "--timeout=300s"] in cluster.argv
     cluster.argv.clear()
     # The window the pending marker exists for: Trino's credential is rotated on the next run.
     cluster.put("configmap", "olf-system", "polaris-prod-trino-creds-bootstrap-pending", {"principal": "trino-prod"})
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    assert _trino_restarts(cluster) == [restart]
+    assert _trino_restarts(cluster) == restarted
+
+
+def test_a_rerun_restarts_trino_when_the_run_that_rotated_its_credential_failed(
+    polaris: tuple[FakePolaris, PolarisClient],
+    cluster: Cluster,
+    forwarded: list[tuple[str, ...]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for deployment in _TRINO:
+        cluster.put(*deployment.split("/"), {})
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    cluster.put("configmap", "olf-system", "polaris-prod-trino-creds-bootstrap-pending", {"principal": "trino-prod"})
+    # The run stores Trino's new credential, then fails before Trino restarts.
+    with monkeypatch.context() as failing:
+        failing.setattr(k8s, "annotate_pod_templates", Mock(side_effect=RuntimeError("API server gone")))
+        with pytest.raises(RuntimeError):
+            bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    cluster.argv.clear()
+
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+
+    assert _trino_restarts(cluster) == ["deployment/trino-coordinator", "deployment/trino-worker"]
 
 
 def test_trino_keeps_running_when_nothing_it_reads_changed(
     polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
 ) -> None:
+    for deployment in _TRINO:
+        cluster.put(*deployment.split("/"), {})
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
     cluster.argv.clear()
 
