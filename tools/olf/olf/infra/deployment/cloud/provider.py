@@ -2,7 +2,7 @@
 
 Mirrors `olf.infra.deployment.local.provider.LocalProvider`: every method is a
 thin delegate into a sibling `olf.infra.deployment.cloud.*` module, so the
-granular Make target delegates and the combined `olf infra deploy`/`olf infra destroy`
+granular `--phase` steps and the combined `olf infra deploy`/`olf infra destroy`
 verbs share the exact same code path.
 
 The one wrinkle local does not have: `DeploymentContext.kube_context` is

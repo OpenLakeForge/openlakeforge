@@ -26,7 +26,7 @@ closed with a pointer here rather than fixed.
 
 | Not a goal | Why |
 | --- | --- |
-| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf infra deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
+| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf infra deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to deployment logic. The one exception is the shared caches under `OLF_HOME` (default `~/.openlakeforge`): the managed toolchain (`common/toolchain/{manager,download,install}.py`), the distribution payload (`common/distribution.py`) and the Helm chart cache (`common/deployment/charts.py`) are shared across checkouts and concurrent CI jobs, so they keep their `fcntl.flock` locks and atomic `os.replace` renames. |
 | Windows support | Deployment targets are Linux and macOS. |
 
 The audience is a small data team without a platform engineer, and that is a

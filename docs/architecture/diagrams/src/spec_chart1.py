@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """Chart 1 — Cluster Pod Census. Verified via `helm template` with the
-project's own values files: 20 pods at rest for one stage (14 Deployments,
-6 StatefulSets); Dagster and Superset repeat per further stage."""
+project's own values files and Terraform modules: 30 pods at rest for the
+Full preset with DEV and PROD and identity on (23 Deployments, 7 StatefulSets).
+Dagster and Superset repeat per stage; the icons show one stage's pods."""
 from pathlib import Path
 from k8ssvg import Chart
 
-c = Chart(1180, 1290, "Cluster Pod Census",
-          "olf-system + one olf-<stage> per stage · kind cluster openlakeforge-local · long-lived services + on-demand Jobs")
+c = Chart(1180, 1470, "Cluster Pod Census",
+          "Full preset · DEV + PROD · identity on · olf-system + one olf-<stage> per stage · kind cluster openlakeforge-local")
 
 # namespace boundary
-c.box(28, 92, 1124, 1168, "namespaces: olf-system (shared) + olf-<stage>", color="control", title_size=14)
+c.box(28, 92, 1124, 1348, "namespaces: olf-system (shared) + olf-<stage>", color="control", title_size=14)
 
-ROW1, ROW2, ROW_ING, ROW3 = 150, 436, 636, 860
+ROW1, ROW2, ROW_ING, ROW_ID, ROW3 = 150, 436, 636, 836, 1040
 IY1, IY2 = 46, 152  # icon y-offsets inside a row-1 card
 
 # --- Row 1 ---
-c.box(52, ROW1, 350, 258, "Dagster — 3 pods", color="platform", fill="#FFFFFF")
+c.box(52, ROW1, 350, 258, "Dagster — 6 pods (3 per stage)", color="platform", fill="#FFFFFF")
 c.icon(140, ROW1 + IY1, "deploy", "webserver", label2="dagster chart 1.13.7")
 c.icon(316, ROW1 + IY1, "deploy", "daemon", label2="K8sRunLauncher")
 c.icon(228, ROW1 + IY2, "deploy", "code server", label2="lakehouse_code.definitions")
@@ -26,7 +27,7 @@ c.icon(686, ROW1 + IY1, "sts", "volume", label2="maxVolumes 32")
 c.icon(510, ROW1 + IY2, "sts", "filer", label2=":8888")
 c.icon(686, ROW1 + IY2, "deploy", "s3 gateway", label2=":8333")
 
-c.box(792, ROW1, 350, 258, "Superset — 3 pods", color="platform", fill="#FFFFFF")
+c.box(792, ROW1, 350, 258, "Superset — 6 pods (3 per stage)", color="platform", fill="#FFFFFF")
 c.icon(880, ROW1 + IY1, "deploy", "node", label2=":8088")
 c.icon(1056, ROW1 + IY1, "deploy", "worker", label2="celery, solo pool")
 c.icon(880, ROW1 + IY2, "sts", "redis", label2="cache + queue")
@@ -46,7 +47,7 @@ c.box(790, ROW2, 168, 180, "Trino — 1", color="platform", fill="#FFFFFF")
 c.icon(874, ROW2 + IY1, "deploy", "coordinator", label2="workers: 0 · 2G heap")
 
 c.badge(978, ROW2, 164, 380,
-        ["20 pods", "at steady state", "", "14 Deployments", "6 StatefulSets"],
+        ["30 pods", "at steady state", "", "23 Deployments", "7 StatefulSets"],
         color="control")
 
 # --- Ingress row: olf-system only; routes are Ingress objects ---
@@ -58,9 +59,17 @@ c.icon(ING[2], ROW_ING + IY1, "deploy", "cainjector", label2="cert-manager")
 c.icon(ING[3], ROW_ING + IY1, "deploy", "webhook", label2="cert-manager")
 c.icon(ING[4], ROW_ING + IY1, "deploy", "portal", label2="landing page")
 
+# --- Identity row: olf-system only; present when the profile sets spec.identity ---
+c.box(52, ROW_ID, 906, 180, "Identity and API — 4 pods · olf-system", color="platform", fill="#FFFFFF")
+IDN = [52 + 906 * (i + 0.5) / 4 for i in range(4)]
+c.icon(IDN[0], ROW_ID + IY1, "deploy", "dex", label2="GitHub sign-in")
+c.icon(IDN[1], ROW_ID + IY1, "deploy", "oauth2-proxy", label2="viewer floor")
+c.icon(IDN[2], ROW_ID + IY1, "deploy", "oauth2-proxy", label2="data-engineer floor")
+c.icon(IDN[3], ROW_ID + IY1, "deploy", "platform API", label2="/api")
+
 # --- Row 3: ephemeral, grouped by what creates each Job ---
 c.box(52, ROW3, 1090, 360,
-      "Ephemeral workloads — created on demand, never part of the 20",
+      "Ephemeral workloads — created on demand, never part of the 30",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 
 # each sub-box spaces its own icons evenly, so a label never hangs off the group

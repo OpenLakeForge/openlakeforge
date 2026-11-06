@@ -1,7 +1,7 @@
 """`DeploymentProvider` implementation for the local (kind-based) stack.
 
 Every method is a one-line delegate into a sibling `olf.common.deployment.local.*`
-module, so the granular Make target delegates (`--phase foundation`, etc.)
+module, so the granular `--phase` steps (`--phase foundation`, etc.)
 and the combined `olf infra deploy`/`olf infra destroy` verbs share the exact same code
 path - nothing is duplicated between them.
 """

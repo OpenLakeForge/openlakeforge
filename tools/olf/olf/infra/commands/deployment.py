@@ -2,9 +2,8 @@
 
 Each command builds a `DeploymentContext` + `DeploymentEngine` and delegates
 immediately; all lifecycle logic lives in `olf.common.deployment.*`. The `--phase`
-option is what lets the granular Make target delegates (`local-foundation-up`,
-`local-platform-up`, ...) share this exact code path instead of duplicating
-lifecycle logic.
+option is what lets a single phase (`foundation`, `platform`, ...) share this
+exact code path with the full run instead of duplicating lifecycle logic.
 """
 
 from __future__ import annotations

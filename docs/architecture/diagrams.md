@@ -9,9 +9,9 @@ They use the official Kubernetes icon language and complement the
 [Architecture](overview.md) page, which shows *what* the platform does; these
 show *how* it runs.
 
-| **20** | **1+N** | **3** | **0** |
+| **30** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — 14 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — Full preset, DEV + PROD, identity on: 23 Deployments, 7 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
@@ -46,21 +46,25 @@ show *how* it runs.
 *Every pod across the deployment's namespaces, grouped by service — verified with `helm template` against
 this repo's own values.*
 
-Twenty pods run at steady state for one enabled stage: Dagster runs three (webserver, daemon, and the merged
-`openlakeforge-dagster` code server loading `lakehouse_code.definitions`), SeaweedFS runs four
-(three StatefulSets and an S3-gateway Deployment), Superset runs three, OpenMetadata
-runs two, and PostgreSQL, Polaris, and Trino run one each. Trino is deliberately
-coordinator-only. The ingress adds five single-replica Deployments in
-`olf-system`: Traefik, the cert-manager controller, cainjector, and webhook,
-and the portal, which serves the landing page at the base domain. With
-`spec.identity` the platform API adds a sixth, answering `/api` on the same host.
-The Dagster and Superset modules are instantiated once per enabled stage and per
-stage with analytics (`for_each` in `infra/terraform/environments/local/main.tf`),
-so every further stage repeats their pods, and Dex and the oauth2-proxy perimeter
-add pods when `spec.identity` is set. This chart counts one stage and does
-not add those up; the total for a given profile is not stated here.
+Thirty pods run at steady state for the Full preset with DEV and PROD and
+`spec.identity` set (the shape of `openlakeforge.conformance.yaml`). Per stage,
+Dagster runs three (webserver, daemon, and the merged `openlakeforge-dagster`
+code server loading `lakehouse_code.definitions`) and Superset runs three (node,
+worker and Redis); the Dagster and Superset modules are instantiated once per
+enabled stage and per stage with analytics (`for_each` in
+`infra/terraform/environments/local/main.tf`), so DEV and PROD give 6 + 6.
+Shared, SeaweedFS runs four (three StatefulSets and an S3-gateway Deployment),
+OpenMetadata two, and PostgreSQL, Polaris and Trino one each. Trino is
+deliberately coordinator-only at the default `spec.query.size`. The ingress adds
+five single-replica Deployments in `olf-system`: Traefik, the cert-manager
+controller, cainjector, and webhook, and the portal, which serves the landing
+page at the base domain. With `spec.identity` the identity row adds four more:
+Dex, one oauth2-proxy per distinct role floor (two: `viewer` and
+`data-engineer`, from `release/identity-roles.yaml`) and the platform API,
+answering `/api` on the base domain. The icons show one stage's Dagster and
+Superset pods; a profile with fewer stages, no analytics or governance, or no ingress or identity runs fewer.
 
-The purple band underneath is everything that is *not* in that 20, split by what creates
+The purple band underneath is everything that is *not* in that 30, split by what creates
 it. **Per pipeline run**: the run pod and its Floe Jobs, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: six grouped
