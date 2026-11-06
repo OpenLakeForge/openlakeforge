@@ -12,7 +12,6 @@ import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from openlakeforge_services import reports
 from openlakeforge_services.superset import SupersetClient
