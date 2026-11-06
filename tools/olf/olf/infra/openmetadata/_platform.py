@@ -11,7 +11,14 @@ from collections.abc import Mapping, Sequence
 from olf.common.profile import StageName
 from olf.common.provider_contracts import ProviderContracts
 from olf.infra.access import Route
-from olf.infra.openmetadata import _bootstrap, _catalog_seed, _signup_baseline, _stage_services, _stale_services
+from olf.infra.openmetadata import (
+    _bootstrap,
+    _catalog_seed,
+    _search_reindex,
+    _signup_baseline,
+    _stage_services,
+    _stale_services,
+)
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
 from olf.infra.openmetadata._stage_services import StageServices
 
@@ -41,6 +48,8 @@ def run_bootstrap(
     _stale_services.remove_legacy_services(client)
     if sso:
         _signup_baseline.restrict_signup_defaults(client)
+    if seed:
+        _search_reindex.ensure_search_indexed(client, seed)
 
 
 def bootstrap_inputs(contracts: ProviderContracts) -> tuple[CatalogSeed, tuple[StageServices, ...]] | None:
