@@ -103,3 +103,14 @@ invocations that could not have worked). `olf` is now the only orchestration
 surface, not merely the supported one; `_check_makefile_target_wiring` in
 `tools/olf/olf/contracts_check.py` and its test coverage were removed along
 with it.
+
+2026-11-06 (#562): the OpenMetadata and Polaris bootstraps moved from Terraform
+shell templates into `olf`, after the platform apply. Ten small `*.sh.tftpl`
+templates stay shell on purpose: the credential Jobs and the CA publisher that a
+release in the same apply reads at start, the Postgres init hooks (the database
+image's own entrypoint hook, and the in-cluster Job that is the only route to a
+private RDS instance), and the Polaris metastore bootstrap that only the Polaris
+image can run. Porting them to an `olf` step after the apply would make those
+releases wait on `olf`. Each is listed with its reason in `SHELL_TEMPLATES`
+(`tools/olf/olf/common/commands/checks/_structure.py`), and `olf check structure`
+fails on an unlisted template or a stale entry.

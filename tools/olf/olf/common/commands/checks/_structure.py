@@ -307,11 +307,13 @@ def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout ro
     tracked = Toolkit.default().runner.run(["git", "ls-files", "-z"], cwd=root).stdout.split("\0")
     scripts = [root / path for path in tracked if path.endswith(".sh") and (root / path).is_file()]
     release_workflow_errors = _release_publication_guard_errors(root)
-    if missing or scripts or module_errors or release_workflow_errors:
+    template_errors = _shell_template_errors(tracked)
+    if missing or scripts or module_errors or release_workflow_errors or template_errors:
         details = [
             *(f"missing required path: {path}" for path in missing),
             *module_errors,
             *(f"shell script is forbidden: {path.relative_to(root)}" for path in scripts),
+            *template_errors,
             *release_workflow_errors,
         ]
         raise typer.Exit(code=fail("\n".join(details)))
@@ -319,6 +321,70 @@ def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout ro
     if dashboard_errors:
         raise typer.Exit(code=fail("\n".join(dashboard_errors)))
     typer.echo("Repository structure is valid.")
+
+
+# Shell that Terraform renders into a Job or a container hook, by template -> why it stays shell (#562).
+# A ratchet: a new `*.sh.tftpl` fails until it is listed here with a reason, and an entry whose file is gone
+# fails until it is removed. Every one runs inside the apply, before the release that reads its output, so an
+# `olf` step after the apply (the platform phase) would make that release wait on `olf`, as Polaris had to.
+_CREDENTIALS_JOB = (
+    "create-if-missing credential Job: mints the Secrets its release reads at start inside the cluster, so no "
+    "value enters Terraform state (#400), and keeps an existing Secret (redeploy is not rotation); tested by "
+)
+SHELL_TEMPLATES = {
+    "infra/terraform/modules/identity/dex/templates/credentials.sh.tftpl": (
+        _CREDENTIALS_JOB.removesuffix("tested by ") + "no unit test of its own yet; `helm_release.dex` depends on it"
+    ),
+    "infra/terraform/modules/query/trino/templates/credentials.sh.tftpl": (
+        _CREDENTIALS_JOB + "`tests/infra/test_trino_credentials_job.py`; `helm_release.trino` depends on it"
+    ),
+    "infra/terraform/modules/storage/seaweedfs/templates/credentials.sh.tftpl": (
+        _CREDENTIALS_JOB + "`tests/infra/test_seaweedfs_credentials_job.py`; SeaweedFS and every S3 consumer "
+        "read the keys it writes into their namespaces"
+    ),
+    "infra/terraform/modules/storage/postgresql/templates/credentials.sh.tftpl": (
+        _CREDENTIALS_JOB + "`tests/infra/test_postgresql_credentials_job.py`; the database and its clients read them"
+    ),
+    "infra/terraform/modules/storage/rds-postgresql/templates/credentials.sh.tftpl": (
+        _CREDENTIALS_JOB + "`tests/infra/test_rds_credentials_job.py`; the database's clients read them"
+    ),
+    "infra/terraform/modules/access/platform-api/templates/superset-users.sh.tftpl": (
+        _CREDENTIALS_JOB + "`tests/infra/test_platform_api_superset_users_job.py`; Superset's init reads the copy "
+        "in the stage namespace to create the platform API's service user"
+    ),
+    "infra/terraform/modules/storage/postgresql/templates/init.sh.tftpl": (
+        "the postgres image's own `/docker-entrypoint-initdb.d` hook, run by the database container on first "
+        "start, where only shell and `psql` exist; tested by `tests/infra/test_postgresql_init_template.py`"
+    ),
+    "infra/terraform/modules/storage/rds-postgresql/templates/init.sh.tftpl": (
+        "creates roles and databases on RDS from a Job in the cluster, the only place with a route to the "
+        "private instance (the operator's machine has none); tested by `tests/infra/test_postgresql_init_template.py`"
+    ),
+    "infra/terraform/modules/catalog/polaris/templates/metastore-bootstrap.sh.tftpl": (
+        "runs `polaris-admin-tool.jar bootstrap`, which only the Polaris image ships, before the Polaris server "
+        "can issue the root token that `olf`'s Polaris bootstrap logs in with"
+    ),
+    "infra/terraform/modules/access/in-cluster-resolution/templates/publish-ca.sh.tftpl": (
+        "waits for cert-manager to issue the local CA and publishes its public root as a ConfigMap in each trust "
+        "namespace (a pod cannot read another namespace's Secret); the routed-https callers in the same apply "
+        "mount it at start"
+    ),
+}
+
+
+def _shell_template_errors(tracked: list[str]) -> list[str]:
+    """A tracked `*.sh.tftpl` needs a recorded reason in `SHELL_TEMPLATES`, and a listed one must still exist."""
+    templates = {path for path in tracked if path.endswith(".sh.tftpl")}
+    return [
+        *(
+            f"shell template has no recorded reason in SHELL_TEMPLATES: {path}"
+            for path in sorted(templates - set(SHELL_TEMPLATES))
+        ),
+        *(
+            f"SHELL_TEMPLATES lists a template that is gone: {path}"
+            for path in sorted(set(SHELL_TEMPLATES) - templates)
+        ),
+    ]
 
 
 def _release_publication_guard_errors(root: Path) -> list[str]:
