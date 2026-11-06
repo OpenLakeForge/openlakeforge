@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 import pytest
-from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 
 from olf.infra.openmetadata import _search_reindex as reindex
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
@@ -34,7 +34,9 @@ class FakeClient:
         if path == reindex.SEARCH_PATH:
             self.queries.append(params or {})
             if self.search_error:
-                raise OpenMetadataError("no index", status=self.search_error)
+                # As the real client does: a 5xx is a transient error, anything else an OpenMetadataError.
+                error = OpenMetadataTransientError if self.search_error >= 500 else OpenMetadataError
+                raise error("no index", status=self.search_error)
             return {"hits": {"total": {"value": self.hits}}}
         if path == reindex.TRIGGER_PATH:
             self.triggered = True

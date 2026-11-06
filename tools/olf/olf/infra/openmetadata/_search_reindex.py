@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 
 from olf.common import log
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
@@ -37,8 +37,9 @@ def _hits(client: OpenMetadataClient, fqn: str) -> int:
         result = client.request(
             "GET", SEARCH_PATH, params={"q": f'fullyQualifiedName:"{fqn}"', "index": SEARCH_INDEX, "size": 1}
         )
-    except OpenMetadataError as exc:
-        # A wiped OpenSearch has no index to query, which OpenMetadata reports as an error status.
+    except (OpenMetadataError, OpenMetadataTransientError) as exc:
+        # A wiped OpenSearch has no index to query, which OpenMetadata reports as an error status
+        # (a 5xx reaches us as the client's transient error, after its retries).
         # An authentication or authorization failure is not an empty index: let it surface.
         if exc.status is not None and exc.status >= 400 and exc.status not in (401, 403):
             return 0
