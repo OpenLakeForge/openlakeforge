@@ -24,6 +24,7 @@ from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._assertions import _openmetadata_e2e_login, openmetadata_client, superset_client
 from olf.infra.e2e._dagster import dagster_client
 from olf.infra.e2e._isolation import _materialized_tables, stage_bucket_items
+from olf.infra.e2e._layers import configured_layers
 from olf.infra.e2e._secret_exposure import _credentials, migrated_credentials, scan, scan_namespaces
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import check_trino_tables_and_marts, stage_catalog_name, trino_query, trino_scalar
@@ -34,6 +35,7 @@ LAYERS = ("bronze", "silver", "gold")
 # Dagster's runsOrError pages by limit; a listing that fills it may be cut short, so it is refused, not trusted.
 DAGSTER_RUN_LIMIT = 10_000
 OPENMETADATA_PAGE_SIZE = 1000
+SUPERSET_PAGE_SIZE = 100
 SEARCH_INDEX = "table_search_index"
 
 State = dict[str, Any]
@@ -141,12 +143,14 @@ def verify(baseline: State, sources: Sources) -> list[str]:
 def cluster_sources(cfg: E2EConfig) -> Sources:
     """`Sources` over a deployed local stack: Trino, Dagster, Superset and OpenMetadata APIs, and the S3 buckets."""
     stage = config.env(CONTRACT_STAGE_ENV, "dev", environ=cfg.environ)
+    # A layer the stage does not run has no service to ask (Slim runs neither): it records and verifies empty.
+    layers = configured_layers(cfg)
     return Sources(
         tables=lambda: _tables(cfg),
         dagster_runs=lambda: _dagster_runs(cfg),
-        dashboards=lambda: _dashboards(cfg),
-        entities=lambda: _entities(cfg),
-        search_hits=lambda: _search_hits(cfg),
+        dashboards=(lambda: _dashboards(cfg)) if layers["analytics"] else list,
+        entities=(lambda: _entities(cfg)) if layers["governance"] else list,
+        search_hits=(lambda: _search_hits(cfg)) if layers["governance"] else int,
         activation=lambda: _activation(cfg, stage),
         objects=lambda: _objects(cfg, stage),
     )
@@ -157,15 +161,17 @@ def _tables(cfg: E2EConfig) -> State:
     tables: State = {}
     for _, table in _materialized_tables(cfg, catalog):
         schema, name = table.split(".", 1)
-        snapshots = trino_query(
-            cfg, f'SELECT snapshot_id FROM {catalog}.{schema}."{name}$snapshots" ORDER BY committed_at DESC LIMIT 1'
-        ).split()
         tables[table] = {
             "rows": int(trino_scalar(cfg, f"SELECT count(*) FROM {catalog}.{table}")),
-            # A table that never committed has no snapshot.
-            "snapshot_id": snapshots[0] if snapshots else "",
+            "snapshot_id": _current_snapshot(cfg, f'{catalog}.{schema}."{name}$refs"'),
         }
     return tables
+
+
+def _current_snapshot(cfg: E2EConfig, refs_table: str) -> str:
+    # The `main` ref is the snapshot the table serves; `$snapshots` also lists the ones a rollback left behind.
+    # A table that never committed has no ref.
+    return next(iter(trino_query(cfg, f"SELECT snapshot_id FROM {refs_table} WHERE name = 'main'").split()), "")
 
 
 def _dagster_runs(cfg: E2EConfig) -> list[str]:
@@ -179,25 +185,36 @@ def _dagster_runs(cfg: E2EConfig) -> list[str]:
 def _dashboards(cfg: E2EConfig) -> list[str]:
     with superset_client(cfg) as client:
         client.login()
-        # Asks for the uuid the way SupersetClient.databases does; not yet run against a live Superset.
-        rows = client.request(
-            "GET", "/api/v1/dashboard/", params={"q": json.dumps({"columns": ["uuid"], "page_size": 100})}
-        )
-    return [str(row["uuid"]).lower() for row in rows.get("result", [])]
+        return dashboard_uuids(lambda q: client.request("GET", "/api/v1/dashboard/", params={"q": json.dumps(q)}))
+
+
+def dashboard_uuids(get_page: Callable[[dict[str, Any]], Mapping[str, Any]]) -> list[str]:
+    """Every dashboard uuid, paged the way SupersetClient.databases pages; not yet run against a live Superset."""
+    found: list[str] = []
+    page = 0
+    while True:
+        body = get_page({"columns": ["uuid"], "page": page, "page_size": SUPERSET_PAGE_SIZE})
+        rows = body.get("result", [])
+        found += [str(row["uuid"]).lower() for row in rows]
+        page += 1
+        if not rows or page * SUPERSET_PAGE_SIZE >= body.get("count", 0):
+            return found
 
 
 def _entities(cfg: E2EConfig) -> list[str]:
     database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=cfg.environ)
     with openmetadata_client(cfg) as (client, token):
         _login(cfg, client, token)
-        names = [name for name, _ in client.list_domains()] + [product.name for product in client.list_data_products()]
+        # Typed, so a domain and a data product of one name cannot hide each other's loss.
+        names = [f"domain:{name}" for name, _ in client.list_domains()]
+        names += [f"dataProduct:{product.name}" for product in client.list_data_products()]
         after = ""
         while database_fqn:
             params: dict[str, Any] = {"database": database_fqn, "limit": OPENMETADATA_PAGE_SIZE}
             if after:
                 params["after"] = after
             page = client.request("GET", "/api/v1/tables", params=params)
-            names += [str(table["fullyQualifiedName"]) for table in page.get("data", [])]
+            names += [f"table:{table['fullyQualifiedName']}" for table in page.get("data", [])]
             after = page.get("paging", {}).get("after") or ""
             if not after:
                 break
@@ -205,9 +222,15 @@ def _entities(cfg: E2EConfig) -> list[str]:
 
 
 def _search_hits(cfg: E2EConfig) -> int:
+    database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=cfg.environ)
+    if not database_fqn:
+        raise E2EError("OPENLAKEFORGE_CATALOG_DATABASE_FQN is unset; cannot scope the search to this stage.")
+    # OpenMetadata is shared by every stage, so an unscoped count would stay positive on another stage's tables.
+    # Not yet run against a live OpenMetadata.
+    query = f'database.fullyQualifiedName:"{database_fqn}"'
     with openmetadata_client(cfg) as (client, token):
         _login(cfg, client, token)
-        result = client.request("GET", "/api/v1/search/query", params={"q": "*", "index": SEARCH_INDEX, "size": 1})
+        result = client.request("GET", "/api/v1/search/query", params={"q": query, "index": SEARCH_INDEX, "size": 1})
     return int(result["hits"]["total"]["value"])
 
 
