@@ -27,7 +27,7 @@ SECRET = "eyJ.secret.token"
 class FakeTrino:
     """Answers each request from a script of (status, body) or an exception, and records what was sent."""
 
-    def __init__(self, *answers: tuple[int, Any] | Exception) -> None:
+    def __init__(self, *answers: tuple[int, Any] | tuple[int, Any, dict[str, str]] | Exception) -> None:
         self.answers = list(answers)
         self.calls: list[dict[str, Any]] = []
 
@@ -37,8 +37,9 @@ class FakeTrino:
         if isinstance(answer, Exception):
             raise answer
         response = requests.Response()
-        response.status_code, body = answer
+        response.status_code, body, *headers = answer
         response._content = json.dumps(body).encode()
+        response.headers.update(headers[0] if headers else {})
         return response
 
 
@@ -199,3 +200,48 @@ def test_no_bearer_and_no_basic_credentials_send_no_authorization_header() -> No
     _client(fake).run("SELECT 1", bearer=lambda: "")
 
     assert "Authorization" not in fake.calls[0]["headers"]
+
+
+def test_a_shared_session_carries_use_set_session_and_a_transaction_to_the_next_statement() -> None:
+    from openlakeforge_services.trino import TrinoSession
+
+    session = TrinoSession()
+    use = {
+        "X-Trino-Set-Schema": "order_revenue_gold",
+        "X-Trino-Set-Session": "query_max_stage_count=300,time_zone=Europe%2FParis",
+        "X-Trino-Started-Transaction-Id": "tx-1",
+    }
+    fake = FakeTrino((200, {"id": "q1"}, use), (200, {"id": "q2"}))
+    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
+
+    client.run("USE order_revenue_gold", bearer=lambda: "")
+    client.run("SELECT 1", bearer=lambda: "")
+
+    first, second = (call["headers"] for call in fake.calls)
+    assert "X-Trino-Schema" not in first and "X-Trino-Transaction-Id" not in first
+    assert second["X-Trino-Schema"] == "order_revenue_gold"
+    assert second["X-Trino-Transaction-Id"] == "tx-1"
+    assert second["X-Trino-Session"] == "query_max_stage_count=300,time_zone=Europe%2FParis"
+    assert second["X-Trino-Catalog"] == "dev"
+
+
+def test_a_session_forgets_what_trino_clears() -> None:
+    from openlakeforge_services.trino import TrinoSession
+
+    session = TrinoSession()
+    session.update(
+        {"X-Trino-Set-Session": "a=1,b=2", "X-Trino-Started-Transaction-Id": "tx", "X-Trino-Set-Catalog": "c2"}
+    )
+    session.update({"X-Trino-Clear-Session": "a", "X-Trino-Clear-Transaction-Id": "true"})
+
+    assert (session.catalog, session.properties, session.transaction_id) == ("c2", {"b": "2"}, None)
+
+
+def test_without_a_shared_session_every_request_is_independent() -> None:
+    fake = FakeTrino((200, {"id": "q1"}, {"X-Trino-Set-Schema": "other"}), (200, {"id": "q2"}))
+    client = _client(fake)
+
+    client.run("USE other", bearer=lambda: "")
+    client.run("SELECT 1", bearer=lambda: "")
+
+    assert "X-Trino-Schema" not in fake.calls[1]["headers"]

@@ -11,7 +11,7 @@ import base64
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import requests
 
@@ -120,6 +120,35 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     )
 
 
+@dataclass
+class TrinoSession:
+    """What Trino's responses ask the next request to carry: the catalog, schema and session properties a `USE` or
+    `SET SESSION` set, and the open transaction. A caller that runs several statements as one session shares one
+    of these between them; the platform API runs each request alone and passes none."""
+
+    catalog: str | None = None
+    schema: str | None = None
+    properties: dict[str, str] = field(default_factory=dict)
+    transaction_id: str | None = None
+
+    def update(self, headers: Mapping[str, str]) -> None:
+        """Apply the `X-Trino-Set-*`, `Clear-*` and transaction headers of one response."""
+        if value := headers.get("X-Trino-Set-Catalog"):
+            self.catalog = unquote(value)
+        if value := headers.get("X-Trino-Set-Schema"):
+            self.schema = unquote(value)
+        # Repeated headers arrive comma-joined; the values are URL-encoded, so a comma is always a separator.
+        for assignment in filter(None, (headers.get("X-Trino-Set-Session") or "").split(",")):
+            name, _, setting = assignment.strip().partition("=")
+            self.properties[unquote(name)] = unquote(setting)
+        for name in filter(None, (headers.get("X-Trino-Clear-Session") or "").split(",")):
+            self.properties.pop(unquote(name.strip()), None)
+        if value := headers.get("X-Trino-Started-Transaction-Id"):
+            self.transaction_id = value
+        if headers.get("X-Trino-Clear-Transaction-Id"):
+            self.transaction_id = None
+
+
 @dataclass(frozen=True)
 class TrinoStatementClient:
     """`url` is the statement endpoint (`.../v1/statement`); continuation URIs must stay on its origin.
@@ -139,6 +168,8 @@ class TrinoStatementClient:
     # and is sent as-is: the caller names an address it trusts, because the Python Trino client refuses a password
     # over HTTP and this one does not.
     basic: tuple[str, str] | None = None
+    # Shared across the statements of one session; None keeps every request independent.
+    session: TrinoSession | None = field(default=None, repr=False)
 
     def submit(
         self, sql: str, bearer: str, extra_credentials: Mapping[str, str] | None = None
@@ -209,7 +240,22 @@ class TrinoStatementClient:
             headers["Authorization"] = f"Bearer {bearer}"
         if self.schema:
             headers["X-Trino-Schema"] = self.schema
+        if self.session is not None:
+            self._apply_session(headers, self.session)
         return headers
+
+    @staticmethod
+    def _apply_session(headers: dict[str, str], session: TrinoSession) -> None:
+        if session.catalog:
+            headers["X-Trino-Catalog"] = session.catalog
+        if session.schema:
+            headers["X-Trino-Schema"] = session.schema
+        if session.properties:
+            headers["X-Trino-Session"] = ",".join(
+                f"{quote(name, safe='')}={quote(value, safe='')}" for name, value in session.properties.items()
+            )
+        if session.transaction_id:
+            headers["X-Trino-Transaction-Id"] = session.transaction_id
 
     def _checked(self, uri: str) -> str:
         # The URI comes from the response body: followed blindly, it sends the person's token wherever Trino says.
@@ -274,6 +320,8 @@ class TrinoStatementClient:
         }
         if status in refusals:
             raise refusals[status](f"Trino answered HTTP {status}", status=status)
+        if self.session is not None:
+            self.session.update(response.headers)
         if method == "DELETE" and status < 300:
             return {}
         try:

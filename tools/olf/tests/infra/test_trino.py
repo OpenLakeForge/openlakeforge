@@ -42,9 +42,10 @@ def test_only_aws_prefixes_glue_namespaces() -> None:
 
 
 class _Response:
-    def __init__(self, status: int, body: dict[str, Any] | None = None) -> None:
+    def __init__(self, status: int, body: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> None:
         self.status_code = status
         self._body = body
+        self.headers = headers or {}
 
     def json(self) -> dict[str, Any]:
         if self._body is None:
@@ -55,7 +56,9 @@ class _Response:
 class _Trino:
     """A transport that records each request and answers the first with `body`."""
 
-    def __init__(self, body: dict[str, Any] | None = None, *, status: int = 200) -> None:
+    def __init__(
+        self, body: dict[str, Any] | None = None, *, status: int = 200, headers: dict[str, str] | None = None
+    ) -> None:
         self.requests: list[dict[str, Any]] = []
         self.then: list[_Response] = []  # answers for the requests after the first, in order
         self._answer = _Response(
@@ -63,6 +66,7 @@ class _Trino:
             body
             if body is not None
             else {"id": "q1", "columns": [{"name": "c", "type": "integer"}], "data": [[1], [2]]},
+            headers,
         )
 
     def __call__(self, method: str, url: str, *, headers: dict[str, str], data: bytes | None = None, **_: Any):  # noqa: ANN204
@@ -367,3 +371,15 @@ def test_the_default_transport_ignores_environment_proxies(monkeypatch: pytest.M
 
     assert response.status_code == 204
     assert (direct, via_proxy) == (["/v1/info"], [])
+
+
+def test_a_use_statement_applies_to_the_statements_after_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    service = _Trino({"id": "q0"}, headers={"X-Trino-Set-Schema": "order_revenue_gold"})
+    service.then = [_Response(200, {"id": "q1", "columns": [{"name": "c", "type": "integer"}], "data": [[1]]})]
+
+    output = _run(service, sql="USE order_revenue_gold; SELECT 1", output_format="bare")
+
+    assert output == "1\n"
+    assert "X-Trino-Schema" not in service.requests[0]["headers"]
+    assert service.requests[1]["headers"]["X-Trino-Schema"] == "order_revenue_gold"

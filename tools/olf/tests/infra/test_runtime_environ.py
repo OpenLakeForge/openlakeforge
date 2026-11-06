@@ -124,6 +124,7 @@ def trino_service(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
     class _Page:
         status_code = 200
+        headers: dict[str, str] = {}
 
         def json(self) -> dict[str, Any]:
             return {"id": "q", "columns": [{"name": "c", "type": "varchar"}], "data": [["rows-from-trino"]]}

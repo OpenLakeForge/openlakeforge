@@ -192,6 +192,8 @@ def run_sql(
                 )
             password = decode_password(lookup.stdout or "")
         with (forward or _port_forward)(target, environ) as port:
+            # One session for every statement, as the CLI's `--execute` gave: `USE`, `SET SESSION` and a transaction
+            # carry over to the next one.
             client = statements.TrinoStatementClient(
                 f"http://127.0.0.1:{port}/v1/statement",
                 catalog=target.catalog,
@@ -199,6 +201,7 @@ def run_sql(
                 source="olf-infra-query",
                 send=send or _loopback_session().request,
                 basic=(target.user, password) if password else None,
+                session=statements.TrinoSession(),
             )
             results = [client.run(statement, bearer=lambda: "") for statement in split_statements(sql)]
     except TrinoQueryError:
