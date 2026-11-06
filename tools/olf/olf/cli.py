@@ -36,6 +36,7 @@ from olf.infra.commands import (
     access,
     artifacts,
     auth,
+    backup,
     break_glass,
     catalog,
     dbt,
@@ -179,6 +180,8 @@ _infra_command("status", deployment.status)
 _infra_command("forward", deployment.forward)
 _infra_command("break-glass", break_glass.break_glass_command)
 infra_app.command("query")(query.query)
+# Born after the 2b move: there is no pre-2b top-level path to alias.
+infra_app.command("backup")(backup.backup)
 app.command("init")(init.initialize)
 # A person's own queries (ADR 0019); `olf infra query` keeps the workload path. The pre-2b alias
 # `olf query` -> `olf infra query` ends here, the one exception ADR 0020 names.
