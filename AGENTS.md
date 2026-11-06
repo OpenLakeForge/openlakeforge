@@ -105,7 +105,9 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
    artifact:** anything needing user code belongs in artifacts.
 4. **`olf` owns repository orchestration** (ADR 0008). Cross-environment
    logic lives in `tools/olf` with tests. There is no tracked shell; `olf
-   check structure` rejects it. `olf` is the only orchestration surface —
+   check structure` rejects it. The only exceptions are the `*.sh.tftpl`
+   templates Terraform renders into in-cluster Jobs, each listed with its
+   reason in `SHELL_TEMPLATES`; a new one fails the check until it is listed. `olf` is the only orchestration surface —
    there is no `Makefile`.
 5. **No hardcoded product knowledge in shared code.** Product lists, job names,
    table names, and dashboard names are moving to descriptor-driven discovery.

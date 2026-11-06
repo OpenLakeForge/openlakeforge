@@ -220,3 +220,21 @@ def test_project_requirements_are_installed_under_the_platform_pins(
     assert project_install[:2] == ["-r", str(tmp_path / "lakehouse_code/requirements.txt")]
     constraints = Path(project_install[project_install.index("-c") + 1])
     assert "dagster==" in constraints.read_text() and "--hash" not in constraints.read_text()
+
+
+def test_every_tracked_shell_template_has_a_recorded_reason() -> None:
+    tracked = [*_structure.SHELL_TEMPLATES, "infra/terraform/modules/x/main.tf"]
+    assert _structure._shell_template_errors(tracked) == []
+    assert all(reason.strip() for reason in _structure.SHELL_TEMPLATES.values())
+
+
+def test_an_unlisted_shell_template_and_a_stale_entry_are_both_rejected() -> None:
+    gone, *kept = _structure.SHELL_TEMPLATES
+    new = "infra/terraform/modules/x/templates/setup.sh.tftpl"
+
+    errors = _structure._shell_template_errors([*kept, new])
+
+    assert errors == [
+        f"shell template has no recorded reason in SHELL_TEMPLATES: {new}",
+        f"SHELL_TEMPLATES lists a template that is gone: {gone}",
+    ]
