@@ -88,3 +88,26 @@ def test_a_cloud_deployment_is_refused_rather_than_planned_with_local_names() ->
     aws = replace(contracts, deployment={**contracts.deployment, "provider": "aws"})
     with pytest.raises(BackupError, match="local provider only"):
         plan_from_contract(aws, shared_namespace="olf-system")
+
+
+def _port_forward(contracts: ProviderContracts, *, trino_tls: bool) -> ProviderContracts:
+    access = {**contracts.shared.values["access"], "implementation": "access.port_forward"}
+    shared = replace(contracts.shared, values={**contracts.shared.values, "access": access})
+    stages = {
+        name: replace(
+            stage,
+            query={k: v for k, v in stage.query.items() if trino_tls or k not in {"tls_port", "ca_configmap_name"}},
+        )
+        for name, stage in contracts.stages.items()
+    }
+    return replace(contracts, shared=shared, stages=stages)
+
+
+def test_a_port_forward_deployment_without_trino_tls_plans_no_local_ca() -> None:
+    plan = plan_from_contract(_port_forward(_contracts(), trino_tls=False), shared_namespace="olf-system")
+    assert "local-ca" not in {secret.name for secret in plan.secrets}
+
+
+def test_trino_tls_alone_still_plans_the_local_ca() -> None:
+    plan = plan_from_contract(_port_forward(_contracts(), trino_tls=True), shared_namespace="olf-system")
+    assert "local-ca" in {secret.name for secret in plan.secrets}
