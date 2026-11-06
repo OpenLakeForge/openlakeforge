@@ -84,7 +84,8 @@ Because the layer is implied by the bucket, table paths carry no `bronze/`,
 ### Stage catalogs allow drop with purge
 
 Each stage catalog (`lakehouse_<stage>`) is created with the property
-`polaris.config.drop-with-purge.enabled=true`, and the Polaris bootstrap sets it
+`polaris.config.drop-with-purge.enabled=true`, and `olf`'s Polaris bootstrap
+(`tools/olf/olf/infra/polaris_bootstrap.py`) sets it
 on a catalog that already exists. Trino drops tables with purge, and Polaris
 drops a view only with purge; without the property Polaris answers both with
 HTTP 403. Every dbt incremental run after the first drops its
@@ -156,3 +157,6 @@ table belongs to.
 
 2026-11-01 (#741): stage catalogs allow drop with purge, so a dbt incremental
 model's temporary view can be dropped.
+
+2026-11-06 (#562): the stage catalogs are created by `olf`'s Polaris bootstrap
+after the platform apply; the Terraform Job that did it is deleted.

@@ -51,9 +51,9 @@ every caller below is class 2 (`identity-callers.md`).
 | Trino, per stage catalog | The stage's Trino principal; Secret `trino_credentials_secret_name`, keys `POLARIS_TRINO_CLIENT_ID` / `_SECRET`, in the shared namespace | `iceberg.rest-catalog.security=OAUTH2`, `oauth2.credential=<id>:<secret>`, `oauth2.server-uri` = the contract `token_uri`, `oauth2.scope` = `PRINCIPAL_ROLE:ALL`, `vended-credentials-enabled=false` (`modules/query/trino`). Granted `CATALOG_MANAGE_CONTENT` on that stage's catalog |
 | Floe domain Job | The stage's Floe principal; Secret `floe_credentials_secret_name` in the stage namespace, referenced by each domain's Floe Job through `secretKeyRef` | The stage profile `openlakeforge_runtime/floe_profile.py` renders names the token URI, scope and the Secret's keys; Floe authenticates with those credentials against that URI. `CATALOG_MANAGE_CONTENT` |
 | `olf infra catalog sync-namespaces` | The stage's deployer principal; Secret `polaris-deployer-creds`, read through RBAC | `olf/infra/polaris.py` POSTs `grant_type=client_credentials` with HTTP Basic to the token path over a port-forward. `CATALOG_MANAGE_METADATA`, and `CATALOG_MANAGE_ACCESS` when people sign in (ADR 0019) |
-| Platform bootstrap Job | The Polaris root client (created in-cluster by the Polaris module's credentials Job, so not in Terraform state) | Exchanges at the internal token endpoint, then creates catalogs, principals, roles and grants and writes each principal's Secret (`bootstrap.sh.tftpl`) |
-| dbt | **None.** Gold is written through Trino as `olf-<stage>-runtime` | The bootstrap Job deletes the legacy `dbt` principal and `polaris-dbt-creds` Secret. #26 still lists dbt as a Polaris writer; it no longer is |
-| OpenMetadata | **None used.** The bootstrap Job still creates the `om` principal, its Secret `om_credentials_secret_name` and a `CATALOG_MANAGE_CONTENT` grant on every stage catalog | The lakehouse service crawls through Trino as `openmetadata` (OpenMetadata 1.13 removed the Iceberg connector; `technical-debt.md`). No module, `olf` command or chart reads the `om` Secret: only the Polaris bootstrap and an unused field of the OpenMetadata contract variable name it. It is a dormant credential with a write-level grant |
+| `olf`'s Polaris bootstrap | The Polaris root client (created in-cluster by the Polaris module's credentials Job, so not in Terraform state), read by the operator's kubeconfig | Exchanges at the internal token endpoint through a port-forward after the platform apply, then creates catalogs, principals, roles and grants and writes each principal's Secret (`olf/infra/polaris_bootstrap.py`) |
+| dbt | **None.** Gold is written through Trino as `olf-<stage>-runtime` | The bootstrap deletes the legacy `dbt` principal and `polaris-dbt-creds` Secret. #26 still lists dbt as a Polaris writer; it no longer is |
+| OpenMetadata | **None used.** The bootstrap still creates the `om` principal, its Secret `om_credentials_secret_name` and a `CATALOG_MANAGE_CONTENT` grant on every stage catalog | The lakehouse service crawls through Trino as `openmetadata` (OpenMetadata 1.13 removed the Iceberg connector; `technical-debt.md`). No module, `olf` command or chart reads the `om` Secret: only the Polaris bootstrap and an unused field of the OpenMetadata contract variable name it. It is a dormant credential with a write-level grant |
 
 Dagster pods receive the Polaris REST and token URIs and the scope
 (`POLARIS_*` in `modules/orchestration/dagster`) but no client credential of
@@ -99,12 +99,12 @@ or an operator needs to remove Polaris-held secrets. It is sequenced with the
 
 1. Verify the three **to verify** items on a cluster.
 2. Set `authentication.type: mixed` and `oidc.*` in the chart. Mixed is
-   additive: the bootstrap Job, existing Secrets and every current caller keep
+   additive: the bootstrap, existing Secrets and every current caller keep
    working.
 3. Create one issuer confidential client per workload, with a name claim equal
    to its existing Polaris principal; migrate Trino, then Floe, then the
    deployer, one at a time, with the unattended e2e as the gate.
-4. Move the bootstrap Job last, or leave it on `internal` and stay on `mixed`.
+4. Move the bootstrap last, or leave it on `internal` and stay on `mixed`.
    Moving to `external` is only worth it once the bootstrap no longer needs
    the root client.
 5. Independently of any migration: remove the dormant `om` principal, its
@@ -146,7 +146,7 @@ Implications to carry into #179's ADR:
 ## Consequences
 
 - No code, Terraform or contract changes. Polaris keeps `internal`
-  authentication, the Secrets in `identity-callers.md` and the bootstrap Job.
+  authentication, the Secrets in `identity-callers.md` and the bootstrap.
 - The class-2 inventory states that the `om` Polaris credential is unused
   (`identity-callers.md`).
 - #26's Polaris acceptance item ("decision documented in an ADR or issue
@@ -168,3 +168,6 @@ unchanged.
 The "Data files" row splits by path (ADR 0019, build step 8): a person's
 queries read with credentials Polaris vends per table, so `TABLE_READ_DATA`
 gates their file reads; the workload path still reads with the stage's S3 key.
+
+The bootstrap caller is `olf` after the platform apply, not a Terraform Job
+(#562).
