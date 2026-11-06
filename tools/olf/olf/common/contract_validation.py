@@ -20,8 +20,10 @@ def unsupported_schema_version_message(schema_version: object) -> str:
     return (
         f"provider_contracts.schema_version {schema_version!r} is unsupported; "
         f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}. Platform state written before v0.3 "
-        f"(schema {V2_SCHEMA_VERSION}) is no longer supported: redeploy the platform phase "
-        "with a current release first"
+        f"(schema {V2_SCHEMA_VERSION}) is no longer supported: its shared services still run in the "
+        "'lakehouse' namespace. Migrate their data into the current shared namespace by hand, then run "
+        "`olf infra deploy --phase platform`, or run it with --allow-stage-removal to start over and lose "
+        "that data (see the CHANGELOG's Migration notes)"
     )
 
 

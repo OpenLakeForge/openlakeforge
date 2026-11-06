@@ -106,9 +106,12 @@ for how a release is cut and verified.
 
 ### Migration
 
-- If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3:
-  run `olf infra deploy --phase platform` from a current release first, which rewrites it as schema
-  `3.0.0`, then rerun the command.
+- If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3,
+  and its shared services still run in the `lakehouse` namespace. The platform apply refuses to
+  replace that namespace, because it would destroy the SeaweedFS, PostgreSQL and Polaris data inside
+  it. Either migrate that data by hand into the current shared namespace (`olf-system` by default)
+  and then run `olf infra deploy --phase platform` from a current release, which writes a schema
+  `3.0.0` contract; or, to start over and lose that data, run it with `--allow-stage-removal`.
 - In a project's `lakehouse_code/` (for example `definitions.py`), replace
   `openlakeforge_domain` with `openlakeforge_core` in every import.
 - A requirement on `openlakeforge-domain-model` becomes `openlakeforge-core`.

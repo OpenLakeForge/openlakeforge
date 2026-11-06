@@ -993,7 +993,7 @@ def test_glue_stage_does_not_leak_local_polaris_token_and_scope_aliases() -> Non
 
 def test_a_v2_contract_is_refused_with_the_supported_versions_and_the_remedy() -> None:
     """Platform state written before v0.3 (schema 2.0.0) is no longer supported (#114)."""
-    with pytest.raises(ProviderContractError, match=r"'2\.0\.0' is unsupported.*3\.0\.0.*redeploy the platform"):
+    with pytest.raises(ProviderContractError, match=r"'2\.0\.0' is unsupported.*3\.0\.0.*lakehouse.*stage-removal"):
         parse_provider_contracts(_fixture("local-provider-contracts.json"))
 
 

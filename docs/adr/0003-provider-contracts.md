@@ -48,7 +48,9 @@ the eventual hardening work from being a rewrite.
 
 Every root (local, AWS, Azure) now emits v3 natively. `olf` no longer parses
 v2: a `2.0.0` contract, left by a pre-v0.3 deploy, is refused with the
-supported version and the remedy (redeploy the platform phase first). The
+supported version and the remedy: migrate the pre-v0.3 shared `lakehouse`
+namespace's data by hand, or start over with `--allow-stage-removal`, before
+the platform phase is redeployed. The
 `2.0.0` shape is still exported to runtimes by `as_v2_environment_contract`. A native v3 contract requires an explicit stage, and every root now
 names distinct storage identities and a catalog per stage (#114).
 
