@@ -11,8 +11,8 @@ spec:
   stages:
     dev:
       enabled: true
-  # Plain HTTP on *.olf.localhost: no certificate step (ADR 0013). Remove
-  # `issuer: none` for the HTTPS stack (`olf infra access trust`).
+  # Plain HTTP on *.olf.localhost: no certificate step (ADR 0013). Set
+  # `issuer: local-ca` for the HTTPS stack (`olf infra access trust`).
   access:
     issuer: none
   # Sign-in through GitHub and Dex. Run `olf infra github connect` to create the
