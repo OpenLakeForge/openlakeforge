@@ -245,3 +245,22 @@ def test_without_a_shared_session_every_request_is_independent() -> None:
     client.run("SELECT 1", bearer=lambda: "")
 
     assert "X-Trino-Schema" not in fake.calls[1]["headers"]
+
+
+def test_form_encoded_session_values_round_trip_with_their_spaces() -> None:
+    from openlakeforge_services.trino import TrinoSession
+
+    session = TrinoSession()
+    # Trino answers SET SESSION query_max_execution_time = '1 h' with the space as `+`, and USE with the same encoding.
+    session.update({"X-Trino-Set-Session": "query_max_execution_time=1+h", "X-Trino-Set-Schema": "my+schema"})
+    fake = FakeTrino((200, {"id": "q"}))
+    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
+
+    client.run("SELECT 1", bearer=lambda: "")
+
+    headers = fake.calls[0]["headers"]
+    assert session.properties == {"query_max_execution_time": "1 h"}
+    assert session.schema == "my schema"
+    # Sent back percent-encoded, which Trino decodes to the same space.
+    assert headers["X-Trino-Session"] == "query_max_execution_time=1%20h"
+    assert headers["X-Trino-Schema"] == "my schema"

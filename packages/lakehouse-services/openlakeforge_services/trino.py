@@ -11,7 +11,7 @@ import base64
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote_plus, urlsplit
 
 import requests
 
@@ -134,15 +134,16 @@ class TrinoSession:
     def update(self, headers: Mapping[str, str]) -> None:
         """Apply the `X-Trino-Set-*`, `Clear-*` and transaction headers of one response."""
         if value := headers.get("X-Trino-Set-Catalog"):
-            self.catalog = unquote(value)
+            self.catalog = unquote_plus(value)
         if value := headers.get("X-Trino-Set-Schema"):
-            self.schema = unquote(value)
-        # Repeated headers arrive comma-joined; the values are URL-encoded, so a comma is always a separator.
+            self.schema = unquote_plus(value)
+        # Trino form-encodes these values (a space is `+`), hence unquote_plus. Repeated headers arrive
+        # comma-joined, and a comma inside a value is encoded, so a comma is always a separator.
         for assignment in filter(None, (headers.get("X-Trino-Set-Session") or "").split(",")):
             name, _, setting = assignment.strip().partition("=")
-            self.properties[unquote(name)] = unquote(setting)
+            self.properties[unquote_plus(name)] = unquote_plus(setting)
         for name in filter(None, (headers.get("X-Trino-Clear-Session") or "").split(",")):
-            self.properties.pop(unquote(name.strip()), None)
+            self.properties.pop(unquote_plus(name.strip()), None)
         if value := headers.get("X-Trino-Started-Transaction-Id"):
             self.transaction_id = value
         if headers.get("X-Trino-Clear-Transaction-Id"):
