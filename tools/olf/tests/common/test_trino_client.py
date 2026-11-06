@@ -247,12 +247,13 @@ def test_without_a_shared_session_every_request_is_independent() -> None:
     assert "X-Trino-Schema" not in fake.calls[1]["headers"]
 
 
-def test_form_encoded_session_values_round_trip_with_their_spaces() -> None:
+def test_only_session_values_are_form_encoded_and_the_schema_is_kept_as_sent() -> None:
     from openlakeforge_services.trino import TrinoSession
 
     session = TrinoSession()
-    # Trino answers SET SESSION query_max_execution_time = '1 h' with the space as `+`, and USE with the same encoding.
-    session.update({"X-Trino-Set-Session": "query_max_execution_time=1+h", "X-Trino-Set-Schema": "my+schema"})
+    # Trino 480 sends the schema as it is (`a+b` is a schema named a+b) and form-encodes only a session value,
+    # a space being `+`.
+    session.update({"X-Trino-Set-Session": "query_max_execution_time=1+h", "X-Trino-Set-Schema": "a+b"})
     fake = FakeTrino((200, {"id": "q"}))
     client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
 
@@ -260,7 +261,18 @@ def test_form_encoded_session_values_round_trip_with_their_spaces() -> None:
 
     headers = fake.calls[0]["headers"]
     assert session.properties == {"query_max_execution_time": "1 h"}
-    assert session.schema == "my schema"
-    # Sent back percent-encoded, which Trino decodes to the same space.
+    assert session.schema == "a+b"
+    assert headers["X-Trino-Schema"] == "a+b"
+    # The value goes back percent-encoded, which Trino decodes to the same space; the name is not encoded.
     assert headers["X-Trino-Session"] == "query_max_execution_time=1%20h"
-    assert headers["X-Trino-Schema"] == "my schema"
+
+
+def test_a_catalog_scoped_property_name_and_a_percent_in_a_schema_are_not_decoded() -> None:
+    from openlakeforge_services.trino import TrinoSession
+
+    session = TrinoSession()
+    session.update({"X-Trino-Set-Session": "lakehouse_dev.some_flag=true", "X-Trino-Set-Schema": "100%25"})
+    session.update({"X-Trino-Clear-Session": "lakehouse_dev.some_flag"})
+
+    assert session.schema == "100%25"
+    assert session.properties == {}

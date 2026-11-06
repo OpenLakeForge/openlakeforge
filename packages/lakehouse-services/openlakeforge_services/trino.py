@@ -132,18 +132,22 @@ class TrinoSession:
     transaction_id: str | None = None
 
     def update(self, headers: Mapping[str, str]) -> None:
-        """Apply the `X-Trino-Set-*`, `Clear-*` and transaction headers of one response."""
+        """Apply the `X-Trino-Set-*`, `Clear-*` and transaction headers of one response.
+
+        As Trino 480 writes them (`ExecutingStatementResource`): the catalog, the schema and the names of session
+        properties are sent as they are, and only a session property's value is form-encoded (a space is `+`), so
+        only that value is decoded.
+        """
         if value := headers.get("X-Trino-Set-Catalog"):
-            self.catalog = unquote_plus(value)
+            self.catalog = value
         if value := headers.get("X-Trino-Set-Schema"):
-            self.schema = unquote_plus(value)
-        # Trino form-encodes these values (a space is `+`), hence unquote_plus. Repeated headers arrive
-        # comma-joined, and a comma inside a value is encoded, so a comma is always a separator.
+            self.schema = value
+        # Repeated headers arrive comma-joined. A name has no comma and a value's is encoded, so a comma separates.
         for assignment in filter(None, (headers.get("X-Trino-Set-Session") or "").split(",")):
             name, _, setting = assignment.strip().partition("=")
-            self.properties[unquote_plus(name)] = unquote_plus(setting)
+            self.properties[name] = unquote_plus(setting)
         for name in filter(None, (headers.get("X-Trino-Clear-Session") or "").split(",")):
-            self.properties.pop(unquote_plus(name.strip()), None)
+            self.properties.pop(name.strip(), None)
         if value := headers.get("X-Trino-Started-Transaction-Id"):
             self.transaction_id = value
         if headers.get("X-Trino-Clear-Transaction-Id"):
@@ -252,8 +256,9 @@ class TrinoStatementClient:
         if session.schema:
             headers["X-Trino-Schema"] = session.schema
         if session.properties:
+            # The server decodes only the value (`HttpRequestSessionContextFactory.parseProperty`).
             headers["X-Trino-Session"] = ",".join(
-                f"{quote(name, safe='')}={quote(value, safe='')}" for name, value in session.properties.items()
+                f"{name}={quote(value, safe='')}" for name, value in session.properties.items()
             )
         if session.transaction_id:
             headers["X-Trino-Transaction-Id"] = session.transaction_id
