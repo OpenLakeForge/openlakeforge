@@ -48,6 +48,12 @@ jobs:
       - name: Provision OpenLakeForge toolchain
         run: uv run --project tools/olf --locked olf toolchain install
 
+      - name: Cache pinned Helm charts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .tmp/check-helm/charts
+          key: olf-helm-charts-${{ hashFiles('tools/olf/olf/common/commands/checks/_infra.py') }}
+
       - name: Check immutable release inputs
         run: uv run --project tools/olf --locked olf check components
 
@@ -170,6 +176,12 @@ jobs:
 
       - name: Provision OpenLakeForge toolchain
         run: uv run --project tools/olf --locked olf toolchain install
+
+      - name: Cache pinned Helm charts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .tmp/check-helm/charts
+          key: olf-helm-charts-${{ hashFiles('tools/olf/olf/common/commands/checks/_infra.py') }}
 
       - name: Validate release readiness (catches drift before a tag is cut)
         run: uv run --project tools/olf --locked olf check all

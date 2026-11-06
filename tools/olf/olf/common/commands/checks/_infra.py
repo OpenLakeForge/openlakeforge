@@ -9,7 +9,11 @@ import typer
 
 from olf.common.commands.checks._shared import _root
 from olf.common.log import fail
+from olf.common.tooling.retry import RetryPolicy
 from olf.common.tooling.toolkit import Toolkit
+
+# Chart hosts (archive.apache.org in particular) reset connections often; waits are 5s then 15s.
+_PULL_RETRY = RetryPolicy(max_attempts=3, delay_seconds=5, backoff_multiplier=3)
 
 
 def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
@@ -62,18 +66,20 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         ("traefik", "https://traefik.github.io/charts"),
         ("jetstack", "https://charts.jetstack.io"),
     )
-    for name, url in repos:
-        tools.helm.repo_add(name, url, env=env)
-    tools.helm.repo_update(env=env)
+    cache = root / ".tmp/check-helm/charts"
+    cache.mkdir(parents=True, exist_ok=True)
+    if any(not _chart_tarball(cache, chart, version).exists() for _, chart, version, _ in charts):
+        for name, url in repos:
+            tools.helm.repo_add(name, url, env=env)
+        tools.helm.repo_update(env=env)
     helm = str(tools.resolver.resolve("helm"))
     for release_name, chart, version, values in charts:
+        tarball = _pull_chart(tools, cache, chart, version, env=env)
         args = [
             helm,
             "template",
             release_name,
-            chart,
-            "--version",
-            version,
+            str(tarball),
             "--namespace",
             "olf-system",
             "--values",
@@ -88,6 +94,19 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         if release_name == "polaris" and "polaris.persistence.type=relational-jdbc" not in result.stdout:
             raise typer.Exit(code=fail("rendered Polaris chart is not configured for relational JDBC persistence"))
     typer.echo("Infrastructure checks passed.")
+
+
+def _chart_tarball(cache: Path, chart: str, version: str) -> Path:
+    """Where `helm pull` writes the chart: `<chart>-<version>.tgz`, the version keeping any leading `v`."""
+    return cache / f"{chart.rsplit('/', 1)[-1]}-{version}.tgz"
+
+
+def _pull_chart(tools: Toolkit, cache: Path, chart: str, version: str, *, env: dict[str, str]) -> Path:
+    """The pinned chart's local tarball, pulled (with retries) only when the cache lacks it."""
+    tarball = _chart_tarball(cache, chart, version)
+    if not tarball.exists():
+        tools.helm.pull(chart, version=version, destination=cache, env=env, retry_policy=_PULL_RETRY)
+    return tarball
 
 
 def _test_module(root: Path, module: Path, *, terraform: str, tools: Toolkit, env: dict[str, str]) -> None:
