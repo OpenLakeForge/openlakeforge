@@ -4,8 +4,10 @@ OpenSearch runs without a volume, so a pod restart, an upgrade or a restore empt
 while the entities survive in the OpenMetadata database. The bootstrap probes search for a
 database it knows exists through REST and, on no hit, runs the SearchIndexingApplication.
 
-The endpoints and payload follow OpenMetadata's apps and search REST API for 1.13; they have not
-been exercised against a live 1.13.6 stack, so they live in the constants below.
+The endpoints, the trigger keys and the run statuses match OpenMetadata 1.13.6's source
+(`AppResource` `/trigger/{name}` and `/name/{name}/runs/latest`, `searchIndexingAppConfig.json`,
+`appRunRecord.json`, `SearchResource` `/query`); they have not yet been exercised against a live
+stack, so they live in the constants below.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ SEARCH_INDEX = "database_search_index"
 TRIGGER_PATH = "/api/v1/apps/trigger/SearchIndexingApplication"
 LATEST_RUN_PATH = "/api/v1/apps/name/SearchIndexingApplication/runs/latest"
 TRIGGER_BODY = {"recreateIndex": True, "entities": ["all"]}
-_RUNNING = frozenset({"started", "running", "active"})
+_RUNNING = frozenset({"pending", "started", "running", "active", "stopinprogress"})
 _FAILED = frozenset({"failed", "activeerror", "stopped"})
 TIMEOUT_SECONDS = 600.0
 POLL_SECONDS = 5.0
@@ -37,7 +39,8 @@ def _hits(client: OpenMetadataClient, fqn: str) -> int:
         )
     except OpenMetadataError as exc:
         # A wiped OpenSearch has no index to query, which OpenMetadata reports as an error status.
-        if exc.status is not None and exc.status >= 400:
+        # An authentication or authorization failure is not an empty index: let it surface.
+        if exc.status is not None and exc.status >= 400 and exc.status not in (401, 403):
             return 0
         raise
     return int(result.get("hits", {}).get("total", {}).get("value", 0))

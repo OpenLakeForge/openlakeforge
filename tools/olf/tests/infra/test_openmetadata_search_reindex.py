@@ -97,3 +97,10 @@ def test_reindex_that_never_completes_times_out() -> None:
     with pytest.raises(OpenMetadataError, match="still empty 60s after"):
         _run(client, clock)
     assert clock.now >= 60
+
+
+def test_an_authentication_failure_surfaces_instead_of_reindexing() -> None:
+    client = FakeClient(hits=0, search_error=401, runs=[{}])
+    with pytest.raises(OpenMetadataError, match="no index"):
+        _run(client, Clock())
+    assert not client.triggered
