@@ -15,10 +15,10 @@ from openlakeforge_services.dagster import DagsterClient
 
 from olf.common import config
 from olf.common.provider_contracts import ProviderContracts
-from olf.infra import k8s, s3
+from olf.infra import access, k8s, s3
 from olf.infra.backup import BackupError
 from olf.infra.backup._backup import DAEMON_DEPLOYMENT, Operations
-from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
+from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME, _graphql_over
 
 # modules/storage/postgresql: the StatefulSet `postgresql` runs one container of that name as the `postgres`
 # superuser, and the image trusts that user over its own socket, so no password is read or passed.
@@ -81,7 +81,8 @@ def cluster_operations(
                 environ=environ,
             ) as port:
                 try:
-                    result = DagsterClient(f"http://127.0.0.1:{port}/graphql").graphql(
+                    route = access.Route(f"http://127.0.0.1:{port}", {"no_proxy": "127.0.0.1"})
+                    result = DagsterClient(f"{route.url}/graphql", request_json=_graphql_over(route)).graphql(
                         _IN_FLIGHT_QUERY, {"filter": {"statuses": list(_IN_FLIGHT)}}
                     )["runsOrError"]
                 except ServiceClientError as exc:
@@ -118,8 +119,14 @@ def _copy_bucket(client: Any, bucket: str, destination: Path) -> dict[str, int]:
     for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
         for item in page.get("Contents", []):
             key, size = item["Key"], int(item["Size"])
-            if key.endswith("/"):  # a folder marker, not an object
-                continue
+            if "\n" in key or "\r" in key:  # SHA256SUMS is line-delimited
+                raise BackupError(
+                    f"object key {key!r} in bucket {bucket} has a line break, which SHA256SUMS cannot hold."
+                )
+            if key.endswith("/"):
+                if size:
+                    raise BackupError(f"object {key!r} in bucket {bucket} ends in '/' but holds {size} bytes.")
+                continue  # an empty folder marker
             target = (root / key).resolve()
             if not target.is_relative_to(root):
                 raise BackupError(f"object key {key!r} in bucket {bucket} would be written outside the backup.")

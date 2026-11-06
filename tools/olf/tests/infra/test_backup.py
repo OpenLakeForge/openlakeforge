@@ -23,10 +23,11 @@ ADMIN_PASSWORD = "A-very-secret-admin-password-0123"
 
 
 class Cluster:
-    """Records every call, in order, and serves what the stack would."""
+    """Serves what the stack would; the dump and copy steps check the state they run in."""
 
     def __init__(self, *, runs: dict[str, list[str]] | None = None, fail_on: str = "") -> None:
-        self.events: list[str] = []
+        self.dumps: list[str] = []
+        self.copies: list[str] = []
         self.replicas = {"olf-dev": 1, "olf-prod": 1}
         self.runs = runs or {}
         self.fail_on = fail_on
@@ -37,17 +38,22 @@ class Cluster:
         self.secrets = {(ref.namespace, ref.name): ("Opaque", {"password": encoded}) for ref in plan.secrets}
 
     def scale(self, namespace: str, replicas: int) -> None:
-        self.events.append(f"scale {namespace} {replicas}")
         self.replicas[namespace] = replicas
 
+    def _assert_every_daemon_paused(self) -> None:
+        assert set(self.replicas.values()) == {0}, f"a daemon was running: {self.replicas}"
+
     def dump(self, name: str, destination: Path) -> None:
-        self.events.append(f"dump {name}")
+        self._assert_every_daemon_paused()
+        self.dumps.append(name)
         if name == self.fail_on:
             raise RuntimeError(f"pg_dump of {name} failed")
         destination.write_bytes(b"PGDMP" + name.encode())
 
     def copy(self, bucket: str, destination: Path) -> dict[str, int]:
-        self.events.append(f"copy {bucket}")
+        self._assert_every_daemon_paused()
+        assert (destination.parent.parent / "postgres" / "polaris.dump").is_file(), "copied before Polaris"
+        self.copies.append(bucket)
         (destination / "silver").mkdir(parents=True)
         (destination / "silver" / "a.parquet").write_bytes(b"12345")
         return {"silver/a.parquet": 5}
@@ -78,36 +84,33 @@ def _backup(directory: Path, cluster: Cluster) -> object:
     )
 
 
-def test_polaris_is_dumped_before_every_other_database_and_before_the_first_object_copy(tmp_path: Path) -> None:
+def test_polaris_is_dumped_before_any_object_and_every_daemon_is_paused_throughout(tmp_path: Path) -> None:
     cluster = Cluster()
 
     _backup(tmp_path / "backup", cluster)
 
-    dumps = [event for event in cluster.events if event.startswith("dump ")]
-    assert dumps[0] == "dump polaris" and len(dumps) == 7
-    first_copy = next(i for i, event in enumerate(cluster.events) if event.startswith("copy "))
-    assert cluster.events.index("dump polaris") < first_copy
-    assert max(cluster.events.index(event) for event in dumps) < first_copy
+    assert cluster.dumps[0] == "polaris" and len(cluster.dumps) == 7
+    assert cluster.copies
 
 
-def test_the_daemon_is_paused_first_and_resumed_to_what_it_ran_with(tmp_path: Path) -> None:
+def test_every_daemon_is_back_at_the_replicas_it_ran_with(tmp_path: Path) -> None:
     cluster = Cluster()
     cluster.replicas["olf-prod"] = 2
 
     _backup(tmp_path / "backup", cluster)
 
-    assert cluster.events[:4] == ["scale olf-dev 0", "scale olf-prod 0", "dump polaris", "dump dagster_dev"]
-    assert cluster.events[-2:] == ["scale olf-dev 1", "scale olf-prod 2"]
+    assert cluster.replicas == {"olf-dev": 1, "olf-prod": 2}
     assert load_manifest(tmp_path / "backup").dagster_paused is True
 
 
 def test_the_daemon_is_resumed_when_a_step_raises(tmp_path: Path) -> None:
     cluster = Cluster(fail_on="dagster_prod")
+    cluster.replicas["olf-prod"] = 2
 
     with pytest.raises(RuntimeError, match="pg_dump of dagster_prod failed"):
         _backup(tmp_path / "backup", cluster)
 
-    assert cluster.events[-2:] == ["scale olf-dev 1", "scale olf-prod 1"]
+    assert cluster.replicas == {"olf-dev": 1, "olf-prod": 2}
     assert not (tmp_path / "backup" / "manifest.json").exists()
 
 
@@ -117,7 +120,7 @@ def test_a_run_in_flight_refuses_the_backup_and_the_daemon_still_resumes(tmp_pat
     with pytest.raises(BackupError, match=r"in flight \(prod: run-7\)"):
         _backup(tmp_path / "backup", cluster)
 
-    assert not any(event.startswith(("dump ", "copy ")) for event in cluster.events)
+    assert cluster.dumps == [] and cluster.copies == []
     assert cluster.replicas == {"olf-dev": 1, "olf-prod": 1}
 
 
