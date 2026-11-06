@@ -2,26 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
-from conftest import CONFORMANCE_PROFILE
+from _backup_support import full_contracts
 
-from olf.common.profile import StageName
-from olf.common.provider_contracts import ProviderContracts, parse_provider_contracts
+from olf.common.provider_contracts import ProviderContracts
 from olf.infra.backup import BackupError
 from olf.infra.backup._plan import plan_from_contract
-from olf.infra.commands._shared import deployment_context_for_profile
-
-# Captured from the local root applied with openlakeforge.conformance.yaml: Full, DEV and PROD, GitHub sign-in.
-_CONTRACT = json.loads((Path(__file__).parents[1] / "fixtures" / "conformance-provider-contracts.json").read_text())
-
-
-def _contracts() -> ProviderContracts:
-    topology = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage=StageName.DEV.value).topology
-    return parse_provider_contracts(_CONTRACT, topology)
 
 
 def _slim(contracts: ProviderContracts) -> ProviderContracts:
@@ -31,7 +19,7 @@ def _slim(contracts: ProviderContracts) -> ProviderContracts:
 
 
 def test_a_full_dev_prod_contract_plans_exactly_the_seven_databases_and_the_buckets() -> None:
-    plan = plan_from_contract(_contracts(), shared_namespace="olf-system", github_oauth_secret="github-oauth-app")
+    plan = plan_from_contract(full_contracts(), shared_namespace="olf-system", github_oauth_secret="github-oauth-app")
 
     assert plan.databases == (
         ("polaris", "polaris"),
@@ -49,7 +37,7 @@ def test_a_full_dev_prod_contract_plans_exactly_the_seven_databases_and_the_buck
 
 
 def test_a_full_contract_plans_the_data_bound_secrets_and_the_local_ca() -> None:
-    plan = plan_from_contract(_contracts(), shared_namespace="olf-system", github_oauth_secret="github-oauth-app")
+    plan = plan_from_contract(full_contracts(), shared_namespace="olf-system", github_oauth_secret="github-oauth-app")
 
     assert {(ref.namespace, ref.name) for ref in plan.secrets} == {
         ("olf-system", "polaris-bootstrap-credentials"),
@@ -74,7 +62,7 @@ def test_a_full_contract_plans_the_data_bound_secrets_and_the_local_ca() -> None
 
 
 def test_a_stage_without_analytics_or_governance_or_dex_is_not_planned() -> None:
-    plan = plan_from_contract(_slim(_contracts()), shared_namespace="olf-system")
+    plan = plan_from_contract(_slim(full_contracts()), shared_namespace="olf-system")
 
     assert [name for name, _ in plan.databases] == ["polaris", "dagster_dev", "dagster_prod"]
     assert {ref.name for ref in plan.secrets}.isdisjoint(
@@ -84,7 +72,7 @@ def test_a_stage_without_analytics_or_governance_or_dex_is_not_planned() -> None
 
 
 def test_a_cloud_deployment_is_refused_rather_than_planned_with_local_names() -> None:
-    contracts = _contracts()
+    contracts = full_contracts()
     aws = replace(contracts, deployment={**contracts.deployment, "provider": "aws"})
     with pytest.raises(BackupError, match="local provider only"):
         plan_from_contract(aws, shared_namespace="olf-system")
@@ -97,16 +85,16 @@ def _access(contracts: ProviderContracts, **changes: object) -> ProviderContract
 
 def test_a_port_forward_deployment_plans_no_local_ca() -> None:
     plan = plan_from_contract(
-        _access(_contracts(), implementation="access.port_forward", issuer=None), shared_namespace="olf-system"
+        _access(full_contracts(), implementation="access.port_forward", issuer=None), shared_namespace="olf-system"
     )
     assert "local-ca" not in {secret.name for secret in plan.secrets}
 
 
 def test_an_ingress_without_an_issuer_plans_no_local_ca() -> None:
-    plan = plan_from_contract(_access(_contracts(), issuer="none"), shared_namespace="olf-system")
+    plan = plan_from_contract(_access(full_contracts(), issuer="none"), shared_namespace="olf-system")
     assert "local-ca" not in {secret.name for secret in plan.secrets}
 
 
 def test_the_local_ca_issuer_plans_the_local_ca() -> None:
-    plan = plan_from_contract(_access(_contracts(), issuer="local-ca"), shared_namespace="olf-system")
+    plan = plan_from_contract(_access(full_contracts(), issuer="local-ca"), shared_namespace="olf-system")
     assert "local-ca" in {secret.name for secret in plan.secrets}
