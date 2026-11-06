@@ -414,31 +414,70 @@ def test_a_stage_on_glue_is_left_out() -> None:
     assert bootstrap_plan(_contracts(dev={"catalog": _GLUE}, prod={"catalog": _GLUE})) is None
 
 
-def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
-    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake, client = polaris
-    forwarded: list[tuple[str, int, str]] = []
-    read: list[tuple[str, str, str]] = []
+@pytest.fixture
+def forwarded(polaris: tuple[FakePolaris, PolarisClient], monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    """Every port-forward and root Secret read `bootstrap_from_contract` makes, answered by the fake Polaris."""
+    _, client = polaris
+    calls: list[tuple[str, ...]] = []
 
     @contextmanager
     def port_forward(service: str, port: int, namespace: str, **_: Any) -> Iterator[int]:
-        forwarded.append((service, port, namespace))
+        calls.append((service, str(port), namespace))
         yield int(client.config.base_url.rsplit(":", 1)[1])
 
     def secret_value(name: str, key: str, namespace: str, **_: Any) -> str:
-        read.append((name, key, namespace))
+        calls.append((name, namespace))
         return dict(zip(("ROOT_CLIENT_ID", "ROOT_CLIENT_SECRET"), ROOT, strict=True))[key]
 
     monkeypatch.setattr(k8s, "port_forward", port_forward)
     monkeypatch.setattr(k8s, "secret_value", secret_value)
+    return calls
+
+
+def _trino_restarts(cluster: Cluster) -> list[list[str]]:
+    return [argv for argv in cluster.argv if argv[:2] == ["rollout", "restart"]]
+
+
+def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
+) -> None:
+    fake, _ = polaris
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    assert forwarded == [("polaris", 8181, "olf-system")]
-    assert {(name, namespace) for name, _, namespace in read} == {("polaris-bootstrap-credentials", "olf-system")}
+    assert set(forwarded) == {("polaris", "8181", "olf-system"), ("polaris-bootstrap-credentials", "olf-system")}
     assert set(fake.catalogs) == {"lakehouse_dev", "lakehouse_prod"}
     assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
+
+
+def test_trino_restarts_when_the_bootstrap_stores_a_credential_it_reads(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
+) -> None:
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    restart = ["rollout", "restart", "deployment", "-l", "app.kubernetes.io/name=trino", "-n", "olf-system"]
+    assert _trino_restarts(cluster) == [restart]
+    cluster.argv.clear()
+    # The window the pending marker exists for: Trino's credential is rotated on the next run.
+    cluster.put("configmap", "olf-system", "polaris-prod-trino-creds-bootstrap-pending", {"principal": "trino-prod"})
+
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+
+    assert _trino_restarts(cluster) == [restart]
+
+
+def test_trino_keeps_running_when_nothing_it_reads_changed(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
+) -> None:
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    cluster.argv.clear()
+
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    # A removed-then-re-enabled DEV: its namespace's own credentials rotate, and Trino reads none of them.
+    cluster.save({k: v for k, v in cluster.load().items() if not k.startswith("secret/olf-dev/")})
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+
+    assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
+    assert _trino_restarts(cluster) == []
 
 
 def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

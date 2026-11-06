@@ -163,6 +163,12 @@ def restart_deployment(deployment: str, namespace: str, *, environ: Mapping[str,
     wait_for_rollout(f"deployment/{deployment}", namespace, environ=environ)
 
 
+def restart_deployments(selector: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Restart every Deployment the label selector matches, then wait for each rollout."""
+    _kubectl(["rollout", "restart", "deployment", "-l", selector, "-n", namespace], environ=environ)
+    _kubectl(["rollout", "status", "deployment", "-l", selector, "-n", namespace, "--timeout=300s"], environ=environ)
+
+
 def _free_local_port() -> int:
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.bind(("127.0.0.1", 0))

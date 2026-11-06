@@ -269,7 +269,7 @@ class Cluster:
                 returncode = 1
             else:
                 objects[key] = dict(manifest.get("stringData") or manifest.get("data") or {})
-        else:
+        elif argv[0] != "rollout":  # a rollout is only recorded in `argv`
             raise AssertionError(f"unexpected kubectl call: {argv}")
         self.save(objects)
         if check and returncode:

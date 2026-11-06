@@ -26,6 +26,8 @@ ROOT_CREDENTIALS_SECRET = "polaris-bootstrap-credentials"
 SEAWEEDFS_VENDING_ROLE = "arn:aws:iam::000000000000:role/polaris-vending"
 # The Dex module's GitHub connector id, which names the one principal every person's token maps to.
 DEX_CONNECTOR = "github"
+# The label the Trino chart puts on the coordinator and worker Deployments.
+TRINO_SELECTOR = "app.kubernetes.io/name=trino"
 DROP_WITH_PURGE = "polaris.config.drop-with-purge.enabled"
 MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
 MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
@@ -210,8 +212,10 @@ def _rotate(client: PolarisClient, principal: str) -> dict:
     return client.management("POST", f"/principals/{_q(principal)}/rotate")
 
 
-def ensure_credential(client: PolarisClient, credential: Credential, *, environ: Mapping[str, str] | None) -> None:
+def ensure_credential(client: PolarisClient, credential: Credential, *, environ: Mapping[str, str] | None) -> bool:
     """Create the principal and its Secret, or recover the Secret, without rotating a client in use.
+
+    True when it stored new client credentials, which a pod holding the old ones no longer authenticates with.
 
     The pending marker is written before the first create call. It marks the otherwise unrecoverable
     window where Polaris created a principal but Kubernetes did not keep its one-time credentials, and
@@ -226,7 +230,7 @@ def ensure_credential(client: PolarisClient, credential: Credential, *, environ:
         if exists("configmap", credential.pending_marker):
             issued = _rotate(client, principal)
         elif exists("secret", credential.secret):
-            return
+            return False
         elif credential.recreatable:
             log.warn(
                 f"Polaris principal '{principal}' exists but '{namespace}' has no Secret or pending marker; "
@@ -269,6 +273,7 @@ def ensure_credential(client: PolarisClient, credential: Credential, *, environ:
     )
     k8s.delete_configmap(credential.pending_marker, namespace, environ=environ)
     log.info(f"Stored the credentials of Polaris principal '{principal}' in '{namespace}'.")
+    return True
 
 
 def _ensure_principal_role(client: PolarisClient, principal: str, role: str) -> None:
@@ -314,7 +319,7 @@ def grant_catalog_access(client: PolarisClient, grant: Grant, catalog: str) -> N
 
 def reconcile_person_access(
     client: PolarisClient, access: PersonAccess, catalogs: tuple[str, ...], *, environ: Mapping[str, str] | None
-) -> None:
+) -> set[Credential]:
     """People's access (ADR 0019): the one principal every person's token names, a principal role per
     canonical role, and on each catalog exactly the catalog role its data_access row needs. A narrowed
     row revokes the grant it no longer names, which an add-only bootstrap would leave in place."""
@@ -336,22 +341,29 @@ def reconcile_person_access(
                     _assign_catalog_role(client, role, catalog, catalog_role)
     # Each stage's Trino people catalog credential holds no principal role and so no grant: Trino uses it
     # only for the catalog's configuration call, and every table request carries the person's own token.
-    for person in access.people:
-        ensure_credential(client, person, environ=environ)
+    return {person for person in access.people if ensure_credential(client, person, environ=environ)}
 
 
-def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mapping[str, str] | None = None) -> None:
-    """Every step of the template, in its order. `client` is logged in as the root principal."""
+def run_bootstrap(
+    client: PolarisClient, plan: BootstrapPlan, *, environ: Mapping[str, str] | None = None
+) -> set[Credential]:
+    """Every step of the template, in its order, returning the credentials it stored. `client` is root."""
+    stored: set[Credential] = set()
+
+    def ensure(credential: Credential) -> None:
+        if ensure_credential(client, credential, environ=environ):
+            stored.add(credential)
+
     for stage in plan.stages:
         ensure_catalog(client, stage, plan.sts)
     for stage in plan.stages:
-        ensure_credential(client, stage.trino, environ=environ)
+        ensure(stage.trino)
         grant_catalog_access(
             client,
             Grant(stage.trino.principal, f"data-engineer-{stage.stage}", "catalog-admin", MANAGE_CONTENT),
             stage.catalog_name,
         )
-        ensure_credential(client, stage.floe, environ=environ)
+        ensure(stage.floe)
         grant_catalog_access(
             client,
             Grant(stage.floe.principal, f"data-writer-{stage.stage}", "catalog-writer", MANAGE_CONTENT),
@@ -362,7 +374,7 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
     k8s.delete_secret(LEGACY_DBT_SECRET, plan.shared_namespace, environ=environ)
 
     om = plan.openmetadata
-    ensure_credential(client, om, environ=environ)
+    ensure(om)
     for stage in plan.stages:
         grant_catalog_access(
             client,
@@ -374,7 +386,7 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
     # `olf infra catalog sync-namespaces` a principal that can create and drop namespaces.
     for stage in plan.stages:
         deployer = stage.deployer
-        ensure_credential(client, deployer, environ=environ)
+        ensure(deployer)
         privileges = (MANAGE_METADATA, MANAGE_ACCESS) if plan.person_access else (MANAGE_METADATA,)
         # With people's access, sync-namespaces grants olf-gold-read on each Gold namespace as the deployer.
         for privilege in privileges:
@@ -385,9 +397,16 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
             )
 
     if plan.person_access:
-        reconcile_person_access(
+        stored |= reconcile_person_access(
             client, plan.person_access, tuple(stage.catalog_name for stage in plan.stages), environ=environ
         )
+    return stored
+
+
+def trino_credentials(plan: BootstrapPlan) -> set[Credential]:
+    """The credentials Trino's pods read from their environment, so only at start: each stage's workload
+    catalog and, with people's access, each stage's people catalog."""
+    return {stage.trino for stage in plan.stages} | set(plan.person_access.people if plan.person_access else ())
 
 
 def _credential(principal: str, secret: str, keys: str, namespace: str) -> Credential:
@@ -500,4 +519,9 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
         )
         client = PolarisClient(root)
         client.login()
-        run_bootstrap(client, plan, environ=environ)
+        stored = run_bootstrap(client, plan, environ=environ)
+    if stored & trino_credentials(plan):
+        # Trino holds a catalog's credential from its start, so a rotated one fails every query on that catalog
+        # until the pods restart. Trino runs beside Polaris, where the plan writes its credentials.
+        log.step(f"Restarting Trino in '{plan.shared_namespace}': its Polaris credentials changed...")
+        k8s.restart_deployments(TRINO_SELECTOR, plan.shared_namespace, environ=environ)
