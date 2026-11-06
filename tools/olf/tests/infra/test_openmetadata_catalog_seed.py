@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
-from olf.infra.openmetadata import _bootstrap, _catalog_seed, _stale_services
+from olf.infra.openmetadata import _bootstrap, _catalog_seed, _search_reindex, _stale_services
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
 
 
@@ -137,6 +137,7 @@ def test_the_command_seeds_the_catalog_after_the_auth_steps(monkeypatch: pytest.
     monkeypatch.setattr(_bootstrap, "bootstrap_auth", lambda *_args, **_kwargs: client)
     monkeypatch.setattr(_catalog_seed, "bootstrap_catalog", lambda c, seed: seeded.append((c, seed)))
     monkeypatch.setattr(_stale_services, "remove_legacy_services", lambda _client: None)
+    monkeypatch.setattr(_search_reindex, "ensure_search_indexed", lambda *_args: None)
     argv = ["infra", "openmetadata", "bootstrap", "--om-url", "http://om:8585"]
 
     incomplete = CliRunner().invoke(app, [*argv, "--catalog-service", "polaris"])

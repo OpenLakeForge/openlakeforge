@@ -99,6 +99,11 @@ for how a release is cut and verified.
   the variable in the local, aws-poc and azure-poc roots and `DeploymentContext`. The rendered
   Dagster Helm values are unchanged; `deploy_revision` already owned every code location.
 
+### Fixed
+
+- `olf infra deploy` reindexes OpenMetadata search when it finds the index empty. OpenSearch has no volume, so a
+  pod restart, an upgrade or a restore used to leave search empty while the entities survived (#909).
+
 ### Removed
 
 - `olf infra k8s set-project-code-image`. The artifacts phase activates a
