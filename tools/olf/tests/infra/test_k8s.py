@@ -339,3 +339,85 @@ def test_kubectl_does_not_get_back_a_variable_the_contract_unset(
 
     assert k8s.exec_succeeds("dep", "ns", ["true"], environ=contract)
     assert not k8s.exec_succeeds("dep", "ns", ["true"], environ=environ)
+
+
+def test_exec_to_file_streams_stdout_to_the_file_and_reports_stderr_on_failure(
+    monkeypatch: pytest.MonkeyPatch, fake_kubectl: Path, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("KUBE_CONTEXT", "ctx")
+    destination = tmp_path / "out.dump"
+
+    k8s.exec_to_file("postgresql-0", "olf-system", ["pg_dump", "db"], destination, container="postgresql")
+
+    assert (
+        destination.read_text() == "args: --context ctx exec postgresql-0 -n olf-system -c postgresql -- pg_dump db\n"
+    )
+
+    monkeypatch.setenv("FAKE_KUBECTL_RC", "1")
+    with pytest.raises(k8s.KubectlError, match=r"pg_dump failed: err$"):
+        k8s.exec_to_file("postgresql-0", "olf-system", ["pg_dump", "db"], destination)
+
+
+def test_scale_to_zero_waits_until_the_pods_are_gone(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    pods = iter(["pod/dagster-daemon-0\n", ""])
+
+    def kubectl(args: list[str], **_: object) -> str:
+        calls.append(args)
+        if "jsonpath={.spec.selector.matchLabels}" in args:
+            return '{"component": "dagster-daemon", "app": "dagster"}'
+        return next(pods) if args[:2] == ["get", "pods"] else ""
+
+    monkeypatch.setattr(k8s, "_kubectl", kubectl)
+
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 0, poll_seconds=0)
+
+    assert ["scale", "deployment/dagster-daemon", "--replicas=0", "-n", "olf-dev"] in calls
+    assert sum(args[:2] == ["get", "pods"] for args in calls) == 2
+    assert ["get", "pods", "-l", "component=dagster-daemon,app=dagster", "-n", "olf-dev", "-o", "name"] in calls
+
+
+def test_scale_up_waits_for_the_rollout_not_for_pods_to_go(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def kubectl(args: list[str], **_: object) -> str:
+        calls.append(args)
+        return '{"component": "dagster-daemon"}' if "jsonpath={.spec.selector.matchLabels}" in args else ""
+
+    monkeypatch.setattr(k8s, "_kubectl", kubectl)
+
+    k8s.scale_deployment("dagster-daemon", "olf-dev", 1)
+
+    assert calls[-1][:3] == ["rollout", "status", "deployment/dagster-daemon"]
+    assert not any(args[:2] == ["get", "pods"] for args in calls)
+
+
+def test_a_deployment_scaled_to_zero_reports_the_replicas_it_remembered(monkeypatch: pytest.MonkeyPatch) -> None:
+    items = [
+        {"metadata": {"name": "up"}, "spec": {"replicas": 2}},
+        {"metadata": {"name": "down", "annotations": {k8s.REPLICAS_ANNOTATION: "3"}}, "spec": {"replicas": 0}},
+        {"metadata": {"name": "never"}, "spec": {"replicas": 0}},
+    ]
+    monkeypatch.setattr(k8s, "_kubectl", lambda *_a, **_k: json.dumps({"items": items}))
+
+    assert k8s.deployment_replica_counts("olf-dev") == {"up": 2, "down": 3, "never": 0}
+
+
+def test_scaling_to_zero_remembers_the_count_and_scaling_up_forgets_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        k8s, "_kubectl", lambda args, **_k: calls.append(args) or ('{"app": "s"}' if "jsonpath" in args[-1] else "")
+    )
+
+    k8s.scale_deployment("superset", "olf-dev", 0, remember=2, poll_seconds=0)
+    k8s.scale_deployment("superset", "olf-dev", 2, remember=0)
+
+    key = k8s.REPLICAS_ANNOTATION
+    changes = [args for args in calls if args[0] in ("annotate", "scale", "rollout")]
+    assert changes == [
+        ["annotate", "deployment/superset", "-n", "olf-dev", f"{key}=2", "--overwrite"],
+        ["scale", "deployment/superset", "--replicas=0", "-n", "olf-dev"],
+        ["scale", "deployment/superset", "--replicas=2", "-n", "olf-dev"],
+        ["rollout", "status", "deployment/superset", "-n", "olf-dev", "--timeout=300s"],
+        ["annotate", "deployment/superset", "-n", "olf-dev", f"{key}-"],
+    ]

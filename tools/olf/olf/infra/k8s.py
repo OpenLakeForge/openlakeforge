@@ -18,6 +18,7 @@ import socket
 import tempfile
 import time
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from olf.common.deployment.errors import CommandExecutionError
@@ -26,6 +27,8 @@ from olf.common.tooling.resolver import build_resolver
 from olf.common.tooling.toolkit import Toolkit
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import requests
 
 _JWT = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
@@ -35,6 +38,7 @@ class KubectlError(RuntimeError):
     pass
 
 
+REPLICAS_ANNOTATION = "openlakeforge.io/restore-replicas"
 PORT_FORWARD_READY_TIMEOUT_SECONDS = 30.0
 PORT_FORWARD_READY_POLL_SECONDS = 0.1
 
@@ -134,6 +138,19 @@ def secret_data(name: str, namespace: str, *, environ: Mapping[str, str] | None 
     return (json.loads(raw).get("data") or {}) if raw else None
 
 
+def secret_with_type(
+    name: str, namespace: str, *, environ: Mapping[str, str] | None = None
+) -> tuple[str, dict[str, str]] | None:
+    """The Secret's type and base64-encoded data, or None when it does not exist. Captured, so never printed."""
+    raw = _kubectl(
+        ["get", "secret", name, "-n", namespace, "-o", "json", "--ignore-not-found"], capture=True, environ=environ
+    )
+    if not raw:
+        return None
+    secret = json.loads(raw)
+    return secret.get("type", "Opaque"), secret.get("data") or {}
+
+
 def delete_secret(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
     _kubectl(["delete", "secret", name, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
 
@@ -158,9 +175,110 @@ def exec_succeeds(
     return ProcessRunner().run(command, check=False, env=environ, unset=unsets_of(environ)).ok
 
 
+def exec_to_file(
+    pod: str,
+    namespace: str,
+    argv: list[str],
+    destination: Path,
+    *,
+    container: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """Run `argv` in the pod with its stdout streamed to `destination`, so a dump never sits in memory."""
+    target = ["-c", container] if container else []
+    command = _resolved_kubectl_argv(["exec", pod, "-n", namespace, *target, "--", *argv], environ=environ)
+    with destination.open("wb") as out, tempfile.TemporaryFile() as err:
+        process = ProcessRunner().popen(command, stdout=out, stderr=err, env=environ, unset=unsets_of(environ))
+        if process.wait() != 0:
+            err.seek(0)
+            detail = err.read()[-2000:].decode(errors="replace").strip()
+            raise KubectlError(f"kubectl exec {pod} -n {namespace} -- {argv[0]} failed: {detail}")
+
+
+def deployment_replicas(deployment: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> int:
+    raw = _kubectl(
+        ["get", f"deployment/{deployment}", "-n", namespace, "-o", "jsonpath={.spec.replicas}"],
+        capture=True,
+        environ=environ,
+    )
+    return int(raw or 0)
+
+
+def scale_deployment(
+    deployment: str,
+    namespace: str,
+    replicas: int,
+    *,
+    remember: int | None = None,
+    environ: Mapping[str, str] | None = None,
+    timeout_seconds: float = 120.0,
+    poll_seconds: float = 2.0,
+) -> None:
+    """Scale the Deployment, then wait: for its pods to be gone at zero, else for the rollout.
+
+    `rollout status` returns while a terminating pod is still running, so zero is waited for on the pods.
+    With `remember`, a caller that wants to rerun after a failure keeps the count on the Deployment while it is
+    at 0 (see `deployment_replica_counts`); a scale-up with `remember=0` removes it.
+    """
+    labels = _kubectl(
+        ["get", f"deployment/{deployment}", "-n", namespace, "-o", "jsonpath={.spec.selector.matchLabels}"],
+        capture=True,
+        environ=environ,
+    )
+    selector = ",".join(f"{key}={value}" for key, value in json.loads(labels).items())
+    if remember:  # only a scale-down remembers a count
+        annotation = f"{REPLICAS_ANNOTATION}={remember}"
+        _kubectl(["annotate", f"deployment/{deployment}", "-n", namespace, annotation, "--overwrite"], environ=environ)
+    _kubectl(["scale", f"deployment/{deployment}", f"--replicas={replicas}", "-n", namespace], environ=environ)
+    if replicas:
+        wait_for_rollout(f"deployment/{deployment}", namespace, environ=environ)
+        if remember is not None:
+            forget = f"{REPLICAS_ANNOTATION}-"
+            _kubectl(["annotate", f"deployment/{deployment}", "-n", namespace, forget], environ=environ)
+        return
+    deadline = time.monotonic() + timeout_seconds
+    while _kubectl(
+        ["get", "pods", "-l", selector, "-n", namespace, "-o", "name"], capture=True, environ=environ
+    ).strip():
+        if time.monotonic() >= deadline:
+            raise KubectlError(
+                f"the pods of deployment/{deployment} in {namespace} did not stop within {timeout_seconds}s"
+            )
+        time.sleep(poll_seconds)
+
+
 def restart_deployment(deployment: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
     _kubectl(["rollout", "restart", f"deployment/{deployment}", "-n", namespace], environ=environ)
     wait_for_rollout(f"deployment/{deployment}", namespace, environ=environ)
+
+
+def exec_in_pod(
+    pod: str,
+    namespace: str,
+    argv: list[str],
+    *,
+    container: str,
+    stdin_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """Run `argv` in the pod's container, with the file as stdin; stderr is the error when it exits non-zero."""
+    command = _resolved_kubectl_argv(
+        ["exec", "-i", pod, "-n", namespace, "-c", container, "--", *argv], environ=environ
+    )
+    result = ProcessRunner().run(command, check=False, env=environ, unset=unsets_of(environ), stdin_path=stdin_path)
+    if result.returncode != 0:
+        raise KubectlError(f"{argv[0]} in {namespace}/{pod} failed: {(result.stderr or '').strip()[-2000:]}")
+
+
+def deployment_replica_counts(namespace: str, *, environ: Mapping[str, str] | None = None) -> dict[str, int]:
+    """Each Deployment's replica count. One that `scale_deployment` left at 0 reports the count it remembered."""
+    raw = _kubectl(["get", "deployment", "-n", namespace, "-o", "json"], capture=True, environ=environ)
+    counts = {}
+    for item in json.loads(raw or "{}").get("items", []):
+        replicas = item["spec"].get("replicas", 1)
+        remembered = (item["metadata"].get("annotations") or {}).get(REPLICAS_ANNOTATION)
+        counts[item["metadata"]["name"]] = int(remembered) if replicas == 0 and remembered else replicas
+    return counts
 
 
 def annotate_pod_templates(
@@ -300,14 +418,15 @@ def write_secret(
     data: dict[str, str],
     *,
     overwrite: bool = True,
+    secret_type: str = "Opaque",
     environ: Mapping[str, str] | None = None,
 ) -> None:
-    """Store `data` as an Opaque Secret; with `overwrite=False`, fail if it already exists."""
+    """Store `data` as a Secret (Opaque unless `secret_type` says); with `overwrite=False`, fail if it exists."""
     manifest = {
         "apiVersion": "v1",
         "kind": "Secret",
         "metadata": {"name": name, "namespace": namespace},
-        "type": "Opaque",
+        "type": secret_type,
         "stringData": data,
     }
     context = (os.environ if environ is None else environ).get("KUBE_CONTEXT")
