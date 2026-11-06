@@ -31,9 +31,8 @@ locals {
     "${local.oidc_prefix}.refresh-tokens=true",
     "${local.oidc_prefix}.principal-field=email",
     # The issuer's certificate is signed by the local CA. This HTTP client
-    # fetches the signing keys and exchanges the code; it is separate from the
-    # internal-communication one.
-    "oauth2-jwk.http-client.trust-store-path=/etc/trino/tls/ca.crt",
+    # fetches the signing keys and exchanges the code.
+    "oauth2-jwk.http-client.trust-store-path=${local.ca_mount_path}/ca.crt",
   ]
   oidc_env = !local.oidc_enabled ? [] : [
     {

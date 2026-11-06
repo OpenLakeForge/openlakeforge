@@ -23,14 +23,11 @@ class CatalogSeed:
     pipeline_service: str  # OpenLineage's default pipeline service for the canonical stage
     databases: tuple[str, ...] = ()
     schemas: tuple[str, ...] = ()
-    trino_tls_namespace: str = ""  # mapped too when Trino serves TLS: dbt names datasets by the port it uses
 
 
 def enable_openlineage(client: OpenMetadataClient, seed: CatalogSeed) -> None:
     """Native OpenLineage ingestion for dbt-trino and Floe, both mapped onto the catalog service."""
     mapping = {seed.trino_namespace: seed.service, seed.service: seed.service}
-    if seed.trino_tls_namespace:
-        mapping[seed.trino_tls_namespace] = seed.service
     client.request(
         "PUT",
         "/api/v1/system/settings",

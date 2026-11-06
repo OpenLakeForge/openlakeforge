@@ -78,9 +78,9 @@ run "dex_with_password_authentication_serves_person_queries" {
   assert {
     condition = alltrue([
       for stage, endpoint in jsondecode(module.platform_api[0].settings_json).query_endpoints :
-      endpoint.catalog == stage && endpoint.statement_url == "https://${module.trino.service_name}.olf-system.svc.cluster.local:${module.trino.tls_port}/v1/statement"
+      endpoint.catalog == stage && endpoint.statement_url == "http://${module.trino.service_name}.olf-system.svc.cluster.local:${module.trino.http_port}/v1/statement"
     ])
-    error_message = "each endpoint names its stage as catalog and the coordinator's https URL on the TLS port"
+    error_message = "each endpoint names its stage as catalog and the coordinator's http URL"
   }
 
   assert {
@@ -156,7 +156,7 @@ run "dex_without_password_authentication_leaves_person_queries_off" {
   command = plan
 
   variables {
-    trino_workload_authentication = "tls"
+    trino_workload_authentication = "off"
   }
 
   assert {

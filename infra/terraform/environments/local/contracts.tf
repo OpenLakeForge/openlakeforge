@@ -420,7 +420,7 @@ locals {
         tls_host     = "*.${local.base_domain}"
         namespace    = kubernetes_namespace_v1.shared.metadata[0].name
         service_name = module.trino.service_name
-        service_port = module.trino.route_port
+        service_port = module.trino.http_port
       }
     },
     local.identity_deployed ? {
@@ -642,17 +642,12 @@ module "provider_contract" {
       service_account      = local.stage_service_accounts[name]
       catalog_endpoint_ref = "shared/catalog_service"
       query_catalog_name   = local.stage_catalog_contracts[name].catalog_name
-      # tls_port and ca_configmap_name appear only while Trino serves HTTPS
-      # (ADR 0016): strings, filtered by a for expression so the absent case
-      # is an empty map of the same type. The ConfigMap name is a literal
-      # because module.in_cluster_resolution waits on Traefik, which waits on
-      # routes built from this contract: a cycle.
+      # Present only when Trino requires a password (ADR 0016), filtered by a
+      # for expression so the absent case is an empty map of the same type.
+      # The Secret is in the stage namespace.
       query_extra = {
         for key, value in tomap({
-          # Present only when Trino requires a password; the Secret is in the stage namespace.
           credential_secret_name = module.trino.credential_secret_name,
-          tls_port               = module.trino.tls_port == null ? null : tostring(module.trino.tls_port),
-          ca_configmap_name      = module.trino.tls_port == null ? null : "olf-local-ca",
         }) : key => value if value != null
       }
       # Deterministic OpenMetadata pipeline- and dashboard-service roots (#131).

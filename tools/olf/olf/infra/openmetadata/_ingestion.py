@@ -1,9 +1,10 @@
 """The Trino metadata ingestion, run as a Kubernetes Job and hourly CronJob OLF owns.
 
 OpenMetadata's pipeline client would generate the same workflow, but its
-ingestion pods cannot mount the Trino CA (ADR 0016), so OLF builds the config
-and the Job itself and runs the pinned `ingestion-base` image's `metadata
-ingest` entry point.
+ingestion pods accept no volumes in 1.13.6 and cannot read the `openmetadata`
+principal's password from a Secret (ADR 0016), so OLF builds the config and the
+Job itself and runs the pinned `ingestion-base` image's `metadata ingest` entry
+point.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from olf.infra import k8s
 
 JOB_NAME = "openmetadata-trino-ingestion"
 REFRESH_SCHEDULE = "0 * * * *"
-_CA_DIR = "/etc/olf/query-ca"
 # The bot JWT is the only secret. It reaches the container through a
 # secretKeyRef and is substituted into the config inside the pod, so neither
 # the Job spec nor Terraform state holds it.
@@ -35,22 +35,13 @@ def _password_secret(environ: Mapping[str, str]) -> str:
     return f"{credential}-openmetadata" if credential else ""
 
 
-def _tls(environ: Mapping[str, str]) -> bool:
-    keys = ("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP")
-    return all(environ.get(key) for key in keys)
-
-
 def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -> dict[str, Any]:
     """The workflow `metadata ingest -c` runs, as the pipeline client generates it."""
-    tls = _tls(environ)
-    port = environ["OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"] if tls else environ["OPENLAKEFORGE_QUERY_TRINO_PORT"]
     connection: dict[str, Any] = {
         "type": "Trino",
-        "hostPort": f"{environ['OPENLAKEFORGE_QUERY_TRINO_HOST']}:{port}",
+        "hostPort": f"{environ['OPENLAKEFORGE_QUERY_TRINO_HOST']}:{environ['OPENLAKEFORGE_QUERY_TRINO_PORT']}",
         "username": "openmetadata",
     }
-    if tls:
-        connection["connectionArguments"] = {"http_scheme": "https", "verify": f"{_CA_DIR}/ca.crt"}
     if _password_secret(environ):
         connection["authType"] = {"password": _PASSWORD_PLACEHOLDER}
     return {
@@ -121,11 +112,6 @@ def ingestion_job(
             }
         )
     pod: dict[str, Any] = {"restartPolicy": "Never", "containers": [container]}
-    if _tls(environ):
-        container["volumeMounts"] = [{"name": "query-ca", "mountPath": _CA_DIR, "readOnly": True}]
-        pod["volumes"] = [
-            {"name": "query-ca", "configMap": {"name": environ["OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"]}}
-        ]
     labels = {"openlakeforge.io/job": JOB_NAME}
     return {
         "apiVersion": "batch/v1",
@@ -144,7 +130,7 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     """The hourly refresh: `job`'s pod, spec and labels, so the two cannot diverge.
 
     Built here rather than in Terraform so the workflow config exists once; the
-    TLS and bot-Secret facts it needs are the deployed contracts', which
+    credential and bot-Secret facts it needs are the deployed contracts', which
     `deploy-metadata` already holds. The workflow crawls one stage's catalog,
     so each governed stage gets its own CronJob, named by that catalog.
     """

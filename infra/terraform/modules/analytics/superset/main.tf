@@ -3,10 +3,7 @@ locals {
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
 
-  trust_volumes = concat(
-    var.trino_ca_configmap_name == null ? [] : [{ name = "query-ca", path = "/etc/olf/query-ca", configmap = var.trino_ca_configmap_name }],
-    var.oidc == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = var.oidc.ca_configmap_name }],
-  )
+  trust_volumes = var.oidc == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = var.oidc.ca_configmap_name }]
 
   # Non-secret contract fields; olf_oidc.settings turns them into Superset
   # config in the image. The client secret arrives through the environment.

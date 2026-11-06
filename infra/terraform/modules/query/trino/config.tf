@@ -6,10 +6,9 @@ locals {
   # The password level's lines (auth_values in main.tf, ADR 0016).
   auth_config_properties = concat([
     "http-server.process-forwarded=true",
-    "http-server.http.enabled=false",
-    "discovery.uri=https://localhost:8443",
-    "internal-communication.https.required=true",
-    "internal-communication.https.truststore.path=/etc/trino/tls/ca.crt",
+    # Without it Trino refuses PASSWORD (and JWT) on a request that is not
+    # secure, which here is every in-cluster one.
+    "http-server.authentication.allow-insecure-over-http=true",
     "internal-communication.shared-secret=$${ENV:TRINO_INTERNAL_SECRET}",
     ],
     local.ui_properties,

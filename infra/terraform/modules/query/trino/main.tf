@@ -172,7 +172,6 @@ locals {
     }
   }))]
 
-  tls_enabled  = var.workload_authentication != "off"
   auth_enabled = var.workload_authentication == "password"
   # Each verified principal may become exactly its own user, so a DEV password
   # cannot claim `olf-prod-runtime` through X-Trino-User; the last rule denies
@@ -187,14 +186,6 @@ locals {
       )
     } : key => rules if local.auth_enabled
   }
-  tls_secret_name = "trino-tls"
-  tls_dns_names = [
-    var.release_name,
-    "${var.release_name}.${var.namespace}",
-    "${var.release_name}.${var.namespace}.svc",
-    "${var.release_name}.${var.namespace}.svc.cluster.local",
-    "localhost", # the Trino CLI inside the coordinator pod (olf e2e)
-  ]
   # The shared secret that authenticated nodes need for internal requests comes
   # from the environment because config.properties accepts ${ENV:...}.
   internal_secret_env = local.auth_enabled ? [
@@ -208,33 +199,8 @@ locals {
       }
     },
   ] : []
-  tls_ca_secret_name = "trino-ca-bundle"
-  traefik_transport  = "trino"
-  # The tls level: an HTTPS listener beside the HTTP one, no authentication, so
-  # callers can move to HTTPS and prove the CA while still sending only a user
-  # name (ADR 0016 migration step 2-3).
-  tls_values = {
-    server = {
-      config = {
-        https = {
-          enabled  = true
-          port     = 8443
-          keystore = { path = "/etc/trino/tls/tls-combined.pem" }
-        }
-      }
-    }
-    coordinator = {
-      # Mounted as a directory so a renewed Secret reaches the pod; Trino does
-      # not reload it, so the coordinator restarts to pick it up.
-      secretMounts = [{ name = "tls", secretName = local.tls_secret_name, path = "/etc/trino/tls" }]
-    }
-  }
-  # Password authentication on an HTTPS-only coordinator (ADR 0016). There is
-  # no HTTP listener, so nothing can downgrade a password to cleartext, and
-  # `process-forwarded` stays on for the requests Traefik re-encrypts to 8443.
-  # A node reaches itself at https://localhost:8443, a name in the certificate,
-  # with the CA as its truststore; the chart's own discovery.uri comes first and
-  # the later line wins (proof k1).
+  # Password authentication over the plain HTTP listener (ADR 0016): the pod
+  # network is the trust boundary, so Trino is told to accept a password there.
   auth_values = {
     server = {
       config = {
@@ -243,22 +209,13 @@ locals {
     }
     auth                       = { passwordAuthSecret = "trino-password-file" }
     additionalConfigProperties = local.auth_config_properties
-    additionalNodeProperties   = ["node.internal-address=localhost"]
-    # Traefik reaches Trino over HTTPS, trusting the CA through the file-provider
-    # transport of the same name (modules/access/traefik).
-    service = {
-      annotations = {
-        "traefik.ingress.kubernetes.io/service.serversscheme"    = "https"
-        "traefik.ingress.kubernetes.io/service.serverstransport" = "${local.traefik_transport}@file"
-      }
-    }
+  }
+  # Only a deployment whose ingress is HTTPS needs it: the Web UI sign-in and
+  # the signing-key fetch call the issuer's public URL, signed by the local CA.
+  ca_mount_path = "/etc/trino/ca"
+  ca_values = var.ca_configmap_name == null ? {} : {
     coordinator = {
-      # The chart hardwires the liveness probe to the HTTP port, which no longer
-      # exists, and takes only its timings. The readiness and startup probes run
-      # the image's health-check, which uses HTTPS when HTTP is disabled, so
-      # these values only make the liveness failure effectively inert: it fires
-      # once an hour and would restart the pod after 1000 failures.
-      livenessProbe = { periodSeconds = 3600, failureThreshold = 1000 }
+      configMounts = [{ name = "ca", configMap = var.ca_configmap_name, path = local.ca_mount_path }]
     }
   }
   # Create a named service account when one is explicitly requested (EKS Pod Identity
@@ -304,19 +261,19 @@ resource "helm_release" "trino" {
         annotations = var.service_account_annotations
       }
     }),
-    ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [],
+    ], local.auth_enabled ? [yamlencode(local.auth_values)] : [], local.auth_enabled ? [yamlencode(local.ca_values)] : [],
     # Last, because Helm replaces a list wholesale (config.tf).
     [yamlencode({ additionalConfigProperties = local.config_properties })],
   )
 
   lifecycle {
-    # The TLS and password values (below) point every node at the coordinator
-    # as localhost and mount the certificate on the coordinator only, so a
-    # worker would register with itself. Multi-node with authentication is #367.
+    # Workers with authentication on were never run: the shared secret and the
+    # password file are wired for the coordinator only. Multi-node with
+    # authentication is #367.
     precondition {
       # A conditional, not ||: Terraform evaluates both operands, and .workers on null fails the plan.
-      condition     = var.query_sizing == null ? true : (var.query_sizing.workers == 0 || !local.tls_enabled)
-      error_message = "spec.query.size medium and large add Trino workers, which are not supported with Trino workload authentication (tls or password): deploy without spec.access, or use size small."
+      condition     = var.query_sizing == null ? true : (var.query_sizing.workers == 0 || !local.auth_enabled)
+      error_message = "spec.query.size medium and large add Trino workers, which are not supported with Trino workload authentication (password): deploy without spec.access, or use size small."
     }
     # The principals rule is built from stage_namespaces and the catalog rules
     # from the catalog contracts; a stage in only one would be locked out.
@@ -326,27 +283,9 @@ resource "helm_release" "trino" {
     }
   }
 
-  # The password file, internal secret and certificate must exist before the
-  # coordinator starts with authentication on. Nothing here when it is off.
+  # The password file and internal secret must exist before the coordinator
+  # starts with authentication on. Nothing here when it is off.
   depends_on = [
     kubernetes_job_v1.credentials,
-    helm_release.certificate,
   ]
-}
-
-# A release of its own: Certificate is a cert-manager CRD kind, which Helm
-# cannot map until cert-manager has installed it (same reason as local-ca).
-resource "helm_release" "certificate" {
-  count = local.tls_enabled ? 1 : 0
-
-  name      = "${var.release_name}-certificate"
-  chart     = "${path.module}/certificate"
-  namespace = var.namespace
-
-  values = [yamlencode({
-    secretName      = local.tls_secret_name
-    trustSecretName = local.tls_ca_secret_name
-    issuerName      = var.tls_issuer_name
-    dnsNames        = local.tls_dns_names
-  })]
 }

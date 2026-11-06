@@ -192,7 +192,6 @@ def openmetadata_bootstrap(
     ),
     catalog_display: str = typer.Option("", "--catalog-display", help="Display name of the catalog service."),
     trino_namespace: str = typer.Option("", "--trino-namespace", help="Trino's `trino://host:port` namespace."),
-    trino_tls_namespace: str = typer.Option("", "--trino-tls-namespace", help="Trino's HTTPS namespace, if any."),
     pipeline_service: str = typer.Option("", "--pipeline-service", help="OpenLineage's default pipeline service."),
     database: Annotated[
         list[str] | None, typer.Option("--database", help="A governed stage's catalog database; repeatable.")
@@ -234,7 +233,6 @@ def openmetadata_bootstrap(
             service=catalog_service,
             display_name=catalog_display or catalog_service,
             trino_namespace=trino_namespace,
-            trino_tls_namespace=trino_tls_namespace,
             pipeline_service=pipeline_service,
             databases=tuple(database or ()),
             schemas=tuple(schema or ()),
