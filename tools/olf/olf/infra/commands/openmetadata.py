@@ -15,6 +15,7 @@ from olf.common import config, log
 from olf.common.log import fail
 from olf.common.profile import DeploymentProfileError
 from olf.common.project import ProjectSpec
+from olf.infra.commands._shared import PROVIDER_HELP
 from olf.infra.openmetadata._ingestion import run_trino_ingestion
 
 if TYPE_CHECKING:
@@ -61,7 +62,7 @@ def _governance_service(environ: Mapping[str, str] | None = None) -> _Governance
 
 @app.command("deploy-metadata")
 def openmetadata_deploy_metadata(
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
@@ -175,7 +176,7 @@ def _stage_values(flag: str, values: list[str] | None, stages: tuple[str, ...]) 
 
 @app.command("bootstrap")
 def openmetadata_bootstrap(
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
@@ -315,7 +316,7 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
 
 @app.command("list-domains")
 def openmetadata_list_domains(
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),

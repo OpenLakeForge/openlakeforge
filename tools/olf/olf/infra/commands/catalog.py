@@ -10,6 +10,7 @@ import typer
 
 from olf.common import config, log
 from olf.common.log import fail
+from olf.infra.commands._shared import PROVIDER_HELP
 
 app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
 
@@ -208,7 +209,7 @@ def catalog_sync_namespaces(
         "--prune/--no-prune",
         help="Remove managed metadata for undeclared products; object-store files are retained.",
     ),
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),

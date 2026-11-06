@@ -15,6 +15,7 @@ from pathlib import Path
 import typer
 
 from olf.common.log import fail
+from olf.infra.commands._shared import PROVIDER_HELP
 from olf.infra.commands._shared import deployment_context as _build_context
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
@@ -47,7 +48,7 @@ def _resolve_phase(phase: str, *, valid: tuple[str, ...]):  # noqa: ANN202
 
 
 def deploy(
-    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option(
         "all", "--phase", help="'all', 'foundation', 'prefetch', 'platform', or 'artifacts'."
@@ -97,7 +98,7 @@ def deploy(
 
 
 def plan(
-    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option("all", "--phase", help="'all', 'foundation', or 'platform'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
@@ -143,7 +144,7 @@ def plan(
 
 
 def doctor(
-    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option("all", "--phase", help="'all', 'foundation', 'platform', or 'artifacts'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
@@ -179,7 +180,7 @@ def doctor(
 
 
 def destroy(
-    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option("all", "--phase", help="'all', 'platform', or 'foundation'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
@@ -215,7 +216,7 @@ def destroy(
 
 
 def status(
-    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
@@ -246,7 +247,7 @@ def status(
 
 
 def forward(
-    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),

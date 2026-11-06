@@ -13,6 +13,7 @@ from openlakeforge_core import inventory_for
 
 from olf.common import config, log
 from olf.common.log import fail
+from olf.infra.commands._shared import PROVIDER_HELP
 
 if TYPE_CHECKING:
     from olf.infra.superset import StageReportTarget
@@ -48,7 +49,7 @@ def _validate_report_target_dir(project_root: Path, override: str) -> None:
 
 @report_app.command("import")
 def report_import(
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     stage: str = typer.Option(
@@ -108,7 +109,7 @@ def deploy_superset_reports(stage: str = "", environ: Mapping[str, str] | None =
 
 @report_app.command("export")
 def report_export(
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     stage: str = typer.Option(

@@ -286,16 +286,31 @@ def test_an_explicit_preset_selects_the_deprecated_single_dev_shorthand(tmp_path
     assert topology.stage(StageName.DEV).capabilities.analytics is True
 
 
-def test_a_profile_for_another_provider_does_not_describe_this_deployment(tmp_path: Path) -> None:
+def test_an_omitted_provider_comes_from_the_profile(tmp_path: Path) -> None:
     from olf.common.profile import Provider
     from olf.infra.commands._shared import resolve_topology
 
-    _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
+    _write_profile(tmp_path, provider="aws")
 
-    topology = resolve_topology(tmp_path, provider=Provider.LOCAL)
+    assert resolve_topology(tmp_path, provider=None).provider == Provider.AWS
+    assert resolve_topology(tmp_path, provider=Provider.AWS).provider == Provider.AWS
 
-    assert topology.provider == Provider.LOCAL
-    assert [stage.name.value for stage in topology.stages if stage.enabled] == ["dev"]
+
+def test_a_provider_that_contradicts_the_profile_fails(tmp_path: Path) -> None:
+    _write_profile(tmp_path, provider="aws")
+
+    result = runner.invoke(app, ["infra", "deploy", "--provider", "local", "--project-root", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "'local'" in result.output
+    assert "'aws'" in result.output
+
+
+def test_no_profile_and_no_provider_keeps_local(tmp_path: Path) -> None:
+    from olf.common.profile import Provider
+    from olf.infra.commands._shared import resolve_topology
+
+    assert resolve_topology(tmp_path, provider=None).provider == Provider.LOCAL
 
 
 def test_an_invalid_profile_fails_closed(tmp_path: Path) -> None:

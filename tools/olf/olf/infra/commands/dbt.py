@@ -12,6 +12,7 @@ from olf.common.deployment.errors import DeploymentError
 from olf.common.log import fail
 from olf.common.tooling.process import unsets_of
 from olf.common.tooling.toolkit import Toolkit
+from olf.infra.commands._shared import PROVIDER_HELP
 
 app = typer.Typer(help="Render and validate dbt product projects.")
 
@@ -19,7 +20,7 @@ app = typer.Typer(help="Render and validate dbt product projects.")
 @app.command("parse")
 def parse(
     project_dir: str = typer.Option("", "--project-dir", help="One dbt project; defaults to all products."),
-    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
     profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
