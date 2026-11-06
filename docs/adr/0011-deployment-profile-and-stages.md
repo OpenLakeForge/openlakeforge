@@ -192,17 +192,19 @@ its provider adapter (#133, #114). None belongs in this profile.
 
 ### The v0.2 compatibility path
 
-`olf infra deploy --provider local --profile slim|full` keeps its exact current
-behavior as a deprecated shorthand: `olf.common.profile.legacy_single_stage_topology`
-resolves it to one enabled DEV stage using the preset's capability defaults,
-proving the shorthand is exactly the single-DEV-stage case of the general
-model.
+`olf infra deploy --profile slim|full` stays as a deprecated shorthand:
+`olf.common.profile.legacy_single_stage_topology` resolves it to one enabled
+DEV stage using the preset's capability defaults, proving the shorthand is
+exactly the single-DEV-stage case of the general model.
 
 `DeploymentContext` now carries the resolved topology and the selected stage.
-With no `--profile`, the project-root Deployment Profile is authoritative; an
-explicit `--profile slim|full`, or a project that has no profile file at all,
-resolves the single-DEV shorthand instead. A profile file that exists but is
-invalid fails closed. Namespaces are derived from the topology but are not
+The provider comes from the project-root Deployment Profile's
+`spec.provider.type`; `--provider` is optional and must match it. With no
+`--profile`, the profile is authoritative; an explicit `--profile slim|full`
+resolves the single-DEV shorthand for the profile's provider. A project with
+no profile file at all resolves the shorthand on `--provider`, or `local`.
+A profile file that exists but is invalid, or that targets another provider
+than `--provider`, fails closed, with or without `--profile`. Namespaces are derived from the topology but are not
 part of it: `olf-system` for shared services and `olf-<stage>` per enabled
 stage live in `olf.common.deployment.context`, since ADR 0011 keeps the resolved
 topology free of namespaces, Helm releases, and endpoints.
@@ -275,3 +277,9 @@ accepts `small` only.
 StorageClass sets `allowVolumeExpansion: true` (#326): `olf` patches the
 claims and releases the SeaweedFS StatefulSets with `--cascade=orphan` before
 the apply. Shrinking, and growing on a class that cannot expand, stay refused.
+
+2026-11-06: `--provider` defaults to the profile's `spec.provider.type`
+instead of to `local`. A `--provider` that contradicts an existing profile now
+fails instead of warning and resolving a single DEV stage, and `--profile
+slim|full` no longer bypasses the profile file: an invalid or mismatched one
+fails closed. Without a profile file the shorthand behaves as before.
