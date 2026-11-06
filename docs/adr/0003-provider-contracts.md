@@ -46,10 +46,12 @@ implementation yet (`secrets`, `identity`, `access`, `observability`). Those
 carry local-development values today; naming the contract now is what keeps
 the eventual hardening work from being a rewrite.
 
-Every root (local, AWS, Azure) now emits v3 natively. `olf` retains the v2
-adapter (`provider_contracts/_v2.py`) only to parse a contract from state a
-pre-v3 deploy already produced; no current root's Terraform still emits that
-shape. A native v3 contract requires an explicit stage, and every root now
+Every root (local, AWS, Azure) now emits v3 natively. `olf` no longer parses
+v2: a `2.0.0` contract, left by a pre-v0.3 deploy, is refused with the
+supported version and the remedy: migrate the pre-v0.3 shared `lakehouse`
+namespace's data by hand, or start over with `--allow-stage-removal`, before
+the platform phase is redeployed. The
+`2.0.0` shape is still exported to runtimes by `as_v2_environment_contract`. A native v3 contract requires an explicit stage, and every root now
 names distinct storage identities and a catalog per stage (#114).
 
 Unknown versions, fields, missing/extra stages, cross-stage bindings,
@@ -75,12 +77,10 @@ Adding a provider or stage-scoped capability starts by extending v3 and its
 fixtures, then implementing provider adapters; a provider must not invent a
 competing wire shape.
 
-`olf.common.contract_state.load_provider_contracts` still returns either version
-unchanged, so a contract from state predating this rollout keeps parsing;
-`build_contract_env` is where a v3 payload resolves, given a
+`olf.common.contract_state.load_provider_contracts` returns a v3 contract
+unchanged and refuses any other version; `build_contract_env` is where a v3 payload resolves, given a
 `DeploymentTopology` plus a stage. Every current deploy/e2e/artifact code path
-now resolves and passes that stage explicitly (#114); the v2 branch exists
-only for that backward-compatibility read.
+now resolves and passes that stage explicitly (#114).
 
 `tools/olf/tests/common/test_provider_contracts.py` validates the v3 schema and
 local, Azure, and AWS fixtures against the typed parser; `olf check contracts`
@@ -95,6 +95,10 @@ contracts can omit the field. The adapter that offers it owns publishing and
 workload availability; project descriptors remain provider-neutral.
 
 ## History
+
+2026-11-06: Removed the v2 reader. Platform state written before v0.3 is no
+longer supported; a `2.0.0` contract is refused, and the v2 export to runtimes
+stays (#114).
 
 2026-11-03: Added the optional image repository contract before the local
 registry adapter (#558), preserving the local workflow without an external

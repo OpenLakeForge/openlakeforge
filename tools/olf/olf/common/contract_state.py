@@ -8,7 +8,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from olf.common.contract_validation import SUPPORTED_SCHEMA_VERSIONS, ProviderContractError
+from olf.common.contract_validation import (
+    SUPPORTED_SCHEMA_VERSIONS,
+    ProviderContractError,
+    unsupported_schema_version_message,
+)
 from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.terraform import external_state_options
 
@@ -83,10 +87,7 @@ def load_provider_contracts(
             return None
     schema_version = contracts.get("schema_version")
     if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-        raise ProviderContractError(
-            f"provider_contracts.schema_version {schema_version!r} is unsupported; "
-            f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
-        )
+        raise ProviderContractError(unsupported_schema_version_message(schema_version))
     return contracts
 
 

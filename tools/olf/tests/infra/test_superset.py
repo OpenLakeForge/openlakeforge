@@ -466,21 +466,6 @@ def test_a_contract_applied_for_another_stage_is_refused() -> None:
         superset.resolve_stage_report_target(environ, stage="prod")
 
 
-def test_the_v2_dev_compatibility_contract_still_resolves() -> None:
-    """Pre-v3 platform state is DEV-only and names its catalog `iceberg`.
-    The v2 adapter exists so report commands keep working against it until
-    the next platform apply; the resolver must not demand a v3 catalog name."""
-    from olf.infra.contracts import build_contract_env
-
-    contract = json.loads((FIXTURES / "local-provider-contracts.json").read_text())
-    exports, _ = build_contract_env({}, contract, repo_root=Path(__file__).resolve().parents[4])
-
-    target = superset.resolve_stage_report_target(exports, stage="dev")
-
-    assert target.stage == "dev"
-    assert target.sqlalchemy_uri.endswith("/iceberg")
-
-
 @pytest.mark.parametrize(
     "stale",
     [
