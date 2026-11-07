@@ -45,9 +45,9 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
         pb.StageCatalog(
             stage,
             f"lakehouse_{stage}",
-            f"lakehouse-{stage}-bronze",
-            f"lakehouse-{stage}-silver",
-            f"lakehouse-{stage}-gold",
+            f"olf-conformance-{stage}-bronze",
+            f"olf-conformance-{stage}-silver",
+            f"olf-conformance-{stage}-gold",
             trino=credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", "olf-system"),
             floe=credential(
                 f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}", recreatable=True
