@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _backup_fixture import PASSPHRASE, SHARED, STAGES, Backup
+from _backup_fixture import PASSPHRASE, SECRETS, SHARED, STAGES, Backup
+from _ca_fakes import PUBLISH_JOB, FakeCaTrust
 from _restore_fakes import Database, DataPlane
 from typer.testing import CliRunner
 
@@ -20,7 +21,8 @@ from olf.cli import app
 from olf.infra import k8s
 from olf.infra.backup import BackupError
 from olf.infra.backup._backup import DAEMON_DEPLOYMENT
-from olf.infra.backup._restore import SHARED_WORKLOADS, restore
+from olf.infra.backup._manifest import SecretRef
+from olf.infra.backup._restore import CA_CONFIGMAP, SHARED_WORKLOADS, reissue_after_reconcile, restore
 from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 
 _ENVIRON = {"KUBE_CONTEXT": "kind-test"}
@@ -52,6 +54,18 @@ class FakeCluster(DataPlane):
         self.cronjobs: dict[tuple[str, str], list[bool | None]] = {_ARCHIVE: [False, None]}
         self.deployed = True
         self.runs: dict[str, list[str]] = {}  # namespace -> Dagster runs in flight
+        self.ca = FakeCaTrust(monkeypatch, self.secrets, self.replicas)
+        self.ca.add_certificate(SHARED, "local-ca-probe", "local-ca-probe")
+        self.ca.add_certificate(SHARED, "trino-tls", "trino-tls")
+        self.ca.add_certificate(SHARED, "ingress-shim", "superset-dev-tls")
+        self.ca.add_certificate(SHARED, "not-ours", "other-tls", issuer="letsencrypt")
+        self.ca.mounts = {
+            (SHARED, "polaris"): {("configmap", CA_CONFIGMAP)},
+            (SHARED, "dex"): {("configmap", CA_CONFIGMAP)},
+            (SHARED, "trino-coordinator"): {("secret", "trino-tls")},
+            (SHARED, "traefik"): {("secret", "other-tls")},
+        }
+        self.ca.deploy_with("OLD-CA")
         monkeypatch.setattr(k8s, "resource_exists", lambda *_a, **_k: self.deployed)
         monkeypatch.setattr(k8s, "deployment_replica_counts", self.deployment_replica_counts)
         monkeypatch.setattr(k8s, "deployment_replicas", lambda name, ns, **_k: self.replicas[(ns, name)])
@@ -123,8 +137,8 @@ def backup(tmp_path: Path) -> Backup:
     return Backup(tmp_path)
 
 
-def _restore_it(fake: FakeCluster, backup: Backup) -> None:
-    restore(
+def _restore_it(fake: FakeCluster, backup: Backup) -> bool:
+    return restore(
         backup.directory,
         passphrase=PASSPHRASE,
         release="1.2.3",
@@ -166,7 +180,7 @@ def test_the_whole_backup_is_restored(fake: FakeCluster, backup: Backup) -> None
         "polaris": b"dump of polaris",
     }
     assert fake.s3.objects == {_SILVER: {"t/a.parquet": 4, "b.json": 3}}
-    assert sorted(name for _, name in fake.secrets) == ["local-ca", "polaris-bootstrap-credentials"]
+    assert {"local-ca", "polaris-bootstrap-credentials"} <= {name for _, name in fake.secrets}
 
 
 def test_cronjobs_are_suspended_while_the_data_is_replaced_and_come_back_as_they_were(
@@ -219,6 +233,69 @@ def test_a_failed_step_leaves_the_workloads_down_and_a_rerun_restores_everything
     assert fake.replicas == fake.started
     assert fake.cronjobs == {_ARCHIVE: [False, None]}
     assert fake.postgres.databases["polaris"].data == b"dump of polaris"
+
+
+def _restore_and_reconcile(fake: FakeCluster, backup: Backup) -> None:
+    """What `olf infra restore` does around the reconcile `olf infra deploy`."""
+    ca_restored = _restore_it(fake, backup)
+    fake.ca.reconcile()
+    if ca_restored:
+        reissue_after_reconcile(STAGES, SHARED, _ENVIRON)
+
+
+def _signers(fake: FakeCluster) -> dict[str, str | None]:
+    ca = fake.ca
+    return {name: ca.signer(ns, secret) for (ns, name), (secret, _issuer) in ca.certificates.items()}
+
+
+def test_the_restored_ca_reaches_the_trust_configmap_the_certificates_and_the_consumers(
+    fake: FakeCluster, backup: Backup
+) -> None:
+    _restore_and_reconcile(fake, backup)
+
+    assert fake.ca.ca == "CERT"
+    assert fake.ca.trust == {CA_CONFIGMAP: "CERT"}
+    assert _signers(fake) == {
+        "local-ca-probe": "CERT",
+        "trino-tls": "CERT",
+        "ingress-shim": "CERT",
+        "not-ours": "letsencrypt",  # another issuer's Certificate is left alone
+    }
+    # Those that mount the CA or a re-issued Secret restart, once everything they load is the restored one.
+    assert sorted(fake.ca.restarted) == [(SHARED, "dex"), (SHARED, "polaris"), (SHARED, "trino-coordinator")]
+    assert all(fake.ca.restored_when_restarted.values())
+    assert fake.replicas == fake.started
+
+
+def test_a_backup_without_the_local_ca_leaves_the_trust_and_the_certificates_alone(
+    fake: FakeCluster, backup: Backup
+) -> None:
+    backup.write(bundle=[SECRETS[0]], secrets=(SecretRef(SHARED, "polaris-bootstrap-credentials", ("password",)),))
+
+    assert _restore_it(fake, backup) is False
+    fake.ca.reconcile()
+
+    assert fake.ca.jobs == {PUBLISH_JOB}
+    assert fake.ca.trust == {CA_CONFIGMAP: "OLD-CA"}
+    assert set(_signers(fake).values()) == {"OLD-CA", "letsencrypt"}
+    assert fake.ca.restarted == []
+
+
+def test_a_failed_reissue_is_reported_and_a_rerun_restores_the_ca_everywhere(fake: FakeCluster, backup: Backup) -> None:
+    fake.ca.cert_manager_down = True
+
+    with pytest.raises(BackupError, match=r"restored CA did not reach the platform: .*did not re-issue Secret"):
+        _restore_and_reconcile(fake, backup)
+    assert fake.ca.restarted == []  # nothing restarted onto a CA that its Certificates are not signed by
+
+    fake.ca.cert_manager_down = False
+    _restore_and_reconcile(fake, backup)
+
+    assert fake.ca.trust == {CA_CONFIGMAP: "CERT"}
+    assert set(_signers(fake).values()) == {"CERT", "letsencrypt"}
+    assert _signers(fake)["not-ours"] == "letsencrypt"
+    assert sorted(fake.ca.restarted) == [(SHARED, "dex"), (SHARED, "polaris"), (SHARED, "trino-coordinator")]
+    assert all(fake.ca.restored_when_restarted.values())
 
 
 def test_a_backup_that_fails_its_checks_changes_nothing(fake: FakeCluster, backup: Backup) -> None:

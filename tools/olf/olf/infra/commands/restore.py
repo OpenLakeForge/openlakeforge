@@ -24,7 +24,9 @@ def restore(
     The platform must already be deployed (`olf infra deploy --phase platform`) from the release and the
     openlakeforge.yaml the backup was taken with. It pauses the Dagster daemons and refuses while a run is in flight.
     Each bucket is made equal to the backup's: objects written after it are deleted. The passphrase comes from a
-    prompt or the environment variable `olf infra backup` documents. If a step fails, the workloads stay scaled to 0
+    prompt or the environment variable `olf infra backup` documents. A backup that holds `local-ca` also has the
+    CA republished and every Certificate it issued re-signed, and the workloads that mount them restarted, after
+    the reconcile. If a step fails, the workloads stay scaled to 0
     and the error says how to retry. The reconcile deploy builds the project from the current checkout, so run it
     from the checkout the backup was taken with.
     """
@@ -35,6 +37,7 @@ def restore(
     from olf.infra.backup import BackupError
     from olf.infra.backup._bundle import read_passphrase
     from olf.infra.backup._cluster import dagster_runs_in_flight
+    from olf.infra.backup._restore import reissue_after_reconcile
     from olf.infra.backup._restore import restore as restore_backup
     from olf.infra.deployment.engine import DeploymentPhase
 
@@ -49,7 +52,7 @@ def restore(
         passphrase = read_passphrase(confirm=False, environ=os.environ)
         with applied_runtime_environment(context, env="local") as contract:
             log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=contract)
-            restore_backup(
+            ca_restored = restore_backup(
                 Path(source),
                 passphrase=passphrase,
                 release=olf.__version__,
@@ -65,5 +68,12 @@ def restore(
         # checkout and activates it (`local/artifacts.py`), so when the checkout is newer than the backup its code,
         # not the restored pointer's revision, ends up running.
         _build_engine(context, var_file="").deploy(DeploymentPhase.ALL)
+        if ca_restored:
+            with applied_runtime_environment(context, env="local") as contract:
+                reissue_after_reconcile(
+                    {stage.value: context.namespace_for(stage) for stage in context.enabled_stages},
+                    context.shared_namespace,
+                    contract,
+                )
     except (BackupError, DeploymentError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

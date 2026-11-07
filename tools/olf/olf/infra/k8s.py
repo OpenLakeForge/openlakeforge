@@ -17,7 +17,7 @@ import re
 import socket
 import tempfile
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -250,6 +250,88 @@ def scale_deployment(
 def restart_deployment(deployment: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
     _kubectl(["rollout", "restart", f"deployment/{deployment}", "-n", namespace], environ=environ)
     wait_for_rollout(f"deployment/{deployment}", namespace, environ=environ)
+
+
+def delete_jobs(selector: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Delete the Jobs the label selector matches (their pods go with them); none is not an error."""
+    _kubectl(["delete", "job", "-l", selector, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
+
+
+def certificates_issued_by(
+    cluster_issuer: str, *, environ: Mapping[str, str] | None = None
+) -> list[tuple[str, str, str]]:
+    """Every cert-manager Certificate whose issuerRef is the ClusterIssuer, as (namespace, name, secret name)."""
+    raw = _kubectl(["get", "certificates", "-A", "-o", "json"], capture=True, environ=environ)
+    return [
+        (item["metadata"]["namespace"], item["metadata"]["name"], item["spec"]["secretName"])
+        for item in json.loads(raw or "{}").get("items", [])
+        if item["spec"].get("issuerRef", {}).get("name") == cluster_issuer
+        and item["spec"]["issuerRef"].get("kind") == "ClusterIssuer"
+    ]
+
+
+def wait_for_certificate(
+    name: str,
+    namespace: str,
+    secret: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+    timeout_seconds: float = 300.0,
+    poll_seconds: float = 2.0,
+) -> None:
+    """Wait until cert-manager has written the Certificate's Secret, then until the Certificate is Ready.
+
+    The Secret comes first: a Certificate whose Secret was deleted keeps reporting Ready until cert-manager notices.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while secret_data(secret, namespace, environ=environ) is None:
+        if time.monotonic() >= deadline:
+            raise KubectlError(f"cert-manager did not re-issue Secret {namespace}/{secret} within {timeout_seconds}s")
+        time.sleep(poll_seconds)
+    _kubectl(
+        ["wait", "--for=condition=Ready", f"certificate/{name}", "-n", namespace, f"--timeout={int(timeout_seconds)}s"],
+        environ=environ,
+    )
+
+
+def workloads_reading(
+    namespaces: Collection[str],
+    *,
+    configmaps: Collection[str],
+    secrets: Collection[tuple[str, str]],
+    environ: Mapping[str, str] | None = None,
+) -> list[tuple[str, str, str]]:
+    """The running Deployments and StatefulSets that mount one of the ConfigMaps (by name) or Secrets (by namespace
+    and name), as (kind, name, namespace). They read what they mount at start, so a change needs a restart.
+
+    ponytail: volumes only; a Secret read through `env` or `envFrom` is not found. Every consumer of the CA mounts it.
+    """
+    found = []
+    for namespace in dict.fromkeys(namespaces):
+        raw = _kubectl(
+            ["get", "deployments,statefulsets", "-n", namespace, "-o", "json"], capture=True, environ=environ
+        )
+        for item in json.loads(raw or "{}").get("items", []):
+            if not item["spec"].get("replicas", 1):
+                continue
+            volumes = item["spec"]["template"]["spec"].get("volumes") or []
+            sources = [
+                source for volume in volumes for source in [volume, *(volume.get("projected") or {}).get("sources", [])]
+            ]
+            if any(
+                (s.get("configMap") or {}).get("name") in configmaps
+                or (namespace, (s.get("secret") or {}).get("secretName") or (s.get("secret") or {}).get("name"))
+                in secrets
+                for s in sources
+            ):
+                found.append((item["kind"], item["metadata"]["name"], namespace))
+    return found
+
+
+def restart_workload(kind: str, name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Roll the Deployment or StatefulSet and wait for the rollout."""
+    _kubectl(["rollout", "restart", f"{kind.lower()}/{name}", "-n", namespace], environ=environ)
+    wait_for_rollout(f"{kind.lower()}/{name}", namespace, environ=environ)
 
 
 def exec_in_pod(

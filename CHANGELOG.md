@@ -23,7 +23,9 @@ for how a release is cut and verified.
   and profile. It pauses the Dagster daemons and refuses while a run is in flight, suspends the CronJobs of the
   stages, scales the database clients down, replaces the backed-up Secrets, recreates and reloads every database with its grants, makes each bucket
   equal to the backup's (objects written after it are deleted), scales back up (shared services, then stages, then the daemons) and runs `olf infra deploy`, which
-  builds the project from the current checkout (#911).
+  builds the project from the current checkout (#911). When the backup holds `local-ca`, restore also republishes
+  the `olf-local-ca` ConfigMaps, has cert-manager sign again every Certificate the CA issued, and restarts the
+  workloads that mount them (#929).
 - `olf infra e2e durability capture` and `verify` record a local stage's tables, snapshot ids, Dagster runs,
   Superset dashboards, OpenMetadata entities, activation pointer and bucket contents (key and size), then report
   everything missing or changed afterwards, without launching a pipeline (#908).
