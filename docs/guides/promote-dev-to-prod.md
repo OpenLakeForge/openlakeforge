@@ -280,10 +280,12 @@ pull Secret;
 shows how, and activation refuses to start when the Secret is missing, of the
 wrong type or lacks the image's registry.
 
-### Check that the pods name the Secret
+### Check that the cluster pulls through the Secret
 
-`olf infra e2e registry-pull` checks, on a local stage, that the project image
-is pulled through the Secret and not through anything cached on the nodes:
+On kind, activation pulls the image on your machine and loads it into every
+node, so a missing or wrong `imagePullSecrets` entry stays hidden until a node
+has to pull for itself. `olf infra e2e registry-pull` removes that cache and
+proves the kubelet pulls with the Secret:
 
 ```bash
 olf infra e2e registry-pull -f openlakeforge.yaml --stage dev
@@ -294,13 +296,52 @@ It reads the image from the stage's active revision and the Secret from
 
 1. checks that every Deployment, StatefulSet, CronJob, Job and Pod running the
    image lists the Secret, and so does the stage's `dagster` ServiceAccount,
-   which Floe Jobs inherit it from;
+   which Floe Jobs inherit it from. `--static-only` stops after step 2 and
+   removes nothing from the nodes;
 2. asks the registry for the image's manifest without credentials. If that
    works, the image is public, the Secret is not what lets the cluster pull
    it, and the check fails with `image is public: pull-secret path not
-   exercised` unless you pass `--allow-public`.
+   exercised` unless you pass `--allow-public`;
+3. removes the image from every node (`crictl rmi` through `docker exec`, with
+   an empty `DOCKER_CONFIG` so no host login is involved), deletes the code
+   location pods, and requires each new pod to show a `Successfully pulled`
+   event rather than `already present on machine`;
+4. removes the image again, launches one run of the project's first product
+   and requires its run pod to pull the same way;
+5. removes the image again, cordons the node that runs a code location, deletes
+   the pod and requires it to start on another node with a real pull.
 
+The kind cluster `olf` creates has a control-plane node and two workers
+(`infra/kind/local/kind-cluster.yaml`). kind cannot add a node to a running
+cluster, so step 5 uses the second worker; with a single schedulable node it
+is skipped, and step 3 already shows that no node-local cache is relied on.
+The check launches a run, so do not use it while a restore is in progress.
 It never reads or prints the Secret's data.
+
+The repository's nightly runs it for DEV and PROD after the PROD suite, with
+`--allow-public`. That is a known gap: the nightly's `project-code-nightly`
+package answered an anonymous manifest request when this was written (a new
+package is private by default, so its visibility was changed), and its Secret is built from the job's `GITHUB_TOKEN`, which expires when the job
+ends. The nightly therefore proves the mechanism, not that a private image
+survives the operator and the runner going away.
+
+To prove that, a maintainer runs it by hand against a private package:
+
+1. Make the package private under its **Package settings**, and push an image
+   to it (`olf infra project image`, then `olf infra project build`).
+2. Create a personal access token (classic) with only `read:packages`, and the
+   Secret in each stage namespace, as in
+   [Pulling a private image](../reference/deployment-profile.md#pulling-a-private-image).
+   Name it in `spec.project.image.pull_secret_ref` and run
+   `olf infra project deploy` for the stage.
+3. Log out of the registry on the host (`docker logout ghcr.io`), stop any CI
+   job that could push or pull, and run
+   `olf infra e2e registry-pull -f openlakeforge.yaml --stage dev` without
+   `--allow-public`. It must report that the image is not anonymously
+   pullable and finish with the image pulled through the Secret.
+4. Revoke the token you used to push, if it differs from the `read:packages`
+   one, and run the check once more: the pull still works because only the
+   Secret is used.
 
 ### When no registry is configured
 

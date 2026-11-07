@@ -19,9 +19,11 @@ for how a release is cut and verified.
 - A weekly and on-demand workflow, `external-project-e2e.yml`, deploys the external project
   OpenLakeForge/acme-lakehouse on the current `olf`: the image build installs its `requirements.txt`, the code
   location loads without `libs/`, and the `food_quality` product runs to a Gold table read through Trino (#557).
-- `olf infra e2e registry-pull` checks that every workload running a stage's project image, and the `dagster`
-  ServiceAccount Floe Jobs inherit from, list the stage's `spec.project.image.pull_secret_ref` Secret, and refuses an
-  image that is publicly pullable unless `--allow-public` is given (#537).
+- `olf infra e2e registry-pull` proves a stage's user-code pods pull the project image through its
+  `spec.project.image.pull_secret_ref` Secret and not from a node-local cache: it checks the pod specs, removes the
+  image from every kind node, restarts the code locations, launches a run and reschedules the code locations onto
+  another node, and refuses an image that is publicly pullable unless `--allow-public` is given. The nightly runs it
+  for DEV and PROD; its manual procedure for a private GHCR package is in the promote guide (#537).
 - `olf infra backup --output <dir>` backs up a local deployment: each PostgreSQL database, every stage bucket and
   the ops bucket, and the data-bound Secrets and `local-ca` sealed under a passphrase, with a manifest and
   `SHA256SUMS`. It pauses the Dagster daemon while it runs and refuses to start with a run in flight (#910).
