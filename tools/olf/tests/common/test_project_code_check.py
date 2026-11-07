@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -205,3 +206,48 @@ def test_environment_exports_values_to_the_reader_and_restores_os_environ(monkey
         assert os.environ["SOURCES__X__KEPT"] == os.environ["SOURCES__X__NEW"] == "inside"
 
     assert dict(os.environ) == snapshot
+
+
+_PUBLIC = {
+    "openlakeforge_runtime.product_dagster": {"ProductDefinitionSpec", "build_product_definitions"},
+    "openlakeforge_runtime.bronze_csv": {"BronzeLoadResult"},
+}
+
+
+def _project(tmp_path: Path, source: str) -> Path:
+    module = tmp_path / "lakehouse_code" / "pipelines" / "dagster" / "orders.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source)
+    return tmp_path
+
+
+def test_imports_of_the_public_runtime_api_are_not_reported(tmp_path: Path) -> None:
+    root = _project(
+        tmp_path,
+        "from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions\n"
+        "from openlakeforge_runtime.bronze_csv import BronzeLoadResult\n"
+        "import dagster\n",
+    )
+
+    assert project_code_check.private_runtime_imports(root, _PUBLIC) == []
+
+
+def test_private_runtime_modules_and_names_are_reported_with_their_location(tmp_path: Path) -> None:
+    root = _project(
+        tmp_path,
+        "from openlakeforge_runtime.product_dagster import build_product_definitions, _floe_profile\n"
+        "from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri\n"
+        "from openlakeforge_runtime import floe_profile\n"
+        "import openlakeforge_runtime.gold_maintenance\n",
+    )
+
+    assert project_code_check.private_runtime_imports(root, _PUBLIC) == [
+        "lakehouse_code/pipelines/dagster/orders.py:1: openlakeforge_runtime.product_dagster._floe_profile "
+        "is not in the module's public API",
+        "lakehouse_code/pipelines/dagster/orders.py:2: openlakeforge_runtime.s3_artifacts "
+        "is not a public runtime module",
+        "lakehouse_code/pipelines/dagster/orders.py:3: openlakeforge_runtime.floe_profile "
+        "is not a public runtime module",
+        "lakehouse_code/pipelines/dagster/orders.py:4: openlakeforge_runtime.gold_maintenance "
+        "is not a public runtime module",
+    ]

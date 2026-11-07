@@ -23,6 +23,8 @@ from openlakeforge_core import load_source
 
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 
+__all__ = ["load_dlt_source"]
+
 
 def _declared_cursor(resource: Any) -> str | None:
     wrapper = resource.incremental

@@ -20,24 +20,15 @@ from __future__ import annotations
 
 from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-CAMPAIGN_PERFORMANCE_SILVER_INPUTS = ("campaigns",)
-
-CAMPAIGN_PERFORMANCE_GOLD_ASSETS = ("mart_campaign_performance",)
-
-defs = build_product_definitions(
-    ProductDefinitionSpec(
-        domain="marketing",
-        product="campaign_performance",
-        silver_inputs=CAMPAIGN_PERFORMANCE_SILVER_INPUTS,
-        bronze_inputs=(("marketing_platform", "campaigns"),),
-        gold_assets=CAMPAIGN_PERFORMANCE_GOLD_ASSETS,
-    )
-)
+defs = build_product_definitions(ProductDefinitionSpec(domain="marketing", product="campaign_performance"))
 ```
 
 `build_product_definitions` connects the three layers of the product: the
 Bronze loader of `marketing_platform`, the Floe Silver table `campaigns` and
-the dbt Gold mart. It also defines the job `campaign_performance_pipeline`.
+the dbt Gold mart. It reads them from the project: the dbt models are the Gold
+assets, the dbt sources are the Silver inputs, and the Floe entity of each
+source names its Bronze resource ([Runtime API](../reference/runtime-api.md)). It also defines the job
+`campaign_performance_pipeline`.
 `lakehouse_code/definitions.py` finds every module in
 `lakehouse_code/pipelines/dagster/` by itself, so you register nothing.
 

@@ -772,8 +772,8 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     assert 'namespace: "marketing_silver"' in floe_domain
 
     dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()
-    assert '"campaigns"' in dagster_module
-    assert '("marketing_platform", "campaigns")' in dagster_module
+    assert 'ProductDefinitionSpec(domain="marketing", product="campaign_performance")' in dagster_module
+    assert "silver_inputs=" not in dagster_module
 
 
 # --------------------------------------------------------------------------

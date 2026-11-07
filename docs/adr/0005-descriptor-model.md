@@ -140,3 +140,7 @@ domain. Product ids stay unique across domains, and every derived name
 fields were reviewed and none is removed or renamed; provider names stay
 forbidden by architectural rule 2. A `v1alpha3` document fails with a pointer
 to `olf project migrate`, which rewrites its version line.
+
+2026-11-07 (#994): `ProductDefinitionSpec` no longer needs the Gold assets, Silver inputs and Bronze
+inputs of a product. They default to the dbt models, the dbt sources and the Floe entities'
+Bronze resources, so the project declares each once. An explicit list still wins.
