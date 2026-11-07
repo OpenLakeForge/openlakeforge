@@ -20,6 +20,24 @@ evaluation infrastructure: do not expose it beyond your workstation.
 Terraform, Helm, kubectl and kind are not prerequisites: `olf` downloads the
 versions pinned in the release and keeps them under `~/.openlakeforge`.
 
+### On WSL2
+
+WSL2 already sets its clock from Windows. If `systemd-timesyncd` also runs, the
+two fight and the clock steps back every half minute, which makes Polaris
+reject tokens and Trino fail at random with `Not authorized`. Check, and stop
+the second service once:
+
+```bash
+systemctl is-active systemd-timesyncd   # "active" means it must be stopped
+sudo systemctl disable --now systemd-timesyncd
+```
+
+`olf infra doctor` reports this as `WSL clock`, and a local deploy warns about
+it. See [Trino fails at random with Not authorized on
+WSL2](troubleshooting.md#trino-fails-at-random-with-not-authorized-on-wsl2).
+The step goes away once the platform moves to a Polaris release that tolerates
+the skew (#941).
+
 ### Hardware
 
 The resources Docker can use, not the whole machine:
