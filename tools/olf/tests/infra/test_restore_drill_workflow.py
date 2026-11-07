@@ -97,3 +97,22 @@ def test_the_drill_publishes_only_its_report_and_the_report_holds_only_the_manif
     assert PurePosixPath(upload["with"]["path"]) == report
     assert written
     assert all(token.endswith("/report/manifest.json") or "/report/verify-" in token for token in written)
+
+
+def test_access_issuer_none_switches_only_the_conformance_profiles_access_issuer() -> None:
+    """#958: a dispatch can run the drill on the plain-HTTP local default; the nightly keeps local-ca."""
+    access_issuer = WORKFLOW[True]["workflow_dispatch"]["inputs"]["access_issuer"]
+    init = next(step for step in JOB_STEPS if "openlakeforge.conformance.yaml" in step.get("run", ""))["run"]
+    profile_text = (ROOT / "openlakeforge.conformance.yaml").read_text()
+    original = yaml.safe_load(profile_text)
+
+    switched = yaml.safe_load(
+        "\n".join("    issuer: none" if line == "    issuer: local-ca" else line for line in profile_text.splitlines())
+    )
+
+    assert access_issuer["default"] == "local-ca"
+    assert "sed -i 's/^    issuer: local-ca$/    issuer: none/' openlakeforge.yaml" in init
+    assert original["spec"]["access"]["issuer"] == "local-ca"
+    assert switched["spec"]["access"]["issuer"] == "none"
+    assert switched["spec"]["identity"] == original["spec"]["identity"]
+    assert {**switched["spec"], "access": original["spec"]["access"]} == original["spec"]
