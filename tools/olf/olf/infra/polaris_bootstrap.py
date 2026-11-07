@@ -32,6 +32,12 @@ TRINO_SELECTOR = "app.kubernetes.io/name=trino"
 # The pod-template annotation that names the Polaris credentials Trino's pods started with.
 TRINO_CREDENTIALS_ANNOTATION = "openlakeforge.io/polaris-credentials"
 DROP_WITH_PURGE = "polaris.config.drop-with-purge.enabled"
+# Polaris 1.8 rejects a namespace outside `<default-base-location>/<namespace>` unless this is on
+# (BehaviorChangeConfiguration ALLOW_NAMESPACE_CUSTOM_LOCATION). The default base is the Silver bucket and every
+# Gold namespace lives in the Gold bucket (ADR 0004), so each stage catalog allows it.
+NAMESPACE_CUSTOM_LOCATION = "polaris.config.namespace-custom-location.enabled"
+# The properties every stage catalog must hold; an existing catalog is given the ones it lacks.
+REQUIRED_CATALOG_PROPERTIES: Mapping[str, str] = {DROP_WITH_PURGE: "true", NAMESPACE_CUSTOM_LOCATION: "true"}
 MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
 MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
 MANAGE_ACCESS = "CATALOG_MANAGE_ACCESS"
@@ -149,7 +155,7 @@ def _present(client: PolarisClient, path: str, field: str, value: str) -> bool:
 
 
 def ensure_catalog(client: PolarisClient, stage: StageCatalog, sts: CatalogSts | None) -> None:
-    """Create the stage catalog, or give an existing one the drop-with-purge property.
+    """Create the stage catalog, or give an existing one the required properties it lacks.
 
     Trino drops tables with purge, and Polaris drops a view only with purge, answering 403 unless the
     catalog allows it (#741). A stage catalog's `allowedLocations` are its own stage's buckets, so a
@@ -181,7 +187,7 @@ def ensure_catalog(client: PolarisClient, stage: StageCatalog, sts: CatalogSts |
         {
             "name": stage.catalog_name,
             "type": "INTERNAL",
-            "properties": {"default-base-location": f"s3://{stage.silver_bucket}/", DROP_WITH_PURGE: "true"},
+            "properties": {"default-base-location": f"s3://{stage.silver_bucket}/", **REQUIRED_CATALOG_PROPERTIES},
             "storageConfigInfo": storage,
         },
         ok=(201,),
@@ -199,14 +205,14 @@ def ensure_catalog(client: PolarisClient, stage: StageCatalog, sts: CatalogSts |
             "a stack redeployed from scratch gets it."
         )
     properties = current.get("properties") or {}
-    if properties.get(DROP_WITH_PURGE) != "true":
+    if any(properties.get(key) != value for key, value in REQUIRED_CATALOG_PROPERTIES.items()):
         # Polaris replaces the whole property map on update, so the current one is kept.
         client.management(
             "PUT",
             path,
             payload={
                 "currentEntityVersion": current.get("entityVersion"),
-                "properties": {**properties, DROP_WITH_PURGE: "true"},
+                "properties": {**properties, **REQUIRED_CATALOG_PROPERTIES},
             },
         )
 
