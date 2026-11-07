@@ -46,8 +46,8 @@ def _pod_spec(item: Mapping[str, Any]) -> Mapping[str, Any]:
     return (spec.get("template") or {}).get("spec") or {}
 
 
-def missing_pull_secret(items: Sequence[Mapping[str, Any]], image: str, secret: str) -> tuple[list[str], int]:
-    """`Kind/name` of each workload running `image` without `secret` in its imagePullSecrets, and how many run it."""
+def missing_pull_secret(items: Sequence[Mapping[str, Any]], image: str, secret_name: str) -> tuple[list[str], int]:
+    """`Kind/name` of each workload running `image` missing `secret_name` from imagePullSecrets, and how many run it."""
     missing: list[str] = []
     users = 0
     for item in items:
@@ -56,7 +56,7 @@ def missing_pull_secret(items: Sequence[Mapping[str, Any]], image: str, secret: 
         if not any(container.get("image") == image for container in containers):
             continue
         users += 1
-        if secret not in [entry.get("name") for entry in spec.get("imagePullSecrets") or []]:
+        if secret_name not in [entry.get("name") for entry in spec.get("imagePullSecrets") or []]:
             missing.append(f"{item.get('kind')}/{item.get('metadata', {}).get('name')}")
     return missing, users
 
@@ -68,20 +68,20 @@ def _workloads(cfg: E2EConfig) -> list[dict[str, Any]]:
     return list(payload.get("items", []))
 
 
-def check_static(cfg: E2EConfig, image: str, secret: str) -> int:
-    """Fail unless every workload running `image` and the `dagster` ServiceAccount list `secret`; returns the count."""
-    missing, users = missing_pull_secret(_workloads(cfg), image, secret)
+def check_static(cfg: E2EConfig, image: str, secret_name: str) -> int:
+    """Fail unless all workloads with `image` and the dagster ServiceAccount list `secret_name`; returns the count."""
+    missing, users = missing_pull_secret(_workloads(cfg), image, secret_name)
     account = kubectl(
         cfg,
         ["get", "serviceaccount", "dagster", "-n", cfg.namespace, "-o", "jsonpath={.imagePullSecrets[*].name}"],
         capture=True,
     ).split()
-    if secret not in account:
+    if secret_name not in account:
         missing.append("ServiceAccount/dagster (inherited by Floe Jobs)")
     if users == 0:
         raise E2EError(f"no workload in {cfg.namespace} runs {image}; nothing to check.")
     if missing:
-        raise E2EError(f"{secret!r} is missing from imagePullSecrets of: {', '.join(missing)}.")
+        raise E2EError(f"{secret_name!r} is missing from imagePullSecrets of: {', '.join(missing)}.")
     return users
 
 
@@ -163,9 +163,9 @@ def _pull_secret_name(cfg: E2EConfig) -> str:
 
 def check(cfg: E2EConfig, *, allow_public: bool = False) -> None:
     stage = config.env(CONTRACT_STAGE_ENV, "dev", environ=cfg.environ)
-    secret = _pull_secret_name(cfg)
+    secret_name = _pull_secret_name(cfg)
     image = _active_image(cfg, stage)
-    log.step(f"Stage {stage}: checking that {image} is pulled through Secret {secret!r}...")
-    users = check_static(cfg, image, secret)
-    log.info(f"{users} workload(s) running the image list {secret!r}, and so does the dagster ServiceAccount.")
+    log.step(f"Stage {stage}: checking that {image} is pulled through Secret {secret_name!r}...")
+    users = check_static(cfg, image, secret_name)
+    log.info(f"{users} workload(s) running the image list {secret_name!r}, and so does the dagster ServiceAccount.")
     require_private(image, allow_public=allow_public)
