@@ -46,7 +46,7 @@ def _pod_spec(item: Mapping[str, Any]) -> Mapping[str, Any]:
     return (spec.get("template") or {}).get("spec") or {}
 
 
-def missing_pull_secret(items: Sequence[Mapping[str, Any]], image: str, secret_name: str) -> tuple[list[str], int]:
+def workloads_missing_entry(items: Sequence[Mapping[str, Any]], image: str, secret_name: str) -> tuple[list[str], int]:
     """`Kind/name` of each workload running `image` missing `secret_name` from imagePullSecrets, and how many run it."""
     missing: list[str] = []
     users = 0
@@ -70,7 +70,7 @@ def _workloads(cfg: E2EConfig) -> list[dict[str, Any]]:
 
 def check_static(cfg: E2EConfig, image: str, secret_name: str) -> int:
     """Fail unless all workloads with `image` and the dagster ServiceAccount list `secret_name`; returns the count."""
-    missing, users = missing_pull_secret(_workloads(cfg), image, secret_name)
+    missing, users = workloads_missing_entry(_workloads(cfg), image, secret_name)
     account = kubectl(
         cfg,
         ["get", "serviceaccount", "dagster", "-n", cfg.namespace, "-o", "jsonpath={.imagePullSecrets[*].name}"],

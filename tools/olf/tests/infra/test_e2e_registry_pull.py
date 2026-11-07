@@ -36,14 +36,14 @@ def test_every_kind_of_workload_running_the_image_must_list_the_secret() -> None
         _deployment("postgres", secrets=(), image="docker.io/library/postgres:16"),
     ]
 
-    missing, users = registry_pull.missing_pull_secret(items, IMAGE, SECRET)
+    missing, users = registry_pull.workloads_missing_entry(items, IMAGE, SECRET)
 
     assert missing == ["CronJob/log-archive", "Pod/run-pod"]
     assert users == 3
 
 
 def test_a_different_secret_does_not_count() -> None:
-    missing, _ = registry_pull.missing_pull_secret([_deployment("code", secrets=("other",))], IMAGE, SECRET)
+    missing, _ = registry_pull.workloads_missing_entry([_deployment("code", secrets=("other",))], IMAGE, SECRET)
 
     assert missing == ["Deployment/code"]
 
