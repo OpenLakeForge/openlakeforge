@@ -42,7 +42,10 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project", "query", "storage"}
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
-_ACCESS_FIELDS = {"base_domain", "issuer"}
+_ACCESS_FIELDS = {"base_domain", "tls"}
+# v1alpha1 spelled the TLS mode `issuer`; it is read as `tls` (see _validate_access).
+_ACCESS_FIELDS_V1ALPHA1 = _ACCESS_FIELDS | {"issuer"}
+_TLS_MODES = ("none", "local-ca", "external")
 _IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "github"}
 _IDENTITY_ISSUERS = ("external", "github")
 _GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref", "host"}
@@ -156,7 +159,7 @@ class AccessSpec:
     names over plain HTTP. Without the block there is no ingress at all."""
 
     base_domain: str = "olf.localhost"
-    issuer: str = "none"
+    tls: str = "none"
 
 
 def is_secret_name(value: object) -> bool:
@@ -474,23 +477,36 @@ def _validate_size(spec: Mapping[str, Any], block: str, *, source: str) -> Size:
 def _validate_access(document: object, *, source: str, provider: Provider) -> AccessSpec:
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: spec.access must be an object")
-    _forbid_unexpected(document, _ACCESS_FIELDS, where=f"{source}: spec.access")
+    _forbid_unexpected(document, _ACCESS_FIELDS_V1ALPHA1, where=f"{source}: spec.access")
+    if "issuer" in document and "tls" in document:
+        raise DeploymentProfileError(
+            f"{source}: spec.access sets both 'tls' and its v1alpha1 name 'issuer'; keep 'tls' only"
+        )
     defaults = AccessSpec()
     base_domain = document.get("base_domain", defaults.base_domain)
     if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
         raise DeploymentProfileError(f"{source}: spec.access.base_domain must be a lowercase DNS name with a dot")
     # Plain HTTP is only valid on the local provider, so the other providers (whose roots do not read the
-    # block) keep the issuer a real install would name.
-    default_issuer = defaults.issuer if provider == Provider.LOCAL else "local-ca"
-    issuer = _identifier(document.get("issuer", default_issuer), field="spec.access.issuer", source=source)
+    # block) default to the mode a real install would name.
+    default_tls = defaults.tls if provider == Provider.LOCAL else "local-ca"
+    field = "issuer" if "issuer" in document else "tls"
+    tls = document.get(field, default_tls)
+    if tls not in _TLS_MODES:
+        raise DeploymentProfileError(f"{source}: spec.access.{field} must be one of {list(_TLS_MODES)!r}, got {tls!r}")
     # Plain HTTP is safe only where the browser treats the host as loopback and a
     # secure context: *.localhost, on the local kind cluster (ADR 0013).
-    if issuer == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
+    if tls == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
         raise DeploymentProfileError(
-            f"{source}: spec.access.issuer 'none' (plain HTTP) requires provider 'local' "
+            f"{source}: spec.access.tls 'none' (plain HTTP) requires provider 'local' "
             "and a base_domain ending in '.localhost'"
         )
-    return AccessSpec(base_domain=base_domain, issuer=issuer)
+    # The customer's edge terminates HTTPS for a public name; nothing upstream can do that for *.localhost.
+    if tls == "external" and base_domain.endswith(".localhost"):
+        raise DeploymentProfileError(
+            f"{source}: spec.access.tls 'external' needs a public base_domain; "
+            f"'{base_domain}' ends in '.localhost', where no upstream proxy can terminate TLS"
+        )
+    return AccessSpec(base_domain=base_domain, tls=tls)
 
 
 def _known_roles(*, where: str, distribution_root: Path | None) -> list[str]:

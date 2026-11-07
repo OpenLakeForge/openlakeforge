@@ -78,7 +78,7 @@ def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
 def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """`spec.access` as the local root's inputs; absent, the root deploys no ingress."""
     access = config.context.topology.access
-    return {} if access is None else {"access_base_domain": access.base_domain, "access_issuer": access.issuer}
+    return {} if access is None else {"access_base_domain": access.base_domain, "access_tls": access.tls}
 
 
 def source_egress_variables(config: LocalDeploymentConfig) -> dict[str, str]:

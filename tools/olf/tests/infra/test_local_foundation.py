@@ -323,12 +323,12 @@ def test_foundation_down_force_skips_namespace_discovery_entirely(tmp_path: Path
 def test_foundation_up_rejects_an_issuer_the_local_provider_does_not_ship(tmp_path: Path) -> None:
     default = DeploymentContext.local(repo_root=tmp_path).topology
     context = DeploymentContext.local(
-        repo_root=tmp_path, topology=dataclasses.replace(default, access=AccessSpec(issuer="letsencrypt"))
+        repo_root=tmp_path, topology=dataclasses.replace(default, access=AccessSpec(tls="letsencrypt"))
     )
     config = LocalDeploymentConfig.from_environment({}, context=context)
     runner = RecordingRunner(_ok())
 
-    with pytest.raises(DeploymentPreconditionError, match="ships only the 'local-ca' issuer"):
+    with pytest.raises(DeploymentPreconditionError, match="implements only 'local-ca'"):
         foundation.foundation_up(config, _toolkit_with_runner(runner), env={})
 
     assert not any(c.argv[0] == "terraform" for c in runner.calls)

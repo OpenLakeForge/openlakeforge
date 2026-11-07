@@ -65,8 +65,8 @@ def resolve_instance(profile_file: str) -> Instance:
         )
     if identity is None:
         return Instance(access.base_domain, "", "")  # authentication is off: platform commands run anonymously
-    # access.issuer 'none' turns off route TLS only; identity decides whether sign-in exists.
-    scheme = "http" if access.issuer == "none" else "https"
+    # access.tls 'none' turns off route TLS only; identity decides whether sign-in exists.
+    scheme = "http" if access.tls == "none" else "https"
     issuer = identity.issuer_url if identity.issuer == "external" else f"{scheme}://auth.{access.base_domain}"
     assert issuer is not None  # validated: issuer 'external' requires issuer_url
     client_id = (identity.client_ids or {}).get(CLI_CLIENT, CLI_CLIENT)

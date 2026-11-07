@@ -230,14 +230,14 @@ variable "access_base_domain" {
   default     = null
 }
 
-variable "access_issuer" {
-  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` (the local default) serves every route over plain HTTP: no route certificates and no browser-facing CA. `local-ca` terminates TLS at Traefik with the local CA. Trino's own certificate (ADR 0016) needs cert-manager either way."
+variable "access_tls" {
+  description = "Deployment Profile spec.access.tls (ADR 0013). `none` (the local default) serves every route over plain HTTP: no route certificates and no browser-facing CA. `local-ca` terminates TLS at Traefik with the local CA. Trino's own certificate (ADR 0016) needs cert-manager either way."
   type        = string
   default     = "none"
 
   validation {
-    condition     = contains(["local-ca", "none"], var.access_issuer)
-    error_message = "The local provider ships the local-ca issuer and, for plain HTTP on *.localhost, none; set spec.access.issuer to one of them."
+    condition     = contains(["local-ca", "none"], var.access_tls)
+    error_message = "The local provider implements tls local-ca and, for plain HTTP on *.localhost, none; external arrives with #990."
   }
 }
 

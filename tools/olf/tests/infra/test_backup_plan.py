@@ -126,7 +126,7 @@ def test_trino_tls_alone_does_not_back_up_the_disposable_ca() -> None:
 def test_plain_http_routes_do_not_back_up_the_ca_and_https_routes_do() -> None:
     contracts = full_contracts()
     for issuer, backed_up in (("none", False), ("local-ca", True)):
-        access = {**contracts.shared.values["access"], "issuer": issuer}
+        access = {**contracts.shared.values["access"], "tls": issuer}
         shared = replace(contracts.shared, values={**contracts.shared.values, "access": access})
         plan = plan_from_contract(replace(contracts, shared=shared), shared_namespace="olf-system")
         assert ("local-ca" in {secret.name for secret in plan.secrets}) is backed_up, issuer

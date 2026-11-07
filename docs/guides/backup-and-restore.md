@@ -13,7 +13,7 @@ the same release. The commands cover the local provider only.
 | `postgres/<database>.dump` | A `pg_dump -Fc` archive of each database: `polaris` first, then each stage's `dagster_<stage>`, `superset_<stage>` (analytics on), and `openmetadata_db` (governance on) and `dex` (Dex on). |
 | `objects/<bucket>/<key>` | Every object of each stage's Bronze, Silver and Gold buckets and of the ops bucket, which holds the project revisions and their `ACTIVE.json` pointers. |
 | `objects/<bucket>.inventory.json` | The key and size of each object in the bucket. |
-| `secrets.enc` | The Secrets the databases depend on (Polaris principals, Superset, OpenMetadata, Dex and the platform API's service users, the GitHub sign-in Secret when `spec.identity.github` is set) and, with `spec.access.issuer: local-ca`, `local-ca`, encrypted under your passphrase. |
+| `secrets.enc` | The Secrets the databases depend on (Polaris principals, Superset, OpenMetadata, Dex and the platform API's service users, the GitHub sign-in Secret when `spec.identity.github` is set) and, with `spec.access.tls: local-ca`, `local-ca`, encrypted under your passphrase. |
 | `manifest.json`, `SHA256SUMS` | The release, the SHA-256 of `openlakeforge.yaml`, the stages, and the name of everything above. No Secret value. |
 
 It does not hold `openlakeforge.yaml` and `lakehouse_code/` (keep them in git),
@@ -143,7 +143,7 @@ replaces everything and remembers each replica count.
 ### The local CA
 
 A backup holds `local-ca` only when the routes serve HTTPS with it
-(`spec.access.issuer: local-ca`), because browsers trust that CA. A new cluster
+(`spec.access.tls: local-ca`), because browsers trust that CA. A new cluster
 mints a CA of its own, and restore puts the backed-up one back, so a machine
 that trusted the old cluster's CA trusts the restored one again. If you trusted
 the new cluster's CA before the restore, trust the current one:
@@ -152,7 +152,7 @@ the new cluster's CA before the restore, trust the current one:
 olf infra access trust
 ```
 
-With the default plain-HTTP routes (`issuer: none`) the CA signs only
+With the default plain-HTTP routes (`tls: none`) the CA signs only
 in-cluster certificates, such as Trino's (ADR 0016), and nothing outside the
 cluster trusts it. The pods mount it by path, and no database holds it, so it
 is disposable: the backup leaves it out, and a restore keeps the CA the
