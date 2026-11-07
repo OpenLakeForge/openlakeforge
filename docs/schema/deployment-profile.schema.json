@@ -42,7 +42,7 @@
         "query": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The shared Trino. Only `small` has a tested backend; `medium` and `large` are rejected until one lands (#324).",
+          "description": "The default Trino size for every stage; stages.<stage>.query.size overrides it. Only `small` has a tested backend; `medium` and `large` are rejected until one lands (#324).",
           "properties": {"size": {"enum": ["small"], "default": "small"}}
         },
         "storage": {
@@ -197,6 +197,12 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {"type": "boolean"},
+        "query": {
+          "description": "This stage's Trino size; overrides spec.query.size. Same values as spec.query.size.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"size": {"enum": ["small"]}}
+        },
         "capabilities": {
           "type": "object",
           "additionalProperties": false,

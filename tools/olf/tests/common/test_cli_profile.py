@@ -94,7 +94,8 @@ def test_profile_resolve_text_output_lists_every_stage(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "dev: enabled=True" in result.output
     assert "prod: enabled=False" in result.output
-    assert "sizes: query=small storage=small" in result.output
+    assert "sizes: storage=small" in result.output
+    assert "dev: enabled=True analytics=False governance=False query=small" in result.output
 
 
 def test_profile_resolve_fails_closed_for_an_invalid_profile(tmp_path: Path) -> None:
