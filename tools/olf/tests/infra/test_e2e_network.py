@@ -24,7 +24,7 @@ def test_every_protected_backend_has_a_port() -> None:
     assert {workload: workload_ports(FLOWS, workload) for workload in PROTECTED} == {
         "postgresql": [5432],
         "polaris": [8181],
-        "trino": [8080],
+        "trino": [8080, 8443],
         "openmetadata": [8585],
         "dex": [5556],
     }

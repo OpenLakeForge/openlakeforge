@@ -1,18 +1,27 @@
-# ADR 0016: Trino workload authentication — password file on the pod network
+# ADR 0016: Trino workload authentication — password file over HTTPS
 
 ## Status
 
-Decided and **applied on the local root**: `trino_workload_authentication` has two
-levels, `off` and `password`, and defaults to `password` when the profile has
-`spec.access`. The credential Job in `modules/query/trino` creates the principal
-Secrets, `trino-password-file` and `trino-internal-secret` and replicates each
-stage's principal; dbt run pods, `olf infra query`, `olf e2e`, Superset and the
-OpenMetadata crawl each read their own credential from a Secret. Traffic to Trino
-is plain HTTP on the pod network: the HTTPS listener, serving certificate and
-Traefik re-encryption this ADR first described were removed (History). AWS and
-Azure remain unauthenticated. What binds is the selection, the principal mapping
-and the transport below. The HTTP configuration has not been run end to end; see
-"Proof".
+Decided, proven in isolation, and **migrated on the local root**: step 4 (the
+`password` default and the isolation gate) is done (#471). AWS and Azure remain
+unauthenticated. Built: the
+credential Job in `modules/query/trino` creates the principal Secrets,
+`trino-password-file` and `trino-internal-secret` and replicates each stage's
+principal. The switch `trino_workload_authentication` has three levels, `off`
+(nothing differs from before), `tls` (the module issues the
+serving certificate and adds an HTTPS listener beside the HTTP one; dbt run
+pods, `olf e2e` and Superset use it, sending only the user name: migration steps 2-3),
+and `password` (the local default; the HTTP listener is replaced, `PASSWORD` authentication and the
+`principals` rules turn on, and Traefik gets a verified HTTPS transport to
+Trino: step 4). The OpenMetadata Trino crawl is an OLF-owned Job (its
+server-created ingestion pods cannot receive the CA) that verifies the HTTPS
+listener at `tls`. At `password` every caller reads its own credential from a
+Secret (step 4, clients: below), and the switch defaults to `password` in the
+local root when the profile has `spec.access`, which publishes the CA ConfigMap
+callers verify against; without it the default stays `off`. `olf e2e` runs the
+isolation probes below. What binds is
+the selection, the principal mapping and the migration order. The local root authenticates by default; AWS and Azure serve Trino
+unauthenticated, and the row in `docs/technical-debt.md` stays open for them.
 
 ## Context
 
@@ -28,21 +37,10 @@ human OAuth2 login for the Trino UI.
 
 ## Decision
 
-**Trino `PASSWORD` authentication with the `file` authenticator, on the HTTP
+**Trino `PASSWORD` authentication with the `file` authenticator, on an HTTPS
 listener, with a `principals` rule binding each verified principal to exactly
 its own user.** One password per principal, created in-cluster. The username is
 a claim; the password is the proof.
-
-**Why no TLS.** Trino refuses `PASSWORD` over an insecure request unless told
-otherwise, so the first design served HTTPS: a cert-manager `Certificate`, a
-local CA, a keystore that Trino does not reload on renewal, a Traefik transport
-and a CA ConfigMap in every namespace. That machinery served one hop on the
-pod network of a single-node kind cluster, and every operation on the cluster
-(Secret refresh, backup, renewal) had to account for it. The pod network is the
-trust boundary instead (ADR 0017 limits which pods reach port 8080), and the
-cost is accepted: a password crosses it in cleartext, so a workload that can
-observe pod traffic reads the password of the stage it observes. A cloud root
-that serves Trino to a shared network must revisit this.
 
 ### Options
 
@@ -77,7 +75,8 @@ and was not run; the client capabilities above and the password path were.
 
 `principals` rules in `rules.json` list each principal with the one user it may
 assume and end with a deny-all rule; a person's e-mail principal may become only
-itself (`principal_to_user`). Trino then answers: no credential 401,
+itself (`principal_to_user`). Trino then answers: no credential on
+HTTPS 401, any query on an HTTP listener 403 (the module has none, see k2),
 wrong password 401, valid password with an `X-Trino-User` outside the principal's list "Principal X cannot become
 user Y" before any catalog rule, and only then the catalog and table rules for
 the resulting user. Callers of one stage share its credential (the
@@ -103,16 +102,16 @@ bcrypt). A stage namespace never receives another stage's Secret. Chart wiring:
 `auth.passwordAuthSecret: trino-password-file`,
 `server.config.authenticationType: PASSWORD`, `server.config.https.enabled`.
 
-### Transport and trust
+### TLS and trust
 
 | Piece | Decision |
 | --- | --- |
-| Listener | HTTP on 8080 only. The module sets `http-server.authentication.allow-insecure-over-http=true`; the property is in the pinned Trino 480 (`SecurityConfig` in the server jar) and its documentation says it exists for testing. Without it Trino answers a password with 403 on every in-cluster request |
-| Forwarded headers | `http-server.process-forwarded=true` stays, since the headers Traefik adds are otherwise refused with `406`. With insecure authentication allowed, a spoofed `X-Forwarded-Proto` downgrades nothing |
-| Client libraries | They refuse a password over HTTP on their own. The `trino` Python client raises `TrinoAuthError` without `allow_insecure_auth=True` from 0.339 (checked: absent in 0.336 to 0.338, present in 0.339 and 0.340). dbt-trino 1.10.2 pins 0.338, which has no guard. Superset's image installs `trino>=0.336,<1`, so it takes the newest client; the `openmetadata-ingestion` package declares `trino[sqlalchemy]` with no bound, and the version inside the pinned image was not inspected. Both pass the opt-in, which an older client without the keyword would reject. The Trino CLI is no longer used to authenticate: whether it sends a password over HTTP was not checked |
-| Probes | The chart's readiness, startup and liveness probes use the HTTP port, so the liveness workaround of the HTTPS design is gone and a hung coordinator is restarted again |
-| Ingress hop | Traefik reaches Trino on 8080 like any backend; no `serversTransport` |
-| CA | Trino mounts ConfigMap `olf-local-ca` (`/etc/trino/ca/ca.crt`) only when the ingress is HTTPS (`spec.access.issuer` is not `none`), to trust Dex's public URL for the Web UI sign-in and the signing-key fetch. Nothing else in the cluster is encrypted, so there is no other CA consumer on this path |
+| Certificate | cert-manager `Certificate` from the `local-ca` ClusterIssuer (ADR 0013), SANs `trino`, `trino.olf-system`, `trino.olf-system.svc`, the cluster-local FQDN and `localhost` (the in-pod CLI), PKCS8 key |
+| Keystore | Trino reads a PEM file of the PKCS8 key then the certificate chain. The `Certificate` asks cert-manager for `CombinedPEM` (key `tls-combined.pem`, a GA output format in the pinned v1.21.2: no feature gate); the Secret is mounted as a directory at `/etc/trino/tls`. Case k1 serves from a file in that layout. **Not followed on renewal**: with the file replaced by the symlink swap a Secret volume uses, the served certificate was unchanged 90 seconds later (run by hand, not in the script), so renewal needs a coordinator restart; the certificate lasts a year (`renewBefore` 30 days) |
+| Workload trust | callers use `trino.olf-system.svc.cluster.local:8443` and mount ConfigMap `olf-local-ca` (`ca.crt`, already in `olf-system` and every stage namespace, ADR 0013 decision 8) |
+| HTTP port | **Disabled** (`http-server.http.enabled=false`) when authentication is on, so no cleartext listener exists (k2). Without that, the HTTP port refuses a password only until a pod spoofs `X-Forwarded-Proto: https` (k0). The server then reaches itself at `https://localhost:8443` (a name in the certificate) with the CA as its internal truststore, `node.internal-address=localhost` and `internal-communication.https.required=true`; without those the node's calls to itself fail the handshake on its pod IP, which the certificate cannot name. That is single-node only, as local is (`workers: 0`) |
+| Probes | The image's `health-check`, which the chart runs for readiness and startup, uses HTTPS once HTTP is disabled, and `GET /v1/info` on HTTPS needs no credential (h2). The chart's **liveness** probe is hardwired to the named HTTP port and takes only timings, so with HTTP off it can only fail; the module sets it to once an hour with 1000 failures, which makes it inert. A hung coordinator is therefore pulled from service by readiness but not restarted. A chart that lets the liveness probe be replaced would restore it |
+| Ingress hop | Traefik re-encrypts to Trino's HTTPS port and verifies it against the local CA. `http-server.process-forwarded=true` stays, since the forwarded headers Traefik adds are otherwise refused with `406`; with no HTTP listener a spoofed `X-Forwarded-Proto` has nothing to downgrade (k0 against k2). The Trino Service carries `traefik.ingress.kubernetes.io/service.serversscheme: https` and `...service.serverstransport: trino@file`; the transport is in Traefik's file provider with `rootCAs` and `serverName` (the Service FQDN), and the CA comes from a Secret that cert-manager issues for that purpose (`trino-ca-bundle`) so that Traefik does not mount Trino's private key. Cases t1 and t2 run the pinned Traefik image with that transport against the proof server; the Kubernetes annotations that select it were not run. The Web UI sign-in is below (it is `web-ui.authentication.type`, not an addition to `PASSWORD`) |
 
 ### Web UI sign-in (human OAuth2)
 
@@ -128,7 +127,7 @@ Trino 480 (docs: <https://trino.io/docs/480/security/oauth2.html>,
 | Issuer reachability | Trino loads the issuer's metadata at startup and fails after 30 seconds, and `https://auth.<base_domain>` is served by Traefik, which is created after Trino (it takes Trino's backend transport). So the module turns discovery off and sets `auth-url`, `token-url`, `jwks-url` from Dex's fixed paths (`/auth`, `/token`, `/keys`): **Dex only**; an `issuer: external` issuer needs discovery and an egress flow, and is not wired. Trino reaches Dex by the public URL through the CoreDNS rewrite (flow F4) and trusts the local CA through `oauth2-jwk.http-client.trust-store-path` (the file already mounted for the internal truststore) |
 | Principal | `principal-field=email` with `scopes=openid,email` (Dex adds `email` to the token only when asked; Trino requires the field in the access token). The Trino user is the e-mail address, with the default user mapping |
 | Client secret | `TRINO_OIDC_CLIENT_SECRET` from the Secret the `identity.oidc` contract names (`dex-client-trino`), read in `config.properties` as `${ENV:...}`; never in Terraform |
-| When it is on | `spec.identity` with the `github` issuer, an HTTPS route, and `trino_workload_authentication` `password`. Off otherwise, so authentication-off mode (#421) is unchanged |
+| When it is on | `spec.identity` with the `github` issuer, an HTTPS route, and `trino_workload_authentication` `tls` or `password`. Off otherwise, so authentication-off mode (#421) is unchanged |
 
 A signed-in person is user `<email>`, to which the catalog rules give no
 catalog: the sign-in restricts who opens the UI, not what a person may query,
@@ -138,12 +137,12 @@ query submitter. Data access for people is #179. Rendered config is tested in
 
 ### Consumer configuration
 
-| Caller | Configuration |
+| Caller | Change in the migration |
 | --- | --- |
-| Superset (per stage) | `olf infra report import` writes `trino://<principal>:XXXXXXXXXX@trino.olf-system.svc.cluster.local:8080/lakehouse_<stage>` with `engine_params.connect_args.allow_insecure_auth: true`; it reads the password from `trino-credential` through RBAC and sends it only in the import request's `passwords` field. The `XXXXXXXXXX` placeholder is Superset's own: without it `set_sqlalchemy_uri` overwrites the imported password. Superset stores the password encrypted in its metadata DB; it is in neither the zip nor the URI. The opt-in rides only with a credential, and export strips it again. The connection uuid is unchanged |
-| dbt in Dagster run pods | `openlakeforge_runtime/dbt/profiles/*.yml`: `method: ldap`, `password: env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD')` from a `secretKeyRef` on `trino-credential`, `http_scheme: http`, FQDN host, port 8080. `impersonation_user` is there for #179 |
-| OpenMetadata | the metadata crawl is the OLF-owned Job `openmetadata-trino-ingestion` (`olf infra openmetadata deploy-metadata`; pinned `ingestion-base` image, `metadata ingest`), not the OpenMetadata pipeline client, whose pods accept no volumes in 1.13.6 and so cannot read a Secret. The Job's config carries `authType: {password}` (from `trino-credential-openmetadata`) and `connectionArguments.allow_insecure_auth: true` when the query contract names a credential; the service the bootstrap registers carries no password |
-| `olf infra query`, `olf e2e` | `olf.infra.trino.run_sql`: a `kubectl port-forward` to `svc/trino` and the shared `TrinoStatementClient` with HTTP Basic authentication as the stage principal, the password read from its Secret and never on a command line. `X-Trino-User` carries the claimed user, apart from the principal, for the isolation probes. The session ignores `HTTP_PROXY` and friends, so a workstation proxy never sees the password, and the SQL is split on `;` outside quotes and comments because the endpoint takes one statement at a time; the statements share one `TrinoSession`, so `USE`, `SET SESSION`, a transaction and `PREPARE`d statements carry over as they did in the CLI |
+| Superset (per stage) | `olf infra report import` writes `trino://<principal>:XXXXXXXXXX@trino.olf-system.svc.cluster.local:8443/lakehouse_<stage>` and the CA as `server_cert`; it reads the password from `trino-credential` through RBAC and sends it only in the import request's `passwords` field. The `XXXXXXXXXX` placeholder is Superset's own: without it `set_sqlalchemy_uri` overwrites the imported password. Superset stores the password encrypted in its metadata DB; it is in neither the zip nor the URI. The connection uuid is unchanged |
+| dbt in Dagster run pods | `openlakeforge_runtime/dbt/profiles/*.yml`: `method: ldap`, `password: env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD')` from a `secretKeyRef` on `trino-credential`, `cert:` the mounted CA, FQDN host, port 8443. `impersonation_user` is there for #179 |
+| OpenMetadata | the metadata crawl is the OLF-owned Job `openmetadata-trino-ingestion` (`olf infra openmetadata deploy-metadata`; pinned `ingestion-base` image, `metadata ingest`), which mounts `olf-local-ca` and sets `verify`, not the OpenMetadata pipeline client, whose pods accept no volumes in 1.13.6. The Job's config carries `authType: {password}` (from `trino-credential-openmetadata`) when the query contract names a credential; the service the bootstrap registers carries no password |
+| `olf e2e` | the CLI in the coordinator pod: `--server https://localhost:8443 --truststore-path <CA> --user <principal>`, password in `TRINO_PASSWORD`, never on a command line. `_isolation.py` gains the direct-request cases below |
 
 ### Rotation
 
@@ -156,15 +155,16 @@ see 401. A zero-downtime overlap was not exercised.
 
 ### Migration and recovery
 
-An unauthenticated Trino refuses a password, so callers cannot be given
-credentials first. Order, for a deployment that ran without authentication:
+An unauthenticated Trino refuses a password even over HTTPS (case 0c), so
+callers cannot be given credentials first. Order:
 
 | Step | Phase | Effect on callers |
 | --- | --- | --- |
-| 1. Contract carries the credential reference | platform | none |
-| 2. Job creates and replicates credentials | platform | none |
-| 3. Cutover: enable `PASSWORD` and `principals`, ship the passwords in the same deploy | platform, then artifacts | Trino already restarts (`Recreate`); callers fail until their password lands, in-flight runs retry |
-| 4. `olf e2e` runs the isolation cases, an unattended pipeline and a dashboard query | e2e | none |
+| 1. Contract carries the credential reference, scheme and CA | platform | none |
+| 2. Job creates and replicates credentials; Trino gets the certificate and HTTPS listener, authentication still off | platform | none |
+| 3. Callers move to HTTPS and the CA, still sending only the user name (accepted, case 0b). OpenMetadata's Trino ingestion moves by becoming an OLF-owned Job (consumer table) | platform, artifacts | none; proves trust from every caller |
+| 4. Cutover: enable `PASSWORD` and `principals`, ship the passwords in the same deploy | platform, then artifacts | Trino already restarts (`Recreate`); callers fail until their password lands, in-flight runs retry |
+| 5. `olf e2e` runs the isolation cases, an unattended pipeline and a dashboard query | e2e | none |
 
 Recovery is the inverse deploy (authentication off, callers back to the user
 name); a server-only toggle does not work, because an unauthenticated server
@@ -175,12 +175,21 @@ deleted `trino-password-file` rebuilt; an issuer outage changes nothing.
 
 ### Migration checklist
 
-- Cloud roots: AWS and Azure expose Trino without authentication. Applying
-  this there needs a decision on the transport (the pod network is the trust
-  boundary only on the single-node local cluster), so the row in
-  `docs/technical-debt.md` stays open for them.
+Found in review; each was to be settled before step 4. For the local root
+step 4 is done (#471); the cloud-roots item below stays open for AWS and Azure.
+
+- Cloud roots: only the local root has cert-manager and `olf-local-ca` (ADR
+  0013 decision 8), and AWS and Azure expose Trino over HTTP; define the CA and
+  certificate there, or a provider-neutral trust input in the contract.
 - `infra/helm/values/local/trino.yaml` sets `http-server.process-forwarded=true`
-  in all three roots; the password level replaces the list and keeps it.
+  in all three roots, which the proof server omits. **Settled for the local
+  root**: with the HTTP listener on, a pod can send `X-Forwarded-Proto: https`
+  to port 8080 and have a password accepted over plain HTTP (k0), so the module
+  disables the HTTP listener and keeps `process-forwarded` for Traefik's
+  re-encrypted requests (k2, k3, t1). `olf e2e`'s perimeter check that a role
+  granted `query` reaches the route (`check_role_decisions`, status below 400)
+  is met by the Web UI sign-in redirect (below), which the caller
+  migration adds; the route itself no longer fails at the transport.
 - OpenMetadata stores the Trino password encrypted with its Fernet key. Done:
   a per-deployment `openmetadata-fernet-key` Secret, generated in-cluster and
   never in Terraform state, replaces the public upstream default.
@@ -208,21 +217,6 @@ catalog and is refused the people catalogs; a token cannot act as another user,
 use a workload catalog, or pass with another client's audience (401).
 
 ## Proof
-
-> [!WARNING]
-> The cases below were run on 2026-10-13 and 2026-10-14 against the **HTTPS
-> configuration this ADR used to specify**. The deployed configuration is now
-> `PASSWORD` over HTTP with `allow-insecure-over-http`, and it has not been run:
-> the password-file, `principals` and catalog-rule cases (0a, a1 to g3, o1, o2)
-> test the same rules and still describe them, but the cases that name HTTPS,
-> the keystore, a Traefik transport or the CLI over TLS (0b, 0c, c1 to c4, h2,
-> k0 to k4, t1, t2) and the client rows after the table do not describe what
-> deploys. What backs the new configuration is the property's presence in
-> the pinned server jar, the client versions checked above, and the unit tests
-> of the rendered Terraform and of `olf.infra.trino`. The script still starts
-> its server with TLS; an HTTP variant, and `olf infra deploy` plus
-> `olf infra e2e run --env local` (whose isolation probes cover the same
-> refusals), are what to run before trusting it.
 
 `python3 docs/testing/trino_workload_auth_proof.py --clients` starts the
 pinned image in one Docker container, no cluster, `tpch` standing in for the
@@ -260,7 +254,7 @@ k0-k4, h2, t1, t2 and o1-o2 were added on 2026-10-14 and run without `--clients`
 rules the script serves now include the `openmetadata` principal and the
 unconditional `tables` rule, as the module renders them.
 
-Clients, against the same HTTPS server, each returned 25 (dbt: `Connection
+Clients, against the same secured server, each returned 25 (dbt: `Connection
 test: [OK connection ok]`): the `trino` 0.340 driver via a SQLAlchemy
 `trino://<principal>:<password>@host:8443/...` URI with `http_scheme=https` and
 `verify=<CA>` in the Superset image; the OpenMetadata 1.13.6 connector with
@@ -281,13 +275,6 @@ platform.
   OpenMetadata's metadata databases (encrypted with their own keys). Anything
   that can read a stage's `trino-credential` can use it; containing that is
   RBAC and NetworkPolicy (#46), not this ADR.
-- A password crosses the pod network in cleartext. Which pods may reach port
-  8080 is ADR 0017's decision (F10, F11, F36); a pod that can read another
-  pod's traffic on the node reads that stage's password. Moving a cloud root
-  to this design needs the same analysis, not the local cluster's single node.
-- Nothing in the cluster renews a certificate for Trino any more: the coordinator
-  no longer restarts for it, its probes are the chart's, and the local CA is
-  neither part of Trino's backup nor of its Secret refresh.
 - PBKDF2-SHA1 is weaker than bcrypt against an offline attack on `password.db`;
   accepted because the passwords are 32 random characters.
 
@@ -364,14 +351,12 @@ Per-user identity: Trino fetches the JWT keys for people's tokens from Dex's
 Service rather than through the ingress. The first fresh deployment with people's
 access never finished: Traefik waits for Trino's route, and Trino crash-looped on
 an unresolvable `auth.<base_domain>` while fetching the keys at startup.
-
-In-cluster TLS removed (#932): the `tls` level, the Trino serving certificate
-and its `Certificate` chart, the HTTPS listener, the Traefik `serversTransport`
-and the inert liveness probe are gone, and `PASSWORD` is served on the HTTP
-listener with `allow-insecure-over-http`. The query contract lost `tls_port` and
-`ca_configmap_name`; `credential_secret_name` stands alone. Clients that
-refuse a password over HTTP are handled per caller (Transport and trust):
-Superset and the OpenMetadata crawl pass `allow_insecure_auth`, and `olf infra
-query` and `olf e2e` speak Trino's REST protocol over a port-forward in place of
-the in-pod CLI. The Web UI sign-in no longer implies a coordinator listener or
-certificate; it needs only the HTTPS ingress and the `olf-local-ca` mount.
+An attempt (#932) to serve `PASSWORD` on the HTTP listener with
+`http-server.authentication.allow-insecure-over-http=true` was reverted: Trino
+then skips its authenticators on a request it does not consider secure, so a
+request with no credential was accepted as the `X-Trino-User` it named and one
+with a password was refused with `401 Password not allowed for insecure
+authentication` (observed in the coordinator of the full local e2e). Password
+authentication holds only on the HTTPS listener, or on a request Traefik marks
+`X-Forwarded-Proto: https`; the HTTPS-only listener above is therefore the
+decision, not a preference.

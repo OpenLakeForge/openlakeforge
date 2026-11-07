@@ -159,14 +159,9 @@ variable "trino_chart_package_path" {
 }
 
 variable "trino_workload_authentication" {
-  description = "off or password (ADR 0016): password requires a verified password from every caller, sent over Trino's HTTP listener. Null selects password when the profile has spec.access and off otherwise."
+  description = "off, tls or password (ADR 0016): tls adds Trino's HTTPS listener while callers stay unauthenticated; password requires a verified password from every caller. Null selects password when the profile has spec.access (it publishes the CA ConfigMap callers verify against) and off otherwise."
   type        = string
   default     = null
-
-  validation {
-    condition     = var.trino_workload_authentication == null || contains(["off", "password"], coalesce(var.trino_workload_authentication, "off"))
-    error_message = "trino_workload_authentication must be off or password."
-  }
 }
 
 variable "dagster_chart_package_path" {
@@ -230,9 +225,9 @@ variable "access_base_domain" {
 }
 
 variable "access_issuer" {
-  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` serves every route over plain HTTP: no cert-manager, no route certificates and no CA. `local-ca` adds all three."
+  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` serves every route over plain HTTP: no route certificates and no browser-facing CA."
   type        = string
-  default     = "none"
+  default     = "local-ca"
 
   validation {
     condition     = contains(["local-ca", "none"], var.access_issuer)

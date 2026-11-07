@@ -748,13 +748,12 @@ def platform_up(
 
     # Neither Helm nor Terraform waits on a Certificate's status, so a local CA
     # that cannot sign would otherwise surface only when the first route fails.
-    # A quickstart (no spec.access) and plain-HTTP routes (issuer none) deploy no local CA at all.
-    access = config.context.topology.access
-    if access is None:
+    # A quickstart (no spec.access) deploys no local CA at all.
+    if config.context.topology.access is None:
         # Dropping spec.access destroys the in-cluster resolution module, which
         # deletes the whole Corefile key; CoreDNS would fail on its next reload.
         restore_stock_corefile(config, tools, env=env)
-    elif access.issuer != "none":
+    else:
         log.step("Waiting for the local CA to issue its probe certificate...")
         tools.kubectl.wait(
             "certificate/local-ca-probe",

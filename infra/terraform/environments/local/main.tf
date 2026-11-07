@@ -241,7 +241,9 @@ module "seaweedfs" {
 
 module "cert_manager" {
   source = "../../modules/access/cert-manager"
-  count  = local.route_tls ? 1 : 0
+  # Also for Trino's internal certificate (ADR 0016), which needs an issuer
+  # even when no route is TLS-terminated.
+  count = local.access_enabled || local.trino_workload_authentication != "off" ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
@@ -286,11 +288,13 @@ module "platform_api" {
   # queries need the people catalogs, which exist only with Dex.
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.query_api_enabled
-  # Each stage's people catalog is named after the stage
-  # (modules/query/trino/people.tf). Read server-side only.
+  # Trino serves in-cluster clients HTTPS only once password authentication is
+  # on (ADR 0016), so the URL names the TLS port and a name in its certificate;
+  # the caller verifies it against ca_file. Each stage's people catalog is named
+  # after the stage (modules/query/trino/people.tf). Read server-side only.
   query_endpoints = {
     for stage in keys(module.polaris.people_credentials_secret_names) : stage => {
-      statement_url = "http://${module.trino.service_name}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${module.trino.http_port}/v1/statement"
+      statement_url = "https://${module.trino.service_name}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${module.trino.tls_port}/v1/statement"
       catalog       = stage
     }
     if local.query_api_enabled
@@ -343,6 +347,7 @@ module "traefik" {
   cluster_issuer_name = local.route_tls ? module.cert_manager[0].cluster_issuer_name : null
   group_middlewares   = local.identity_enabled ? module.perimeter[0].group_middlewares : {}
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
+  backend_transports  = module.trino.traefik_backends
 }
 
 # ADR 0014 seam 3. The proxy discovers the issuer at its public URL when it
@@ -385,7 +390,6 @@ module "in_cluster_resolution" {
 
   namespace        = kubernetes_namespace_v1.shared.metadata[0].name
   base_domain      = local.base_domain
-  publish_ca       = local.route_tls
   trust_namespaces = values(local.stage_namespaces)
   trust_namespace_uids = concat(
     [kubernetes_namespace_v1.shared.metadata[0].uid],
@@ -404,11 +408,12 @@ module "dex" {
   source = "../../modules/identity/dex"
   count  = local.identity_dex ? 1 : 0
 
-  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  hostname            = "auth.${local.base_domain}"
-  scheme              = local.route_scheme
-  github              = var.identity_github
-  ca_configmap_name   = local.ca_configmap_name
+  namespace = kubernetes_namespace_v1.shared.metadata[0].name
+  hostname  = "auth.${local.base_domain}"
+  scheme    = local.route_scheme
+  github    = var.identity_github
+  # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
+  ca_configmap_name   = "olf-local-ca"
   clients             = local.identity_client_redirects
   public_clients      = local.identity_public_clients
   trusted_peers       = { for name in local.identity_public_clients : name => ["perimeter"] }
@@ -491,8 +496,7 @@ module "trino" {
 
   stage_namespaces        = local.stage_namespaces
   workload_authentication = local.trino_workload_authentication
-  # Published by in_cluster_resolution, which module.polaris below waits for.
-  ca_configmap_name = local.ca_configmap_name
+  tls_issuer_name         = try(module.cert_manager[0].cluster_issuer_name, null)
   # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
   web_ui_fixed_user = local.route_tls ? null : "olf-web"
@@ -547,7 +551,7 @@ module "openmetadata" {
     client_id         = local.identity_oidc.clients.openmetadata.client_id
     secret_ref        = local.identity_oidc.clients.openmetadata.secret_ref
     base_url          = "${local.route_scheme}://openmetadata.${local.base_domain}"
-    ca_configmap_name = local.ca_configmap_name
+    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
   }
 
   depends_on = [
@@ -573,6 +577,8 @@ module "superset" {
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
+  # The literal name, as in the query contract: see contracts.tf.
+  trino_ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   # Only with an issuer deployed (spec.identity); without one Superset keeps
   # its local login. Nothing here names an issuer product.
   bootstrap_job_image = local.bootstrap_job_image
@@ -590,7 +596,7 @@ module "superset" {
     client_id         = local.identity_oidc.clients.superset.client_id
     secret_ref        = local.identity_oidc.clients.superset.secret_ref
     secret_namespace  = kubernetes_namespace_v1.shared.metadata[0].name
-    ca_configmap_name = local.ca_configmap_name
+    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
   }
 
   depends_on = [
@@ -628,8 +634,11 @@ module "dagster" {
   query_contract = merge(local.query_contract, {
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
-    # A fixed name; the credential Job writes it to every stage namespace.
+    tls_port                   = module.trino.tls_port
+    # A fixed name like the CA ConfigMap; the credential Job writes it to every stage namespace.
     credential_secret_name = module.trino.credential_secret_name
+    # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
+    ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca"
   })
   postgresql_contract   = local.stage_metadata_database_contracts[each.key]
   code_locations        = local.orchestration_contract.code_locations

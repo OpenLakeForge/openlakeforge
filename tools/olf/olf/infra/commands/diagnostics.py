@@ -42,30 +42,12 @@ def _capture(tools: Toolkit, output: Path, name: str, argv_factory: Callable[[],
     return text
 
 
-# What the coordinator answers a password-bearing request on its HTTP port, which
-# is how Superset and the other in-cluster clients reach it. The credential is a
-# made-up one, so the reply tells a PASSWORD authenticator ("Invalid credentials")
-# from a server with none ("Password not allowed for insecure authentication")
-# without any real secret. Plain bash over /dev/tcp: the Trino image ships no
-# curl guarantee.
-_TRINO_PROBE = r"""
-probe() {
-  exec 3<>/dev/tcp/127.0.0.1/${PROBE_PORT:-8080}
-  printf 'POST /v1/statement HTTP/1.0\r\nHost: localhost\r\nX-Trino-User: probe\r\n' >&3
-  printf '%bContent-Length: 8\r\n\r\nSELECT 1' "$1" >&3
-  head -c 700 <&3
-  exec 3<&-
-  echo
-}
-echo '--- wrong password (Basic probe:wrong) ---'
-probe 'Authorization: Basic cHJvYmU6d3Jvbmc=\r\n'
-echo '--- no credential ---'
-probe ''
-echo '--- config.properties ---'
-cat /etc/trino/config.properties
-echo '--- password-authenticator.properties ---'
-cat /etc/trino/password-authenticator.properties 2>&1
-"""
+# The coordinator's rendered configuration, for the authentication and TLS
+# listeners it actually runs with. The files hold ${ENV:...} references, never
+# secret values.
+_TRINO_CONFIG = (
+    'for f in config.properties password-authenticator.properties; do echo "--- $f ---"; cat "/etc/trino/$f" 2>&1; done'
+)
 
 
 @app.command("collect")
@@ -126,6 +108,6 @@ def collect(
             logs = ["logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"]
             _capture(tools, output_dir, f"{pod}.log", partial(command, "kubectl", *context, *logs))
             if pod.startswith("trino-coordinator"):
-                exec_args = ["exec", "-n", selected_namespace, pod, "--", "bash", "-c", _TRINO_PROBE]
-                _capture(tools, output_dir, "trino-probe.txt", partial(command, "kubectl", *context, *exec_args))
+                exec_args = ["exec", "-n", selected_namespace, pod, "--", "sh", "-c", _TRINO_CONFIG]
+                _capture(tools, output_dir, "trino-config.txt", partial(command, "kubectl", *context, *exec_args))
     typer.echo(f"Diagnostics written to {output_dir}")

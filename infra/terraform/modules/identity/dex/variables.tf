@@ -93,9 +93,4 @@ variable "ca_configmap_name" {
   description = "ConfigMap in the namespace with the public platform CA as ca.crt (olf-local-ca). Dex trusts it as rootCA for a GitHub Enterprise `github.host`; unused for github.com."
   type        = string
   default     = null
-
-  validation {
-    condition     = var.github.host == null || var.ca_configmap_name != null
-    error_message = "A GitHub Enterprise github.host makes Dex read rootCA from the published platform CA, which exists only with spec.access.issuer local-ca. Set the issuer to local-ca or use github.com."
-  }
 }

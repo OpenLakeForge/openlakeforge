@@ -61,10 +61,12 @@ def bootstrap_inputs(contracts: ProviderContracts) -> tuple[CatalogSeed, tuple[S
     # the first by name) when it is governed, else the first governed stage by name.
     canonical = governed.get(StageName.DEV) or governed[min(governed)]
     trino = canonical.query["endpoint"].removeprefix("http://").split("/", 1)[0]
+    tls_port = canonical.query.get("tls_port")
     seed = CatalogSeed(
         service="aws_glue" if canonical.catalog.get("catalog_type") == "glue" else "polaris",
         display_name=CATALOG_DISPLAY,
         trino_namespace=f"trino://{trino}",
+        trino_tls_namespace=f"trino://{trino.rsplit(':', 1)[0]}:{tls_port}" if tls_port else "",
         pipeline_service=canonical.orchestration.get("pipeline_service_name", f"dagster_{canonical.name.value}"),
         databases=tuple(stage.catalog["catalog_name"] for stage in governed.values()),
     )

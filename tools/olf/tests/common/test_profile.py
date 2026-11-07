@@ -232,7 +232,7 @@ def test_a_cloud_profile_may_declare_identity_without_access() -> None:
 def test_an_empty_access_block_asks_for_the_defaults_and_identity_may_follow() -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["access"] = {}
-    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "none")
+    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "local-ca")
     document["spec"]["identity"] = _github_identity()
     assert resolve_topology(validate_deployment_profile(document)).identity.issuer == "github"
 
@@ -828,15 +828,3 @@ def test_malformed_source_egress_is_rejected_by_the_validator_and_the_schema(sou
     with pytest.raises(DeploymentProfileError, match="source_egress"):
         validate_deployment_profile(document)
     assert _schema_errors(document, tmp_path) != []
-
-
-def test_the_local_provider_defaults_to_plain_http_and_the_clouds_keep_a_real_issuer() -> None:
-    local = _load_fixture("valid_slim_local.yaml")
-    local["spec"]["access"] = {}
-    assert resolve_topology(validate_deployment_profile(local)).access.issuer == "none"
-
-    cloud = _load_fixture("valid_slim_local.yaml")
-    cloud["spec"]["provider"] = {"type": "aws", "region": "eu-west-1"}
-    cloud["spec"]["access"] = {}
-    cloud["spec"]["identity"] = _github_identity()
-    assert resolve_topology(validate_deployment_profile(cloud)).access.issuer == "local-ca"

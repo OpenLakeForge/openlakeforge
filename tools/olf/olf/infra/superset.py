@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from openlakeforge_services import reports
-from openlakeforge_services.reports import INSECURE_AUTH_EXTRA
+from openlakeforge_services.reports import TLS_EXTRA
 from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, layers, log
@@ -41,7 +41,8 @@ class StageReportTarget:
     namespace: str
     sqlalchemy_uri: str
     schema_prefix: str
-    # Superset's per-database `extra`, set only while its Trino connection sends a password (ADR 0016).
+    # Superset's per-database `extra`: the HTTPS scheme and the CA to verify
+    # against, set only while Trino serves HTTPS (ADR 0016).
     extra: dict[str, Any] | None = None
     # Secret in `namespace` holding this stage's Trino password; empty while
     # Trino takes no password.
@@ -101,7 +102,9 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     # another stage or deployment -- the endpoint, the catalog, or the Trino
     # user whose catalog rules decide what SQL Lab on this connection can
     # read -- so none of it is trusted. Same shape `build_contract_env` uses.
-    credential_secret = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
+    tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
+    tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
+    credential_secret = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "") if tls else ""
     # Superset's own placeholder, not a secret. The import's `passwords` field
     # fills the real value, but Database.set_sqlalchemy_uri then overwrites it
     # with the URI's password unless that is the placeholder (6.1.0), so a URI
@@ -110,7 +113,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         mask=f":{SUPERSET_PASSWORD_MASK}" if credential_secret else "",
         user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
-        port=connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
+        port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
         catalog=connection["OPENLAKEFORGE_QUERY_TRINO_CATALOG"],
     )
     return StageReportTarget(
@@ -118,7 +121,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         namespace=namespace,
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
-        extra=INSECURE_AUTH_EXTRA if credential_secret else None,
+        extra=TLS_EXTRA if tls else None,
         credential_secret=credential_secret,
     )
 

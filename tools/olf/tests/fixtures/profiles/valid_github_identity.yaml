@@ -11,7 +11,7 @@ spec:
   stages:
     dev:
       enabled: true
-  access: {issuer: local-ca}
+  access: {}
   identity:
     issuer: github
     github:

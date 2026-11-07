@@ -150,12 +150,10 @@ no longer seeded; products attach their Gold tables only.
 entities and dbt models, because OpenMetadata 1.13.6 cannot auto-create them
 and dropped every Gold edge without them.
 
-2026-10-31: Trino's HTTPS listener is mapped beside its HTTP one. dbt had
+2026-10-31: Trino's HTTPS listener is mapped beside its HTTP one. dbt has
 reported its datasets under the TLS port since workload authentication;
 OpenMetadata 1.13.6 still resolved them by table name, but its main branch drops
-a dataset whose namespace is not mapped. The listener is gone since #932, so only
-the HTTP namespace is mapped; datasets already reported under the TLS port stay
-under their old name until they are re-emitted.
+a dataset whose namespace is not mapped.
 
 2026-10-28 (#533): Floe emits lineage from one Kubernetes Job per domain, with
 the endpoint in the profile the code location renders and the JWT as a Secret

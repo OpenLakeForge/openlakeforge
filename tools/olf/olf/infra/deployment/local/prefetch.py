@@ -46,16 +46,13 @@ _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
 # ponytail: the OpenMetadata server is not in the component catalog; pin it here until it is.
 _OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
 
-# Deployed only when the routes are HTTPS (spec.access.issuer is not `none`).
-_ROUTE_TLS = (
+_ALWAYS = (
+    "seaweedfs",
+    "traefik",
     "cert_manager_controller",
     "cert_manager_webhook",
     "cert_manager_cainjector",
     "cert_manager_startupapicheck",
-)
-_ALWAYS = (
-    "seaweedfs",
-    "traefik",
     "dagster_busybox",
     "postgres",
     "trino",
@@ -84,8 +81,6 @@ def selected_images(
     project_code: bool = False,
 ) -> tuple[str, ...]:
     names = list(_ALWAYS)
-    if features.route_tls:
-        names += _ROUTE_TLS
     if project_code:
         names.append("project_code")
     if features.governance_enabled:

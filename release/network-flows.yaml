@@ -82,7 +82,7 @@ flows:
   - id: F10
     from: {scope: stage}
     to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080]
+    ports: [8080, 8443] # 8443 is the contract's tls_port once workload authentication is on
     tag: V
   - id: F12
     from: {scope: stage}
@@ -147,12 +147,12 @@ flows:
   - id: F10
     from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
     to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080]
+    ports: [8080, 8443]
     tag: T # discovery through the Service address, if the CNI hairpins it
   - id: F11
     from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
     to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080]
+    ports: [8080, 8443]
     tag: T # openmetadata-trino-ingestion is the label of the OLF-owned ingestion Job (#410); the OpenMetadata pipeline client's pods are not read and are denied
   - id: F17
     from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
@@ -280,5 +280,5 @@ flows:
   - id: F36
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080] # a person's queries (query_endpoints), with that person's token
+    ports: [8443] # a person's queries (query_endpoints), over the TLS port, with that person's token
     tag: T # needs a query through the platform API on a running cluster

@@ -9,15 +9,7 @@ from openlakeforge_core import Domain, Product
 
 from olf.common import config, log
 from olf.infra import trino
-from olf.infra.e2e._shell import (
-    KUBECTL_READ_RETRY_ATTEMPTS,
-    KUBECTL_READ_RETRY_DELAY_SECONDS,
-    E2EConfig,
-    E2EError,
-    _kubectl_executable,
-    is_transient_kubectl_error,
-    kubectl,
-)
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
@@ -223,35 +215,18 @@ def trino_query(
         stage=stage or trino.stage_from_catalog(catalog),
     )
     # Only a contract that carries the credential name is at the password level; the principal
-    # Secrets exist at `off` too, but nothing there asks for them.
+    # Secrets exist at `off` and `tls` too, but nothing there asks for them.
     if not config.env("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", environ=cfg.environ):
         password = None
-    executable = _kubectl_executable() if cfg.environ is None else _kubectl_executable(cfg.environ)
-    for attempt in range(1, KUBECTL_READ_RETRY_ATTEMPTS + 1):
-        try:
-            return trino.run_sql(
-                target,
-                sql,
-                output_format="bare",
-                kubectl=executable,
-                environ=cfg.environ,
-                session_user=session_user,
-                password=password,
-            )
-        except trino.TrinoQueryError as exc:
-            if attempt == KUBECTL_READ_RETRY_ATTEMPTS or not _transient(exc):
-                raise E2EError(str(exc)) from exc
-            log.warn(f"Transient error reaching Trino (attempt {attempt}/{KUBECTL_READ_RETRY_ATTEMPTS}); retrying...")
-            time.sleep(KUBECTL_READ_RETRY_DELAY_SECONDS)
-    raise E2EError("Trino query failed.")  # pragma: no cover
-
-
-def _transient(error: Exception) -> bool:
-    """A failure of the path to Trino (the port-forward or the connection), not of the query."""
-    return is_transient_kubectl_error(error) or "could not reach trino" in str(error).lower() or (
-        "cannot reach trino" in str(error).lower()
+    elif password is None:
+        password = trino.decode_password(kubectl(cfg, trino.password_args(target), capture=True, retry_transient=True))
+    return kubectl(
+        cfg,
+        trino.exec_args(target, sql, output_format="CSV_UNQUOTED", session_user=session_user),
+        capture=True,
+        retry_transient=True,
+        input_text=None if password is None else f"{password}\n",
     )
-
 
 def parse_trino_scalar(output: str) -> str:
     values = [line.strip().replace("\r", "") for line in output.splitlines() if line.strip()]

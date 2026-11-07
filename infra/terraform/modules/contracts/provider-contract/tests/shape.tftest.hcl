@@ -130,7 +130,7 @@ run "local_adds_shared_services_and_stage_extras" {
         service_account        = "olf-dev-runtime"
         catalog_endpoint_ref   = "shared/catalog_service"
         query_catalog_name     = "lakehouse_dev"
-        query_extra            = { credential_secret_name = "trino-credential" }
+        query_extra            = { tls_port = "8443" }
         pipeline_service_name  = "dagster_dev"
         dashboard_service_name = "superset_dev"
         storage                = { implementation = "storage.s3_compatible.seaweedfs" }
@@ -162,7 +162,7 @@ run "local_adds_shared_services_and_stage_extras" {
   }
 
   assert {
-    condition     = output.provider_contracts.stages.dev.query.credential_secret_name == "trino-credential" && output.provider_contracts.stages.dev.orchestration.pipeline_service_name == "dagster_dev" && output.provider_contracts.stages.dev.reporting.dashboard_service_name == "superset_dev"
+    condition     = output.provider_contracts.stages.dev.query.tls_port == "8443" && output.provider_contracts.stages.dev.orchestration.pipeline_service_name == "dagster_dev" && output.provider_contracts.stages.dev.reporting.dashboard_service_name == "superset_dev"
     error_message = "query extras and service names reach the stage blocks"
   }
 

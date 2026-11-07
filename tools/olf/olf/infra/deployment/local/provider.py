@@ -220,8 +220,7 @@ class LocalProvider:
             kubeconfig=self.config.paths.kubeconfig_path,
             env=self.env,
             urls=urls,
-            # Only HTTPS routes have cert-manager: a quickstart has no ingress and `issuer: none` no certificates.
-            certificates=self.context.topology.access is not None and self.context.topology.access.issuer != "none",
+            certificates=self.context.topology.access is not None,  # a quickstart has no cert-manager
             # Authentication off (ADR 0014): Superset opens as Admin, but OpenMetadata has no anonymous mode.
             notes=() if self.context.topology.identity else _auth_off_notes(self.config.features.governance_enabled),
         )

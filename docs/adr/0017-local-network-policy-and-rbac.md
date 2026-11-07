@@ -178,14 +178,14 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `issuer: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
-| F4 | oauth2-proxy; the Trino coordinator (its Web UI sign-in is HTTPS routes only); Polaris; the platform API | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite; Trino's token and key requests, and Polaris's and the platform API's key requests for people's tokens ([ADR 0019](0019-data-plane-authorization-deferral.md)), to the same URL | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands; the Trino and platform API rows **T** |
+| F4 | oauth2-proxy; the Trino coordinator (8443 only: its Web UI sign-in is HTTPS routes only); Polaris; the platform API | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | issuer discovery at `https://auth.<base_domain>` through the CoreDNS rewrite; Trino's token and key requests, and Polaris's and the platform API's key requests for people's tokens ([ADR 0019](0019-data-plane-authorization-deferral.md)), to the same URL | V; Superset (stage rule) is built, OpenMetadata joins when #25 lands; the Trino and platform API rows **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
 | F8 | Trino | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
-| F10 | stage namespace | Trino | 8080 | Superset, dbt rows. `PASSWORD` authentication is served on this port ([ADR 0016](0016-trino-workload-authentication.md)), so this row is what decides which pods can reach a stage's password on the wire; kubelet probes use 8080 from the node and are unaffected | V |
-| F11 | Traefik (the Trino UI), OpenMetadata, and the OLF-owned ingestion Job and its hourly CronJob pods (`openlakeforge.io/job=openmetadata-trino-ingestion`, #410) | Trino 8080 | 8080 | OpenMetadata to Trino row | V (the Job and its label exist since #410; its pods on a cluster **T**) |
+| F10 | stage namespace | Trino | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
+| F11 | Traefik (the Trino UI), OpenMetadata, and the OLF-owned ingestion Job and its hourly CronJob pods (`openlakeforge.io/job=openmetadata-trino-ingestion`, #410) | Trino 8080, 8443 | 8080, 8443 | OpenMetadata to Trino row | V (the Job and its label exist since #410; its pods on a cluster **T**) |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
 | F13 | OpenMetadata ingestion Jobs (the hourly refresh included), the role-sync CronJob | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
 | F14 | OpenMetadata ingestion Jobs | Superset (stage) | 8088 | `superset_url` registered by `olf`'s bootstrap | V; whether ingestion runs today **T** |
@@ -206,7 +206,7 @@ port [D]).
 | F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and nothing else | T |
 | F34 | Dagster run pods (`app.kubernetes.io/component=run_worker`) of a stage whose profile declares `spec.stages.<stage>.source_egress.ports` | any address outside the pod and Service ranges | the declared ports, TCP | Bronze sources that read an external API or database (#660); their host and port are stage bindings (`olf-source-<id>` ConfigMaps) that reach the run pod only. No FQDN selector, so the ports on any address, as F28 and F30; rendered from the profile, as F23, as its own policy `olf-flows-f34` in that stage's namespace only. A stage that declares nothing gets no row | T |
 | F35 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
-| F36 | the platform API | the Trino coordinator 8080 | 8080 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), carrying that person's own token; the API holds no Trino credential. Rendered with `person_query` only | T |
+| F36 | the platform API | the Trino coordinator 8443 | 8443 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), over HTTPS, carrying that person's own token; the API holds no Trino credential. Rendered with `person_query` only | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -319,9 +319,9 @@ after every one.
 | 4 | RBAC: `resourceNames` for the Polaris and OpenMetadata bootstrap Roles, `createClusterRole: false`, `automount_service_account_token = false`, and the can-i and pin assertions | Removing a grant a chart quietly uses; the e2e is the check. E2 is the hard part |
 | 5 | The conformance e2e matrix completed, `identity-callers.md` and ADR 0014 updated to "verified", #178's "unreachable from outside" box | The slices above each add their rows; this one adds the untrusted-namespace matrix and docs |
 
-Ordering with the other v0.5 work: the OpenMetadata and Superset rows move to
-Traefik (F4) when #25 lands, as an edit to the flow file in that PR. The Trino
-rows planned to move to 8443 in the #26 cutover and stayed on 8080 (History).
+Ordering with the other v0.5 work: the Trino rows move to 8443 in the #26
+cutover, and the OpenMetadata and Superset rows to Traefik (F4) when #25 lands,
+each as an edit to the flow file in that PR.
 
 ## Not covered by #46
 
@@ -437,7 +437,8 @@ policy: the whole namespace may talk to itself, plus the file's rows.
 Additions beyond the slice list, needed so the stack keeps working: F3
 (Traefik into Dagster 80 and Superset 8088, namespace-wide) and F14 (from
 `olf-system`, Superset 8088). F7, F8, F11 and F13 have `olf-system` sources and
-land in slices 3a/3b. F10 allows 8080, the one Trino port. Still **[T]**: F9 (Floe runner and run pod
+land in slices 3a/3b. F10 allows both 8080 and 8443; the 8080 row is dropped
+with the Trino HTTP listener. Still **[T]**: F9 (Floe runner and run pod
 labels are not read, and the SeaweedFS `component=s3` label is from the chart,
 not rendered here), F14, and F20 (whether the Service address, the endpoint
 address or both reach the policy). The policy module was planned against a
@@ -466,7 +467,8 @@ their traffic is allowed at the destination by their `openlakeforge.io/job`
 label (bucket, Polaris bootstrap and replication, Polaris metastore
 bootstrap). The Postgres bootstrap Job is the exception the slice list
 flagged: its pod carries the Postgres labels, so it is selected and has its own
-egress row to Postgres (F6). Trino listens on 8080, which is allowed. Callers of Trino from `olf-system` are one row from every pod of the
+egress row to Postgres (F6). Trino listens on 8080 and 8443 and both are
+allowed. Callers of Trino from `olf-system` are one row from every pod of the
 namespace (F11), **[T]**: OpenMetadata ingestion Job pod labels are set by the
 server at runtime and are not read, so the row narrows to OpenMetadata and
 Traefik in 3b once they are. Still **[T]**: F7 (Polaris to SeaweedFS), F10
@@ -575,14 +577,10 @@ F35 added (#670): the platform API reaches each stage's Superset on 8088 for the
 report routes, signed in as its own service user, not `admin`. The stage rule is
 namespace-wide, as F32's is.
 
-F36 added (#800): the platform API reaches the Trino coordinator on 8080 to run
+F36 added (#800): the platform API reaches the Trino coordinator on 8443 to run
 and page a person's queries with that person's token. It is a row on both sides,
 the API's egress and the coordinator's ingress, as F8 is. The query signing key
 (`platform-api-query-signing-key`) is minted in `olf-system` by one Job with its
 own E1 ServiceAccount, `platform-api-query-signing-key`: it may `create` Secrets
 there and read only that one by name. Its pods do not carry the API's name label,
 so the API's workload policy does not select them.
-
-In-cluster TLS removed (#932): the Trino rows F10, F11 and F36 name 8080 only; there
-is no 8443 listener on the coordinator, and Traefik's 8443 rows (F1, F4) are the
-HTTPS routes of the `local-ca` issuer alone.
