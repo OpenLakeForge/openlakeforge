@@ -160,34 +160,28 @@
           },
           "data-engineer": {
             "dev": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             },
             "prod": {
-              "bronze": "read",
               "gold": "read",
               "silver": "read"
             },
             "uat": {
-              "bronze": "read",
               "gold": "read",
               "silver": "read"
             }
           },
           "platform-admin": {
             "dev": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             },
             "prod": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             },
             "uat": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             }

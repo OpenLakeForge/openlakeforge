@@ -47,13 +47,13 @@ grants:
 #   role below it reaches, on every stage and layer.
 data_access:
   platform-admin:
-    dev: {bronze: write, silver: write, gold: write}
-    uat: {bronze: write, silver: write, gold: write}
-    prod: {bronze: write, silver: write, gold: write}
+    dev: {silver: write, gold: write}
+    uat: {silver: write, gold: write}
+    prod: {silver: write, gold: write}
   data-engineer:
-    dev: {bronze: write, silver: write, gold: write}
-    uat: {bronze: read, silver: read, gold: read}
-    prod: {bronze: read, silver: read, gold: read}
+    dev: {silver: write, gold: write}
+    uat: {silver: read, gold: read}
+    prod: {silver: read, gold: read}
   analyst:
     dev: {gold: read}
     uat: {gold: read}
