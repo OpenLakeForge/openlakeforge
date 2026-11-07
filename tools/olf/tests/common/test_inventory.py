@@ -15,19 +15,18 @@ ROOT = Path(__file__).parents[4]
 
 def _lakehouse(product_id: str = "revenue", domain: str = "sales") -> str:
     return f"""\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
     status: planned
-products:
-  - id: {product_id}
-    domain: {domain}
-    displayName: {product_id.replace('_', ' ').title()}
-    description: {product_id} product.
-    status: planned
+    products:
+      - id: {product_id}
+        displayName: {product_id.replace('_', ' ').title()}
+        description: {product_id} product.
+        status: planned
 """
 
 
@@ -114,9 +113,8 @@ def test_governance_yml_alone_names_the_inventory(tmp_path: Path) -> None:
     (code / "bronze" / "crm").mkdir(parents=True)
     (code / "bronze" / "crm" / "source.yaml").write_text(_source(), encoding="utf-8")
     (code / "governance.yml").write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
-        "domains:\n  - {name: sales, displayName: Sales}\n"
-        "products:\n  - {id: revenue, domain: sales, displayName: Revenue}\n",
+        "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\n"
+        "domains:\n  - {name: sales, displayName: Sales, products: [{id: revenue, displayName: Revenue}]}\n",
         encoding="utf-8",
     )
     board = code / "dashboards" / "superset" / "revenue_board"
@@ -204,7 +202,7 @@ def test_inventory_accepts_domain_with_no_products(tmp_path: Path) -> None:
     lakehouse_dir.mkdir(parents=True)
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: hr
@@ -215,12 +213,11 @@ domains:
     displayName: Sales
     description: sales domain.
     status: planned
-products:
-  - id: revenue
-    domain: sales
-    displayName: Revenue
-    description: revenue product.
-    status: planned
+    products:
+      - id: revenue
+        displayName: Revenue
+        description: revenue product.
+        status: planned
 """,
         encoding="utf-8",
     )
@@ -247,14 +244,14 @@ def test_inventory_rejects_a_lakehouse_with_no_products_anywhere(tmp_path: Path)
     lakehouse_dir.mkdir(parents=True)
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: hr
     displayName: Hr
     description: hr domain.
     status: planned
-products: []
+    products: []
 """,
         encoding="utf-8",
     )

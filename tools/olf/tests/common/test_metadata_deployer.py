@@ -32,10 +32,10 @@ def _descriptors(root: Path) -> list[Path]:
     )
     governance = root / "governance.yml"
     governance.write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\n"
         "domains:\n  - name: sales\n    displayName: Sales\n    description: Sales domain\n    status: active\n"
-        "products:\n  - id: order_revenue\n    domain: sales\n    displayName: Sales Order Revenue\n"
-        "    description: Revenue from orders.\n    status: active\n"
+        "    products:\n      - id: order_revenue\n        displayName: Sales Order Revenue\n"
+        "        description: Revenue from orders.\n        status: active\n"
     )
     write_floe_entity(root, "sales", "orders", "crm")
     return [governance, source]

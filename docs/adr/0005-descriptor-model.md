@@ -26,7 +26,7 @@ nothing else knows.
 
 | Kind | Path | Declares |
 | --- | --- | --- |
-| `Governance` (`openlakeforge.io/v1beta1`) | `lakehouse_code/governance.yml` (one per project) | Domains, and the data products that name their domain |
+| `Governance` (`openlakeforge.io/v1beta2`) | `lakehouse_code/governance.yml` (one per project) | Domains, and the data products nested under them |
 | `Source` (`openlakeforge.io/v1alpha3`) | `lakehouse_code/bronze/<source>/source.yaml` (one per source) | A Bronze source and the resources it exposes |
 
 A product's `id` is its only identity and is unique across the lakehouse. A
@@ -126,3 +126,12 @@ Trino. A project still on `lakehouse.yaml` does not load; rewrite it as
 
 2026-10-30 (#342, #343): `Source` resources gained an optional `load` block.
 It defaults to today's behaviour, so `Source` stays `v1alpha3`.
+
+2026-11-07 (#917): `Governance` is `v1beta2`. Products move from the root
+`products:` list into `domains[].products`, and a product no longer names its
+domain: the domain it is nested under owns it. The two layouts are never
+accepted side by side: a `v1beta1` document fails with a pointer to
+`olf project migrate`, which rewrites the file textually (comments and order
+kept) and refuses on an unknown domain, a duplicate id or an already nested
+domain. Product ids stay unique across domains, and every derived name
+(`<domain>_silver`, `<product>_gold`, jobs, buckets) is unchanged.
