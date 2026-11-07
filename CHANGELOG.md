@@ -22,6 +22,9 @@ for how a release is cut and verified.
 - `olf infra maintenance run --layer silver|gold` launches a stage's Iceberg maintenance job through Dagster,
   waits for it and prints per-table snapshots and orphans (`--dry-run`, `--json`); it exits non-zero when the run fails.
   The full e2e suite now reruns each job and asserts the rerun changes nothing.
+- `olf infra e2e registry-pull` checks that every workload running a stage's project image, and the `dagster`
+  ServiceAccount Floe Jobs inherit from, list the stage's `spec.project.image.pull_secret_ref` Secret, and refuses an
+  image that is publicly pullable unless `--allow-public` is given (#537).
 - `olf infra backup --output <dir>` backs up a local deployment: each PostgreSQL database, every stage bucket and
   the ops bucket, and the data-bound Secrets and `local-ca` sealed under a passphrase, with a manifest and
   `SHA256SUMS`. It pauses the Dagster daemon while it runs and refuses to start with a run in flight (#910).
