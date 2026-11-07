@@ -23,6 +23,7 @@ from olf.infra.commands._shared import deployment_context_for_profile
 from olf.infra.polaris import PolarisClient, PolarisConfig, PolarisError
 from olf.infra.polaris_bootstrap import (
     DROP_WITH_PURGE,
+    NAMESPACE_CUSTOM_LOCATION,
     BootstrapPlan,
     CatalogSts,
     Credential,
@@ -112,13 +113,17 @@ def test_a_new_stage_catalog_is_confined_to_its_buckets_and_allows_drop_with_pur
         "lakehouse_dev": {
             "name": "lakehouse_dev",
             "type": "INTERNAL",
-            "properties": {"default-base-location": "s3://lakehouse-dev-silver/", DROP_WITH_PURGE: "true"},
+            "properties": {
+                "default-base-location": "s3://lakehouse-dev-silver/",
+                DROP_WITH_PURGE: "true",
+                NAMESPACE_CUSTOM_LOCATION: "true",
+            },
             "storageConfigInfo": storage,
         }
     }
 
 
-def test_an_existing_catalog_gains_drop_with_purge_and_keeps_its_other_properties(
+def test_an_existing_catalog_gains_the_required_properties_and_keeps_its_other_properties(
     polaris: tuple[FakePolaris, PolarisClient], capsys: pytest.CaptureFixture[str]
 ) -> None:
     fake, client = polaris
@@ -132,12 +137,35 @@ def test_an_existing_catalog_gains_drop_with_purge_and_keeps_its_other_propertie
 
     ensure_catalog(client, _DEV, CatalogSts(**STS))
 
-    assert fake.catalogs["lakehouse_dev"]["properties"] == {**before, DROP_WITH_PURGE: "true"}
+    assert fake.catalogs["lakehouse_dev"]["properties"] == {
+        **before,
+        DROP_WITH_PURGE: "true",
+        NAMESPACE_CUSTOM_LOCATION: "true",
+    }
     # Polaris will not add a role ARN to an existing catalog, so the operator is told.
     assert "Catalog lakehouse_dev was created without STS" in capsys.readouterr().err
 
 
-def test_a_catalog_that_allows_purge_is_not_updated(polaris: tuple[FakePolaris, PolarisClient]) -> None:
+def test_a_catalog_from_before_polaris_1_8_gains_namespace_custom_locations(
+    polaris: tuple[FakePolaris, PolarisClient],
+) -> None:
+    # A catalog an earlier olf created holds drop-with-purge only; on Polaris 1.8 its Gold namespaces would be
+    # refused, because they live in the Gold bucket and the default base location is the Silver bucket.
+    fake, client = polaris
+    before = {"default-base-location": "s3://lakehouse-dev-silver/", DROP_WITH_PURGE: "true"}
+    fake.catalogs["lakehouse_dev"] = {
+        "name": "lakehouse_dev",
+        "properties": dict(before),
+        "storageConfigInfo": {"storageType": "S3", "stsUnavailable": True},
+        "entityVersion": 5,
+    }
+
+    ensure_catalog(client, _DEV, None)
+
+    assert fake.catalogs["lakehouse_dev"]["properties"] == {**before, NAMESPACE_CUSTOM_LOCATION: "true"}
+
+
+def test_a_catalog_with_the_required_properties_is_not_updated(polaris: tuple[FakePolaris, PolarisClient]) -> None:
     fake, client = polaris
     ensure_catalog(client, _DEV, None)
     fake.writes.clear()
