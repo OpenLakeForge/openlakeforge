@@ -413,10 +413,12 @@ module "dex" {
   scheme    = local.route_scheme
   github    = var.identity_github
   # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
-  ca_configmap_name   = "olf-local-ca"
-  clients             = local.identity_client_redirects
-  public_clients      = local.identity_public_clients
-  trusted_peers       = { for name in local.identity_public_clients : name => ["perimeter"] }
+  ca_configmap_name = "olf-local-ca"
+  clients           = local.identity_client_redirects
+  public_clients    = local.identity_public_clients
+  # superset requests olf-cli's audience so its per-user token (aud olf-cli +
+  # superset) passes Trino's and Polaris's audience check unchanged (#968).
+  trusted_peers       = { for name in local.identity_public_clients : name => ["perimeter", "superset"] }
   postgresql_contract = module.postgresql.contract
 
   depends_on = [
