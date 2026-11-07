@@ -283,8 +283,10 @@ module "platform_api" {
   role_mapping = local.identity_oidc.role_mapping
   precedence   = local.identity_roles.precedence
   stages       = sort(keys(local.enabled_stages))
-  # Trino's certificate, for person queries; the issuer is reached over HTTP.
-  ca_configmap_name = module.trino.tls_port == null ? null : "olf-local-ca" # as the query contract: contracts.tf
+  # Only Trino's certificate needs the CA now: the issuer is reached over HTTP at
+  # its Service (internal_url), so an issuer, external or not, adds no mount.
+  # Referencing the publisher orders the pod after the ConfigMap exists.
+  ca_configmap_name = module.trino.tls_port == null || !local.access_enabled ? null : module.in_cluster_resolution[0].ca_configmap_name
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the people catalogs, which exist only with Dex.
