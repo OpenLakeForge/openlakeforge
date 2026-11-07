@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -450,3 +451,55 @@ def test_a_dbt_source_that_is_not_a_silver_table_of_the_domain_is_refused() -> N
 
     with pytest.raises(ValueError, match="not Floe entities of domain 'sales'"):
         spec.resolve()
+
+
+def _manifest(tmp_path: Path, *, source: str) -> Path:
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "metadata": {"project_name": "order_revenue"},
+                "nodes": {
+                    "model.order_revenue.mart": {
+                        "name": "mart",
+                        "resource_type": "model",
+                        "package_name": "order_revenue",
+                    }
+                },
+                "sources": {
+                    "source.order_revenue.silver.x": {
+                        "name": source,
+                        "resource_type": "source",
+                        "package_name": "order_revenue",
+                    }
+                },
+            }
+        )
+    )
+    return path
+
+
+def test_a_renamed_dbt_source_asks_for_explicit_silver_inputs(tmp_path: Path) -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
+
+    with pytest.raises(ValueError, match="pass silver_inputs explicitly"):
+        spec.resolve(_manifest(tmp_path, source="orders_renamed"))
+
+
+def test_explicit_silver_inputs_cover_a_renamed_dbt_source(tmp_path: Path) -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue", silver_inputs=("orders",))
+
+    resolved = spec.resolve(_manifest(tmp_path, source="orders_renamed"))
+
+    assert (resolved.silver_inputs, resolved.bronze_inputs, resolved.gold_assets) == (
+        ("orders",),
+        (("crm", "orders"),),
+        ("mart",),
+    )
+
+
+def test_a_missing_manifest_names_the_product(tmp_path: Path) -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
+
+    with pytest.raises(ValueError, match="product 'order_revenue': no dbt manifest"):
+        spec.resolve(tmp_path / "absent.json")

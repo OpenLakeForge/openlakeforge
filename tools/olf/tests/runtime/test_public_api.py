@@ -1,7 +1,7 @@
 """The `openlakeforge_runtime` names customer projects may import (docs/reference/runtime-api.md).
 
 A name leaves this list only through a deprecation: it stays exported, and in
-this list, until the next major version. Adding a name is free.
+this list, for at least one minor release. Adding a name is free.
 """
 
 from importlib import import_module

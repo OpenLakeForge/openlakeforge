@@ -117,9 +117,15 @@ class ProductDefinitionSpec:
 
     def resolve(self, manifest_path: Path | None = None) -> ResolvedProductInputs:
         """The effective inputs; `manifest_path` defaults to the product's baked dbt manifest."""
-        manifest = None
+        manifest: dict = {}
         if self.gold_assets is None or self.silver_inputs is None:
-            manifest = json.loads((manifest_path or ensure_baked_manifest(self.dbt_project_dir)).read_text())
+            path = manifest_path or ensure_baked_manifest(self.dbt_project_dir)
+            if not path.is_file():
+                raise ValueError(
+                    f"product {self.product!r}: no dbt manifest at {path}; "
+                    "pass gold_assets and silver_inputs explicitly or build the dbt project's manifest"
+                )
+            manifest = json.loads(path.read_text())
         gold = self.gold_assets
         if gold is None:
             gold = _manifest_names(manifest, "nodes", "model")
@@ -144,15 +150,15 @@ class ProductDefinitionSpec:
         missing = [name for name in silver if name not in entities]
         if missing:
             raise ValueError(
-                f"product {self.product!r}: {missing} are not Floe entities of domain {self.domain!r}; "
-                "a dbt source of the product must be one of the domain's Silver tables"
+                f"product {self.product!r}: dbt sources {missing} are not Floe entities of domain {self.domain!r}. "
+                "A dbt source takes its Silver table's name; if the source is renamed (an `identifier:` override) "
+                "or reads another table, pass silver_inputs explicitly"
             )
         return tuple(entities[name] for name in silver)
 
 
-def _manifest_names(manifest: dict | None, section: str, resource_type: str) -> tuple[str, ...]:
+def _manifest_names(manifest: dict, section: str, resource_type: str) -> tuple[str, ...]:
     """Sorted names of the project's own `resource_type` entries; packages' models are not the product's."""
-    assert manifest is not None
     project = manifest.get("metadata", {}).get("project_name")
     return tuple(
         sorted(

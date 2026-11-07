@@ -773,7 +773,7 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
 
     dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()
     assert 'ProductDefinitionSpec(domain="marketing", product="campaign_performance")' in dagster_module
-    assert "silver_inputs" not in dagster_module
+    assert "silver_inputs=" not in dagster_module
 
 
 # --------------------------------------------------------------------------

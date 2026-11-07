@@ -455,7 +455,8 @@ def render_dagster_product_module(*, domain: str, product: str) -> str:
 
 from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-# The Gold assets, Silver inputs and Bronze inputs come from the dbt project and the Floe project.
+# No input lists: the dbt and Floe projects already declare them, and a second copy drifts.
+# Pass gold_assets, silver_inputs or bronze_inputs only to override what they declare.
 defs = build_product_definitions(ProductDefinitionSpec(domain="{domain}", product="{product}"))
 '''
 
