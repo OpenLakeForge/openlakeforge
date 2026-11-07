@@ -1,0 +1,220 @@
+name: Upgrade drill (weekly and manual)
+
+# In-place upgrade drill (#912, part of #531): does a stack deployed by the
+# previous release keep its data when the current checkout's `olf infra deploy`
+# upgrades it in place?
+#
+#   1. deploy the base release (the latest tag unless `base_tag` says otherwise)
+#      with its own olf and a project loaded, Full preset;
+#   2. run the pipelines with the base release's olf;
+#   3. `olf infra e2e durability capture` with the current olf (read-only);
+#   4. upgrade in place with the current olf's `olf infra deploy`;
+#   5. `olf infra e2e durability verify` against the baseline;
+#   6. confirm Trino still serves Gold (the smoke suite, run by the current olf).
+#
+# The two olf versions are installed from wheels, each built from its own
+# source tree (the release's tag is a git worktree), so the release's payload,
+# Terraform roots and pins come with the release and the upgrade brings the
+# current ones, as it does for a consumer. Only the Terraform state, the kind
+# cluster and the toolchain under ~/.openlakeforge are shared.
+#
+# Shape and cost: one stage (DEV), Full preset, plain HTTP, no sign-in. Full,
+# not Slim, because durability covers OpenMetadata (and its search index) and
+# Superset, which Slim does not run. One stage and no GHCR push (`olf infra
+# deploy` builds the project-code image into kind) keep it well under the
+# nightly's DEV+PROD lifecycle. Weekly, not nightly: the upgrade path changes
+# rarely, and a weekly run still dates a regression to one week of merges.
+# Run it by hand before tagging a release (docs/release/releasing.md).
+#
+# The project is the one `olf init` scaffolds, with its three demo products;
+# the larger customer project (#110) has not landed.
+#
+# This workflow has not run yet. Treat the first runs as a shakedown.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_tag:
+        description: >
+          Release tag to deploy first and upgrade from, for example
+          v0.5.1-alpha.2. Empty (the default) takes the latest tag, so the drill
+          follows the releases without an edit.
+        type: string
+        default: ""
+  schedule:
+    # Sundays 03:17 UTC, clear of the nightly full e2e (02:00 UTC, local-full-e2e.yml).
+    - cron: "17 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-drill-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_DIR: ${{ github.workspace }}/../upgrade-drill-project
+  # Logs and the baseline; inside the workspace because upload-artifact rejects '..'.
+  DRILL_DIR: ${{ github.workspace }}/.tmp/upgrade-drill
+
+jobs:
+  drill:
+    name: Upgrade in place and verify durability
+    runs-on: ubuntu-latest
+    # Unmeasured: two Full-preset applies (fresh, then in place) and two smoke
+    # runs. The nightly's DEV stage took about 25 minutes from nothing; the
+    # in-place apply pulls the current release's images, so this budgets about
+    # twice that, with headroom. Tighten it from the first real runs.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          # Tags, to find the latest release and to check one out.
+          fetch-depth: 0
+
+      - name: Free runner disk for the image preload
+        # Two releases' images sit in Docker and in the kind nodes.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Resolve the base release and check it out beside the workspace
+        id: base
+        env:
+          BASE_TAG: ${{ inputs.base_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_TAG}" ]; then
+            # versionsort.suffix puts v0.6.0 after v0.6.0-alpha.1.
+            BASE_TAG="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
+          fi
+          [ -n "${BASE_TAG}" ] || { echo "::error::no release tag to upgrade from"; exit 1; }
+          git rev-parse --verify --quiet "refs/tags/${BASE_TAG}^{commit}" > /dev/null \
+            || { echo "::error::${BASE_TAG} is not a tag of this repository"; exit 1; }
+          git worktree add --detach "${RUNNER_TEMP}/base-src" "refs/tags/${BASE_TAG}"
+          echo "tag=${BASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Upgrading from ${BASE_TAG} to ${GITHUB_SHA}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Install the base release's olf
+        id: base-olf
+        uses: ./.github/actions/install-olf
+        with:
+          source: ${{ runner.temp }}/base-src
+          name: base
+
+      - name: Install the current olf
+        id: head-olf
+        uses: ./.github/actions/install-olf
+        with:
+          source: ${{ github.workspace }}
+          name: head
+
+      - name: Cache OpenLakeForge toolchain
+        # Managed binaries only: ~/.openlakeforge also keeps Terraform state
+        # with generated Secret values.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.openlakeforge/toolchains
+          key: olf-toolchains-${{ hashFiles('release/component-catalog.yaml') }}
+
+      - name: Provision both versions' toolchains
+        run: |
+          set -euo pipefail
+          for bin in "${{ steps.base-olf.outputs.bin-dir }}" "${{ steps.head-olf.outputs.bin-dir }}"; do
+            PATH="${bin}:${PATH}" olf toolchain install
+          done
+          {
+            echo "OLF_BASE_BIN=${{ steps.base-olf.outputs.bin-dir }}"
+            echo "OLF_HEAD_BIN=${{ steps.head-olf.outputs.bin-dir }}"
+            echo "OLF_KUBECONFIG=${HOME}/.openlakeforge/state/local/kubeconfig.yaml"
+          } >> "${GITHUB_ENV}"
+          mkdir -p "${DRILL_DIR}" "${PROJECT_DIR}"
+
+      - name: "1. Deploy the base release with the project loaded"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="${OLF_BASE_BIN}:${PATH}"
+          olf version --json
+          olf init --preset full
+          olf profile validate --project .
+          olf infra deploy 2>&1 | tee "${DRILL_DIR}/1-deploy-base.log"
+
+      - name: "2. Run the pipelines (base release's olf)"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="${OLF_BASE_BIN}:${PATH}"
+          olf infra e2e run --env local --suite smoke 2>&1 | tee "${DRILL_DIR}/2-pipelines.log"
+
+      - name: "3. Capture the durability baseline"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="${OLF_HEAD_BIN}:${PATH}"
+          olf version --json
+          olf infra e2e durability capture --output "${DRILL_DIR}/baseline.json" 2>&1 | tee "${DRILL_DIR}/3-capture.log"
+
+      - name: "4. Upgrade in place with the current olf"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="${OLF_HEAD_BIN}:${PATH}"
+          olf infra deploy 2>&1 | tee "${DRILL_DIR}/4-deploy-upgrade.log"
+
+      - name: "5. Verify nothing was lost"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="${OLF_HEAD_BIN}:${PATH}"
+          olf infra e2e durability verify --baseline "${DRILL_DIR}/baseline.json" 2>&1 | tee "${DRILL_DIR}/5-verify.log"
+
+      - name: "6. Confirm Trino queries Gold"
+        # After verify, which is read-only: the smoke suite launches the
+        # pipeline again and then reads the Gold tables through Trino.
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="${OLF_HEAD_BIN}:${PATH}"
+          olf infra e2e run --env local --suite smoke 2>&1 | tee "${DRILL_DIR}/6-gold.log"
+
+      - name: Write run summary
+        if: always()
+        run: |
+          {
+            echo "## Upgrade drill -- ${{ job.status }}"
+            echo ""
+            echo "- From: \`${{ steps.base.outputs.tag }}\`"
+            echo "- To: \`${{ github.sha }}\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Collect kind diagnostics
+        if: failure()
+        env:
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        run: |
+          export PATH="${OLF_HEAD_BIN}:${PATH}"
+          olf infra diagnostics collect "${DRILL_DIR}/diagnostics/dev" --namespace olf-dev --kube-context kind-openlakeforge-local || true
+          olf infra diagnostics collect "${DRILL_DIR}/diagnostics/shared" --namespace olf-system --kube-context kind-openlakeforge-local || true
+
+      - name: Upload the baseline, verify report and logs
+        # always(): a passing run's baseline is the reference for the next look.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upgrade-drill-${{ github.run_id }}
+          path: .tmp/upgrade-drill
+          # Everything sits under the hidden .tmp directory.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

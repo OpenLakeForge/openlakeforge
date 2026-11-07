@@ -13,7 +13,7 @@ import base64
 import json
 import re
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +96,41 @@ def check_secret_exposure(cfg: E2EConfig) -> None:
     }
     surfaces = {**_state_surfaces(cfg), **configmaps, **bundles, **_log_surfaces(cfg, namespaces)}
     scan({**_credentials(cfg, identity), **migrated_credentials(cfg, namespaces)}, surfaces)
+
+
+def secret_values(cfg: E2EConfig) -> dict[str, str]:
+    """The Secret values a baseline must not hold: the identity set and the credentials moved out of Terraform."""
+    contracts = load_provider_contracts_or_raise(cfg)
+    return {
+        **_credentials(cfg, contracts["shared"]["identity"]),
+        **migrated_credentials(cfg, scan_namespaces(cfg, contracts)),
+    }
+
+
+def file_surfaces(paths: Sequence[Path], *, exclude: Collection[str] = ()) -> dict[str, str]:
+    """Every file under `paths`, by path, except files named in `exclude`.
+
+    Read as latin-1, which maps each byte to one character, so an ASCII value is found in a binary file such as a
+    pg_dump archive exactly where it sits. ponytail: each file is read whole; a multi-gigabyte object would want
+    chunked reads with an overlap of the longest value.
+    """
+    return {
+        str(file): file.read_bytes().decode("latin-1")
+        for path in paths
+        for file in sorted(path.rglob("*") if path.is_dir() else [path])
+        if file.is_file() and file.name not in exclude
+    }
+
+
+def check_files_for_exposure(
+    cfg: E2EConfig, paths: Sequence[Path], *, exclude: Collection[str] = (), extra: Mapping[str, str] | None = None
+) -> None:
+    """Fail if a file under `paths` holds the current value of a Secret, or of one in `extra` (label to value)."""
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
+        raise E2EError(f"cannot scan {', '.join(missing)}: not found")
+    log.step("Scanning files for Secret values...")
+    scan({**secret_values(cfg), **(extra or {})}, file_surfaces(paths, exclude=exclude))
 
 
 def scan_namespaces(cfg: E2EConfig, contracts: Mapping[str, Any]) -> tuple[str, ...]:

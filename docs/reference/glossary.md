@@ -8,7 +8,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Access | The `spec.access` block of the Deployment Profile. Declaring it publishes the user-facing services through one ingress at `<service>.<base_domain>` names; omitting it publishes nothing. |
 | Artifacts phase | The third `olf infra deploy` phase. It deploys everything derived from `lakehouse_code/`, so a code change reruns only this phase. |
 | Base domain | `spec.access.base_domain`, `olf.localhost` by default. Every route host ends with it, and the portal is served at the base domain itself. |
-| Bronze | The landing layer: source data as files in object storage, loaded by dlt and not yet validated. Namespace `<source>_bronze`. |
+| Bronze | The landing layer: source data as files in object storage, loaded by dlt and not yet validated. It has no catalog namespace. |
 | Canonical role | One of `platform-admin`, `data-engineer`, `analyst` and `viewer`, highest first, defined in `release/identity-roles.yaml`. A role decides which services a person can open. |
 | Capability | A per-stage optional service: `analytics` (Superset) or `governance` (OpenMetadata). The preset sets the defaults. |
 | Catalog | The Apache Iceberg catalog that registers the tables. Polaris locally, AWS Glue on AWS. Each stage has its own, `lakehouse_<stage>`. |
@@ -30,7 +30,7 @@ alphabetical order. Each entry names the file or command that defines it.
 | Issuer (identity) | `spec.identity.issuer`: the OIDC issuer, `github` or `external`. |
 | Lakehouse | The whole project: the sources, domains, products and dashboards that `lakehouse_code/` holds, with domains and products named in `governance.yml`. |
 | Medallion layers | Bronze, Silver and Gold: three layers, each owned by one tool. |
-| Namespace (catalog) | A single-level catalog schema: `<source>_bronze`, `<domain>_silver` or `<product>_gold`. Not a Kubernetes namespace. |
+| Namespace (catalog) | A single-level catalog schema: `<domain>_silver` or `<product>_gold`. Not a Kubernetes namespace. |
 | Perimeter | The oauth2-proxy layer in front of every route except the login page. It admits a user only when their role holds a grant for the service. |
 | Platform phase | The second `olf infra deploy` phase: it deploys the shared services in `olf-system` and each stage's services. |
 | Portal | The landing page at the base domain that links every published route. |

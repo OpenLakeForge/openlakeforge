@@ -189,8 +189,10 @@ cluster, which deletes all Bronze, Silver and Gold data and the run history:
 3. Run `olf deploy --provider local`.
 4. Re-run your pipelines to rebuild the tables from their sources.
 
-There is no supported backup or restore of SeaweedFS data yet (#531). If the
-tables cannot be rebuilt from their sources, do not change the size.
+`olf infra restore` cannot carry data across this change: it refuses a backup
+taken with a different `openlakeforge.yaml`
+([Back up and restore](../guides/backup-and-restore.md#limits)). If the tables
+cannot be rebuilt from their sources, do not change the size.
 
 ### `spec.stages`
 

@@ -143,11 +143,10 @@ def plan_namespace_sync(
 
 
 def desired_namespaces(
-    repo_root: Path, *, bronze_bucket: str, silver_bucket: str, gold_bucket: str, namespace_prefix: str = ""
+    repo_root: Path, *, silver_bucket: str, gold_bucket: str, namespace_prefix: str = ""
 ) -> tuple[CatalogNamespace, ...]:
     physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn="",
-        bronze_bucket=bronze_bucket,
         silver_bucket=silver_bucket,
         gold_bucket=gold_bucket,
         namespace_prefix=namespace_prefix,
@@ -158,7 +157,7 @@ def desired_namespaces(
 def desired_gold_namespaces(repo_root: Path, *, namespace_prefix: str = "") -> tuple[str, ...]:
     """Physical Gold namespace names, from the same inventory as `desired_namespaces`."""
     physical = inventory_for(repo_root).resolve_physical_names(
-        catalog_database_fqn="", bronze_bucket="", silver_bucket="", gold_bucket="", namespace_prefix=namespace_prefix
+        catalog_database_fqn="", silver_bucket="", gold_bucket="", namespace_prefix=namespace_prefix
     )
     return tuple(sorted(product.gold_namespace for product in physical.products))
 

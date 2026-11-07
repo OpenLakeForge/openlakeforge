@@ -25,6 +25,13 @@ for how a release is cut and verified.
   equal to the backup's (objects written after it are deleted), scales back up (shared services, then stages, then the daemons) and reconciles the platform (#911).
   When the backup holds `local-ca`, restore also republishes the `olf-local-ca` ConfigMaps, has cert-manager sign
   again every Certificate the CA issued, and restarts the workloads that mount them (#929).
+- A guide, [Back up and restore](docs/guides/backup-and-restore.md), covers the backup and restore commands, where
+  to keep the backup and its passphrase, rebuilding the cluster and restoring onto it, and the manual `pg_dump` and
+  S3 fallbacks (#913).
+- The nightly local full e2e ends with a restore drill (`.github/actions/restore-drill`): it records a durability
+  baseline, backs up, destroys the cluster, creates the platform again, restores, verifies every stage and scans the
+  logs and the backup for Secret values with the new `olf infra e2e secret-scan`. A manual run opts in with the
+  `restore_drill` input (#913).
 - `olf infra e2e durability capture` and `verify` record a local stage's tables, snapshot ids, Dagster runs,
   Superset dashboards, OpenMetadata entities, activation pointer and bucket contents (key and size), then report
   everything missing or changed afterwards, without launching a pipeline (#908).
@@ -47,6 +54,9 @@ for how a release is cut and verified.
   providers keep `local-ca`. cert-manager and the local CA are unchanged: they still issue Trino's certificate
   (ADR 0016), so only the scheme of the routes differs. The conformance profile pins `issuer: local-ca`, so the
   nightly keeps exercising the HTTPS routes.
+- Bronze no longer has a catalog namespace: `olf infra catalog sync-namespaces` stops planning `<source>_bronze`,
+  because Bronze holds raw files in the Bronze bucket, not Iceberg tables. Existing `<source>_bronze` namespaces are
+  not dropped: they are reported as undeclared and removed from the catalog only with `--prune`.
 - `--provider` is now optional on `olf infra deploy|plan|doctor|destroy|status|forward` and on the commands that
   read a deployed stack's contracts (`olf infra dbt`, `catalog`, `superset`, `openmetadata`): it defaults to the
   Deployment Profile's `spec.provider.type` instead of silently to `local`, so `olf infra deploy` is enough.

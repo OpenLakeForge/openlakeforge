@@ -198,7 +198,6 @@ def _default_schema_fqns(
     )
     physical = inventory.resolve_physical_names(
         catalog_database_fqn=catalog_database_fqn,
-        bronze_bucket="",
         silver_bucket="",
         gold_bucket="",
     )

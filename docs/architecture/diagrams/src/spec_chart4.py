@@ -23,7 +23,7 @@ c.label(142, 576, "rejected rows, quarantined as CSV", size=10.5, anchor="middle
 c.label(142, 591, "exit 0 = success_or_rejected", size=10, anchor="middle", mono=True)
 
 # ---------- Bronze lane ----------
-c.box(LANE_X, 130, LANE_W, 150, "BRONZE — namespace: crm_bronze", color="bronze",
+c.box(LANE_X, 130, LANE_W, 150, "BRONZE — raw files, no catalog namespace", color="bronze",
       fill="#8C5A2B10")
 c.label(LANE_X + 16, 178, "landed as-is by dlt in the run pod — CSV in the seed products, any raw source", size=12)
 for i, name in enumerate(["orders", "order_lines", "products", "channels", "promotions"]):
@@ -67,7 +67,7 @@ c.label(946, 478, "AWS Glue (aws POC)", size=13, weight="700", color=C["ink"])
 c.label(946, 496, "catalog_type = glue", size=10.5, mono=True)
 c.label(946, 534, "warehouse lakehouse_dev", size=11.5, mono=True, color=C["ink"])
 c.label(946, 556, "namespaces by owner:", size=11.5)
-c.label(946, 574, "source_bronze · domain_silver", size=10.5, mono=True)
+c.label(946, 574, "domain_silver", size=10.5, mono=True)
 c.label(946, 592, "product_gold", size=10.5, mono=True)
 c.label(946, 626, "allowed locations only:", size=11.5)
 c.label(946, 644, "s3://lakehouse-dev-bronze/", size=10.5, mono=True)

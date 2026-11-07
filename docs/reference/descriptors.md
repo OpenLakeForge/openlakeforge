@@ -263,7 +263,6 @@ For a `crm` source, a `sales` domain and an `order_revenue` product:
 
 | Name | Value |
 | --- | --- |
-| Bronze namespace | `crm_bronze` |
 | Silver namespace | `sales_silver`, shared by every product of the domain |
 | Gold namespace | `order_revenue_gold` |
 | Dagster job | `order_revenue_pipeline` |

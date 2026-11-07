@@ -81,6 +81,7 @@ def _require_platform(shared_namespace: str, environ: Mapping[str, str] | None) 
     )
     if not deployed:
         raise BackupError(
-            f"no deployed platform in {shared_namespace}. Run `olf infra deploy --phase platform` on the release "
-            "and profile of the backup first; restoring Secrets before that deploy makes it replace them."
+            f"no deployed platform in {shared_namespace}. Deploy it first, without the project, from the release "
+            "and profile of the backup: `olf infra platform apply` (`olf infra deploy --phase platform` only when the "
+            "cluster still exists). Restoring Secrets before that deploy makes it replace them."
         )

@@ -44,8 +44,7 @@ def check_catalog_namespaces(cfg: E2EConfig) -> None:
     expected = {
         f"{prefix}{name}"
         for name in (
-            cfg.inventory.bronze_namespace_names
-            | cfg.inventory.silver_namespace_names
+            cfg.inventory.silver_namespace_names
             | cfg.inventory.gold_namespace_names
         )
     }

@@ -44,6 +44,7 @@ READ_ALLOWLIST = {
     ("infra/auth/azure.py", "PATH"): "auth bridge subprocess: extends the operator's search path",
     ("infra/commands/auth.py", "AWS_PROFILE"): "CLI root: the operator's AWS profile to log in with",
     ("infra/commands/diagnostics.py", "KUBE_CONTEXT"): "CLI root: the operator's kube context",
+    ("infra/commands/e2e.py", "name"): "CLI root: the operator-exported variables `secret-scan --also-env` names",
     ("infra/commands/runtime.py", "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR"): "CLI root: operator override",
     ("infra/commands/source.py", "var"): "CLI root: the source secrets the operator exports",
     ("infra/deployment/local/platform.py", "CI"): "CI flag: never prompt",

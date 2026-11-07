@@ -35,7 +35,7 @@ Each layer has one owner in your project and one tool that writes it:
 
 | Layer | Owned by | Written by | Holds | Namespace |
 | --- | --- | --- | --- | --- |
-| Bronze | A source | dlt | Source files as they arrived | `<source>_bronze` |
+| Bronze | A source | dlt | Source files as they arrived | none, raw files in the Bronze bucket |
 | Silver | A domain | Floe | Validated Iceberg tables; rejected rows go to a quarantine path instead | `<domain>_silver` |
 | Gold | A data product | dbt-trino | Business marts | `<product>_gold` |
 

@@ -116,5 +116,5 @@ def test_secrets_for_a_namespace_the_deployment_does_not_own_are_refused(
 def test_a_platform_that_is_not_deployed_is_refused(deployed: dict[str, bool], backup: Backup) -> None:
     deployed["deployed"] = False
 
-    with pytest.raises(BackupError, match="olf infra deploy --phase platform"):
+    with pytest.raises(BackupError, match="olf infra platform apply"):
         _preflight(backup)
