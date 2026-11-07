@@ -120,6 +120,19 @@ fail with `x509: certificate signed by unknown authority`. Configure your
 Docker engine to trust your organization's CA, check that `docker pull` works,
 then run the prefetch step again.
 
+## Trino fails at random with Not authorized on WSL2
+
+Queries, dbt models or maintenance runs fail now and then with `Not authorized`
+or `Failed to load table`, each time in a different place. On WSL2 this means
+two services set the clock: Hyper-V time sync and `systemd-timesyncd`. The clock
+steps back every half minute, and Polaris rejects the tokens it issued just
+before a step. `olf infra doctor` reports it as `WSL clock`. WSL takes its time
+from Windows, so stop the second service:
+
+```bash
+sudo systemctl disable --now systemd-timesyncd
+```
+
 ## A browser or curl cannot open a service
 
 With HTTPS, the browser must trust the local CA (`olf infra access trust`), and

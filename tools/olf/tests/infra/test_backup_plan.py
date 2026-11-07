@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from _backup_support import full_contracts
 
 from olf.common.provider_contracts import ProviderContracts
 from olf.infra.backup import BackupError
-from olf.infra.backup._plan import plan_from_contract
+from olf.infra.backup._plan import SUPERSET_USER_SOURCE_PREFIX, SUPERSET_USER_STAGE_SECRET, plan_from_contract
 
 
 def _slim(contracts: ProviderContracts) -> ProviderContracts:
@@ -59,6 +60,10 @@ def test_a_full_contract_plans_the_data_bound_secrets_and_the_local_ca() -> None
         ("olf-prod", "polaris-prod-deployer-creds"),
         ("olf-dev", "superset-credentials"),
         ("olf-prod", "superset-credentials"),
+        ("olf-system", "platform-api-superset-dev"),
+        ("olf-system", "platform-api-superset-prod"),
+        ("olf-dev", "platform-api-superset"),
+        ("olf-prod", "platform-api-superset"),
         ("olf-system", "openmetadata-fernet-key"),
         ("olf-system", "openmetadata-admin"),
         ("olf-system", "openmetadata-ingestion-bot"),
@@ -68,6 +73,15 @@ def test_a_full_contract_plans_the_data_bound_secrets_and_the_local_ca() -> None
     }
 
 
+def test_the_superset_service_user_secret_names_are_the_ones_terraform_creates() -> None:
+    tf = (
+        Path(__file__).resolve().parents[4] / "infra/terraform/modules/access/platform-api/superset_users.tf"
+    ).read_text()
+
+    assert f'superset_stage_secret = "{SUPERSET_USER_STAGE_SECRET}"' in tf
+    assert f'"{SUPERSET_USER_SOURCE_PREFIX}${{stage}}"' in tf
+
+
 def test_a_stage_without_analytics_or_governance_or_dex_is_not_planned() -> None:
     plan = plan_from_contract(_slim(full_contracts()), shared_namespace="olf-system")
 
@@ -75,6 +89,7 @@ def test_a_stage_without_analytics_or_governance_or_dex_is_not_planned() -> None
     assert {ref.name for ref in plan.secrets}.isdisjoint(
         {"superset-credentials", "openmetadata-fernet-key", "github-oauth-app", "local-ca", "openmetadata-admin"}
     )
+    assert not any(ref.name.startswith("platform-api-superset") for ref in plan.secrets)
     assert ("olf-system", "polaris-bootstrap-credentials") in {(ref.namespace, ref.name) for ref in plan.secrets}
 
 

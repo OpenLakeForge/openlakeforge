@@ -124,7 +124,10 @@ class FakePolaris:
             case "DELETE", ["principals", name]:
                 return (204, {}) if self.principals.pop(name, None) is not None else (404, {})
             case "POST", ["principals", name, "rotate"]:
-                return 200, self._issue(name)
+                # Polaris authorises `rotate` only for the principal itself; the fake is always called as root.
+                return 403, {"error": {"message": "Principal 'root' is not authorized for op ROTATE_CREDENTIALS"}}
+            case "POST", ["principals", name, "reset"]:
+                return (200, self._issue(name)) if name in self.principals else (404, {})
             case "GET", ["principals", name, "principal-roles"]:
                 if name not in self.principals:
                     return 404, {}

@@ -212,7 +212,9 @@ def ensure_catalog(client: PolarisClient, stage: StageCatalog, sts: CatalogSts |
 
 
 def _rotate(client: PolarisClient, principal: str) -> dict:
-    return client.management("POST", f"/principals/{_q(principal)}/rotate")
+    # `rotate` is the principal's own operation: Polaris refuses it to root, which holds no
+    # PRINCIPAL_ROTATE_CREDENTIALS grant. `reset` is the admin's, and returns the new pair the same way.
+    return client.management("POST", f"/principals/{_q(principal)}/reset")
 
 
 def ensure_credential(client: PolarisClient, credential: Credential, *, environ: Mapping[str, str] | None) -> None:
