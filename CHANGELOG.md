@@ -25,6 +25,9 @@ for how a release is cut and verified.
   equal to the backup's (objects written after it are deleted), scales back up (shared services, then stages, then the daemons) and reconciles the platform (#911).
   When the backup holds `local-ca`, restore also republishes the `olf-local-ca` ConfigMaps, has cert-manager sign
   again every Certificate the CA issued, and restarts the workloads that mount them (#929).
+- A guide, [Back up and restore](docs/guides/backup-and-restore.md), covers the backup and restore commands, where
+  to keep the backup and its passphrase, rebuilding the cluster and restoring onto it, and the manual `pg_dump` and
+  S3 fallbacks (#913).
 - `olf infra e2e durability capture` and `verify` record a local stage's tables, snapshot ids, Dagster runs,
   Superset dashboards, OpenMetadata entities, activation pointer and bucket contents (key and size), then report
   everything missing or changed afterwards, without launching a pipeline (#908).

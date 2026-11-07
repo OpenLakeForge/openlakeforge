@@ -22,7 +22,8 @@ def restore(
 ) -> None:
     """Restore databases, objects and Secrets from a backup, then reconcile the platform and reactivate its revisions.
 
-    The platform must already be deployed (`olf infra deploy --phase platform`) from the release and the
+    The platform must already be deployed without the project (`olf infra platform apply`, which also creates the
+    cluster; `olf infra deploy --phase platform` when it still exists) from the release and the
     openlakeforge.yaml the backup was taken with. It pauses the Dagster daemons and refuses while a run is in flight.
     Each bucket is made equal to the backup's: objects written after it are deleted. The passphrase comes from a
     prompt or the environment variable `olf infra backup` documents. If a step fails, the workloads stay scaled to 0

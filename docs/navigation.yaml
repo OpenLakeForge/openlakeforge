@@ -47,6 +47,7 @@ sections:
       - docs/guides/identity/rotate-secrets.md
       - docs/guides/identity/break-glass.md
       - docs/guides/promote-dev-to-prod.md
+      - docs/guides/backup-and-restore.md
       - docs/guides/troubleshooting.md
   - label: Reference
     items:

@@ -74,9 +74,10 @@ are yours:
 | Who may use which service | Canonical roles mapped to GitHub teams; membership changes happen in GitHub |
 | Upgrades | Pinned component versions per release ([Compatibility matrix](../reference/compatibility-matrix.md)) |
 | Diagnosis | `olf infra status`, `olf infra diagnostics collect`, `olf infra e2e run` |
+| Backup and restore | `olf infra backup` and `olf infra restore` on the local provider ([Back up and restore](../guides/backup-and-restore.md)) |
 
-Backups, restore drills and monitoring are on the roadmap, not in the alpha:
-see the [milestones](https://github.com/OpenLakeForge/openlakeforge/milestones).
+Monitoring and backups of the cloud providers are on the roadmap, not in the
+alpha: see the [milestones](https://github.com/OpenLakeForge/openlakeforge/milestones).
 
 ## Next
 
