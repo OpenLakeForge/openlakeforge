@@ -212,7 +212,7 @@ def test_caller_environment_wins_for_user_settable_variables() -> None:
 def test_contract_values_override_inherited_environment() -> None:
     base = {"OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "stale-bucket"}
     exports, _ = build_contract_env(base, load_fixture("aws-provider-contracts-v3.json"), repo_root=REPO_ROOT)
-    assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-dev-bronze"
+    assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-data-dev-bronze"
 
 
 def test_namespace_env_feeds_kube_namespace_default() -> None:

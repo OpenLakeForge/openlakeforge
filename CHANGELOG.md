@@ -65,6 +65,12 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Local and Azure bucket names follow one rule: `<metadata.name>-<stage>-<layer>` for the stage buckets and
+  `<metadata.name>-ops` for the ops bucket (#993). They were `lakehouse-<stage>-<layer>` and `openlakeforge-ops`. The
+  resolver derives every name once and the roots take it as the `bucket_names` variable; a provider contract whose
+  names differ is rejected. `metadata.name` is limited to 51 characters. AWS bucket names are unchanged: S3 bucket names are
+  global across accounts, so AWS keeps the suffix the `aws-s3` module appends (`<prefix>-<stage>-<layer>-<suffix>`).
+  See Migration.
 - `olf infra backup` leaves the local CA out unless the routes are signed by it (`spec.access.issuer: local-ca`).
   With plain-HTTP routes it signs only in-cluster certificates (Trino's), nothing persistent holds it, and a
   restore keeps the platform's own CA. Backups that already hold `local-ca` still restore it.
@@ -183,6 +189,11 @@ for how a release is cut and verified.
 
 ### Migration
 
+- Local and Azure bucket names changed (#993). `olf infra deploy` refuses to rename deployed buckets and lists them:
+  the objects are not carried over and Polaris keeps the old locations. Run `olf infra backup` if you need the data,
+  then `olf infra destroy` and `olf infra deploy`, or pass `--allow-stage-removal` to apply the rename over the
+  existing platform and start with empty buckets. See
+  [Back up and restore](docs/guides/backup-and-restore.md#renaming-buckets).
 - A `governance.yml` on `openlakeforge.io/v1beta1` no longer loads. Run `olf project migrate --dry-run` to review the
   diff and `olf project migrate` to nest each product under its domain; it keeps comments and refuses, changing no
   file, on an unknown domain, a duplicate product id or a layout it cannot rewrite safely.

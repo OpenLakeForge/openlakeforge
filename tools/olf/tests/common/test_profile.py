@@ -7,6 +7,8 @@ import pytest
 import yaml
 
 from olf.common.profile import (
+    BUCKET_LAYERS,
+    BUCKET_PREFIX_MAX_LENGTH,
     AccessSpec,
     DeploymentProfileError,
     Preset,
@@ -14,6 +16,7 @@ from olf.common.profile import (
     ResolvedProject,
     Size,
     StageName,
+    bucket_name,
     legacy_single_stage_topology,
     load_deployment_profile,
     resolve_project,
@@ -197,12 +200,37 @@ def test_validate_deployment_profile_rejects_names_kubernetes_cannot_label_with(
         validate_deployment_profile(document)
 
 
-@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 62])
+@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 50])
 def test_validate_deployment_profile_accepts_label_safe_names(name: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["metadata"]["name"] = name
 
     assert validate_deployment_profile(document).name == name
+
+
+def test_bucket_names_follow_prefix_stage_layer_for_enabled_stages_only() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = "acme-data"
+    topology = resolve_topology(validate_deployment_profile(document))
+
+    assert topology.bucket_names() == {
+        "dev": {"bronze": "acme-data-dev-bronze", "silver": "acme-data-dev-silver", "gold": "acme-data-dev-gold"}
+    }
+
+
+@pytest.mark.parametrize("name", ["a" * 52, "xn--acme"])
+def test_validate_deployment_profile_rejects_names_that_cannot_prefix_a_bucket(name: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = name
+
+    with pytest.raises(DeploymentProfileError, match="metadata.name"):
+        validate_deployment_profile(document)
+
+
+def test_longest_bucket_name_fits_the_provider_limit() -> None:
+    prefix = "a" * BUCKET_PREFIX_MAX_LENGTH
+
+    assert max(len(bucket_name(prefix, stage, layer)) for stage in StageName for layer in BUCKET_LAYERS) == 63
 
 
 def test_no_access_or_identity_block_means_a_quickstart_with_neither() -> None:

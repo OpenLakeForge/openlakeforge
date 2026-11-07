@@ -94,6 +94,35 @@ class StageName(StrEnum):
     PROD = "prod"
 
 
+# Object-store bucket names are `<prefix>-<stage>-<layer>` on every provider (ADR 0004) and the prefix is
+# `metadata.name`. S3 and Azure cap a bucket name at 63 characters, so the prefix budget is what remains after the
+# longest suffix, `-prod-bronze`.
+BUCKET_LAYERS = ("bronze", "silver", "gold")
+_BUCKET_NAME_LIMIT = 63
+BUCKET_PREFIX_MAX_LENGTH = _BUCKET_NAME_LIMIT - max(
+    len(f"-{stage.value}-{layer}") for stage in StageName for layer in BUCKET_LAYERS
+)
+
+
+def bucket_name(prefix: str, stage: StageName | str, layer: str) -> str:
+    """The one bucket naming rule: `<prefix>-<stage>-<layer>`. Every provider's Terraform root receives these names
+    from the resolver rather than rebuilding them."""
+    if layer not in BUCKET_LAYERS:
+        raise ValueError(f"unknown bucket layer {layer!r}")
+    return f"{prefix}-{StageName(stage).value}-{layer}"
+
+
+def validate_bucket_prefix(prefix: str, *, field: str, source: str) -> str:
+    if len(prefix) > BUCKET_PREFIX_MAX_LENGTH:
+        raise DeploymentProfileError(
+            f"{source}: {field} is {len(prefix)} characters; at most {BUCKET_PREFIX_MAX_LENGTH} so the longest "
+            f"bucket name '{prefix}-prod-bronze' stays within {_BUCKET_NAME_LIMIT} characters"
+        )
+    if prefix.startswith("xn--"):
+        raise DeploymentProfileError(f"{source}: {field} cannot start with 'xn--' (reserved in S3 bucket names)")
+    return prefix
+
+
 class Preset(StrEnum):
     SLIM = "slim"
     FULL = "full"
@@ -294,6 +323,17 @@ class DeploymentTopology:
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
+
+    def bucket_names(self) -> dict[str, dict[str, str]]:
+        """Stage name to layer to bucket name, for every enabled stage."""
+        return {
+            stage.name.value: {layer: bucket_name(self.profile_name, stage.name, layer) for layer in BUCKET_LAYERS}
+            for stage in self.stages
+            if stage.enabled
+        }
+
+    def ops_bucket_name(self) -> str:
+        return f"{self.profile_name}-ops"
 
     def render_json(self) -> str:
         return json.dumps(
@@ -703,6 +743,7 @@ def validate_deployment_profile(
     if "name" not in metadata:
         raise DeploymentProfileError(f"{source}: metadata: missing required field 'name'")
     name = _identifier(metadata["name"], field="metadata.name", source=source)
+    validate_bucket_prefix(name, field="metadata.name", source=source)
 
     spec = document["spec"]
     if not isinstance(spec, Mapping):

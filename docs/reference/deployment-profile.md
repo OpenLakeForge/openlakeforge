@@ -68,7 +68,7 @@ spec:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. |
+| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. It is also the prefix of the local and Azure buckets (`<name>-<stage>-<layer>`, `<name>-ops`, ADR 0004), so it is at most 51 characters and cannot start with `xn--`. Changing it on a deployed local or Azure platform renames the buckets: see "Renaming buckets" in [Back up and restore](../guides/backup-and-restore.md). |
 
 ---
 

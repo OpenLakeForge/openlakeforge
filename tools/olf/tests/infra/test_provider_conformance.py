@@ -381,6 +381,8 @@ def _guard_runner(
         def run(self, command, **kwargs):  # type: ignore[override]  # noqa: ANN001, ANN202
             argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "provider_contracts" in argv:
+                return _ok("{}")
             if "stage_names" in argv:
                 return _ok(applied_stages if applied_stages is not None else "[]")
             if "get" in argv and "pvc" in argv:
@@ -874,35 +876,20 @@ def test_each_aws_stage_writes_silver_into_its_own_glue_databases() -> None:
         )
 
 
-def test_a_stage_bucket_that_extends_another_stages_name_is_not_a_leak() -> None:
-    """Physical bucket naming is the provider's to choose (AGENTS.md rule 2), so
-    a deployment whose DEV bucket is a prefix of its PROD bucket is legal and
-    its two bindings are distinct. Scanning for one whole name inside the other
-    reports PROD's own bucket as carrying DEV's -- a false positive that fails
-    a correct provider. Scanning for the stage *word* is what avoids it, since
-    `acme-data-bronze-prod` contains no word `dev`.
-    """
+def test_derived_bucket_names_carry_only_their_own_stage() -> None:
+    """The bucket naming rule (`<prefix>-<stage>-<layer>`, ADR 0004) puts the stage word in every name, so the
+    provider no longer picks names where one stage's bucket is a prefix of another's. What the leak scan needs is
+    that each derived name mentions its own stage and no other."""
     contract = copy.deepcopy(_contract(Provider.LOCAL))
-    for stage_name, suffix in (("dev", ""), ("prod", "-prod")):
-        for layer in _MEDALLION_LAYERS:
-            bucket = f"acme-data-{layer}{suffix}"
-            contract["stages"][stage_name]["storage"][layer] = {
-                "physical_id": bucket,
-                "bucket_name": bucket,
-                "uri": f"s3://{bucket}",
-            }
     topology = _topology_of(contract)
     parsed = parse_provider_contracts(contract, topology)
 
     for name, stage in parsed.stages.items():
-        exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=name)
-        assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == str(stage.storage["bronze"]["bucket_name"])
-
-    prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=StageName.PROD)
-    leaked = sorted(key for key, value in prod_exports.items() if _names_stage(value, StageName.DEV.value))
-    assert not leaked, (
-        f"PROD's own 'acme-data-<layer>-prod' buckets were reported as naming the DEV stage in {leaked!r}."
-    )
+        others = [other.value for other in StageName if other != name]
+        for layer in _MEDALLION_LAYERS:
+            bucket = str(stage.storage[layer]["bucket_name"])
+            assert _names_stage(bucket, name.value)
+            assert not [other for other in others if _names_stage(bucket, other)], bucket
 
 
 def test_logical_stage_identities_are_identical_across_providers() -> None:

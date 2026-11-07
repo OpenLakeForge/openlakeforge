@@ -39,8 +39,8 @@ def test_a_full_dev_prod_contract_plans_exactly_the_seven_databases_and_the_buck
         ("dex", "dex"),
     )
     assert plan.buckets == (
-        *(f"lakehouse-{stage}-{layer}" for stage in ("dev", "prod") for layer in ("bronze", "silver", "gold")),
-        "openlakeforge-ops",
+        *(f"olf-conformance-{stage}-{layer}" for stage in ("dev", "prod") for layer in ("bronze", "silver", "gold")),
+        "olf-conformance-ops",
     )
 
 

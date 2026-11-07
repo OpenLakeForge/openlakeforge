@@ -66,12 +66,30 @@ the identical namespace names work on either catalog with no translation layer.
 
 Each medallion layer gets its own bucket rather than a path prefix inside one:
 
-| Bucket (local DEV) | Layer | Written by |
+| Bucket (DEV) | Layer | Written by |
 | --- | --- | --- |
-| `lakehouse-dev-bronze` | Bronze | dlt |
-| `lakehouse-dev-silver` | Silver | Floe |
-| `lakehouse-dev-gold` | Gold | dbt-trino |
-| `openlakeforge-ops` | operational artifacts | the artifacts phase |
+| `<prefix>-dev-bronze` | Bronze | dlt |
+| `<prefix>-dev-silver` | Silver | Floe |
+| `<prefix>-dev-gold` | Gold | dbt-trino |
+| `<prefix>-ops` | operational artifacts | the artifacts phase |
+
+The naming rule is `<prefix>-<stage>-<layer>` on the self-hosted providers (local and Azure), where
+`<prefix>` is the Deployment Profile's `metadata.name`. Bucket names are global per endpoint or account and
+renaming one means migrating its data, so the name is derived once by the resolver
+(`DeploymentTopology.bucket_names()`), passed to each Terraform root as the `bucket_names` variable, and never
+rebuilt in a root. `metadata.name` is therefore validated as a bucket component: at most 51 characters, so
+`<prefix>-prod-bronze` stays within 63. There is no separate prefix override in the profile; to share an object
+store with other tenants, choose a distinctive `metadata.name`. The ops bucket is `<prefix>-ops`.
+
+`olf infra deploy` refuses to rename a bucket that is already deployed (Terraform would create an empty one and
+Polaris would keep the old locations); the opt-in is `--allow-stage-removal`. A provider contract whose bucket
+names differ from the derived ones is rejected.
+
+**AWS keeps a suffix.** S3 bucket names are global across accounts, so `<prefix>-<stage>-<layer>` can collide with a
+bucket in another account, and replacing a bucket on AWS deletes its objects. On AWS the stage buckets stay
+`<profile name>-<stage>-<layer>-<suffix>`, with the random suffix the `aws-s3` module appends, and the ops bucket
+stays `<bucket_name_prefix>-ops-<suffix>` (a root variable, not `metadata.name`). DEV keeps the names of the v0.2
+POC. Existing AWS names do not change; a Terraform test on the `aws-s3` module pins them.
 
 Buckets are the unit at which IAM policies, lifecycle rules, retention, and
 replication apply. A single bucket cannot grant BI consumers read access to Gold
@@ -98,12 +116,12 @@ The property is set per catalog rather than as the realm-wide
 creates for stages. Purge deletes the dropped table's files. That stays inside
 one stage: a stage catalog's `allowedLocations` are that stage's own three
 buckets, and Polaris refuses a table or view located outside them, so a purge
-in `lakehouse_dev` cannot reach `lakehouse-prod-*`. Who may drop is unchanged:
+in `lakehouse_dev` cannot reach `<prefix>-prod-*`. Who may drop is unchanged:
 dropping still needs the catalog grants the stage's principals hold.
 
 ### Operational artifact prefixes
 
-`openlakeforge-ops` is outside the medallion split and uses stable prefixes:
+`<prefix>-ops` is outside the medallion split and uses stable prefixes:
 
 ```text
 floe/reports/<domain>/
@@ -161,3 +179,7 @@ model's temporary view can be dropped.
 
 2026-11-06 (#562): the stage catalogs are created by `olf`'s Polaris bootstrap
 after the platform apply; the Terraform Job that did it is deleted.
+
+2026-11-07 (#993): stage buckets are `<prefix>-<stage>-<layer>` on local, AWS
+and Azure, derived by the resolver; they were `lakehouse-<stage>-<layer>` on
+local and Azure and suffixed or legacy names on AWS.
