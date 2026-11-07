@@ -21,6 +21,11 @@ POLARIS_DATABASE = ("polaris", "polaris")
 OPENMETADATA_DATABASE = ("openmetadata_db", "openmetadata_user")
 DEX_DATABASE = ("dex", "dex")
 LOCAL_CA_SECRET = "local-ca"
+# The platform API's Superset service user: Superset's database holds its password hash, so the Secrets that hold
+# the password are restored with it. Names from `modules/access/platform-api/superset_users.tf` (`superset_sources`,
+# `superset_stage_secret`): the source `<prefix><stage>` in the shared namespace, the copy in each stage namespace.
+SUPERSET_USER_SOURCE_PREFIX = "platform-api-superset-"
+SUPERSET_USER_STAGE_SECRET = "platform-api-superset"
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,11 @@ def plan_from_contract(
             credentials += polaris.person_access.people
         secrets += [(credential.namespace, credential.secret) for credential in credentials]
     secrets += [(stage.namespace, "superset-credentials") for stage in contracts.analytics_stages.values()]
+    for name, analytics in sorted(contracts.analytics_stages.items(), key=lambda item: item[0].value):
+        secrets += [
+            (shared_namespace, f"{SUPERSET_USER_SOURCE_PREFIX}{name.value}"),
+            (analytics.namespace, SUPERSET_USER_STAGE_SECRET),
+        ]
     if governed:
         secrets += [(shared_namespace, name) for name in ("openmetadata-fernet-key", "openmetadata-admin")]
         secrets.append((shared_namespace, "openmetadata-ingestion-bot"))
