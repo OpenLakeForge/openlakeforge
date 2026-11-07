@@ -118,6 +118,15 @@ def test_a_port_forward_deployment_without_trino_tls_plans_no_local_ca() -> None
     assert "local-ca" not in {secret.name for secret in plan.secrets}
 
 
-def test_trino_tls_alone_still_plans_the_local_ca() -> None:
+def test_trino_tls_alone_does_not_back_up_the_disposable_ca() -> None:
     plan = plan_from_contract(_port_forward(full_contracts(), trino_tls=True), shared_namespace="olf-system")
-    assert "local-ca" in {secret.name for secret in plan.secrets}
+    assert "local-ca" not in {secret.name for secret in plan.secrets}
+
+
+def test_plain_http_routes_do_not_back_up_the_ca_and_https_routes_do() -> None:
+    contracts = full_contracts()
+    for issuer, backed_up in (("none", False), ("local-ca", True)):
+        access = {**contracts.shared.values["access"], "issuer": issuer}
+        shared = replace(contracts.shared, values={**contracts.shared.values, "access": access})
+        plan = plan_from_contract(replace(contracts, shared=shared), shared_namespace="olf-system")
+        assert ("local-ca" in {secret.name for secret in plan.secrets}) is backed_up, issuer

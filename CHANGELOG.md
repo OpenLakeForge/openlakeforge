@@ -23,7 +23,7 @@ for how a release is cut and verified.
   waits for it and prints per-table snapshots and orphans (`--dry-run`, `--json`); it exits non-zero when the run fails.
   The full e2e suite now reruns each job and asserts the rerun changes nothing.
 - `olf infra backup --output <dir>` backs up a local deployment: each PostgreSQL database, every stage bucket and
-  the ops bucket, and the data-bound Secrets and `local-ca` sealed under a passphrase, with a manifest and
+  the ops bucket, and the data-bound Secrets (with `issuer: local-ca`, also `local-ca`) sealed under a passphrase, with a manifest and
   `SHA256SUMS`. It pauses the Dagster daemon while it runs and refuses to start with a run in flight (#910).
 - `olf infra restore --from DIR` puts a backup back onto a local platform that is deployed from the same release
   and profile. It pauses the Dagster daemons and refuses while a run is in flight, suspends the CronJobs of the
@@ -56,6 +56,9 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `olf infra backup` leaves the local CA out unless the routes are signed by it (`spec.access.issuer: local-ca`).
+  With plain-HTTP routes it signs only in-cluster certificates (Trino's), nothing persistent holds it, and a
+  restore keeps the platform's own CA. Backups that already hold `local-ca` still restore it.
 - `spec.access.issuer` defaults to `none` (plain HTTP on `*.olf.localhost`) for the local provider; the other
   providers keep `local-ca`. cert-manager and the local CA are unchanged: they still issue Trino's certificate
   (ADR 0016), so only the scheme of the routes differs. The conformance profile pins `issuer: local-ca`, so the

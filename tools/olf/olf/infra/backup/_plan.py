@@ -83,11 +83,12 @@ def plan_from_contract(
             secrets.append((shared_namespace, "openmetadata-automation-bot"))
     if github_oauth_secret:
         secrets.append((shared_namespace, github_oauth_secret))
-    # cert-manager, and so the local CA, exists for TLS ingress or for Trino's own certificate
-    # (`environments/local/main.tf`, module "cert_manager"); a port-forward deployment has neither.
-    ingress = (shared.get("access") or {}).get("implementation") == "access.ingress"
-    trino_tls = any(stage.query.get("ca_configmap_name") for stage in stages)
-    if ingress or trino_tls:
+    # The local CA is backed up only when browsers trust it: with `issuer: local-ca` the routes are signed by it and
+    # users ran `olf infra access trust`, so a new CA after a restore would break every browser. Otherwise it signs
+    # only in-cluster certificates (Trino's, ADR 0016) and nothing persistent holds it, since the pods mount it by
+    # path: it is disposable, and a restore or rebuild keeps the platform's own CA (ADR 0013 decision 9).
+    access = shared.get("access") or {}
+    if access.get("implementation") == "access.ingress" and access.get("issuer") == "local-ca":
         secrets.append((shared_namespace, LOCAL_CA_SECRET))
 
     return BackupPlan(

@@ -135,7 +135,9 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
    serves the `web` entrypoint with no `tls` block and publishes no host port
    443. cert-manager and the local CA stay deployed: Trino's internal
    certificate (ADR 0016) and the CA ConfigMap the pods mount are
-   independent of the routes. Not for any other provider or a public domain;
+   independent of the routes. With this issuer the CA is disposable: nothing
+   outside the cluster trusts it and the pods mount it by path, so it is not
+   backed up and a restore or rebuild keeps the platform's own CA. Not for any other provider or a public domain;
    the validator rejects both, and public exposure (#340) must reject it too.
    A profile that wants browser HTTPS says `issuer: local-ca`; the conformance
    profile does, so the nightly keeps exercising the TLS routes.
@@ -169,6 +171,8 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+The local CA is backed up only with `issuer: local-ca`; with `none` it is disposable (decision 9).
 
 `issuer: none` became the local default; the other providers keep `local-ca`.
 cert-manager, the CA and `olf-local-ca` are unchanged: they still serve Trino's
