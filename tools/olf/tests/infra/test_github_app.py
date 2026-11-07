@@ -131,7 +131,7 @@ def test_connect_stores_the_secret_on_stdin_and_prints_no_credential(
     github = GitHubSpec("acme", {}, GitHubOAuthRef(name="github-oauth-app"))
     topology = SimpleNamespace(
         profile_name="demo",
-        access=AccessSpec(base_domain="olf.localhost", issuer="none"),
+        access=AccessSpec(base_domain="olf.localhost", tls="none"),
         identity=IdentitySpec(issuer="github", github=github),
     )
     context = SimpleNamespace(

@@ -84,7 +84,7 @@ variable "database_key" {
 }
 
 variable "scheme" {
-  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https: the scheme of the issuer URL."
+  description = "http (spec.access.tls none, plain HTTP on *.localhost) or https: the scheme of the issuer URL."
   type        = string
   default     = "https"
 }

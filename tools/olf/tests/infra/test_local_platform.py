@@ -148,7 +148,7 @@ def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_iss
     )
     secured = replace(_github_config(tmp_path).context.topology, access=AccessSpec())
     variables = platform.platform_apply_variables(_config(tmp_path, topology=secured))
-    assert (variables["access_base_domain"], variables["access_issuer"]) == ("olf.localhost", "none")
+    assert (variables["access_base_domain"], variables["access_tls"]) == ("olf.localhost", "none")
     assert variables["identity_issuer"] == "github"
     assert "identity_external" not in variables
 
@@ -372,7 +372,7 @@ def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: b
 
     from olf.common.profile import AccessSpec
 
-    topology = replace(_topology(analytics=False), access=AccessSpec(issuer="local-ca")) if with_access else None
+    topology = replace(_topology(analytics=False), access=AccessSpec(tls="local-ca")) if with_access else None
     config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
     config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.foundation_state_path.write_text("{}")

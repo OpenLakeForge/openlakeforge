@@ -63,7 +63,7 @@ run "dex_with_password_authentication_serves_person_queries" {
 
   variables {
     trino_workload_authentication = "password"
-    access_issuer                 = "local-ca"
+    access_tls                    = "local-ca"
   }
 
   assert {
@@ -176,7 +176,7 @@ run "plain_http_without_identity_has_no_api" {
 
   variables {
     identity_issuer = null
-    access_issuer   = "none"
+    access_tls      = "none"
   }
 
   assert {

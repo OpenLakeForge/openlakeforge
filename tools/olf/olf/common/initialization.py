@@ -49,11 +49,11 @@ _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project de
 # provenance); a private image also names image.pull_secret_ref.name.
 # Authentication is off until you add spec.identity (local only; ADR 0014).
 # Check it with: olf profile validate --project .
-# access.issuer: none is local-only (plain HTTP); remove it for aws or azure.
+# access.tls: none is local-only (plain HTTP); remove it for aws or azure.
 # Sign-in: add spec.identity (issuer: github, see
 # https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/identity/connect-github.md#troubleshooting;
 # OAuth App callback http://auth.olf.localhost/callback). HTTPS: set
-# spec.access.issuer to local-ca and run `olf infra access trust`.
+# spec.access.tls to local-ca and run `olf infra access trust`.
 """
 
 
@@ -81,7 +81,7 @@ def render_profile(*, name: str, stages: Sequence[StageName], preset: Preset) ->
             "preset": preset.value,
             "stages": {stage.value: {"enabled": True} for stage in StageName if stage in stages},
             # Plain HTTP on *.olf.localhost: no certificate step (ADR 0013).
-            "access": {"issuer": "none"},
+            "access": {"tls": "none"},
         },
     }
     try:

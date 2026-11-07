@@ -286,7 +286,7 @@ spec:
   provider: {type: local}
   preset: slim
   stages: {dev: {enabled: true}}
-  access: {base_domain: olf.example.com, issuer: local-ca}
+  access: {base_domain: olf.example.com, tls: local-ca}
   identity:
     issuer: external
     issuer_url: https://login.example.com
@@ -314,14 +314,14 @@ def test_instance_comes_from_the_profile(tmp_path: Path) -> None:
 def test_plain_http_access_with_identity_still_signs_in(tmp_path: Path) -> None:
     github = Path(__file__).parents[1] / "fixtures/profiles/valid_github_identity.yaml"
     profile = tmp_path / "openlakeforge.yaml"
-    profile.write_text(github.read_text().replace("access: {issuer: local-ca}", "access: {issuer: none}"))
+    profile.write_text(github.read_text().replace("access: {tls: local-ca}", "access: {tls: none}"))
 
     assert sessions.resolve_instance(str(profile)).issuer == "http://auth.olf.localhost"
 
 
 @pytest.mark.parametrize("command", ["whoami", "logout"])
 def test_without_identity_whoami_and_logout_say_sign_in_is_off(tmp_path: Path, command: str) -> None:
-    profile = _profile_with(tmp_path, "  access: {issuer: none}\n")
+    profile = _profile_with(tmp_path, "  access: {tls: none}\n")
 
     result = CliRunner().invoke(app, [command, "--profile-file", profile])
 
