@@ -91,8 +91,10 @@ class LocalProvider:
         return self.context.command_env(docker_host=docker_host)
 
     def foundation_up(self) -> None:
-        from olf.infra.deployment.local import foundation, network_canary
+        from olf.infra.deployment.local import foundation, network_canary, wsl_clock
 
+        if problem := wsl_clock.competing_time_sync():
+            log.warn(problem)
         foundation.foundation_up(self.config, self.tools, env=self.env)
         network_canary.require_policy_enforcement(self.config, self.tools, env=self.env)
 
@@ -300,6 +302,11 @@ class LocalProvider:
         if not self._environ.get("DOCKER_HOST"):
             docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
         items.append(docker_health(self.tools, env=self.context.command_env(docker_host=docker_host)))
+        from olf.infra.deployment.local import wsl_clock
+
+        if wsl_clock.is_wsl():
+            problem = wsl_clock.competing_time_sync()
+            items.append(DoctorItem("WSL clock", problem is None, problem or "one time source (Hyper-V)"))
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             tfvars = self.config.terraform.var_file
             if tfvars is not None:
