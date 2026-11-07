@@ -177,7 +177,6 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None, environ: Mapping[str, 
     namespace_prefix = f"{catalog_name}_" if provider == "aws-glue" else ""
     desired = catalog_module.desired_namespaces(
         config.project_spec(environ=environ).root,
-        bronze_bucket=config.env("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", "lakehouse-bronze", environ=environ),
         silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver", environ=environ),
         gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold", environ=environ),
         namespace_prefix=namespace_prefix,

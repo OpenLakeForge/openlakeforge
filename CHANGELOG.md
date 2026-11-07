@@ -46,6 +46,9 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Bronze no longer has a catalog namespace: `olf infra catalog sync-namespaces` stops planning `<source>_bronze`,
+  because Bronze holds raw files in the Bronze bucket, not Iceberg tables. Existing `<source>_bronze` namespaces are
+  not dropped: they are reported as undeclared and removed from the catalog only with `--prune`.
 - `--provider` is now optional on `olf infra deploy|plan|doctor|destroy|status|forward` and on the commands that
   read a deployed stack's contracts (`olf infra dbt`, `catalog`, `superset`, `openmetadata`): it defaults to the
   Deployment Profile's `spec.provider.type` instead of silently to `local`, so `olf infra deploy` is enough.

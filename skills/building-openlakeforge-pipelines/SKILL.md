@@ -60,8 +60,8 @@ in one operation. For APIs/databases, scaffold the source using
 | Governance | `governance.yml` | Define domain `name` and product `id`/`domain` plus business descriptions. Never list tables here or embed physical storage/catalog config. |
 | Dashboard | `dashboards/superset/<dashboard>/` | Superset charts and datasets must read Gold schemas. A draft generated with `--with-report` is **not** a deployable dashboard until exported with `metadata.yaml`. |
 
-Namespace conventions: `<source>_bronze`, `<domain>_silver`,
-`<product>_gold`; the Dagster job is `<product>_pipeline`.
+Namespace conventions: `<domain>_silver`, `<product>_gold` (Bronze is raw
+files in the stage Bronze bucket and has no catalog namespace); the Dagster job is `<product>_pipeline`.
 Source identifiers, domains, products and table names use lowercase
 underscore-separated identifiers.
 

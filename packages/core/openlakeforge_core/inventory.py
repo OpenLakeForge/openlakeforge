@@ -89,10 +89,6 @@ class Source:
     runtime_secrets: tuple[str, ...] = ()
 
     @property
-    def bronze_namespace(self) -> str:
-        return f"{self.name}_bronze"
-
-    @property
     def config_map_name(self) -> str:
         # Kubernetes names allow no `_` and source ids allow no `-`, so the
         # mapping cannot make two sources collide.
@@ -228,22 +224,12 @@ class PhysicalDomainNames:
 
 
 @dataclass(frozen=True)
-class PhysicalSourceNames:
-    """Provider-specific names resolved for one logical bronze source."""
-
-    source: str
-    bronze_namespace: str
-    bronze_schema_fqn: str
-
-
-@dataclass(frozen=True)
 class PhysicalInventory:
     """Physical catalog and artifact identities for a provider contract."""
 
     catalog_namespaces: tuple[CatalogNamespace, ...]
     products: tuple[PhysicalProductNames, ...]
     domains: tuple[PhysicalDomainNames, ...] = ()
-    sources: tuple[PhysicalSourceNames, ...] = ()
 
     @property
     def silver_namespaces(self) -> dict[str, str]:
@@ -260,14 +246,6 @@ class PhysicalInventory:
     @property
     def gold_schema_fqns(self) -> dict[str, str]:
         return {product.product: product.gold_schema_fqn for product in self.products}
-
-    @property
-    def bronze_namespaces(self) -> dict[str, str]:
-        return {source.source: source.bronze_namespace for source in self.sources}
-
-    @property
-    def bronze_schema_fqns(self) -> dict[str, str]:
-        return {source.source: source.bronze_schema_fqn for source in self.sources}
 
 
 @dataclass(frozen=True)
@@ -292,7 +270,7 @@ class LakehouseInventory:
     def catalog_namespaces(self) -> tuple[str, ...]:
         return tuple(
             namespace
-            for namespace in (*self.bronze_namespace_names, *self.silver_namespace_names, *self.gold_namespace_names)
+            for namespace in (*self.silver_namespace_names, *self.gold_namespace_names)
         )
 
     @property
@@ -316,10 +294,6 @@ class LakehouseInventory:
     @property
     def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:
         return {product.name: product.openmetadata_data_product_fqns for product in self.products}
-
-    @property
-    def bronze_namespace_names(self) -> frozenset[str]:
-        return frozenset(source.bronze_namespace for source in self.sources)
 
     @property
     def silver_namespace_names(self) -> frozenset[str]:
@@ -348,7 +322,6 @@ class LakehouseInventory:
         self,
         *,
         catalog_database_fqn: str,
-        bronze_bucket: str,
         silver_bucket: str,
         gold_bucket: str,
         namespace_prefix: str = "",
@@ -367,7 +340,6 @@ class LakehouseInventory:
         namespaces: list[CatalogNamespace] = []
         products: list[PhysicalProductNames] = []
         domains: list[PhysicalDomainNames] = []
-        sources: list[PhysicalSourceNames] = []
         for domain in self.domains:
             physical_name = f"{namespace_prefix}{domain.silver_namespace}"
             namespaces.append(CatalogNamespace(physical_name, f"s3://{silver_bucket}/{domain.silver_namespace}/"))
@@ -388,19 +360,7 @@ class LakehouseInventory:
                     gold_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
                 )
             )
-        for source in self.sources:
-            physical_name = f"{namespace_prefix}{source.bronze_namespace}"
-            namespaces.append(CatalogNamespace(physical_name, f"s3://{bronze_bucket}/{source.bronze_namespace}/"))
-            sources.append(
-                PhysicalSourceNames(
-                    source=source.name,
-                    bronze_namespace=physical_name,
-                    bronze_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
-                )
-            )
-        return PhysicalInventory(
-            catalog_namespaces=tuple(namespaces), products=tuple(products), domains=tuple(domains), sources=tuple(sources)
-        )
+        return PhysicalInventory(catalog_namespaces=tuple(namespaces), products=tuple(products), domains=tuple(domains))
 
 
 def _lakehouse_root(path: Path) -> Path:

@@ -92,7 +92,6 @@ def _default_catalog_namespace_json(env: _Env, repo_root: Path) -> tuple[str, st
     """
     physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn="",
-        bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
     )
@@ -499,7 +498,6 @@ def build_contract_env(
     # per-stage catalog, so the catalog boundary alone is enough there.
     schema_fqn_physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn=database_fqn,
-        bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
         namespace_prefix=f"{catalog_name}_" if is_glue else "",
