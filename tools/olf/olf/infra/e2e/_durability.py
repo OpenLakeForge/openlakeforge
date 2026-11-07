@@ -25,7 +25,7 @@ from olf.infra.e2e._assertions import _openmetadata_e2e_login, openmetadata_clie
 from olf.infra.e2e._dagster import dagster_client
 from olf.infra.e2e._isolation import _materialized_tables, stage_bucket_items
 from olf.infra.e2e._layers import configured_layers
-from olf.infra.e2e._secret_exposure import _credentials, migrated_credentials, scan, scan_namespaces
+from olf.infra.e2e._secret_exposure import scan, secret_values
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import check_trino_tables_and_marts, stage_catalog_name, trino_query, trino_scalar
 from olf.infra.openmetadata._auth import admin_password
@@ -265,15 +265,6 @@ def _objects(cfg: E2EConfig, stage: str) -> State:
     except ArtifactStoreError as exc:
         raise E2EError(str(exc)) from exc
     return objects
-
-
-def secret_values(cfg: E2EConfig) -> dict[str, str]:
-    """The Secret values a baseline must not hold: the identity set and the credentials moved out of Terraform."""
-    contracts = load_provider_contracts_or_raise(cfg)
-    return {
-        **_credentials(cfg, contracts["shared"]["identity"]),
-        **migrated_credentials(cfg, scan_namespaces(cfg, contracts)),
-    }
 
 
 def capture_to_file(cfg: E2EConfig, output: Path) -> None:

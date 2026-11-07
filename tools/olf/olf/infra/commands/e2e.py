@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -154,7 +156,7 @@ def e2e_stage_buckets(
     print(json.dumps(objects, indent=1, sort_keys=True))
 
 
-def _run_durability(action: str, path: str, *, stage: str, profile_file: str, project_root: str) -> None:
+def _run_on_local_stage(action: Callable[[Any], None], *, stage: str, profile_file: str, project_root: str) -> None:
     from olf.common.deployment.errors import DeploymentError
     from olf.infra import e2e
 
@@ -170,19 +172,29 @@ def _run_durability(action: str, path: str, *, stage: str, profile_file: str, pr
         )
     try:
         with applied_runtime_environment(context, env="local") as contract:
-            cfg = e2e.connect(
-                "local",
-                namespace=context.namespace,
-                shared_namespace=context.shared_namespace,
-                kube_context=contract.kube_context,
-                repo_root=context.paths.repo_root,
-                distribution_root=context.paths.distribution_root,
-                deployment=context,
-                environ=contract,
+            action(
+                e2e.connect(
+                    "local",
+                    namespace=context.namespace,
+                    shared_namespace=context.shared_namespace,
+                    kube_context=contract.kube_context,
+                    repo_root=context.paths.repo_root,
+                    distribution_root=context.paths.distribution_root,
+                    deployment=context,
+                    environ=contract,
+                )
             )
-            (e2e.capture_to_file if action == "capture" else e2e.verify_file)(cfg, Path(path))
     except (e2e.E2EError, DeploymentError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+
+
+def _run_durability(action: str, path: str, *, stage: str, profile_file: str, project_root: str) -> None:
+    from olf.infra import e2e
+
+    run = e2e.capture_to_file if action == "capture" else e2e.verify_file
+    _run_on_local_stage(
+        lambda cfg: run(cfg, Path(path)), stage=stage, profile_file=profile_file, project_root=project_root
+    )
 
 
 @durability_app.command("capture")
@@ -208,3 +220,32 @@ def durability_verify(
 ) -> None:
     """Report everything the baseline held that is missing or changed; exits non-zero if anything is."""
     _run_durability("verify", baseline, stage=stage, profile_file=profile_file, project_root=project_root)
+
+
+@app.command("secret-scan")
+def secret_scan(
+    paths: list[str] = typer.Option(..., "--path", help="File or directory to scan for Secret values; repeatable."),
+    exclude: list[str] = typer.Option(
+        [], "--exclude", help="File name to skip wherever it sits, such as the encrypted secrets.enc; repeatable."
+    ),
+    also_env: list[str] = typer.Option(
+        [], "--also-env", help="Name of an environment variable whose value must not appear either; repeatable."
+    ),
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Fail if the cluster or the given files hold the value of a platform Secret.
+
+    Scans what `olf infra e2e run` scans (Terraform state, ConfigMaps, diagnostics and pod logs) and then the files
+    under each --path. A failure names the file and the Secret, never the value. Launches no pipeline.
+    """
+    from olf.infra.e2e._secret_exposure import check_files_for_exposure, check_secret_exposure
+
+    extra = {f"environment variable {name}": os.environ.get(name, "") for name in also_env}
+
+    def scan(cfg: Any) -> None:
+        check_secret_exposure(cfg)
+        check_files_for_exposure(cfg, [Path(path) for path in paths], exclude=exclude, extra=extra)
+
+    _run_on_local_stage(scan, stage=stage, profile_file=profile_file, project_root=project_root)

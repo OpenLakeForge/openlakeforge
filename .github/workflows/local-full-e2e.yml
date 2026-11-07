@@ -83,12 +83,21 @@ on:
           stage was 25m33s (18m15s deploy, 7m02s suite); the DEV+PROD
           lifecycle adds a second stage's platform, one revision build/push,
           two activations, and a second full suite -- projected at 60-90
-          minutes. 180 keeps roughly 2x headroom over that projection while
+          minutes, plus an estimated 35 for the restore drill. 180 keeps roughly 2x headroom over that projection while
           staying well clear of the 6-hour hard limit GitHub-hosted runners
           enforce (a single job that cannot be split -- the kind cluster does
           not survive a job boundary). Raise it if a real run needs more.
         type: number
         default: 180
+      restore_drill:
+        description: >
+          'full' suite only. After every other step, back the deployment up,
+          destroy the cluster, create the platform again, restore, and verify
+          each stage against a baseline taken before the backup
+          (.github/actions/restore-drill, docs/guides/backup-and-restore.md).
+          Estimated at 35 minutes. The nightly schedule always runs it.
+        type: boolean
+        default: false
       debug_fail_after_deploy:
         description: >
           Negative test: fail the job right after the platform is deployed to
@@ -395,6 +404,30 @@ jobs:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: olf infra e2e run --env local -f openlakeforge.yaml --stage prod --suite full --checks core
+
+      - name: Restore drill (back up, destroy, rebuild the platform, restore, verify, scan)
+        # Last, because it destroys the cluster the steps above used. The
+        # nightly runs it; a dispatch opts in with `restore_drill`.
+        if: (inputs.suite || 'full') != 'smoke' && (github.event_name == 'schedule' || inputs.restore_drill)
+        uses: ./.github/actions/restore-drill
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        with:
+          profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
+          stages: ${{ (inputs.stage_scope || 'dev+prod') == 'dev-only' && 'dev' || 'dev prod' }}
+
+      - name: Upload the restore drill report
+        # Only the manifest and the verify reports: the backup directory
+        # holds all the data in the clear and is never uploaded.
+        if: always() && (inputs.suite || 'full') != 'smoke' && (github.event_name == 'schedule' || inputs.restore_drill)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: restore-drill-report-${{ github.run_id }}
+          path: .tmp/restore-drill/report
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Write run summary
         if: always()

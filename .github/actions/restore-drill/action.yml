@@ -1,0 +1,114 @@
+name: Restore drill for an OpenLakeForge local deployment
+description: >
+  Prove a backup restores. Record each stage's durability baseline, back the
+  deployment up, destroy the cluster, create the platform again, restore, and
+  verify every stage against its baseline, then scan the logs and the backup
+  for Secret values. Destroys the cluster: run it last in a job. Needs `olf`
+  and `kubectl` on PATH, a deployment made from the profile by the same `olf`,
+  and KUBECONFIG and KUBE_CONTEXT in the environment (docs/guides/backup-and-restore.md).
+  The backup directory holds all the data in the clear and is never published:
+  only `<directory>/report` is meant to be uploaded.
+inputs:
+  profile:
+    description: Path to the project's Deployment Profile, named openlakeforge.yaml.
+    default: openlakeforge.yaml
+  stages:
+    description: Space-separated stages to baseline and verify (dev, uat, prod).
+    default: dev
+  directory:
+    description: Directory for the drill's files. Only its `report` folder is meant to be uploaded.
+    default: .tmp/restore-drill
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare the drill directory and a masked passphrase
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        STAGES: ${{ inputs.stages }}
+        DIRECTORY: ${{ inputs.directory }}
+      run: |
+        set -euo pipefail
+        passphrase="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+        echo "::add-mask::${passphrase}"
+        mkdir -p "${DIRECTORY}/logs" "${DIRECTORY}/baselines" "${DIRECTORY}/report"
+        {
+          echo "OLF_BACKUP_PASSPHRASE=${passphrase}"
+          echo "DRILL_PROFILE=$(realpath "${PROFILE}")"
+          echo "DRILL_DIR=$(realpath "${DIRECTORY}")"
+          echo "DRILL_STAGES=${STAGES}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Record each stage's durability baseline
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        for stage in ${DRILL_STAGES}; do
+          olf infra e2e durability capture --output "${DRILL_DIR}/baselines/${stage}.json" \
+            -f "${DRILL_PROFILE}" --stage "${stage}" 2>&1 | tee -a "${DRILL_DIR}/logs/capture.log"
+        done
+
+    - name: Back up the deployment
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        olf infra backup --output "${DRILL_DIR}/backup" -f "${DRILL_PROFILE}" 2>&1 | tee -a "${DRILL_DIR}/logs/backup.log"
+        cp "${DRILL_DIR}/backup/manifest.json" "${DRILL_DIR}/report/manifest.json"
+
+    - name: Destroy the cluster
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        olf infra destroy 2>&1 | tee -a "${DRILL_DIR}/logs/destroy.log"
+
+    - name: Create the platform again, without project artifacts
+      # `olf infra deploy --phase platform` alone needs the cluster, which the
+      # destroy removed: `platform apply` runs the foundation, the image
+      # prefetch and the platform phase. Its first run stops at the missing
+      # GitHub OAuth Secret of the e2e profile (as in local-full-e2e.yml);
+      # restore replaces the placeholder with the backed-up Secret.
+      shell: bash
+      run: |
+        set -uo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        olf infra platform apply -f "${DRILL_PROFILE}" 2>&1 | tee -a "${DRILL_DIR}/logs/platform.log" \
+          || echo "::notice::first apply stopped at the missing GitHub OAuth Secret, as expected"
+        set -e
+        kubectl --kubeconfig "${KUBECONFIG}" -n olf-system create secret generic github-oauth-app \
+          --from-literal=client-id=olf-e2e --from-literal=client-secret=olf-e2e \
+          --dry-run=client -o yaml | kubectl --kubeconfig "${KUBECONFIG}" -n olf-system apply -f -
+        olf infra platform apply -f "${DRILL_PROFILE}" 2>&1 | tee -a "${DRILL_DIR}/logs/platform.log"
+
+    - name: Restore the backup
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        olf infra restore --from "${DRILL_DIR}/backup" 2>&1 | tee -a "${DRILL_DIR}/logs/restore.log"
+
+    - name: Verify every stage against its baseline
+      shell: bash
+      run: |
+        set -uo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        failed=0
+        for stage in ${DRILL_STAGES}; do
+          olf infra e2e durability verify --baseline "${DRILL_DIR}/baselines/${stage}.json" \
+            -f "${DRILL_PROFILE}" --stage "${stage}" 2>&1 | tee "${DRILL_DIR}/report/verify-${stage}.log" || failed=1
+        done
+        exit "${failed}"
+
+    - name: Scan the logs and the backup for Secret values
+      # secrets.enc is the one file meant to hold them, encrypted. The scan
+      # names a file and a Secret, never a value.
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        olf infra e2e secret-scan --path "${DRILL_DIR}/backup" --path "${DRILL_DIR}/logs" \
+          --path "${DRILL_DIR}/baselines" --path "${DRILL_DIR}/report" \
+          --exclude secrets.enc --also-env OLF_BACKUP_PASSPHRASE -f "${DRILL_PROFILE}"
