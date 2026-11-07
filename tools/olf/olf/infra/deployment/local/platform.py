@@ -18,7 +18,7 @@ from typing import Any
 
 from olf.common import log
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
-from olf.common.deployment.context import query_variables, stage_namespace, storage_variables
+from olf.common.deployment.context import bucket_variables, query_variables, stage_namespace, storage_variables
 from olf.common.deployment.context import topology_variables as _topology_variables
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
@@ -271,6 +271,7 @@ def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
 def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return (
         topology_variables(config)
+        | bucket_variables(config.context)
         | {
             "kube_context": config.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),

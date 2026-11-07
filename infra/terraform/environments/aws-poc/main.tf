@@ -95,17 +95,16 @@ locals {
   # aws_eks_pod_identity_association below binds that bare name,
   # namespace-scoped instead of name-scoped.
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
-  legacy_dev_buckets     = { for name in keys(local.enabled_stages) : name => name == "dev" && var.legacy_dev_bucket_names }
   stage_buckets = {
     for name in keys(local.enabled_stages) : name => {
-      # `legacy_dev_bucket_names` keeps the v0.2 POC's physical DEV buckets
-      # (and the moved resource addresses in aws-s3) so an upgrade cannot
-      # replace force-destroyable buckets. Every other bucket takes the
-      # resolver's name exactly.
-      bronze_bucket_name    = local.legacy_dev_buckets[name] ? var.bronze_bucket_name : var.bucket_names[name].bronze,
-      silver_bucket_name    = local.legacy_dev_buckets[name] ? var.silver_bucket_name : var.bucket_names[name].silver,
-      gold_bucket_name      = local.legacy_dev_buckets[name] ? var.gold_bucket_name : var.bucket_names[name].gold,
-      preserve_legacy_names = local.legacy_dev_buckets[name]
+      # The old AWS POC owned the unqualified Bronze/Silver/Gold buckets at
+      # the module's `bronze`/`silver`/`gold` addresses. Keep those physical
+      # DEV names (and move the addresses in aws-s3) so this platform upgrade
+      # cannot replace force-destroyable buckets; UAT/PROD get new identities.
+      bronze_bucket_name    = name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze",
+      silver_bucket_name    = name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver",
+      gold_bucket_name      = name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold",
+      preserve_legacy_names = name == "dev"
     }
   }
   stage_catalogs_desired = {

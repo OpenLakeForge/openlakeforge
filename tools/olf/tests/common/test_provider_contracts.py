@@ -290,12 +290,14 @@ def test_an_ops_bucket_that_is_not_the_derived_one_is_rejected() -> None:
         parse_provider_contracts(contract, topology)
 
 
-def test_aws_dev_may_keep_its_legacy_bucket_names() -> None:
+def test_aws_bucket_names_are_not_held_to_the_derived_rule() -> None:
+    """AWS keeps its generated, suffixed names and DEV's v0.2 names (#993)."""
     contract = _fixture("aws-provider-contracts-v3.json")
     topology = _topology(contract)
-    dev = contract["stages"]["dev"]["storage"]["bronze"]
-    legacy = "acme-poc-bronze-ab12cd34"
-    dev.update(physical_id=legacy, bucket_name=legacy, uri=f"s3://{legacy}")
+    for stage, suffix in (("dev", "legacy"), ("uat", "ab12cd34"), ("prod", "ab12cd34")):
+        for layer in ("bronze", "silver", "gold"):
+            bucket = f"acme-poc-{stage}-{layer}-{suffix}"
+            contract["stages"][stage]["storage"][layer].update(physical_id=bucket, bucket_name=bucket, uri=f"s3://{bucket}")
 
     parse_provider_contracts(contract, topology)
 

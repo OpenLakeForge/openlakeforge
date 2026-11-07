@@ -355,6 +355,7 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
     assert set(variables.keys()) == {
         "profile_name",
         "bucket_names",
+        "ops_bucket_name",
         "shared_namespace",
         "stages",
         "kube_context",

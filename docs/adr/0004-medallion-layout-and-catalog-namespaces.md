@@ -73,21 +73,22 @@ Each medallion layer gets its own bucket rather than a path prefix inside one:
 | `<prefix>-dev-gold` | Gold | dbt-trino |
 | `<prefix>-ops` | operational artifacts | the artifacts phase |
 
-The naming rule is the same on every provider: `<prefix>-<stage>-<layer>`,
-where `<prefix>` is the Deployment Profile's `metadata.name`. Bucket names are
-global per endpoint or account and renaming one means migrating its data, so
-the name is derived once by the resolver (`DeploymentTopology.bucket_names()`),
-passed to each Terraform root as the `bucket_names` variable, and never rebuilt
-in a root. `metadata.name` is therefore validated as a bucket component: at
-most 51 characters, so `<prefix>-prod-bronze` stays within 63. There is no
-separate prefix override in the profile; to share an object store with other
-tenants, choose a distinctive `metadata.name`. AWS keeps no random suffix: the
-operator owns uniqueness through that name. An AWS deployment that already
-holds DEV data under the v0.2 names sets `legacy_dev_bucket_names = true` on the
-`aws-poc` root. The ops bucket is `<prefix>-ops` on local and Azure; AWS keeps a generated, suffixed ops bucket name until the
-global-uniqueness question on AWS bucket names is settled. `olf infra deploy` refuses to rename a bucket that is
-already deployed (Terraform would create an empty one and Polaris would keep the old locations); the opt-in is
-`--allow-stage-removal`. A provider contract whose bucket names differ from the derived ones is rejected.
+The naming rule is `<prefix>-<stage>-<layer>` on the self-hosted providers (local and Azure), where
+`<prefix>` is the Deployment Profile's `metadata.name`. Bucket names are global per endpoint or account and
+renaming one means migrating its data, so the name is derived once by the resolver
+(`DeploymentTopology.bucket_names()`), passed to each Terraform root as the `bucket_names` variable, and never
+rebuilt in a root. `metadata.name` is therefore validated as a bucket component: at most 51 characters, so
+`<prefix>-prod-bronze` stays within 63. There is no separate prefix override in the profile; to share an object
+store with other tenants, choose a distinctive `metadata.name`. The ops bucket is `<prefix>-ops`.
+
+`olf infra deploy` refuses to rename a bucket that is already deployed (Terraform would create an empty one and
+Polaris would keep the old locations); the opt-in is `--allow-stage-removal`. A provider contract whose bucket
+names differ from the derived ones is rejected.
+
+**AWS is not on the rule yet.** S3 bucket names are global across accounts, so `<prefix>-<stage>-<layer>` can
+collide with a bucket in another account, and replacing a bucket on AWS deletes its objects. AWS keeps its
+generated `<profile>-<stage>-<layer>-<suffix>` stage names, its suffixed ops bucket, and DEV's v0.2 names. Open:
+an account-scoped suffix on AWS, or a requirement that `metadata.name` be globally unique.
 
 Buckets are the unit at which IAM policies, lifecycle rules, retention, and
 replication apply. A single bucket cannot grant BI consumers read access to Gold

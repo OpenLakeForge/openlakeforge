@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY
-from olf.common.deployment.context import storage_variables, topology_variables
+from olf.common.deployment.context import bucket_variables, storage_variables, topology_variables
 from olf.common.deployment.env_settings import env as _env
 from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.tooling.toolkit import Toolkit
@@ -165,7 +165,7 @@ class AzureBackend:
         } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
 
     def platform_destroy_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
-        return topology_variables(config.context) | {
+        return topology_variables(config.context) | bucket_variables(config.context) | {
             "kube_context": facts.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),
             "helm_repository_cache_path": str(config.paths.helm_repository_cache),
