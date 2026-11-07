@@ -51,6 +51,11 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    equal a shared or reserved host (`trino`, `openmetadata`, `auth`,
    `oauth2`). The one exception is the portal (decision 7), which is the apex,
    `https://<base_domain>`.
+   **Decided, not built (#965):** with one Trino per stage (ADR 0019
+   section 9), Trino becomes a stage service, `trino-<stage>.<base_domain>`,
+   and `trino` leaves the shared hosts. The stage services are then
+   `dagster`, `superset` and `trino`, and the no-collision argument above is
+   unchanged.
 3. **The provider contract carries the routes.** `shared.access` gains
    `base_domain`, `issuer`, `tls_mode`, and `routes` — declared together or
    not at all, so a port-forward contract still parses. `routes` is keyed by
@@ -135,7 +140,9 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
    serves the `web` entrypoint with no `tls` block and publishes no host port
    443. cert-manager and the local CA stay deployed: Trino's internal
    certificate (ADR 0016) and the CA ConfigMap the pods mount are
-   independent of the routes. With this issuer the CA is disposable: nothing
+   independent of the routes. Once the keyless engine of ADR 0019 section 9 lands
+   (#967), Trino no longer has a certificate, and whether cert-manager is
+   still needed with this issuer is settled in #391. With this issuer the CA is disposable: nothing
    outside the cluster trusts it and the pods mount it by path, so it is not
    backed up and a restore or rebuild keeps the platform's own CA. Not for any other provider or a public domain;
    the validator rejects both, and public exposure (#340) must reject it too.
@@ -171,6 +178,10 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+Decisions 2 and 9 (#960): Trino moves to a per-stage route with one Trino per
+stage (#965), and its certificate goes with the keyless engine (#967).
+Decided, not built.
 
 The local CA is backed up only with `issuer: local-ca`; with `none` it is disposable (decision 9).
 
