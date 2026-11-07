@@ -54,6 +54,7 @@ from olf.infra.commands import (
 from olf.infra.commands import contracts as infra_contracts
 from olf.infra.commands import diagnostics as infra_diagnostics
 from olf.infra.commands import images as infra_images
+from olf.infra.commands import maintenance as infra_maintenance
 from olf.infra.commands import product as infra_product
 from olf.infra.commands import project as infra_project
 from olf.infra.commands import source as infra_source
@@ -172,6 +173,7 @@ _infra_group(infra_project.app, "project", common=project.app)
 _infra_group(platform.app, "platform")
 # Born after the 2b move: there is no pre-2b top-level path to alias.
 infra_app.add_typer(infra_source.app, name="source")
+infra_app.add_typer(infra_maintenance.app, name="maintenance")
 
 _infra_command("deploy", deployment.deploy)
 _infra_command("plan", deployment.plan)

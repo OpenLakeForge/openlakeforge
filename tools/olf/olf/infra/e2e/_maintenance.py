@@ -24,6 +24,9 @@ from olf.infra.e2e._trino import stage_catalog_name, trino_query
 SILVER_JOB, SILVER_OP = "silver_maintenance", "maintain_silver"
 GOLD_JOB, GOLD_OP = "gold_maintenance", "maintain_gold"
 
+# (dry_run, is_rerun): a dry run, the real run, then the same run again.
+_RUNS = ((True, False), (False, False), (False, True))
+
 # (schema, table) -> (snapshots, rows)
 TableState = dict[tuple[str, str], tuple[int, int]]
 
@@ -61,17 +64,22 @@ def check_iceberg_maintenance(cfg: E2EConfig) -> None:
         raise E2EError("maintenance needs materialised Silver and Gold tables; Trino lists none.")
     with dagster_client(cfg) as client:
         state = table_state(cfg, silver)
-        for dry_run in (True, False):
-            metadata = _run(cfg, client, SILVER_JOB, SILVER_OP, dry_run)
+        # The last real run is the rerun an interrupted job relies on: it must find nothing left to do.
+        for dry_run, rerun in _RUNS:
+            _run_id, metadata = run_job(cfg, client, SILVER_JOB, SILVER_OP, dry_run)
             after = table_state(cfg, silver)
             check_silver_result(metadata, state, after, dry_run=dry_run)
+            if rerun and after != state:
+                raise E2EError(f"{SILVER_JOB} rerun changed tables: {state} -> {after}")
             state = after
         state = table_state(cfg, gold)
         past_window: dict[tuple[str, str], int] = {}
-        for dry_run in (True, False):
-            metadata = _run(cfg, client, GOLD_JOB, GOLD_OP, dry_run)
+        for dry_run, rerun in _RUNS:
+            _run_id, metadata = run_job(cfg, client, GOLD_JOB, GOLD_OP, dry_run)
             after = table_state(cfg, gold)
             past_window = check_gold_result(metadata, state, after, dry_run=dry_run, past_window=past_window)
+            if rerun and after != state:
+                raise E2EError(f"{GOLD_JOB} rerun changed tables: {state} -> {after}")
             state = after
 
 
@@ -106,12 +114,13 @@ def _gold_tables(cfg: E2EConfig) -> list[tuple[str, str]]:
     ]
 
 
-def _run(cfg: E2EConfig, client: DagsterClient, job: str, op: str, dry_run: bool) -> dict[str, Any]:
+def run_job(cfg: E2EConfig, client: DagsterClient, job: str, op: str, dry_run: bool) -> tuple[str, dict[str, Any]]:
+    """Launch a maintenance job with `dry_run`, wait, and return its run id and output metadata."""
     run_id = launch_and_poll(cfg, client, job, run_config={"ops": {op: {"config": {"dry_run": dry_run}}}})
     metadata = run_output_metadata(client, run_id)
     if metadata.get("dry_run") is not dry_run:
         raise E2EError(f"{job} run {run_id} reported dry_run={metadata.get('dry_run')!r}, launched with {dry_run}.")
-    return metadata
+    return run_id, metadata
 
 
 def run_output_metadata(client: DagsterClient, run_id: str) -> dict[str, Any]:
