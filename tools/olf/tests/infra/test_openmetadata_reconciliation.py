@@ -19,7 +19,7 @@ APPLIED_DEV_CONTRACT = {
 def _single_product_reconciler(tmp_path: Path) -> MetadataReconciler:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -32,19 +32,18 @@ resources:
     )
     (tmp_path / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain
     status: active
-products:
-  - id: order_revenue
-    domain: sales
-    displayName: Sales Order Revenue
-    description: Revenue from orders.
-    status: active
+    products:
+      - id: order_revenue
+        displayName: Sales Order Revenue
+        description: Revenue from orders.
+        status: active
 """
     )
     cfg = OpenMetadataConfig.from_environment(

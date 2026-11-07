@@ -104,11 +104,18 @@ def publish_project_revision(
     Raises `ProjectRevisionError` or `ArtifactStoreError` rather than exiting.
     """
     from olf.common.commands._project import writable_project_layout
+    from olf.common.runtime_contract import runtime_contract_at
     from olf.infra.project_revision import build_project_revision, publish
 
     layout = writable_project_layout(project)
     spec = ProjectSpec(root=layout.project_root, distribution_root=layout.distribution_root)
-    manifest = build_project_revision(spec, image=image, distribution_version=layout.distribution_version)
+    contract = runtime_contract_at(layout.distribution_root)
+    manifest = build_project_revision(
+        spec,
+        image=image,
+        distribution_version=layout.distribution_version,
+        runtime_contract_version=None if contract is None else contract.version,
+    )
     with open_store(layout.project_root) as store:
         publish(store, manifest, spec)
     return manifest

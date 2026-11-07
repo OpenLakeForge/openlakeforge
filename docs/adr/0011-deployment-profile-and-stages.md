@@ -41,6 +41,13 @@ Neither record gave the four concepts distinct types. This ADR does.
 | Sizing | `query`: `small` (`medium`, `large` named but rejected); `storage`: `small`, `medium`, `large` | `spec.query.size`, `spec.storage.size` |
 | Runtime | not exposed — Trino only | not a v1 field |
 
+`spec.provider.type` selects a deployment target and the *defaults* for each
+capability adapter: object storage, metadata database and catalog. Later
+milestones add per-capability overrides (an existing on-prem cluster #802,
+external S3 #803, external PostgreSQL #335) as new fields; they do not change
+what `provider.type` means. In the v1beta1 schema `aws` and `azure` are
+preview: accepted, but the beta compatibility promise covers `local` only.
+
 A provider is not a stage. A stage is not a Kubernetes cluster — v0.3 runs
 every stage on one shared cluster. A preset is a default/override set for
 optional per-stage capabilities, not a second architecture. Runtime choice
@@ -293,3 +300,7 @@ fails closed. Without a profile file the shorthand behaves as before.
 
 2026-11-07 (#960): per-stage query size decided with one Trino per stage (#965), before the
 v1beta1 freeze; nothing built.
+
+2026-11-07 (#996): recorded what `provider.type` promises (target plus
+per-capability defaults, overridable by later additive fields) and that `aws`
+and `azure` are preview in v1beta1; `olf profile validate` prints a notice.

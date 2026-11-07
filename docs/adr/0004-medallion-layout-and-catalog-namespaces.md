@@ -85,10 +85,11 @@ store with other tenants, choose a distinctive `metadata.name`. The ops bucket i
 Polaris would keep the old locations); the opt-in is `--allow-stage-removal`. A provider contract whose bucket
 names differ from the derived ones is rejected.
 
-**AWS is not on the rule yet.** S3 bucket names are global across accounts, so `<prefix>-<stage>-<layer>` can
-collide with a bucket in another account, and replacing a bucket on AWS deletes its objects. AWS keeps its
-generated `<profile>-<stage>-<layer>-<suffix>` stage names, its suffixed ops bucket, and DEV's v0.2 names. Open:
-an account-scoped suffix on AWS, or a requirement that `metadata.name` be globally unique.
+**AWS keeps a suffix.** S3 bucket names are global across accounts, so `<prefix>-<stage>-<layer>` can collide with a
+bucket in another account, and replacing a bucket on AWS deletes its objects. On AWS the stage buckets stay
+`<profile name>-<stage>-<layer>-<suffix>`, with the random suffix the `aws-s3` module appends, and the ops bucket
+stays `<bucket_name_prefix>-ops-<suffix>` (a root variable, not `metadata.name`). DEV keeps the names of the v0.2
+POC. Existing AWS names do not change; a Terraform test on the `aws-s3` module pins them.
 
 Buckets are the unit at which IAM policies, lifecycle rules, retention, and
 replication apply. A single bucket cannot grant BI consumers read access to Gold

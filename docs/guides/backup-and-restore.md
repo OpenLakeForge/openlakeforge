@@ -183,7 +183,7 @@ release or profile. To move to the new names without the data, run `olf infra de
 `olf infra deploy`, and run the pipelines again. To apply the rename over the existing platform and start
 with empty buckets, pass `--allow-stage-removal`.
 
-AWS bucket names did not change, and the guard does not apply to them.
+AWS bucket names did not change (they keep their suffix), and the guard does not apply to them.
 
 ## Check the result
 

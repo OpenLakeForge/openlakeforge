@@ -71,8 +71,8 @@ def platform_up(
 
     require_no_stage_removal(config, tools, kube_context=facts.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=facts.kube_context, env=env)
-    # AWS stage buckets are S3 objects Terraform may replace, not SeaweedFS state; `legacy_dev_bucket_names` is a
-    # root variable olf cannot see, so the AWS upgrade is documented rather than guarded here.
+    # AWS bucket names are not derived by the resolver (they keep their suffix, ADR 0004), so there is no rename
+    # to guard.
     if config.context.topology.provider != Provider.AWS:
         require_no_bucket_rename(config, tools, env=env)
     plan_storage_resize(config, tools, kube_context=facts.kube_context, env=env)

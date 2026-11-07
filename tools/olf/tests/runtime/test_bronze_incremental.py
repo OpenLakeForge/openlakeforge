@@ -126,7 +126,7 @@ def test_sql_engine_ignores_keys_that_are_not_connection_settings(tmp_path: Path
 
 
 _SOURCE_YAML = """\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: shop
 displayName: Shop

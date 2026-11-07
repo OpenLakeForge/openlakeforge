@@ -373,7 +373,7 @@ def test_superset_export_reports_selects_the_bundles_dashboard_by_uuid_not_title
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -386,19 +386,18 @@ resources:
     )
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: orders
-    domain: sales
-    displayName: Sales Orders Product Metadata Name
-    description: Sales orders.
-    status: planned
+    products:
+      - id: orders
+        displayName: Sales Orders Product Metadata Name
+        description: Sales orders.
+        status: planned
 """,
         encoding="utf-8",
     )
@@ -432,7 +431,7 @@ def _seed_project_with_no_declared_dashboards(tmp_path: Path, *, bundle_dir_name
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -445,19 +444,18 @@ resources:
     )
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: orders
-    domain: sales
-    displayName: Sales Orders Product Metadata Name
-    description: Sales orders.
-    status: planned
+    products:
+      - id: orders
+        displayName: Sales Orders Product Metadata Name
+        description: Sales orders.
+        status: planned
 """,
         encoding="utf-8",
     )

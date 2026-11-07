@@ -12,6 +12,7 @@ from .descriptors import (
 from .governance import (
     GOVERNANCE_API_VERSION,
     GOVERNANCE_KIND,
+    governance_products,
     load_governance_descriptor,
     load_governance_lakehouse_document,
     validate_governance_descriptor,
@@ -63,6 +64,7 @@ __all__ = [
     "full_refresh_scope",
     "full_refresh_tags",
     "inventory_for",
+    "governance_products",
     "load_governance_descriptor",
     "load_governance_lakehouse_document",
     "load_lakehouse_inventory",
