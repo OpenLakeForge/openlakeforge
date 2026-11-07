@@ -26,6 +26,10 @@ from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.distribution import distribution_version_at
 from olf.common.profile import StageName
 from olf.common.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
+from olf.common.runtime_contract import QUERY_CA_DIR as _QUERY_CA_DIR
+from olf.common.runtime_contract import RUNTIME_ALIASES as _RUNTIME_ALIASES
+from olf.common.runtime_contract import RUNTIME_ENV as _RUNTIME_ENV
+from olf.common.runtime_contract import runtime_contract_at
 from olf.common.tooling import docker as docker_tooling
 from olf.infra import k8s
 from olf.infra.artifact_store import RevisionStore
@@ -56,63 +60,6 @@ _ARCHIVE_ENV = (
     "AWS_ENDPOINT_URL",
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
-)
-# Contract-derived runtime settings that deliberately carry no OPENLAKEFORGE_
-# prefix because the libraries reading them are not ours: openlakeforge_runtime.s3_artifacts
-# resolves the object store through AWS_ENDPOINT_URL_S3, so a local or Azure
-# stage that loses these reaches public S3 instead of its contracted endpoint.
-# Terraform passed exactly this set to the code server. Credential *values*
-# (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, OPENLINEAGE_API_KEY) stay out --
-# those arrive by Secret reference.
-_RUNTIME_ALIASES = (
-    "AWS_ALLOW_HTTP",
-    "AWS_DEFAULT_REGION",
-    "AWS_ENDPOINT_URL_S3",
-    "AWS_REGION",
-    "AWS_S3_FORCE_PATH_STYLE",
-    "OPENLINEAGE_ENDPOINT",
-    "OPENLINEAGE_NAMESPACE",
-    "OPENLINEAGE_URL",
-)
-# The stage contract values the project-code runtime reads (openlakeforge_runtime/, the dbt
-# profile and projects, lakehouse_code/), and nothing else. Forwarding every
-# OPENLAKEFORGE_* name in the operator's process also shipped workstation
-# paths, deployer Secret names and settings no workload reads (#546). The
-# *_SECRET_NAME and *_KEY names are Secret and key names the Floe Job spec
-# references, never credential values. tests/infra/test_deployment_activation.py
-# fails when runtime code reads a name this list does not account for.
-_RUNTIME_ENV = (
-    "OPENLAKEFORGE_ARTIFACT_BASE_URI",
-    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY",
-    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY",
-    "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME",
-    "OPENLAKEFORGE_CATALOG_GLUE_REGION",
-    "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX",
-    "OPENLAKEFORGE_CATALOG_NAME",
-    "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE",
-    "OPENLAKEFORGE_CATALOG_PROVIDER",
-    "OPENLAKEFORGE_CATALOG_REST_URI",
-    "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX",
-    "OPENLAKEFORGE_CATALOG_TOKEN_URI",
-    "OPENLAKEFORGE_CATALOG_TYPE",
-    "OPENLAKEFORGE_CATALOG_WAREHOUSE",
-    "OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX",
-    "OPENLAKEFORGE_DBT_TRINO_USER",
-    "OPENLAKEFORGE_GOVERNANCE_ENABLED",
-    "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
-    "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
-    "OPENLAKEFORGE_QUERY_TRINO_HOST",
-    "OPENLAKEFORGE_QUERY_TRINO_PORT",
-    "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT",
-    "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
-    "OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY",
-    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
-    "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME",
-    "OPENLAKEFORGE_STORAGE_ENDPOINT",
-    "OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS",
-    "OPENLAKEFORGE_STORAGE_REGION",
-    "OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY",
-    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
 )
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 # The gRPC port the platform's workspace entries expect on every code-location
@@ -327,9 +274,7 @@ def _user_values(
     jwt_secret = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME", "")
     jwt_key = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY", "")
     if activation.capabilities.get("governance") and jwt_secret and jwt_key:
-        env.append(
-            {"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}}
-        )
+        env.append({"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}})
     storage_secret = contract_environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "")
     secrets = sorted(
         {
@@ -363,7 +308,8 @@ def _user_values(
             )
     return {
         "global": dict(platform_globals),
-        "extraManifests": [_log_archive_manifest(
+        "extraManifests": [
+            _log_archive_manifest(
                 activation,
                 namespace=namespace,
                 env=_archive_env(contract_environ, namespace=namespace),
@@ -373,7 +319,8 @@ def _user_values(
                 # would widen what a compromised log container reaches.
                 secrets=[storage_secret] if storage_secret else [],
                 pull_secret=pull_secret,
-            )],
+            )
+        ],
         # The subchart puts this on every code server and, through the
         # container context of includeConfigInLaunchedRuns, on the run pods.
         **({"imagePullSecrets": [{"name": pull_secret}]} if pull_secret else {}),
@@ -435,7 +382,6 @@ def _require_source_bindings(
         )
 
 
-_QUERY_CA_DIR = "/etc/olf/query-ca"
 _USER_SUBCHART = "charts/dagster-user-deployments/"
 
 
@@ -728,9 +674,7 @@ class _RollbackTarget:
     pull_secret: str | None = None
 
 
-def _rollback_target(
-    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
-) -> _RollbackTarget | None:
+def _rollback_target(provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]) -> _RollbackTarget | None:
     """What the live release is running, or None when there is no release.
 
     A rollback may only redeploy a state that existed. Taking the modules from
@@ -890,6 +834,7 @@ def deploy_revision(
             store,
             revision,
             running_distribution_version=distribution_version_at(context.paths.distribution_root),
+            running_contract=runtime_contract_at(context.paths.distribution_root),
         )
     except (ProjectRevisionError, ProviderContractError) as exc:
         raise ActivationError(str(exc)) from exc

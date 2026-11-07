@@ -22,6 +22,14 @@ Generated from `release/component-catalog.yaml`. Every version below is the exac
 | --- | --- |
 | Terraform | >= 1.10.0 |
 
+## Project revision runtime contract
+
+A ProjectRevision built for any accepted contract version activates on this distribution without a rebuild, whatever distribution version built it. A revision outside the range must be rebuilt (ADR 0012).
+
+| Current contract | Accepted contracts |
+| --- | --- |
+| 1 | 1 |
+
 ## Terraform providers
 
 The tracked/approved version for each provider. Individual Terraform roots can lock an older compatible version (below) -- consult that table for the exact version actually applied to a given target.

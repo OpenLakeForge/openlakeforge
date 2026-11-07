@@ -35,7 +35,7 @@ content-addressed revision, covering the complete promotable project:
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
 | `reports` | `dashboards/superset/<dashboard>/**`, when any dashboard exists | — |
 | `image` | The project-code repository plus an immutable `@sha256:` digest | mutable tags are rejected |
-| `distribution` | `release/component-catalog.yaml` distribution version | compatibility gate at activation |
+| `distribution` | `release/component-catalog.yaml` distribution version and runtime contract version | compatibility gate at activation |
 
 `openlakeforge.yaml` (the Deployment Profile), the Floe EnvironmentProfile the
 code location renders for its stage, and any URI a provider contract resolves
@@ -59,6 +59,31 @@ collision error, never a silent overwrite.
 `tools/olf/olf/infra/artifact_store.py` owns the bucket/client resolution revisions
 publish through (`RevisionStore`, `S3RevisionStore` for in-cluster or direct
 cloud S3, `FilesystemRevisionStore` for `olf infra project build --output DIR`).
+
+### A revision is compatible by runtime contract, not by distribution version
+
+What a revision depends on is the contract between the platform and the
+project-code image: the environment variables the code server receives
+(`RUNTIME_ENV` and `RUNTIME_ALIASES`) and the query CA mount path, all in
+`olf/common/runtime_contract.py`. `release/component-catalog.yaml` records
+`distribution.runtime_contract` with the current integer `version`, the
+`accepts` list of versions this distribution still runs, and a
+`binding_fingerprint` of that surface. A sidecar with `schema_version` 3
+records `runtime_contract_version`, and also writes it into the `distribution`
+component so the revision digest binds it. `verify` accepts it when the
+version is in the running distribution's `accepts`, whichever distribution
+built it, so a patch release does not force a rebuild. Outside the range it
+fails with both versions and tells the operator to rebuild.
+
+Sidecars at `schema_version` 1 and 2 carry no contract version and keep the
+exact distribution-version match; nothing widens silently.
+
+`olf release check` fails when the binding surface changes and the
+fingerprint in the catalog does not. A change that breaks existing revisions
+bumps `version` and removes the versions that no longer work from `accepts`;
+a change they survive keeps `version` and only refreshes the fingerprint.
+For customers, a bump means revisions built before it must be rebuilt and
+promoted again before the upgraded platform will activate them.
 
 ### Validation is layered the same way as descriptors and profiles
 
@@ -196,3 +221,9 @@ New record. No prior ADR modeled a promotable project revision distinct from
 the v0.2 Floe runtime-artifact revision; ADR 0009's distribution-payload
 identity and ADR 0011's Deployment Profile are the two existing typed
 identities this one composes with, not supersedes.
+
+2026-11-07: #992 made revision compatibility depend on the runtime contract
+version instead of the exact distribution version (sidecar `schema_version`
+3). The distribution component still records the building distribution's
+version for reference, but a patch release no longer invalidates the revision
+active in PROD.

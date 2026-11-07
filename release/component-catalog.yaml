@@ -6,6 +6,14 @@ distribution:
   version: 0.5.1-alpha.2
   release_tag_policy: immutable-semver
   development_tags: mutable
+  # What a ProjectRevision depends on (docs/adr/0012). `version` is bumped only
+  # by a change to the binding surface in olf/common/runtime_contract.py, which
+  # `olf release check` detects through `binding_fingerprint`; `accepts` lists
+  # the revision contract versions this distribution still runs.
+  runtime_contract:
+    version: 1
+    accepts: [1]
+    binding_fingerprint: sha256:421775946b74f21b4264916236f92c7c49c6d0759daab4f9744ea6f04c2871f6
 components:
   terraform:
     required_version: ">= 1.10.0"

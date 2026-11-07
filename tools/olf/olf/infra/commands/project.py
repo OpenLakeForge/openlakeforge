@@ -327,14 +327,19 @@ def revision_verify(
 ) -> None:
     """Verify manifest self-consistency, distribution compatibility, and every published object's digest."""
     from olf.common.distribution import runtime_layout
+    from olf.common.runtime_contract import runtime_contract_at
     from olf.infra.artifact_store import ArtifactStoreError
     from olf.infra.project_revision import ProjectRevisionError
     from olf.infra.project_revision import verify as verify_revision
 
-    running_version = None if skip_compatibility_check else runtime_layout().distribution_version
+    layout = None if skip_compatibility_check else runtime_layout()
+    running_version = None if layout is None else layout.distribution_version
+    running_contract = None if layout is None else runtime_contract_at(layout.distribution_root)
     try:
         with _revision_store(via=via, output=output) as store:
-            manifest = verify_revision(store, revision, running_distribution_version=running_version)
+            manifest = verify_revision(
+                store, revision, running_distribution_version=running_version, running_contract=running_contract
+            )
     except (ProjectRevisionError, ArtifactStoreError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     entry_count = sum(len(component.entries) for component in manifest.components)
