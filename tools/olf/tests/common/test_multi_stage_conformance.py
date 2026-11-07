@@ -19,7 +19,7 @@ from _contract_conformance import (
 from conftest import CONFORMANCE_PROFILE, CONFORMANCE_STAGES, E2E_REPO_ROOT
 
 from olf.common.contracts_check import profile_schema_errors
-from olf.common.deployment.context import DeploymentContext, stage_namespace, topology_variables
+from olf.common.deployment.context import DeploymentContext, bucket_variables, stage_namespace, topology_variables
 from olf.common.profile import (
     DeploymentTopology,
     Preset,
@@ -77,7 +77,7 @@ def test_selecting_a_stage_preserves_the_two_stage_topology(stage: StageName) ->
 
 def test_terraform_receives_the_resolver_bucket_names_for_both_stages() -> None:
     context = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage="dev")
-    names = json.loads(topology_variables(context)["bucket_names"])
+    names = json.loads(bucket_variables(context)["bucket_names"])
 
     assert names["prod"] == {
         layer: f"{context.topology.profile_name}-prod-{layer}" for layer in ("bronze", "silver", "gold")
