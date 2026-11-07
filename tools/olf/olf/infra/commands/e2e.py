@@ -222,6 +222,35 @@ def durability_verify(
     _run_durability("verify", baseline, stage=stage, profile_file=profile_file, project_root=project_root)
 
 
+@app.command("registry-pull")
+def registry_pull(
+    allow_public: bool = typer.Option(
+        False,
+        "--allow-public",
+        help="Run even when the image answers an anonymous pull. The check then proves the mechanism, not that "
+        "a private image is pullable.",
+    ),
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Check the stage's user-code pods name the pull Secret for the project image.
+
+    Reads the image from the stage's active revision and the Secret from `spec.project.image.pull_secret_ref`.
+    Checks that every workload running the image, and the `dagster` ServiceAccount Floe Jobs inherit from, list the
+    Secret. Fails for a public image, which would pull without the Secret, unless --allow-public.
+    Never prints a Secret's value.
+    """
+    from olf.infra.e2e._registry_pull import check
+
+    _run_on_local_stage(
+        lambda cfg: check(cfg, allow_public=allow_public),
+        stage=stage,
+        profile_file=profile_file,
+        project_root=project_root,
+    )
+
+
 @app.command("secret-scan")
 def secret_scan(
     paths: list[str] = typer.Option(..., "--path", help="File or directory to scan for Secret values; repeatable."),
