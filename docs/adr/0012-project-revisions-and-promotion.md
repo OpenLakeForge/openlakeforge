@@ -85,6 +85,17 @@ a change they survive keeps `version` and only refreshes the fingerprint.
 For customers, a bump means revisions built before it must be rebuilt and
 promoted again before the upgraded platform will activate them.
 
+The fingerprint covers names and mount paths. It does not cover the Dagster
+version the platform runs or what a value means to the code server, so a
+platform change of that kind must bump the contract by decision, not by
+detection. The Dagster pin is deliberately not part of the surface: it moves
+with most releases, and treating each move as a contract change would bring
+back the rebuild-on-every-patch behaviour this rule removes. Because the
+running distribution can differ from the one that built a revision, the
+activation records the running distribution version; re-activating a revision
+after a platform upgrade therefore rolls out again instead of matching the
+earlier activation and skipping Helm.
+
 ### Validation is layered the same way as descriptors and profiles
 
 `ProjectRevisionManifest` has a hand-rolled model (`to_json`/`from_json`/

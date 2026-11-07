@@ -14,6 +14,9 @@
     "components",
     "revision"
   ],
+  "if": {"properties": {"schema_version": {"const": 3}}},
+  "then": {"required": ["runtime_contract_version"]},
+  "else": {"not": {"required": ["runtime_contract_version"]}},
   "properties": {
     "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
     "kind": {"const": "ProjectRevision"},

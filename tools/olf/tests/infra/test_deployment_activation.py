@@ -19,6 +19,7 @@ from olf.common.distribution import distribution_version_at
 from olf.common.profile import Provider, StageName, resolve_topology, validate_deployment_profile
 from olf.common.project import ProjectSpec
 from olf.common.provider_contracts import CodeLocation
+from olf.common.runtime_contract import runtime_contract_at
 from olf.infra import project_activation, project_revision
 from olf.infra.artifact_store import FilesystemRevisionStore
 from olf.infra.deployment import activation as activation_module
@@ -198,7 +199,10 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     store = FilesystemRevisionStore(tmp_path / "store")
     spec = ProjectSpec(root=external_project, distribution_root=ROOT)
     manifest = project_revision.build_project_revision(
-        spec, image=_IMAGE, distribution_version=distribution_version_at(ROOT)
+        spec,
+        image=_IMAGE,
+        distribution_version=distribution_version_at(ROOT),
+        runtime_contract_version=runtime_contract_at(ROOT).version,
     )
     project_revision.publish(store, manifest, spec)
 
@@ -519,6 +523,20 @@ def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noq
     # Pulling the image (and on local, reloading it into kind) is a cluster
     # mutation, so it belongs after the gate, not before it.
     assert len(harness.image_calls) == 1
+
+
+def test_the_same_revision_on_a_newer_distribution_is_rolled_out_again(
+    harness, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+) -> None:
+    first = harness.deploy("dev")
+    monkeypatch.setattr(activation_module, "distribution_version_at", lambda root: "9.9.9-alpha.1")
+
+    second = harness.deploy("dev")
+
+    assert second.project_revision == first.project_revision
+    assert second.distribution_version == "9.9.9-alpha.1"
+    assert second.activation_revision != first.activation_revision
+    assert len(harness.helm.rollouts) == 2
 
 
 def test_activation_reloads_every_contracted_location_in_the_stage_webserver(harness) -> None:  # noqa: ANN001

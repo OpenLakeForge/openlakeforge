@@ -29,7 +29,7 @@ from olf.common.provider_contracts import CodeLocation, ProviderContractError, S
 from olf.common.runtime_contract import QUERY_CA_DIR as _QUERY_CA_DIR
 from olf.common.runtime_contract import RUNTIME_ALIASES as _RUNTIME_ALIASES
 from olf.common.runtime_contract import RUNTIME_ENV as _RUNTIME_ENV
-from olf.common.runtime_contract import runtime_contract_at
+from olf.common.runtime_contract import RuntimeContractError, runtime_contract_at
 from olf.common.tooling import docker as docker_tooling
 from olf.infra import k8s
 from olf.infra.artifact_store import RevisionStore
@@ -274,7 +274,9 @@ def _user_values(
     jwt_secret = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME", "")
     jwt_key = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY", "")
     if activation.capabilities.get("governance") and jwt_secret and jwt_key:
-        env.append({"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}})
+        env.append(
+            {"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}}
+        )
     storage_secret = contract_environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "")
     secrets = sorted(
         {
@@ -308,8 +310,7 @@ def _user_values(
             )
     return {
         "global": dict(platform_globals),
-        "extraManifests": [
-            _log_archive_manifest(
+        "extraManifests": [_log_archive_manifest(
                 activation,
                 namespace=namespace,
                 env=_archive_env(contract_environ, namespace=namespace),
@@ -319,8 +320,7 @@ def _user_values(
                 # would widen what a compromised log container reaches.
                 secrets=[storage_secret] if storage_secret else [],
                 pull_secret=pull_secret,
-            )
-        ],
+            )],
         # The subchart puts this on every code server and, through the
         # container context of includeConfigInLaunchedRuns, on the run pods.
         **({"imagePullSecrets": [{"name": pull_secret}]} if pull_secret else {}),
@@ -674,7 +674,9 @@ class _RollbackTarget:
     pull_secret: str | None = None
 
 
-def _rollback_target(provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]) -> _RollbackTarget | None:
+def _rollback_target(
+    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
+) -> _RollbackTarget | None:
     """What the live release is running, or None when there is no release.
 
     A rollback may only redeploy a state that existed. Taking the modules from
@@ -830,13 +832,14 @@ def deploy_revision(
         )
         binding = _binding_digest(deployment, selected)
         code_locations = selected.code_locations
+        running_version = distribution_version_at(context.paths.distribution_root)
         manifest = verify(
             store,
             revision,
-            running_distribution_version=distribution_version_at(context.paths.distribution_root),
+            running_distribution_version=running_version,
             running_contract=runtime_contract_at(context.paths.distribution_root),
         )
-    except (ProjectRevisionError, ProviderContractError) as exc:
+    except (ProjectRevisionError, ProviderContractError, RuntimeContractError) as exc:
         raise ActivationError(str(exc)) from exc
 
     local_image = is_local_image(manifest.project_code_image)
@@ -855,6 +858,10 @@ def deploy_revision(
         "analytics": context.features.analytics_enabled,
         "governance": context.features.governance_enabled,
     }
+    # The running distribution, not the one that built the revision: a revision accepted by contract version runs
+    # on a newer distribution whose Dagster subchart and rendered values differ, so re-activating it there must
+    # not match the earlier activation and skip the rollout.
+    activation_distribution_version = running_version or manifest.distribution_version
     previous = active_activation(store, stage=context.stage)
     if (
         previous is not None
@@ -865,7 +872,7 @@ def deploy_revision(
                 stage=context.stage,
                 project_name=manifest.project_name,
                 project_revision=manifest.revision,
-                distribution_version=manifest.distribution_version,
+                distribution_version=activation_distribution_version,
                 project_code_image=manifest.project_code_image,
                 provider_binding_digest=binding,
                 capabilities=capabilities,
@@ -908,7 +915,7 @@ def deploy_revision(
                 stage=context.stage,
                 project_name=manifest.project_name,
                 project_revision=manifest.revision,
-                distribution_version=manifest.distribution_version,
+                distribution_version=activation_distribution_version,
                 project_code_image=manifest.project_code_image,
                 provider_binding_digest=binding,
                 capabilities=capabilities,
