@@ -197,14 +197,14 @@ needs HTTPS (#425). To require sign-in, see
 
 ### Serve HTTPS
 
-`spec.access.issuer` defaults to `none`, which serves plain HTTP, and `olf init`
+`spec.access.tls` defaults to `none`, which serves plain HTTP, and `olf init`
 writes it out. To serve HTTPS from a local certificate authority (CA), set
-`issuer: local-ca` and deploy again:
+`tls: local-ca` and deploy again:
 
 ```yaml
 spec:
   access:
-    issuer: local-ca
+    tls: local-ca
 ```
 
 `olf infra deploy` creates the CA once, in the cluster (it is there with plain HTTP

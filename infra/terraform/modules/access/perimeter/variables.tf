@@ -49,7 +49,7 @@ variable "login_audience" {
 }
 
 variable "route_scheme" {
-  description = "http (spec.access.issuer none, plain HTTP on *.localhost) or https. Fixes the callback URL and whether the session cookie is Secure."
+  description = "http (spec.access.tls none, plain HTTP on *.localhost) or https. Fixes the callback URL and whether the session cookie is Secure."
   type        = string
   default     = "https"
 }

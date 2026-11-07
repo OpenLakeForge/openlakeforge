@@ -210,7 +210,7 @@ def _no_ingress(cfg: E2EConfig) -> bool:
 
 
 def _no_route_tls(cfg: E2EConfig) -> bool:
-    # spec.access.issuer none serves plain HTTP: there is no route certificate to renew.
+    # spec.access.tls none serves plain HTTP: there is no route certificate to renew.
     if load_provider_contracts_or_raise(cfg)["shared"]["access"].get("tls_mode") == "none":
         log.info("Skipping the certificate renewal drill: routes are served over plain HTTP.")
         return True

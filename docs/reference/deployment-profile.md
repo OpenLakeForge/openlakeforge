@@ -41,7 +41,7 @@ spec:
       enabled: true
   access:
     base_domain: olf.localhost
-    issuer: local-ca
+    tls: local-ca
   identity:
     issuer: github
     github:
@@ -344,7 +344,7 @@ Without it there is no ingress at all.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `base_domain` | string | `olf.localhost` | Lowercase DNS name with at least one dot. Every service host is `<service>.<base_domain>` or `<service>-<stage>.<base_domain>`, and the portal is served at the base domain itself. |
-| `issuer` | string, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` | `none` on `local`, `local-ca` elsewhere | The certificate issuer. The local provider ships `none`, which serves plain HTTP routes, and `local-ca` (a CA the platform creates), which serves HTTPS routes. Plain HTTP is valid only on `local` with a `*.localhost` base domain. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
+| `tls` | `none`, `local-ca` or `external` | `none` on `local`, `local-ca` elsewhere | Who terminates TLS for the routes. `none` serves plain HTTP and is valid only on `local` with a `*.localhost` base domain. `local-ca` signs the routes with a CA the platform creates; it is for evaluation, because every browser must trust that CA (`olf infra access trust`). `external` means your own proxy, tunnel or load balancer terminates HTTPS in front of OpenLakeForge: Traefik serves HTTP and every generated URL, callback and cookie is `https://`; it needs a `base_domain` that does not end in `.localhost`. The local provider does not deploy `external` yet (#990). `issuer` is the v1alpha1 name of this field: it is still read as `tls`, and setting both is an error. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
 
 ### `spec.identity`
 
@@ -418,14 +418,16 @@ is a public client and has no Secret.
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
 | Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf infra forward`. |
 | A local project names its image | `type: local` declares `spec.project` without `image.repository`: kind has no default registry. |
-| Plain HTTP is local-only | `spec.access.issuer` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
+| Plain HTTP is local-only | `spec.access.tls` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
+| External TLS needs a public name | `spec.access.tls` is `external` and `base_domain` ends in `.localhost`: no upstream proxy can terminate TLS there. |
+| One TLS field | `spec.access` sets both `tls` and `issuer`. |
 | Issuer shape | `external` lacks `issuer_url`, `role_claim` or `role_mapping`; `github` lacks `github` or sets `issuer_url`, `role_claim` or `role_mapping`; `github` is set without `issuer: github`; `client_ids` is set without `issuer: external`. |
 
-On `local`, `olf infra deploy` also refuses a `spec.access.issuer` other than
-`local-ca` or `none` before it creates the cluster.
+On `local`, `olf infra deploy` also refuses a `spec.access.tls` other than
+`local-ca` or `none` (`external` is refused until #990) before it creates the cluster.
 
 > [!NOTE]
-> `olf init` writes a profile with `access: {issuer: none}` and no
+> `olf init` writes a profile with `access: {tls: none}` and no
 > `spec.identity`: plain HTTP on `*.olf.localhost` with authentication off.
 
 ---

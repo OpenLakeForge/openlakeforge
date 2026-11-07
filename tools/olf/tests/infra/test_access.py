@@ -14,7 +14,7 @@ from olf.infra.commands.access import trust_steps
 from olf.infra.contracts import build_contract_env
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-ROUTES = {"issuer": "local-ca", "routes": {"stage/dev/reporting": "https://superset-dev.olf.localhost"}}
+ROUTES = {"tls": "local-ca", "routes": {"stage/dev/reporting": "https://superset-dev.olf.localhost"}}
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def test_contract_access_lists_the_protected_routes_only_when_the_perimeter_is_e
     contracts = {
         "shared": {
             "access": {
-                "issuer": "local-ca",
+                "tls": "local-ca",
                 "routes": {"shared/portal": {"url": "https://olf.localhost", "enabled": True}},
                 "perimeter": {"enabled": True, "protected_routes": ["shared/portal", "shared/gone"]},
             }
@@ -122,7 +122,7 @@ def test_port_forward_without_a_route_or_when_asked(monkeypatch: pytest.MonkeyPa
 
 
 def test_a_public_issuer_keeps_the_system_trust_store(monkeypatch: pytest.MonkeyPatch, forwarded: list[str]) -> None:
-    monkeypatch.setenv(access.ACCESS_ENV, json.dumps({**ROUTES, "issuer": "letsencrypt"}))
+    monkeypatch.setenv(access.ACCESS_ENV, json.dumps({**ROUTES, "tls": "external"}))
 
     with _reach() as route:
         assert "REQUESTS_CA_BUNDLE" not in os.environ
@@ -144,7 +144,7 @@ def test_the_route_carries_what_the_local_ca_ingress_needs(
 
 
 def test_the_route_of_a_public_issuer_verifies_with_the_system_trust_store(forwarded: list[str]) -> None:
-    environ = {access.ACCESS_ENV: json.dumps({**ROUTES, "issuer": "letsencrypt"})}
+    environ = {access.ACCESS_ENV: json.dumps({**ROUTES, "tls": "external"})}
 
     with _reach(environ=environ) as route:
         assert (route.url, route.verify) == ("https://superset-dev.olf.localhost", True)
