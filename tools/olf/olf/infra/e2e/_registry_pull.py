@@ -313,7 +313,7 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
         raise E2EError(f"run {run_id} left no pod running {image} to inspect.")
     _require_pulled(cfg, _names(run_pods), image, what=f"run {run_id}")
     # Floe Jobs exist only while a run is in flight, so the pods this run left are the only live look at them.
-    missing, users = missing_pull_secret(_workloads(cfg), image, _pull_secret_name(cfg))
+    missing, users = workloads_missing_entry(_workloads(cfg), image, _pull_secret_name(cfg))
     if missing:
         raise E2EError(f"after the run, {', '.join(missing)} run {image} without the pull Secret.")
     log.info(f"{users} workload(s) running the image list the pull Secret after the run.")
