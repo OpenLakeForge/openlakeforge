@@ -135,3 +135,74 @@ def _ensure_block_style(lines: list[str], start: int, end: int, *, indent: str =
         block_lines.extend(_render_flow_item_as_block(item, indent=indent))
     lines[start : start + 1] = block_lines
     return start + len(block_lines)
+
+
+_ITEM = re.compile(r"^(\s*)-(\s|$)")
+_KEY_LINE = re.compile(r"^(\s*)(\w[\w-]*):")
+
+
+def _is_content(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("#")
+
+
+def _domain_entry_span(lines: list[str], text: str, domain: str, *, source_label: str) -> tuple[int, int, int]:
+    """(start, end, item indent) of the `domains:` list entry named `domain`.
+
+    The entry is picked by its position in the parsed document rather than by
+    matching a `name:` line, so a `name:` that is not the first key, or a
+    product whose own fields happen to say `name`, cannot be mistaken for it."""
+    names = [d.get("name") for d in (yaml.safe_load(text) or {}).get("domains") or []]
+    if names.count(domain) != 1:
+        raise ScaffoldError(f"{source_label}: expected exactly one domain {domain!r}, found {names.count(domain)}")
+    start, end = _top_level_span(lines, "domains", source_label=source_label)
+    items = [i for i in range(start + 1, end) if _ITEM.match(lines[i])]
+    if not items:
+        raise ScaffoldError(f"{source_label}: domains is not a block list")
+    indent = len(_ITEM.match(lines[items[0]]).group(1))  # type: ignore[union-attr]
+    items = [i for i in items if len(_ITEM.match(lines[i]).group(1)) == indent]  # type: ignore[union-attr]
+    if len(items) != len(names):
+        raise ScaffoldError(f"{source_label}: domains is not laid out as a block list of mappings")
+    position = names.index(domain)
+    entry_end = items[position + 1] if position + 1 < len(items) else end
+    return items[position], entry_end, indent
+
+
+def append_product_to_domain(text: str, domain: str, product_block: str, *, source_label: str) -> str:
+    """Append a product to `domain`'s `products` list.
+
+    `product_block` is one list item rendered flush left (`- id: x\\n  ...`);
+    it is indented to sit under the domain. Everything outside the domain's
+    own `products` list is left byte for byte as it was."""
+    lines = _lines(text)
+    start, entry_end, indent = _domain_entry_span(lines, text, domain, source_label=source_label)
+    key_indent = " " * (indent + 2)
+    item_indent = " " * (indent + 4)
+    addition = _lines("".join(f"{item_indent}{line}" if line.strip() else line for line in _lines(product_block)))
+
+    products_at = next(
+        (i for i in range(start, entry_end) if re.match(rf"^{key_indent}products:", lines[i])), None
+    )
+    if products_at is None:
+        insert_at = entry_end
+        while insert_at > start + 1 and not _is_content(lines[insert_at - 1]):
+            insert_at -= 1
+        _ensure_newline_before(lines, insert_at)
+        lines[insert_at:insert_at] = [f"{key_indent}products:\n", *addition]
+        return _join(lines)
+
+    block_end = products_at + 1
+    while block_end < entry_end:
+        key = _KEY_LINE.match(lines[block_end])
+        if _is_content(lines[block_end]) and len(lines[block_end]) - len(lines[block_end].lstrip()) <= len(key_indent):
+            # A sibling key of `products:` -- but a list item flush with the key is still its content.
+            if not (key is None and _ITEM.match(lines[block_end])):
+                break
+        block_end += 1
+    insert_at = _ensure_block_style(lines, products_at, block_end, indent=item_indent)
+    if insert_at == block_end:
+        while insert_at > products_at + 1 and not _is_content(lines[insert_at - 1]):
+            insert_at -= 1
+    _ensure_newline_before(lines, insert_at)
+    lines[insert_at:insert_at] = addition
+    return _join(lines)

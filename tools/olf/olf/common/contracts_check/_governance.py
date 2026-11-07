@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jsonschema
 import yaml
-from openlakeforge_core import LakehouseDescriptorError, load_governance_descriptor
+from openlakeforge_core import LakehouseDescriptorError, governance_products, load_governance_descriptor
 
 from olf.common.contracts_check._report import CheckResult
 
@@ -54,7 +54,7 @@ def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None =
         return CheckResult(name, ok=False, detail="; ".join([*errors, str(exc)]))
     for kind, declared, found in (
         ("domain", {d["name"] for d in document["domains"]}, _dirs(code / "silver")),
-        ("product", {p["id"] for p in document["products"]}, _dirs(code / "gold")),
+        ("product", {p["id"] for p in governance_products(document)}, _dirs(code / "gold")),
     ):
         errors += [f"{kind} {n!r} has no lakehouse_code directory" for n in sorted(declared - found)]
         errors += [f"{kind} {n!r} has a directory but is not in governance.yml" for n in sorted(found - declared)]

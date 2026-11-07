@@ -47,10 +47,10 @@ def _seed_project(root: Path) -> Path:
         "description: CRM source.\nstatus: planned\nresources:\n  - name: orders\n"
     )
     (root / "lakehouse_code" / "governance.yml").write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
+        "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\n"
         "domains:\n  - name: sales\n    displayName: Sales\n    description: Sales domain.\n    status: planned\n"
-        "products:\n  - id: orders\n    domain: sales\n    displayName: Orders\n    description: Orders.\n"
-        "    status: planned\n"
+        "    products:\n      - id: orders\n        displayName: Orders\n        description: Orders.\n"
+        "        status: planned\n"
     )
     return write_report_bundle(root).parent.parent.parent.parent
 
