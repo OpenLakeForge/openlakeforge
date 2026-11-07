@@ -63,6 +63,7 @@ run "dex_with_password_authentication_serves_person_queries" {
 
   variables {
     trino_workload_authentication = "password"
+    access_issuer                 = "local-ca"
   }
 
   assert {
@@ -214,4 +215,22 @@ run "portal_image_must_be_pinned_by_digest" {
   }
 
   expect_failures = [var.portal_image]
+}
+
+run "the_default_issuer_serves_plain_http_and_keeps_cert_manager_for_trino" {
+  command = plan
+
+  variables {
+    trino_workload_authentication = "password"
+  }
+
+  assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).public_origin == "http://olf.localhost"
+    error_message = "the default issuer is none: routes, and the origin the portal reports, are plain HTTP"
+  }
+
+  assert {
+    condition     = length(module.cert_manager) == 1
+    error_message = "Trino's certificate (ADR 0016) needs cert-manager even when no route is TLS-terminated"
+  }
 }

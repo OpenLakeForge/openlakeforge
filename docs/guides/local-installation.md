@@ -197,16 +197,18 @@ needs HTTPS (#425). To require sign-in, see
 
 ### Serve HTTPS
 
-`olf init` writes `spec.access.issuer: none`, which serves plain HTTP. To serve
-HTTPS from a local certificate authority (CA), remove the `issuer` line so it
-takes its default, `local-ca`, and deploy again:
+`spec.access.issuer` defaults to `none`, which serves plain HTTP, and `olf init`
+writes it out. To serve HTTPS from a local certificate authority (CA), set
+`issuer: local-ca` and deploy again:
 
 ```yaml
 spec:
-  access: {}
+  access:
+    issuer: local-ca
 ```
 
-`olf infra deploy` creates the CA once, in the cluster. Your browser rejects the
+`olf infra deploy` creates the CA once, in the cluster (it is there with plain HTTP
+too, for the pods that call Trino over HTTPS). Your browser rejects the
 routes until it trusts that CA. Export it and print the trust commands for
 your system:
 

@@ -50,6 +50,10 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `spec.access.issuer` defaults to `none` (plain HTTP on `*.olf.localhost`) for the local provider; the other
+  providers keep `local-ca`. cert-manager and the local CA are unchanged: they still issue Trino's certificate
+  (ADR 0016), so only the scheme of the routes differs. The conformance profile pins `issuer: local-ca`, so the
+  nightly keeps exercising the HTTPS routes.
 - Bronze no longer has a catalog namespace: `olf infra catalog sync-namespaces` stops planning `<source>_bronze`,
   because Bronze holds raw files in the Bronze bucket, not Iceberg tables. Existing `<source>_bronze` namespaces are
   not dropped: they are reported as undeclared and removed from the catalog only with `--prune`.
@@ -152,6 +156,11 @@ for how a release is cut and verified.
   runtimes is unchanged.
 
 ### Migration
+
+- A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP routes.
+  Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Run `olf infra deploy` to apply the
+  change; re-register the GitHub App (`olf infra secrets rotate github-app`) afterwards, because its callback URL
+  names the scheme.
 
 - If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3,
   and its shared services still run in the `lakehouse` namespace. The platform apply refuses to

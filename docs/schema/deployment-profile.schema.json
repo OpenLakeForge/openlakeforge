@@ -97,7 +97,7 @@
             },
             "issuer": {
               "type": "string",
-              "default": "local-ca",
+              "default": "none",
               "pattern": "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"
             }
           }

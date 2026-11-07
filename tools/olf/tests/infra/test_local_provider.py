@@ -315,7 +315,9 @@ def _github_provider(tmp_path: Path) -> LocalProvider:
 
     github = GitHubSpec("acme", {}, GitHubOAuthRef(name="github-oauth-app"))
     topology = replace(
-        _topology(), access=AccessSpec(base_domain="olf.example"), identity=IdentitySpec(issuer="github", github=github)
+        _topology(),
+        access=AccessSpec(base_domain="olf.example", issuer="local-ca"),
+        identity=IdentitySpec(issuer="github", github=github),
     )
     context = DeploymentContext.local(repo_root=tmp_path, topology=topology)
     config = LocalDeploymentConfig.from_environment({}, context=context)

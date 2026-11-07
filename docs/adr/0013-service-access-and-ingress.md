@@ -23,9 +23,12 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | Field | Default | Real install |
    | --- | --- | --- |
    | `base_domain` | `olf.localhost` | e.g. `olf.example.com` |
-   | `issuer` | `local-ca` | an ACME (Let's Encrypt) or organisational CA issuer |
+   | `issuer` | `none` (plain HTTP) | an ACME (Let's Encrypt) or organisational CA issuer |
 
-   The defaults need neither a purchased domain nor a public server.
+   The defaults need neither a purchased domain nor a public server, nor a
+   certificate. `local-ca`, a CA the platform creates, is opt-in HTTPS for a
+   local install; the other providers' default stays `local-ca` because they do
+   not read the block yet and `none` is local-only (decision 9).
 
    **The block is the switch (#399).** A profile with no `spec.access` is a
    quickstart: no Traefik, cert-manager, local CA, CoreDNS rewrite, portal or
@@ -121,7 +124,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
-9. **Development mode: `issuer: none`, plain HTTP on `*.localhost`.** The
+9. **Plain HTTP on `*.localhost` is the local default: `issuer: none`.** The
    local provider accepts `spec.access.issuer: none` only for a `base_domain`
    ending in `.localhost`, so a first-time user reaches every service, and
    tests sign-in, without trusting a certificate. Browsers resolve
@@ -134,6 +137,8 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
    certificate (ADR 0016) and the CA ConfigMap the pods mount are
    independent of the routes. Not for any other provider or a public domain;
    the validator rejects both, and public exposure (#340) must reject it too.
+   A profile that wants browser HTTPS says `issuer: local-ca`; the conformance
+   profile does, so the nightly keeps exercising the TLS routes.
 
 ## Consequences
 
@@ -164,6 +169,11 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+`issuer: none` became the local default; the other providers keep `local-ca`.
+cert-manager, the CA and `olf-local-ca` are unchanged: they still serve Trino's
+certificate (ADR 0016), so only the routes' scheme differs. The conformance
+profile pins `local-ca`.
 
 #666 added the platform API's row to the footprint table: a path (`/api`) on
 the portal's host, deployed with `spec.identity` (ADR 0021).
