@@ -229,9 +229,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     providers: list[_Provider] = []
 
-    def deploy(
-        stage: str, pull_secret: str | None = None, revision: str | None = None, provider_kind: Provider | None = None
-    ):  # noqa: ANN202
+    def make_provider(stage: str, provider_kind: Provider | None = None) -> _Provider:
         context = DeploymentContext.local(
             repo_root=external_project,
             distribution_root=ROOT,
@@ -244,6 +242,12 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
             context = replace(context, provider=provider_kind)
         provider = _Provider(context, helm, kubectl)
         providers.append(provider)
+        return provider
+
+    def deploy(
+        stage: str, pull_secret: str | None = None, revision: str | None = None, provider_kind: Provider | None = None
+    ):  # noqa: ANN202
+        provider = make_provider(stage, provider_kind)
         return activation_module.deploy_revision(
             provider,
             revision=revision or manifest.revision,
@@ -254,6 +258,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     return SimpleNamespace(
         deploy=deploy,
+        make_provider=make_provider,
         contract=contract,
         store=store,
         spec=spec,
@@ -565,6 +570,83 @@ def test_promoting_one_revision_to_another_stage_reuses_the_project_revision(har
     assert project_activation.active(harness.store, stage=StageName.DEV) == dev
     assert project_activation.active(harness.store, stage=StageName.PROD) == prod
     assert {namespace for namespace, _ in harness.helm.rollouts} == {"olf-dev", "olf-prod"}
+
+
+@pytest.fixture
+def restored(harness, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN001, ANN201
+    """A restore's starting point: dev's ops bucket holds a pointer to a revision, the cluster runs nothing, and the
+    checkout would build a different revision (`builds` records every build it is asked for)."""
+    from olf.infra.deployment import revision_build
+
+    harness.deploy("dev")
+    harness.helm.installed.clear()
+    harness.helm.ready.clear()
+    harness.helm.rollouts.clear()
+    builds: list[str] = []
+
+    def build(*_a: object, **_k: object) -> None:
+        builds.append("checkout")
+        raise AssertionError("a restore must not build the checkout")
+
+    @contextmanager
+    def open_store(*_a: object, **_k: object):  # noqa: ANN202
+        yield harness.store
+
+    monkeypatch.setattr(revision_build, "build_stage_revision", build)
+    monkeypatch.setattr(revision_build, "provider_revision_store", open_store)
+    harness.builds = builds
+    return harness
+
+
+def test_reactivating_a_restored_stage_runs_the_pointers_revision_and_builds_nothing(restored) -> None:  # noqa: ANN001
+    from olf.infra.deployment.revision_build import reactivate_active_revision
+
+    pointer = project_activation.active(restored.store, stage=StageName.DEV)
+
+    result = reactivate_active_revision(restored.make_provider("dev"))
+
+    assert result is not None
+    assert (result.project_revision, result.project_code_image) == (pointer.project_revision, _IMAGE)
+    assert restored.builds == []
+    assert [namespace for namespace, _ in restored.helm.rollouts] == ["olf-dev"]
+    labels = restored.helm.installed["olf-dev"]["deployments"][0]["deploymentLabels"]
+    assert labels["openlakeforge.io/activation-revision"] == result.activation_revision
+    assert project_activation.active(restored.store, stage=StageName.DEV) == result
+
+
+def test_a_restored_stage_without_a_pointer_is_left_alone(restored) -> None:  # noqa: ANN001
+    from olf.infra.deployment.revision_build import reactivate_active_revision
+
+    assert reactivate_active_revision(restored.make_provider("prod")) is None
+
+    assert restored.helm.rollouts == []
+    assert project_activation.active(restored.store, stage=StageName.PROD) is None
+    assert restored.builds == []
+
+
+def test_a_missing_image_fails_the_reactivation_naming_the_stage_revision_and_image(
+    restored, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    from olf.common.deployment.errors import DeploymentPreconditionError
+    from olf.infra.deployment.revision_build import reactivate_active_revision
+
+    def gone(*_a: object, **_k: object) -> None:
+        raise DeploymentPreconditionError("local image 'olf.local/project-code:x' does not exist. Build it first.")
+
+    monkeypatch.setattr(activation_module, "_ensure_image", gone)
+    pointer = project_activation.active(restored.store, stage=StageName.DEV)
+
+    with pytest.raises(activation_module.ActivationError) as caught:
+        reactivate_active_revision(restored.make_provider("dev"))
+
+    message = str(caught.value)
+    assert "stage dev" in message
+    assert pointer.project_revision in message
+    assert pointer.project_code_image in message
+    assert "olf infra project image" in message
+    assert restored.helm.rollouts == []
+    assert restored.builds == []
+    assert project_activation.active(restored.store, stage=StageName.DEV) == pointer
 
 
 def test_failed_rollout_leaves_the_previous_revision_active(harness) -> None:  # noqa: ANN001
