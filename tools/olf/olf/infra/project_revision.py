@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from olf.common.project import ProjectSpec, validate_project
+from olf.common.runtime_contract import RuntimeContract
 from olf.infra.artifact_store import RevisionStore, publish_immutable, read_required
 
 MANIFEST_API_VERSION = "openlakeforge.io/v1alpha1"
@@ -46,8 +47,11 @@ _ALL_COMPONENT_NAMES = _REQUIRED_COMPONENT_NAMES | {"reports"}
 _EXCLUDED_DIR_NAMES = frozenset({"target", "dbt_packages", "logs", "__pycache__", ".venv", ".pytest_cache"})
 _EXCLUDED_FILE_NAMES = frozenset({".user.yml", "package-lock.yml", "profiles.yml"})
 _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
-SCHEMA_VERSION = 2
-_SUPPORTED_SCHEMA_VERSIONS = (1, SCHEMA_VERSION)
+SCHEMA_VERSION = 3
+_SUPPORTED_SCHEMA_VERSIONS = (1, 2, SCHEMA_VERSION)
+# Schema 3 records the runtime contract version the revision was built for (#992). The value also sits in the
+# `distribution` component so the revision digest binds it. Older sidecars carry none and stay exact-match only.
+_CONTRACT_ENTRY = "runtime-contract"
 # Schema 2 lets a revision name an image that was only built and kind-loaded, never pushed (#558). Its digest is the
 # image's config Id, which is no registry digest: the reserved host keeps such a reference from ever resolving
 # against a registry, and marks it for every consumer without a second manifest field.
@@ -159,7 +163,9 @@ class ProjectRevisionManifest:
     project_code_image: str
     components: tuple[ComponentEntries, ...]
     revision: str
-    schema_version: int = SCHEMA_VERSION
+    # Defaults to the last schema that carries no contract version; a build that records one passes SCHEMA_VERSION.
+    schema_version: int = 2
+    runtime_contract_version: int | None = None
 
     def to_json(self) -> str:
         return (
@@ -170,6 +176,11 @@ class ProjectRevisionManifest:
                     "schema_version": self.schema_version,
                     "project_name": self.project_name,
                     "distribution_version": self.distribution_version,
+                    **(
+                        {"runtime_contract_version": self.runtime_contract_version}
+                        if self.runtime_contract_version is not None
+                        else {}
+                    ),
                     "project_code_image": self.project_code_image,
                     "components": [component.to_dict() for component in self.components],
                     "revision": self.revision,
@@ -201,6 +212,17 @@ class ProjectRevisionManifest:
         components_payload = payload.get("components")
         if not isinstance(components_payload, list):
             raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: 'components' must be an array")
+        contract_version = payload.get("runtime_contract_version")
+        if schema_version >= 3:
+            if not isinstance(contract_version, int) or isinstance(contract_version, bool) or contract_version < 1:
+                raise ProjectRevisionError(
+                    f"malformed {SIDECAR_NAME}: schema_version {schema_version} needs a positive integer "
+                    "runtime_contract_version."
+                )
+        elif contract_version is not None:
+            raise ProjectRevisionError(
+                f"malformed {SIDECAR_NAME}: runtime_contract_version needs schema_version 3 or later."
+            )
         try:
             manifest = cls(
                 project_name=payload["project_name"],
@@ -209,6 +231,7 @@ class ProjectRevisionManifest:
                 components=tuple(ComponentEntries.from_dict(item) for item in components_payload),
                 revision=payload["revision"],
                 schema_version=schema_version,
+                runtime_contract_version=contract_version,
             )
         except KeyError as exc:
             raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: missing {exc}") from exc
@@ -260,6 +283,13 @@ class ProjectRevisionManifest:
         if distribution_component is None or distribution_component.entries.get("version") != self.distribution_version:
             raise ProjectRevisionError(
                 f"distribution_version {self.distribution_version!r} does not match the manifest's "
+                "distribution component."
+            )
+        recorded = distribution_component.entries.get(_CONTRACT_ENTRY)
+        expected = None if self.runtime_contract_version is None else str(self.runtime_contract_version)
+        if recorded != expected:
+            raise ProjectRevisionError(
+                f"runtime_contract_version {self.runtime_contract_version!r} does not match the manifest's "
                 "distribution component."
             )
         # The JSON Schema also enforces this, but only runs during a local
@@ -528,6 +558,7 @@ def build_project_revision(
     *,
     image: str,
     distribution_version: str,
+    runtime_contract_version: int | None = None,
     resolve_image_digest_with: Callable[[str], str] | None = None,
 ) -> ProjectRevisionManifest:
     """Compute the frozen, content-addressed revision for one writable project.
@@ -556,7 +587,10 @@ def build_project_revision(
     if reports is not None:
         components.append(reports)
     components.append(ComponentEntries("image", {"project-code": pinned_image}))
-    components.append(ComponentEntries("distribution", {"version": distribution_version}))
+    distribution_entries = {"version": distribution_version}
+    if runtime_contract_version is not None:
+        distribution_entries[_CONTRACT_ENTRY] = str(runtime_contract_version)
+    components.append(ComponentEntries("distribution", distribution_entries))
 
     manifest = ProjectRevisionManifest(
         project_name=inventory.name,
@@ -564,6 +598,8 @@ def build_project_revision(
         project_code_image=pinned_image,
         components=tuple(components),
         revision=_aggregate_components(components),
+        schema_version=SCHEMA_VERSION if runtime_contract_version is not None else 2,
+        runtime_contract_version=runtime_contract_version,
     )
     _reject_runtime_values(manifest.to_json())
     schema_root = project.schema_root
@@ -630,18 +666,44 @@ def inspect(store: RevisionStore, revision: str) -> ProjectRevisionManifest:
     return manifest
 
 
+def _check_compatibility(
+    manifest: ProjectRevisionManifest,
+    revision: str,
+    running_version: str | None,
+    running_contract: RuntimeContract | None,
+) -> None:
+    if manifest.runtime_contract_version is not None and running_contract is not None:
+        if not running_contract.accepts_version(manifest.runtime_contract_version):
+            accepted = ", ".join(map(str, running_contract.accepts))
+            raise ProjectRevisionError(
+                f"revision {revision} was built for runtime contract {manifest.runtime_contract_version}, but the "
+                f"running distribution {running_version!r} accepts contract(s) {accepted}. "
+                "Rebuild the revision with this distribution (olf infra project build) and promote it."
+            )
+        return
+    if running_version is not None and manifest.distribution_version != running_version:
+        raise ProjectRevisionError(
+            f"revision {revision} was built against distribution {manifest.distribution_version!r}, "
+            f"incompatible with the running distribution {running_version!r}."
+        )
+
+
 def verify(
-    store: RevisionStore, revision: str, *, running_distribution_version: str | None = None
+    store: RevisionStore,
+    revision: str,
+    *,
+    running_distribution_version: str | None = None,
+    running_contract: RuntimeContract | None = None,
 ) -> ProjectRevisionManifest:
-    """Verify manifest self-consistency, the compatibility gate, and every published object's digest."""
+    """Verify manifest self-consistency, the compatibility gate, and every published object's digest.
+
+    A revision that records a runtime contract version runs on any distribution whose `accepts` range contains it.
+    One that does not (schema 1 and 2) is held to the exact distribution it was built against.
+    """
     from olf.infra.artifact_store import ArtifactStoreError
 
     manifest = inspect(store, revision)
-    if running_distribution_version is not None and manifest.distribution_version != running_distribution_version:
-        raise ProjectRevisionError(
-            f"revision {revision} was built against distribution {manifest.distribution_version!r}, "
-            f"incompatible with the running distribution {running_distribution_version!r}."
-        )
+    _check_compatibility(manifest, revision, running_distribution_version, running_contract)
     prefix = revision_prefix(revision)
     for component in manifest.components:
         if component.name in {"image", "distribution"}:

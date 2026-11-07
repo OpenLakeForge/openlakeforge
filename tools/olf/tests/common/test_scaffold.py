@@ -915,7 +915,7 @@ def _seed_empty_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_scaffolding_walks_an_empty_project_to_strict_v1alpha3_validity(tmp_path: Path) -> None:
+def test_scaffolding_walks_an_empty_project_to_strict_descriptor_validity(tmp_path: Path) -> None:
     repo_root = _seed_empty_project(tmp_path)
 
     _run("source", "new", "crm", "--resource", "accounts", "--repo-root", str(repo_root))

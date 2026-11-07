@@ -391,7 +391,7 @@ class MetadataDeployer:
     def _domain_specs(self) -> list[tuple[Path, dict]]:
         """Transform the canonical lakehouse descriptor into deployer domain specs.
 
-        The v1alpha3 Lakehouse descriptor nests domains with products whose
+        The canonical lakehouse inventory nests domains with products whose
         bronze references are provider-neutral ``{source, resources}`` pairs.
         The deployer machinery consumes v1alpha2-shaped dicts (``data_products``
         with explicit bronze container entries), so this maps between the two:

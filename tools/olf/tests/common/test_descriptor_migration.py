@@ -8,7 +8,11 @@ from openlakeforge_core import load_governance_descriptor
 from typer.testing import CliRunner
 
 from olf.cli import app
-from olf.common.governance_migration import MigrationError, migrate_governance_text
+from olf.common.descriptor_migration import (
+    MigrationError,
+    migrate_governance_text,
+    migrate_source_text,
+)
 
 runner = CliRunner()
 
@@ -125,6 +129,69 @@ def test_a_failing_migration_leaves_the_original_untouched(tmp_path: Path) -> No
     assert path.read_text(encoding="utf-8") == broken
 
 
+SOURCE = """\
+# CRM extract.
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: planned
+resources:
+  - name: orders
+    load: {mode: incremental, cursor: updated_at, primary_key: [id]}
+runtime:
+  secrets: [api_token]
+"""
+
+
+def test_source_migration_changes_only_the_version_line(tmp_path: Path) -> None:
+    migrated = migrate_source_text(SOURCE)
+    assert migrated == SOURCE.replace("v1alpha3", "v1beta1")
+    with pytest.raises(MigrationError, match="already 'openlakeforge.io/v1beta1'"):
+        migrate_source_text(migrated)
+
+
+def test_a_source_that_is_invalid_is_refused_with_the_validation_message() -> None:
+    with pytest.raises(MigrationError, match="not a valid openlakeforge.io/v1beta1 Source"):
+        migrate_source_text(SOURCE.replace("name: crm", "name: CRM"))
+
+
+def test_a_v1alpha3_source_names_the_command_that_fixes_it() -> None:
+    from openlakeforge_core import LakehouseDescriptorError
+    from openlakeforge_core.descriptors import validate_source_descriptor
+
+    with pytest.raises(LakehouseDescriptorError, match="olf project migrate"):
+        validate_source_descriptor(yaml.safe_load(SOURCE))
+
+
+def _both(root: Path) -> tuple[Path, Path]:
+    governance = _project(root, FLAT)
+    source = root / "lakehouse_code" / "bronze" / "crm" / "source.yaml"
+    source.parent.mkdir(parents=True)
+    source.write_text(SOURCE, encoding="utf-8")
+    return governance, source
+
+
+def test_command_migrates_governance_and_every_source(tmp_path: Path) -> None:
+    governance, source = _both(tmp_path)
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "lakehouse_code/bronze/crm/source.yaml" in result.output
+    assert source.read_text(encoding="utf-8") == SOURCE.replace("v1alpha3", "v1beta1")
+    assert "v1beta2" in governance.read_text(encoding="utf-8")
+
+
+def test_one_unmigratable_descriptor_leaves_all_files_untouched(tmp_path: Path) -> None:
+    governance, source = _both(tmp_path)
+    broken = SOURCE.replace("name: crm", "name: CRM")
+    source.write_text(broken, encoding="utf-8")
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "bronze/crm/source.yaml" in result.output
+    assert governance.read_text(encoding="utf-8") == FLAT
+    assert source.read_text(encoding="utf-8") == broken
+
 def test_a_comment_after_the_last_product_is_kept() -> None:
     text = FLAT + "# keep me after the last product\n"
     assert "# keep me after the last product" in migrate_governance_text(text)
@@ -147,3 +214,21 @@ def test_a_current_file_that_mentions_the_old_version_is_not_legacy(tmp_path: Pa
     assert result.exit_code == 0, result.output
     assert "already current" in result.output
     assert path.read_text(encoding="utf-8") == current
+
+
+def test_a_current_source_that_mentions_the_old_version_is_left_alone(tmp_path: Path) -> None:
+    governance, source = _both(tmp_path)
+    governance.write_text(migrate_governance_text(FLAT), encoding="utf-8")
+    source.write_text(
+        SOURCE.replace("v1alpha3", "v1beta1").replace("# CRM extract.", "# was openlakeforge.io/v1alpha3"),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "already current" in result.output
+
+
+def test_a_quoted_source_api_version_is_migrated() -> None:
+    quoted = SOURCE.replace("apiVersion: openlakeforge.io/v1alpha3", "apiVersion: 'openlakeforge.io/v1alpha3'")
+    migrated = migrate_source_text(quoted)
+    assert "apiVersion: 'openlakeforge.io/v1beta1'" in migrated

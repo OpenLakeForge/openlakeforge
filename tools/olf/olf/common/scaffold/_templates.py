@@ -63,7 +63,7 @@ def render_source_yaml(
     load: IncrementalLoad | None = None,
 ) -> str:
     lines = [
-        "apiVersion: openlakeforge.io/v1alpha3",
+        "apiVersion: openlakeforge.io/v1beta1",
         "kind: Source",
         f"name: {source}",
         f"displayName: {yaml_dq(display_name)}",

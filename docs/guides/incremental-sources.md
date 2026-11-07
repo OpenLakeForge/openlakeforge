@@ -36,7 +36,7 @@ In `lakehouse_code/bronze/shop/source.yaml`, give each resource its load mode
 and name the settings and credentials the connector reads:
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: shop
 displayName: Shop

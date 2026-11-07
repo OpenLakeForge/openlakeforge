@@ -88,6 +88,27 @@ def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> 
     return CheckResult("Python package versions match catalog", True, expected)
 
 
+def _check_runtime_contract(catalog: dict[str, Any]) -> CheckResult:
+    from olf.common.runtime_contract import RuntimeContractError, binding_fingerprint, parse_runtime_contract
+
+    name = "runtime contract version tracks the binding surface"
+    try:
+        contract = parse_runtime_contract(catalog)
+    except RuntimeContractError as exc:
+        return CheckResult(name, False, str(exc))
+    actual = binding_fingerprint()
+    if contract.fingerprint != actual:
+        return CheckResult(
+            name,
+            False,
+            "the runtime binding surface (olf/common/runtime_contract.py) changed. Decide whether revisions built "
+            "before this change still run: if not, bump distribution.runtime_contract.version and drop the versions "
+            "that no longer work from accepts; if they do, keep the version. Then set binding_fingerprint to "
+            f"{actual}.",
+        )
+    return CheckResult(name, True, f"contract {contract.version}, accepts {list(contract.accepts)}")
+
+
 def _check_floe_pins(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     """The project-code image installs exactly the Floe versions the catalog records."""
     pyproject = repo_root / "images/project-code/pyproject.toml"
@@ -607,6 +628,7 @@ def run_release_check(
     report.results.append(_check_version_matches_tag(catalog, tag))
     report.results.append(_check_python_package_versions(root, catalog))
     report.results.append(_check_floe_pins(root, catalog))
+    report.results.append(_check_runtime_contract(catalog))
     report.results.append(_check_images_digest_pinned(catalog))
     report.results.append(_check_toolchain_pinned(catalog))
     report.results.append(_check_images_match_deployment_sources(root, catalog))

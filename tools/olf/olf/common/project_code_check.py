@@ -407,7 +407,7 @@ def _verify_bronze_dlt_stage_state() -> None:
 
 
 _LOAD_MODES_SOURCE = """\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: mock_api
 displayName: Mock API

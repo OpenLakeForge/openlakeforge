@@ -1,6 +1,10 @@
-"""`olf project migrate`: ``governance.yml`` from v1beta1 to v1beta2.
+"""`olf project migrate`: descriptors from the previous API version to the current one.
 
-v1beta1 declared products in a root ``products:`` list that named their
+``source.yaml`` goes from v1alpha3 to v1beta1 and ``governance.yml`` from v1beta1
+to v1beta2. A Source's fields are the same in both versions, so its migration is
+the version line alone, checked by validating the result.
+
+For governance, v1beta1 declared products in a root ``products:`` list that named their
 domain; v1beta2 nests them under ``domains[].products`` and drops that field.
 The rewrite is textual so comments, ordering and untouched formatting survive,
 and it is checked against the same migration computed on the parsed data: if
@@ -10,10 +14,18 @@ the two disagree the file is refused rather than guessed at.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
 from openlakeforge_core import GOVERNANCE_API_VERSION, GOVERNANCE_KIND, LakehouseDescriptorError
+from openlakeforge_core.descriptors import (
+    LEGACY_SOURCE_API_VERSION,
+    SOURCE_API_VERSION,
+    SOURCE_KIND,
+    validate_source_descriptor,
+)
 from openlakeforge_core.governance import validate_governance_descriptor
 
 LEGACY_API_VERSION = "openlakeforge.io/v1beta1"
@@ -216,3 +228,68 @@ def migrate_governance_text(text: str, *, source: str = "governance.yml") -> str
             "parsed migration); nest each product under its domain by hand"
         )
     return result
+
+
+def is_legacy_source(text: str) -> bool:
+    """Whether the parsed top-level ``apiVersion`` is v1alpha3 (the text may mention it anywhere else)."""
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(document, dict) and document.get("apiVersion") == LEGACY_SOURCE_API_VERSION
+
+
+def migrate_source_text(text: str, *, source: str = "source.yaml") -> str:
+    """The v1beta1 text for a v1alpha3 ``source.yaml``; only the ``apiVersion`` line changes."""
+    document = _parse(text, source)
+    if document.get("apiVersion") == SOURCE_API_VERSION:
+        raise MigrationError(f"{source}: already {SOURCE_API_VERSION!r}; nothing to migrate")
+    if document.get("apiVersion") != LEGACY_SOURCE_API_VERSION or document.get("kind") != SOURCE_KIND:
+        raise MigrationError(
+            f"{source}: expected kind {SOURCE_KIND!r} with apiVersion {LEGACY_SOURCE_API_VERSION!r}, "
+            f"found {document.get('kind')!r} with {document.get('apiVersion')!r}"
+        )
+    result, count = re.subn(
+        rf"^apiVersion:(\s*)([\"']?){re.escape(LEGACY_SOURCE_API_VERSION)}\2",
+        rf"apiVersion:\1\2{SOURCE_API_VERSION}\2",
+        text,
+        count=1,
+        flags=re.M,
+    )
+    if count != 1:
+        raise MigrationError(f"{source}: could not find the top-level apiVersion line to rewrite")
+    try:
+        validate_source_descriptor(yaml.safe_load(result), source=source)
+    except LakehouseDescriptorError as exc:
+        raise MigrationError(f"{source}: not a valid {SOURCE_API_VERSION} Source after migration: {exc}") from exc
+    return result
+
+
+@dataclass(frozen=True)
+class Migration:
+    path: Path
+    original: str
+    migrated: str
+
+
+def plan_project_migration(root: Path) -> list[Migration]:
+    """Every descriptor under ``root/lakehouse_code`` that is on a previous version, migrated.
+
+    All of them are migrated in memory first, so one that cannot be leaves the
+    project untouched; a descriptor already current is skipped."""
+    code = root / "lakehouse_code"
+    plan: list[Migration] = []
+    governance = code / "governance.yml"
+    if governance.is_file():
+        text = governance.read_text(encoding="utf-8")
+        if is_legacy_governance(text):
+            plan.append(Migration(governance, text, migrate_governance_text(text, source=_label(root, governance))))
+    for path in sorted(code.glob("bronze/*/source.yaml")):
+        text = path.read_text(encoding="utf-8")
+        if is_legacy_source(text):
+            plan.append(Migration(path, text, migrate_source_text(text, source=_label(root, path))))
+    return plan
+
+
+def _label(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix()

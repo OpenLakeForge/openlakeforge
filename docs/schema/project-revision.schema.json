@@ -14,10 +14,14 @@
     "components",
     "revision"
   ],
+  "if": {"properties": {"schema_version": {"const": 3}}},
+  "then": {"required": ["runtime_contract_version"]},
+  "else": {"not": {"required": ["runtime_contract_version"]}},
   "properties": {
     "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
     "kind": {"const": "ProjectRevision"},
-    "schema_version": {"enum": [1, 2]},
+    "schema_version": {"enum": [1, 2, 3]},
+    "runtime_contract_version": {"type": "integer", "minimum": 1},
     "project_name": {"type": "string", "minLength": 1},
     "distribution_version": {"type": "string", "minLength": 1},
     "project_code_image": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
