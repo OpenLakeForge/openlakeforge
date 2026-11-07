@@ -115,7 +115,7 @@ class Source:
 
 @dataclass(frozen=True)
 class Product:
-    """A v1alpha3 product and its provider-neutral derived identities.
+    """A product and its provider-neutral derived identities.
 
     Product identity is the product ``id`` (also the product ``name``); it is
     globally unique across the lakehouse inventory. The Silver layer is
@@ -162,7 +162,7 @@ class Product:
 
 @dataclass(frozen=True)
 class Domain:
-    """A v1alpha3 domain and its products."""
+    """A domain and its products."""
 
     descriptor_path: Path
     name: str
@@ -537,7 +537,7 @@ def load_transitional_lakehouse_inventory(path: str | Path) -> LakehouseInventor
     """Load an `olf init --empty` project while it has no runnable product.
 
     This is intentionally limited to scaffold planning. Deployment and
-    ordinary descriptor validation retain the strict v1alpha3 contract.
+    ordinary descriptor validation retain the strict descriptor contract.
     """
     return load_lakehouse_inventory(path, allow_incomplete=True)
 

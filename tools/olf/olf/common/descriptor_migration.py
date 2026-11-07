@@ -141,6 +141,15 @@ def _without_domain_key(entry: list[str], item_indent: int, lead: int) -> list[s
     ]
 
 
+def is_legacy_governance(text: str) -> bool:
+    """Whether the parsed top-level ``apiVersion`` is v1beta1 (the text may mention it anywhere else)."""
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(document, dict) and document.get("apiVersion") == LEGACY_API_VERSION
+
+
 def migrate_governance_text(text: str, *, source: str = "governance.yml") -> str:
     """The v1beta2 text for a v1beta1 ``governance.yml``; raises ``MigrationError`` instead of guessing."""
     document = _parse(text, source)
@@ -158,14 +167,20 @@ def migrate_governance_text(text: str, *, source: str = "governance.yml") -> str
             entries = []
         else:
             entries = _entries(lines, p_start, p_end)
+        kept: set[int] = set()
         for (s, item, e), product in zip(entries, document["products"], strict=True):
             body = lines[s:e]
             while body and not _is_content(body[-1]):
                 body.pop()
+            kept.update(range(s, s + len(body)))
             moved = _without_domain_key(body, _indent(lines[item]), item - s)
             products_by_domain[product["domain"]].append(moved)
-        # Lines between entries that are not content (comments before the section) stay where they are.
-        del lines[p_start:p_end]
+        # A comment that belongs to no entry (after the last product, or apart from the first) stays where
+        # the section was rather than disappearing with it.
+        orphans = [
+            lines[i] for i in range(p_start + 1, p_end) if i not in kept and lines[i].lstrip().startswith("#")
+        ]
+        lines[p_start:p_end] = orphans
         while lines and not lines[-1].strip():
             lines.pop()
 
@@ -192,7 +207,11 @@ def migrate_governance_text(text: str, *, source: str = "governance.yml") -> str
         lines[at:at] = block
     result = "".join(lines)
     result = re.sub(
-        rf"^apiVersion:\s*{re.escape(LEGACY_API_VERSION)}", f"apiVersion: {GOVERNANCE_API_VERSION}", result, flags=re.M
+        rf"^apiVersion:(\s*)([\"']?){re.escape(LEGACY_API_VERSION)}\2",
+        rf"apiVersion:\1\2{GOVERNANCE_API_VERSION}\2",
+        result,
+        count=1,
+        flags=re.M,
     )
     if not result.endswith("\n"):
         result += "\n"
@@ -211,6 +230,15 @@ def migrate_governance_text(text: str, *, source: str = "governance.yml") -> str
     return result
 
 
+def is_legacy_source(text: str) -> bool:
+    """Whether the parsed top-level ``apiVersion`` is v1alpha3 (the text may mention it anywhere else)."""
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(document, dict) and document.get("apiVersion") == LEGACY_SOURCE_API_VERSION
+
+
 def migrate_source_text(text: str, *, source: str = "source.yaml") -> str:
     """The v1beta1 text for a v1alpha3 ``source.yaml``; only the ``apiVersion`` line changes."""
     document = _parse(text, source)
@@ -222,8 +250,8 @@ def migrate_source_text(text: str, *, source: str = "source.yaml") -> str:
             f"found {document.get('kind')!r} with {document.get('apiVersion')!r}"
         )
     result, count = re.subn(
-        rf"^apiVersion:\s*{re.escape(LEGACY_SOURCE_API_VERSION)}",
-        f"apiVersion: {SOURCE_API_VERSION}",
+        rf"^apiVersion:(\s*)([\"']?){re.escape(LEGACY_SOURCE_API_VERSION)}\2",
+        rf"apiVersion:\1\2{SOURCE_API_VERSION}\2",
         text,
         count=1,
         flags=re.M,
@@ -254,11 +282,11 @@ def plan_project_migration(root: Path) -> list[Migration]:
     governance = code / "governance.yml"
     if governance.is_file():
         text = governance.read_text(encoding="utf-8")
-        if LEGACY_API_VERSION in text:
+        if is_legacy_governance(text):
             plan.append(Migration(governance, text, migrate_governance_text(text, source=_label(root, governance))))
     for path in sorted(code.glob("bronze/*/source.yaml")):
         text = path.read_text(encoding="utf-8")
-        if LEGACY_SOURCE_API_VERSION in text:
+        if is_legacy_source(text):
             plan.append(Migration(path, text, migrate_source_text(text, source=_label(root, path))))
     return plan
 

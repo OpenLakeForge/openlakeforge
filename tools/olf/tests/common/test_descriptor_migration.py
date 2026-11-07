@@ -191,3 +191,44 @@ def test_one_unmigratable_descriptor_leaves_all_files_untouched(tmp_path: Path) 
     assert "bronze/crm/source.yaml" in result.output
     assert governance.read_text(encoding="utf-8") == FLAT
     assert source.read_text(encoding="utf-8") == broken
+
+def test_a_comment_after_the_last_product_is_kept() -> None:
+    text = FLAT + "# keep me after the last product\n"
+    assert "# keep me after the last product" in migrate_governance_text(text)
+
+
+def test_a_quoted_api_version_is_migrated() -> None:
+    quoted = FLAT.replace("apiVersion: openlakeforge.io/v1beta1", 'apiVersion: "openlakeforge.io/v1beta1"')
+    migrated = migrate_governance_text(quoted)
+    assert 'apiVersion: "openlakeforge.io/v1beta2"' in migrated
+    assert "v1beta1" not in migrated
+
+
+def test_a_current_file_that_mentions_the_old_version_is_not_legacy(tmp_path: Path) -> None:
+    current = (
+        "# Migrated from openlakeforge.io/v1beta1.\n"
+        "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\ndomains:\n  - {name: a, displayName: A}\n"
+    )
+    path = _project(tmp_path, current)
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "already current" in result.output
+    assert path.read_text(encoding="utf-8") == current
+
+
+def test_a_current_source_that_mentions_the_old_version_is_left_alone(tmp_path: Path) -> None:
+    governance, source = _both(tmp_path)
+    governance.write_text(migrate_governance_text(FLAT), encoding="utf-8")
+    source.write_text(
+        SOURCE.replace("v1alpha3", "v1beta1").replace("# CRM extract.", "# was openlakeforge.io/v1alpha3"),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "already current" in result.output
+
+
+def test_a_quoted_source_api_version_is_migrated() -> None:
+    quoted = SOURCE.replace("apiVersion: openlakeforge.io/v1alpha3", "apiVersion: 'openlakeforge.io/v1alpha3'")
+    migrated = migrate_source_text(quoted)
+    assert "apiVersion: 'openlakeforge.io/v1beta1'" in migrated

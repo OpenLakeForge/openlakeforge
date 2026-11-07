@@ -139,6 +139,14 @@ for how a release is cut and verified.
   the variable in the local, aws-poc and azure-poc roots and `DeploymentContext`. The rendered
   Dagster Helm values are unchanged; `deploy_revision` already owned every code location.
 
+- `governance.yml` is `openlakeforge.io/v1beta2`: each data product is declared under its domain in
+  `domains[].products` and no longer names a `domain`; a root `products:` list is rejected. Every derived name
+  (`<domain>_silver`, `<product>_gold`, jobs, buckets) is unchanged. `olf project migrate` rewrites a `v1beta1` file
+  (#917).
+- `source.yaml` is `openlakeforge.io/v1beta1`, frozen with `governance.yml`; no field was removed or renamed.
+  `olf project migrate` rewrites a `v1alpha3` source in the same run as `governance.yml` and changes no file if
+  any descriptor cannot be migrated (#995).
+
 ### Fixed
 
 - Trino keeps its HTTPS-only listener. #932 had moved Trino's `PASSWORD` authentication onto the plain HTTP
@@ -171,6 +179,11 @@ for how a release is cut and verified.
 
 ### Migration
 
+- A `governance.yml` on `openlakeforge.io/v1beta1` no longer loads. Run `olf project migrate --dry-run` to review the
+  diff and `olf project migrate` to nest each product under its domain; it keeps comments and refuses, changing no
+  file, on an unknown domain, a duplicate product id or a layout it cannot rewrite safely.
+- A `source.yaml` on `openlakeforge.io/v1alpha3` no longer loads. `olf project migrate` rewrites its version
+  line (see the `governance.yml` entry above).
 - A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP routes.
   Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Run `olf infra deploy` to apply the
   change; re-register the GitHub App (`olf infra secrets rotate github-app`) afterwards, because its callback URL
