@@ -33,13 +33,12 @@ def _parse_target(target: str) -> tuple[str, str]:
     return domain, product
 
 
-def _render_product_block(*, product: str, domain: str, display_name: str) -> str:
+def _render_product_block(*, product: str, display_name: str) -> str:
     return (
-        f"  - id: {product}\n"
-        f"    domain: {domain}\n"
-        f"    displayName: {yaml_dq(display_name)}\n"
-        f"    description: {yaml_dq(display_name + ' product.')}\n"
-        "    status: planned\n"
+        f"- id: {product}\n"
+        f"  displayName: {yaml_dq(display_name)}\n"
+        f"  description: {yaml_dq(display_name + ' product.')}\n"
+        "  status: planned\n"
     )
 
 
@@ -94,7 +93,7 @@ def plan_product_new(
             repo_root, domain=domain, display_name=resolved_domain_display_name, inputs=inputs
         )
         extra_files.extend(domain_files)
-        governance_text = domain_module.add_governance_entry(repo_root, governance_text, "domains", domain_block)
+        governance_text = domain_module.add_governance_domain(repo_root, governance_text, domain_block)
     else:
         target_domain = next(d for d in inventory.domains if d.name == domain)
         existing_silver_by_name = {entity.name: entity for entity in inventory.floe_entities(target_domain)}
@@ -121,8 +120,8 @@ def plan_product_new(
         raise ScaffoldError(f"product {product!r}: silver inputs must be unique, got {all_silver_inputs!r}")
 
     resolved_display_name = display_name or title_case(product)
-    product_block = _render_product_block(product=product, domain=domain, display_name=resolved_display_name)
-    governance_text = domain_module.add_governance_entry(repo_root, governance_text, "products", product_block)
+    product_block = _render_product_block(product=product, display_name=resolved_display_name)
+    governance_text = domain_module.add_governance_product(repo_root, governance_text, domain, product_block)
 
     gold_dir = f"lakehouse_code/gold/{product}"
     dbt_sources = tuple((name, f"Validated {name.replace('_', ' ')}.") for name in all_silver_inputs)

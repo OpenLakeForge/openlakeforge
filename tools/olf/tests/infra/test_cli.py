@@ -386,19 +386,18 @@ resources:
     )
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: orders
-    domain: sales
-    displayName: Sales Orders Product Metadata Name
-    description: Sales orders.
-    status: planned
+    products:
+      - id: orders
+        displayName: Sales Orders Product Metadata Name
+        description: Sales orders.
+        status: planned
 """,
         encoding="utf-8",
     )
@@ -445,19 +444,18 @@ resources:
     )
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: orders
-    domain: sales
-    displayName: Sales Orders Product Metadata Name
-    description: Sales orders.
-    status: planned
+    products:
+      - id: orders
+        displayName: Sales Orders Product Metadata Name
+        description: Sales orders.
+        status: planned
 """,
         encoding="utf-8",
     )

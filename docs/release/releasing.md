@@ -358,11 +358,16 @@ already existed.
 | Stage | Intended use | Compatibility commitment |
 | --- | --- | --- |
 | Alpha | Development and product-contract validation; `v0.1.0-alpha.1` is validated on local kind only | Breaking changes allowed with migration notes |
-| Beta | Controlled AWS evaluation | Best-effort forward migration within the beta line |
+| Beta | Local Kubernetes (kind), Slim and Full presets | Best-effort forward migration within the beta line; the upgrade drill gates each tag (release step 5) and the restore drill runs nightly in `local-full-e2e.yml` |
 | Release candidate | Operational and upgrade qualification | No planned breaking changes before the associated stable release |
 | Stable | Supported production use within the published reference envelope | Compatible changes in minor releases; breaking changes only in major releases |
 | Deprecated | Still functional but scheduled for removal | Removal release and migration path published |
 | Unsupported | Outside the maintained version window | No fixes or compatibility guarantees |
+
+The beta promise covers the `local` provider only. `aws` and `azure` are
+accepted by the Deployment Profile schema as preview: they may change or break
+between beta releases, and `olf profile validate` prints a notice for them. The
+beta also does not promise production use or high availability.
 
 The exact stable support window should be declared before `v1.0`; until then,
 only the latest pre-release is maintained.

@@ -156,24 +156,22 @@ resources:
         (bundle / "datasets" / "Trino" / "mart.yaml").write_text(f"schema: {product}_gold\n", encoding="utf-8")
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: widgets
     displayName: Widgets
     description: Widgets domain fixture.
     status: planned
-products:
-  - id: widgets_alpha
-    domain: widgets
-    displayName: Widgets Alpha
-    description: Alpha product.
-    status: planned
-  - id: widgets_beta
-    domain: widgets
-    displayName: Widgets Beta
-    description: Beta product.
-    status: planned
+    products:
+      - id: widgets_alpha
+        displayName: Widgets Alpha
+        description: Alpha product.
+        status: planned
+      - id: widgets_beta
+        displayName: Widgets Beta
+        description: Beta product.
+        status: planned
 """,
         encoding="utf-8",
     )

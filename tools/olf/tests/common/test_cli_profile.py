@@ -130,3 +130,15 @@ def test_profile_resolve_rejects_a_malformed_image_override(tmp_path: Path) -> N
 
     assert result.exit_code == 1
     assert "PROJECT_CODE_IMAGE_REPOSITORY" in result.output
+
+
+def test_profile_validate_notes_preview_providers_only(tmp_path: Path) -> None:
+    (tmp_path / "openlakeforge.yaml").write_text(_VALID_PROFILE, encoding="utf-8")
+    local = runner.invoke(app, ["profile", "validate", "--project", str(tmp_path)])
+    (tmp_path / "openlakeforge.yaml").write_text(_VALID_PROFILE.replace("type: local", "type: azure"), encoding="utf-8")
+
+    azure = runner.invoke(app, ["profile", "validate", "--project", str(tmp_path)])
+
+    assert "preview" not in local.output
+    assert azure.exit_code == 0
+    assert "preview" in azure.output

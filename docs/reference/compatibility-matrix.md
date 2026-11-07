@@ -107,8 +107,8 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | Target | Kubernetes foundation | Object storage | Catalog | Managed database |
 | --- | --- | --- | --- | --- |
 | Local | kind | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |
-| Azure POC | AKS | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |
-| AWS POC | EKS | S3 | AWS Glue | RDS PostgreSQL |
+| Azure POC (preview) | AKS | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |
+| AWS POC (preview) | EKS | S3 | AWS Glue | RDS PostgreSQL |
 
 ## Supported upgrade paths
 
