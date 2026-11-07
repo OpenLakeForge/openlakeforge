@@ -98,6 +98,19 @@ on:
           Estimated at 35 minutes. The nightly schedule always runs it.
         type: boolean
         default: false
+      access_issuer:
+        description: >
+          'full' suite only. 'local-ca' (default; the nightly always uses it)
+          keeps the conformance profile's HTTPS routes. 'none' switches
+          spec.access.issuer to plain HTTP, the local default since #948, so
+          a run with restore_drill proves a backup without local-ca restores
+          (#958). The provider-contract fixture describes local-ca, so a
+          'none' run skips that comparison.
+        type: choice
+        options:
+          - local-ca
+          - none
+        default: local-ca
       debug_fail_after_deploy:
         description: >
           Negative test: fail the job right after the platform is deployed to
@@ -249,6 +262,10 @@ jobs:
           if [ "${{ inputs.stage_scope || 'dev+prod' }}" = "dev-only" ]; then
             sed -i '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml
           fi
+          if [ "${{ inputs.access_issuer || 'local-ca' }}" = "none" ]; then
+            sed -i 's/^    issuer: local-ca$/    issuer: none/' openlakeforge.yaml
+            grep -qx '    issuer: none' openlakeforge.yaml
+          fi
           olf profile validate --project .
           olf project validate --project . > /dev/null
           cat openlakeforge.yaml
@@ -284,7 +301,7 @@ jobs:
           contract="${GITHUB_WORKSPACE}/.tmp/rendered-contract/provider-contracts.json"
           olf infra platform contract -f openlakeforge.yaml > "${contract}"
           grep -q '"stages"' "${contract}"
-          if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ]; then
+          if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ] && [ "${{ inputs.access_issuer || 'local-ca' }}" = "local-ca" ]; then
             python3 -c "import json, sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))" \
               "${contract}" "${GITHUB_WORKSPACE}/tools/olf/tests/fixtures/conformance-provider-contracts.json" \
               || { echo "::error::the rendered contract differs from tools/olf/tests/fixtures/conformance-provider-contracts.json; refresh it from this run's rendered-provider-contract artifact"; exit 1; }
@@ -471,6 +488,7 @@ jobs:
             echo "- Ref: \`${{ github.ref }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
             echo "- Stage scope: \`${{ (inputs.suite || 'full') == 'smoke' && 'dev' || (inputs.stage_scope || 'dev+prod') }}\`"
+            echo "- Access issuer: \`${{ (inputs.suite || 'full') == 'smoke' && 'slim profile' || (inputs.access_issuer || 'local-ca') }}\`"
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
