@@ -72,6 +72,22 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append(f"| Terraform | {terraform.get('required_version', 'unknown')} |")
     lines.append("")
 
+    contract = distribution.get("runtime_contract")
+    if isinstance(contract, dict):
+        accepted = ", ".join(str(item) for item in contract.get("accepts", []))
+        lines.append("## Project revision runtime contract")
+        lines.append("")
+        lines.append(
+            "A ProjectRevision built for any accepted contract version activates on this distribution without a "
+            "rebuild, whatever distribution version built it. A revision outside the range must be rebuilt "
+            "(ADR 0012)."
+        )
+        lines.append("")
+        lines.append("| Current contract | Accepted contracts |")
+        lines.append("| --- | --- |")
+        lines.append(f"| {contract.get('version')} | {accepted} |")
+        lines.append("")
+
     lines.append("## Terraform providers")
     lines.append("")
     lines.append(
