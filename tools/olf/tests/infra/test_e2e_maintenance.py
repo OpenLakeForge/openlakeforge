@@ -226,7 +226,9 @@ def _install(monkeypatch: pytest.MonkeyPatch, stack: _FakeStack) -> None:
         monkeypatch.setattr(_maintenance, name, getattr(stack, name))
 
 
-def test_maintenance_runs_each_job_dry_then_for_real(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_maintenance_runs_each_job_dry_then_for_real_then_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     stack = _FakeStack()
     _install(monkeypatch, stack)
 
@@ -238,8 +240,31 @@ def test_maintenance_runs_each_job_dry_then_for_real(monkeypatch: pytest.MonkeyP
             (_maintenance.SILVER_JOB, _maintenance.SILVER_OP),
             (_maintenance.GOLD_JOB, _maintenance.GOLD_OP),
         )
-        for dry_run in (True, False)
+        for dry_run in (True, False, False)
     ]
+
+
+def test_maintenance_fails_when_a_rerun_changes_a_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    stack = _FakeStack()
+    _install(monkeypatch, stack)
+    real_runs = 0
+
+    def run_output_metadata(client: object, run_id: str) -> dict[str, Any]:
+        nonlocal real_runs
+        metadata = stack.run_output_metadata(client, run_id)
+        if metadata["dry_run"] is False:
+            real_runs += 1
+            if real_runs == 2:  # the Silver rerun expires a snapshot the first real run left
+                key = next(iter(stack.silver))
+                stack.silver[key] = (1, stack.silver[key][1])
+                metadata["tables"][0]["expired_snapshots"] = 1
+                metadata["tables"][0]["kept_snapshots"] = 1
+        return metadata
+
+    monkeypatch.setattr(_maintenance, "run_output_metadata", run_output_metadata)
+
+    with pytest.raises(E2EError, match="silver_maintenance rerun changed tables"):
+        _maintenance.check_iceberg_maintenance(e2e_cfg(tmp_path))
 
 
 def test_maintenance_fails_when_a_run_ignores_its_dry_run_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

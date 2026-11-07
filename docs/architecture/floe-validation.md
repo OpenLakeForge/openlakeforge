@@ -148,13 +148,41 @@ the `results` metadata and logs. Both procedures are idempotent, so rerunning
 an interrupted run is safe.
 
 The full e2e suite (`olf infra e2e run --suite full`) launches each job
-twice through Dagster, `dry_run: true` then `false`, with the default
-retention. It checks the output metadata against Trino: every Silver and Gold
+three times through Dagster: `dry_run: true`, then `false`, then `false` again,
+with the default retention. It checks the output metadata against Trino: every Silver and Gold
 table has a result and no `error`, Floe's expired plus kept snapshots equal
 the table's `$snapshots` count, a dry run removes no snapshot, and no run
 changes a row count. A freshly deployed stack has no snapshot older than 7
 days, so there the real run proves that the procedures run with the stage's
-credentials and leave the tables intact, not that anything is deleted.
+credentials and leave the tables intact, not that anything is deleted. The
+rerun must leave every table's snapshot count as the first real run left it.
+
+### Run maintenance by hand
+
+`olf infra maintenance run` launches either job through Dagster, waits for the
+run and prints one row per table. It works whether or not the weekly schedule
+is enabled, because the jobs exist on every stage; `--stage` defaults to `dev`.
+Both jobs keep the defaults above.
+
+```bash
+olf infra maintenance run --layer silver --dry-run --stage prod
+olf infra maintenance run --layer silver --stage prod
+olf infra maintenance run --layer gold --dry-run --stage prod --json
+```
+
+`--dry-run` deletes nothing. `--json` prints the report on stdout and the
+launch progress on stderr. The command exits non-zero when the Dagster run
+fails, which for Gold includes any table that failed. Its JSON report has the
+top-level keys `layer`, `stage`, `job`, `run_id`, `dry_run` and `tables`; each
+table has `table`, `snapshots_before`, `snapshots_after`, `snapshots_expired`,
+`orphan_files`, `orphan_bytes` and `error`. A figure the job does not record is
+`null`:
+
+| Layer and mode | Recorded | `null` |
+| --- | --- | --- |
+| Silver, either mode | all counts; `snapshots_after` equals `snapshots_before` on a dry run | `error` |
+| Gold, dry run | `snapshots_expired` is the count past the window (an upper bound) | snapshot totals, orphan fields |
+| Gold, real run | `error` only | every count |
 
 Compaction is not run
 ([#173](https://github.com/OpenLakeForge/openlakeforge/issues/173)).
