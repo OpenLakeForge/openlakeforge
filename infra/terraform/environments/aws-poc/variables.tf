@@ -10,6 +10,12 @@ variable "shared_namespace" {
   default     = "olf-system"
 }
 
+variable "bucket_names" {
+  description = "Object-store bucket names per enabled stage and layer, derived once by the resolver as <metadata.name>-<stage>-<layer> (ADR 0004). Roots take them as given and never rebuild a name."
+  type        = map(object({ bronze = string, silver = string, gold = string }))
+  default     = {}
+}
+
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({
@@ -72,6 +78,12 @@ variable "bucket_name_prefix" {
   description = "Prefix used for generated AWS S3 buckets."
   type        = string
   default     = "openlakeforge-poc"
+}
+
+variable "legacy_dev_bucket_names" {
+  description = "Keep the v0.2 AWS POC's DEV bucket names (bronze_bucket_name/silver_bucket_name/gold_bucket_name, or the generated <bucket_name_prefix>-<layer>-<suffix> when those are null) instead of the resolver's <metadata.name>-dev-<layer>. Set it on a deployment that already holds DEV data; a new one leaves it false."
+  type        = bool
+  default     = false
 }
 
 variable "bronze_bucket_name" {

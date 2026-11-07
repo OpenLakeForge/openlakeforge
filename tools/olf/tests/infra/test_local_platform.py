@@ -112,6 +112,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
 
     assert set(variables) == {
         "profile_name",
+        "bucket_names",
         "shared_namespace",
         "stage_source_egress_ports",
         "stages",
@@ -248,6 +249,7 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
 
     assert set(variables) == {
         "profile_name",
+        "bucket_names",
         "shared_namespace",
         "stages",
         "kube_context",

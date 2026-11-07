@@ -322,6 +322,7 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
     assert variables["project_code_image_repository"] == _FACTS.project_code_repository
     assert set(variables.keys()) == {
         "profile_name",
+        "bucket_names",
         "shared_namespace",
         "stages",
         "storage_size",
@@ -352,6 +353,7 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
 
     assert set(variables.keys()) == {
         "profile_name",
+        "bucket_names",
         "shared_namespace",
         "stages",
         "kube_context",

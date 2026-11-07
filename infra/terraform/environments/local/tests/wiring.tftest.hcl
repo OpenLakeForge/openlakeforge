@@ -43,6 +43,10 @@ variables {
     dev  = { enabled = true, analytics = true, governance = false }
     prod = { enabled = true, analytics = true, governance = false }
   }
+  bucket_names = {
+    dev  = { bronze = "olf-dev-bronze", silver = "olf-dev-silver", gold = "olf-dev-gold" }
+    prod = { bronze = "olf-prod-bronze", silver = "olf-prod-silver", gold = "olf-prod-gold" }
+  }
   access_base_domain = "olf.localhost"
   platform_api_image = "platform-api:test"
   ops_bucket_name    = "olf-ops"

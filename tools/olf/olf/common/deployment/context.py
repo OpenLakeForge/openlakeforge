@@ -63,6 +63,7 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
     }
     return {
         "profile_name": topology.profile_name,
+        "bucket_names": json.dumps(topology.bucket_names(), sort_keys=True, separators=(",", ":")),
         "shared_namespace": context.shared_namespace,
         "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
     }

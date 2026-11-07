@@ -75,6 +75,16 @@ def test_selecting_a_stage_preserves_the_two_stage_topology(stage: StageName) ->
     )
 
 
+def test_terraform_receives_the_resolver_bucket_names_for_both_stages() -> None:
+    context = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage="dev")
+    names = json.loads(topology_variables(context)["bucket_names"])
+
+    assert names["prod"] == {
+        layer: f"{context.topology.profile_name}-prod-{layer}" for layer in ("bronze", "silver", "gold")
+    }
+    assert set(names) == {stage.value for stage in CONFORMANCE_STAGES}
+
+
 def _parsed_conformance_contract():  # noqa: ANN202 - olf.common.provider_contracts.ProviderContracts
     """The generated local runtime configuration for both of the conformance
     profile's stages, parsed against the topology `openlakeforge.conformance.yaml`
@@ -191,9 +201,7 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
         )
 
         others = {other.value for other in CONFORMANCE_STAGES if other != stage}
-        leaked = sorted(
-            (key, other) for key, value in exports.items() for other in others if names_stage(value, other)
-        )
+        leaked = sorted((key, other) for key, value in exports.items() for other in others if names_stage(value, other))
         assert not leaked, (
             f"the conformance profile's {stage.value!r} environment carries {leaked!r} as (export, stage "
             f"named). A command or rollout handed another stage's catalog, bucket or principal reads, writes or "

@@ -96,8 +96,8 @@ The catalog module owns:
 
 `olf`'s Polaris bootstrap creates, after the platform apply:
 
-- the `lakehouse_dev` warehouse with `default-base-location: s3://lakehouse-dev-silver/`
-- allowed S3 locations `s3://lakehouse-dev-silver/` and `s3://lakehouse-dev-gold/`
+- the `lakehouse_dev` warehouse with `default-base-location: s3://<prefix>-dev-silver/`
+- allowed S3 locations `s3://<prefix>-dev-silver/` and `s3://<prefix>-dev-gold/`
 - `polaris.config.drop-with-purge.enabled=true` on the warehouse, so Trino can
   drop tables and dbt's temporary views (ADR 0004)
 - the Trino service principal and role grants
@@ -113,9 +113,9 @@ The artifacts phase (`olf infra catalog sync-namespaces`, run by `olf infra
 deploy`) creates, from the project descriptors:
 
 - product Silver namespaces such as `sales_silver` with storage
-  locations under `s3://lakehouse-dev-silver/<namespace>/`
+  locations under `s3://<prefix>-dev-silver/<namespace>/`
 - product Gold namespaces such as `order_revenue_gold` with storage
-  locations under `s3://lakehouse-dev-gold/<namespace>/`
+  locations under `s3://<prefix>-dev-gold/<namespace>/`
 
 Trino, Floe, and dbt consume the generic catalog type/provider metadata plus the
 local Polaris REST URI, token URI, warehouse name, OAuth scope, and Secret key

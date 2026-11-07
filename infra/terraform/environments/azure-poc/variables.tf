@@ -10,6 +10,12 @@ variable "shared_namespace" {
   default     = "olf-system"
 }
 
+variable "bucket_names" {
+  description = "Object-store bucket names per enabled stage and layer, derived once by the resolver as <metadata.name>-<stage>-<layer> (ADR 0004). Roots take them as given and never rebuild a name."
+  type        = map(object({ bronze = string, silver = string, gold = string }))
+  default     = {}
+}
+
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({

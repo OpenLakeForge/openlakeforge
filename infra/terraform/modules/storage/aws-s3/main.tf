@@ -9,21 +9,21 @@ resource "random_string" "bucket_suffix" {
 locals {
   ops_bucket_name = coalesce(var.ops_bucket_name, "${var.bucket_name_prefix}-ops-${random_string.bucket_suffix.result}")
 
-  # Per-stage bucket names carry the shared random suffix because S3 names are
-  # global. The one exception is DEV during the v0.2 migration: its legacy
-  # resource addresses are moved below and its physical names must stay exact
-  # so Terraform preserves existing objects rather than replacing buckets.
+  # Stage buckets take the name the resolver derived, exactly: a prefix that
+  # is unique on the account is the operator's job (`metadata.name`), not a
+  # random suffix. Only the legacy DEV binding keeps the v0.2 physical names,
+  # whose resource addresses are moved below so Terraform preserves objects.
   stage_bucket_names = {
     for stage, binding in var.stage_buckets : stage => {
       bronze = binding.preserve_legacy_names ? coalesce(
         binding.bronze_bucket_name, "${var.bucket_name_prefix}-bronze-${random_string.bucket_suffix.result}"
-      ) : "${binding.bronze_bucket_name}-${random_string.bucket_suffix.result}"
+      ) : binding.bronze_bucket_name
       silver = binding.preserve_legacy_names ? coalesce(
         binding.silver_bucket_name, "${var.bucket_name_prefix}-silver-${random_string.bucket_suffix.result}"
-      ) : "${binding.silver_bucket_name}-${random_string.bucket_suffix.result}"
+      ) : binding.silver_bucket_name
       gold = binding.preserve_legacy_names ? coalesce(
         binding.gold_bucket_name, "${var.bucket_name_prefix}-gold-${random_string.bucket_suffix.result}"
-      ) : "${binding.gold_bucket_name}-${random_string.bucket_suffix.result}"
+      ) : binding.gold_bucket_name
     }
   }
 
