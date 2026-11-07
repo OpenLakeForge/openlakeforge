@@ -50,11 +50,7 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
-                    **(
-                        {"access": {"issuer": "local-ca"}}
-                        if contract["shared"]["access"]["implementation"] == "access.ingress"
-                        else {}
-                    ),
+                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
                     **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {
@@ -364,12 +360,12 @@ def _bundle_documents(bundle: Path) -> dict[str, object]:
     [
         ("trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev", "", None),
         (
-            "trino://olf-dev-runtime:XXXXXXXXXX@trino.olf-system:8080/lakehouse_dev",
+            "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev",
             "lakehouse_dev_",
-            reports.INSECURE_AUTH_EXTRA,
+            {"engine_params": {"connect_args": {"http_scheme": "https", "verify": reports.SUPERSET_QUERY_CA}}},
         ),
     ],
-    ids=("local", "aws-with-password"),
+    ids=("local", "aws-with-tls"),
 )
 def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     tmp_path: Path,
@@ -421,8 +417,8 @@ def test_unpack_export_bundle_keeps_connect_args_it_did_not_add(tmp_path: Path) 
     with ZipFile(bundle_path, "w") as bundle:
         bundle.writestr(
             "root/databases/trino.yaml",
-            "sqlalchemy_uri: trino://u@h:8080/lakehouse_prod\n"
-            "extra:\n  engine_params:\n    connect_args:\n      allow_insecure_auth: true\n      timezone: UTC\n",
+            "sqlalchemy_uri: trino://u@h:8443/lakehouse_prod\n"
+            "extra:\n  engine_params:\n    connect_args:\n      http_scheme: https\n      timezone: UTC\n",
         )
         bundle.writestr("root/datasets/mart.yaml", "table_name: mart\nschema: order_revenue_gold\n")
 
@@ -498,7 +494,7 @@ def test_a_caller_exported_query_uri_never_reaches_the_target(stale: str | None)
     assert target.sqlalchemy_uri == contract["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"]
 
 
-def _applied_environment(**contract: str) -> dict[str, str]:
+def _applied_environment(**tls: str) -> dict[str, str]:
     return {
         "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
         "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
@@ -507,29 +503,34 @@ def _applied_environment(**contract: str) -> dict[str, str]:
         "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",
         "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
         "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
-        **contract,
+        **tls,
     }
 
 
-def test_a_password_contract_opts_the_superset_connection_into_insecure_auth(tmp_path: Path) -> None:
+def test_a_tls_query_contract_targets_https_with_the_ca_and_an_off_one_is_unchanged(tmp_path: Path) -> None:
     plain = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
-    password = superset.resolve_stage_report_target(
-        _applied_environment(OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET="trino-credential"), stage="dev"
+    tls = superset.resolve_stage_report_target(
+        _applied_environment(
+            OPENLAKEFORGE_QUERY_TRINO_TLS_PORT="8443", OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP="olf-local-ca"
+        ),
+        stage="dev",
     )
 
     assert plain.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev"
     assert plain.extra is None
-    assert password.sqlalchemy_uri == "trino://olf-dev-runtime:XXXXXXXXXX@trino.olf-system:8080/lakehouse_dev"
-    assert password.extra == {"engine_params": {"connect_args": {"allow_insecure_auth": True}}}
+    assert tls.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"
+    assert tls.extra == {
+        "engine_params": {"connect_args": {"http_scheme": "https", "verify": reports.SUPERSET_QUERY_CA}}
+    }
 
     source = tmp_path / "report"
     (source / "databases").mkdir(parents=True)
     (source / "databases" / "trino.yaml").write_text("database_name: trino\nuuid: database-id\n")
     bundle_path = tmp_path / "bundle.zip"
-    reports.build_report_bundle(source, bundle_path, "b", password.sqlalchemy_uri, extra=password.extra)
+    reports.build_report_bundle(source, bundle_path, "b", tls.sqlalchemy_uri, extra=tls.extra)
     with ZipFile(bundle_path) as bundle:
         database = yaml.safe_load(bundle.read("b/databases/trino.yaml"))
-    assert database["extra"] == password.extra
+    assert database["extra"] == tls.extra
 
 
 def test_bundle_schema_perms_lists_only_the_schemas_datasets_read(tmp_path: Path) -> None:
@@ -605,13 +606,14 @@ def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_
 
 
 def test_a_password_contract_names_the_stage_secret_the_import_reads_and_never_the_password() -> None:
-    plain = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
+    tls = {"OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca"}
+    plain = superset.resolve_stage_report_target(_applied_environment(**tls), stage="dev")
     password = superset.resolve_stage_report_target(
-        _applied_environment(OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET="trino-credential"), stage="dev"
+        _applied_environment(**tls, OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET="trino-credential"), stage="dev"
     )
 
     assert plain.credential_secret == ""
     assert password.credential_secret == "trino-credential"
     # Superset's placeholder keeps the password the import's `passwords` field sets.
-    assert password.sqlalchemy_uri == "trino://olf-dev-runtime:XXXXXXXXXX@trino.olf-system:8080/lakehouse_dev"
-    assert plain.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev"
+    assert password.sqlalchemy_uri == "trino://olf-dev-runtime:XXXXXXXXXX@trino.olf-system:8443/lakehouse_dev"
+    assert plain.sqlalchemy_uri == "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev"

@@ -162,13 +162,18 @@ variable "bootstrap_job_image" {
 }
 
 variable "workload_authentication" {
-  description = "How far ADR 0016 is applied. off: nothing changes. password: PASSWORD authentication on the HTTP listener with the principals rules; every caller must already hold its credential."
+  description = "How far ADR 0016 is applied. off: nothing changes. tls: an HTTPS listener and certificate beside the HTTP one, callers still unauthenticated, so they can move to HTTPS and prove the CA first. password: PASSWORD authentication on an HTTPS-only coordinator with the principals rules; every caller must already hold its credential."
   type        = string
   default     = "off"
 
   validation {
-    condition     = contains(["off", "password"], var.workload_authentication)
-    error_message = "workload_authentication must be off or password."
+    condition     = contains(["off", "tls", "password"], var.workload_authentication)
+    error_message = "workload_authentication must be off, tls or password."
+  }
+
+  validation {
+    condition     = var.workload_authentication == "off" || var.tls_issuer_name != null
+    error_message = "workload_authentication tls and password need tls_issuer_name."
   }
 
   validation {
@@ -177,8 +182,8 @@ variable "workload_authentication" {
   }
 }
 
-variable "ca_configmap_name" {
-  description = "ConfigMap in the namespace with the CA that signs the issuer's public URL as ca.crt (olf-local-ca). Mounted on the coordinator so the Web UI sign-in and the signing-key fetch trust it. null when the ingress is plain HTTP or the issuer has a public certificate."
+variable "tls_issuer_name" {
+  description = "cert-manager ClusterIssuer that signs the Trino serving certificate. Only read when workload_authentication is not off."
   type        = string
   default     = null
 }
@@ -190,7 +195,7 @@ variable "web_ui_fixed_user" {
 }
 
 variable "web_ui_oidc" {
-  description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret, in this namespace). null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication password."
+  description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret, in this namespace). null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication tls or password."
   type = object({
     issuer_url = string
     client_id  = string
@@ -200,7 +205,7 @@ variable "web_ui_oidc" {
 
   validation {
     condition     = var.web_ui_oidc == null || var.workload_authentication != "off"
-    error_message = "web_ui_oidc needs workload_authentication password."
+    error_message = "web_ui_oidc needs workload_authentication tls or password: Trino OAuth2 needs the HTTPS listener and its CA."
   }
 }
 
@@ -216,6 +221,6 @@ variable "people_access" {
 
   validation {
     condition     = var.people_access == null || var.workload_authentication == "password"
-    error_message = "people_access needs workload_authentication password: JWT is added beside PASSWORD."
+    error_message = "people_access needs workload_authentication password: JWT is added beside PASSWORD on the HTTPS-only coordinator."
   }
 }

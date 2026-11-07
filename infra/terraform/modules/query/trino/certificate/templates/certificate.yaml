@@ -1,0 +1,47 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.secretName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Values.secretName }}
+  # Trino reads one PEM file holding the key and then the certificate chain, and
+  # the key must be PKCS8. CombinedPEM adds that file (tls-combined.pem) to the
+  # Secret.
+  additionalOutputFormats:
+    - type: CombinedPEM
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+  # Trino loads the keystore once at start and does not follow a renewed file
+  # (docs/adr/0016), so renewal needs a coordinator restart; a year keeps that
+  # out of a local cluster's life.
+  duration: 8760h
+  renewBefore: 720h
+  dnsNames:
+    {{- range .Values.dnsNames }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: {{ .Values.issuerName }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# Traefik re-encrypts to Trino and needs the CA that signed the certificate
+# above. Every cert-manager Secret carries ca.crt, so this one exists to give
+# Traefik that file without mounting Trino's private key; it is never used to
+# authenticate anything.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.trustSecretName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Values.trustSecretName }}
+  dnsNames:
+    - {{ .Values.trustSecretName }}
+  issuerRef:
+    name: {{ .Values.issuerName }}
+    kind: ClusterIssuer
+    group: cert-manager.io

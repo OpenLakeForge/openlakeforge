@@ -86,6 +86,7 @@ def test_the_platform_phase_bootstraps_openmetadata_after_the_apply_from_the_con
         service="polaris",
         display_name="Lakehouse catalogs (Trino)",
         trino_namespace="trino://trino.olf-system:8080",
+        trino_tls_namespace="trino://trino.olf-system:8443",
         pipeline_service="dagster_dev",
         databases=("lakehouse_dev", "lakehouse_prod"),
     )

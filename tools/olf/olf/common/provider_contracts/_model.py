@@ -115,6 +115,8 @@ class StageContract:
                 "catalog_name": self.query["catalog_name"],
                 "endpoint": self.query["endpoint"],
                 "runtime_identity_principal": self.runtime_identity["principal"],
+                "tls_port": self.query.get("tls_port"),
+                "ca_configmap_name": self.query.get("ca_configmap_name"),
                 "credential_secret_name": self.query.get("credential_secret_name"),
             },
             # Lineage is emitted under the stage's own pipeline-service root,

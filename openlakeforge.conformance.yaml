@@ -19,10 +19,7 @@ spec:
   # The GitHub host is the e2e stub (olf e2e starts it in olf-system), and the
   # nightly creates a dummy `github-oauth-app` Secret for Dex to read: no real
   # GitHub or OAuth App is involved (docs/guides/identity/connect-github.md).
-  # HTTPS on purpose: the nightly applies this profile verbatim, and it is the one that exercises the TLS routes
-  # (the default, `none`, serves plain HTTP).
-  access:
-    issuer: local-ca
+  access: {}
   identity:
     issuer: github
     github:

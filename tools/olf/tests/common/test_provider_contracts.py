@@ -99,7 +99,7 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                     "preset": "slim",
                     "stages": stages,
                     **(
-                        {"access": access or {"issuer": "local-ca"}}
+                        {"access": access or {}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
@@ -1783,17 +1783,40 @@ def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:
 def test_a_credential_secret_must_be_a_valid_secret_name(name: object) -> None:
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["dev"]["query"].update(credential_secret_name=name)
+    contract["stages"]["dev"]["query"].update(credential_secret_name=name, tls_port="8443", ca_configmap_name="ca")
 
     with pytest.raises(ProviderContractError, match="credential_secret_name is not a valid Kubernetes Secret name"):
         parse_provider_contracts(contract, topology)
 
 
-@pytest.mark.parametrize("field", ["tls_port", "ca_configmap_name"])
-def test_the_retired_trino_tls_fields_are_refused(field: str) -> None:
+def test_a_credential_secret_requires_both_tls_fields() -> None:
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["dev"]["query"][field] = "8443"
+    contract["stages"]["dev"]["query"].update(credential_secret_name="trino-credential", tls_port="8443")
+
+    with pytest.raises(ProviderContractError, match="credential_secret_name requires tls_port and ca_configmap_name"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tls_port", None),
+        ("tls_port", ""),
+        ("tls_port", "not-a-port"),
+        ("tls_port", 0),
+        ("tls_port", 70000),
+        ("ca_configmap_name", None),
+        ("ca_configmap_name", ""),
+        ("ca_configmap_name", "Bad_Name"),
+    ],
+)
+def test_a_credential_secret_requires_valid_tls_fields(field: str, value: object) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    query = contract["stages"]["dev"]["query"]
+    query.update(credential_secret_name="trino-credential", tls_port="8443", ca_configmap_name="ca")
+    query[field] = value
 
     with pytest.raises(ProviderContractError, match=field):
         parse_provider_contracts(contract, topology)

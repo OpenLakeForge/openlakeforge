@@ -103,6 +103,7 @@ _RUNTIME_ENV = (
     "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
     "OPENLAKEFORGE_QUERY_TRINO_HOST",
     "OPENLAKEFORGE_QUERY_TRINO_PORT",
+    "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT",
     "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
     "OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY",
     "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
@@ -338,17 +339,28 @@ def _user_values(
         }
         - {""}
     )
-    # The stage's own Trino credential, by reference: the Secret lives in this
-    # stage's namespace and holds only this stage's principal.
-    credential = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
-    if credential:
-        env.append({"name": "OPENLAKEFORGE_DBT_TRINO_METHOD", "value": "ldap"})
-        env.append(
-            {
-                "name": "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
-                "valueFrom": {"secretKeyRef": {"name": credential, "key": "password"}},
-            }
-        )
+    # The CA that signs Trino's certificate, for dbt in the run pods; the
+    # profile reads these names (openlakeforge_runtime/dbt/profiles/trino.yml).
+    ca_configmap = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", "")
+    tls_pod: dict[str, Any] = {}
+    if ca_configmap and contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"):
+        env.append({"name": "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME", "value": "https"})
+        env.append({"name": "OPENLAKEFORGE_QUERY_TRINO_CA", "value": f"{_QUERY_CA_DIR}/ca.crt"})
+        tls_pod = {
+            "volumes": [{"name": "query-ca", "configMap": {"name": ca_configmap}}],
+            "volumeMounts": [{"name": "query-ca", "mountPath": _QUERY_CA_DIR, "readOnly": True}],
+        }
+        # The stage's own Trino credential, by reference: the Secret lives in
+        # this stage's namespace and holds only this stage's principal.
+        credential = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
+        if credential:
+            env.append({"name": "OPENLAKEFORGE_DBT_TRINO_METHOD", "value": "ldap"})
+            env.append(
+                {
+                    "name": "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
+                    "valueFrom": {"secretKeyRef": {"name": credential, "key": "password"}},
+                }
+            )
     return {
         "global": dict(platform_globals),
         "extraManifests": [_log_archive_manifest(
@@ -381,6 +393,7 @@ def _user_values(
                 "includeConfigInLaunchedRuns": {"enabled": True},
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
+                **tls_pod,
                 "deploymentLabels": {
                     "openlakeforge.io/project-revision": activation.project_revision,
                     _ACTIVATION_LABEL: activation.activation_revision,
@@ -422,6 +435,7 @@ def _require_source_bindings(
         )
 
 
+_QUERY_CA_DIR = "/etc/olf/query-ca"
 _USER_SUBCHART = "charts/dagster-user-deployments/"
 
 

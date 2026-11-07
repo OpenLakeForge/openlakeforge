@@ -11,7 +11,7 @@ from olf.infra import trino
 from olf.infra.commands._shared import applied_runtime_environment, deployment_context_for_profile
 
 # Trino CLI --output-format values for each --format choice.
-OUTPUT_FORMATS = {"table": "table", "csv": "csv", "json": "json"}
+OUTPUT_FORMATS = {"table": "ALIGNED", "csv": "CSV_HEADER", "json": "JSON"}
 
 
 def query(

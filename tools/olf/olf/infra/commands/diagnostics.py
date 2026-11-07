@@ -42,6 +42,14 @@ def _capture(tools: Toolkit, output: Path, name: str, argv_factory: Callable[[],
     return text
 
 
+# The coordinator's rendered configuration, for the authentication and TLS
+# listeners it actually runs with. The files hold ${ENV:...} references, never
+# secret values.
+_TRINO_CONFIG = (
+    'for f in config.properties password-authenticator.properties; do echo "--- $f ---"; cat "/etc/trino/$f" 2>&1; done'
+)
+
+
 @app.command("collect")
 def collect(
     output_dir: Path = _OUTPUT_ARGUMENT,
@@ -57,6 +65,7 @@ def collect(
     (output_dir / "host-memory.txt").write_text(_host_memory_snapshot())
     tools = Toolkit.default()
     context = ["--context", selected_context] if selected_context else []
+
     def command(tool: str, *args: str) -> list[str]:
         return [str(tools.resolver.resolve(tool)), *args]
 
@@ -98,4 +107,7 @@ def collect(
             pod = item.removeprefix("pod/")
             logs = ["logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"]
             _capture(tools, output_dir, f"{pod}.log", partial(command, "kubectl", *context, *logs))
+            if pod.startswith("trino-coordinator"):
+                exec_args = ["exec", "-n", selected_namespace, pod, "--", "sh", "-c", _TRINO_CONFIG]
+                _capture(tools, output_dir, "trino-config.txt", partial(command, "kubectl", *context, *exec_args))
     typer.echo(f"Diagnostics written to {output_dir}")

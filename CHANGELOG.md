@@ -43,15 +43,6 @@ for how a release is cut and verified.
 
 ### Changed
 
-- Nothing inside the cluster is encrypted any more (#932). Trino serves its `PASSWORD` authentication on the
-  HTTP listener (`http-server.authentication.allow-insecure-over-http`), so its serving certificate, HTTPS
-  listener and Traefik transport are gone, and the query contract no longer carries `tls_port` or
-  `ca_configmap_name`. `spec.access.issuer` defaults to `none` (plain HTTP) on the local provider, and
-  cert-manager, the local CA and the `olf-local-ca` ConfigMap are deployed only with `issuer: local-ca`. `olf
-  infra query` and `olf e2e` reach Trino through a port-forward and its REST protocol, not the in-pod CLI.
-  ADR 0016 records the trade: a password crosses the pod network in cleartext. The new HTTP configuration was
-  not run end to end before this entry; run `olf infra e2e run --env local`.
-
 - `--provider` is now optional on `olf infra deploy|plan|doctor|destroy|status|forward` and on the commands that
   read a deployed stack's contracts (`olf infra dbt`, `catalog`, `superset`, `openmetadata`): it defaults to the
   Deployment Profile's `spec.provider.type` instead of silently to `local`, so `olf infra deploy` is enough.
@@ -122,6 +113,14 @@ for how a release is cut and verified.
 
 ### Fixed
 
+- Trino keeps its HTTPS-only listener. #932 had moved Trino's `PASSWORD` authentication onto the plain HTTP
+  port with `http-server.authentication.allow-insecure-over-http=true`, which does not enforce it: on a request
+  Trino does not consider secure, the authenticators are skipped, so a request with no credential was accepted
+  as whatever `X-Trino-User` it named and a password was refused with `Password not allowed for insecure
+  authentication`. That also failed the Superset report import in the full local e2e. The change to Trino's
+  transport is reverted, so ADR 0016's isolation of the DEV and PROD catalogs holds again; the local default
+  issuer stays `local-ca`. `olf infra diagnostics collect` also writes the Trino coordinator's rendered
+  configuration (`trino-config.txt`).
 - `olf infra deploy` reindexes OpenMetadata search when it finds the index empty. OpenSearch has no volume, so a
   pod restart, an upgrade or a restore used to leave search empty while the entities survived (#909).
 - `olf infra restore` reactivates each stage's restored project revision instead of building the current checkout,
@@ -143,14 +142,6 @@ for how a release is cut and verified.
   runtimes is unchanged.
 
 ### Migration
-
-- A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP.
-  Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Existing clusters need `olf infra
-  deploy` to apply the change: cert-manager and the local CA issuer are removed with `none` (a leftover `local-ca` Secret in
-  `olf-system` is not deleted), and Trino restarts to drop its HTTPS listener. Re-register the GitHub App (`olf infra secrets rotate github-app`) after a
-  scheme change, because its callback URL names the scheme.
-
-- A GitHub Enterprise `identity.github.host` needs `spec.access.issuer: local-ca`: Dex reads its `rootCA` from the published local CA, which `none` no longer publishes. The plan refuses the combination.
 
 - If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3,
   and its shared services still run in the `lakehouse` namespace. The platform apply refuses to

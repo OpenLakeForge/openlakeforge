@@ -27,7 +27,7 @@ SECRET = "eyJ.secret.token"
 class FakeTrino:
     """Answers each request from a script of (status, body) or an exception, and records what was sent."""
 
-    def __init__(self, *answers: tuple[int, Any] | tuple[int, Any, dict[str, str]] | Exception) -> None:
+    def __init__(self, *answers: tuple[int, Any] | Exception) -> None:
         self.answers = list(answers)
         self.calls: list[dict[str, Any]] = []
 
@@ -37,9 +37,8 @@ class FakeTrino:
         if isinstance(answer, Exception):
             raise answer
         response = requests.Response()
-        response.status_code, body, *headers = answer
+        response.status_code, body = answer
         response._content = json.dumps(body).encode()
-        response.headers.update(headers[0] if headers else {})
         return response
 
 
@@ -175,156 +174,3 @@ def test_only_the_submission_carries_the_extra_credentials_and_each_page_a_fresh
         "test",
     )
     assert fake.calls[0]["allow_redirects"] is False
-
-
-def test_basic_credentials_authenticate_a_workload_principal_and_replace_the_bearer() -> None:
-    import base64
-
-    fake = FakeTrino(_page([[1]], f"{URL}/1"), _page([[2]], columns=False))
-    client = TrinoStatementClient(
-        URL, catalog="dev", user="olf-prod-runtime", source="test", send=fake, basic=("olf-dev-runtime", "s3cret")
-    )
-
-    client.run("SELECT 1", bearer=lambda: SECRET)
-
-    expected = "Basic " + base64.b64encode(b"olf-dev-runtime:s3cret").decode()
-    assert [call["headers"]["Authorization"] for call in fake.calls] == [expected, expected]
-    # The claimed user is the client's, apart from the authenticated principal.
-    assert {call["headers"]["X-Trino-User"] for call in fake.calls} == {"olf-prod-runtime"}
-    assert SECRET not in json.dumps([call["headers"] for call in fake.calls])
-
-
-def test_no_bearer_and_no_basic_credentials_send_no_authorization_header() -> None:
-    fake = FakeTrino(_page([[1]]))
-
-    _client(fake).run("SELECT 1", bearer=lambda: "")
-
-    assert "Authorization" not in fake.calls[0]["headers"]
-
-
-def test_a_shared_session_carries_use_set_session_and_a_transaction_to_the_next_statement() -> None:
-    from openlakeforge_services.trino import TrinoSession
-
-    session = TrinoSession()
-    use = {
-        "X-Trino-Set-Schema": "order_revenue_gold",
-        "X-Trino-Set-Session": "query_max_stage_count=300,time_zone=Europe%2FParis",
-        "X-Trino-Started-Transaction-Id": "tx-1",
-    }
-    fake = FakeTrino((200, {"id": "q1"}, use), (200, {"id": "q2"}))
-    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
-
-    client.run("USE order_revenue_gold", bearer=lambda: "")
-    client.run("SELECT 1", bearer=lambda: "")
-
-    first, second = (call["headers"] for call in fake.calls)
-    assert "X-Trino-Schema" not in first
-    # Open transactions are announced as none until Trino starts one.
-    assert first["X-Trino-Transaction-Id"] == "NONE"
-    assert second["X-Trino-Schema"] == "order_revenue_gold"
-    assert second["X-Trino-Transaction-Id"] == "tx-1"
-    assert second["X-Trino-Session"] == "query_max_stage_count=300,time_zone=Europe%2FParis"
-    assert second["X-Trino-Catalog"] == "dev"
-
-
-def test_a_session_forgets_what_trino_clears() -> None:
-    from openlakeforge_services.trino import TrinoSession
-
-    session = TrinoSession()
-    session.update(
-        {"X-Trino-Set-Session": "a=1,b=2", "X-Trino-Started-Transaction-Id": "tx", "X-Trino-Set-Catalog": "c2"}
-    )
-    session.update({"X-Trino-Clear-Session": "a", "X-Trino-Clear-Transaction-Id": "true"})
-
-    assert (session.catalog, session.properties, session.transaction_id) == ("c2", {"b": "2"}, None)
-
-
-def test_without_a_shared_session_every_request_is_independent() -> None:
-    fake = FakeTrino((200, {"id": "q1"}, {"X-Trino-Set-Schema": "other"}), (200, {"id": "q2"}))
-    client = _client(fake)
-
-    client.run("USE other", bearer=lambda: "")
-    client.run("SELECT 1", bearer=lambda: "")
-
-    assert "X-Trino-Schema" not in fake.calls[1]["headers"]
-
-
-def test_only_session_values_are_form_encoded_and_the_schema_is_kept_as_sent() -> None:
-    from openlakeforge_services.trino import TrinoSession
-
-    session = TrinoSession()
-    # Trino 480 sends the schema as it is (`a+b` is a schema named a+b) and form-encodes only a session value,
-    # a space being `+`.
-    session.update({"X-Trino-Set-Session": "query_max_execution_time=1+h", "X-Trino-Set-Schema": "a+b"})
-    fake = FakeTrino((200, {"id": "q"}))
-    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
-
-    client.run("SELECT 1", bearer=lambda: "")
-
-    headers = fake.calls[0]["headers"]
-    assert session.properties == {"query_max_execution_time": "1 h"}
-    assert session.schema == "a+b"
-    assert headers["X-Trino-Schema"] == "a+b"
-    # The value goes back percent-encoded, which Trino decodes to the same space; the name is not encoded.
-    assert headers["X-Trino-Session"] == "query_max_execution_time=1%20h"
-
-
-def test_a_catalog_scoped_property_name_and_a_percent_in_a_schema_are_not_decoded() -> None:
-    from openlakeforge_services.trino import TrinoSession
-
-    session = TrinoSession()
-    session.update({"X-Trino-Set-Session": "lakehouse_dev.some_flag=true", "X-Trino-Set-Schema": "100%25"})
-    session.update({"X-Trino-Clear-Session": "lakehouse_dev.some_flag"})
-
-    assert session.schema == "100%25"
-    assert session.properties == {}
-
-
-def test_a_session_asks_to_start_transactions_and_forgets_one_that_ends() -> None:
-    from openlakeforge_services.trino import TrinoSession
-
-    fake = FakeTrino(
-        (200, {"id": "q1"}, {"X-Trino-Started-Transaction-Id": "tx-9"}),
-        (200, {"id": "q2"}, {"X-Trino-Clear-Transaction-Id": "true"}),
-        (200, {"id": "q3"}),
-    )
-    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=TrinoSession())
-
-    for statement in ("START TRANSACTION", "COMMIT", "SELECT 1"):
-        client.run(statement, bearer=lambda: "")
-
-    assert [call["headers"]["X-Trino-Transaction-Id"] for call in fake.calls] == ["NONE", "tx-9", "NONE"]
-
-
-def test_a_requested_capability_is_advertised_and_otherwise_none_is() -> None:
-    fake = FakeTrino((200, {"id": "q1"}), (200, {"id": "q2"}))
-
-    _client(fake).run("SELECT 1", bearer=lambda: "")
-    TrinoStatementClient(
-        URL, catalog="dev", user="u", source="test", send=fake, capabilities=("PARAMETRIC_DATETIME",)
-    ).run("SELECT 1", bearer=lambda: "")
-
-    plain, asking = (call["headers"] for call in fake.calls)
-    assert "X-Trino-Client-Capabilities" not in plain
-    assert asking["X-Trino-Client-Capabilities"] == "PARAMETRIC_DATETIME"
-
-
-def test_prepared_statements_are_carried_in_the_form_trino_sent_them_and_dropped_when_deallocated() -> None:
-    from openlakeforge_services.trino import TrinoSession
-
-    session = TrinoSession()
-    fake = FakeTrino(
-        (200, {"id": "q1"}, {"X-Trino-Added-Prepare": "p%201=SELECT+%3F+FROM+t"}),
-        (200, {"id": "q2"}, {"X-Trino-Deallocated-Prepare": "p%201"}),
-        (200, {"id": "q3"}),
-    )
-    client = TrinoStatementClient(URL, catalog="dev", user="u", source="test", send=fake, session=session)
-
-    for statement in ("PREPARE p 1 FROM SELECT ? FROM t", "EXECUTE p 1 USING 1", "SELECT 1"):
-        client.run(statement, bearer=lambda: "")
-
-    headers = [call["headers"] for call in fake.calls]
-    assert "X-Trino-Prepared-Statement" not in headers[0]
-    # Name and statement go back exactly as Trino wrote them, which is how it decodes them.
-    assert headers[1]["X-Trino-Prepared-Statement"] == "p%201=SELECT+%3F+FROM+t"
-    assert "X-Trino-Prepared-Statement" not in headers[2]

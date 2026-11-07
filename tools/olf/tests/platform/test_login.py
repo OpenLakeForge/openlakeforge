@@ -286,7 +286,7 @@ spec:
   provider: {type: local}
   preset: slim
   stages: {dev: {enabled: true}}
-  access: {base_domain: olf.example.com, issuer: local-ca}
+  access: {base_domain: olf.example.com}
   identity:
     issuer: external
     issuer_url: https://login.example.com
@@ -314,7 +314,7 @@ def test_instance_comes_from_the_profile(tmp_path: Path) -> None:
 def test_plain_http_access_with_identity_still_signs_in(tmp_path: Path) -> None:
     github = Path(__file__).parents[1] / "fixtures/profiles/valid_github_identity.yaml"
     profile = tmp_path / "openlakeforge.yaml"
-    profile.write_text(github.read_text().replace("access: {issuer: local-ca}", "access: {issuer: none}"))
+    profile.write_text(github.read_text().replace("access: {}", "access: {issuer: none}"))
 
     assert sessions.resolve_instance(str(profile)).issuer == "http://auth.olf.localhost"
 

@@ -21,8 +21,8 @@ locals {
       "http-server.authentication.jwt.principal-field=email",
     ],
     # The key requests use their own HTTP client (prefix `jwk`), separate from
-    # the Web UI one.
-    local.people_https && var.ca_configmap_name != null ? ["jwk.http-client.trust-store-path=${local.ca_mount_path}/ca.crt"] : [],
+    # the internal-communication and Web UI ones.
+    local.people_https ? ["jwk.http-client.trust-store-path=/etc/trino/tls/ca.crt"] : [],
   )
 
   people_catalog_env = flatten([

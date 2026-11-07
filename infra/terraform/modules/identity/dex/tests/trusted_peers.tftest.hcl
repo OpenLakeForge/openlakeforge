@@ -54,19 +54,3 @@ run "a_peer_that_is_not_a_client_is_refused" {
 
   expect_failures = [var.trusted_peers]
 }
-
-run "a_github_enterprise_host_needs_the_published_ca" {
-  command = plan
-
-  variables {
-    github = {
-      organization         = "acme"
-      host                 = "https://ghe.example.com"
-      teams                = { viewer = ["viewers"] }
-      oauth_app_secret_ref = { name = "gh", client_id_key = "id", client_secret_key = "secret" }
-    }
-    ca_configmap_name = null
-  }
-
-  expect_failures = [var.ca_configmap_name]
-}

@@ -2,18 +2,16 @@ locals {
   deps_chart      = var.deps_chart_package_path != null ? var.deps_chart_package_path : "openmetadata-dependencies"
   deps_repository = var.deps_chart_package_path != null ? null : var.chart_repository
   deps_version    = var.deps_chart_package_path != null ? null : var.deps_chart_version
-  # Null with plain-HTTP routes: the issuer's URL needs no CA, so the JVM keeps its own trust store.
-  oidc_ca    = try(var.oidc.ca_configmap_name, null)
-  chart      = var.chart_package_path != null ? var.chart_package_path : "openmetadata"
-  repository = var.chart_package_path != null ? null : var.chart_repository
-  version    = var.chart_package_path != null ? null : var.chart_version
+  chart           = var.chart_package_path != null ? var.chart_package_path : "openmetadata"
+  repository      = var.chart_package_path != null ? null : var.chart_repository
+  version         = var.chart_package_path != null ? null : var.chart_version
 
   # Jetty's 8 KiB default rejects the request (431) once the perimeter's
   # chunked session cookies and per-request CSRF cookies on .<base_domain> add
   # up. Helm replaces lists, so every extraEnvs entry lives here.
   extra_envs = concat([
     { name = "SERVER_MAX_REQUEST_HEADER_SIZE", value = "64KiB" },
-    ], local.oidc_ca == null ? [] : [{
+    ], var.oidc == null ? [] : [{
       name  = "JAVA_TOOL_OPTIONS"
       value = "-Djavax.net.ssl.trustStore=/etc/olf/java-trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
   }])
@@ -81,14 +79,14 @@ resource "helm_release" "openmetadata" {
         }
       }
     }),
-    ], local.oidc_ca == null ? [] : [
+    ], var.oidc == null ? [] : [
     # The JVM does not read the system CA store, so a copy of its cacerts with
     # the local CA added is built before the server (and its migration) start.
     # OpenMetadata reaches the issuer's discovery, token and keys URLs with it.
     # The provider itself is switched by `olf infra openmetadata deploy-metadata`, not here (main.tf).
     yamlencode({
       extraVolumes = [
-        { name = "olf-oidc-ca", configMap = { name = local.oidc_ca } },
+        { name = "olf-oidc-ca", configMap = { name = var.oidc.ca_configmap_name } },
         { name = "olf-java-trust", emptyDir = {} },
       ]
       extraVolumeMounts = [

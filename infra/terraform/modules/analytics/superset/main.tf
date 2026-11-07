@@ -3,18 +3,10 @@ locals {
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
 
-  # Null with plain-HTTP routes: the issuer's URL needs no CA.
-  oidc_ca        = try(var.oidc.ca_configmap_name, null)
-  trust_volumes  = local.oidc_ca == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = local.oidc_ca }]
-  oidc_ca_bundle = local.oidc_ca == null ? "" : <<-EOT
-    # The issuer's certificate is signed by the local CA. REQUESTS_CA_BUNDLE
-    # replaces the trust store of every requests call, so the local CA is
-    # appended to the public roots rather than standing alone: alerts and
-    # reports still reach public HTTPS endpoints.
-    with open("/tmp/olf-ca-bundle.pem", "w") as bundle:
-        bundle.write(open(certifi.where()).read() + "\n" + open("/etc/olf/oidc-ca/ca.crt").read())
-    os.environ["REQUESTS_CA_BUNDLE"] = "/tmp/olf-ca-bundle.pem"
-  EOT
+  trust_volumes = concat(
+    var.trino_ca_configmap_name == null ? [] : [{ name = "query-ca", path = "/etc/olf/query-ca", configmap = var.trino_ca_configmap_name }],
+    var.oidc == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = var.oidc.ca_configmap_name }],
+  )
 
   # Non-secret contract fields; olf_oidc.settings turns them into Superset
   # config in the image. The client secret arrives through the environment.
@@ -211,7 +203,13 @@ resource "helm_release" "superset" {
         openlakeforge_oidc = <<-EOT
           import json, os, sys
           import certifi
-          ${local.oidc_ca_bundle}
+          # The issuer's certificate is signed by the local CA. REQUESTS_CA_BUNDLE
+          # replaces the trust store of every requests call, so the local CA is
+          # appended to the public roots rather than standing alone: alerts and
+          # reports still reach public HTTPS endpoints.
+          with open("/tmp/olf-ca-bundle.pem", "w") as bundle:
+              bundle.write(open(certifi.where()).read() + "\n" + open("/etc/olf/oidc-ca/ca.crt").read())
+          os.environ["REQUESTS_CA_BUNDLE"] = "/tmp/olf-ca-bundle.pem"
           sys.path.insert(0, "/app/olf")
           from olf_oidc import settings
           from olf_security import OlfSecurityManager, enforce_session_bound

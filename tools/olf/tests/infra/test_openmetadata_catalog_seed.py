@@ -58,6 +58,7 @@ SEED = CatalogSeed(
     service="polaris",
     display_name="Polaris Lakehouse",
     trino_namespace="trino://trino.olf-shared:8080",
+    trino_tls_namespace="trino://trino.olf-shared:8443",
     pipeline_service="dagster_dev",
     databases=("lakehouse_dev", "lakehouse_prod"),
     schemas=("silver", "gold"),
@@ -72,6 +73,7 @@ def test_writes_openlineage_the_trino_service_and_every_stage_database(om: FakeS
     assert settings["namespaceToServiceMapping"] == {
         "trino://trino.olf-shared:8080": "polaris",
         "polaris": "polaris",
+        "trino://trino.olf-shared:8443": "polaris",
     }
     service = om.entities["/api/v1/services/databaseServices/polaris"]
     assert service["displayName"] == "Polaris Lakehouse"
@@ -91,6 +93,15 @@ def test_writes_openlineage_the_trino_service_and_every_stage_database(om: FakeS
 
 def _schemas(om: FakeServer) -> list[tuple[str, dict]]:
     return [(b["name"], b) for k, b in om.entities.items() if k.startswith("/api/v1/databaseSchemas/")]
+
+
+def test_without_a_tls_listener_only_the_plain_namespace_is_mapped(om: FakeServer) -> None:
+    seed = CatalogSeed(**{**SEED.__dict__, "trino_tls_namespace": ""})
+
+    _catalog_seed.enable_openlineage(OpenMetadataClient(om.url), seed)
+
+    mapping = om.entities["/api/v1/system/settings/openLineageSettings"]["config_value"]["namespaceToServiceMapping"]
+    assert mapping == {"trino://trino.olf-shared:8080": "polaris", "polaris": "polaris"}
 
 
 def test_a_rerun_upserts_the_same_entities(om: FakeServer) -> None:
