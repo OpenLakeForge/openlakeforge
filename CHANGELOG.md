@@ -16,6 +16,9 @@ for how a release is cut and verified.
 
 ### Added
 
+- A weekly and on-demand workflow, `external-project-e2e.yml`, deploys the external project
+  OpenLakeForge/acme-lakehouse on the current `olf`: the image build installs its `requirements.txt`, the code
+  location loads without `libs/`, and the `food_quality` product runs to a Gold table read through Trino (#557).
 - `olf infra backup --output <dir>` backs up a local deployment: each PostgreSQL database, every stage bucket and
   the ops bucket, and the data-bound Secrets and `local-ca` sealed under a passphrase, with a manifest and
   `SHA256SUMS`. It pauses the Dagster daemon while it runs and refuses to start with a run in flight (#910).

@@ -1,0 +1,262 @@
+name: External project e2e (weekly and manual)
+
+# An external project on the current platform (#557): does a project that lives
+# in its own repository, owns its Python dependencies and imports the
+# versioned runtime package build, deploy and run on the `olf` of this checkout?
+# The project is OpenLakeForge/acme-lakehouse (public), checked out at `acme_ref`.
+#
+#   1. install olf from this checkout (wheels, outside any source tree);
+#   2. bring up the foundation and the platform, DEV only, Slim preset;
+#   3. bind the sources' runtime keys, with no secret;
+#   4. `olf infra deploy --phase artifacts`: build the project-code image into
+#      kind and activate the revision. The build installs
+#      `lakehouse_code/requirements.txt` (psycopg2-binary) against the platform
+#      lock, after the conflict check;
+#   5. assert on the image and the code location: the requirements were
+#      installed, there is no `libs/`, and no `sys.path.insert` in olf or acme;
+#   6. run the `food_quality` product (Bronze -> Silver -> Gold) and read its
+#      Gold table through Trino.
+#
+# `food_quality` is the product that needs no secret: its only source, Open Food
+# Facts, is a public HTTPS API. `rna_catalog` reads RNAcentral's PostgreSQL with
+# a credential, and EBI's public database is a shared service; the run never
+# extracts from it. Activation still needs every source of the revision bound,
+# so step 2 binds rnacentral with placeholders that name nothing reachable.
+#
+# The platform is the checkout, not the commit acme pins in its pyproject.toml:
+# the pin keeps acme's own CI on one release, this workflow asks whether the
+# current platform still runs acme. Nothing is pushed to GHCR: acme's profile
+# names a registry image, so the workflow drops its `spec.project` block and
+# `olf infra deploy` builds the image into kind only (the path the upgrade
+# drill uses).
+#
+# Open Food Facts is a live external service: an outage there fails Bronze, not
+# the platform. Re-run before reading it as a regression.
+#
+# This workflow has not run yet. Treat the first runs as a shakedown.
+
+on:
+  workflow_dispatch:
+    inputs:
+      acme_ref:
+        description: Branch, tag or commit of OpenLakeForge/acme-lakehouse to deploy.
+        type: string
+        default: main
+  schedule:
+    # Wednesdays 04:43 UTC, clear of the nightly full e2e (02:00 UTC,
+    # local-full-e2e.yml) and the upgrade drill (Sundays 03:17 UTC).
+    - cron: "43 4 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-project-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Outside the checkout, the way a consumer's project is.
+  PROJECT_DIR: ${{ runner.temp }}/acme-lakehouse
+  # Logs; inside the workspace because upload-artifact rejects '..'.
+  E2E_DIR: ${{ github.workspace }}/.tmp/external-project-e2e
+  PRODUCT: food_quality
+
+jobs:
+  e2e:
+    name: Deploy acme-lakehouse and run a product
+    runs-on: ubuntu-latest
+    # Unmeasured: one Slim stage plus a project-code image build. The Slim smoke
+    # deploy fits well inside this; tighten it from the first real runs.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout the platform
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Checkout acme-lakehouse
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: OpenLakeForge/acme-lakehouse
+          ref: ${{ inputs.acme_ref || 'main' }}
+          path: .tmp/acme-lakehouse
+          persist-credentials: false
+
+      - name: Free runner disk for the image preload
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Install the current olf
+        id: olf
+        uses: ./.github/actions/install-olf
+        with:
+          source: ${{ github.workspace }}
+          name: head
+
+      - name: Cache OpenLakeForge toolchain
+        # Managed binaries only: ~/.openlakeforge also keeps Terraform state
+        # with generated Secret values.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.openlakeforge/toolchains
+          key: olf-toolchains-${{ hashFiles('release/component-catalog.yaml') }}
+
+      - name: Provision the toolchain and move the project out of the checkout
+        run: |
+          set -euo pipefail
+          export PATH="${{ steps.olf.outputs.bin-dir }}:${PATH}"
+          olf toolchain install
+          {
+            echo "PATH=${{ steps.olf.outputs.bin-dir }}:${PATH}"
+            echo "OLF_KUBECONFIG=${HOME}/.openlakeforge/state/local/kubeconfig.yaml"
+          } >> "${GITHUB_ENV}"
+          mkdir -p "${E2E_DIR}"
+          mv .tmp/acme-lakehouse "${PROJECT_DIR}"
+
+      - name: No sys.path.insert in olf or in acme-lakehouse
+        run: |
+          if grep -rn "sys.path.insert" --include='*.py' tools/olf/olf "${PROJECT_DIR}/lakehouse_code" "${PROJECT_DIR}/tests"; then
+            echo "::error::sys.path.insert found"
+            exit 1
+          fi
+
+      - name: Adapt the project's Deployment Profile to one kind-only DEV stage
+        # Two edits to acme's profile, nothing else: drop the PROD stage (one
+        # stage keeps the run short) and the `spec.project` block, whose
+        # registry image `olf infra deploy` would push to. Without it the image
+        # is built and loaded into kind.
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          awk '
+            /^    prod:$/ { skip = 6; next }
+            /^  project:$/ { skip = 4; next }
+            skip == 6 && /^      / { next }
+            skip == 4 && /^    / { next }
+            { skip = 0; print }
+          ' openlakeforge.yaml > openlakeforge.ci.yaml
+          mv openlakeforge.ci.yaml openlakeforge.yaml
+          cat openlakeforge.yaml
+          if grep -qE "prod:|image:" openlakeforge.yaml; then
+            echo "::error::the PROD stage or the project image is still in the profile"
+            exit 1
+          fi
+          olf version --json
+          olf profile validate --project .
+          olf project validate --project .
+
+      - name: "1. Foundation, prefetch and platform (DEV, Slim)"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          for phase in foundation prefetch platform; do
+            olf infra deploy --phase "${phase}" 2>&1 | tee "${E2E_DIR}/1-${phase}.log"
+          done
+
+      - name: "2. Bind the sources, with no secret"
+        # Open Food Facts is public: three settings, no Secret. rnacentral's
+        # keys are bound to placeholders that name nothing reachable, only so
+        # that activation finds every key; the run never extracts from it.
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          RNACENTRAL_USERNAME: not-used
+          RNACENTRAL_PASSWORD: not-used
+        run: |
+          set -euo pipefail
+          olf infra source bind open_food_facts --stage dev -f openlakeforge.yaml \
+            --set base_url=https://world.openfoodfacts.net \
+            --set user_agent="olf-external-project-e2e/1.0 (+https://github.com/${GITHUB_REPOSITORY})" \
+            --set country=belgium
+          olf infra source bind rnacentral --stage dev -f openlakeforge.yaml \
+            --set host=rnacentral.invalid --set port=5432 --set database=pfmegrnargs \
+            --secret-from-env username=RNACENTRAL_USERNAME \
+            --secret-from-env password=RNACENTRAL_PASSWORD
+          olf infra source bindings --stage dev -f openlakeforge.yaml 2>&1 | tee "${E2E_DIR}/2-bindings.log"
+
+      - name: "3. Build the project-code image into kind and activate the revision"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          olf infra deploy --phase artifacts 2>&1 | tee "${E2E_DIR}/3-artifacts.log"
+
+      - name: "4. The image installed requirements.txt; the code location has no libs/"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          # The build log: the project layer ran and named the added package,
+          # and the conflict check against the platform lock did not fail.
+          grep -q "psycopg2-binary" "${E2E_DIR}/3-artifacts.log" \
+            || { echo "::error::psycopg2-binary is not in the image build log"; exit 1; }
+          if grep -q "conflicts with the platform dependency pins" "${E2E_DIR}/3-artifacts.log"; then
+            echo "::error::requirements.txt conflicts with the platform lock"
+            exit 1
+          fi
+          # The running code location: the package is installed, the runtime
+          # package is the platform's, and no top-level libs package exists.
+          pod="$(kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-dev get pods -o json \
+            | jq -r '[.items[] | select(.status.phase == "Running") | select(any(.spec.containers[]; .image | test("project-code")))][0].metadata.name // empty')"
+          [ -n "${pod}" ] || { echo "::error::no running project-code pod in olf-dev"; exit 1; }
+          echo "project-code pod: ${pod}"
+          kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-dev exec "${pod}" -- python -c '
+          import importlib.metadata as metadata
+          import importlib.util as util
+          print("psycopg2-binary", metadata.version("psycopg2-binary"))
+          assert util.find_spec("openlakeforge_runtime") is not None
+          assert util.find_spec("libs") is None, "a libs package is importable"
+          import lakehouse_code.definitions
+          ' 2>&1 | tee "${E2E_DIR}/4-code-location.log"
+          olf infra project status -f openlakeforge.yaml 2>&1 | tee "${E2E_DIR}/4-project-status.log"
+
+      - name: "5. Run the product, Bronze to Gold"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          olf infra product run "${PRODUCT}" --stage dev -f openlakeforge.yaml 2>&1 | tee "${E2E_DIR}/5-run.log"
+
+      - name: "6. The Gold table is queryable through Trino"
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          rows="$(olf infra query --stage dev -f openlakeforge.yaml --format csv \
+            "SELECT count(*) FROM ${PRODUCT}_gold.mart_product_scores" | tail -n 1 | tr -d '"\r ')"
+          echo "mart_product_scores rows: ${rows}" | tee "${E2E_DIR}/6-gold.log"
+          case "${rows}" in ''|*[!0-9]*) echo "::error::not a row count: ${rows}"; exit 1 ;; esac
+          [ "${rows}" -gt 0 ] || { echo "::error::mart_product_scores is empty"; exit 1; }
+
+      - name: Write run summary
+        if: always()
+        run: |
+          {
+            echo "## External project e2e -- ${{ job.status }}"
+            echo ""
+            echo "- Project: \`OpenLakeForge/acme-lakehouse\` at \`${{ inputs.acme_ref || 'main' }}\`"
+            echo "- Platform: \`${{ github.sha }}\`"
+            echo "- Product: \`${PRODUCT}\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Collect kind diagnostics
+        if: failure()
+        env:
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        run: |
+          olf infra diagnostics collect "${E2E_DIR}/diagnostics/dev" --namespace olf-dev --kube-context kind-openlakeforge-local || true
+          olf infra diagnostics collect "${E2E_DIR}/diagnostics/shared" --namespace olf-system --kube-context kind-openlakeforge-local || true
+
+      - name: Upload the logs and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: external-project-e2e-${{ github.run_id }}
+          path: .tmp/external-project-e2e
+          # Everything sits under the hidden .tmp directory.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

@@ -155,6 +155,41 @@ project (#110 has not landed), and one pipeline per smoke run. It covers one
 stage on the Full preset; the PROD stage and the cloud providers are not part
 of it.
 
+## External project check
+
+The check proves that a project living in its own repository runs on the
+platform under test (#557):
+[OpenLakeForge/acme-lakehouse](https://github.com/OpenLakeForge/acme-lakehouse),
+which imports `openlakeforge_runtime`, has no `libs/` copy and adds
+`psycopg2-binary` in `lakehouse_code/requirements.txt`. It needs a kind
+cluster, so it runs in CI: `.github/workflows/external-project-e2e.yml`,
+weekly (Wednesdays 04:43 UTC) and on demand. Its steps, from a copy of acme's
+profile with the PROD stage and `spec.project` removed (so the image stays in
+kind and nothing is pushed):
+
+1. `olf infra deploy --phase foundation`, `prefetch` and `platform`, with the
+   current `olf`.
+2. `olf infra source bind` for each source, the
+   [per-stage bindings](../guides/incremental-sources.md#bind-each-stage) that
+   activation requires. Open Food Facts is public and takes no secret;
+   rnacentral gets placeholders, because the run never reads it.
+3. `olf infra deploy --phase artifacts`: build the project-code image, which
+   installs `requirements.txt` against the platform lock, and activate the
+   revision.
+4. Assert the build log names `psycopg2-binary`, the code-location pod imports
+   `lakehouse_code.definitions` and `openlakeforge_runtime` and has no `libs`
+   package, and `grep -rn "sys.path.insert"` finds nothing in `tools/olf/olf` or
+   acme.
+5. `olf infra product run food_quality --stage dev`, then `olf infra query` on
+   `food_quality_gold.mart_product_scores` must return rows.
+
+**Run it from GitHub:** Actions, "External project e2e (weekly and manual)",
+Run workflow. `acme_ref` is the acme branch, tag or commit; the default is
+`main`. Each run uploads `external-project-e2e-<run id>` with one log per step
+and, on failure, kind diagnostics. The product reads the live Open Food Facts
+staging API, so a failure in the run step can be an upstream outage, not a
+regression; the build, activation and code-location steps do not depend on it.
+
 ## Consumer verification
 
 Every release publishes:
