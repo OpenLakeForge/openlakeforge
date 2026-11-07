@@ -138,7 +138,7 @@ def write_two_product_fixture(root: Path, *, dashboards: tuple[tuple[str, str], 
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
         """\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: widgets_source
 displayName: Widgets Source

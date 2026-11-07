@@ -27,7 +27,7 @@ nothing else knows.
 | Kind | Path | Declares |
 | --- | --- | --- |
 | `Governance` (`openlakeforge.io/v1beta2`) | `lakehouse_code/governance.yml` (one per project) | Domains, and the data products nested under them |
-| `Source` (`openlakeforge.io/v1alpha3`) | `lakehouse_code/bronze/<source>/source.yaml` (one per source) | A Bronze source and the resources it exposes |
+| `Source` (`openlakeforge.io/v1beta1`) | `lakehouse_code/bronze/<source>/source.yaml` (one per source) | A Bronze source and the resources it exposes |
 
 A product's `id` is its only identity and is unique across the lakehouse. A
 table belongs to a domain or product by the schema it lives in, not by a list:
@@ -135,3 +135,8 @@ accepted side by side: a `v1beta1` document fails with a pointer to
 kept) and refuses on an unknown domain, a duplicate id or an already nested
 domain. Product ids stay unique across domains, and every derived name
 (`<domain>_silver`, `<product>_gold`, jobs, buckets) is unchanged.
+
+2026-11-07 (#995): `Source` is `v1beta1`, frozen with `Governance`. The
+fields were reviewed and none is removed or renamed; provider names stay
+forbidden by architectural rule 2. A `v1alpha3` document fails with a pointer
+to `olf project migrate`, which rewrites its version line.

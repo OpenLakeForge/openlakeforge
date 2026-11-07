@@ -87,7 +87,7 @@ All `new` commands validate the result before writing and accept
 | `olf profile validate --project .` | `openlakeforge.yaml` |
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
 | `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
-| `olf project migrate [--dry-run]` | Rewrites `governance.yml` from `v1beta1` to `v1beta2`; `--dry-run` prints the diff and changes nothing |
+| `olf project migrate [--dry-run]` | Rewrites `governance.yml` from `v1beta1` to `v1beta2` and each `source.yaml` from `v1alpha3` to `v1beta1`; `--dry-run` prints the diff and changes nothing |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | Every product's dbt project parses and compiles, and its models and sources sit in the schemas the descriptors name. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
 | `olf check resources` | Every `container` and `init_container` in `infra/terraform/modules` sets `requests` (cpu and memory) and a memory limit; an expression such as `var.x` is accepted unchecked. Helm chart containers are sized through the values files and are not covered |

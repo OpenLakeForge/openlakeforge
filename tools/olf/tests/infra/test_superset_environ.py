@@ -43,7 +43,7 @@ def _seed_project(root: Path) -> Path:
     source_dir = root / "lakehouse_code" / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        "apiVersion: openlakeforge.io/v1alpha3\nkind: Source\nname: crm\ndisplayName: CRM\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Source\nname: crm\ndisplayName: CRM\n"
         "description: CRM source.\nstatus: planned\nresources:\n  - name: orders\n"
     )
     (root / "lakehouse_code" / "governance.yml").write_text(

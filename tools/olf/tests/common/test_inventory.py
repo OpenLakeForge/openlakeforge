@@ -32,7 +32,7 @@ domains:
 
 def _source(source: str = "crm", resource: str = "orders") -> str:
     return f"""\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: {source}
 displayName: {source.title()}

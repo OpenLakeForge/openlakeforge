@@ -14,8 +14,9 @@ from typing import Any
 
 import yaml
 
-SOURCE_API_VERSION = "openlakeforge.io/v1alpha3"
+SOURCE_API_VERSION = "openlakeforge.io/v1beta1"
 SOURCE_KIND = "Source"
+LEGACY_SOURCE_API_VERSION = "openlakeforge.io/v1alpha3"
 _PRODUCT_IDENTIFIER_PATTERN = r"[a-z][a-z0-9_]*"
 _IDENTIFIER_PATTERN = re.compile(rf"^{_PRODUCT_IDENTIFIER_PATTERN}$")
 # Underscore-separated words, no `_` at either end or doubled. A source that
@@ -26,7 +27,7 @@ _RUNTIME_WORDS_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
 
 class LakehouseDescriptorError(ValueError):
-    """Raised when a v1alpha3 lakehouse or source descriptor is invalid."""
+    """Raised when a lakehouse or source descriptor is invalid."""
 
 
 def _identifier(value: object, *, field: str, source: str) -> str:
@@ -47,7 +48,12 @@ def _optional_string(value: object, *, field: str, source: str) -> None:
 
 
 def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "source.yaml") -> None:
-    """Validate a v1alpha3 Source descriptor envelope and resource list."""
+    """Validate a v1beta1 Source descriptor envelope and resource list."""
+    if document.get("apiVersion") == LEGACY_SOURCE_API_VERSION:
+        raise LakehouseDescriptorError(
+            f"{source}: apiVersion {LEGACY_SOURCE_API_VERSION!r} is no longer accepted; "
+            f"run `olf project migrate` to rewrite it as {SOURCE_API_VERSION!r}"
+        )
     if document.get("apiVersion") != SOURCE_API_VERSION:
         raise LakehouseDescriptorError(
             f"{source}: unsupported apiVersion {document.get('apiVersion')!r}; expected {SOURCE_API_VERSION!r}"
@@ -171,7 +177,7 @@ def _validate_source_runtime(runtime: object, *, source: str) -> None:
 
 
 def load_source_descriptor(path: str | Path) -> dict[str, Any]:
-    """Load and validate the v1alpha3 Source descriptor at ``path``."""
+    """Load and validate the v1beta1 Source descriptor at ``path``."""
     source = str(path)
     with Path(path).open(encoding="utf-8") as handle:
         document = yaml.safe_load(handle)

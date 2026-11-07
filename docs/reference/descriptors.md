@@ -19,7 +19,7 @@ provider.
 ## `source.yaml`
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: marketing_platform
 displayName: Marketing Platform
@@ -32,7 +32,7 @@ resources:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `apiVersion` | string | yes | `openlakeforge.io/v1alpha3` |
+| `apiVersion` | string | yes | `openlakeforge.io/v1beta1` |
 | `kind` | string | yes | `Source` |
 | `name` | identifier | yes | Must equal the directory name and be unique in the lakehouse. |
 | `displayName` | string, non-empty | yes | Human-readable name. |
@@ -46,6 +46,13 @@ resources:
 | `resources[].load.primary_key` | array of column names | with `incremental` | The row's identity, which Silver merges a changed row onto. |
 | `runtime.config` | array of key names | no | Names of the non-secret settings the loader reads, such as an API base URL. |
 | `runtime.secrets` | array of key names | no | Names of the credentials the loader reads, such as an API token. A name appears in at most one of the two lists. |
+
+`openlakeforge.io/v1alpha3` Source documents are the same document with the
+older version line and do not load as `v1beta1`. `olf project migrate` changes
+that line, in every `source.yaml` and in `governance.yml` together (see
+[`governance.yml`](#governanceyml)), and refuses, leaving all files as they
+were, if a document does not validate afterwards. No field was removed or
+renamed between the two versions.
 
 A resource has no schema here: its columns belong to the Floe contract of each
 domain that reads it.

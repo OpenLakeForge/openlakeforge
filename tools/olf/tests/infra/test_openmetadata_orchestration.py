@@ -106,7 +106,7 @@ def test_deployment_input_validation_rejects_malformed_bronze_before_writes() ->
 def test_domain_specs_validate_composite_inventory_with_provider_schema_fqns(tmp_path: Path) -> None:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -165,7 +165,7 @@ def test_deploy_seeds_medallion_buckets_and_bronze_source_hierarchy(
 ) -> None:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -243,7 +243,7 @@ def _single_product_deployer(
 ) -> om.OpenMetadataDeployer:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
