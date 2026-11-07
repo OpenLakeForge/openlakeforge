@@ -302,16 +302,21 @@ def applied_stage_names(config: DeploymentConfig, tools: Toolkit, *, env: Mappin
     multi-stage deployment as having no stages, and `require_no_stage_removal`
     would then wave through the very apply it exists to stop.
     """
-    try:
-        applied = tools.terraform.output_json(config.paths.platform_terraform_dir, "stage_names", env=env)
-    except CommandExecutionError as exc:
-        detail = f"{exc}".lower()
-        if any(marker in detail for marker in _NO_APPLIED_OUTPUT_MARKERS):
-            return ()
-        raise
+    applied = _applied_output(config, tools, "stage_names", env=env)
     if not isinstance(applied, list):
         return ()
     return tuple(str(name) for name in applied)
+
+
+def _applied_output(config: DeploymentConfig, tools: Toolkit, name: str, *, env: Mapping[str, str]) -> Any:
+    """One platform-root output, or None while the root has none (never applied, or applied before it existed)."""
+    try:
+        return tools.terraform.output_json(config.paths.platform_terraform_dir, name, env=env)
+    except CommandExecutionError as exc:
+        detail = f"{exc}".lower()
+        if any(marker in detail for marker in _NO_APPLIED_OUTPUT_MARKERS):
+            return None
+        raise
 
 
 def deployed_stages_the_topology_dropped(
@@ -431,6 +436,49 @@ def require_no_shared_namespace_replacement(
     )
 
 
+def renamed_buckets(config: DeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> dict[str, tuple[str, str]]:
+    """Deployed bucket name to the name the resolved topology now derives, for every bucket whose name differs.
+
+    Reads the applied `provider_contracts` output, so only a root that has been applied can report a rename.
+    """
+    contracts = _applied_output(config, tools, "provider_contracts", env=env)
+    if not isinstance(contracts, Mapping):
+        return {}
+    topology = config.context.topology
+    expected = topology.bucket_names()
+    renamed: dict[str, tuple[str, str]] = {}
+    for stage, layers in expected.items():
+        storage = ((contracts.get("stages") or {}).get(stage) or {}).get("storage") or {}
+        for layer, wanted in layers.items():
+            deployed = (storage.get(layer) or {}).get("bucket_name")
+            if deployed and deployed != wanted:
+                renamed[f"{stage}/{layer}"] = (deployed, wanted)
+    ops = ((contracts.get("shared") or {}).get("ops_storage") or {}).get("bucket_name")
+    if ops and ops != topology.ops_bucket_name():
+        renamed["ops"] = (ops, topology.ops_bucket_name())
+    return renamed
+
+
+def require_no_bucket_rename(config: DeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """Refuse an apply that would move a deployed bucket to a new name.
+
+    A bucket's name is the key of its data: Terraform creates the new bucket empty, Polaris keeps the old
+    `allowedLocations` and every table's metadata pointer, and a backup names the old buckets. Nothing carries the
+    objects over, so the upgrade from `lakehouse-<stage>-<layer>` names is a fresh deployment (#993).
+    `--allow-stage-removal` is the same accept-the-loss opt-in `require_no_shared_namespace_replacement` uses.
+    """
+    renamed = renamed_buckets(config, tools, env=env)
+    if not renamed or config.context.allow_stage_removal:
+        return
+    listing = ", ".join(f"{old} -> {new}" for old, new in renamed.values())
+    raise DeploymentPreconditionError(
+        f"applying would rename already-deployed bucket(s): {listing}. The data in them is not carried over and "
+        "Polaris keeps pointing at the old names. Back up with `olf infra backup` if you need the data, run "
+        "`olf infra destroy`, then deploy again; or re-run with --allow-stage-removal to apply anyway and "
+        "start with empty buckets."
+    )
+
+
 def require_foundation_state(config: LocalDeploymentConfig) -> None:
     if not config.paths.foundation_state_path.is_file():
         raise DeploymentPreconditionError(
@@ -455,6 +503,7 @@ def prepare_targets(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mappi
     prepare_charts(config, tools, env=env)
     tools.terraform.init(config.paths.platform_terraform_dir, env=env)
     require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
+    require_no_bucket_rename(config, tools, env=env)
 
 
 def apply_targets(
@@ -671,6 +720,7 @@ def platform_up(
 
     require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env=env)
+    require_no_bucket_rename(config, tools, env=env)
     plan_storage_resize(config, tools, kube_context=config.kube_context, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 

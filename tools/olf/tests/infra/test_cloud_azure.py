@@ -323,6 +323,7 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
     assert set(variables.keys()) == {
         "profile_name",
         "bucket_names",
+        "ops_bucket_name",
         "shared_namespace",
         "stages",
         "storage_size",

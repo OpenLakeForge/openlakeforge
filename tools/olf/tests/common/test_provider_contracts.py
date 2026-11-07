@@ -174,11 +174,11 @@ def test_stage_environment_exposes_only_its_selected_stage_values() -> None:
     dev_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="dev")
     prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="prod")
 
-    assert dev_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-dev-bronze"
+    assert dev_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-data-dev-bronze"
     assert dev_exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
     assert dev_exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"].endswith("activations/dev")
     assert "prod" not in "\n".join(dev_exports.values())
-    assert prod_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-prod-bronze"
+    assert prod_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-data-prod-bronze"
     assert prod_exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_prod"
     assert "dev" not in "\n".join(prod_exports.values())
 
@@ -228,7 +228,9 @@ def test_each_governed_stage_emits_lineage_under_its_own_pipeline_service() -> N
             "cannot reference another stage",
         ),
         (
-            lambda contract: contract["stages"]["prod"]["storage"]["gold"].__setitem__("physical_id", "acme-dev-gold"),
+            lambda contract: contract["stages"]["prod"]["storage"]["gold"].__setitem__(
+                "physical_id", "acme-data-dev-gold"
+            ),
             "shared between stages",
         ),
         (lambda contract: contract["stages"]["dev"].__setitem__("unexpected", True), "unsupported fields"),
@@ -255,14 +257,46 @@ def test_v3_contract_rejects_a_missing_capability_binding() -> None:
 def test_duplicate_bucket_name_across_stages_is_rejected() -> None:
     """A wiring mistake could give two stages distinct physical_id values but
     the same bucket_name; as_v2_environment_contract() exports bucket_name,
-    so this must fail closed even though physical_id is already unique."""
+    so this must fail closed even though physical_id is already unique. The
+    derived-name check rejects it first; the shared-name check stays as the
+    second line."""
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["prod"]["storage"]["bronze"]["bucket_name"] = "acme-dev-bronze"
-    contract["stages"]["prod"]["storage"]["bronze"]["uri"] = "s3://acme-dev-bronze"
+    contract["stages"]["prod"]["storage"]["bronze"]["bucket_name"] = "acme-data-dev-bronze"
+    contract["stages"]["prod"]["storage"]["bronze"]["uri"] = "s3://acme-data-dev-bronze"
 
-    with pytest.raises(ProviderContractError, match="shared between stages"):
+    with pytest.raises(ProviderContractError, match="must be 'acme-data-prod-bronze'"):
         parse_provider_contracts(contract, topology)
+
+
+def test_a_bucket_name_that_is_not_the_derived_one_is_rejected() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["silver"]["bucket_name"] = "lakehouse-dev-silver"
+    contract["stages"]["dev"]["storage"]["silver"]["uri"] = "s3://lakehouse-dev-silver"
+
+    with pytest.raises(ProviderContractError, match=r"must be 'acme-data-dev-silver'"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_an_ops_bucket_that_is_not_the_derived_one_is_rejected() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["ops_storage"]["bucket_name"] = "openlakeforge-ops"
+    contract["shared"]["ops_storage"]["artifact_base_uri"] = "s3://openlakeforge-ops"
+
+    with pytest.raises(ProviderContractError, match=r"must be 'acme-data-ops'"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_aws_dev_may_keep_its_legacy_bucket_names() -> None:
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    dev = contract["stages"]["dev"]["storage"]["bronze"]
+    legacy = "acme-poc-bronze-ab12cd34"
+    dev.update(physical_id=legacy, bucket_name=legacy, uri=f"s3://{legacy}")
+
+    parse_provider_contracts(contract, topology)
 
 
 def test_dev_reporting_cannot_reference_prod() -> None:
@@ -612,7 +646,7 @@ def test_storage_layer_uri_must_address_its_own_bucket_name() -> None:
     routing a native consumer's reads/writes to the wrong bucket."""
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["dev"]["storage"]["bronze"]["uri"] = "s3://acme-prod-bronze"
+    contract["stages"]["dev"]["storage"]["bronze"]["uri"] = "s3://acme-data-prod-bronze"
 
     with pytest.raises(ProviderContractError, match="storage.bronze.uri must address its own bucket_name"):
         parse_provider_contracts(contract, topology)

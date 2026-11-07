@@ -329,6 +329,9 @@ class DeploymentTopology:
             if stage.enabled
         }
 
+    def ops_bucket_name(self) -> str:
+        return f"{self.profile_name}-ops"
+
     def render_json(self) -> str:
         return json.dumps(
             {

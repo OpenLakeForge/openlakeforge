@@ -45,7 +45,7 @@ The storage module owns:
 - the Bronze landing bucket `lakehouse-<stage>-bronze` (raw CSV files, owned by ingestion)
 - the Silver Iceberg bucket `lakehouse-<stage>-silver` (Floe-validated tables, owned by Floe)
 - the Gold Iceberg bucket `lakehouse-<stage>-gold` (dbt business marts, owned by dbt)
-- the local ops/artifact bucket `openlakeforge-ops`
+- the local ops/artifact bucket `<prefix>-ops`
 - path-style S3 access
 - region `us-east-1`
 
@@ -181,7 +181,7 @@ The orchestration module owns:
   remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/openlakeforge/project-code:local`
-- S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
+- S3-backed Dagster compute logs under `s3://<prefix>-ops/logs/dagster/compute`
 
 Local development uses `olf infra deploy --provider local --phase platform` for
 Terraform-managed platform resources and
@@ -200,7 +200,7 @@ and writes Gold Iceberg marts to each product's Gold namespace in the
 The local observability adapter is `observability.object_log_archive`. It does
 not deploy Loki, Grafana, Prometheus, or tracing. Dagster compute logs, Floe
 reports, dbt run artifacts, and Kubernetes pod logs are archived to
-`openlakeforge-ops` under the stage's `activations/<stage>/` prefix, using
+`<prefix>-ops` under the stage's `activations/<stage>/` prefix, using
 stable prefixes:
 
 - `logs/dagster/compute/`

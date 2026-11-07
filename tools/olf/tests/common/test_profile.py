@@ -847,17 +847,8 @@ def test_a_disabled_stage_opens_no_source_egress() -> None:
 
 @pytest.mark.parametrize(
     "source_egress",
-    [
-        [443],
-        {},
-        {"ports": []},
-        {"ports": [0]},
-        {"ports": [65536]},
-        {"ports": ["443"]},
-        {"ports": [True]},
-        {"ports": [443, 443]},
-        {"ports": [443], "hosts": ["example.com"]},
-    ],
+    [[443], {}, {"ports": []}, {"ports": [0]}, {"ports": [65536]}, {"ports": ["443"]}, {"ports": [True]},
+     {"ports": [443, 443]}, {"ports": [443], "hosts": ["example.com"]}],
 )
 def test_malformed_source_egress_is_rejected_by_the_validator_and_the_schema(source_egress, tmp_path) -> None:
     document = _with_source_egress(source_egress)

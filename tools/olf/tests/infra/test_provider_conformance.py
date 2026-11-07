@@ -381,6 +381,8 @@ def _guard_runner(
         def run(self, command, **kwargs):  # type: ignore[override]  # noqa: ANN001, ANN202
             argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "provider_contracts" in argv:
+                return _ok("{}")
             if "stage_names" in argv:
                 return _ok(applied_stages if applied_stages is not None else "[]")
             if "get" in argv and "pvc" in argv:

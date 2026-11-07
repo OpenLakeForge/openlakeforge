@@ -79,8 +79,14 @@ def query_variables(context: DeploymentContext) -> dict[str, str]:
 
 
 def storage_variables(context: DeploymentContext) -> dict[str, str]:
-    """`spec.storage.size`, for the roots that self-host object storage (local, azure). AWS has none to size."""
-    return {"storage_size": context.topology.storage_size.value}
+    """`spec.storage.size` and the ops bucket name, for the roots that self-host object storage (local, azure).
+
+    AWS has no volumes to size, and its ops bucket keeps a generated suffixed name until the global-uniqueness
+    question on AWS bucket names is settled (#993)."""
+    return {
+        "storage_size": context.topology.storage_size.value,
+        "ops_bucket_name": context.topology.ops_bucket_name(),
+    }
 
 
 def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:

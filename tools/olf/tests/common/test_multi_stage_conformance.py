@@ -201,7 +201,9 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
         )
 
         others = {other.value for other in CONFORMANCE_STAGES if other != stage}
-        leaked = sorted((key, other) for key, value in exports.items() for other in others if names_stage(value, other))
+        leaked = sorted(
+            (key, other) for key, value in exports.items() for other in others if names_stage(value, other)
+        )
         assert not leaked, (
             f"the conformance profile's {stage.value!r} environment carries {leaked!r} as (export, stage "
             f"named). A command or rollout handed another stage's catalog, bucket or principal reads, writes or "

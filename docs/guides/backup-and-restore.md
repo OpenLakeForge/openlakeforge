@@ -165,6 +165,29 @@ the platform is deployed again. The entities are in the restored database. The
 OpenMetadata bootstrap of the reconcile (step 7) finds the empty index and runs
 the reindex, so search returns hits once it finishes (#909).
 
+## Renaming buckets
+
+Bucket names are `<metadata.name>-<stage>-<layer>` and `<metadata.name>-ops` (ADR 0004).
+A deployment made before that rule has `lakehouse-<stage>-<layer>` stage buckets and an
+`openlakeforge-ops` bucket, and changing `metadata.name` renames them too.
+
+No step copies objects from an old bucket to a new one, and Polaris keeps pointing at the old names,
+so `olf infra deploy` on the local or Azure provider refuses and lists each bucket it would rename:
+
+```text
+applying would rename already-deployed bucket(s): lakehouse-dev-bronze -> openlakeforge-dev-bronze, ...
+```
+
+A backup taken under the old names cannot be restored under the new ones: restore refuses a different
+release or profile. To move to the new names without the data, run `olf infra destroy`, then
+`olf infra deploy`, and run the pipelines again. To apply the rename over the existing platform and start
+with empty buckets, pass `--allow-stage-removal`.
+
+On AWS the guard does not apply. Set `legacy_dev_bucket_names = true` in the platform var-file to keep
+the DEV buckets of the v0.2 POC. Without it, and for UAT and PROD, Terraform replaces each bucket whose name
+changed, and the root creates them with `force_destroy`, so the objects in the old ones are deleted: copy them
+first (`aws s3 sync`).
+
 ## Check the result
 
 Record a stage before the backup and compare it after the restore. Neither

@@ -63,7 +63,7 @@ variable "foundation_state_path" {
 }
 
 variable "ops_bucket_name" {
-  description = "S3-compatible SeaweedFS bucket used for operational artifacts: manifests, logs, reports, and run artifacts."
+  description = "S3-compatible SeaweedFS bucket used for operational artifacts: manifests, logs, reports, and run artifacts. `olf` passes <metadata.name>-ops; the default only serves a root applied by hand."
   type        = string
   default     = "openlakeforge-ops"
 }

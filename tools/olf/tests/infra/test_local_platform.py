@@ -113,6 +113,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
     assert set(variables) == {
         "profile_name",
         "bucket_names",
+        "ops_bucket_name",
         "shared_namespace",
         "stage_source_egress_ports",
         "stages",
@@ -328,6 +329,8 @@ class _PlatformScriptedRunner(RecordingRunner):
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
 
+        if "provider_contracts" in argv:
+            return _ok("{}")
         if "stage_names" in argv:
             # An applied root answers with its stage list; the removal guard
             # only treats an explicit "no such output" as "never applied".
@@ -686,6 +689,67 @@ def test_a_dropped_stage_in_the_cluster_is_allowed_with_the_explicit_opt_in(tmp_
     tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
 
     platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
+
+
+def _contracts_runner(applied: dict | None) -> RecordingRunner:
+    """A runner whose `terraform output -json provider_contracts` answers `applied`, or fails the way an
+    unapplied root does."""
+    import json as _json
+
+    class _Runner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "provider_contracts" in argv:
+                if applied is None:
+                    raise CommandExecutionError(argv, 1, stderr="No outputs found")
+                return _ok(_json.dumps(applied))
+            return _ok()
+
+    return _Runner()
+
+
+def _applied_contract(prefix: str, *, ops: str | None = None) -> dict:
+    return {
+        "shared": {"ops_storage": {"bucket_name": ops or f"{prefix}-ops"}},
+        "stages": {
+            "dev": {
+                "storage": {layer: {"bucket_name": f"{prefix}-dev-{layer}"} for layer in ("bronze", "silver", "gold")}
+            }
+        },
+    }
+
+
+def test_deployed_lakehouse_named_buckets_are_refused_before_they_are_renamed(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_contracts_runner(_applied_contract("lakehouse", ops="openlakeforge-ops")))
+
+    with pytest.raises(DeploymentPreconditionError, match="lakehouse-dev-bronze -> .*-dev-bronze") as raised:
+        platform.require_no_bucket_rename(config, tools, env={})
+
+    assert "olf infra destroy" in str(raised.value)
+    assert "openlakeforge-ops ->" in str(raised.value)
+
+
+def test_a_bucket_rename_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
+    tools = _toolkit(_contracts_runner(_applied_contract("lakehouse", ops="openlakeforge-ops")))
+
+    platform.require_no_bucket_rename(config, tools, env={})
+
+
+def test_buckets_already_named_by_the_rule_are_not_a_rename(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    prefix = config.context.topology.profile_name
+    tools = _toolkit(_contracts_runner(_applied_contract(prefix)))
+
+    platform.require_no_bucket_rename(config, tools, env={})
+
+
+def test_an_unapplied_root_has_no_bucket_to_rename(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+
+    platform.require_no_bucket_rename(config, _toolkit(_contracts_runner(None)), env={})
 
 
 def test_the_cluster_namespaces_of_enabled_stages_are_not_removals(tmp_path: Path) -> None:

@@ -71,7 +71,7 @@ Each medallion layer gets its own bucket rather than a path prefix inside one:
 | `<prefix>-dev-bronze` | Bronze | dlt |
 | `<prefix>-dev-silver` | Silver | Floe |
 | `<prefix>-dev-gold` | Gold | dbt-trino |
-| `openlakeforge-ops` | operational artifacts | the artifacts phase |
+| `<prefix>-ops` | operational artifacts | the artifacts phase |
 
 The naming rule is the same on every provider: `<prefix>-<stage>-<layer>`,
 where `<prefix>` is the Deployment Profile's `metadata.name`. Bucket names are
@@ -84,7 +84,10 @@ separate prefix override in the profile; to share an object store with other
 tenants, choose a distinctive `metadata.name`. AWS keeps no random suffix: the
 operator owns uniqueness through that name. An AWS deployment that already
 holds DEV data under the v0.2 names sets `legacy_dev_bucket_names = true` on the
-`aws-poc` root. The ops bucket is not yet on the rule.
+`aws-poc` root. The ops bucket is `<prefix>-ops` on local and Azure; AWS keeps a generated, suffixed ops bucket name until the
+global-uniqueness question on AWS bucket names is settled. `olf infra deploy` refuses to rename a bucket that is
+already deployed (Terraform would create an empty one and Polaris would keep the old locations); the opt-in is
+`--allow-stage-removal`. A provider contract whose bucket names differ from the derived ones is rejected.
 
 Buckets are the unit at which IAM policies, lifecycle rules, retention, and
 replication apply. A single bucket cannot grant BI consumers read access to Gold
@@ -116,7 +119,7 @@ dropping still needs the catalog grants the stage's principals hold.
 
 ### Operational artifact prefixes
 
-`openlakeforge-ops` is outside the medallion split and uses stable prefixes:
+`<prefix>-ops` is outside the medallion split and uses stable prefixes:
 
 ```text
 floe/reports/<domain>/

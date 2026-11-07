@@ -61,6 +61,11 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Bucket names are one rule on every provider: `<metadata.name>-<stage>-<layer>` for the stage buckets, and
+  `<metadata.name>-ops` for the ops bucket on local and Azure (#993). They were `lakehouse-<stage>-<layer>` and
+  `openlakeforge-ops` on local and Azure, and suffixed or v0.2 names on AWS. The resolver derives every name once and the
+  platform roots take it as the `bucket_names` variable; a provider contract whose names differ is rejected.
+  `metadata.name` is limited to 51 characters. See Migration.
 - `olf infra backup` leaves the local CA out unless the routes are signed by it (`spec.access.issuer: local-ca`).
   With plain-HTTP routes it signs only in-cluster certificates (Trino's), nothing persistent holds it, and a
   restore keeps the platform's own CA. Backups that already hold `local-ca` still restore it.
@@ -171,6 +176,12 @@ for how a release is cut and verified.
 
 ### Migration
 
+- Bucket names changed (#993). On local and Azure, `olf infra deploy` refuses to rename deployed buckets and lists
+  them: the objects are not carried over and Polaris keeps the old locations. Run `olf infra backup` if you need the
+  data, then `olf infra destroy` and `olf infra deploy`, or pass `--allow-stage-removal` to apply the rename over the
+  existing platform and start with empty buckets. On AWS set `legacy_dev_bucket_names = true` to keep the DEV
+  buckets; UAT and PROD buckets are replaced, and their objects deleted, so copy them first. See
+  [Back up and restore](docs/guides/backup-and-restore.md#renaming-buckets).
 - A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP routes.
   Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Run `olf infra deploy` to apply the
   change; re-register the GitHub App (`olf infra secrets rotate github-app`) afterwards, because its callback URL

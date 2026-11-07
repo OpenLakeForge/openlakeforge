@@ -453,6 +453,12 @@ def _parse_shared(
         != ops_storage["bucket_name"]
     ):
         raise ProviderContractError("shared.ops_storage.artifact_base_uri must address its own bucket_name")
+    # AWS generates a suffixed ops bucket until the global-uniqueness question on its bucket names is settled (#993).
+    if topology.provider != Provider.AWS and ops_storage["bucket_name"] != topology.ops_bucket_name():
+        raise ProviderContractError(
+            f"shared.ops_storage.bucket_name {ops_storage['bucket_name']!r} must be {topology.ops_bucket_name()!r}, "
+            "the name the Deployment Profile derives as <metadata.name>-ops"
+        )
     return SharedPlatformContract(values=_frozen(parsed))
 
 
@@ -888,6 +894,14 @@ def _parse_v3(
                 raise ProviderContractError(f"storage physical identity {physical_id!r} is shared between stages")
             physical_storage.add(physical_id)
             bucket_name = layer_binding["bucket_name"]
+            # AWS DEV may keep its v0.2 names (`legacy_dev_bucket_names`), which the contract cannot flag.
+            legacy_aws_dev = topology.provider == Provider.AWS and name == StageName.DEV
+            derived = topology.bucket_names()[name.value][layer]
+            if bucket_name != derived and not legacy_aws_dev:
+                raise ProviderContractError(
+                    f"stages.{name.value}.storage.{layer}.bucket_name {bucket_name!r} must be {derived!r}, the "
+                    "name the Deployment Profile derives as <metadata.name>-<stage>-<layer>"
+                )
             if bucket_name in storage_bucket_names:
                 raise ProviderContractError(f"storage bucket name {bucket_name!r} is shared between stages")
             storage_bucket_names.add(bucket_name)
