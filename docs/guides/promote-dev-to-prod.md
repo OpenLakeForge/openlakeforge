@@ -280,6 +280,28 @@ pull Secret;
 shows how, and activation refuses to start when the Secret is missing, of the
 wrong type or lacks the image's registry.
 
+### Check that the pods name the Secret
+
+`olf infra e2e registry-pull` checks, on a local stage, that the project image
+is pulled through the Secret and not through anything cached on the nodes:
+
+```bash
+olf infra e2e registry-pull -f openlakeforge.yaml --stage dev
+```
+
+It reads the image from the stage's active revision and the Secret from
+`spec.project.image.pull_secret_ref`, then:
+
+1. checks that every Deployment, StatefulSet, CronJob, Job and Pod running the
+   image lists the Secret, and so does the stage's `dagster` ServiceAccount,
+   which Floe Jobs inherit it from;
+2. asks the registry for the image's manifest without credentials. If that
+   works, the image is public, the Secret is not what lets the cluster pull
+   it, and the check fails with `image is public: pull-secret path not
+   exercised` unless you pass `--allow-public`.
+
+It never reads or prints the Secret's data.
+
 ### When no registry is configured
 
 | Project | Registry |
