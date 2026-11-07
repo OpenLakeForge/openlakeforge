@@ -173,3 +173,38 @@ def activate_deploy_project(provider: DeploymentProvider, *, push: bool = True) 
         pull_secret=pull_secret,
         push=push,
     )
+
+
+def reactivate_active_revision(provider: DeploymentProvider) -> ProjectActivation | None:
+    """Roll out the revision the stage's `ACTIVE.json` already names, building nothing; None if it has no pointer.
+
+    What a restore needs: the pointer came back with the ops bucket, and the checkout may be newer than the
+    backup. A revision that cannot be rolled out fails naming the stage, the revision and its image.
+    """
+    from olf.common.deployment.errors import DeploymentError
+    from olf.common.profile import resolve_declared_project
+    from olf.infra.deployment.activation import ActivationError, deploy_revision
+    from olf.infra.project_activation import active
+
+    context = provider.context
+    topology = context.topology
+    pull_secret = resolve_declared_project(topology.project, topology.provider, provider.env).pull_secret_name
+    with provider_revision_store(provider, context, context.paths.repo_root) as store:
+        pointer = active(store, stage=context.stage)
+        if pointer is None:
+            return None
+        try:
+            return deploy_revision(
+                provider,
+                revision=pointer.project_revision,
+                store=store,
+                profile_name=topology.profile_name,
+                pull_secret=pull_secret,
+            )
+        except DeploymentError as exc:
+            raise ActivationError(
+                f"could not reactivate the restored revision {pointer.project_revision} of stage "
+                f"{context.stage.value} (image {pointer.project_code_image}): {exc} If the image no longer "
+                "exists, rebuild it (`olf infra project image`), publish a revision with `olf infra project "
+                "build`, and activate it with `olf infra project deploy`."
+            ) from exc
