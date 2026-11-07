@@ -86,6 +86,13 @@ def trust(
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
     )
+    access = context.topology.access
+    if access is not None and access.tls == "external":
+        raise typer.Exit(
+            code=fail(
+                "spec.access.tls is 'external': your own proxy terminates HTTPS, so there is no local CA to trust"
+            )
+        )
     env = context.command_env(base=os.environ)
     result = Toolkit.default(environ=env).kubectl.get(
         "secret",

@@ -7,7 +7,7 @@ of its own.
 ```yaml
 spec:
   access:
-    issuer: none
+    tls: none
   identity:
     issuer: external
     issuer_url: https://login.example.com/
@@ -37,7 +37,7 @@ create all four; only the `perimeter` client is used by a deployed service
 today (see Limits).
 
 For the `perimeter` client, register this redirect URI, with the scheme you
-deploy (`http` with `access: {issuer: none}`, `https` otherwise):
+deploy (`http` with `access: {tls: none}`, `https` otherwise):
 
 ```text
 <scheme>://oauth2.<base_domain>/oauth2/callback

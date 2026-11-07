@@ -1,4 +1,4 @@
-# ADR 0013: Service access — one ingress, configured by domain and issuer
+# ADR 0013: Service access — one ingress, configured by domain and TLS mode
 
 ## Status
 
@@ -23,11 +23,14 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | Field | Default | Real install |
    | --- | --- | --- |
    | `base_domain` | `olf.localhost` | e.g. `olf.example.com` |
-   | `issuer` | `none` (plain HTTP) | an ACME (Let's Encrypt) or organisational CA issuer |
+   | `tls` | `none` (plain HTTP) | `external`: your reverse proxy, tunnel or load balancer terminates HTTPS |
 
    The defaults need neither a purchased domain nor a public server, nor a
-   certificate. `local-ca`, a CA the platform creates, is opt-in HTTPS for a
-   local install; the other providers' default stays `local-ca` because they do
+   certificate. `local-ca`, a CA the platform creates, is opt-in HTTPS for an
+   evaluation install (every browser must trust it); `external` means the
+   customer terminates HTTPS in front of OpenLakeForge, so Traefik serves HTTP
+   while every generated URL, callback and cookie is `https://`, and it is
+   refused on `*.localhost`, where nothing upstream can terminate TLS; the other providers' default stays `local-ca` because they do
    not read the block yet and `none` is local-only (decision 9).
 
    **The block is the switch (#399).** A profile with no `spec.access` is a
@@ -57,7 +60,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    `dagster`, `superset` and `trino`, and the no-collision argument above is
    unchanged.
 3. **The provider contract carries the routes.** `shared.access` gains
-   `base_domain`, `issuer`, `tls_mode`, and `routes` — declared together or
+   `base_domain`, `tls`, `tls_mode`, and `routes` — declared together or
    not at all, so a port-forward contract still parses. `routes` is keyed by
    the service's existing contract ref (`stage/dev/orchestration`,
    `shared/governance_service`, `shared/portal`, ...), so a route for a disabled capability
@@ -83,8 +86,9 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    Traefik binds host ports 80/443 on `127.0.0.1` through the control-plane
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
    self-signed once and never rotated by a re-deploy; `olf infra deploy` waits for
-   a probe certificate from it. `tls_mode` is therefore `ingress-terminated`,
-   the only value the contract accepts. One wildcard
+   a probe certificate from it. `tls_mode` is therefore `ingress-terminated` for `tls: local-ca`
+   (`none` for plain HTTP, `edge-terminated` for `external`, which the local
+   adapter does not build yet: #990). One wildcard
    certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
    does not match the apex), is issued in the shared namespace by
    cert-manager's ingress-shim and is Traefik's default certificate
@@ -129,29 +133,29 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
-9. **Plain HTTP on `*.localhost` is the local default: `issuer: none`.** The
-   local provider accepts `spec.access.issuer: none` only for a `base_domain`
+9. **Plain HTTP on `*.localhost` is the local default: `tls: none`.** The
+   local provider accepts `spec.access.tls: none` only for a `base_domain`
    ending in `.localhost`, so a first-time user reaches every service, and
    tests sign-in, without trusting a certificate. Browsers resolve
    `*.localhost` to loopback and treat it as a secure context, so the
    perimeter cookie and the OIDC redirects work over HTTP, and Traefik's
    `127.0.0.1:80` mapping is the only exposure. Routes and the contract use
-   `http://`, `tls_mode` is `none` (accepted exactly with this issuer), Traefik
+   `http://`, `tls_mode` is `none` (accepted exactly with this mode), Traefik
    serves the `web` entrypoint with no `tls` block and publishes no host port
    443. cert-manager and the local CA stay deployed: Trino's internal
    certificate (ADR 0016) and the CA ConfigMap the pods mount are
    independent of the routes. Once the keyless engine of ADR 0019 section 9 lands
    (#967), Trino no longer has a certificate, and whether cert-manager is
-   still needed with this issuer is settled in #391. With this issuer the CA is disposable: nothing
+   still needed with this mode is settled in #391. With this mode the CA is disposable: nothing
    outside the cluster trusts it and the pods mount it by path, so it is not
    backed up and a restore or rebuild keeps the platform's own CA. Not for any other provider or a public domain;
    the validator rejects both, and public exposure (#340) must reject it too.
-   A profile that wants browser HTTPS says `issuer: local-ca`; the conformance
+   A profile that wants browser HTTPS says `tls: local-ca`; the conformance
    profile does, so the nightly keeps exercising the TLS routes.
 
 ## Consequences
 
-- `olf` rejects a contract whose `base_domain` or `issuer` differs from the
+- `olf` rejects a contract whose `base_domain` or `tls` differs from the
   resolved profile, so a contract and profile cannot silently diverge.
 - Changing `base_domain` changes every user-facing URL; it is deployment
   configuration, not product intent, and stays out of `governance.yml`.
@@ -174,18 +178,25 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
 - Mapping 80/443 changed the kind cluster shape: an existing local cluster
   must be recreated (`olf infra destroy` then `olf infra deploy`), and those host ports
-  must be free; `olf infra deploy` checks both ports and the issuer before it
+  must be free; `olf infra deploy` checks both ports and the TLS mode before it
   creates the cluster.
 
 ## History
+
+#989 renamed `spec.access.issuer` to `spec.access.tls` and added `external`: the customer
+terminates HTTPS in front of OpenLakeForge, Traefik serves HTTP, and
+`shared.access.tls_mode` is `edge-terminated` while every route URL is
+`https://`. `external` is refused on `*.localhost`. v1alpha1 profiles that say
+`issuer` are read as `tls`; contracts already in state keep the old key and are
+read the same way. The local adapter for `external` is #990.
 
 Decisions 2 and 9 (#960): Trino moves to a per-stage route with one Trino per
 stage (#965), and its certificate goes with the keyless engine (#967).
 Decided, not built.
 
-The local CA is backed up only with `issuer: local-ca`; with `none` it is disposable (decision 9).
+The local CA is backed up only with `tls: local-ca`; with `none` it is disposable (decision 9).
 
-`issuer: none` became the local default; the other providers keep `local-ca`.
+`tls: none` became the local default; the other providers keep `local-ca`.
 cert-manager, the CA and `olf-local-ca` are unchanged: they still serve Trino's
 certificate (ADR 0016), so only the routes' scheme differs. The conformance
 profile pins `local-ca`.
@@ -196,7 +207,7 @@ the portal's host, deployed with `spec.identity` (ADR 0021).
 The `shared/identity` route serves Dex since Keycloak was removed (#384, ADR 0014);
 the entries below that name Keycloak describe the adapter that existed then.
 
-#403 added decision 9 (`issuer: none`).
+#403 added decision 9 (`tls: none`).
 
 New record (#264). No prior ADR covered service access. #265 added the local
 Traefik/cert-manager adapter (decision 6) and fixed `tls_mode`'s values.

@@ -48,7 +48,7 @@ it, case included:
 ```yaml
 spec:
   access:
-    issuer: none
+    tls: none
   identity:
     issuer: github
     github:
@@ -156,7 +156,7 @@ page and a link back to the portal.
 
 ## 6. Plain HTTP or HTTPS
 
-The default profile serves plain HTTP on `*.olf.localhost` (`issuer: none`).
+The default profile serves plain HTTP on `*.olf.localhost` (`tls: none`).
 It needs no certificate step, and it is allowed only on a `*.localhost`
 domain, which is reachable from your machine alone. Sign-in works over it.
 
@@ -165,7 +165,7 @@ To serve HTTPS, name the platform's own CA as the issuer:
 ```yaml
 spec:
   access:
-    issuer: local-ca
+    tls: local-ca
 ```
 
 Run `olf infra deploy --provider local` again, then trust the CA in your browser:
@@ -261,7 +261,7 @@ team, GitHub's sign-in is followed by Dex's refusal page, which links to the
   on the organization.
 - Membership is managed in GitHub, and a removed member is refused within
   minutes, not at the next deploy.
-- Plain HTTP is the default locally; `issuer: local-ca` with `olf infra access trust`
+- Plain HTTP is the default locally; `tls: local-ca` with `olf infra access trust`
   gives HTTPS.
 
 ## Next

@@ -33,7 +33,7 @@ def build_contract_env(base: dict, contracts: dict | None, *, repo_root: Path) -
                     },
                     "preset": "slim",
                     **(
-                        {"access": {"issuer": "local-ca"}}
+                        {"access": {"tls": "local-ca"}}
                         if contracts["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
