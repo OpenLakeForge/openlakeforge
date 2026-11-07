@@ -19,7 +19,7 @@ APPLIED_DEV_CONTRACT = {
 def _single_product_reconciler(tmp_path: Path) -> MetadataReconciler:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM

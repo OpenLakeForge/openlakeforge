@@ -67,7 +67,7 @@ lakehouse_code/bronze/marketing_platform/
 `source.yaml` is the logical description of the source:
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: marketing_platform
 displayName: "Marketing Platform"

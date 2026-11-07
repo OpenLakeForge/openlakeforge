@@ -30,7 +30,7 @@ domains:
 """
 
 _SOURCE = """\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM

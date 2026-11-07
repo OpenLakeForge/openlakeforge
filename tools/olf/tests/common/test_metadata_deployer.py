@@ -27,7 +27,7 @@ def _descriptors(root: Path) -> list[Path]:
     (root / "bronze" / "crm").mkdir(parents=True)
     source = root / "bronze" / "crm" / "source.yaml"
     source.write_text(
-        "apiVersion: openlakeforge.io/v1alpha3\nkind: Source\nname: crm\ndisplayName: CRM\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: Source\nname: crm\ndisplayName: CRM\n"
         "description: crm source.\nstatus: active\nresources:\n  - name: orders\n    description: Raw sales orders.\n"
     )
     governance = root / "governance.yml"
