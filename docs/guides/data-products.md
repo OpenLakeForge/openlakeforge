@@ -20,8 +20,8 @@ Ownership follows the medallion layer:
 | Gold | A data product | `lakehouse_code/gold/<product>/` | dbt-trino |
 | Dashboards | A dashboard | `lakehouse_code/dashboards/superset/<dashboard>/` | Superset |
 
-`lakehouse_code/governance.yml` names the domains and, nested under each, its products; each source has
-a `source.yaml`, and each dashboard is a bundle directory. OpenLakeForge
+`lakehouse_code/governance.yml` names the domains and, nested under each, its
+products; each source has a `source.yaml`, and each dashboard is a bundle directory. OpenLakeForge
 derives every platform name from these, so you never create catalog namespaces
 or edit Terraform to register a product:
 

@@ -40,7 +40,7 @@ def migrate(
     import os
 
     from olf.common.commands._project import writable_project_root
-    from olf.common.governance_migration import LEGACY_API_VERSION, MigrationError, migrate_governance_text
+    from olf.common.governance_migration import MigrationError, is_legacy_governance, migrate_governance_text
 
     try:
         path = writable_project_root(repo_root) / "lakehouse_code" / "governance.yml"
@@ -50,7 +50,7 @@ def migrate(
         typer.echo("Nothing to migrate: no lakehouse_code/governance.yml.")
         return
     original = path.read_text(encoding="utf-8")
-    if LEGACY_API_VERSION not in original:
+    if not is_legacy_governance(original):
         typer.echo("lakehouse_code/governance.yml is already current.")
         return
     try:

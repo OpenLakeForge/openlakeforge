@@ -250,7 +250,7 @@ two domains is rejected, with the location written as
 `openlakeforge.io/v1beta1` documents declared the products in a root
 `products:` list that named their domain. They do not load as `v1beta2`. Run
 `olf project migrate --dry-run` to see the rewrite as a diff, then
-`olf project migrate` to apply it. The command keeps comments and order, and
+`olf project migrate` to apply it. The command keeps comments with the entry they sit above, and the order, and
 refuses, leaving the file as it was, on an unknown domain, a duplicate `id`, a
 file that already nests products, or a layout it cannot rewrite safely. The
 migration changes the project revision digest and no asset name: schemas,
