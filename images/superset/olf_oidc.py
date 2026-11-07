@@ -60,3 +60,42 @@ def settings(cfg: dict, client_secret: str) -> dict:
         "PERMANENT_SESSION_LIFETIME": SESSION_SECONDS,
         "SESSION_REFRESH_EACH_REQUEST": False,
     }
+
+
+# Legacy viz.py chart types: their cache key has no user, so one user's cached
+# result would be served to another. `CACHE_QUERY_BY_USER` covers the rest.
+LEGACY_VIZ_TYPES = [
+    "time_table", "cal_heatmap", "bubble", "bullet", "line", "time_pivot", "compare", "chord", "country_map",
+    "world_map", "para", "horizon", "mapbox", "deck_multi", "deck_scatter", "deck_screengrid", "deck_grid",
+    "deck_path", "deck_polygon", "deck_hex", "deck_heatmap", "deck_contour", "deck_geojson", "deck_arc",
+    "event_flow", "paired_ttest", "rose", "partition",
+]  # fmt: skip
+
+
+def trino_settings(cfg: dict, client_secret: str) -> dict:
+    """Superset's per-user Trino sign-in on the same client as the login (ADR 0019 section 9)."""
+    issuer = cfg["issuer_url"].rstrip("/")
+    return {
+        "DATABASE_OAUTH2_CLIENTS": {
+            "Trino": {
+                "id": cfg["client_id"],
+                "secret": client_secret,
+                "scope": "openid email groups federated:id offline_access audience:server:client_id:olf-cli",
+                "authorization_request_uri": f"{issuer}/auth",
+                "token_request_uri": f"{issuer}/token",
+                "request_content_type": "data",  # Dex takes a form body, not JSON
+            }
+        },
+        "DATABASE_OAUTH2_REDIRECT_URI": cfg["database_redirect_uri"],
+        # Alerts, reports, thumbnails and cache warm-up run as owners that hold
+        # no Dex token.
+        "FEATURE_FLAGS": {
+            "CACHE_QUERY_BY_USER": True,
+            "CACHE_IMPERSONATION": True,
+            "ALERT_REPORTS": False,
+            "THUMBNAILS": False,
+        },
+        "VIZ_TYPE_DENYLIST": LEGACY_VIZ_TYPES,
+        # Read by patches/patch_trino_iceberg_partitions.py.
+        "OLF_ICEBERG_CATALOGS": ["iceberg", cfg["people_catalog"]],
+    }

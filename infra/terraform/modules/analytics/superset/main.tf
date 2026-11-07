@@ -18,6 +18,9 @@ locals {
     role_mapping = var.oidc.role_mapping
     grants       = var.oidc.grants
     sign_out_url = var.oidc.sign_out_url
+
+    database_redirect_uri = var.oidc.database_redirect_uri
+    people_catalog        = var.oidc.people_catalog
   }
 
   # The platform API's service role (ADR 0021, open item 3, checked against
@@ -211,11 +214,18 @@ resource "helm_release" "superset" {
               bundle.write(open(certifi.where()).read() + "\n" + open("/etc/olf/oidc-ca/ca.crt").read())
           os.environ["REQUESTS_CA_BUNDLE"] = "/tmp/olf-ca-bundle.pem"
           sys.path.insert(0, "/app/olf")
-          from olf_oidc import settings
+          from olf_oidc import settings, trino_settings
+          from olf_trino import db_connection_mutator, install
           from olf_security import OlfSecurityManager, enforce_session_bound
-          globals().update(settings(json.loads(r'''${jsonencode(local.oidc_config)}'''), os.environ["OIDC_CLIENT_SECRET"]))
+          _cfg = json.loads(r'''${jsonencode(local.oidc_config)}''')
+          globals().update(settings(_cfg, os.environ["OIDC_CLIENT_SECRET"]))
+          globals().update(trino_settings(_cfg, os.environ["OIDC_CLIENT_SECRET"]))
           CUSTOM_SECURITY_MANAGER = OlfSecurityManager
-          FLASK_APP_MUTATOR = enforce_session_bound
+          DB_CONNECTION_MUTATOR = db_connection_mutator
+
+          def FLASK_APP_MUTATOR(app):
+              enforce_session_bound(app)
+              install(app)
         EOT
       }
     }),

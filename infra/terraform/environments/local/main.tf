@@ -597,6 +597,9 @@ module "superset" {
     secret_ref        = local.identity_oidc.clients.superset.secret_ref
     secret_namespace  = kubernetes_namespace_v1.shared.metadata[0].name
     ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
+
+    database_redirect_uri = "${local.route_scheme}://superset-${each.key}.${local.base_domain}/api/v1/database/oauth2/"
+    people_catalog        = each.key
   }
 
   depends_on = [

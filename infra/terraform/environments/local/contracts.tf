@@ -343,7 +343,10 @@ locals {
   # Where each consumer's client may send the browser back. Superset's callback
   # is Flask-AppBuilder's /oauth-authorized/<provider>, provider `olf`.
   identity_consumer_redirects = {
-    superset     = [for name in keys(local.analytics_stages) : "${local.route_scheme}://superset-${name}.${local.base_domain}/oauth-authorized/olf"]
+    superset = flatten([for name in keys(local.analytics_stages) : [
+      "${local.route_scheme}://superset-${name}.${local.base_domain}/oauth-authorized/olf",
+      "${local.route_scheme}://superset-${name}.${local.base_domain}/api/v1/database/oauth2/", # per-user Trino sign-in
+    ]])
     openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/callback"] : [] # OpenMetadata's code-flow callback
     trino        = ["${local.route_scheme}://trino.${local.base_domain}/oauth2/callback"]
   }
