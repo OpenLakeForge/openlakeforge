@@ -58,7 +58,7 @@ variable "dynamic_config" {
 }
 
 variable "route_tls" {
-  description = "Whether routes terminate TLS on the websecure entrypoint. False serves them over plain HTTP on web (spec.access.issuer none): no certificate, no tls block."
+  description = "Whether routes terminate TLS on the websecure entrypoint. False serves them over plain HTTP on web (spec.access.tls none): no certificate, no tls block."
   type        = bool
   default     = true
 }

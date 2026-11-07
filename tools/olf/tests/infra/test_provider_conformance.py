@@ -286,7 +286,7 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
                     },
                     "preset": "slim",
                     **(
-                        {"access": {"issuer": "local-ca"}}
+                        {"access": {"tls": "local-ca"}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
@@ -324,7 +324,7 @@ def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]
                     },
                     "preset": "slim",
                     **(
-                        {"access": {"issuer": "local-ca"}}
+                        {"access": {"tls": "local-ca"}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
