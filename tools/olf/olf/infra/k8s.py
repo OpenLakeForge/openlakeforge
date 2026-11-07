@@ -273,7 +273,7 @@ def certificates_issued_by(
 def wait_for_certificate(
     name: str,
     namespace: str,
-    secret: str,
+    secret_name: str,
     *,
     environ: Mapping[str, str] | None = None,
     timeout_seconds: float = 300.0,
@@ -284,9 +284,11 @@ def wait_for_certificate(
     The Secret comes first: a Certificate whose Secret was deleted keeps reporting Ready until cert-manager notices.
     """
     deadline = time.monotonic() + timeout_seconds
-    while secret_data(secret, namespace, environ=environ) is None:
+    while secret_data(secret_name, namespace, environ=environ) is None:
         if time.monotonic() >= deadline:
-            raise KubectlError(f"cert-manager did not re-issue Secret {namespace}/{secret} within {timeout_seconds}s")
+            raise KubectlError(
+                f"cert-manager did not re-issue Secret {namespace}/{secret_name} within {timeout_seconds}s"
+            )
         time.sleep(poll_seconds)
     _kubectl(
         ["wait", "--for=condition=Ready", f"certificate/{name}", "-n", namespace, f"--timeout={int(timeout_seconds)}s"],

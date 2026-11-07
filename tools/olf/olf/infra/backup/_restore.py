@@ -172,9 +172,9 @@ def _replace_secrets(
 def _expire_local_ca_artifacts(shared_namespace: str, environ: Mapping[str, str] | None) -> None:
     """Make the reconcile republish the CA and cert-manager sign its Certificates again with the restored one."""
     k8s.delete_jobs(PUBLISH_CA_JOBS, shared_namespace, environ=environ)
-    for namespace, name, secret in k8s.certificates_issued_by(LOCAL_CA_ISSUER, environ=environ):
-        k8s.delete_secret(secret, namespace, environ=environ)
-        log.info(f"Deleted Secret {namespace}/{secret}; cert-manager signs Certificate {name} again.")
+    for namespace, name, secret_name in k8s.certificates_issued_by(LOCAL_CA_ISSUER, environ=environ):
+        k8s.delete_secret(secret_name, namespace, environ=environ)
+        log.info(f"Deleted Secret {namespace}/{secret_name}; cert-manager signs Certificate {name} again.")
 
 
 def reissue_after_reconcile(
@@ -184,12 +184,12 @@ def reissue_after_reconcile(
     the workloads that mount the CA ConfigMap or one of their Secrets, which read them only at start."""
     try:
         certificates = k8s.certificates_issued_by(LOCAL_CA_ISSUER, environ=environ)
-        for namespace, name, secret in certificates:
-            k8s.wait_for_certificate(name, namespace, secret, environ=environ)
+        for namespace, name, secret_name in certificates:
+            k8s.wait_for_certificate(name, namespace, secret_name, environ=environ)
         consumers = k8s.workloads_reading(
             dict.fromkeys([shared_namespace, *stage_namespaces.values()]),
             configmaps={CA_CONFIGMAP},
-            secrets={(namespace, secret) for namespace, _name, secret in certificates}
+            secrets={(namespace, secret_name) for namespace, _name, secret_name in certificates}
             | {(shared_namespace, LOCAL_CA_SECRET)},
             environ=environ,
         )
