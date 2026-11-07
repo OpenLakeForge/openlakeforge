@@ -52,7 +52,7 @@ def _topology(contract: dict):
                     "provider": {"type": "local"},
                     "preset": "full",
                     "stages": stages,
-                    "access": {"issuer": "local-ca"},
+                    "access": {"tls": "local-ca"},
                 },
             }
         )

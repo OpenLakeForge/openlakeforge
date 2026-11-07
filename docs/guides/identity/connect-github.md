@@ -25,7 +25,7 @@ GitHub team grants. Lesson 8 of the tutorial walks through this once:
    ```yaml
    spec:
      access:
-       issuer: none
+       tls: none
      identity:
        issuer: github
        github:
@@ -83,8 +83,8 @@ When you cannot create a GitHub App, create an organization-owned OAuth App
 
 | Field | Value |
 | --- | --- |
-| Homepage URL | `https://olf.localhost`, or `http://olf.localhost` with `issuer: none` |
-| Authorization callback URL | `https://auth.olf.localhost/callback`, or `http://auth.olf.localhost/callback` with `issuer: none` |
+| Homepage URL | `https://olf.localhost`, or `http://olf.localhost` with `tls: none` |
+| Authorization callback URL | `https://auth.olf.localhost/callback`, or `http://auth.olf.localhost/callback` with `tls: none` |
 
 Replace `olf.localhost` with your `spec.access.base_domain` if you changed it.
 Generate a client secret, then store both values. The first `olf infra deploy`

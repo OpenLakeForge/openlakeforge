@@ -22,7 +22,7 @@ spec:
   # HTTPS on purpose: the nightly applies this profile verbatim, and it is the one that exercises the TLS routes
   # (the default, `none`, serves plain HTTP).
   access:
-    issuer: local-ca
+    tls: local-ca
   identity:
     issuer: github
     github:

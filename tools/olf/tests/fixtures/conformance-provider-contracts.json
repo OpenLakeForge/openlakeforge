@@ -9,7 +9,7 @@
     "access": {
       "base_domain": "olf.localhost",
       "implementation": "access.ingress",
-      "issuer": "local-ca",
+      "tls": "local-ca",
       "perimeter": {
         "callback_url": "https://oauth2.olf.localhost/oauth2/callback",
         "enabled": true,

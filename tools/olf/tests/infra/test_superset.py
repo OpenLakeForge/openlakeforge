@@ -51,7 +51,7 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
                     },
                     "preset": "slim",
                     **(
-                        {"access": {"issuer": "local-ca"}}
+                        {"access": {"tls": "local-ca"}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),

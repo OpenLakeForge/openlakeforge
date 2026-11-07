@@ -51,7 +51,9 @@ from olf.common.provider_contracts._validation import (
 
 # The ingress shape of shared.access (ADR 0013). All four or none: a
 # port-forward contract carries none of them.
-_ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
+_ACCESS_INGRESS_FIELDS = {"base_domain", "tls", "tls_mode", "routes"}
+# Contracts already in Terraform state carry the v1alpha1 name of `tls`, like `code_locations`.
+_ACCESS_LEGACY_TLS_FIELD = "issuer"
 # Services a route may publish to users, by the last segment of their contract
 # ref. Everything else (metadata database, ops storage, catalog service,
 # registry, ...) can only be routed as internal, and Dagster code servers have
@@ -61,10 +63,11 @@ _USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_ser
 _PORTAL_REF = "shared/portal"
 _IDENTITY_REF = "shared/identity"
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
-# The ingress terminates TLS with a certificate from the issuer; the only mode
-# the local Traefik/cert-manager adapter implements.
-# `none` is the plain-HTTP development mode, tied to spec.access.issuer "none".
-_TLS_MODES = frozenset({"ingress-terminated", "none"})
+# The ingress terminates TLS with the local CA's certificate (`ingress-terminated`), the customer's
+# edge terminates it and the ingress serves HTTP (`edge-terminated`), or nobody does (`none`, plain
+# HTTP on *.localhost). Each is tied to one spec.access.tls value.
+_TLS_MODE_BY_PROFILE_TLS = {"none": "none", "local-ca": "ingress-terminated", "external": "edge-terminated"}
+_TLS_MODES = frozenset(_TLS_MODE_BY_PROFILE_TLS.values())
 # Shared bindings that are platform plumbing rather than network services, so
 # an ingress has no backend to send a route to.
 _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
@@ -277,6 +280,11 @@ def _check_identity_oidc(
 
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
+    if _ACCESS_LEGACY_TLS_FIELD in access and "tls" not in access:
+        access = {
+            **{k: v for k, v in access.items() if k != _ACCESS_LEGACY_TLS_FIELD},
+            "tls": access[_ACCESS_LEGACY_TLS_FIELD],
+        }
     present = _ACCESS_INGRESS_FIELDS & set(access)
     if topology.access is None and (present or "perimeter" in access):
         raise ProviderContractError("shared.access declares ingress, but the profile has no spec.access")
@@ -297,14 +305,15 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         raise ProviderContractError(
             f"shared.access.base_domain {base_domain!r} does not match the profile's {topology.access.base_domain!r}"
         )
-    if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
-        raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
+    if _string(access["tls"], where="shared.access.tls") != topology.access.tls:
+        raise ProviderContractError(f"shared.access.tls must match the profile's {topology.access.tls!r}")
     tls_mode = _string(access["tls_mode"], where="shared.access.tls_mode")
     if tls_mode not in _TLS_MODES:
         raise ProviderContractError(f"shared.access.tls_mode must be one of {sorted(_TLS_MODES)!r}")
-    if (tls_mode == "none") != (topology.access.issuer == "none"):
+    expected_mode = _TLS_MODE_BY_PROFILE_TLS[topology.access.tls]
+    if tls_mode != expected_mode:
         raise ProviderContractError(
-            "shared.access.tls_mode is 'none' exactly when the profile's access issuer is 'none'"
+            f"shared.access.tls_mode must be {expected_mode!r} for the profile's access tls {topology.access.tls!r}"
         )
     scheme = "http" if tls_mode == "none" else "https"
     hosts: set[str] = set()
@@ -408,7 +417,7 @@ def _parse_shared(
             binding,
             where=f"shared.{name}",
             required={"ref", "implementation"},
-            optional=(_ACCESS_INGRESS_FIELDS | {"perimeter"} if name == "access" else set())
+            optional=(_ACCESS_INGRESS_FIELDS | {"perimeter", _ACCESS_LEGACY_TLS_FIELD} if name == "access" else set())
             | ({"image_repository"} if name == "artifact_registry" else set())
             | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
@@ -448,7 +457,7 @@ def _parse_shared(
     _check_identity_oidc(
         parsed["identity"],
         topology.identity,
-        allow_http=topology.access is not None and topology.access.issuer == "none",
+        allow_http=topology.access is not None and topology.access.tls == "none",
         oidc_emitted=topology.provider == Provider.LOCAL,
     )
     ops_storage = parsed["ops_storage"]

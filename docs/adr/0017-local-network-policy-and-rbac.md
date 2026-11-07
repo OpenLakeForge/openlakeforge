@@ -175,10 +175,10 @@ port [D]).
 
 | # | From | To | Port | Source | Tag |
 | --- | --- | --- | --- | --- | --- |
-| F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `issuer: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
+| F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `tls: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
-| F4 | the Trino coordinator (8443 only: its Web UI sign-in is HTTPS routes only); OpenMetadata | Traefik 8443 (8000 when `issuer: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: Trino's token request and OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
+| F4 | the Trino coordinator (8443 only: its Web UI sign-in is HTTPS routes only); OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: Trino's token request and OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
@@ -495,7 +495,7 @@ Dex, the three cert-manager pods and the `startupapicheck` Job,
 OpenMetadata, OpenSearch and thirteen Jobs (selected by `openlakeforge.io/job`).
 The module gives every workload DNS egress itself, adds the peer scopes `node`,
 `apiserver` (as a source) and `any` (outside the pod and Service ranges, kind's
-defaults), and lets one row list several sources. F1 is `any` to Traefik 8443 and, for plain-HTTP mode (`issuer: none`), 8000; F21 allows the API server and node addresses to the webhook on 10250,
+defaults), and lets one row list several sources. F1 is `any` to Traefik 8443 and, for plain-HTTP mode (`tls: none`), 8000; F21 allows the API server and node addresses to the webhook on 10250,
 **[T]**: the source address kindnet shows for the API server's call is not read,
 and a wrong rule fails `terraform apply`. F11 is narrowed from any `olf-system`
 pod to Traefik, OpenMetadata and the OLF-owned ingestion Job; the Job label

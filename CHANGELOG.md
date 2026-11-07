@@ -22,6 +22,10 @@ for how a release is cut and verified.
 
 ### Added
 
+- `spec.access.tls: none | local-ca | external` replaces `spec.access.issuer` (#989, #988). `external` means your own
+  proxy terminates HTTPS: it needs a non-`.localhost` `base_domain`, and the provider contract's `tls_mode` is
+  `edge-terminated`. The local provider does not deploy it yet (#990). A v1alpha1 profile that says `issuer` is read
+  as `tls` (setting both is an error); rename the key. `olf infra access trust` refuses with `external`.
 - A weekly and on-demand workflow, `external-project-e2e.yml`, deploys the external project
   OpenLakeForge/acme-lakehouse on the current `olf`: the image build installs its `requirements.txt`, the code
   location loads without `libs/`, and the `food_quality` product runs to a Gold table read through Trino (#557).

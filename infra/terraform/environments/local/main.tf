@@ -503,7 +503,7 @@ module "trino" {
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
   web_ui_fixed_user = local.route_tls ? null : "olf-web"
   # Trino refuses OAuth2 on a request that is not secure, so a plain-HTTP route
-  # (`issuer: none`) keeps the UI's own login. Dex only: the module sets Dex's
+  # (`tls: none`) keeps the UI's own login. Dex only: the module sets Dex's
   # endpoints rather than discovering them (modules/query/trino/oidc.tf).
   web_ui_oidc = local.identity_dex && local.route_tls && var.trino_workload_authentication != "off" ? {
     issuer_url = local.identity_oidc.issuer_url

@@ -36,7 +36,7 @@ These run your pipelines from the `project-code` image built from
 
 Routes exist on the local provider when the Deployment Profile declares
 `spec.access`, which `olf init` does. `<base>` is `spec.access.base_domain`,
-`olf.localhost` by default. The scheme is `http` with `issuer: none` and
+`olf.localhost` by default. The scheme is `http` with `tls: none` and
 `https` otherwise.
 
 | Service | URL | Present when |

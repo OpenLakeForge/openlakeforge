@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import jsonschema
 import pytest
 
 from olf.common.contracts_check import _hcl
-from olf.common.profile import StageName, resolve_topology, validate_deployment_profile
+from olf.common.profile import AccessSpec, StageName, resolve_topology, validate_deployment_profile
 from olf.common.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 from olf.infra.contracts import build_contract_env
 
@@ -99,7 +100,7 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                     "preset": "slim",
                     "stages": stages,
                     **(
-                        {"access": access or {"issuer": "local-ca"}}
+                        {"access": access or {"tls": "local-ca"}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
@@ -189,7 +190,7 @@ def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
     exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology(contract), stage="prod")
 
     assert json.loads(exports["OPENLAKEFORGE_ACCESS_JSON"]) == {
-        "issuer": "local-ca",
+        "tls": "local-ca",
         "routes": {
             "shared/portal": "https://olf.localhost",
             "shared/query": "https://trino.olf.localhost",
@@ -1238,9 +1239,9 @@ def _route(ref: str, url: str) -> dict:
             lambda access: access["routes"].update(_route("stage/dev/code-server", "https://code-dev.olf.localhost")),
             "does not resolve",
         ),
-        (lambda access: access.pop("issuer"), "declared together"),
+        (lambda access: access.pop("tls"), "declared together"),
         (lambda access: access.__setitem__("base_domain", "olf.example.com"), "does not match the profile"),
-        (lambda access: access.__setitem__("issuer", "letsencrypt"), "must match the profile"),
+        (lambda access: access.__setitem__("tls", "external"), "must match the profile"),
         (
             lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
                 "url", "http://dagster-dev.olf.localhost"
@@ -1267,7 +1268,7 @@ def _route(ref: str, url: str) -> dict:
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("exposure", "public"), "exposure must be"),
         (
-            lambda access: [access.pop(field) for field in ("base_domain", "issuer", "tls_mode", "routes")],
+            lambda access: [access.pop(field) for field in ("base_domain", "tls", "tls_mode", "routes")],
             "access.ingress requires",
         ),
         (
@@ -1736,9 +1737,9 @@ def test_an_oidc_issuer_needs_the_profile_to_declare_identity() -> None:
 
 
 def _plain_http(contract: dict) -> dict:
-    """The local fixture as `issuer: none` renders it: http routes and callback, tls_mode none."""
+    """The local fixture as `tls: none` renders it: http routes and callback, tls_mode none."""
     access = contract["shared"]["access"]
-    access["issuer"] = "none"
+    access["tls"] = "none"
     access["tls_mode"] = "none"
     for route in access["routes"].values():
         route["url"] = route["url"].replace("https://", "http://")
@@ -1749,10 +1750,10 @@ def _plain_http(contract: dict) -> dict:
     return contract
 
 
-def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
+def test_plain_http_access_contract_is_accepted_with_tls_none() -> None:
     contract = _plain_http(_oidc_contract("dex"))
 
-    parsed = parse_provider_contracts(contract, _topology(contract, access={"issuer": "none"}))
+    parsed = parse_provider_contracts(contract, _topology(contract, access={"tls": "none"}))
 
     access = parsed.shared.values["access"]
     assert access["tls_mode"] == "none"
@@ -1771,12 +1772,12 @@ def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
             lambda access: access["perimeter"].__setitem__("callback_url", "https://oauth2.olf.localhost/x"),
             "callback_url",
         ),
-        (lambda access: access.__setitem__("tls_mode", "ingress-terminated"), "tls_mode is 'none' exactly"),
+        (lambda access: access.__setitem__("tls_mode", "ingress-terminated"), "tls_mode must be 'none'"),
     ],
 )
 def test_plain_http_access_contract_fails_closed(mutate, match: str) -> None:
     contract = _plain_http(_oidc_contract("dex"))
-    topology = _topology(contract, access={"issuer": "none"})
+    topology = _topology(contract, access={"tls": "none"})
     mutate(contract["shared"]["access"])
 
     with pytest.raises(ProviderContractError, match=match):
@@ -1787,8 +1788,28 @@ def test_tls_mode_none_is_rejected_with_a_tls_issuer() -> None:
     contract = _oidc_contract("dex")
     contract["shared"]["access"]["tls_mode"] = "none"
 
-    with pytest.raises(ProviderContractError, match="tls_mode is 'none' exactly"):
+    with pytest.raises(ProviderContractError, match="tls_mode must be 'ingress-terminated'"):
         parse_provider_contracts(contract, _topology(contract))
+
+
+def test_a_contract_in_state_with_the_v1alpha1_issuer_key_is_still_read() -> None:
+    contract = _oidc_contract("dex")
+    access = contract["shared"]["access"]
+    access["issuer"] = access.pop("tls")
+
+    assert parse_provider_contracts(contract, _topology(contract)) is not None
+
+
+def test_external_tls_is_edge_terminated_with_https_routes() -> None:
+    contract = _oidc_contract("dex")
+    contract["shared"]["access"]["tls"] = "external"
+    contract["shared"]["access"]["tls_mode"] = "edge-terminated"
+    topology = replace(_topology(contract), access=AccessSpec("olf.localhost", "external"))
+
+    assert parse_provider_contracts(contract, topology) is not None
+    contract["shared"]["access"]["tls_mode"] = "ingress-terminated"
+    with pytest.raises(ProviderContractError, match="tls_mode must be 'edge-terminated'"):
+        parse_provider_contracts(contract, topology)
 
 
 def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:

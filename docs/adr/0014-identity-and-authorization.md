@@ -127,7 +127,7 @@ Formation (#681).
 
 | Field | Meaning |
 | --- | --- |
-| `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.issuer: none` (ADR 0013, development on `*.localhost`), where Dex issues `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
+| `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.tls: none` (ADR 0013, development on `*.localhost`), where Dex issues `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
 | `internal_url` | optional; Dex's in-cluster Service base URL, set only for an issuer OpenLakeForge deploys. In-cluster consumers fetch keys (`/keys`) and redeem codes (`/token`) here over plain HTTP and compare the token's `iss` with `issuer_url` as a string. Absent or null for `external`, which is reached at `issuer_url` |
 | `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
 | `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
@@ -460,7 +460,7 @@ mode: accepted only for `provider: local` with no `spec.access` or a
 objects); OpenMetadata has no anonymous mode, so `olf status`
 shows its default admin login. With `spec.identity` nothing changes.
 
-#403 added the http issuer exception to `issuer_url` for `spec.access.issuer: none`.
+#403 added the http issuer exception to `issuer_url` for `spec.access.tls: none`.
 
 New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
 #176, and #331, which rewrite this ADR as they land.

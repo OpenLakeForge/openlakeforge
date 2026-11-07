@@ -453,7 +453,7 @@ trust, with no change to any service's accepted audience. `olf-cli` lists the
 perimeter in `trustedPeers`; the perimeter requests the `olf-cli` audience and
 `federated:id`, and the middleware on `/api` passes the ID token on. The
 settings render `public_origin` from the portal route's scheme and host (`http`
-under `access.issuer: none`) and `person_query` true only for Dex with the
+under `access.tls: none`) and `person_query` true only for Dex with the
 people catalogs. Not yet run: that Dex keeps the `olf-cli` audience when the
 proxy refreshes the session (every 4 minutes), that the proxy accepts the login
 token with `--oidc-extra-audience`, and that Trino and Polaris accept it. The
