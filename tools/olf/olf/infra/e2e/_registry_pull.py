@@ -359,4 +359,4 @@ def check(cfg: E2EConfig, *, allow_public: bool = False, static_only: bool = Fal
     _check_restart(cfg, image)
     _check_run(cfg, image)
     _check_fresh_node(cfg, image)
-    log.info(f"Stage {stage}: the image is pulled through {secret_name!r}, not from a node-local cache.")
+    log.info(f"Stage {stage}: the image is pulled through its pull Secret, not from a node-local cache.")
