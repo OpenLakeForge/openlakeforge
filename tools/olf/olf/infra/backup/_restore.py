@@ -7,6 +7,11 @@ databases open are scaled to 0. The Secrets come back next, because the restored
 principals whose credentials only the restored Secrets hold. Then each database is recreated and loaded, and each
 bucket is made equal to the backup's. Scaling back up is the last step; the reconcile `olf infra deploy` is the
 caller's, so that the Polaris bootstrap keeps the restored principals instead of minting new ones.
+
+A restored `local-ca` does not reach what was built from the old one on its own (#929). Before the reconcile the
+Job that publishes the `olf-local-ca` ConfigMaps is deleted, so the apply runs it again, and the Secret of every
+Certificate the CA issued is deleted, so cert-manager signs them again. `reissue_after_reconcile` then waits for
+those Certificates and restarts the workloads that mount the CA or a Certificate's Secret.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from olf.infra import k8s, s3
 from olf.infra.backup import BackupError
 from olf.infra.backup._backup import DAEMON_DEPLOYMENT, refuse_runs_in_flight
 from olf.infra.backup._manifest import DatabaseDump, Manifest, SecretRef
+from olf.infra.backup._plan import LOCAL_CA_SECRET
 from olf.infra.backup._preflight import is_workload, preflight
 from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 
@@ -32,6 +38,10 @@ POSTGRES_CONTAINER = "postgresql"
 # Deployments in the shared namespace that hold a database open or read the restored Secrets. SeaweedFS, Traefik
 # and cert-manager stay up: the objects are uploaded through SeaweedFS, and cert-manager owns `local-ca`.
 SHARED_WORKLOADS = ("openmetadata", "polaris", "trino", "dex", "platform-api")
+LOCAL_CA_ISSUER = "local-ca"  # the ClusterIssuer that signs with the `local-ca` Secret
+CA_CONFIGMAP = "olf-local-ca"
+# The Job `publish-local-ca-<revision>` of `modules/access/in-cluster-resolution`; its revision ignores the certificate.
+PUBLISH_CA_JOBS = "app.kubernetes.io/name=in-cluster-resolution"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -159,6 +169,40 @@ def _replace_secrets(
         log.info(f"Restored Secret {ref.namespace}/{ref.name}.")
 
 
+def _expire_local_ca_artifacts(shared_namespace: str, environ: Mapping[str, str] | None) -> None:
+    """Make the reconcile republish the CA and cert-manager sign its Certificates again with the restored one."""
+    k8s.delete_jobs(PUBLISH_CA_JOBS, shared_namespace, environ=environ)
+    for namespace, name, secret in k8s.certificates_issued_by(LOCAL_CA_ISSUER, environ=environ):
+        k8s.delete_secret(secret, namespace, environ=environ)
+        log.info(f"Deleted Secret {namespace}/{secret}; cert-manager signs Certificate {name} again.")
+
+
+def reissue_after_reconcile(
+    stage_namespaces: Mapping[str, str], shared_namespace: str, environ: Mapping[str, str] | None
+) -> None:
+    """After the reconcile of a restore that put `local-ca` back: wait for the re-issued Certificates, then restart
+    the workloads that mount the CA ConfigMap or one of their Secrets, which read them only at start."""
+    try:
+        certificates = k8s.certificates_issued_by(LOCAL_CA_ISSUER, environ=environ)
+        for namespace, name, secret in certificates:
+            k8s.wait_for_certificate(name, namespace, secret, environ=environ)
+        consumers = k8s.workloads_reading(
+            dict.fromkeys([shared_namespace, *stage_namespaces.values()]),
+            configmaps={CA_CONFIGMAP},
+            secrets={(namespace, secret) for namespace, _name, secret in certificates}
+            | {(shared_namespace, LOCAL_CA_SECRET)},
+            environ=environ,
+        )
+        for kind, name, namespace in consumers:
+            k8s.restart_workload(kind, name, namespace, environ=environ)
+            log.info(f"Restarted {kind.lower()}/{name} in {namespace} to load the restored CA.")
+    except k8s.KubectlError as exc:
+        raise BackupError(
+            f"the data is restored, but the restored CA did not reach the platform: {exc}\n"
+            "Run the same `olf infra restore --from <dir>` again; it replaces everything and redoes this step."
+        ) from exc
+
+
 def _restore_database(directory: Path, dump: DatabaseDump, namespace: str, environ: Mapping[str, str] | None) -> None:
     server, inside = database_statements(dump.name, dump.owner)
 
@@ -248,8 +292,10 @@ def restore(
     shared_namespace: str,
     runs_in_flight: Callable[[str], list[str]],
     environ: Mapping[str, str] | None,
-) -> None:
+) -> bool:
     """Replace the platform's state with the backup's, leaving its workloads running again.
+
+    Returns True when the backup held `local-ca`: the caller then runs `reissue_after_reconcile` after the reconcile.
 
     Nothing is changed until the backup and the platform are checked and no Dagster run is in flight. A failure
     after that leaves the workloads scaled to 0, so nothing serves half-restored data; the error says how to recover.
@@ -272,12 +318,16 @@ def restore(
             k8s.suspend_cronjobs(namespace, environ=environ)
         _scale_down({key: count for key, count in workloads.items() if key not in daemons}, environ)
         _replace_secrets(manifest.secrets, secrets, environ)
+        restored_ca = any(ref.name == LOCAL_CA_SECRET and ref.namespace == shared_namespace for ref in manifest.secrets)
+        if restored_ca:
+            _expire_local_ca_artifacts(shared_namespace, environ)
         for dump in manifest.databases:
             _restore_database(directory, dump, shared_namespace, environ)
         _upload_objects(directory, manifest, shared_namespace, environ)
         _scale_up(workloads, shared_namespace, environ)
         for namespace in namespaces:
             k8s.resume_cronjobs(namespace, environ=environ)
+        return restored_ca
     except Exception as exc:
         left = ", ".join(f"{namespace}/{name} (was {count})" for (namespace, name), count in workloads.items())
         raise BackupError(
