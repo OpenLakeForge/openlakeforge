@@ -89,8 +89,14 @@ spec:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `type` | `local`, `aws` or `azure` | yes | The deployment target. `local` is a kind cluster on this machine. |
+| `type` | `local`, `aws` or `azure` | yes | The deployment target. `local` is a kind cluster on this machine. `aws` and `azure` are preview: the schema accepts them, but the beta compatibility promise covers `local` only (see [releasing.md](../release/releasing.md#lifecycle-stages)). `olf profile validate` prints a notice for them. |
 | `region` | string, non-empty | no | Cloud region. Rejected when `type` is `local`. Used for `aws`; when unset, `AWS_REGION` and then `eu-west-1` apply. For `azure` the region comes from the foundation tfvars (`AZURE_TFVARS_FILE`). |
+
+`type` selects the deployment target and the default adapter for each
+capability: object storage, metadata database and catalog. Later releases add
+per-capability fields that override one default (an existing cluster, an
+external S3 bucket, an external PostgreSQL) without changing what `type`
+means.
 
 ### `spec.preset`
 

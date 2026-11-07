@@ -145,8 +145,10 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append("| Target | Kubernetes foundation | Object storage | Catalog | Managed database |")
     lines.append("| --- | --- | --- | --- | --- |")
     lines.append("| Local | kind | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |")
-    lines.append("| Azure POC | AKS | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |")
-    lines.append("| AWS POC | EKS | S3 | AWS Glue | RDS PostgreSQL |")
+    lines.append(
+        "| Azure POC (preview) | AKS | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |"
+    )
+    lines.append("| AWS POC (preview) | EKS | S3 | AWS Glue | RDS PostgreSQL |")
     lines.append("")
 
     lines.append("## Supported upgrade paths")
