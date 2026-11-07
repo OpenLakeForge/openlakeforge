@@ -126,3 +126,7 @@ Trino. A project still on `lakehouse.yaml` does not load; rewrite it as
 
 2026-10-30 (#342, #343): `Source` resources gained an optional `load` block.
 It defaults to today's behaviour, so `Source` stays `v1alpha3`.
+
+2026-11-07 (#994): `ProductDefinitionSpec` no longer needs the Gold assets, Silver inputs and Bronze
+inputs of a product. They default to the dbt models, the dbt sources and the Floe entities'
+Bronze resources, so the project declares each once. An explicit list still wins.

@@ -450,41 +450,13 @@ def render_gold_schema_yml(*, gold_tables: tuple[tuple[str, str], ...]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_dagster_product_module(
-    *,
-    domain: str,
-    product: str,
-    silver_inputs: tuple[str, ...],
-    bronze_inputs: tuple[tuple[str, str], ...],
-    gold_assets: tuple[str, ...],
-) -> str:
-    const_prefix = product.upper()
-    silver_tuple = ", ".join(f'"{name}"' for name in silver_inputs)
-    if len(silver_inputs) == 1:
-        silver_tuple += ","
-    bronze_tuple = ", ".join(f'("{source}", "{resource}")' for source, resource in bronze_inputs)
-    if len(bronze_inputs) == 1:
-        bronze_tuple += ","
-    gold_tuple = ", ".join(f'"{name}"' for name in gold_assets)
-    if len(gold_assets) == 1:
-        gold_tuple += ","
+def render_dagster_product_module(*, domain: str, product: str) -> str:
     return f'''from __future__ import annotations
 
 from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-{const_prefix}_SILVER_INPUTS = ({silver_tuple})
-
-{const_prefix}_GOLD_ASSETS = ({gold_tuple})
-
-defs = build_product_definitions(
-    ProductDefinitionSpec(
-        domain="{domain}",
-        product="{product}",
-        silver_inputs={const_prefix}_SILVER_INPUTS,
-        bronze_inputs=({bronze_tuple}),
-        gold_assets={const_prefix}_GOLD_ASSETS,
-    )
-)
+# The Gold assets, Silver inputs and Bronze inputs come from the dbt project and the Floe project.
+defs = build_product_definitions(ProductDefinitionSpec(domain="{domain}", product="{product}"))
 '''
 
 

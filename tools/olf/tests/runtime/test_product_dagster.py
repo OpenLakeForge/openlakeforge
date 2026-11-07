@@ -12,6 +12,7 @@ from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
 from openlakeforge_runtime.product_dagster import (  # noqa: E402
     ProductDefinitionSpec,
+    ResolvedProductInputs,
     SourceDefinitionSpec,
     build_source_definitions,
     build_stage_schedules,
@@ -367,3 +368,85 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
         "auth": ("olf-prod-runtime", "pw"),
         "verify": "/ca.crt",
     }
+
+
+# What the example products listed by hand before the spec derived it.
+_EXAMPLES = {
+    ("sales", "order_revenue"): ProductDefinitionSpec(
+        domain="sales",
+        product="order_revenue",
+        silver_inputs=("orders", "order_lines", "products", "channels", "promotions", "accounts"),
+        bronze_inputs=tuple(
+            ("crm", name) for name in ("orders", "order_lines", "products", "channels", "promotions", "accounts")
+        ),
+        gold_assets=(
+            "mart_order_revenue_by_day",
+            "mart_order_revenue_by_channel",
+            "mart_order_revenue_margin_by_product",
+            "mart_order_revenue_by_account_segment",
+        ),
+    ),
+    ("sales", "customer_health"): ProductDefinitionSpec(
+        domain="sales",
+        product="customer_health",
+        silver_inputs=("accounts", "subscriptions", "support_tickets", "nps_responses"),
+        bronze_inputs=tuple(
+            ("crm", name) for name in ("accounts", "subscriptions", "support_tickets", "nps_responses")
+        ),
+        gold_assets=("mart_customer_health_score", "mart_churn_risk_by_segment", "mart_support_sla_by_customer"),
+    ),
+    ("supply_chain", "inventory_reliability"): ProductDefinitionSpec(
+        domain="supply_chain",
+        product="inventory_reliability",
+        silver_inputs=(
+            "warehouses",
+            "suppliers",
+            "inventory_snapshots",
+            "purchase_orders",
+            "shipments",
+            "stockout_events",
+        ),
+        bronze_inputs=tuple(
+            ("erp", name)
+            for name in (
+                "warehouses",
+                "suppliers",
+                "inventory_snapshots",
+                "purchase_orders",
+                "shipments",
+                "stockout_events",
+            )
+        ),
+        gold_assets=("mart_inventory_position", "mart_supplier_delivery_reliability", "mart_stockout_risk"),
+    ),
+}
+
+
+@pytest.mark.parametrize(("domain", "product"), sorted(_EXAMPLES))
+def test_a_spec_of_only_domain_and_product_selects_what_the_explicit_lists_did(domain: str, product: str) -> None:
+    explicit = _EXAMPLES[(domain, product)]
+
+    derived = ProductDefinitionSpec(domain=domain, product=product).resolve()
+    listed = explicit.resolve()
+
+    assert listed == ResolvedProductInputs(explicit.silver_inputs, explicit.bronze_inputs, explicit.gold_assets)
+    assert set(derived.silver_inputs) == set(listed.silver_inputs)
+    assert set(derived.bronze_inputs) == set(listed.bronze_inputs)
+    assert set(derived.gold_assets) == set(listed.gold_assets)
+
+
+def test_an_explicit_list_wins_and_the_bronze_inputs_follow_the_silver_ones() -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue", silver_inputs=("orders", "channels"))
+
+    resolved = spec.resolve()
+
+    assert resolved.silver_inputs == ("orders", "channels")
+    assert resolved.bronze_inputs == (("crm", "orders"), ("crm", "channels"))
+    assert "mart_order_revenue_by_day" in resolved.gold_assets
+
+
+def test_a_dbt_source_that_is_not_a_silver_table_of_the_domain_is_refused() -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue", silver_inputs=("warehouses",))
+
+    with pytest.raises(ValueError, match="not Floe entities of domain 'sales'"):
+        spec.resolve()

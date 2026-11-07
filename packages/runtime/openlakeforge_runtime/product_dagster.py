@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -38,6 +39,18 @@ from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 from openlakeforge_core import full_refresh_scope, inventory_for
 
+__all__ = [
+    "ProductDefinitionSpec",
+    "ResolvedProductInputs",
+    "SourceDefinitionSpec",
+    "build_gold_maintenance_definitions",
+    "build_maintenance_definitions",
+    "build_product_definitions",
+    "build_silver_definitions",
+    "build_source_definitions",
+    "build_stage_schedules",
+]
+
 # The project imported as `lakehouse_code`: beside openlakeforge_runtime/ in the image, but a
 # separate root when olf checks a customer project against the distribution.
 _LAKEHOUSE_CODE_ROOT = Path(lakehouse_code.__file__).resolve().parent
@@ -66,12 +79,33 @@ _GOLD_MAINTENANCE_SCHEDULE_CRON = "0 5 * * 0"
 
 
 @dataclass(frozen=True)
-class ProductDefinitionSpec:
-    domain: str
-    product: str
+class ResolvedProductInputs:
+    """The assets a product's job selects, once the spec's omitted lists are filled from the project."""
+
     silver_inputs: tuple[str, ...]
     bronze_inputs: tuple[tuple[str, str], ...]
     gold_assets: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProductDefinitionSpec:
+    """A product pipeline: `domain` and `product` are enough.
+
+    Each list defaults to what the project already declares, and an explicit
+    value wins over the default:
+
+    - `gold_assets`: the models of the product's dbt project;
+    - `silver_inputs`: the sources of the product's dbt project, which are the
+      domain's Silver tables;
+    - `bronze_inputs`: the Bronze resource each of `silver_inputs` reads, from
+      the domain's Floe entities.
+    """
+
+    domain: str
+    product: str
+    silver_inputs: tuple[str, ...] | None = None
+    bronze_inputs: tuple[tuple[str, str], ...] | None = None
+    gold_assets: tuple[str, ...] | None = None
 
     @property
     def job_name(self) -> str:
@@ -80,6 +114,55 @@ class ProductDefinitionSpec:
     @property
     def dbt_project_dir(self) -> Path:
         return _LAKEHOUSE_CODE_ROOT / "gold" / self.product / "dbt"
+
+    def resolve(self, manifest_path: Path | None = None) -> ResolvedProductInputs:
+        """The effective inputs; `manifest_path` defaults to the product's baked dbt manifest."""
+        manifest = None
+        if self.gold_assets is None or self.silver_inputs is None:
+            manifest = json.loads((manifest_path or ensure_baked_manifest(self.dbt_project_dir)).read_text())
+        gold = self.gold_assets
+        if gold is None:
+            gold = _manifest_names(manifest, "nodes", "model")
+            if not gold:
+                raise ValueError(f"product {self.product!r}: its dbt project declares no models to build")
+        silver = self.silver_inputs
+        if silver is None:
+            silver = _manifest_names(manifest, "sources", "source")
+            if not silver:
+                raise ValueError(f"product {self.product!r}: its dbt project declares no sources to read")
+        bronze = self.bronze_inputs
+        if bronze is None:
+            bronze = self._floe_bronze_inputs(silver)
+        return ResolvedProductInputs(silver_inputs=tuple(silver), bronze_inputs=tuple(bronze), gold_assets=tuple(gold))
+
+    def _floe_bronze_inputs(self, silver: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+        inventory = inventory_for(_LAKEHOUSE_CODE_ROOT)
+        domain = next((candidate for candidate in inventory.domains if candidate.name == self.domain), None)
+        if domain is None:
+            raise ValueError(f"product {self.product!r}: the project declares no domain {self.domain!r}")
+        entities = {entity.name: (entity.source, entity.resource) for entity in inventory.floe_entities(domain)}
+        missing = [name for name in silver if name not in entities]
+        if missing:
+            raise ValueError(
+                f"product {self.product!r}: {missing} are not Floe entities of domain {self.domain!r}; "
+                "a dbt source of the product must be one of the domain's Silver tables"
+            )
+        return tuple(entities[name] for name in silver)
+
+
+def _manifest_names(manifest: dict | None, section: str, resource_type: str) -> tuple[str, ...]:
+    """Sorted names of the project's own `resource_type` entries; packages' models are not the product's."""
+    assert manifest is not None
+    project = manifest.get("metadata", {}).get("project_name")
+    return tuple(
+        sorted(
+            {
+                entry["name"]
+                for entry in manifest.get(section, {}).values()
+                if entry["resource_type"] == resource_type and project in (None, entry.get("package_name"))
+            }
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -343,8 +426,10 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         _upload_dbt_artifacts(context, spec, invocation.target_path)
 
     _dbt_gold_assets.__name__ = f"{spec.product}_dbt_gold_assets"
+    manifest_path = ensure_baked_manifest(spec.dbt_project_dir)
+    inputs = spec.resolve(manifest_path)
     dbt_gold_assets = dbt_assets(
-        manifest=ensure_baked_manifest(spec.dbt_project_dir),
+        manifest=manifest_path,
         dagster_dbt_translator=ProductDbtTranslator(),
     )(_dbt_gold_assets)
 
@@ -352,15 +437,15 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         name=spec.job_name,
         selection=(
             AssetSelection.assets(
-                *[AssetKey([source, resource]) for source, resource in spec.bronze_inputs],
-                *[AssetKey([spec.domain, entity]) for entity in spec.silver_inputs],
-                *[AssetKey([spec.product, asset_name]) for asset_name in spec.gold_assets],
+                *[AssetKey([source, resource]) for source, resource in inputs.bronze_inputs],
+                *[AssetKey([spec.domain, entity]) for entity in inputs.silver_inputs],
+                *[AssetKey([spec.product, asset_name]) for asset_name in inputs.gold_assets],
             ).required_multi_asset_neighbors()
         ),
         config=build_job_run_config_from_manifest(
             config_path=str(FLOE_PROJECT), profile_path=_floe_profile(), manifest_name=_FLOE_MANIFEST_NAME
         ),
-        tags=_bronze_source_binding_tags(spec) or None,
+        tags=_bronze_source_binding_tags(inputs) or None,
     )
 
     return Definitions(
@@ -370,9 +455,9 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
     )
 
 
-def _bronze_source_binding_tags(spec: ProductDefinitionSpec) -> dict[str, str]:
+def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]:
     """The stage bindings of the sources this job loads, for its run pod (openlakeforge_runtime/source_bindings.py)."""
-    loaded = {source for source, _ in spec.bronze_inputs}
+    loaded = {source for source, _ in inputs.bronze_inputs}
     sources = [source for source in inventory_for(_LAKEHOUSE_CODE_ROOT).sources if source.name in loaded]
     return source_binding_tags(sources)
 
