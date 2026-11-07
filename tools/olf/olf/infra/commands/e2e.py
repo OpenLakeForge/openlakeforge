@@ -230,21 +230,28 @@ def registry_pull(
         help="Run even when the image answers an anonymous pull. The check then proves the mechanism, not that "
         "a private image is pullable.",
     ),
+    static_only: bool = typer.Option(
+        False,
+        "--static-only",
+        help="Only check the pod specs and the image's visibility; remove nothing from the nodes and launch no run.",
+    ),
     stage: str = _STAGE,
     profile_file: str = _FILE,
     project_root: str = _ROOT,
 ) -> None:
-    """Check the stage's user-code pods name the pull Secret for the project image.
+    """Prove the stage's user-code pods pull the project image through its pull Secret.
 
     Reads the image from the stage's active revision and the Secret from `spec.project.image.pull_secret_ref`.
     Checks that every workload running the image, and the `dagster` ServiceAccount Floe Jobs inherit from, list the
-    Secret. Fails for a public image, which would pull without the Secret, unless --allow-public.
-    Never prints a Secret's value.
+    Secret. Unless --static-only, it then removes the image from every kind node (with no host Docker credentials),
+    restarts the code locations, launches one run, and reschedules the code locations onto another node, requiring a
+    real pull each time. Fails for a public image, which would pull without the Secret, unless --allow-public.
+    Run it before a restore drill: it launches a run. Never prints a Secret's value.
     """
     from olf.infra.e2e._registry_pull import check
 
     _run_on_local_stage(
-        lambda cfg: check(cfg, allow_public=allow_public),
+        lambda cfg: check(cfg, allow_public=allow_public, static_only=static_only),
         stage=stage,
         profile_file=profile_file,
         project_root=project_root,
