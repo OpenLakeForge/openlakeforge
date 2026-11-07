@@ -1,0 +1,44 @@
+name: Install olf from a source tree
+description: >
+  Build the wheels of one OpenLakeForge source tree and install its `olf` into
+  a tool directory of its own, so two versions of olf can sit side by side on
+  one runner (the upgrade drill installs a release's and the current one's).
+  Installs the way a consumer does: from wheels, outside any source tree.
+  Needs `uv`.
+inputs:
+  source:
+    description: Path of the source tree (a release tag's worktree, or the workspace).
+    required: true
+  name:
+    description: Label for the install directory, for example `base` or `head`.
+    required: true
+outputs:
+  bin-dir:
+    description: Directory holding this install's `olf`; put it first on PATH to run that version.
+    value: ${{ steps.install.outputs.bin-dir }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        root="${RUNNER_TEMP}/olf-${NAME}"
+        dist="${root}/dist"
+        mkdir -p "${dist}"
+        # Every library package the tree carries (the set changes between
+        # releases: domain-model became core), except the platform API image.
+        for package in "${SOURCE}"/packages/*/; do
+          [ "$(basename "${package}")" = platform-api ] && continue
+          uv build --out-dir "${dist}" "${package}"
+        done
+        uv build --out-dir "${dist}" "${SOURCE}/tools/olf"
+        wheel="$(ls "${dist}"/openlakeforge-*.whl)"
+        version="$(basename "${wheel}" | cut -d- -f2)"
+        UV_TOOL_DIR="${root}/tools" UV_TOOL_BIN_DIR="${root}/bin" \
+          uv tool install --find-links "${dist}" "openlakeforge==${version}" --python 3.12
+        echo "bin-dir=${root}/bin" >> "${GITHUB_OUTPUT}"

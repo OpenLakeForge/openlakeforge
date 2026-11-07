@@ -80,11 +80,18 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
    `component-manifest.json`, `compatibility-matrix.md`,
    `component-catalog.yaml`, `CHANGELOG.md`, both SBOMs, and
    `checksums.txt`.
-5. Once the dry run looks right, cut the real tag:
+5. **Run the upgrade drill** from `main` (see [Upgrade drill](#upgrade-drill))
+   and review the `### Migration notes` of the release's entry in
+   `CHANGELOG.md` (step 2) against it. Every manual step the drill needed (a recreate, a
+   renamed bucket or host, a changed profile field) must be in those notes, and
+   no note may describe a step the drill shows is no longer needed. A drill
+   that fails verification blocks the tag until it is fixed or the loss is
+   written into the notes.
+6. Once the dry run and the drill look right, cut the real tag:
    `git tag v<version> && git push origin v<version>`. The tag push triggers
    the same workflow with `dry_run: false`, which builds, pushes, signs,
    attests, and publishes the GitHub Release.
-6. Run `uv run --project tools/olf --locked olf release verify-install --tag
+7. Run `uv run --project tools/olf --locked olf release verify-install --tag
    v<version>` (see below) to confirm the published release is independently
    verifiable and installs from a clean checkout.
 
@@ -108,6 +115,45 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
   of sync with its sibling `pyproject.toml` -- checked with `uv lock --check`
   and a seeded `uv pip compile` re-run (`olf check lockfiles`), not a
   hand-rolled parser.
+
+## Upgrade drill
+
+The drill proves that a stack deployed by the previous release keeps its data
+when the current source tree upgrades it in place (#912, part of #531). It
+needs a kind cluster, so it runs in CI: `.github/workflows/upgrade-drill.yml`,
+weekly (Sundays 03:17 UTC) and on demand. Its steps:
+
+1. Deploy the base release with its own `olf`: a project from `olf init
+   --preset full` (DEV only, plain HTTP) and `olf infra deploy`.
+2. Run the pipelines: `olf infra e2e run --env local --suite smoke`.
+3. `olf infra e2e durability capture --output baseline.json`, with the current
+   `olf`.
+4. Upgrade in place: `olf infra deploy` with the current `olf`, in the same
+   project.
+5. `olf infra e2e durability verify --baseline baseline.json`. It exits
+   non-zero for any lost table, run, dashboard, entity or object, fewer rows, a
+   changed snapshot id or activation pointer, or an empty search (see
+   [the CLI reference](../reference/cli.md)).
+6. Run the smoke suite again, which reads the Gold tables through Trino.
+
+**Run it from GitHub:** Actions, "Upgrade drill", Run workflow. `base_tag` is the
+release to upgrade from; leave it empty for the latest tag. Each run uploads
+`upgrade-drill-<run id>` with `baseline.json`, one log per step (the verify
+report is `5-verify.log`) and, on failure, kind diagnostics.
+
+**Run it by hand** on a machine with Docker and the managed toolchain
+(`olf toolchain install`). Install the two versions side by side the way
+`.github/actions/install-olf/action.yml` does (wheels built from a worktree of
+the tag and from the source tree under test, each into its own `uv tool`
+directory), then run the six commands above from one empty project directory,
+with the base release's `olf` first on `PATH` for steps 1 and 2 and the current
+one for steps 3 to 6. Whatever you have to do by hand between step 4 and a
+passing step 5 is a migration note.
+
+The drill uses the demo products `olf init` writes, not a large customer
+project (#110 has not landed), and one pipeline per smoke run. It covers one
+stage on the Full preset; the PROD stage and the cloud providers are not part
+of it.
 
 ## Consumer verification
 
