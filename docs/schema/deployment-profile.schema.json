@@ -34,7 +34,10 @@
           "additionalProperties": false,
           "required": ["type"],
           "properties": {
-            "type": {"enum": ["local", "aws", "azure"]},
+            "type": {
+              "enum": ["local", "aws", "azure"],
+              "description": "The deployment target, and the default adapter for each capability (storage, metadata database, catalog). Only `local` is covered by the v1beta1 compatibility promise; `aws` and `azure` are accepted as preview."
+            },
             "region": {"type": "string", "minLength": 1}
           }
         },
