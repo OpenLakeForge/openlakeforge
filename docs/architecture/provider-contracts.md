@@ -66,10 +66,12 @@ governance bindings, runtime identity, activation prefix, and endpoint
 references. Stage-scoped bindings (storage identity, orchestration, reporting,
 governance endpoints, and the stage's own catalog endpoint) may reference only
 `shared/*` or the issuing stage's own `stage/<name>/*`; a DEV binding cannot
-reference PROD's. Trino query connectivity is the one deliberate exception:
-`shared.query` is a single service used by every stage, isolated by catalog
-rather than by endpoint, so `stages.<name>.query.endpoint` and `service_ref`
-are not stage-scoped.
+reference PROD's. Query follows the same rule. `stages.<name>.query` carries
+either its own `stage/<name>/query` service and endpoint (one Trino per stage)
+or `shared/query` and the shared endpoint (AWS and Azure, until the cloud
+milestone). A reference to another stage's query service is rejected, and
+stage-scoped endpoints must differ between stages. No Terraform root emits
+the stage-scoped shape yet (#965).
 
 `stages.<name>.orchestration.code_locations` carries the stage's Dagster
 user-code deployments as `{name, definitions_module}` entries — the same list

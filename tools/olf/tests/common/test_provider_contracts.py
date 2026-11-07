@@ -455,6 +455,58 @@ def test_query_service_ref_must_be_the_shared_query_service_specifically() -> No
         parse_provider_contracts(contract, topology)
 
 
+def _stage_scoped_query(contract: dict) -> None:
+    for name, stage in contract["stages"].items():
+        stage["query"]["service_ref"] = f"stage/{name}/query"
+        stage["query"]["endpoint"] = f"http://trino-{name}:8080"
+        stage["endpoints"]["query"] = f"stage/{name}/query"
+
+
+def test_stage_scoped_query_binding_parses_with_its_own_endpoint() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    for name, stage in parsed.stages.items():
+        assert stage.query["service_ref"] == f"stage/{name.value}/query"
+        assert stage.query["endpoint"] == f"http://trino-{name.value}:8080"
+
+
+def test_stage_may_keep_the_shared_query_while_another_is_stage_scoped() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    prod = contract["stages"]["prod"]
+    prod["query"]["service_ref"] = "stage/prod/query"
+    prod["query"]["endpoint"] = "http://trino-prod:8080"
+    prod["endpoints"]["query"] = "stage/prod/query"
+
+    parse_provider_contracts(contract, topology)
+
+
+def test_query_binding_cannot_reference_another_stages_query_service() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+    dev = contract["stages"]["dev"]
+    dev["query"]["service_ref"] = "stage/prod/query"
+    dev["endpoints"]["query"] = "stage/prod/query"
+
+    with pytest.raises(ProviderContractError, match="cannot reference another stage's query service"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_stage_scoped_query_endpoints_must_differ_between_stages() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+    contract["stages"]["prod"]["query"]["endpoint"] = contract["stages"]["dev"]["query"]["endpoint"]
+
+    with pytest.raises(ProviderContractError, match="shared with another stage's query service"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_catalog_service_ref_must_be_the_shared_catalog_service_specifically() -> None:
     """Same failure mode as query.service_ref: a Polaris stage could point its
     catalog service_ref at any resolvable shared/* binding and the StageContract
