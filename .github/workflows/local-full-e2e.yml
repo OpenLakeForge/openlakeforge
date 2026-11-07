@@ -405,6 +405,39 @@ jobs:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: olf infra e2e run --env local -f openlakeforge.yaml --stage prod --suite full --checks core
 
+      - name: Prove the stages pull the project image through a pull Secret (#537)
+        # KNOWN GAP: the check proves the mechanism, not that a private image is pullable. `project-code-nightly`
+        # answers anonymous pulls (measured 2026-11-07), so `--allow-public` is required, and the Secret is built
+        # from `GITHUB_TOKEN`, which expires with this job (the guide forbids that for a real cluster). The private,
+        # durable-PAT case is the manual procedure in docs/guides/promote-dev-to-prod.md. The nightly profile
+        # declares no `spec.project`, so it is added here for the activation and the original is put back before the
+        # restore drill: that rebuilds a cluster without this Secret and would refuse to reactivate with it named.
+        # Runs after the PROD suite because it removes the image from the nodes and launches a run per stage.
+        if: (inputs.suite || 'full') != 'smoke'
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_REPOSITORY: ${{ steps.registry.outputs.repository }}
+          REVISION: ${{ steps.revision.outputs.revision }}
+          STAGES: ${{ (inputs.stage_scope || 'dev+prod') == 'dev-only' && 'dev' || 'dev prod' }}
+        run: |
+          set -euo pipefail
+          cp openlakeforge.yaml "${RUNNER_TEMP}/openlakeforge.original.yaml"
+          trap 'cp "${RUNNER_TEMP}/openlakeforge.original.yaml" openlakeforge.yaml' EXIT
+          printf '%s\n' '  project:' '    image:' "      repository: ${IMAGE_REPOSITORY}" \
+            '      pull_secret_ref:' '        name: ghcr-pull' >> openlakeforge.yaml
+          olf profile validate --project .
+          for stage in ${STAGES}; do
+            kubectl --kubeconfig "${OLF_KUBECONFIG}" -n "olf-${stage}" create secret docker-registry ghcr-pull \
+              --docker-server=ghcr.io --docker-username="${REGISTRY_USER}" --docker-password="${REGISTRY_TOKEN}" \
+              --dry-run=client -o yaml | kubectl --kubeconfig "${OLF_KUBECONFIG}" apply -f - >/dev/null
+            olf infra project deploy -f openlakeforge.yaml --stage "${stage}" --revision "${REVISION}"
+            olf infra e2e registry-pull -f openlakeforge.yaml --stage "${stage}" --allow-public
+          done
+
       - name: Restore drill (back up, destroy, rebuild the platform, restore, verify, scan)
         # Last, because it destroys the cluster the steps above used. The
         # nightly runs it; a dispatch opts in with `restore_drill`.
