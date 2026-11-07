@@ -63,3 +63,8 @@ create_database_if_missing "$${${prefix}_NAME}" "$${${prefix}_USER}"
 %{ endfor ~}
 create_or_update_role "$POLARIS_DB_USER" "$POLARIS_DB_PASSWORD"
 create_database_if_missing "$POLARIS_DB_NAME" "$POLARIS_DB_USER"
+# Polaris 1.8's admin tool no longer creates its schema and connects with
+# currentSchema=POLARIS_SCHEMA, so `bootstrap` fails on a database without it.
+# A database bootstrapped by 1.4 already has the schema, which IF NOT EXISTS keeps.
+psql_with_retry --dbname "$POLARIS_DB_NAME" \
+  -c "CREATE SCHEMA IF NOT EXISTS polaris_schema AUTHORIZATION \"$POLARIS_DB_USER\";"

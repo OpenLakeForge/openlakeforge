@@ -1,7 +1,7 @@
 # Apache Polaris Iceberg REST catalog for the local kind cluster.
 image:
   repository: apache/polaris
-  tag: "1.4.0@sha256:ef4947a3fd005ca5b2aec2bde98682a59996d38f21c16c4660fbb79e4c20b40c"
+  tag: "1.8.0@sha256:347615e736cab2c9be0d8c464552ac930be4755302bb0aeb745216bbae99ba5b"
   pullPolicy: IfNotPresent
 
 replicaCount: 1

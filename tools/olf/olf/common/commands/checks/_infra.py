@@ -50,7 +50,7 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         _test_module(root, module, terraform=terraform, tools=tools, env=env)
     charts = (
         ("seaweedfs", "seaweedfs/seaweedfs", "4.48.0", "infra/helm/values/local/seaweedfs.yaml"),
-        ("polaris", "polaris/polaris", "1.4.1", "infra/helm/values/local/polaris.yaml"),
+        ("polaris", "polaris/polaris", "1.8.0", "infra/helm/values/local/polaris.yaml"),
         ("trino", "trino/trino", "1.42.2", "infra/helm/values/local/trino.yaml"),
         ("dagster", "dagster/dagster", "1.13.7", "infra/helm/values/local/dagster.yaml"),
         ("superset", "superset/superset", "0.15.5", "infra/helm/values/local/superset.yaml"),

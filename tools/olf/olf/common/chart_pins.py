@@ -42,7 +42,7 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
     "polaris": ChartDefault(
         chart_ref="polaris/polaris",
         repository="https://downloads.apache.org/polaris/helm-chart",
-        version="1.4.1",
+        version="1.8.0",
     ),
     "openmetadata": ChartDefault(
         chart_ref="open-metadata/openmetadata",

@@ -11,7 +11,7 @@ the [Compatibility matrix](compatibility-matrix.md).
 | --- | --- | --- | --- | --- | --- |
 | [Dagster](https://dagster.io/) | Orchestration: one asset graph and one job per data product, one instance per stage | 1.13.7 | yes | yes | yes |
 | [Trino](https://trino.io/) | SQL engine over the Iceberg catalog; dbt builds Gold through it | 480 | yes | yes | yes |
-| [Apache Polaris](https://polaris.apache.org/) | Iceberg REST catalog | 1.4.0 | yes | AWS Glue instead | yes |
+| [Apache Polaris](https://polaris.apache.org/) | Iceberg REST catalog | 1.8.0 | yes | AWS Glue instead | yes |
 | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | S3-compatible object storage for Bronze, Silver, Gold and run artifacts | 4.48 | yes | Amazon S3 instead | yes |
 | [PostgreSQL](https://www.postgresql.org/) | Metadata databases of the platform services | 16 | yes | Amazon RDS instead | yes |
 | [Apache Superset](https://superset.apache.org/) | Dashboards over Gold tables, one instance per stage with `analytics` on | 6.1.0 | Full | Full | Full |

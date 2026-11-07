@@ -80,3 +80,14 @@ def test_rds_template_routes_every_database_through_the_revoke() -> None:
     loop = re.search(r"%\{ for prefix in database_env_prefixes ~\}(.*?)%\{ endfor ~\}", text, re.DOTALL)
     assert loop, "database_env_prefixes loop not found in template"
     assert "create_role_and_db" in loop.group(1)
+
+
+def test_in_cluster_template_creates_the_polaris_schema_after_its_database() -> None:
+    # Polaris 1.8's admin tool no longer creates polaris_schema, so `bootstrap` fails on a fresh database
+    # without it. Only the rendered shape can be checked here; the bootstrap Job proves it at runtime.
+    text = IN_CLUSTER_TEMPLATE.read_text()
+
+    create_database = text.index('create_database_if_missing "$POLARIS_DB_NAME" "$POLARIS_DB_USER"')
+    create_schema = text.index('CREATE SCHEMA IF NOT EXISTS polaris_schema AUTHORIZATION \\"$POLARIS_DB_USER\\"')
+    assert create_database < create_schema
+    assert '--dbname "$POLARIS_DB_NAME"' in text[create_database:create_schema]

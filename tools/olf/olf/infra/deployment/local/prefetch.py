@@ -27,20 +27,20 @@ from olf.infra.deployment.local.images import containerd_name, split_digest_refe
 # image is deliberately left without a digest pin - do not "fix" this.
 _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
     "arm64": (
-        "apache/polaris:1.4.0@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94",
-        "apache/polaris-admin-tool:1.4.0@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f",
+        "apache/polaris:1.8.0@sha256:74e6416c75f24563fc62f4ed52699d4fb872741b6a3e0af77fdc551b4ee72fce",
+        "apache/polaris-admin-tool:1.8.0@sha256:9f85ebe1fdfa9eb1214c4d5d343de29f76fef3dda7b4eb11c6767acc7e6c4fa4",
     ),
     "aarch64": (
-        "apache/polaris:1.4.0@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94",
-        "apache/polaris-admin-tool:1.4.0@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f",
+        "apache/polaris:1.8.0@sha256:74e6416c75f24563fc62f4ed52699d4fb872741b6a3e0af77fdc551b4ee72fce",
+        "apache/polaris-admin-tool:1.8.0@sha256:9f85ebe1fdfa9eb1214c4d5d343de29f76fef3dda7b4eb11c6767acc7e6c4fa4",
     ),
     "amd64": (
-        "apache/polaris:1.4.0@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41",
-        "apache/polaris-admin-tool:1.4.0@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
+        "apache/polaris:1.8.0@sha256:532cb22f6ddaf479f0e6b7d50f5561cd4d5c001b4d6c02da984ca9321e8d16c0",
+        "apache/polaris-admin-tool:1.8.0@sha256:5b0a4f3af36478d386cfe4f12286cccb53614e4712cb6733bb03f83c98145285",
     ),
     "x86_64": (
-        "apache/polaris:1.4.0@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41",
-        "apache/polaris-admin-tool:1.4.0@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c",
+        "apache/polaris:1.8.0@sha256:532cb22f6ddaf479f0e6b7d50f5561cd4d5c001b4d6c02da984ca9321e8d16c0",
+        "apache/polaris-admin-tool:1.8.0@sha256:5b0a4f3af36478d386cfe4f12286cccb53614e4712cb6733bb03f83c98145285",
     ),
 }
 # ponytail: the OpenMetadata server is not in the component catalog; pin it here until it is.

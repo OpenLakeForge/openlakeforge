@@ -64,7 +64,7 @@ def test_infra_templates_the_cached_tarball_not_the_repo_reference(
     cache.mkdir(parents=True)
     for name in (
         "seaweedfs-4.48.0",
-        "polaris-1.4.1",
+        "polaris-1.8.0",
         "trino-1.42.2",
         "dagster-1.13.7",
         "superset-0.15.5",
