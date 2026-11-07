@@ -27,7 +27,6 @@ or edit Terraform to register a product:
 
 | Derived name | Example | Shared by |
 | --- | --- | --- |
-| Bronze namespace `<source>_bronze` | `marketing_platform_bronze` | Every product reading the source |
 | Silver namespace `<domain>_silver` | `marketing_silver` | Every product of the domain |
 | Gold namespace `<product>_gold` | `campaign_performance_gold` | The product only |
 | Dagster job `<product>_pipeline` | `campaign_performance_pipeline` | The product only |

@@ -97,13 +97,12 @@ def layer_tables(cfg: E2EConfig) -> dict[str, str]:
     """A table of each layer the run's pipelines filled, read through the workload path; Silver and Gold are
     required."""
     names = {
-        "bronze": cfg.inventory.bronze_namespace_names,
         "silver": cfg.inventory.silver_namespace_names,
         "gold": cfg.inventory.gold_namespace_names,
     }
     tables: dict[str, str] = {}
-    for layer in LAYERS:
-        for schema in sorted(names[layer]):
+    for layer, schemas in names.items():
+        for schema in sorted(schemas):
             found = list_tables(cfg, schema)
             if found:
                 tables[layer] = f"{schema}.{found[0]}"

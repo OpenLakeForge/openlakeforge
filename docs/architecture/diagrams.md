@@ -300,9 +300,9 @@ without duplicating ingestion: `sales` (`order_revenue`, `customer_health`) uses
 `crm/accounts` asset and one `sales/accounts` asset, while `supply_chain`
 (`inventory_reliability`) consumes `erp`. Adding a data product changes only its bronze,
 silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
-`olf infra catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
-`governance.yml` and every `bronze/*/source.yaml` (a domain owns `<domain>_silver`, a product
-`<product>_gold`) and reconciles them before Floe, dbt, or OpenMetadata use them. A new product, domain, or source therefore needs no environment
+`olf infra catalog sync-namespaces` derives the Silver and Gold namespaces from
+`governance.yml` (a domain owns `<domain>_silver`, a product
+`<product>_gold`; Bronze has no namespace, only files in the Bronze bucket) and reconciles them before Floe, dbt, or OpenMetadata use them. A new product, domain, or source therefore needs no environment
 Terraform edit or platform apply; see ADR 0002 and ADR 0004. `lakehouse_code/governance.yml`
 is the canonical, human- and machine-readable descriptor of every domain and product.
 

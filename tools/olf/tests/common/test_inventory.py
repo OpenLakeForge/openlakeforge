@@ -71,8 +71,6 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     ]
     assert sorted(inventory.catalog_namespaces) == sorted(
         {
-            "crm_bronze",
-            "erp_bronze",
             "sales_silver",
             "supply_chain_silver",
             "order_revenue_gold",
@@ -155,7 +153,6 @@ def test_inventory_resolves_provider_physical_names() -> None:
     inventory = load_lakehouse_inventory(ROOT)
     names = inventory.resolve_physical_names(
         catalog_database_fqn="aws_glue.lakehouse_dev",
-        bronze_bucket="openlakeforge-poc-bronze",
         silver_bucket="openlakeforge-poc-silver",
         gold_bucket="openlakeforge-poc-gold",
     )
@@ -166,8 +163,6 @@ def test_inventory_resolves_provider_physical_names() -> None:
     assert names.gold_schema_fqns["inventory_reliability"] == (
         "aws_glue.lakehouse_dev.inventory_reliability_gold"
     )
-    assert names.bronze_namespaces["crm"] == "crm_bronze"
-    assert names.bronze_schema_fqns["crm"] == "aws_glue.lakehouse_dev.crm_bronze"
 
 
 def test_renaming_descriptor_product_changes_discovered_work_without_shared_code(tmp_path: Path) -> None:

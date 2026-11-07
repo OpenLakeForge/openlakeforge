@@ -33,8 +33,7 @@ owner (see
 
 Across the next lessons you add the source `marketing_platform`, the domain
 `marketing` and the product `campaign_performance`. OpenLakeForge derives
-every platform name from those three: the Bronze namespace
-`marketing_platform_bronze`, the Silver namespace `marketing_silver`, the Gold
+every platform name from those three: the Silver namespace `marketing_silver`, the Gold
 namespace `campaign_performance_gold` and the Dagster job
 `campaign_performance_pipeline`. You never create these by hand and you never
 edit Terraform to register a product.

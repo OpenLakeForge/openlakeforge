@@ -47,12 +47,13 @@ The domain-oriented layout is **removed**, not deprecated. `domains/`,
 ### Ownership rule
 
 ```text
-Source   ->  <source>_bronze
+Source   ->  raw files in the Bronze bucket (no catalog namespace)
 Domain   ->  <domain>_silver
 Product  ->  <product>_gold
 ```
 
-A Bronze source is ingested once and referenced by any domain. A domain
+Bronze holds raw source files, not Iceberg tables, so it has no catalog
+namespace. A Bronze source is ingested once and referenced by any domain. A domain
 validates its sources into one Silver namespace. A product consumes Silver
 tables from its domain and owns only its Gold namespace. Product `id` is
 unique across the whole lakehouse, so `<product>_gold` needs no domain prefix.

@@ -5,9 +5,7 @@ from conftest import E2E_INVENTORY, e2e_cfg
 
 from olf.infra.e2e import _preflight, _shell
 
-EXPECTED_GLUE_SCHEMAS = (
-    E2E_INVENTORY.bronze_namespace_names | E2E_INVENTORY.silver_namespace_names | E2E_INVENTORY.gold_namespace_names
-)
+EXPECTED_GLUE_SCHEMAS = E2E_INVENTORY.silver_namespace_names | E2E_INVENTORY.gold_namespace_names
 
 
 def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

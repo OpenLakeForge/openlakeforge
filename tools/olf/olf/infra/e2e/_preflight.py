@@ -55,8 +55,7 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     expected_schemas = {
         f"{namespace_prefix}{name}"
         for name in (
-            cfg.inventory.bronze_namespace_names
-            | cfg.inventory.silver_namespace_names
+            cfg.inventory.silver_namespace_names
             | cfg.inventory.gold_namespace_names
         )
     }
