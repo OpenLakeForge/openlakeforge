@@ -78,3 +78,40 @@ run "another_issuer_requests_no_audience" {
     error_message = "without a login audience the scope stays as given and no extra audience is accepted"
   }
 }
+
+# #991: keys and codes go to the issuer's Service; the public URL stays the
+# token's iss and the login page.
+run "internal_url_skips_discovery_and_the_public_url" {
+  command = plan
+
+  variables {
+    login_audience = "olf-cli"
+    internal_url   = "http://dex.olf-system.svc.cluster.local:5556"
+  }
+
+  assert {
+    condition = alltrue([
+      for floor, deployment in kubernetes_deployment_v1.proxy : alltrue([
+        contains(deployment.spec[0].template[0].spec[0].container[0].args, "--skip-oidc-discovery=true"),
+        contains(deployment.spec[0].template[0].spec[0].container[0].args, "--login-url=http://auth.olf.localhost/auth"),
+        contains(deployment.spec[0].template[0].spec[0].container[0].args, "--redeem-url=http://dex.olf-system.svc.cluster.local:5556/token"),
+        contains(deployment.spec[0].template[0].spec[0].container[0].args, "--oidc-jwks-url=http://dex.olf-system.svc.cluster.local:5556/keys"),
+        contains(deployment.spec[0].template[0].spec[0].container[0].args, "--oidc-issuer-url=http://auth.olf.localhost"),
+        !anytrue([for arg in deployment.spec[0].template[0].spec[0].container[0].args : startswith(arg, "--extra-jwt-issuers")]),
+      ])
+    ])
+    error_message = "every proxy must skip discovery, take keys and codes from the internal URL and verify bearer tokens without an extra issuer"
+  }
+}
+
+run "no_internal_url_discovers_the_issuer" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for floor, deployment in kubernetes_deployment_v1.proxy :
+      !contains(deployment.spec[0].template[0].spec[0].container[0].args, "--skip-oidc-discovery=true")
+    ])
+    error_message = "an external issuer is discovered at its public URL"
+  }
+}

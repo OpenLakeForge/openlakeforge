@@ -121,7 +121,7 @@ variable "service_account_annotations" {
 }
 
 variable "oidc" {
-  description = "identity.oidc fields for OpenMetadata (ADR 0014): the issuer, the scope to request, the openmetadata client id, the client Secret reference (in this module's namespace, created in cluster, never in state, #181), OpenMetadata's public base URL and the ConfigMap with the CA that signs the issuer certificate. Null keeps OpenMetadata's basic login."
+  description = "identity.oidc fields for OpenMetadata (ADR 0014): the issuer, the scope to request, the openmetadata client id, the client Secret reference (in this module's namespace, created in cluster, never in state, #181), OpenMetadata's public base URL, the ConfigMap with the CA that signs the issuer certificate (for the login's code exchange, which follows the discovery document's public URLs) and internal_url, the issuer's in-cluster base URL for its signing keys. Null keeps OpenMetadata's basic login."
   type = object({
     issuer_url        = string
     scope             = string
@@ -129,6 +129,7 @@ variable "oidc" {
     secret_ref        = object({ name = string, key = string })
     base_url          = string
     ca_configmap_name = string
+    internal_url      = optional(string)
   })
   default = null
 }

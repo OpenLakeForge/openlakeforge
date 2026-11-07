@@ -14,6 +14,12 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Changed
+
+- The perimeter proxy, Polaris and the platform API reach Dex at its Service (`identity.oidc.internal_url`) instead of
+  through Traefik and the local CA; the platform API reads keys from a new optional `jwks_url` setting (#991).
+  OpenMetadata, Superset and Trino's Web UI still use the public URL.
+
 ### Added
 
 - A weekly and on-demand workflow, `external-project-e2e.yml`, deploys the external project

@@ -128,6 +128,7 @@ Formation (#681).
 | Field | Meaning |
 | --- | --- |
 | `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.issuer: none` (ADR 0013, development on `*.localhost`), where Dex issues `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
+| `internal_url` | optional; Dex's in-cluster Service base URL, set only for an issuer OpenLakeForge deploys. In-cluster consumers fetch keys (`/keys`) and redeem codes (`/token`) here over plain HTTP and compare the token's `iss` with `issuer_url` as a string. Absent or null for `external`, which is reached at `issuer_url` |
 | `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
 | `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
 | `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}`, and `olf-cli`, a public client: `client_id` only, no `secret_ref` |
@@ -266,7 +267,7 @@ Route grants are read from `release/identity-roles.yaml` and nowhere else.
 | Login callback | One host, `oauth2.<base_domain>/oauth2/*`, answered by the any-role instance and not behind the perimeter; the `perimeter` client has that single redirect URI, and the cookie on `.<base_domain>` carries the session to every route |
 | Cookie secret | Created by an in-cluster Job only if missing (`oauth2-proxy-cookie`); Terraform never reads it. Rotation: delete the Secret, replace the Job, restart the proxies (signs everyone out once) |
 | Client secret | `secretKeyRef` to `identity.oidc.clients.perimeter.secret_ref` |
-| Bearer tokens | Every instance starts with `--skip-jwt-bearer-tokens=true` and `--extra-jwt-issuers=<issuer_url>=<olf-cli client_id>`, and the forwardAuth middleware passes the `Authorization` header on. A bearer token issued to `olf-cli` is checked for issuer, audience, signature and expiry, then meets the instance's `--allowed-group` like a session, so the role floor still decides. A token issued to a client other than `olf-cli` or `perimeter` gets 401. The `perimeter` client's own tokens are accepted as well, which the flag cannot exclude. With Dex each instance also starts with `--oidc-extra-audience=olf-cli`, so the session's ID token, whose `aud` is `olf-cli`, passes the proxy's own verification when it refreshes the session. oauth2-proxy reads a bearer token's roles from a hardcoded `groups` claim, so the flags are set only when `role_claim` is `groups`; with any other claim a bearer token gets 401 |
+| Bearer tokens | Every instance starts with `--skip-jwt-bearer-tokens=true`. With an `internal_url` (Dex) the proxy runs `--skip-oidc-discovery` with `--login-url=<issuer_url>/auth`, `--redeem-url=<internal_url>/token` and `--oidc-jwks-url=<internal_url>/keys`, and its own verifier accepts bearer tokens of the `olf-cli` audience (`--oidc-extra-audience`). For an `external` issuer it starts with `--extra-jwt-issuers=<issuer_url>=<olf-cli client_id>` (discovery at the public URL), and the forwardAuth middleware passes the `Authorization` header on. A bearer token issued to `olf-cli` is checked for issuer, audience, signature and expiry, then meets the instance's `--allowed-group` like a session, so the role floor still decides. A token issued to a client other than `olf-cli` or `perimeter` gets 401. The `perimeter` client's own tokens are accepted as well, which the flag cannot exclude. With Dex each instance also starts with `--oidc-extra-audience=olf-cli`, so the session's ID token, whose `aud` is `olf-cli`, passes the proxy's own verification when it refreshes the session. oauth2-proxy reads a bearer token's roles from a hardcoded `groups` claim, so the flags are set only when `role_claim` is `groups`; with any other claim a bearer token gets 401 |
 
 Behaviour, all decided by the proxy before a request reaches a service:
 
@@ -391,6 +392,8 @@ is not.
   cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
 
 ## History
+
+In-cluster issuer endpoints (#991): `identity.oidc` gains the optional `internal_url`; the perimeter proxy, Polaris and the platform API (`jwks_url` setting) use it instead of the public URL. The bearer-token row changes accordingly.
 
 OpenMetadata bootstrap in `olf` (#562): the Terraform bootstrap Job is deleted;
 `olf` creates the admin automation bot after the platform apply. The sign-in

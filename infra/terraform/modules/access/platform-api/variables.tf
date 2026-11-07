@@ -27,6 +27,12 @@ variable "issuer_url" {
   type        = string
 }
 
+variable "internal_issuer_url" {
+  description = "identity.oidc internal_url: the in-cluster base URL of a deployed issuer. When set, the API reads the issuer's keys from <internal_issuer_url>/keys instead of discovering them at issuer_url; `iss` is still compared with issuer_url."
+  type        = string
+  default     = null
+}
+
 variable "audiences" {
   description = "Client ids whose tokens the API accepts (ADR 0021, decision 3). At least one."
   type        = list(string)
@@ -79,7 +85,7 @@ variable "stages" {
 }
 
 variable "ca_configmap_name" {
-  description = "ConfigMap in `namespace` whose ca.crt signs the issuer's certificate (modules/access/in-cluster-resolution). Null when the issuer's certificate chains to a public root."
+  description = "ConfigMap in `namespace` whose ca.crt signs Trino's in-cluster certificate (modules/access/in-cluster-resolution); the API verifies its person queries against it. Null when Trino serves no TLS."
   type        = string
   default     = null
 }

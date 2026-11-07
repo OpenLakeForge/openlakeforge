@@ -59,6 +59,9 @@ class Settings:
     precedence: tuple[str, ...]
     stages: tuple[str, ...]
     ca_file: str | None = None
+    # Where the issuer's keys are fetched from, in place of OIDC discovery at issuer_url. `iss` is still compared
+    # with issuer_url as a string, so the issuer's public URL need not be reachable from the pod.
+    jwks_url: str | None = None
     dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
     openmetadata_url: str | None = None
     log_archives: Mapping[str, LogArchiveSetting] = field(default_factory=dict)
@@ -103,6 +106,7 @@ class Settings:
                 precedence=tuple(str(role) for role in data["precedence"]),
                 stages=tuple(str(stage) for stage in data.get("stages", ())),
                 ca_file=data.get("ca_file"),
+                jwks_url=data.get("jwks_url") or None,
                 dagster_graphql_urls={
                     str(stage): str(url) for stage, url in (data.get("dagster_graphql_urls") or {}).items()
                 },

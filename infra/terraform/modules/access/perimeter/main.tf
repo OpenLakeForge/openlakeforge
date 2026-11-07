@@ -22,10 +22,27 @@ locals {
   # hardcoded `groups` claim (v7.15.5 pkg/apis/middleware/session.go), not from
   # --oidc-groups-claim. With any other role_claim the floor could not be
   # enforced on a bearer token, so it is refused (401) instead.
-  bearer_args = var.role_claim == "groups" ? [
+  #
+  # With an internal issuer endpoint the main provider verifies bearer tokens
+  # (its keys come from --oidc-jwks-url) and accepts the CLI's audience as an
+  # extra one: an extra issuer would do discovery at the public URL, which a
+  # pod cannot reach without the CoreDNS rewrite this avoids.
+  bearer_args = var.internal_url != null ? concat(
+    ["--skip-jwt-bearer-tokens=true"],
+    var.login_audience == var.cli_client_id ? [] : ["--oidc-extra-audience=${var.cli_client_id}"],
+    ) : var.role_claim == "groups" ? [
     "--skip-jwt-bearer-tokens=true",
     "--extra-jwt-issuers=${var.issuer_url}=${var.cli_client_id}",
   ] : []
+
+  # The public URL stays the token's `iss` and the browser's login page; keys
+  # and codes go to the issuer's Service (ADR 0013).
+  endpoint_args = var.internal_url == null ? [] : [
+    "--skip-oidc-discovery=true",
+    "--login-url=${trimsuffix(var.issuer_url, "/")}/auth",
+    "--redeem-url=${trimsuffix(var.internal_url, "/")}/token",
+    "--oidc-jwks-url=${trimsuffix(var.internal_url, "/")}/keys",
+  ]
 
   # Route grants live in release/identity-roles.yaml and nowhere else. Grants
   # are monotonic (olf rejects anything else), so what a service admits is a
@@ -373,6 +390,7 @@ resource "kubernetes_deployment_v1" "proxy" {
               "--silence-ping-logging=true",
             ],
             local.bearer_args,
+            local.endpoint_args,
             # The session's ID token has the login audience, not this client's
             # own, so the proxy must accept it when it refreshes the session.
             var.login_audience == null ? [] : ["--oidc-extra-audience=${var.login_audience}"],
@@ -400,24 +418,6 @@ resource "kubernetes_deployment_v1" "proxy" {
                 name = local.cookie_secret_name
                 key  = "cookie-secret"
               }
-            }
-          }
-          dynamic "env" {
-            for_each = var.ca_configmap_name == null ? [] : [1]
-            content {
-              # The issuer's certificate is signed by the local CA, which is the
-              # only upstream this process talks to.
-              name  = "SSL_CERT_FILE"
-              value = "/ca/ca.crt"
-            }
-          }
-
-          dynamic "volume_mount" {
-            for_each = var.ca_configmap_name == null ? [] : [1]
-            content {
-              name       = "ca"
-              mount_path = "/ca"
-              read_only  = true
             }
           }
           volume_mount {
@@ -463,15 +463,6 @@ resource "kubernetes_deployment_v1" "proxy" {
           }
         }
 
-        dynamic "volume" {
-          for_each = var.ca_configmap_name == null ? [] : [1]
-          content {
-            name = "ca"
-            config_map {
-              name = var.ca_configmap_name
-            }
-          }
-        }
         volume {
           name = "templates"
           config_map {

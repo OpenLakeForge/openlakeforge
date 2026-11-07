@@ -128,6 +128,7 @@
         }
       },
       "implementation": "identity.oidc",
+      "internal_url": "http://dex.olf-system.svc.cluster.local:5556",
       "issuer_url": "https://auth.olf.localhost",
       "ref": "shared/identity",
       "role_claim": "groups",

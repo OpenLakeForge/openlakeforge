@@ -16,7 +16,11 @@ locals {
   # `olf infra openmetadata deploy-metadata` applies this body through
   # PUT /api/v1/system/security/config, adding the client secret, once the
   # issuer's host resolves in the cluster (after Traefik, #432).
-  oidc_issuer     = var.oidc == null ? "" : trimsuffix(var.oidc.issuer_url, "/")
+  oidc_issuer = var.oidc == null ? "" : trimsuffix(var.oidc.issuer_url, "/")
+  # The login's code exchange still follows the discovery document, whose
+  # endpoints are the public URLs (OpenMetadata 1.13.6 has no token-URL
+  # override in oidcClientConfig), so only the key URL can use the Service.
+  oidc_keys_base  = var.oidc == null ? "" : trimsuffix(coalesce(var.oidc.internal_url, var.oidc.issuer_url), "/")
   base_authorizer = yamldecode(file(var.base_values_file)).openmetadata.config.authorizer
   oidc_security_config = var.oidc == null ? null : {
     authenticationConfiguration = {
@@ -30,7 +34,7 @@ locals {
       # OpenMetadata's own keys stay trusted beside the issuer's: bot tokens
       # (ingestion-bot, the automation bot) are signed by OpenMetadata. Dex,
       # the only issuer deployed here, serves its keys at /keys.
-      publicKeyUrls            = ["${local.om_url}/api/v1/system/config/jwks", "${local.oidc_issuer}/keys"]
+      publicKeyUrls            = ["${local.om_url}/api/v1/system/config/jwks", "${local.oidc_keys_base}/keys"]
       tokenValidationAlgorithm = "RS256"
       # The login of the person (ADR 0014): the role sync joins on it, email never.
       jwtPrincipalClaims        = ["preferred_username"]

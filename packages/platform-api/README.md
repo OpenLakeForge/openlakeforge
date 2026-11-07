@@ -35,6 +35,7 @@ One JSON file, at `$OPENLAKEFORGE_PLATFORM_API_SETTINGS` (default
 | Field | Meaning |
 | --- | --- |
 | `issuer_url` | The issuer; its `/.well-known/openid-configuration` must name the same issuer |
+| `jwks_url` | Optional. Where the issuer's keys are fetched, instead of discovery at `issuer_url`; `iss` is still compared with `issuer_url` as a string |
 | `audiences` | Client ids whose tokens are accepted; at least one |
 | `role_claim`, `role_mapping` | As in `identity.oidc` (ADR 0014): the claim, and canonical role to claim values |
 | `precedence` | Canonical roles, highest first (`release/identity-roles.yaml`) |

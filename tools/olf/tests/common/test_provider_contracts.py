@@ -1528,6 +1528,24 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     jsonschema.validate(contract, SCHEMA)
 
 
+def test_an_external_issuer_has_no_internal_url() -> None:
+    contract = _oidc_contract("cognito")
+    shared = contract["shared"]["identity"]
+    external = {
+        "issuer": "external",
+        "issuer_url": shared["issuer_url"],
+        "role_claim": shared["role_claim"],
+        "role_mapping": shared["role_mapping"],
+        "client_ids": {n: c["client_id"] for n, c in shared["clients"].items()},
+    }
+    parse_provider_contracts(contract, _topology(contract, external))  # absent is fine
+    shared["internal_url"] = None
+    parse_provider_contracts(contract, _topology(contract, external))  # null is how the local root emits it
+    shared["internal_url"] = "http://idp.internal:8080"
+    with pytest.raises(ProviderContractError, match="only for an issuer OpenLakeForge deploys"):
+        parse_provider_contracts(contract, _topology(contract, external))
+
+
 def test_identity_oidc_adapter_must_correlate_with_the_profiles_issuer() -> None:
     cognito = _oidc_contract("cognito")
     with pytest.raises(ProviderContractError, match="dex adapter when spec.identity is github"):
@@ -1598,6 +1616,8 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
         (lambda i: i.__setitem__("issuer_url", "http://auth.example.com"), "an https URL"),
         (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t?realm=x"), "no query or fragment"),
         (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t#f"), "no query or fragment"),
+        (lambda i: i.__setitem__("internal_url", "ftp://dex.olf-system.svc:5556"), "internal_url must be"),
+        (lambda i: i.__setitem__("internal_url", "http://dex.olf-system.svc:5556/?x=1"), "no query or fragment"),
         (lambda i: i.pop("role_claim"), "identity.oidc requires"),
         (lambda i: i.__setitem__("implementation", "identity.local_development_credentials"), "require implementation"),
     ],

@@ -117,15 +117,22 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    is `github` it links to `https://<host>/orgs/<org>/teams` ("Manage your
    account and teams on GitHub") instead.
 
-8. **Pods reach the same URLs.** A service that validates a token calls the
-   issuer's public URL from inside the cluster, and `*.localhost` must not
-   resolve to the pod's own loopback there. The local root adds a CoreDNS
-   `rewrite` sending `<base_domain>` and every name under it to the Traefik
-   Service, and publishes the local CA root as ConfigMap `olf-local-ca`
-   (key `ca.crt`) in `olf-system` and every stage namespace for pods to
-   mount. The URL, certificate and token `iss` are then the same as in a
-   browser. The rewrite replaces the cluster's `Corefile` key, so it is
-   removed with the cluster.
+8. **Pods reach the issuer at its Service.** The issuer's public URL is the
+   token's `iss` and the browser's login page; it is compared as a string. A
+   service that validates a token fetches keys and redeems codes at the
+   `internal_url` of the `identity.oidc` contract (ADR 0014), Dex's Service
+   (`http://dex.olf-system.svc.cluster.local:5556`), over plain HTTP: the
+   perimeter proxy, Polaris and the platform API do. An `external` issuer has
+   no `internal_url` and is reached at its public, publicly trusted URL.
+   Three callers cannot yet follow the contract and still call the public URL
+   from inside the cluster: OpenMetadata (its code exchange follows the
+   discovery document, whose endpoints are public URLs), Superset (Authlib
+   discovery) and Trino's Web UI (token URL). For them the local root keeps a
+   CoreDNS `rewrite` sending `<base_domain>` and every name under it to the
+   Traefik Service, and publishes the local CA root as ConfigMap
+   `olf-local-ca` (key `ca.crt`) in `olf-system` and every stage namespace.
+   The rewrite replaces the cluster's `Corefile` key, so it is removed with
+   the cluster.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
@@ -178,6 +185,11 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
   creates the cluster.
 
 ## History
+
+Decision 8 (#991): the perimeter proxy, Polaris and the platform API reach
+Dex at its Service (`internal_url`) instead of through Traefik and the local
+CA. OpenMetadata, Superset and Trino's Web UI still use the public URL, so the
+CoreDNS rewrite and `olf-local-ca` stay for them.
 
 Decisions 2 and 9 (#960): Trino moves to a per-stage route with one Trino per
 stage (#965), and its certificate goes with the keyless engine (#967).

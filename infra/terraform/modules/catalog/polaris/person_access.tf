@@ -34,12 +34,10 @@ locals {
   # step 7), in this namespace beside Trino's own.
   people_secret_names = { for stage in keys(local.stage_catalogs) : stage => "polaris-${stage}-trino-people-creds" if local.person_access_enabled }
 
-  person_https = startswith(try(var.person_access.issuer_url, ""), "https://")
-
   person_values = !local.person_access_enabled ? [] : [yamlencode({
     authentication = { type = "mixed" }
     oidc = {
-      authServeUrl    = var.person_access.issuer_url
+      authServeUrl    = var.person_access.internal_url
       client          = { id = var.person_access.client_id }
       principalMapper = { nameClaimPath = "federated_claims/connector_id" }
       principalRolesMapper = {
@@ -48,23 +46,12 @@ locals {
         mappings       = local.person_role_mappings
       }
     }
-    advancedConfig = merge(
-      {
-        "quarkus.oidc.application-type" = "service"
-        # Dex is served by Traefik, which may come up after Polaris; the
-        # endpoints are set rather than discovered, and Polaris fetches the
-        # keys on the first token it sees.
-        "quarkus.oidc.discovery-enabled" = false
-        "quarkus.oidc.jwks-path"         = "keys"
-        "quarkus.oidc.token.issuer"      = var.person_access.issuer_url
-        "quarkus.oidc.token.audience"    = var.person_access.client_id
-      },
-      local.person_https ? {
-        "quarkus.oidc.tls.tls-configuration-name"        = "olf-local-ca"
-        "quarkus.tls.olf-local-ca.trust-store.pem.certs" = "/etc/olf/oidc-ca/ca.crt"
-      } : {},
-    )
-    extraVolumes      = local.person_https ? [{ name = "olf-oidc-ca", configMap = { name = var.person_access.ca_configmap_name } }] : []
-    extraVolumeMounts = local.person_https ? [{ name = "olf-oidc-ca", mountPath = "/etc/olf/oidc-ca", readOnly = true }] : []
+    advancedConfig = {
+      "quarkus.oidc.application-type"  = "service"
+      "quarkus.oidc.discovery-enabled" = false
+      "quarkus.oidc.jwks-path"         = "keys"
+      "quarkus.oidc.token.issuer"      = var.person_access.issuer_url
+      "quarkus.oidc.token.audience"    = var.person_access.client_id
+    }
   })]
 }
