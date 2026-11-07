@@ -50,7 +50,11 @@ def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | Non
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
-                    **({"access": {}} if contract["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    **(
+                        {"access": {"issuer": "local-ca"}}
+                        if contract["shared"]["access"]["implementation"] == "access.ingress"
+                        else {}
+                    ),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
                     **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {

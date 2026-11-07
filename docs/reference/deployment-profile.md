@@ -336,7 +336,7 @@ Without it there is no ingress at all.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `base_domain` | string | `olf.localhost` | Lowercase DNS name with at least one dot. Every service host is `<service>.<base_domain>` or `<service>-<stage>.<base_domain>`, and the portal is served at the base domain itself. |
-| `issuer` | string, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` | `local-ca` | The certificate issuer. The local provider ships only `local-ca` (a CA the platform creates) and `none`, which serves plain HTTP. |
+| `issuer` | string, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` | `none` on `local`, `local-ca` elsewhere | The certificate issuer. The local provider ships `none`, which serves plain HTTP routes, and `local-ca` (a CA the platform creates), which serves HTTPS routes. Plain HTTP is valid only on `local` with a `*.localhost` base domain. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
 
 ### `spec.identity`
 

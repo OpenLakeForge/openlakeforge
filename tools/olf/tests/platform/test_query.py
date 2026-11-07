@@ -215,7 +215,7 @@ def test_a_deployment_without_github_sign_in_points_to_the_workload_path(tmp_pat
     profile.write_text(
         "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
         "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n"
-        "  access: {base_domain: olf.example.com}\n"
+        "  access: {base_domain: olf.example.com, issuer: local-ca}\n"
         "  identity: {issuer: external, issuer_url: 'https://login.example.com', role_claim: groups,"
         " role_mapping: {platform-admin: [admins]}}\n"
     )

@@ -225,9 +225,9 @@ variable "access_base_domain" {
 }
 
 variable "access_issuer" {
-  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` serves every route over plain HTTP: no route certificates and no browser-facing CA."
+  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` (the local default) serves every route over plain HTTP: no route certificates and no browser-facing CA. `local-ca` terminates TLS at Traefik with the local CA. Trino's own certificate (ADR 0016) needs cert-manager either way."
   type        = string
-  default     = "local-ca"
+  default     = "none"
 
   validation {
     condition     = contains(["local-ca", "none"], var.access_issuer)

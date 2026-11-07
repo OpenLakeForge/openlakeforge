@@ -43,6 +43,10 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `spec.access.issuer` defaults to `none` (plain HTTP on `*.olf.localhost`) for the local provider; the other
+  providers keep `local-ca`. cert-manager and the local CA are unchanged: they still issue Trino's certificate
+  (ADR 0016), so only the scheme of the routes differs. The conformance profile pins `issuer: local-ca`, so the
+  nightly keeps exercising the HTTPS routes.
 - `--provider` is now optional on `olf infra deploy|plan|doctor|destroy|status|forward` and on the commands that
   read a deployed stack's contracts (`olf infra dbt`, `catalog`, `superset`, `openmetadata`): it defaults to the
   Deployment Profile's `spec.provider.type` instead of silently to `local`, so `olf infra deploy` is enough.
@@ -142,6 +146,11 @@ for how a release is cut and verified.
   runtimes is unchanged.
 
 ### Migration
+
+- A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP routes.
+  Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Run `olf infra deploy` to apply the
+  change; re-register the GitHub App (`olf infra secrets rotate github-app`) afterwards, because its callback URL
+  names the scheme.
 
 - If `olf` reports provider contract schema `2.0.0` as unsupported, the platform state predates v0.3,
   and its shared services still run in the `lakehouse` namespace. The platform apply refuses to

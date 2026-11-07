@@ -32,7 +32,11 @@ def build_contract_env(base: dict, contracts: dict | None, *, repo_root: Path) -
                         **({"region": deployment["region"]} if deployment["region"] else {}),
                     },
                     "preset": "slim",
-                    **({"access": {}} if contracts["shared"]["access"]["implementation"] == "access.ingress" else {}),
+                    **(
+                        {"access": {"issuer": "local-ca"}}
+                        if contracts["shared"]["access"]["implementation"] == "access.ingress"
+                        else {}
+                    ),
                     # Authentication off is local-only, so cloud fixtures carry an identity block.
                     **({"identity": _EXTERNAL_IDENTITY} if deployment["provider"] != "local" else {}),
                     "stages": {

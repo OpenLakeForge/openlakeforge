@@ -99,7 +99,7 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                     "preset": "slim",
                     "stages": stages,
                     **(
-                        {"access": access or {}}
+                        {"access": access or {"issuer": "local-ca"}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
