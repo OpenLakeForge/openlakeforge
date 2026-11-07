@@ -99,6 +99,13 @@ volume quantities, and there is no per-stage size, because one Trino serves
 every stage. Both default to `small`, which is today's footprint, so a profile
 without the fields resolves and renders exactly as before.
 
+**Decided, not built (#965):** each stage gets its own Trino (ADR 0019
+section 9), so `spec.query.size` becomes the default for every stage and
+`stages.<stage>.query.size` overrides it, letting a small DEV sit beside a
+larger PROD. It lands before the v1beta1 freeze (#532), because a
+platform-wide query size frozen in the beta could not become per stage without
+a breaking change.
+
 Only tiers with a tested backend are accepted. For `query`, `medium` and
 `large` are part of the vocabulary but fail validation, naming the issue that
 will implement them (#324, Trino workers), rather than being accepted as a
@@ -283,3 +290,6 @@ instead of to `local`. A `--provider` that contradicts an existing profile now
 fails instead of warning and resolving a single DEV stage, and `--profile
 slim|full` no longer bypasses the profile file: an invalid or mismatched one
 fails closed. Without a profile file the shorthand behaves as before.
+
+2026-11-07 (#960): per-stage query size decided with one Trino per stage (#965), before the
+v1beta1 freeze; nothing built.

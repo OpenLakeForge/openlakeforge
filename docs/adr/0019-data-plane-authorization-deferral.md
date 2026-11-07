@@ -2,6 +2,10 @@
 
 ## Status
 
+**Extended, not built (#960):** Polaris becomes the authority for **every**
+caller, workloads included, not only people (section 9). The rest of this
+status describes what is built today.
+
 **Built** for the local provider with `spec.identity.issuer: github` (#674,
 build steps 1 to 8): this is the design for #367. A person signs in with
 `olf login` and runs SQL as themself with `olf query` (section 6). Trino
@@ -311,6 +315,83 @@ pull request").
 | `identity-callers.md`, `identity-classes.md` | `olf query` is a class-1 (human) caller from the workstation through the ingress; the workload path stays class 2 |
 | `docs/reference/roles-and-permissions.md` | The data-access matrix |
 
+### 9. Every caller through Polaris (#960)
+
+**Decided, not built.** Sections 1 to 8 move people to Polaris. Workloads still
+go through a Trino that holds every stage's Polaris credential and a static S3
+key (`modules/query/trino`), so Trino has to tell its callers apart itself
+(ADR 0016). That makes Trino a second policy point and is the only reason the
+platform needs workload authentication on Trino, and with it HTTPS and an
+internal CA: Trino authenticates only a request it considers secure, and on
+plain HTTP it accepted any `X-Trino-User` without checking a password (#932,
+reverted in #938). Section 3's rule 2, "no engine
+holds a storage key", is extended from the person path to every path.
+
+| Caller | Identity presented to Polaris | Polaris grants |
+| --- | --- | --- |
+| Person, `olf query` | their Dex token (built) | section 1 matrix |
+| Superset user, per stage | their Dex token, through Superset's per-database OAuth2 | section 1 matrix |
+| dbt, through the stage's Trino | `olf-<stage>-processing` | `CATALOG_MANAGE_CONTENT` on its own stage catalog only |
+| Floe, direct to Polaris | `olf-<stage>-processing` | the same |
+| OpenMetadata crawler | `openmetadata` | read on every stage catalog |
+| Superset cache warm-up, alerts, thumbnails | none: they stay disabled | none |
+
+1. **One Trino per stage** (#965). Each stage's coordinator holds only its own
+   stage's catalogs and is reachable only from its stage namespace, the
+   OpenMetadata crawl Job and Traefik (ADR 0017). Stage isolation no longer
+   depends on Trino rules.
+2. **Processing principals** (#966). One writer per stage replaces the
+   per-stage `trino` and `floe` principals. It never manages grants and has no
+   grant on another stage, so DEV's pipeline cannot write PROD. It is not an
+   administrator.
+3. **Keyless engine** (#967). Every Trino catalog takes the people-catalog
+   shape of section 4 step 7: `session=USER`, vended credentials, no static S3
+   key, and a catalog credential with no grant. Every caller sends its own
+   token as the `token` extra credential. Trino then carries no roles, no
+   rules and no credential worth stealing, and needs no authentication of its
+   own. A query engine added later (DuckDB, #888) follows the same adapter
+   rules with nothing to configure in policy.
+4. **Superset per user** (#968). The viewer's dashboard returns what the
+   viewer's role reaches in Polaris. Results are cached per user.
+5. **OpenMetadata governs its own users** (#969). OpenMetadata never
+   queries data for the person signed in to it: it shows what its crawler
+   collected, and its own roles, mapped from Dex groups, decide what a person
+   sees there (ADR 0014). Its crawler presents the `openmetadata` token and
+   may read every stage catalog (maintainer decision). A metadata-only grant
+   was tested and rejected: on a catalog that asks for vended credentials,
+   Polaris 1.8.0 refuses `LOAD_TABLE` to a principal without `TABLE_READ_DATA`,
+   even for its columns (#963), so the crawler would see no table.
+6. **Bronze leaves the matrix** (#966). Bronze is raw files with no catalog
+   namespace (#950), so no Polaris grant can reach it; the `bronze` column of
+   `data_access` is removed and Bronze isolation stays the stage's own object
+   store identity.
+
+Four spikes were run on the pinned Trino 480, Polaris 1.8.0 and SeaweedFS
+4.48 (STS on), dbt-trino 1.10.2 and the Superset 6.1.0 image:
+
+| Spike | Result | What the build must do |
+| --- | --- | --- |
+| S4, keyless unauthenticated Trino (#964) | Fails closed, run. No token: every statement fails (Trino exchanges its unsigned JWT and Polaris answers 400). A token without the grant: 403. `X-Trino-User` labels the session and never changes the decision. A location override, `register_table` (Trino refuses to start it beside vended credentials) and `add_files` cannot reach storage outside the vended table scope. An expired token falls back to the catalog's own credential, which holds no grant, so 403 | Keep the catalog credential grantless; it is what makes the fallback inert |
+| S1, dbt with a workload token (#961) | Works unpatched, run: profile `http_headers` carries `X-Trino-Extra-Credential: token=`. `table` and `incremental` merge write their own stage; the same token on another stage gets 403 | Mint one token per dbt invocation (it is frozen for the run, 1 hour by default, `polaris.authentication.token-broker.max-token-generation`). Set `view_security: invoker` on Gold models: a definer view is re-read without the caller's token and breaks the merge |
+| S2, Superset per user (#962) | Works with a `DB_CONNECTION_MUTATOR` module, run against the image with a fake Trino and Dex. The same module fixes a stock 6.1.0 bug: a refresh token Dex refuses leaves the user stuck instead of signing in again | Dex `trustedPeers` adds `superset` to `olf-cli`; no audience change in Polaris or Trino. Per-user result cache on. Alerts, reports and thumbnails stay disabled: their executors are local accounts with no Dex token |
+| S3, OpenMetadata crawl (#963) | The crawl needs no rows, and its token passes as `connectionArguments.extra_credential`, run. A metadata-only principal sees no table on a vended catalog (point 5) | Superseded by point 5: the crawler reads with its own token |
+
+There is no fallback: Trino keeps no credential and no authentication. Stage
+isolation rests on the Polaris grant of the token each caller presents, and on
+the NetworkPolicy of point 1.
+
+A keyless Trino catalog with no static key falls back to the AWS SDK's default
+credential chain (environment, IRSA, instance profile) for anything outside
+vended credentials (#963). The build closes that chain on the Trino pods; a
+coordinator with ambient cloud credentials would otherwise read storage with
+them.
+
+| Accepted cost | Why |
+| --- | --- |
+| Vended credentials make STS a requirement of the object-store adapter | Proven on SeaweedFS (section 3, finding 3). An on-premises S3-compatible store without STS (#803) cannot run the keyless engine; AWS waits for Polaris instead of Glue (#681) |
+| Without Trino authentication, the user in Trino's query log is a claim | Access is decided by the token alone (#964 ran it). Polaris still records the principal `github`, not the person, so per-person audit is weaker than with Trino authentication |
+| One coordinator per stage | About 2 Gi of memory requested per extra stage at `small`. A single-stage Slim deployment is unchanged |
+
 ## Build sequence
 
 Split along the seams `AGENTS.md` names, each with its tests:
@@ -439,7 +520,7 @@ follow-up.
 - Human queries depend on Dex; pipelines, dashboards and the
   `--as-workload` path do not.
 - The ADR 0016 `principals` rules stay, with one rule added for e-mail
-  principals, until they are replaced by `impersonation` rules.
+  principals, until section 9 removes them with Trino authentication (#967).
 
 ## History
 
@@ -574,3 +655,10 @@ Polaris bootstrap in `olf` (#562): the principals, roles and grants in
 section 5 are created by `olf` after the platform apply, not by the deleted
 Terraform Job; `olf` restarts Trino whenever a people catalog credential
 differs from the one its pods started with.
+
+Section 9 (#960): Polaris decides for every caller, workloads included; one
+Trino per stage, per-stage processing principals, a keyless engine,
+Superset per user, OpenMetadata governing its own users, and Bronze out of
+`data_access`. Spikes #961 to #964 ran on the pinned stack; the fallback is
+dropped and the metadata-only crawler replaced by a reading one. Nothing
+built.

@@ -2,6 +2,16 @@
 
 ## Status
 
+**To be retired (#960).** Trino authenticates workloads because one
+coordinator holds every stage's Polaris credential and a static S3 key.
+ADR 0019 section 9 removes both causes: one Trino per stage (#965) makes the
+stage boundary a network boundary, and a keyless engine (#967) leaves Trino no
+credential to protect, so Polaris decides every call from the caller's own
+token. Spikes #961 and #964 confirmed it on the pinned stack, so this
+record's password authentication, `principals` rules, credential Job and
+HTTPS listener are removed with #967. Until then, the rest of this record
+binds as written.
+
 Decided, proven in isolation, and **migrated on the local root**: step 4 (the
 `password` default and the isolation gate) is done (#471). AWS and Azure remain
 unauthenticated. Built: the
@@ -360,3 +370,8 @@ authentication` (observed in the coordinator of the full local e2e). Password
 authentication holds only on the HTTPS listener, or on a request Traefik marks
 `X-Forwarded-Proto: https`; the HTTPS-only listener above is therefore the
 decision, not a preference.
+
+#960: scheduled for retirement. ADR 0019 section 9 makes Polaris the authority
+for workloads as well as people, with one Trino per stage and no credential in
+Trino; this record's mechanism stays binding until #967 removes it. Spikes
+#961 and #964 confirmed the keyless engine, so no fallback is kept.
