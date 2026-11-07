@@ -153,3 +153,57 @@ def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monke
         "olf-system/seaweedfs-s3-creds/AWS_SECRET_ACCESS_KEY": "a" * 40,
         "olf-dev/seaweedfs-dev-s3-creds/AWS_SECRET_ACCESS_KEY": "b" * 40,
     }
+
+
+def _backup_directory(tmp_path: Path) -> Path:
+    backup = tmp_path / "backup"
+    (backup / "postgres").mkdir(parents=True)
+    (backup / "objects" / "bronze").mkdir(parents=True)
+    (backup / "postgres" / "polaris.dump").write_bytes(b"PGDMP\x00\xff\xfe" + CLIENT.encode() + b"\x00")
+    (backup / "objects" / "bronze" / "orders.csv").write_text("id,total\n1,10\n")
+    (backup / "secrets.enc").write_bytes(b"OLFSEC\x01" + ADMIN.encode())
+    return backup
+
+
+def test_a_secret_in_a_binary_backup_file_is_found_by_path_and_the_excluded_bundle_is_not_read(tmp_path: Path) -> None:
+    backup = _backup_directory(tmp_path)
+
+    with pytest.raises(E2EError) as raised:
+        exposure.scan(CREDENTIALS, exposure.file_surfaces([backup], exclude={"secrets.enc"}))
+
+    message = str(raised.value)
+    dump = backup / "postgres" / "polaris.dump"
+    assert f"{dump} contains the value of Secret dex-client-perimeter/client-secret" in message
+    assert "secrets.enc" not in message and "dex-admin-creds" not in message
+    assert CLIENT not in message and ADMIN not in message
+
+
+def test_file_surfaces_walk_directories_and_take_single_files(tmp_path: Path) -> None:
+    backup = _backup_directory(tmp_path)
+
+    surfaces = exposure.file_surfaces([backup, backup / "objects" / "bronze" / "orders.csv"], exclude={"secrets.enc"})
+
+    assert sorted(Path(path).name for path in surfaces) == ["orders.csv", "polaris.dump"]
+
+
+def test_a_clean_directory_passes_and_an_environment_value_is_scanned_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "backup.log").write_text("Backed up 5 databases\n")
+    monkeypatch.setattr(exposure, "secret_values", lambda _cfg: dict(CREDENTIALS))
+    passphrase = "pass-phrase-0123456789abcdef"
+
+    exposure.check_files_for_exposure(_cfg(), [logs], extra={"backup passphrase": passphrase})
+    (logs / "restore.log").write_text(f"passphrase={passphrase}\n")
+    with pytest.raises(E2EError) as raised:
+        exposure.check_files_for_exposure(_cfg(), [logs], extra={"backup passphrase": passphrase})
+
+    assert "restore.log contains the value of Secret backup passphrase" in str(raised.value)
+    assert passphrase not in str(raised.value)
+
+
+def test_a_path_that_does_not_exist_is_an_error_not_a_clean_scan(tmp_path: Path) -> None:
+    with pytest.raises(E2EError, match="cannot scan .*missing: not found"):
+        exposure.check_files_for_exposure(_cfg(), [tmp_path / "missing"])

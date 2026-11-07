@@ -28,6 +28,10 @@ for how a release is cut and verified.
 - A guide, [Back up and restore](docs/guides/backup-and-restore.md), covers the backup and restore commands, where
   to keep the backup and its passphrase, rebuilding the cluster and restoring onto it, and the manual `pg_dump` and
   S3 fallbacks (#913).
+- The nightly local full e2e ends with a restore drill (`.github/actions/restore-drill`): it records a durability
+  baseline, backs up, destroys the cluster, creates the platform again, restores, verifies every stage and scans the
+  logs and the backup for Secret values with the new `olf infra e2e secret-scan`. A manual run opts in with the
+  `restore_drill` input (#913).
 - `olf infra e2e durability capture` and `verify` record a local stage's tables, snapshot ids, Dagster runs,
   Superset dashboards, OpenMetadata entities, activation pointer and bucket contents (key and size), then report
   everything missing or changed afterwards, without launching a pipeline (#908).
