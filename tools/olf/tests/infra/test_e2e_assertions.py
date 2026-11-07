@@ -190,7 +190,7 @@ def test_discovered_dashboards_checks_every_dashboard_declared_for_a_product(tmp
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -260,7 +260,7 @@ def test_discovered_dashboards_skips_a_canonical_product_with_no_declared_dashbo
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM

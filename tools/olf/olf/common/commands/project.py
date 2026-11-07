@@ -34,46 +34,45 @@ def migrate(
     """Rewrite the project's descriptors to the current API versions.
 
     governance.yml: v1beta1 -> v1beta2, nesting each root product under its
-    domain. Refuses, leaving every file untouched, on an unknown domain, a
-    duplicate id, or a layout it cannot rewrite safely."""
+    domain. bronze/*/source.yaml: v1alpha3 -> v1beta1. Refuses, leaving every
+    file untouched, if any descriptor cannot be migrated safely."""
     import difflib
     import os
 
     from olf.common.commands._project import writable_project_root
-    from olf.common.governance_migration import MigrationError, is_legacy_governance, migrate_governance_text
+    from olf.common.descriptor_migration import MigrationError, plan_project_migration
 
     try:
-        path = writable_project_root(repo_root) / "lakehouse_code" / "governance.yml"
+        root = writable_project_root(repo_root)
+        changes = plan_project_migration(root)
     except RuntimeError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
-    if not path.is_file():
-        typer.echo("Nothing to migrate: no lakehouse_code/governance.yml.")
-        return
-    original = path.read_text(encoding="utf-8")
-    if not is_legacy_governance(original):
-        typer.echo("lakehouse_code/governance.yml is already current.")
-        return
-    try:
-        migrated = migrate_governance_text(original, source="lakehouse_code/governance.yml")
     except MigrationError as exc:
         raise typer.Exit(code=fail(f"{exc}\nNo file was changed.")) from exc
-    typer.echo(
-        "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                migrated.splitlines(keepends=True),
-                "a/lakehouse_code/governance.yml",
-                "b/lakehouse_code/governance.yml",
-            )
-        ),
-        nl=False,
-    )
+    if not changes:
+        typer.echo("Descriptors are already current; nothing to migrate.")
+        return
+    for change in changes:
+        relative = change.path.relative_to(root).as_posix()
+        typer.echo(
+            "".join(
+                difflib.unified_diff(
+                    change.original.splitlines(keepends=True),
+                    change.migrated.splitlines(keepends=True),
+                    f"a/{relative}",
+                    f"b/{relative}",
+                )
+            ),
+            nl=False,
+        )
     if dry_run:
         return
-    staged = path.with_name(path.name + ".migrating")
-    staged.write_text(migrated, encoding="utf-8")
-    os.replace(staged, path)
-    typer.echo("Migrated lakehouse_code/governance.yml to openlakeforge.io/v1beta2.")
+    staged = [(change.path.with_name(change.path.name + ".migrating"), change) for change in changes]
+    for temporary, change in staged:
+        temporary.write_text(change.migrated, encoding="utf-8")
+    for temporary, change in staged:
+        os.replace(temporary, change.path)
+    typer.echo(f"Migrated {len(changes)} descriptor(s) to the current API versions.")
 
 
 @app.command("graph")

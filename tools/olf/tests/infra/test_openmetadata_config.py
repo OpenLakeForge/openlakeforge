@@ -40,7 +40,7 @@ domains:
         encoding="utf-8",
     )
     source_path.write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
