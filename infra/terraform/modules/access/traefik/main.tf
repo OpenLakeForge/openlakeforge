@@ -165,7 +165,9 @@ resource "helm_release" "edge" {
   values = [
     file(var.base_values_file),
     yamlencode({
-      ingressClass = { enabled = false }
+      # Otherwise the chart names the Service edge-traefik, and the CoreDNS rewrite would point at nothing.
+      fullnameOverride = local.edge_name
+      ingressClass     = { enabled = false }
       providers = {
         kubernetesIngress = { enabled = false }
         kubernetesCRD     = { enabled = false }
