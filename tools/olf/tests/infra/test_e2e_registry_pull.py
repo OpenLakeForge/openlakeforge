@@ -49,6 +49,13 @@ def test_a_different_secret_does_not_count() -> None:
     assert missing == ["Deployment/code"]
 
 
+def test_workloads_created_since_the_baseline_exclude_earlier_ones() -> None:
+    old = {"kind": "Job", "metadata": {"name": "dagster-run-old"}}
+    new = {"kind": "Job", "metadata": {"name": "dagster-run-new"}}
+
+    assert registry_pull.created_since([old, new], {("Job", "dagster-run-old")}) == [new]
+
+
 class _Response:
     def __init__(self, status: int, *, headers: dict[str, str] | None = None, body: dict[str, str] | None = None):
         self.status_code = status
@@ -130,6 +137,7 @@ class Cluster:
         self.pods: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
         self.counter = 0
+        self.history: list[dict[str, Any]] = []
         self.secret_on_deployment = secret_on_deployment
         self._start_pod("code-location", "w1")
 
@@ -169,8 +177,11 @@ class Cluster:
         if verb == "get" and args[1] == "events":
             return json.dumps({"items": self.events})
         if verb == "get" and args[1].startswith("deployments"):
+            kinds = args[1].split(",")
             deployment = _deployment("code-location", secrets=(SECRET,) if self.secret_on_deployment else ())
-            return json.dumps({"items": [deployment, *self.pods.values()]})
+            pods = self.pods.values() if "pods" in kinds else ()
+            history = self.history if "jobs" in kinds else ()
+            return json.dumps({"items": [deployment, *history, *pods]})
         if verb == "get" and args[1] == "pods":
             selector = args[args.index("-l") + 1]
             wanted = selector.split("=", 1)[1]
@@ -264,3 +275,31 @@ def test_static_only_touches_no_node(cluster: Cluster) -> None:
     registry_pull.check(_cfg(), static_only=True)
 
     assert IMAGE in cluster.cache["w1"] and IMAGE in cluster.cache["w2"]
+
+
+def test_run_jobs_from_before_the_secret_was_configured_are_not_judged(cluster: Cluster) -> None:
+    # The DEV suite ran before `pull_secret_ref` existed; its Jobs keep the spec they were created with.
+    pod = {"containers": [{"image": IMAGE}]}
+    cluster.history.append(
+        {"kind": "Job", "metadata": {"name": "dagster-run-historic"}, "spec": {"template": {"spec": pod}}}
+    )
+
+    registry_pull.check(_cfg())
+
+
+def test_a_run_job_created_after_activation_without_the_secret_fails(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pod = {"containers": [{"image": IMAGE}]}
+
+    def launch(_cfg: object, _client: object, job: str) -> str:
+        cluster._start_pod("run", run="run-1")
+        cluster.history.append(
+            {"kind": "Job", "metadata": {"name": "dagster-run-fresh"}, "spec": {"template": {"spec": pod}}}
+        )
+        return "run-1"
+
+    monkeypatch.setattr(registry_pull, "launch_and_poll", launch)
+
+    with pytest.raises(E2EError, match=r"Job/dagster-run-fresh"):
+        registry_pull.check(_cfg())

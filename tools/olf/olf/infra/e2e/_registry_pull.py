@@ -5,9 +5,10 @@ never seen it. On kind that is not true by default: activation pulls the image o
 node (`load_digest_image_into_kind`), so a missing or wrong `imagePullSecrets` entry stays hidden until the cache is
 gone. This check removes the cache and proves the kubelet pulls again, with the Secret.
 
-Static: every workload and pod that runs the active project image lists the Secret, and the `dagster` ServiceAccount
-does too (Floe Jobs are created at run time and can only inherit it from there). Live: remove the image from every
-node, restart the code locations, launch a run, and require a real pull event for each new pod. The check is
+Static: every Deployment, StatefulSet and CronJob that runs the active project image lists the Secret, and the
+`dagster` ServiceAccount does too (Floe Jobs are created at run time and can only inherit it from there). Run Jobs and
+Pods are judged only when created after the check starts: earlier ones are immutable history. Live: remove the image
+from every node, restart the code locations, launch a run, and require a real pull event for each new pod. The check is
 meaningless for a public image, so it refuses one unless told otherwise. It never reads a Secret's data.
 """
 
@@ -36,8 +37,12 @@ from olf.infra.e2e._dagster import (
 )
 from olf.infra.e2e._shell import E2EConfig, E2EError, _run, cfg_environ, kubectl
 
-# Everything that can carry a pod spec; Pods themselves are listed too, for the ones a Job made at run time.
-WORKLOAD_KINDS = ("deployments", "statefulsets", "cronjobs", "jobs", "pods")
+# What the activation renders and keeps: their pod templates change with every activation. Jobs and Pods are not
+# here on purpose: a Job's template is immutable, so the Dagster run Jobs of an earlier suite keep the spec they were
+# created with and say nothing about the current activation.
+CONTROLLER_KINDS = ("deployments", "statefulsets", "cronjobs")
+# Everything that can carry a pod spec; Jobs and Pods are the ones the run launcher and Floe make at run time.
+WORKLOAD_KINDS = (*CONTROLLER_KINDS, "jobs", "pods")
 CODE_LOCATION_SELECTOR = "app.kubernetes.io/name=dagster-user-deployments"
 ROLLOUT_TIMEOUT = "300s"
 MANIFEST_ACCEPT = ", ".join(
@@ -75,16 +80,25 @@ def workloads_missing_entry(items: Sequence[Mapping[str, Any]], image: str, secr
     return missing, users
 
 
-def _workloads(cfg: E2EConfig) -> list[dict[str, Any]]:
-    payload = json.loads(
-        kubectl(cfg, ["get", ",".join(WORKLOAD_KINDS), "-n", cfg.namespace, "-o", "json"], capture=True)
-    )
+def _workloads(cfg: E2EConfig, kinds: Sequence[str] = WORKLOAD_KINDS) -> list[dict[str, Any]]:
+    payload = json.loads(kubectl(cfg, ["get", ",".join(kinds), "-n", cfg.namespace, "-o", "json"], capture=True))
     return list(payload.get("items", []))
+
+
+def _identity(item: Mapping[str, Any]) -> tuple[str, str]:
+    return str(item.get("kind")), str(item.get("metadata", {}).get("name"))
+
+
+def created_since(items: Sequence[Mapping[str, Any]], baseline: set[tuple[str, str]]) -> list[Mapping[str, Any]]:
+    """Items that were not in `baseline`: workloads made after it was taken."""
+    return [item for item in items if _identity(item) not in baseline]
 
 
 def check_static(cfg: E2EConfig, image: str, secret_name: str) -> int:
     """Fail unless all workloads with `image` and the dagster ServiceAccount list `secret_name`; returns the count."""
-    missing, users = workloads_missing_entry(_workloads(cfg), image, secret_name)
+    # Controllers only: Jobs and Pods left by runs from before this activation were created without the Secret
+    # and cannot be edited; the run check below proves the ones created after it.
+    missing, users = workloads_missing_entry(_workloads(cfg, CONTROLLER_KINDS), image, secret_name)
     account = kubectl(
         cfg,
         ["get", "serviceaccount", "dagster", "-n", cfg.namespace, "-o", "jsonpath={.imagePullSecrets[*].name}"],
@@ -301,6 +315,9 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
     if not cfg.inventory.products:
         raise E2EError("the project has no product to launch a run for.")
     purge_image(cfg, image)
+    # Jobs and Pods from earlier runs (the DEV suite runs before the Secret exists) keep the spec they were created
+    # with, so only what appears after this point says whether the launcher carries the Secret.
+    before = {_identity(item) for item in _workloads(cfg)}
     with dagster_client(cfg) as client:
         run_id = launch_and_poll(cfg, client, cfg.inventory.products[0].job_name)
     payload = json.loads(
@@ -313,10 +330,11 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
         raise E2EError(f"run {run_id} left no pod running {image} to inspect.")
     _require_pulled(cfg, _names(run_pods), image, what=f"run {run_id}")
     # Floe Jobs exist only while a run is in flight, so the pods this run left are the only live look at them.
-    missing, users = workloads_missing_entry(_workloads(cfg), image, _pull_secret_name(cfg))
+    fresh = created_since(_workloads(cfg), before)
+    missing, users = workloads_missing_entry(fresh, image, _pull_secret_name(cfg))
     if missing:
         raise E2EError(f"after the run, {', '.join(missing)} run {image} without the pull Secret.")
-    log.info(f"{users} workload(s) running the image list the pull Secret after the run.")
+    log.info(f"{users} workload(s) created by the run list the pull Secret.")
 
 
 def _check_fresh_node(cfg: E2EConfig, image: str) -> None:
