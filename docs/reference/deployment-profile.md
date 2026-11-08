@@ -41,7 +41,7 @@ spec:
       enabled: true
   access:
     base_domain: olf.localhost
-    issuer: local-ca
+    tls: local-ca
   identity:
     issuer: github
     github:
@@ -68,7 +68,7 @@ spec:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. |
+| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. It is also the prefix of the local and Azure buckets (`<name>-<stage>-<layer>`, `<name>-ops`, ADR 0004), so it is at most 51 characters and cannot start with `xn--`. Changing it on a deployed local or Azure platform renames the buckets: see "Renaming buckets" in [Back up and restore](../guides/backup-and-restore.md). |
 
 ---
 
@@ -82,15 +82,21 @@ spec:
 | `access` | object | no | absent: no ingress | How user-facing services are published. |
 | `identity` | object | no | absent: sign-in off | Who may sign in and which roles they hold. |
 | `project` | object | no | absent: the public example image | Your project's source repository and image registry. |
-| `query` | object | no | `size: small` | Size of the shared Trino. |
+| `query` | object | no | `size: small` | Default Trino size for every stage. |
 | `storage` | object | no | `size: small` | Size of self-hosted object storage (SeaweedFS). Rejected on `aws`. |
 
 ### `spec.provider`
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `type` | `local`, `aws` or `azure` | yes | The deployment target. `local` is a kind cluster on this machine. |
+| `type` | `local`, `aws` or `azure` | yes | The deployment target. `local` is a kind cluster on this machine. `aws` and `azure` are preview: the schema accepts them, but the beta compatibility promise covers `local` only (see [releasing.md](../release/releasing.md#lifecycle-stages)). `olf profile validate` prints a notice for them. |
 | `region` | string, non-empty | no | Cloud region. Rejected when `type` is `local`. Used for `aws`; when unset, `AWS_REGION` and then `eu-west-1` apply. For `azure` the region comes from the foundation tfvars (`AZURE_TFVARS_FILE`). |
+
+`type` selects the deployment target and the default adapter for each
+capability: object storage, metadata database and catalog. Later releases add
+per-capability fields that override one default (an existing cluster, an
+external S3 bucket, an external PostgreSQL) without changing what `type`
+means.
 
 ### `spec.preset`
 
@@ -104,13 +110,17 @@ states its capabilities keeps its own values.
 
 ### `spec.query` and `spec.storage`
 
-Each takes one optional field, `size`, which defaults to `small`. There is one
-size for the whole platform, not one per stage: a single Trino serves every
-stage.
+Each takes one optional field, `size`, which defaults to `small`.
+`spec.storage.size` is one size for the whole platform. `spec.query.size` is
+the default for every stage, and `stages.<stage>.query.size` overrides it for
+one stage (a small DEV beside a larger PROD). Today one shared Trino is still
+rendered, at the largest enabled stage's size; a coordinator per stage lands
+with #965.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `spec.query.size` | `small` | `small` | The shared Trino. `small` is coordinator only, no workers. |
+| `spec.query.size` | `small` | `small` | Default Trino size for every stage. `small` is coordinator only, no workers. |
+| `spec.stages.<stage>.query.size` | `small` | `spec.query.size` | That stage's Trino size; same values and rejections as `spec.query.size`. |
 | `spec.storage.size` | `small`, `medium`, `large` | `small` | The SeaweedFS object storage volumes. Not valid on `aws`. |
 
 `query.size` accepts only `small`: `medium` and `large` fail validation with a
@@ -118,8 +128,8 @@ message naming the issue that will implement them (#324), so a profile never
 asks for capacity the deployment does not provide. Any other value, and any
 CPU, memory, worker or volume field, is rejected as an unknown value or field.
 A profile that omits both fields deploys exactly as it did before they existed,
-and `olf profile resolve` prints the effective sizes (`sizes: query=small
-storage=small`; `query` and `storage` in `--json`).
+and `olf profile resolve` prints `sizes: storage=small` and each enabled
+stage's `query=` size (`query` and `storage` in `--json`, `query` per stage).
 
 `query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
 workers, heap, memory, per-query limits and `query.max-stage-count`. It changes only the Trino Helm
@@ -338,7 +348,7 @@ Without it there is no ingress at all.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `base_domain` | string | `olf.localhost` | Lowercase DNS name with at least one dot. Every service host is `<service>.<base_domain>` or `<service>-<stage>.<base_domain>`, and the portal is served at the base domain itself. |
-| `issuer` | string, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` | `none` on `local`, `local-ca` elsewhere | The certificate issuer. The local provider ships `none`, which serves plain HTTP routes, and `local-ca` (a CA the platform creates), which serves HTTPS routes. Plain HTTP is valid only on `local` with a `*.localhost` base domain. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
+| `tls` | `none`, `local-ca` or `external` | `none` on `local`, `local-ca` elsewhere | Who terminates TLS for the routes. `none` serves plain HTTP and is valid only on `local` with a `*.localhost` base domain. `local-ca` signs the routes with a CA the platform creates; it is for evaluation, because every browser must trust that CA (`olf infra access trust`). `external` means your own proxy, tunnel or load balancer terminates HTTPS in front of OpenLakeForge: Traefik serves HTTP and every generated URL, callback and cookie is `https://`; it needs a `base_domain` that does not end in `.localhost`. The local provider does not deploy `external` yet (#990). `issuer` is the v1alpha1 name of this field: it is still read as `tls`, and setting both is an error. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
 
 ### `spec.identity`
 
@@ -412,14 +422,16 @@ is a public client and has no Secret.
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
 | Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf infra forward`. |
 | A local project names its image | `type: local` declares `spec.project` without `image.repository`: kind has no default registry. |
-| Plain HTTP is local-only | `spec.access.issuer` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
+| Plain HTTP is local-only | `spec.access.tls` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
+| External TLS needs a public name | `spec.access.tls` is `external` and `base_domain` ends in `.localhost`: no upstream proxy can terminate TLS there. |
+| One TLS field | `spec.access` sets both `tls` and `issuer`. |
 | Issuer shape | `external` lacks `issuer_url`, `role_claim` or `role_mapping`; `github` lacks `github` or sets `issuer_url`, `role_claim` or `role_mapping`; `github` is set without `issuer: github`; `client_ids` is set without `issuer: external`. |
 
-On `local`, `olf infra deploy` also refuses a `spec.access.issuer` other than
-`local-ca` or `none` before it creates the cluster.
+On `local`, `olf infra deploy` also refuses a `spec.access.tls` other than
+`local-ca` or `none` (`external` is refused until #990) before it creates the cluster.
 
 > [!NOTE]
-> `olf init` writes a profile with `access: {issuer: none}` and no
+> `olf init` writes a profile with `access: {tls: none}` and no
 > `spec.identity`: plain HTTP on `*.olf.localhost` with authentication off.
 
 ---

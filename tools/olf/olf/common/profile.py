@@ -42,7 +42,10 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project", "query", "storage"}
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
-_ACCESS_FIELDS = {"base_domain", "issuer"}
+_ACCESS_FIELDS = {"base_domain", "tls"}
+# v1alpha1 spelled the TLS mode `issuer`; it is read as `tls` (see _validate_access).
+_ACCESS_FIELDS_V1ALPHA1 = _ACCESS_FIELDS | {"issuer"}
+_TLS_MODES = ("none", "local-ca", "external")
 _IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "github"}
 _IDENTITY_ISSUERS = ("external", "github")
 _GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref", "host"}
@@ -73,7 +76,7 @@ _IMAGE_REPOSITORY_PATTERN_SOURCE = (
 _IMAGE_REPOSITORY_PATTERN = re.compile(_IMAGE_REPOSITORY_PATTERN_SOURCE)
 # The package the release publishes: `<IMAGE_NAMESPACE>/project-code` in release.yml, namespaced by the repository.
 PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/openlakeforge/project-code"
-_STAGE_FIELDS = {"enabled", "capabilities", "source_egress"}
+_STAGE_FIELDS = {"enabled", "capabilities", "source_egress", "query"}
 _SOURCE_EGRESS_FIELDS = {"ports"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
 
@@ -89,6 +92,35 @@ class StageName(StrEnum):
     DEV = "dev"
     UAT = "uat"
     PROD = "prod"
+
+
+# Object-store bucket names are `<prefix>-<stage>-<layer>` on every provider (ADR 0004) and the prefix is
+# `metadata.name`. S3 and Azure cap a bucket name at 63 characters, so the prefix budget is what remains after the
+# longest suffix, `-prod-bronze`.
+BUCKET_LAYERS = ("bronze", "silver", "gold")
+_BUCKET_NAME_LIMIT = 63
+BUCKET_PREFIX_MAX_LENGTH = _BUCKET_NAME_LIMIT - max(
+    len(f"-{stage.value}-{layer}") for stage in StageName for layer in BUCKET_LAYERS
+)
+
+
+def bucket_name(prefix: str, stage: StageName | str, layer: str) -> str:
+    """The one bucket naming rule: `<prefix>-<stage>-<layer>`. Every provider's Terraform root receives these names
+    from the resolver rather than rebuilding them."""
+    if layer not in BUCKET_LAYERS:
+        raise ValueError(f"unknown bucket layer {layer!r}")
+    return f"{prefix}-{StageName(stage).value}-{layer}"
+
+
+def validate_bucket_prefix(prefix: str, *, field: str, source: str) -> str:
+    if len(prefix) > BUCKET_PREFIX_MAX_LENGTH:
+        raise DeploymentProfileError(
+            f"{source}: {field} is {len(prefix)} characters; at most {BUCKET_PREFIX_MAX_LENGTH} so the longest "
+            f"bucket name '{prefix}-prod-bronze' stays within {_BUCKET_NAME_LIMIT} characters"
+        )
+    if prefix.startswith("xn--"):
+        raise DeploymentProfileError(f"{source}: {field} cannot start with 'xn--' (reserved in S3 bucket names)")
+    return prefix
 
 
 class Preset(StrEnum):
@@ -127,7 +159,7 @@ class AccessSpec:
     names over plain HTTP. Without the block there is no ingress at all."""
 
     base_domain: str = "olf.localhost"
-    issuer: str = "none"
+    tls: str = "none"
 
 
 def is_secret_name(value: object) -> bool:
@@ -233,6 +265,8 @@ class StageSpec:
     enabled: bool = True
     capabilities: StageCapabilities | None = None
     source_egress_ports: tuple[int, ...] = ()
+    # None: the stage inherits `spec.query.size`.
+    query_size: Size | None = None
 
 
 @dataclass(frozen=True)
@@ -258,6 +292,7 @@ class ResolvedStage:
     capabilities: StageCapabilities
     # TCP ports the stage's run pods may open to hosts outside the cluster (ADR 0017 F34); empty is closed.
     source_egress_ports: tuple[int, ...] = ()
+    query_size: Size = Size.SMALL
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -268,6 +303,7 @@ class ResolvedStage:
                 "governance": self.capabilities.governance,
             },
             "source_egress": {"ports": list(self.source_egress_ports)},
+            "query": {"size": self.query_size.value},
         }
 
 
@@ -286,11 +322,24 @@ class DeploymentTopology:
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
     project: ProjectSpec | None = None
+    # The largest enabled stage's size. The local root still renders one shared Trino, so it is fed this value
+    # until the per-stage coordinators (#965 slice 1.5) read `ResolvedStage.query_size` instead.
     query_size: Size = Size.SMALL
     storage_size: Size = Size.SMALL
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
+
+    def bucket_names(self) -> dict[str, dict[str, str]]:
+        """Stage name to layer to bucket name, for every enabled stage."""
+        return {
+            stage.name.value: {layer: bucket_name(self.profile_name, stage.name, layer) for layer in BUCKET_LAYERS}
+            for stage in self.stages
+            if stage.enabled
+        }
+
+    def ops_bucket_name(self) -> str:
+        return f"{self.profile_name}-ops"
 
     def render_json(self) -> str:
         return json.dumps(
@@ -383,8 +432,17 @@ def _validate_stage(name: str, document: object, *, source: str) -> StageSpec:
         source_egress_ports = _validate_source_egress(
             document["source_egress"], field=f"spec.stages.{name}.source_egress", source=source
         )
+    query_size = (
+        _size_block(document["query"], "query", where=f"{source}: spec.stages.{name}.query")
+        if "query" in document
+        else None
+    )
     return StageSpec(
-        name=stage_name, enabled=enabled, capabilities=capabilities, source_egress_ports=source_egress_ports
+        name=stage_name,
+        enabled=enabled,
+        capabilities=capabilities,
+        source_egress_ports=source_egress_ports,
+        query_size=query_size,
     )
 
 
@@ -414,13 +472,18 @@ def _validate_size(spec: Mapping[str, Any], block: str, *, source: str) -> Size:
     """`spec.query.size` / `spec.storage.size`: optional, `small` by default, and only tiers with a tested backend."""
     if block not in spec:
         return Size.SMALL
-    document = spec[block]
-    where = f"{source}: spec.{block}"
+    return _size_block(spec[block], block, where=f"{source}: spec.{block}") or Size.SMALL
+
+
+def _size_block(document: object, block: str, *, where: str) -> Size | None:
+    """One `{size}` object; None when it names no size, so a stage can fall back to `spec.query.size`."""
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{where} must be an object")
     _forbid_unexpected(document, _SIZE_BLOCK_FIELDS, where=where)
+    if "size" not in document:
+        return None
     try:
-        size = Size(document.get("size", Size.SMALL))
+        size = Size(document["size"])
     except ValueError as exc:
         raise DeploymentProfileError(f"{where}.size must be one of {[member.value for member in Size]!r}") from exc
     if size not in _IMPLEMENTED_SIZES[block]:
@@ -434,23 +497,36 @@ def _validate_size(spec: Mapping[str, Any], block: str, *, source: str) -> Size:
 def _validate_access(document: object, *, source: str, provider: Provider) -> AccessSpec:
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: spec.access must be an object")
-    _forbid_unexpected(document, _ACCESS_FIELDS, where=f"{source}: spec.access")
+    _forbid_unexpected(document, _ACCESS_FIELDS_V1ALPHA1, where=f"{source}: spec.access")
+    if "issuer" in document and "tls" in document:
+        raise DeploymentProfileError(
+            f"{source}: spec.access sets both 'tls' and its v1alpha1 name 'issuer'; keep 'tls' only"
+        )
     defaults = AccessSpec()
     base_domain = document.get("base_domain", defaults.base_domain)
     if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
         raise DeploymentProfileError(f"{source}: spec.access.base_domain must be a lowercase DNS name with a dot")
     # Plain HTTP is only valid on the local provider, so the other providers (whose roots do not read the
-    # block) keep the issuer a real install would name.
-    default_issuer = defaults.issuer if provider == Provider.LOCAL else "local-ca"
-    issuer = _identifier(document.get("issuer", default_issuer), field="spec.access.issuer", source=source)
+    # block) default to the mode a real install would name.
+    default_tls = defaults.tls if provider == Provider.LOCAL else "local-ca"
+    field = "issuer" if "issuer" in document else "tls"
+    tls = document.get(field, default_tls)
+    if tls not in _TLS_MODES:
+        raise DeploymentProfileError(f"{source}: spec.access.{field} must be one of {list(_TLS_MODES)!r}, got {tls!r}")
     # Plain HTTP is safe only where the browser treats the host as loopback and a
     # secure context: *.localhost, on the local kind cluster (ADR 0013).
-    if issuer == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
+    if tls == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
         raise DeploymentProfileError(
-            f"{source}: spec.access.issuer 'none' (plain HTTP) requires provider 'local' "
+            f"{source}: spec.access.tls 'none' (plain HTTP) requires provider 'local' "
             "and a base_domain ending in '.localhost'"
         )
-    return AccessSpec(base_domain=base_domain, issuer=issuer)
+    # The customer's edge terminates HTTPS for a public name; nothing upstream can do that for *.localhost.
+    if tls == "external" and base_domain.endswith(".localhost"):
+        raise DeploymentProfileError(
+            f"{source}: spec.access.tls 'external' needs a public base_domain; "
+            f"'{base_domain}' ends in '.localhost', where no upstream proxy can terminate TLS"
+        )
+    return AccessSpec(base_domain=base_domain, tls=tls)
 
 
 def _known_roles(*, where: str, distribution_root: Path | None) -> list[str]:
@@ -687,6 +763,7 @@ def validate_deployment_profile(
     if "name" not in metadata:
         raise DeploymentProfileError(f"{source}: metadata: missing required field 'name'")
     name = _identifier(metadata["name"], field="metadata.name", source=source)
+    validate_bucket_prefix(name, field="metadata.name", source=source)
 
     spec = document["spec"]
     if not isinstance(spec, Mapping):
@@ -803,6 +880,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
                 enabled=True,
                 capabilities=capabilities,
                 source_egress_ports=stage.source_egress_ports,
+                query_size=stage.query_size or profile.query_size,
             )
         )
 
@@ -815,7 +893,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         access=profile.access,
         identity=profile.identity,
         project=profile.project,
-        query_size=profile.query_size,
+        query_size=max((stage.query_size for stage in resolved if stage.enabled), key=list(Size).index),
         storage_size=profile.storage_size,
     )
 

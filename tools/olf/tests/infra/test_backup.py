@@ -164,11 +164,11 @@ def test_the_directory_holds_the_layout_a_restore_reads(tmp_path: Path) -> None:
     assert (manifest.release, manifest.provider, manifest.stages) == ("0.6.0", "local", ("dev", "prod"))
     assert [d.name for d in manifest.databases][0] == "polaris"
     assert (directory / "postgres" / "polaris.dump").read_bytes() == b"PGDMPpolaris"
-    assert (directory / "objects" / "lakehouse-dev-gold" / "silver" / "a.parquet").read_bytes() == b"12345"
-    assert json.loads((directory / "objects" / "lakehouse-dev-gold.inventory.json").read_text()) == {
+    assert (directory / "objects" / "olf-conformance-dev-gold" / "silver" / "a.parquet").read_bytes() == b"12345"
+    assert json.loads((directory / "objects" / "olf-conformance-dev-gold.inventory.json").read_text()) == {
         "silver/a.parquet": 5
     }
-    assert [(b.name, b.objects, b.bytes) for b in manifest.buckets][-1] == ("openlakeforge-ops", 1, 5)
+    assert [(b.name, b.objects, b.bytes) for b in manifest.buckets][-1] == ("olf-conformance-ops", 1, 5)
     bundle = decrypt_secrets((directory / "secrets.enc").read_bytes(), PASSPHRASE)
     assert {(s["namespace"], s["name"]) for s in bundle} == {(s.namespace, s.name) for s in manifest.secrets}
     assert all(s.keys == ("password",) for s in manifest.secrets)

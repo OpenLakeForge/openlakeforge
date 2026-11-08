@@ -156,7 +156,7 @@
                 "additionalProperties": {
                   "type": "object",
                   "minProperties": 1,
-                  "propertyNames": {"enum": ["bronze", "silver", "gold"]},
+                  "propertyNames": {"enum": ["silver", "gold"]},
                   "additionalProperties": {"enum": ["read", "write"]}
                 }
               }
@@ -170,19 +170,21 @@
       "additionalProperties": false,
       "required": ["ref", "implementation"],
       "dependentRequired": {
-        "base_domain": ["issuer", "tls_mode", "routes"],
+        "base_domain": ["tls_mode", "routes"],
+        "tls": ["base_domain"],
         "issuer": ["base_domain"],
         "tls_mode": ["base_domain"],
         "routes": ["base_domain"]
       },
       "if": {"properties": {"implementation": {"const": "access.ingress"}}},
-      "then": {"required": ["base_domain", "issuer", "tls_mode", "routes"]},
+      "then": {"required": ["base_domain", "tls_mode", "routes"], "oneOf": [{"required": ["tls"]}, {"required": ["issuer"]}]},
       "properties": {
         "ref": {"$ref": "#/definitions/nonEmptyString"},
         "implementation": {"$ref": "#/definitions/nonEmptyString"},
         "base_domain": {"$ref": "#/definitions/nonEmptyString"},
-        "issuer": {"$ref": "#/definitions/nonEmptyString"},
-        "tls_mode": {"enum": ["ingress-terminated", "none"]},
+        "tls": {"enum": ["none", "local-ca", "external"]},
+        "issuer": {"$ref": "#/definitions/nonEmptyString", "description": "v1alpha1 name of `tls`, read for contracts already in state."},
+        "tls_mode": {"enum": ["ingress-terminated", "edge-terminated", "none"]},
         "perimeter": {
           "type": "object",
           "additionalProperties": false,

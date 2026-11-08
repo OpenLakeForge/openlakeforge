@@ -9,7 +9,7 @@
     "access": {
       "base_domain": "olf.localhost",
       "implementation": "access.ingress",
-      "issuer": "local-ca",
+      "tls": "local-ca",
       "perimeter": {
         "callback_url": "https://oauth2.olf.localhost/oauth2/callback",
         "enabled": true,
@@ -160,34 +160,28 @@
           },
           "data-engineer": {
             "dev": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             },
             "prod": {
-              "bronze": "read",
               "gold": "read",
               "silver": "read"
             },
             "uat": {
-              "bronze": "read",
               "gold": "read",
               "silver": "read"
             }
           },
           "platform-admin": {
             "dev": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             },
             "prod": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             },
             "uat": {
-              "bronze": "write",
               "gold": "write",
               "silver": "write"
             }
@@ -252,8 +246,8 @@
     "ops_storage": {
       "access_key_id_key": "AWS_ACCESS_KEY_ID",
       "access_mode": "remote",
-      "artifact_base_uri": "s3://openlakeforge-ops",
-      "bucket_name": "openlakeforge-ops",
+      "artifact_base_uri": "s3://olf-conformance-ops",
+      "bucket_name": "olf-conformance-ops",
       "credentials_secret_name": "seaweedfs-s3-creds",
       "implementation": "artifacts.s3_compatible_bucket",
       "local_upload_access_mode": "kubectl-port-forward",
@@ -346,16 +340,16 @@
       "storage": {
         "access_key_id_key": "AWS_ACCESS_KEY_ID",
         "bronze": {
-          "bucket_name": "lakehouse-dev-bronze",
-          "physical_id": "lakehouse-dev-bronze",
-          "uri": "s3://lakehouse-dev-bronze"
+          "bucket_name": "olf-conformance-dev-bronze",
+          "physical_id": "olf-conformance-dev-bronze",
+          "uri": "s3://olf-conformance-dev-bronze"
         },
         "credentials_secret_name": "seaweedfs-dev-s3-creds",
         "endpoint": "http://seaweedfs-s3.olf-system:8333",
         "gold": {
-          "bucket_name": "lakehouse-dev-gold",
-          "physical_id": "lakehouse-dev-gold",
-          "uri": "s3://lakehouse-dev-gold"
+          "bucket_name": "olf-conformance-dev-gold",
+          "physical_id": "olf-conformance-dev-gold",
+          "uri": "s3://olf-conformance-dev-gold"
         },
         "identity_ref": "stage/dev/runtime_identity",
         "implementation": "storage.s3_compatible.seaweedfs",
@@ -367,9 +361,9 @@
         "s3_service_port": 8333,
         "secret_access_key_key": "AWS_SECRET_ACCESS_KEY",
         "silver": {
-          "bucket_name": "lakehouse-dev-silver",
-          "physical_id": "lakehouse-dev-silver",
-          "uri": "s3://lakehouse-dev-silver"
+          "bucket_name": "olf-conformance-dev-silver",
+          "physical_id": "olf-conformance-dev-silver",
+          "uri": "s3://olf-conformance-dev-silver"
         },
         "ssl_mode": "disabled",
         "virtual_host_endpoint": "http://olf-system.svc.cluster.local:8333"
@@ -446,16 +440,16 @@
       "storage": {
         "access_key_id_key": "AWS_ACCESS_KEY_ID",
         "bronze": {
-          "bucket_name": "lakehouse-prod-bronze",
-          "physical_id": "lakehouse-prod-bronze",
-          "uri": "s3://lakehouse-prod-bronze"
+          "bucket_name": "olf-conformance-prod-bronze",
+          "physical_id": "olf-conformance-prod-bronze",
+          "uri": "s3://olf-conformance-prod-bronze"
         },
         "credentials_secret_name": "seaweedfs-prod-s3-creds",
         "endpoint": "http://seaweedfs-s3.olf-system:8333",
         "gold": {
-          "bucket_name": "lakehouse-prod-gold",
-          "physical_id": "lakehouse-prod-gold",
-          "uri": "s3://lakehouse-prod-gold"
+          "bucket_name": "olf-conformance-prod-gold",
+          "physical_id": "olf-conformance-prod-gold",
+          "uri": "s3://olf-conformance-prod-gold"
         },
         "identity_ref": "stage/prod/runtime_identity",
         "implementation": "storage.s3_compatible.seaweedfs",
@@ -467,9 +461,9 @@
         "s3_service_port": 8333,
         "secret_access_key_key": "AWS_SECRET_ACCESS_KEY",
         "silver": {
-          "bucket_name": "lakehouse-prod-silver",
-          "physical_id": "lakehouse-prod-silver",
-          "uri": "s3://lakehouse-prod-silver"
+          "bucket_name": "olf-conformance-prod-silver",
+          "physical_id": "olf-conformance-prod-silver",
+          "uri": "s3://olf-conformance-prod-silver"
         },
         "ssl_mode": "disabled",
         "virtual_host_endpoint": "http://olf-system.svc.cluster.local:8333"

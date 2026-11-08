@@ -11,6 +11,7 @@ import typer
 from olf.common.profile import (
     DeploymentProfile,
     DeploymentProfileError,
+    Provider,
     load_deployment_profile,
     resolve_project,
     resolve_topology,
@@ -34,11 +35,16 @@ def validate(
 ) -> None:
     """Validate the Deployment Profile at `<project>/openlakeforge.yaml`."""
     try:
-        _load(project)
+        profile = _load(project)
     except (DeploymentProfileError, OSError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     typer.echo("Deployment Profile is valid.")
+    if profile.provider.type is not Provider.LOCAL:
+        typer.echo(
+            f"Notice: provider '{profile.provider.type.value}' is preview. "
+            "The beta compatibility promise covers 'local' only."
+        )
 
 
 @app.command("resolve")
@@ -60,11 +66,12 @@ def resolve(
         return
 
     typer.echo(f"provider={topology.provider.value} region={topology.region} preset={topology.preset.value}")
-    typer.echo(f"sizes: query={topology.query_size.value} storage={topology.storage_size.value}")
+    typer.echo(f"sizes: storage={topology.storage_size.value}")
     for stage in topology.stages:
         typer.echo(
             f"  {stage.name.value}: enabled={stage.enabled} "
             f"analytics={stage.capabilities.analytics} governance={stage.capabilities.governance}"
+            + (f" query={stage.query_size.value}" if stage.enabled else "")
             + (f" source_egress={','.join(map(str, stage.source_egress_ports))}" if stage.source_egress_ports else "")
         )
     typer.echo(

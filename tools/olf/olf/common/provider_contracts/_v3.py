@@ -51,7 +51,9 @@ from olf.common.provider_contracts._validation import (
 
 # The ingress shape of shared.access (ADR 0013). All four or none: a
 # port-forward contract carries none of them.
-_ACCESS_INGRESS_FIELDS = {"base_domain", "issuer", "tls_mode", "routes"}
+_ACCESS_INGRESS_FIELDS = {"base_domain", "tls", "tls_mode", "routes"}
+# Contracts already in Terraform state carry the v1alpha1 name of `tls`, like `code_locations`.
+_ACCESS_LEGACY_TLS_FIELD = "issuer"
 # Services a route may publish to users, by the last segment of their contract
 # ref. Everything else (metadata database, ops storage, catalog service,
 # registry, ...) can only be routed as internal, and Dagster code servers have
@@ -61,10 +63,11 @@ _USER_FACING_SERVICES = frozenset({"orchestration", "reporting", "governance_ser
 _PORTAL_REF = "shared/portal"
 _IDENTITY_REF = "shared/identity"
 _ROUTE_EXPOSURES = frozenset({"user-facing", "internal"})
-# The ingress terminates TLS with a certificate from the issuer; the only mode
-# the local Traefik/cert-manager adapter implements.
-# `none` is the plain-HTTP development mode, tied to spec.access.issuer "none".
-_TLS_MODES = frozenset({"ingress-terminated", "none"})
+# The ingress terminates TLS with the local CA's certificate (`ingress-terminated`), the customer's
+# edge terminates it and the ingress serves HTTP (`edge-terminated`), or nobody does (`none`, plain
+# HTTP on *.localhost). Each is tied to one spec.access.tls value.
+_TLS_MODE_BY_PROFILE_TLS = {"none": "none", "local-ca": "ingress-terminated", "external": "edge-terminated"}
+_TLS_MODES = frozenset(_TLS_MODE_BY_PROFILE_TLS.values())
 # Shared bindings that are platform plumbing rather than network services, so
 # an ingress has no backend to send a route to.
 _NON_SERVICE_BINDINGS = frozenset({"foundation", "kubernetes_platform", "secrets", "access", "observability"})
@@ -81,7 +84,7 @@ IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 
 # Data access is ordered so monotonicity is a comparison; absent is none.
 _DATA_ACCESS_LEVELS = {"read": 1, "write": 2}
-_MEDALLION_LAYERS = ("bronze", "silver", "gold")
+_MEDALLION_LAYERS = ("silver", "gold")
 # Polaris enforces data_access as catalog roles (ADR 0019, section 5), and these
 # are the only stage rows those roles express. Another shape would validate
 # here and then be silently widened or narrowed by the catalog.
@@ -102,6 +105,11 @@ def _data_access(value: object, precedence: list[str], *, where: str) -> None:
                 raise ProviderContractError(f"{where}.{role} names unknown stage {stage!r}")
             row = _mapping(layers, where=f"{where}.{role}.{stage}")
             for layer, access in row.items():
+                if layer == "bronze":
+                    raise ProviderContractError(
+                        f"{where}.{role}.{stage} names bronze: Bronze has no catalog namespace, so data_access "
+                        "does not cover it (#966)"
+                    )
                 if layer not in _MEDALLION_LAYERS:
                     raise ProviderContractError(f"{where}.{role}.{stage} names unknown layer {layer!r}")
                 if not isinstance(access, str) or access not in _DATA_ACCESS_LEVELS:
@@ -271,6 +279,11 @@ def _check_identity_oidc(
 
 
 def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], topology: DeploymentTopology) -> None:
+    if _ACCESS_LEGACY_TLS_FIELD in access and "tls" not in access:
+        access = {
+            **{k: v for k, v in access.items() if k != _ACCESS_LEGACY_TLS_FIELD},
+            "tls": access[_ACCESS_LEGACY_TLS_FIELD],
+        }
     present = _ACCESS_INGRESS_FIELDS & set(access)
     if topology.access is None and (present or "perimeter" in access):
         raise ProviderContractError("shared.access declares ingress, but the profile has no spec.access")
@@ -291,14 +304,15 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
         raise ProviderContractError(
             f"shared.access.base_domain {base_domain!r} does not match the profile's {topology.access.base_domain!r}"
         )
-    if _string(access["issuer"], where="shared.access.issuer") != topology.access.issuer:
-        raise ProviderContractError(f"shared.access.issuer must match the profile's {topology.access.issuer!r}")
+    if _string(access["tls"], where="shared.access.tls") != topology.access.tls:
+        raise ProviderContractError(f"shared.access.tls must match the profile's {topology.access.tls!r}")
     tls_mode = _string(access["tls_mode"], where="shared.access.tls_mode")
     if tls_mode not in _TLS_MODES:
         raise ProviderContractError(f"shared.access.tls_mode must be one of {sorted(_TLS_MODES)!r}")
-    if (tls_mode == "none") != (topology.access.issuer == "none"):
+    expected_mode = _TLS_MODE_BY_PROFILE_TLS[topology.access.tls]
+    if tls_mode != expected_mode:
         raise ProviderContractError(
-            "shared.access.tls_mode is 'none' exactly when the profile's access issuer is 'none'"
+            f"shared.access.tls_mode must be {expected_mode!r} for the profile's access tls {topology.access.tls!r}"
         )
     scheme = "http" if tls_mode == "none" else "https"
     hosts: set[str] = set()
@@ -402,7 +416,7 @@ def _parse_shared(
             binding,
             where=f"shared.{name}",
             required={"ref", "implementation"},
-            optional=(_ACCESS_INGRESS_FIELDS | {"perimeter"} if name == "access" else set())
+            optional=(_ACCESS_INGRESS_FIELDS | {"perimeter", _ACCESS_LEGACY_TLS_FIELD} if name == "access" else set())
             | ({"image_repository"} if name == "artifact_registry" else set())
             | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
@@ -442,7 +456,7 @@ def _parse_shared(
     _check_identity_oidc(
         parsed["identity"],
         topology.identity,
-        allow_http=topology.access is not None and topology.access.issuer == "none",
+        allow_http=topology.access is not None and topology.access.tls == "none",
         oidc_emitted=topology.provider == Provider.LOCAL,
     )
     ops_storage = parsed["ops_storage"]
@@ -453,6 +467,12 @@ def _parse_shared(
         != ops_storage["bucket_name"]
     ):
         raise ProviderContractError("shared.ops_storage.artifact_base_uri must address its own bucket_name")
+    # AWS generates a suffixed ops bucket until the global-uniqueness question on its bucket names is settled (#993).
+    if topology.provider != Provider.AWS and ops_storage["bucket_name"] != topology.ops_bucket_name():
+        raise ProviderContractError(
+            f"shared.ops_storage.bucket_name {ops_storage['bucket_name']!r} must be {topology.ops_bucket_name()!r}, "
+            "the name the Deployment Profile derives as <metadata.name>-ops"
+        )
     return SharedPlatformContract(values=_frozen(parsed))
 
 
@@ -654,11 +674,25 @@ def _parse_stage(
         if not is_secret_name(query["ca_configmap_name"]):
             raise ProviderContractError(f"stages.{name.value}.query.ca_configmap_name must be a valid name")
     _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
-    _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
-    if query["service_ref"] not in shared_refs:
-        raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")
-    if query["service_ref"] != shared.values["query"]["ref"]:
-        raise ProviderContractError(f"stages.{name.value}.query.service_ref must reference the shared query service")
+    # Both shapes are accepted while AWS and Azure keep one shared Trino and the
+    # local root moves to one Trino per stage (#965).
+    own_query_ref = f"stage/{name.value}/query"
+    query_ref = _reference(
+        query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/", "stage/")
+    )
+    if query_ref.startswith("stage/"):
+        if query_ref != own_query_ref:
+            raise ProviderContractError(
+                f"stages.{name.value}.query.service_ref cannot reference another stage's query service: "
+                f"use {own_query_ref!r} or the shared query service"
+            )
+    else:
+        if query_ref not in shared_refs:
+            raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")
+        if query_ref != shared.values["query"]["ref"]:
+            raise ProviderContractError(
+                f"stages.{name.value}.query.service_ref must reference the shared query service"
+            )
     if query["catalog_ref"] != f"stage/{name.value}/catalog":
         raise ProviderContractError(f"stages.{name.value}.query.catalog_ref cannot reference another stage")
     if query["catalog_name"] != expected_catalog:
@@ -869,6 +903,7 @@ def _parse_v3(
     # otherwise every stage could agree on a value that still diverges from the
     # one shared Trino service the binding actually names.
     shared_query_endpoint: str | None = shared.values["query"].get("endpoint")
+    stage_query_endpoints: set[str] = set()
     for raw_name, stage_value in stages_document.items():
         name = _stage_name(raw_name)
         stage = _parse_stage(name, stage_value, shared=shared, topology=topology)
@@ -877,7 +912,13 @@ def _parse_v3(
             raise ProviderContractError(f"namespace {stage.namespace!r} is shared between stages")
         namespaces.add(stage.namespace)
         query_endpoint = stage.query["endpoint"]
-        if shared_query_endpoint is None:
+        if stage.query["service_ref"] == f"stage/{name.value}/query":
+            if query_endpoint in stage_query_endpoints:
+                raise ProviderContractError(
+                    f"stages.{name.value}.query.endpoint is shared with another stage's query service"
+                )
+            stage_query_endpoints.add(query_endpoint)
+        elif shared_query_endpoint is None:
             shared_query_endpoint = query_endpoint
         elif query_endpoint != shared_query_endpoint:
             raise ProviderContractError(f"stages.{name.value}.query.endpoint must match the shared query service")
@@ -888,6 +929,14 @@ def _parse_v3(
                 raise ProviderContractError(f"storage physical identity {physical_id!r} is shared between stages")
             physical_storage.add(physical_id)
             bucket_name = layer_binding["bucket_name"]
+            # AWS keeps its generated, suffixed names (and DEV its v0.2 names) until the global-uniqueness
+            # question on S3 bucket names is settled (#993).
+            derived = topology.bucket_names()[name.value][layer]
+            if topology.provider != Provider.AWS and bucket_name != derived:
+                raise ProviderContractError(
+                    f"stages.{name.value}.storage.{layer}.bucket_name {bucket_name!r} must be {derived!r}, the "
+                    "name the Deployment Profile derives as <metadata.name>-<stage>-<layer>"
+                )
             if bucket_name in storage_bucket_names:
                 raise ProviderContractError(f"storage bucket name {bucket_name!r} is shared between stages")
             storage_bucket_names.add(bucket_name)

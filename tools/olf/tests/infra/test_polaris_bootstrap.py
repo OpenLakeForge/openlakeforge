@@ -322,7 +322,12 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
     assert state["catalog_roles"]["lakehouse_dev"] == {
         "catalog-admin": ["CATALOG_MANAGE_CONTENT"],
         "catalog-writer": ["CATALOG_MANAGE_CONTENT"],
-        "catalog-reader-dev": ["CATALOG_MANAGE_CONTENT"],
+        "catalog-reader-dev": [
+            "NAMESPACE_READ_PROPERTIES",
+            "TABLE_READ_DATA",
+            "TABLE_READ_PROPERTIES",
+            "VIEW_READ_PROPERTIES",
+        ],
         "catalog-namespace-admin": ["CATALOG_MANAGE_ACCESS", "CATALOG_MANAGE_METADATA"],
         "olf-write": ["CATALOG_MANAGE_CONTENT"],
         "olf-read": ["NAMESPACE_READ_PROPERTIES", "TABLE_READ_DATA", "VIEW_READ_PROPERTIES"],
@@ -364,6 +369,27 @@ def test_a_rerun_of_the_whole_bootstrap_changes_nothing(
     assert [w for w in fake.writes if not w.startswith("POST")] == ["DELETE /api/management/v1/principals/dbt"]
     assert [argv for argv in cluster.argv if argv[0] in {"create", "apply"}] == []
     assert {argv[2] for argv in cluster.argv if argv[0] == "delete"} == {"polaris-dbt-creds"}
+
+
+def test_openmetadata_holds_no_write_privilege_and_a_converged_stack_loses_the_old_one(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    _bootstrap(client)
+    for catalog in ("lakehouse_dev", "lakehouse_prod"):
+        fake.catalog_roles[catalog][f"catalog-reader-{catalog.removeprefix('lakehouse_')}"].append(
+            "CATALOG_MANAGE_CONTENT"
+        )
+
+    _bootstrap(client)
+
+    for catalog, roles in fake.state()["catalog_roles"].items():
+        assert roles[f"catalog-reader-{catalog.removeprefix('lakehouse_')}"] == [
+            "NAMESPACE_READ_PROPERTIES",
+            "TABLE_READ_DATA",
+            "TABLE_READ_PROPERTIES",
+            "VIEW_READ_PROPERTIES",
+        ]
 
 
 def test_the_legacy_dbt_principal_and_its_secret_are_removed(

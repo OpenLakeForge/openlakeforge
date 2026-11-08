@@ -33,13 +33,12 @@ def _parse_target(target: str) -> tuple[str, str]:
     return domain, product
 
 
-def _render_product_block(*, product: str, domain: str, display_name: str) -> str:
+def _render_product_block(*, product: str, display_name: str) -> str:
     return (
-        f"  - id: {product}\n"
-        f"    domain: {domain}\n"
-        f"    displayName: {yaml_dq(display_name)}\n"
-        f"    description: {yaml_dq(display_name + ' product.')}\n"
-        "    status: planned\n"
+        f"- id: {product}\n"
+        f"  displayName: {yaml_dq(display_name)}\n"
+        f"  description: {yaml_dq(display_name + ' product.')}\n"
+        "  status: planned\n"
     )
 
 
@@ -77,7 +76,6 @@ def plan_product_new(
     governance_text: str | None = None
     extra_files: list[ScaffoldFile] = []
     edits: list[ScaffoldFile] = []
-    bronze_inputs_by_table: dict[str, tuple[str, str]] = {}
 
     if not domain_exists:
         if silver_inputs:
@@ -95,9 +93,7 @@ def plan_product_new(
             repo_root, domain=domain, display_name=resolved_domain_display_name, inputs=inputs
         )
         extra_files.extend(domain_files)
-        governance_text = domain_module.add_governance_entry(repo_root, governance_text, "domains", domain_block)
-        for source, resource in inputs:
-            bronze_inputs_by_table[resource] = (source, resource)
+        governance_text = domain_module.add_governance_domain(repo_root, governance_text, domain_block)
     else:
         target_domain = next(d for d in inventory.domains if d.name == domain)
         existing_silver_by_name = {entity.name: entity for entity in inventory.floe_entities(target_domain)}
@@ -107,15 +103,12 @@ def plan_product_new(
                     f"--silver-input {name!r}: domain {domain!r} has no Silver table {name!r}; "
                     f"known tables: {sorted(existing_silver_by_name)!r}"
                 )
-            entity = existing_silver_by_name[name]
-            bronze_inputs_by_table[name] = (entity.source, entity.resource)
         for source, resource in inputs:
             if resource in existing_silver_by_name:
                 raise ScaffoldError(
                     f"--input {source}/{resource}: domain {domain!r} already has a Silver table named {resource!r}; "
                     f"use --silver-input {resource} instead"
                 )
-            bronze_inputs_by_table[resource] = (source, resource)
 
         if inputs:
             extra_files.extend(domain_module.floe_entity_files(repo_root, domain=domain, inputs=inputs))
@@ -127,13 +120,12 @@ def plan_product_new(
         raise ScaffoldError(f"product {product!r}: silver inputs must be unique, got {all_silver_inputs!r}")
 
     resolved_display_name = display_name or title_case(product)
-    product_block = _render_product_block(product=product, domain=domain, display_name=resolved_display_name)
-    governance_text = domain_module.add_governance_entry(repo_root, governance_text, "products", product_block)
+    product_block = _render_product_block(product=product, display_name=resolved_display_name)
+    governance_text = domain_module.add_governance_product(repo_root, governance_text, domain, product_block)
 
     gold_dir = f"lakehouse_code/gold/{product}"
     dbt_sources = tuple((name, f"Validated {name.replace('_', ' ')}.") for name in all_silver_inputs)
     gold_schema = tuple((name, "Generated Gold mart; describe its grain and metrics here.") for name in gold_tables)
-    bronze_inputs = tuple(bronze_inputs_by_table[name] for name in all_silver_inputs)
 
     product_files = [
         ScaffoldFile(f"{gold_dir}/__init__.py", ""),
@@ -152,13 +144,7 @@ def plan_product_new(
         ),
         ScaffoldFile(
             f"lakehouse_code/pipelines/dagster/{product}.py",
-            _templates.render_dagster_product_module(
-                domain=domain,
-                product=product,
-                silver_inputs=all_silver_inputs,
-                bronze_inputs=bronze_inputs,
-                gold_assets=gold_tables,
-            ),
+            _templates.render_dagster_product_module(domain=domain, product=product),
         ),
     ]
     for mart in gold_tables:

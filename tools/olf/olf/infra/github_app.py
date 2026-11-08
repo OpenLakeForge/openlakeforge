@@ -219,7 +219,7 @@ def create_app(context: Any, *, no_browser: bool = False) -> GitHubApp:
     if github is None or access is None:
         raise GitHubConnectError("openlakeforge.yaml has no spec.identity.github (issuer: github); nothing to connect")
     host = github.host or "github.com"
-    scheme = "http" if access.issuer == "none" else "https"
+    scheme = "http" if access.tls == "none" else "https"
     created: list[GitHubApp] = []
 
     def manifest_for(redirect_url: str) -> dict[str, Any]:

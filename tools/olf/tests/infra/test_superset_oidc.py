@@ -97,7 +97,7 @@ def test_the_superset_client_redirects_to_the_exact_callback() -> None:
     contracts = (ROOT / "infra/terraform/environments/local/contracts.tf").read_text()
 
     assert '/oauth-authorized/olf",' in contracts
-    assert '/api/v1/database/oauth2/"' in contracts
+    assert '/api/v1/database/oauth2/",' in contracts
 
 
 def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:

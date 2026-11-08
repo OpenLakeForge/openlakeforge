@@ -13,12 +13,17 @@ from collections.abc import Mapping
 from olf.common import log
 from olf.common.deployment.charts import prepare_chart
 from olf.common.deployment.errors import CommandExecutionError
+from olf.common.profile import Provider
 from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
 from olf.infra.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.infra.deployment.cloud.config import CloudDeploymentConfig
-from olf.infra.deployment.local.platform import require_no_shared_namespace_replacement, require_no_stage_removal
+from olf.infra.deployment.local.platform import (
+    require_no_bucket_rename,
+    require_no_shared_namespace_replacement,
+    require_no_stage_removal,
+)
 from olf.infra.deployment.storage_resize import grow_seaweedfs_volumes, plan_storage_resize
 
 _NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
@@ -66,6 +71,10 @@ def platform_up(
 
     require_no_stage_removal(config, tools, kube_context=facts.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=facts.kube_context, env=env)
+    # AWS bucket names are not derived by the resolver (they keep their suffix, ADR 0004), so there is no rename
+    # to guard.
+    if config.context.topology.provider != Provider.AWS:
+        require_no_bucket_rename(config, tools, env=env)
     plan_storage_resize(config, tools, kube_context=facts.kube_context, env=env)
 
     variables = backend.platform_apply_variables(config, facts)

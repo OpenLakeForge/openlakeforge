@@ -43,7 +43,7 @@
     "identity": {
       "ref": "shared/identity",
       "implementation": "identity.aws_pod_identity",
-      "roles": {"precedence": ["platform-admin", "data-engineer", "analyst", "viewer"], "grants": {"orchestration": {"platform-admin": "full", "data-engineer": "full"}, "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"}, "governance_service": {"platform-admin": "Admin", "data-engineer": "write", "analyst": "read", "viewer": "read"}, "query": {"platform-admin": "yes", "data-engineer": "yes"}, "query_api": {"platform-admin": "yes", "data-engineer": "yes", "analyst": "yes", "viewer": "yes"}}, "data_access": {"platform-admin": {"dev": {"bronze": "write", "silver": "write", "gold": "write"}, "uat": {"bronze": "write", "silver": "write", "gold": "write"}, "prod": {"bronze": "write", "silver": "write", "gold": "write"}}, "data-engineer": {"dev": {"bronze": "write", "silver": "write", "gold": "write"}, "uat": {"bronze": "read", "silver": "read", "gold": "read"}, "prod": {"bronze": "read", "silver": "read", "gold": "read"}}, "analyst": {"dev": {"gold": "read"}, "uat": {"gold": "read"}, "prod": {"gold": "read"}}, "viewer": {"uat": {"gold": "read"}, "prod": {"gold": "read"}}}}
+      "roles": {"precedence": ["platform-admin", "data-engineer", "analyst", "viewer"], "grants": {"orchestration": {"platform-admin": "full", "data-engineer": "full"}, "reporting": {"platform-admin": "Admin", "data-engineer": "Alpha", "analyst": "Gamma", "viewer": "read-only"}, "governance_service": {"platform-admin": "Admin", "data-engineer": "write", "analyst": "read", "viewer": "read"}, "query": {"platform-admin": "yes", "data-engineer": "yes"}, "query_api": {"platform-admin": "yes", "data-engineer": "yes", "analyst": "yes", "viewer": "yes"}}, "data_access": {"platform-admin": {"dev": {"silver": "write", "gold": "write"}, "uat": {"silver": "write", "gold": "write"}, "prod": {"silver": "write", "gold": "write"}}, "data-engineer": {"dev": {"silver": "write", "gold": "write"}, "uat": {"silver": "read", "gold": "read"}, "prod": {"silver": "read", "gold": "read"}}, "analyst": {"dev": {"gold": "read"}, "uat": {"gold": "read"}, "prod": {"gold": "read"}}, "viewer": {"uat": {"gold": "read"}, "prod": {"gold": "read"}}}}
     },
     "access": {
       "ref": "shared/access",
@@ -64,19 +64,19 @@
         "region": "eu-west-3",
         "identity_ref": "stage/dev/runtime_identity",
         "bronze": {
-          "physical_id": "acme-dev-bronze",
-          "bucket_name": "acme-dev-bronze",
-          "uri": "s3://acme-dev-bronze"
+          "physical_id": "acme-data-dev-bronze",
+          "bucket_name": "acme-data-dev-bronze",
+          "uri": "s3://acme-data-dev-bronze"
         },
         "silver": {
-          "physical_id": "acme-dev-silver",
-          "bucket_name": "acme-dev-silver",
-          "uri": "s3://acme-dev-silver"
+          "physical_id": "acme-data-dev-silver",
+          "bucket_name": "acme-data-dev-silver",
+          "uri": "s3://acme-data-dev-silver"
         },
         "gold": {
-          "physical_id": "acme-dev-gold",
-          "bucket_name": "acme-dev-gold",
-          "uri": "s3://acme-dev-gold"
+          "physical_id": "acme-data-dev-gold",
+          "bucket_name": "acme-data-dev-gold",
+          "uri": "s3://acme-data-dev-gold"
         }
       },
       "catalog": {
@@ -141,19 +141,19 @@
         "region": "eu-west-3",
         "identity_ref": "stage/uat/runtime_identity",
         "bronze": {
-          "physical_id": "acme-uat-bronze",
-          "bucket_name": "acme-uat-bronze",
-          "uri": "s3://acme-uat-bronze"
+          "physical_id": "acme-data-uat-bronze",
+          "bucket_name": "acme-data-uat-bronze",
+          "uri": "s3://acme-data-uat-bronze"
         },
         "silver": {
-          "physical_id": "acme-uat-silver",
-          "bucket_name": "acme-uat-silver",
-          "uri": "s3://acme-uat-silver"
+          "physical_id": "acme-data-uat-silver",
+          "bucket_name": "acme-data-uat-silver",
+          "uri": "s3://acme-data-uat-silver"
         },
         "gold": {
-          "physical_id": "acme-uat-gold",
-          "bucket_name": "acme-uat-gold",
-          "uri": "s3://acme-uat-gold"
+          "physical_id": "acme-data-uat-gold",
+          "bucket_name": "acme-data-uat-gold",
+          "uri": "s3://acme-data-uat-gold"
         }
       },
       "catalog": {
@@ -218,19 +218,19 @@
         "region": "eu-west-3",
         "identity_ref": "stage/prod/runtime_identity",
         "bronze": {
-          "physical_id": "acme-prod-bronze",
-          "bucket_name": "acme-prod-bronze",
-          "uri": "s3://acme-prod-bronze"
+          "physical_id": "acme-data-prod-bronze",
+          "bucket_name": "acme-data-prod-bronze",
+          "uri": "s3://acme-data-prod-bronze"
         },
         "silver": {
-          "physical_id": "acme-prod-silver",
-          "bucket_name": "acme-prod-silver",
-          "uri": "s3://acme-prod-silver"
+          "physical_id": "acme-data-prod-silver",
+          "bucket_name": "acme-data-prod-silver",
+          "uri": "s3://acme-data-prod-silver"
         },
         "gold": {
-          "physical_id": "acme-prod-gold",
-          "bucket_name": "acme-prod-gold",
-          "uri": "s3://acme-prod-gold"
+          "physical_id": "acme-data-prod-gold",
+          "bucket_name": "acme-data-prod-gold",
+          "uri": "s3://acme-data-prod-gold"
         }
       },
       "catalog": {

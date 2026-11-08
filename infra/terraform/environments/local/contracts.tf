@@ -316,11 +316,11 @@ locals {
   # spec.access stays unauthenticated unless the level is set explicitly.
   trino_workload_authentication = coalesce(var.trino_workload_authentication, local.access_enabled ? "password" : "off")
   identity_enabled              = var.identity_issuer != null
-  # Route TLS (route certificates) is the one TLS-specific switch; `issuer:
+  # Route TLS (route certificates) is the one TLS-specific switch; `tls:
   # none` is plain HTTP on *.localhost. cert-manager and the local CA stay
   # deployed with spec.access: pods still mount the CA ConfigMap, and Trino's
   # internal certificate (ADR 0016) needs the issuer.
-  route_tls    = local.access_enabled && var.access_issuer != "none"
+  route_tls    = local.access_enabled && var.access_tls != "none"
   route_scheme = local.route_tls ? "https" : "http"
   # coalesce() skips "" too, so it fails on a null quickstart domain.
   base_domain = var.access_base_domain == null ? "" : var.access_base_domain
@@ -345,7 +345,8 @@ locals {
   identity_consumer_redirects = {
     superset = flatten([for name in keys(local.analytics_stages) : [
       "${local.route_scheme}://superset-${name}.${local.base_domain}/oauth-authorized/olf",
-      "${local.route_scheme}://superset-${name}.${local.base_domain}/api/v1/database/oauth2/", # per-user Trino sign-in
+      # Superset's database OAuth2 flow (per-user data access, #968) returns here.
+      "${local.route_scheme}://superset-${name}.${local.base_domain}/api/v1/database/oauth2/",
     ]])
     openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/callback"] : [] # OpenMetadata's code-flow callback
     trino        = ["${local.route_scheme}://trino.${local.base_domain}/oauth2/callback"]
@@ -534,7 +535,7 @@ locals {
     ingress_class_name   = try(module.traefik[0].ingress_class_name, null)
     cluster_issuer_name  = try(module.cert_manager[0].cluster_issuer_name, null)
     base_domain          = var.access_base_domain
-    issuer               = var.access_issuer
+    tls                  = var.access_tls
     tls_mode             = local.route_tls ? "ingress-terminated" : "none"
     internal_access_mode = "cluster-dns"
     routes = {
@@ -609,7 +610,7 @@ module "provider_contract" {
       {
         for key, value in {
           base_domain = local.access_contract.base_domain
-          issuer      = local.access_contract.issuer
+          tls         = local.access_contract.tls
           tls_mode    = local.access_contract.tls_mode
           routes      = local.access_contract.routes
         } : key => value if local.access_enabled

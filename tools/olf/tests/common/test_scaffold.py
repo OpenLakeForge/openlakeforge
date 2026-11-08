@@ -152,14 +152,14 @@ def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Pa
 
 
 def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Path) -> None:
-    """`domains: [{...}]` and `products: [{...}]` are valid YAML a hand-edited
+    """`domains: [{...}]` and a nested `products: [{...}]` are valid YAML a hand-edited
     governance.yml may use; appending an entry must convert the list to block
     style rather than splice a block item after a closed flow value."""
     repo_root = _seed_repo(tmp_path)
     (repo_root / "lakehouse_code" / "governance.yml").write_text(
-        "apiVersion: openlakeforge.io/v1beta1\nkind: Governance\n"
-        "domains: [{name: sales, displayName: Sales}, {name: supply_chain, displayName: Supply Chain}]\n"
-        "products: [{id: order_revenue, domain: sales, displayName: Order Revenue}]\n",
+        "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\n"
+        "domains: [{name: sales, displayName: Sales, products: [{id: order_revenue, displayName: Order Revenue}]},"
+        " {name: supply_chain, displayName: Supply Chain}]\n",
         encoding="utf-8",
     )
     commit_plan(
@@ -186,7 +186,7 @@ def test_product_and_domain_new_convert_flow_style_governance_lists(tmp_path: Pa
 
     document = yaml.safe_load((repo_root / "lakehouse_code" / "governance.yml").read_text(encoding="utf-8"))
     assert [d["name"] for d in document["domains"]] == ["sales", "supply_chain", "marketing"]
-    assert [(p["id"], p["domain"]) for p in document["products"]] == [
+    assert [(p["id"], d["name"]) for d in document["domains"] for p in d.get("products", [])] == [
         ("order_revenue", "sales"),
         ("campaign_performance", "marketing"),
     ]
@@ -772,8 +772,8 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     assert 'namespace: "marketing_silver"' in floe_domain
 
     dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()
-    assert '"campaigns"' in dagster_module
-    assert '("marketing_platform", "campaigns")' in dagster_module
+    assert 'ProductDefinitionSpec(domain="marketing", product="campaign_performance")' in dagster_module
+    assert "silver_inputs=" not in dagster_module
 
 
 # --------------------------------------------------------------------------
@@ -915,7 +915,7 @@ def _seed_empty_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_scaffolding_walks_an_empty_project_to_strict_v1alpha3_validity(tmp_path: Path) -> None:
+def test_scaffolding_walks_an_empty_project_to_strict_descriptor_validity(tmp_path: Path) -> None:
     repo_root = _seed_empty_project(tmp_path)
 
     _run("source", "new", "crm", "--resource", "accounts", "--repo-root", str(repo_root))
@@ -960,3 +960,49 @@ def test_product_new_will_not_leave_an_empty_project_transitional(tmp_path: Path
 
     assert result.exit_code != 0
     assert load_lakehouse_inventory(repo_root, allow_incomplete=True).products == ()
+
+
+_NESTED_GOVERNANCE = """\
+apiVersion: openlakeforge.io/v1beta2
+kind: Governance
+domains:
+  # Revenue lives here.
+  - name: sales
+    displayName: Sales
+    products:
+      - id: order_revenue
+        displayName: Order Revenue
+        custom: kept
+      # trailing note
+  - name: supply_chain
+    displayName: Supply Chain
+    products:
+      - id: inventory
+        displayName: Inventory
+"""
+
+
+@pytest.mark.parametrize("final_newline", [True, False])
+def test_product_is_appended_to_its_own_domain_only(final_newline: bool) -> None:
+    from olf.common.scaffold._yaml_edit import append_product_to_domain
+
+    text = _NESTED_GOVERNANCE if final_newline else _NESTED_GOVERNANCE.rstrip("\n")
+    out = append_product_to_domain(text, "sales", "- id: churn\n  displayName: Churn\n", source_label="g")
+
+    expected = _NESTED_GOVERNANCE.replace(
+        "      # trailing note\n", "      - id: churn\n        displayName: Churn\n      # trailing note\n"
+    )
+    assert out == (expected if final_newline else expected.rstrip("\n"))
+
+
+def test_product_creates_or_fills_an_empty_products_list() -> None:
+    from olf.common.scaffold._yaml_edit import append_product_to_domain
+
+    for products in ("", "    products: []\n"):
+        text = (
+            "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\ndomains:\n  - name: hr\n    displayName: HR\n"
+            f"{products}  - name: it\n    displayName: IT\n"
+        )
+        out = append_product_to_domain(text, "hr", "- id: payroll\n  displayName: Payroll\n", source_label="g")
+        document = yaml.safe_load(out)
+        assert [[p["id"] for p in d.get("products", [])] for d in document["domains"]] == [["payroll"], []]

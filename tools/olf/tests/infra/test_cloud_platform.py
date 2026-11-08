@@ -111,6 +111,8 @@ class _PlatformScriptedRunner(RecordingRunner):
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
         if argv[0] == "helm" and argv[1:3] == ["show", "chart"]:
             return _ok()
+        if "provider_contracts" in argv:
+            return _ok("{}")
         if any(str(argument) == "stage_names" for argument in argv):
             return _ok(self._applied_stages or "[]")
         if "namespace" in argv and "-l" in argv:

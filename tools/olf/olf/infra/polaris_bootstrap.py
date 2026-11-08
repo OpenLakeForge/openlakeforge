@@ -41,6 +41,14 @@ REQUIRED_CATALOG_PROPERTIES: Mapping[str, str] = {DROP_WITH_PURGE: "true", NAMES
 MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
 MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
 MANAGE_ACCESS = "CATALOG_MANAGE_ACCESS"
+# The OpenMetadata crawler reads data and properties and writes nothing (ADR 0019, section 9). Polaris 1.8.0 refuses
+# LOAD_TABLE without TABLE_READ_DATA even for a table's columns, so the data read stays.
+OPENMETADATA_PRIVILEGES = (
+    "TABLE_READ_DATA",
+    "NAMESPACE_READ_PROPERTIES",
+    "TABLE_READ_PROPERTIES",
+    "VIEW_READ_PROPERTIES",
+)
 # The catalog role each person role holds on a stage catalog, per its data_access row (ADR 0019).
 PERSON_CATALOG_ROLES: Mapping[str, tuple[str, ...]] = {
     "olf-gold-read": ("NAMESPACE_LIST",),
@@ -325,6 +333,13 @@ def grant_catalog_access(client: PolarisClient, grant: Grant, catalog: str) -> N
         _assign_catalog_role(client, grant.principal_role, catalog, grant.catalog_role)
 
 
+def revoke_catalog_privilege(client: PolarisClient, catalog: str, catalog_role: str, privilege: str) -> None:
+    path = f"/catalogs/{_q(catalog)}/catalog-roles/{_q(catalog_role)}/grants"
+    if _present(client, path, "privilege", privilege):
+        grant = {"type": "catalog", "privilege": privilege}
+        client.management("POST", path, payload={"grant": grant}, ok_statuses=(201,))
+
+
 def reconcile_person_access(
     client: PolarisClient, access: PersonAccess, catalogs: tuple[str, ...], *, environ: Mapping[str, str] | None
 ) -> None:
@@ -377,11 +392,11 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
     om = plan.openmetadata
     ensure_credential(client, om, environ=environ)
     for stage in plan.stages:
-        grant_catalog_access(
-            client,
-            Grant(om.principal, "data-reader", f"catalog-reader-{stage.stage}", MANAGE_CONTENT),
-            stage.catalog_name,
-        )
+        reader = f"catalog-reader-{stage.stage}"
+        for privilege in OPENMETADATA_PRIVILEGES:
+            grant_catalog_access(client, Grant(om.principal, "data-reader", reader, privilege), stage.catalog_name)
+        # Earlier deployments granted this role write access; adding grants alone would leave it in place.
+        revoke_catalog_privilege(client, stage.catalog_name, reader, MANAGE_CONTENT)
 
     # Namespace lifecycle belongs to the artifacts phase (ADR 0002): this stops at handing
     # `olf infra catalog sync-namespaces` a principal that can create and drop namespaces.
@@ -427,7 +442,7 @@ def _person_access(contracts: ProviderContracts, stages: Mapping[str, str], shar
 
     def catalog_role(layers: Mapping[str, str]) -> str:
         # A row is one of three shapes, which olf validates: every layer write, every layer read, or Gold read.
-        return "olf-write" if layers.get("gold") == "write" else "olf-read" if len(layers) == 3 else "olf-gold-read"
+        return "olf-write" if layers.get("gold") == "write" else "olf-read" if len(layers) == 2 else "olf-gold-read"
 
     assigned: dict[str, Mapping[str, str]] = {"olf-signed-in": {}}
     for role, rows in identity["roles"]["data_access"].items():

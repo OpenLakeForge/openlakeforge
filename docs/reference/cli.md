@@ -74,8 +74,8 @@ All `new` commands validate the result before writing and accept
 | `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra maintenance run --layer silver\|gold` | Launch the stage's Iceberg maintenance job and wait for it (`--stage`, `--dry-run`, `--json`, `-f`); prints per-table snapshots and orphans. See [Silver table maintenance](../architecture/floe-validation.md#silver-table-maintenance). |
 | `olf infra query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |
-| `olf infra backup --output <dir>` | Back up a local deployment into a new directory (`-f <profile>`, `--project-root`): a `pg_dump` of each database (`polaris` first), a copy of every stage bucket and the ops bucket with a key-and-size inventory, the data-bound Secrets (including the platform API's Superset service-user passwords) and, with `issuer: local-ca`, `local-ca` sealed in `secrets.enc`, then `manifest.json` and `SHA256SUMS`. It stops every stage's Dagster daemon for the length of the backup, refuses to start while a run is in flight, and always starts the daemon again. The passphrase for `secrets.enc` comes from `OLF_BACKUP_PASSPHRASE` or a prompt, never an argument; without it the Secrets cannot be restored. The directory holds all the data, so store it as you would the cluster. |
-| `olf infra access trust` | Export the local CA and print the commands to trust it. Needed only for `issuer: local-ca`; plain HTTP routes have nothing to trust. |
+| `olf infra backup --output <dir>` | Back up a local deployment into a new directory (`-f <profile>`, `--project-root`): a `pg_dump` of each database (`polaris` first), a copy of every stage bucket and the ops bucket with a key-and-size inventory, the data-bound Secrets (including the platform API's Superset service-user passwords) and, with `tls: local-ca`, `local-ca` sealed in `secrets.enc`, then `manifest.json` and `SHA256SUMS`. It stops every stage's Dagster daemon for the length of the backup, refuses to start while a run is in flight, and always starts the daemon again. The passphrase for `secrets.enc` comes from `OLF_BACKUP_PASSPHRASE` or a prompt, never an argument; without it the Secrets cannot be restored. The directory holds all the data, so store it as you would the cluster. |
+| `olf infra access trust` | Export the local CA and print the commands to trust it. Needed only for `tls: local-ca`; plain HTTP routes have nothing to trust, and with `tls: external` it refuses because your own edge holds the certificate. |
 | `olf infra github connect` | Create the GitHub App for sign-in and store its credentials. |
 | `olf infra auth login\|status\|logout --provider aws\|azure` | Authenticate to a cloud through its SDK. |
 | `olf infra diagnostics collect <dir>` | Write host and cluster evidence for a bug report (`--namespace`, `--kube-context`). |
@@ -87,6 +87,7 @@ All `new` commands validate the result before writing and accept
 | `olf profile validate --project .` | `openlakeforge.yaml` |
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
 | `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
+| `olf project migrate [--dry-run]` | Rewrites `governance.yml` from `v1beta1` to `v1beta2` and each `source.yaml` from `v1alpha3` to `v1beta1`; `--dry-run` prints the diff and changes nothing |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | Every product's dbt project parses and compiles, and its models and sources sit in the schemas the descriptors name. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
 | `olf check resources` | Every `container` and `init_container` in `infra/terraform/modules` sets `requests` (cpu and memory) and a memory limit; an expression such as `var.x` is accepted unchecked. Helm chart containers are sized through the values files and are not covered |
@@ -127,7 +128,7 @@ Secret.
 Each takes `--profile-file` (`-f`, default `openlakeforge.yaml`). The issuer is
 `https://auth.<base_domain>` with `identity.issuer: github`, or `issuer_url`
 with `external`. The client id is `identity.client_ids['olf-cli']`, else
-`olf-cli`. With access `issuer: none` the Dex issuer is `http://`.
+`olf-cli`. With access `tls: none` the Dex issuer is `http://`.
 
 A profile with `spec.access` and no `spec.identity` has authentication off:
 `olf login` and `olf whoami` say that sign-in is disabled and exit 0, `olf

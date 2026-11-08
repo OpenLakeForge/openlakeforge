@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import jsonschema
 import pytest
 
 from olf.common.contracts_check import _hcl
-from olf.common.profile import StageName, resolve_topology, validate_deployment_profile
+from olf.common.profile import AccessSpec, StageName, resolve_topology, validate_deployment_profile
 from olf.common.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 from olf.infra.contracts import build_contract_env
 
@@ -99,7 +100,7 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
                     "preset": "slim",
                     "stages": stages,
                     **(
-                        {"access": access or {"issuer": "local-ca"}}
+                        {"access": access or {"tls": "local-ca"}}
                         if contract["shared"]["access"]["implementation"] == "access.ingress"
                         else {}
                     ),
@@ -174,11 +175,11 @@ def test_stage_environment_exposes_only_its_selected_stage_values() -> None:
     dev_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="dev")
     prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="prod")
 
-    assert dev_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-dev-bronze"
+    assert dev_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-data-dev-bronze"
     assert dev_exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
     assert dev_exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"].endswith("activations/dev")
     assert "prod" not in "\n".join(dev_exports.values())
-    assert prod_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-prod-bronze"
+    assert prod_exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-data-prod-bronze"
     assert prod_exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_prod"
     assert "dev" not in "\n".join(prod_exports.values())
 
@@ -189,7 +190,7 @@ def test_stage_environment_carries_only_shared_and_its_own_routes() -> None:
     exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology(contract), stage="prod")
 
     assert json.loads(exports["OPENLAKEFORGE_ACCESS_JSON"]) == {
-        "issuer": "local-ca",
+        "tls": "local-ca",
         "routes": {
             "shared/portal": "https://olf.localhost",
             "shared/query": "https://trino.olf.localhost",
@@ -228,7 +229,9 @@ def test_each_governed_stage_emits_lineage_under_its_own_pipeline_service() -> N
             "cannot reference another stage",
         ),
         (
-            lambda contract: contract["stages"]["prod"]["storage"]["gold"].__setitem__("physical_id", "acme-dev-gold"),
+            lambda contract: contract["stages"]["prod"]["storage"]["gold"].__setitem__(
+                "physical_id", "acme-data-dev-gold"
+            ),
             "shared between stages",
         ),
         (lambda contract: contract["stages"]["dev"].__setitem__("unexpected", True), "unsupported fields"),
@@ -255,14 +258,48 @@ def test_v3_contract_rejects_a_missing_capability_binding() -> None:
 def test_duplicate_bucket_name_across_stages_is_rejected() -> None:
     """A wiring mistake could give two stages distinct physical_id values but
     the same bucket_name; as_v2_environment_contract() exports bucket_name,
-    so this must fail closed even though physical_id is already unique."""
+    so this must fail closed even though physical_id is already unique. The
+    derived-name check rejects it first; the shared-name check stays as the
+    second line."""
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["prod"]["storage"]["bronze"]["bucket_name"] = "acme-dev-bronze"
-    contract["stages"]["prod"]["storage"]["bronze"]["uri"] = "s3://acme-dev-bronze"
+    contract["stages"]["prod"]["storage"]["bronze"]["bucket_name"] = "acme-data-dev-bronze"
+    contract["stages"]["prod"]["storage"]["bronze"]["uri"] = "s3://acme-data-dev-bronze"
 
-    with pytest.raises(ProviderContractError, match="shared between stages"):
+    with pytest.raises(ProviderContractError, match="must be 'acme-data-prod-bronze'"):
         parse_provider_contracts(contract, topology)
+
+
+def test_a_bucket_name_that_is_not_the_derived_one_is_rejected() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["silver"]["bucket_name"] = "lakehouse-dev-silver"
+    contract["stages"]["dev"]["storage"]["silver"]["uri"] = "s3://lakehouse-dev-silver"
+
+    with pytest.raises(ProviderContractError, match=r"must be 'acme-data-dev-silver'"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_an_ops_bucket_that_is_not_the_derived_one_is_rejected() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["ops_storage"]["bucket_name"] = "openlakeforge-ops"
+    contract["shared"]["ops_storage"]["artifact_base_uri"] = "s3://openlakeforge-ops"
+
+    with pytest.raises(ProviderContractError, match=r"must be 'acme-data-ops'"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_aws_bucket_names_are_not_held_to_the_derived_rule() -> None:
+    """AWS keeps its generated, suffixed names and DEV's v0.2 names (#993)."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    for stage, suffix in (("dev", "legacy"), ("uat", "ab12cd34"), ("prod", "ab12cd34")):
+        for layer in ("bronze", "silver", "gold"):
+            bucket = f"acme-poc-{stage}-{layer}-{suffix}"
+            contract["stages"][stage]["storage"][layer].update(physical_id=bucket, bucket_name=bucket, uri=f"s3://{bucket}")
+
+    parse_provider_contracts(contract, topology)
 
 
 def test_dev_reporting_cannot_reference_prod() -> None:
@@ -455,6 +492,58 @@ def test_query_service_ref_must_be_the_shared_query_service_specifically() -> No
         parse_provider_contracts(contract, topology)
 
 
+def _stage_scoped_query(contract: dict) -> None:
+    for name, stage in contract["stages"].items():
+        stage["query"]["service_ref"] = f"stage/{name}/query"
+        stage["query"]["endpoint"] = f"http://trino-{name}:8080"
+        stage["endpoints"]["query"] = f"stage/{name}/query"
+
+
+def test_stage_scoped_query_binding_parses_with_its_own_endpoint() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    for name, stage in parsed.stages.items():
+        assert stage.query["service_ref"] == f"stage/{name.value}/query"
+        assert stage.query["endpoint"] == f"http://trino-{name.value}:8080"
+
+
+def test_stage_may_keep_the_shared_query_while_another_is_stage_scoped() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    prod = contract["stages"]["prod"]
+    prod["query"]["service_ref"] = "stage/prod/query"
+    prod["query"]["endpoint"] = "http://trino-prod:8080"
+    prod["endpoints"]["query"] = "stage/prod/query"
+
+    parse_provider_contracts(contract, topology)
+
+
+def test_query_binding_cannot_reference_another_stages_query_service() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+    dev = contract["stages"]["dev"]
+    dev["query"]["service_ref"] = "stage/prod/query"
+    dev["endpoints"]["query"] = "stage/prod/query"
+
+    with pytest.raises(ProviderContractError, match="cannot reference another stage's query service"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_stage_scoped_query_endpoints_must_differ_between_stages() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+    contract["stages"]["prod"]["query"]["endpoint"] = contract["stages"]["dev"]["query"]["endpoint"]
+
+    with pytest.raises(ProviderContractError, match="shared with another stage's query service"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_catalog_service_ref_must_be_the_shared_catalog_service_specifically() -> None:
     """Same failure mode as query.service_ref: a Polaris stage could point its
     catalog service_ref at any resolvable shared/* binding and the StageContract
@@ -612,7 +701,7 @@ def test_storage_layer_uri_must_address_its_own_bucket_name() -> None:
     routing a native consumer's reads/writes to the wrong bucket."""
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["dev"]["storage"]["bronze"]["uri"] = "s3://acme-prod-bronze"
+    contract["stages"]["dev"]["storage"]["bronze"]["uri"] = "s3://acme-data-prod-bronze"
 
     with pytest.raises(ProviderContractError, match="storage.bronze.uri must address its own bucket_name"):
         parse_provider_contracts(contract, topology)
@@ -1238,9 +1327,9 @@ def _route(ref: str, url: str) -> dict:
             lambda access: access["routes"].update(_route("stage/dev/code-server", "https://code-dev.olf.localhost")),
             "does not resolve",
         ),
-        (lambda access: access.pop("issuer"), "declared together"),
+        (lambda access: access.pop("tls"), "declared together"),
         (lambda access: access.__setitem__("base_domain", "olf.example.com"), "does not match the profile"),
-        (lambda access: access.__setitem__("issuer", "letsencrypt"), "must match the profile"),
+        (lambda access: access.__setitem__("tls", "external"), "must match the profile"),
         (
             lambda access: access["routes"]["stage/dev/orchestration"].__setitem__(
                 "url", "http://dagster-dev.olf.localhost"
@@ -1267,7 +1356,7 @@ def _route(ref: str, url: str) -> dict:
         ),
         (lambda access: access["routes"]["shared/query"].__setitem__("exposure", "public"), "exposure must be"),
         (
-            lambda access: [access.pop(field) for field in ("base_domain", "issuer", "tls_mode", "routes")],
+            lambda access: [access.pop(field) for field in ("base_domain", "tls", "tls_mode", "routes")],
             "access.ingress requires",
         ),
         (
@@ -1433,6 +1522,12 @@ def _data_access(contract: dict) -> dict:
             "data_access.viewer.prod.gold must be read or write",
         ),
         (
+            lambda contract: _data_access(contract)["data-engineer"].__setitem__(
+                "prod", {"bronze": "read", "silver": "read", "gold": "read"}
+            ),
+            "names bronze.*#966",
+        ),
+        (
             # Silver alone is no catalog role Polaris can express.
             lambda contract: _data_access(contract)["data-engineer"].__setitem__("prod", {"silver": "read"}),
             "data_access.data-engineer.prod must be every layer write, every layer read, or gold read alone",
@@ -1447,7 +1542,7 @@ def _data_access(contract: dict) -> dict:
         ),
         (
             lambda contract: _data_access(contract)["data-engineer"].__setitem__(
-                "prod", {"bronze": "write", "silver": "write", "gold": "write"}
+                "prod", {"silver": "write", "gold": "write"}
             ),
             "differs from release/identity-roles.yaml",
         ),
@@ -1716,9 +1811,9 @@ def test_an_oidc_issuer_needs_the_profile_to_declare_identity() -> None:
 
 
 def _plain_http(contract: dict) -> dict:
-    """The local fixture as `issuer: none` renders it: http routes and callback, tls_mode none."""
+    """The local fixture as `tls: none` renders it: http routes and callback, tls_mode none."""
     access = contract["shared"]["access"]
-    access["issuer"] = "none"
+    access["tls"] = "none"
     access["tls_mode"] = "none"
     for route in access["routes"].values():
         route["url"] = route["url"].replace("https://", "http://")
@@ -1729,10 +1824,10 @@ def _plain_http(contract: dict) -> dict:
     return contract
 
 
-def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
+def test_plain_http_access_contract_is_accepted_with_tls_none() -> None:
     contract = _plain_http(_oidc_contract("dex"))
 
-    parsed = parse_provider_contracts(contract, _topology(contract, access={"issuer": "none"}))
+    parsed = parse_provider_contracts(contract, _topology(contract, access={"tls": "none"}))
 
     access = parsed.shared.values["access"]
     assert access["tls_mode"] == "none"
@@ -1751,12 +1846,12 @@ def test_plain_http_access_contract_is_accepted_with_issuer_none() -> None:
             lambda access: access["perimeter"].__setitem__("callback_url", "https://oauth2.olf.localhost/x"),
             "callback_url",
         ),
-        (lambda access: access.__setitem__("tls_mode", "ingress-terminated"), "tls_mode is 'none' exactly"),
+        (lambda access: access.__setitem__("tls_mode", "ingress-terminated"), "tls_mode must be 'none'"),
     ],
 )
 def test_plain_http_access_contract_fails_closed(mutate, match: str) -> None:
     contract = _plain_http(_oidc_contract("dex"))
-    topology = _topology(contract, access={"issuer": "none"})
+    topology = _topology(contract, access={"tls": "none"})
     mutate(contract["shared"]["access"])
 
     with pytest.raises(ProviderContractError, match=match):
@@ -1767,8 +1862,28 @@ def test_tls_mode_none_is_rejected_with_a_tls_issuer() -> None:
     contract = _oidc_contract("dex")
     contract["shared"]["access"]["tls_mode"] = "none"
 
-    with pytest.raises(ProviderContractError, match="tls_mode is 'none' exactly"):
+    with pytest.raises(ProviderContractError, match="tls_mode must be 'ingress-terminated'"):
         parse_provider_contracts(contract, _topology(contract))
+
+
+def test_a_contract_in_state_with_the_v1alpha1_issuer_key_is_still_read() -> None:
+    contract = _oidc_contract("dex")
+    access = contract["shared"]["access"]
+    access["issuer"] = access.pop("tls")
+
+    assert parse_provider_contracts(contract, _topology(contract)) is not None
+
+
+def test_external_tls_is_edge_terminated_with_https_routes() -> None:
+    contract = _oidc_contract("dex")
+    contract["shared"]["access"]["tls"] = "external"
+    contract["shared"]["access"]["tls_mode"] = "edge-terminated"
+    topology = replace(_topology(contract), access=AccessSpec("olf.localhost", "external"))
+
+    assert parse_provider_contracts(contract, topology) is not None
+    contract["shared"]["access"]["tls_mode"] = "ingress-terminated"
+    with pytest.raises(ProviderContractError, match="tls_mode must be 'edge-terminated'"):
+        parse_provider_contracts(contract, topology)
 
 
 def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:

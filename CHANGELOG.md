@@ -16,6 +16,10 @@ for how a release is cut and verified.
 
 ### Added
 
+- `spec.access.tls: none | local-ca | external` replaces `spec.access.issuer` (#989, #988). `external` means your own
+  proxy terminates HTTPS: it needs a non-`.localhost` `base_domain`, and the provider contract's `tls_mode` is
+  `edge-terminated`. The local provider does not deploy it yet (#990). A v1alpha1 profile that says `issuer` is read
+  as `tls` (setting both is an error); rename the key. `olf infra access trust` refuses with `external`.
 - A weekly and on-demand workflow, `external-project-e2e.yml`, deploys the external project
   OpenLakeForge/acme-lakehouse on the current `olf`: the image build installs its `requirements.txt`, the code
   location loads without `libs/`, and the `food_quality` product runs to a Gold table read through Trino (#557).
@@ -61,6 +65,12 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Local and Azure bucket names follow one rule: `<metadata.name>-<stage>-<layer>` for the stage buckets and
+  `<metadata.name>-ops` for the ops bucket (#993). They were `lakehouse-<stage>-<layer>` and `openlakeforge-ops`. The
+  resolver derives every name once and the roots take it as the `bucket_names` variable; a provider contract whose
+  names differ is rejected. `metadata.name` is limited to 51 characters. AWS bucket names are unchanged: S3 bucket names are
+  global across accounts, so AWS keeps the suffix the `aws-s3` module appends (`<prefix>-<stage>-<layer>-<suffix>`).
+  See Migration.
 - `olf infra backup` leaves the local CA out unless the routes are signed by it (`spec.access.issuer: local-ca`).
   With plain-HTTP routes it signs only in-cluster certificates (Trino's), nothing persistent holds it, and a
   restore keeps the platform's own CA. Backups that already hold `local-ca` still restore it.
@@ -139,6 +149,14 @@ for how a release is cut and verified.
   the variable in the local, aws-poc and azure-poc roots and `DeploymentContext`. The rendered
   Dagster Helm values are unchanged; `deploy_revision` already owned every code location.
 
+- `governance.yml` is `openlakeforge.io/v1beta2`: each data product is declared under its domain in
+  `domains[].products` and no longer names a `domain`; a root `products:` list is rejected. Every derived name
+  (`<domain>_silver`, `<product>_gold`, jobs, buckets) is unchanged. `olf project migrate` rewrites a `v1beta1` file
+  (#917).
+- `source.yaml` is `openlakeforge.io/v1beta1`, frozen with `governance.yml`; no field was removed or renamed.
+  `olf project migrate` rewrites a `v1alpha3` source in the same run as `governance.yml` and changes no file if
+  any descriptor cannot be migrated (#995).
+
 ### Fixed
 
 - Trino keeps its HTTPS-only listener. #932 had moved Trino's `PASSWORD` authentication onto the plain HTTP
@@ -171,6 +189,16 @@ for how a release is cut and verified.
 
 ### Migration
 
+- Local and Azure bucket names changed (#993). `olf infra deploy` refuses to rename deployed buckets and lists them:
+  the objects are not carried over and Polaris keeps the old locations. Run `olf infra backup` if you need the data,
+  then `olf infra destroy` and `olf infra deploy`, or pass `--allow-stage-removal` to apply the rename over the
+  existing platform and start with empty buckets. See
+  [Back up and restore](docs/guides/backup-and-restore.md#renaming-buckets).
+- A `governance.yml` on `openlakeforge.io/v1beta1` no longer loads. Run `olf project migrate --dry-run` to review the
+  diff and `olf project migrate` to nest each product under its domain; it keeps comments and refuses, changing no
+  file, on an unknown domain, a duplicate product id or a layout it cannot rewrite safely.
+- A `source.yaml` on `openlakeforge.io/v1alpha3` no longer loads. `olf project migrate` rewrites its version
+  line (see the `governance.yml` entry above).
 - A local profile that declared `spec.access: {}` or omitted `issuer` and relied on HTTPS now gets plain HTTP routes.
   Set `spec.access.issuer: local-ca` to keep HTTPS and `olf infra access trust`. Run `olf infra deploy` to apply the
   change; re-register the GitHub App (`olf infra secrets rotate github-app`) afterwards, because its callback URL

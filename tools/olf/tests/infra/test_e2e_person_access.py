@@ -15,7 +15,7 @@ DATA_ACCESS = {
     "analyst": {"dev": {"gold": "read"}, "prod": {"gold": "read"}},
     "viewer": {"prod": {"gold": "read"}},
 }
-TABLES = {"bronze": "sales_bronze.raw", "silver": "sales_silver.orders", "gold": "sales_gold.revenue"}
+TABLES = {"silver": "sales_silver.orders", "gold": "sales_gold.revenue"}
 
 
 class Polaris:
@@ -33,7 +33,7 @@ class Polaris:
         row = self.data_access[role].get(stage, {})
         if not row:
             return None
-        return "write" if row.get("gold") == "write" else "read" if len(row) == 3 else "gold-read"
+        return "write" if row.get("gold") == "write" else "read" if len(row) == 2 else "gold-read"
 
     def run(self, role: str, stage: str, sql: str) -> person.Outcome:
         self.calls.append((role, stage, sql))
