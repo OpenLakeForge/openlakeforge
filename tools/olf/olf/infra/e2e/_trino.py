@@ -182,9 +182,13 @@ def check_trino_write(cfg: E2EConfig) -> None:
         trino_query(cfg, f"DROP VIEW {schema}.probe__dbt_tmp")
     except E2EError as exc:
         # The CLI's own stderr does not survive `kubectl exec`; the coordinator log names the cause.
-        args = ["logs", "-n", cfg.platform_namespace, "deploy/trino-coordinator", "--tail=200"]
+        args = ["logs", "-n", _trino_namespace(cfg), "deploy/trino-coordinator", "--tail=200"]
         tail = kubectl(cfg, args, capture=True)
         raise E2EError(f"{exc}\nTrino coordinator log tail:\n{tail}") from exc
+
+
+def _trino_namespace(cfg: E2EConfig) -> str:
+    return trino.service_namespace(cfg.environ, cfg.platform_namespace)
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:
@@ -209,7 +213,7 @@ def trino_query(
     target = trino.TrinoTarget(
         provider=cfg.env,
         kube_context=cfg.kube_context,
-        namespace=cfg.platform_namespace,
+        namespace=_trino_namespace(cfg),
         catalog=catalog,
         stage=stage or trino.stage_from_catalog(catalog),
     )
