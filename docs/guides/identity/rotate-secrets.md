@@ -21,7 +21,7 @@ it rotated and restarted, and never prints a secret value.
 | Target | Rotates | Restarts |
 | --- | --- | --- |
 | `dex-client-perimeter` | The perimeter's Dex client secret | `deployment/dex` and the perimeter deployments |
-| `dex-client-trino` | Trino's Dex client secret | `deployment/dex` and `deployment/trino-coordinator` |
+| `dex-client-trino` | Trino's Dex client secret | `deployment/dex` and each stage's Trino coordinator, named by its contract endpoint |
 | `github-app` | Registers a new GitHub App through `olf infra github connect` and replaces its Secret | `deployment/dex` |
 
 For a Dex client, the command deletes the Secret, applies only the credentials
