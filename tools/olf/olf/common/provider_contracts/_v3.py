@@ -84,7 +84,7 @@ IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 
 # Data access is ordered so monotonicity is a comparison; absent is none.
 _DATA_ACCESS_LEVELS = {"read": 1, "write": 2}
-_MEDALLION_LAYERS = ("bronze", "silver", "gold")
+_MEDALLION_LAYERS = ("silver", "gold")
 # Polaris enforces data_access as catalog roles (ADR 0019, section 5), and these
 # are the only stage rows those roles express. Another shape would validate
 # here and then be silently widened or narrowed by the catalog.
@@ -105,6 +105,11 @@ def _data_access(value: object, precedence: list[str], *, where: str) -> None:
                 raise ProviderContractError(f"{where}.{role} names unknown stage {stage!r}")
             row = _mapping(layers, where=f"{where}.{role}.{stage}")
             for layer, access in row.items():
+                if layer == "bronze":
+                    raise ProviderContractError(
+                        f"{where}.{role}.{stage} names bronze: Bronze has no catalog namespace, so data_access "
+                        "does not cover it (#966)"
+                    )
                 if layer not in _MEDALLION_LAYERS:
                     raise ProviderContractError(f"{where}.{role}.{stage} names unknown layer {layer!r}")
                 if not isinstance(access, str) or access not in _DATA_ACCESS_LEVELS:

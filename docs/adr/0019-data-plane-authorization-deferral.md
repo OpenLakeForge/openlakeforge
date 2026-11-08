@@ -83,12 +83,15 @@ Lake Formation stays a separate adapter if it is ever wanted.
 
 ### 1. The access matrix
 
-| Role | DEV Bronze, Silver | DEV Gold | PROD Bronze, Silver | PROD Gold |
+| Role | DEV Silver | DEV Gold | PROD Silver | PROD Gold |
 | --- | --- | --- | --- | --- |
 | `platform-admin` | read, write | read, write | read, write | read, write |
 | `data-engineer` | read, write | read, write | read | read |
 | `analyst` | — | read | — | read |
 | `viewer` | — | — | — | read |
+
+Bronze is not a column: it is raw files with no catalog namespace, so Polaris
+cannot grant it. Bronze isolation is the stage's object-store identity.
 
 "Write" is DML and DDL on tables, views and namespaces, which is Polaris
 `CATALOG_MANAGE_CONTENT`. It is not grant management: no role administers
@@ -114,13 +117,13 @@ by canonical role" ADR 0014 reserves.
 ```yaml
 data_access:  # role -> stage -> layer -> read | write; absent is none
   platform-admin:
-    dev:  {bronze: write, silver: write, gold: write}
-    uat:  {bronze: write, silver: write, gold: write}
-    prod: {bronze: write, silver: write, gold: write}
+    dev:  {silver: write, gold: write}
+    uat:  {silver: write, gold: write}
+    prod: {silver: write, gold: write}
   data-engineer:
-    dev:  {bronze: write, silver: write, gold: write}
-    uat:  {bronze: read, silver: read, gold: read}
-    prod: {bronze: read, silver: read, gold: read}
+    dev:  {silver: write, gold: write}
+    uat:  {silver: read, gold: read}
+    prod: {silver: read, gold: read}
   analyst:
     dev:  {gold: read}
     uat:  {gold: read}
@@ -131,7 +134,7 @@ data_access:  # role -> stage -> layer -> read | write; absent is none
 ```
 
 `olf` validates it with the rules it applies to `grants`: roles inside
-`precedence`, stages inside the stage enum, layers `bronze`, `silver`, `gold`,
+`precedence`, stages inside the stage enum, layers `silver` and `gold` (a `bronze` key is rejected, #966),
 and monotonic in both senses (a higher role holds at least the access of a
 lower one on every stage and layer). The provider contract carries it in
 `shared.identity.roles` like the rest of the file, and the published schema
@@ -660,5 +663,7 @@ Section 9 (#960): Polaris decides for every caller, workloads included; one
 Trino per stage, per-stage processing principals, a keyless engine,
 Superset per user, OpenMetadata governing its own users, and Bronze out of
 `data_access`. Spikes #961 to #964 ran on the pinned stack; the fallback is
-dropped and the metadata-only crawler replaced by a reading one. Nothing
-built.
+dropped and the metadata-only crawler replaced by a reading one. Built so
+far (#979): the `openmetadata` catalog role is read-only, with a converged
+stack losing `CATALOG_MANAGE_CONTENT`, and `bronze` is out of `data_access`, its
+validator and published schema. The rest is not built.

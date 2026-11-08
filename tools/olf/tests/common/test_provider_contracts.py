@@ -1522,6 +1522,12 @@ def _data_access(contract: dict) -> dict:
             "data_access.viewer.prod.gold must be read or write",
         ),
         (
+            lambda contract: _data_access(contract)["data-engineer"].__setitem__(
+                "prod", {"bronze": "read", "silver": "read", "gold": "read"}
+            ),
+            "names bronze.*#966",
+        ),
+        (
             # Silver alone is no catalog role Polaris can express.
             lambda contract: _data_access(contract)["data-engineer"].__setitem__("prod", {"silver": "read"}),
             "data_access.data-engineer.prod must be every layer write, every layer read, or gold read alone",
@@ -1536,7 +1542,7 @@ def _data_access(contract: dict) -> dict:
         ),
         (
             lambda contract: _data_access(contract)["data-engineer"].__setitem__(
-                "prod", {"bronze": "write", "silver": "write", "gold": "write"}
+                "prod", {"silver": "write", "gold": "write"}
             ),
             "differs from release/identity-roles.yaml",
         ),
