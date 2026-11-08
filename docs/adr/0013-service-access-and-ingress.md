@@ -54,11 +54,11 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    equal a shared or reserved host (`trino`, `openmetadata`, `auth`,
    `oauth2`). The one exception is the portal (decision 7), which is the apex,
    `https://<base_domain>`.
-   **Decided, not built (#965):** with one Trino per stage (ADR 0019
-   section 9), Trino becomes a stage service, `trino-<stage>.<base_domain>`,
-   and `trino` leaves the shared hosts. The stage services are then
-   `dagster`, `superset` and `trino`, and the no-collision argument above is
-   unchanged.
+   With one Trino per stage (ADR 0019 section 9), Trino is a stage service,
+   `trino-<stage>.<base_domain>`, and `trino` is no longer a shared host. The
+   stage services are `dagster`, `superset` and `trino`, and the no-collision
+   argument above is unchanged. Built for the local root (#976): the refs are
+   `stage/<stage>/query` and `stage/<stage>/query_api` (the `/v1` path).
 3. **The provider contract carries the routes.** `shared.access` gains
    `base_domain`, `tls`, `tls_mode`, and `routes` — declared together or
    not at all, so a port-forward contract still parses. `routes` is keyed by
@@ -202,9 +202,9 @@ Dex at its Service (`internal_url`) instead of through Traefik and the local
 CA. OpenMetadata, Superset and Trino's Web UI still use the public URL, so the
 CoreDNS rewrite and `olf-local-ca` stay for them.
 
-Decisions 2 and 9 (#960): Trino moves to a per-stage route with one Trino per
-stage (#965), and its certificate goes with the keyless engine (#967).
-Decided, not built.
+Decisions 2 and 9 (#960): Trino moved to a per-stage route with one Trino per
+stage (#965, built for the local root in #976). Its certificate goes with the
+keyless engine (#967), decided, not built.
 
 The local CA is backed up only with `tls: local-ca`; with `none` it is disposable (decision 9).
 

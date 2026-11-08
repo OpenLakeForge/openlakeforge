@@ -33,5 +33,5 @@ output "traefik_backends" {
     }
   }
   # The Secret exists once the certificate release has been applied.
-  depends_on = [helm_release.certificate]
+  depends_on = [helm_release.certificate, helm_release.traefik_trust]
 }

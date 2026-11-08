@@ -976,6 +976,7 @@ def _parse_v3(
             stage_endpoint_values.add(endpoint)
     service_refs = {binding["ref"] for name, binding in shared.values.items() if name not in _NON_SERVICE_BINDINGS}
     for stage in stages.values():
+        service_refs.add(stage.query["service_ref"])
         service_refs.add(stage.orchestration["service_ref"])
         if stage.reporting is not None:
             service_refs.add(stage.reporting["service_ref"])

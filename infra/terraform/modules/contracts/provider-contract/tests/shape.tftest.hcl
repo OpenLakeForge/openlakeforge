@@ -131,6 +131,8 @@ run "local_adds_shared_services_and_stage_extras" {
         catalog_endpoint_ref   = "shared/catalog_service"
         query_catalog_name     = "lakehouse_dev"
         query_extra            = { tls_port = "8443" }
+        query_service_ref      = "stage/dev/query"
+        query_endpoint         = "http://trino.olf-dev:8080"
         pipeline_service_name  = "dagster_dev"
         dashboard_service_name = "superset_dev"
         storage                = { implementation = "storage.s3_compatible.seaweedfs" }
@@ -164,6 +166,11 @@ run "local_adds_shared_services_and_stage_extras" {
   assert {
     condition     = output.provider_contracts.stages.dev.query.tls_port == "8443" && output.provider_contracts.stages.dev.orchestration.pipeline_service_name == "dagster_dev" && output.provider_contracts.stages.dev.reporting.dashboard_service_name == "superset_dev"
     error_message = "query extras and service names reach the stage blocks"
+  }
+
+  assert {
+    condition     = output.provider_contracts.stages.dev.query.service_ref == "stage/dev/query" && output.provider_contracts.stages.dev.query.endpoint == "http://trino.olf-dev:8080" && output.provider_contracts.stages.dev.endpoints.query == "stage/dev/query"
+    error_message = "a stage with its own query service names it, its endpoint and its endpoints.query"
   }
 
   assert {

@@ -38,19 +38,20 @@ def _sibling_stage(cfg: E2EConfig) -> str | None:
     return None
 
 
-def _expect_trino_denied(cfg: E2EConfig, *, user: str, sql: str, what: str) -> None:
-    """Require the query to fail specifically with an access-control denial.
+def _expect_trino_denied(cfg: E2EConfig, *, user: str, sql: str, what: str, sibling: str) -> None:
+    """Require the query to fail because this stage's Trino cannot see the sibling's catalog.
 
-    `trino_query` raises the same `E2EError` for a genuine authorization
-    rejection and for an unrelated failure (a missing/broken sibling catalog,
-    a transient connection error, ...). Catching any `E2EError` here would let
-    the probe report isolation success when the sibling stage's catalog was
-    never provisioned - it never got far enough to be denied anything.
+    Each stage's coordinator holds only its own catalogs (ADR 0019 section 9),
+    so the sibling's is either hidden by the access rules or absent: Trino
+    answers "Access Denied" or "Catalog ... not found". `trino_query` raises
+    the same `E2EError` for those and for an unrelated failure (a broken pod,
+    a transient connection error, ...), so only those two messages count.
     """
     try:
         trino_query(cfg, sql)
     except E2EError as exc:
-        if "Access Denied" not in str(exc):
+        text = str(exc).lower()
+        if "access denied" not in text and f"catalog 'lakehouse_{sibling}' not found" not in text:
             raise E2EError(
                 f"isolation probe for {user} could not verify a denial of {what}: the query failed for a "
                 f"reason other than an access-control rejection ({exc})."
@@ -371,6 +372,7 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
         user=runtime_user,
         sql=f"SELECT 1 FROM lakehouse_{sibling}.information_schema.tables LIMIT 1",
         what=f"read access to lakehouse_{sibling}",
+        sibling=sibling,
     )
     # Positive control: the same identity must still reach its own catalog.
     trino_query(cfg, f"SELECT 1 FROM lakehouse_{this_stage}.information_schema.tables LIMIT 1")

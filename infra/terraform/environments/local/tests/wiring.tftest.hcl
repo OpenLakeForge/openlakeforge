@@ -83,9 +83,27 @@ run "dex_with_password_authentication_serves_person_queries" {
   assert {
     condition = alltrue([
       for stage, endpoint in jsondecode(module.platform_api[0].settings_json).query_endpoints :
-      endpoint.catalog == stage && endpoint.statement_url == "https://${module.trino.service_name}.olf-system.svc.cluster.local:${module.trino.tls_port}/v1/statement"
+      endpoint.catalog == stage && endpoint.statement_url == "https://trino.olf-${stage}.svc.cluster.local:8443/v1/statement"
     ])
-    error_message = "each endpoint names its stage as catalog and the coordinator's https URL on the TLS port"
+    error_message = "each endpoint names its stage as catalog and its own coordinator's https URL on the TLS port"
+  }
+
+  assert {
+    condition     = keys(module.trino) == ["dev", "prod"]
+    error_message = "one Trino coordinator per enabled stage"
+  }
+
+  assert {
+    condition = alltrue([
+      for stage in ["dev", "prod"] :
+      local.provider_contracts.stages[stage].query.service_ref == "stage/${stage}/query" && local.provider_contracts.stages[stage].query.endpoint == "http://trino.olf-${stage}:8080"
+    ])
+    error_message = "each stage's query binding names its own coordinator in its own namespace"
+  }
+
+  assert {
+    condition     = [for ref in keys(output.route_groups) : ref if endswith(ref, "/query") || endswith(ref, "/query_api")] == ["stage/dev/query", "stage/dev/query_api", "stage/prod/query", "stage/prod/query_api"]
+    error_message = "Trino is routed per stage, both the host and its /v1 path"
   }
 
   assert {
@@ -243,5 +261,24 @@ run "the_default_issuer_serves_plain_http_and_keeps_cert_manager_for_trino" {
   assert {
     condition     = length(module.cert_manager) == 1
     error_message = "Trino's certificate (ADR 0016) needs cert-manager even when no route is TLS-terminated"
+  }
+}
+
+run "a_single_stage_deployment_renders_exactly_one_coordinator" {
+  command = plan
+
+  variables {
+    stages = {
+      dev = { enabled = true, analytics = true, governance = false }
+    }
+    bucket_names = {
+      dev = { bronze = "olf-dev-bronze", silver = "olf-dev-silver", gold = "olf-dev-gold" }
+    }
+    trino_workload_authentication = "password"
+  }
+
+  assert {
+    condition     = keys(module.trino) == ["dev"]
+    error_message = "Slim deploys one coordinator, in olf-dev"
   }
 }

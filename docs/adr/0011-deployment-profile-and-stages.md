@@ -111,9 +111,9 @@ The per-stage size lets a small DEV sit beside a larger PROD. It landed before
 the v1beta1 freeze (#532) because a platform-wide query size frozen in the beta
 could not become per stage without a breaking change.
 
-**Decided, not built (#965):** each stage gets its own Trino (ADR 0019
-section 9). Until then one shared Trino is rendered, at the largest enabled
-stage's size.
+Each stage has its own Trino (ADR 0019 section 9), rendered at that stage's
+size on the local root (#976). AWS and Azure still render one shared Trino, at
+the largest enabled stage's size.
 
 Only tiers with a tested backend are accepted. For `query`, `medium` and
 `large` are part of the vocabulary but fail validation, naming the issue that

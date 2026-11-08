@@ -90,7 +90,7 @@ def trino(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[FakeTrino
     monkeypatch.setenv("OLF_HOME", str(tmp_path / "home"))
     fake = FakeTrino()
     threading.Thread(target=fake.server.serve_forever, daemon=True).start()
-    monkeypatch.setattr(person_query, "statement_url", lambda instance: fake.url)
+    monkeypatch.setattr(person_query, "statement_url", lambda instance, stage: fake.url)
     yield fake
     fake.server.shutdown()
 
@@ -247,3 +247,15 @@ def test_every_page_asks_for_a_current_token_and_only_the_submission_carries_the
     assert (submitted["Authorization"], submitted["X-Trino-Extra-Credential"]) == ("Bearer first", "token=first")
     assert page["Authorization"] == "Bearer refreshed"
     assert "X-Trino-Extra-Credential" not in page
+
+
+def test_each_stage_is_queried_on_its_own_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLF_HOME", str(tmp_path / "home"))
+    instance = sessions.resolve_instance(GITHUB_PROFILE)
+
+    urls = {stage: person_query.statement_url(instance, stage) for stage in ("dev", "prod")}
+
+    assert {stage: url.split("/")[2] for stage, url in urls.items()} == {
+        "dev": f"trino-dev.{instance.base_domain}",
+        "prod": f"trino-prod.{instance.base_domain}",
+    }

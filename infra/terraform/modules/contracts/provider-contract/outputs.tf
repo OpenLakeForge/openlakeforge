@@ -67,10 +67,10 @@ output "provider_contracts" {
         storage   = stage.storage
         catalog   = stage.catalog
         query = merge({
-          service_ref          = "shared/query"
+          service_ref          = stage.query_service_ref
           catalog_ref          = "stage/${name}/catalog"
           catalog_name         = stage.query_catalog_name
-          endpoint             = var.query.endpoint
+          endpoint             = coalesce(stage.query_endpoint, var.query.endpoint)
           runtime_identity_ref = "stage/${name}/runtime_identity"
         }, stage.query_extra)
         orchestration = merge({
@@ -95,7 +95,7 @@ output "provider_contracts" {
         endpoints = merge(
           {
             catalog       = stage.catalog_endpoint_ref
-            query         = "shared/query"
+            query         = stage.query_service_ref
             orchestration = "stage/${name}/endpoints/orchestration"
           },
           stage.analytics ? { reporting = "stage/${name}/endpoints/reporting" } : {},

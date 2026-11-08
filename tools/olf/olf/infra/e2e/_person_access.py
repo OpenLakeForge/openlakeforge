@@ -147,9 +147,8 @@ def person_runner(
     """`run(role, stage, sql)` sends `sql` to Trino's query route as the stub user of `role`, the way `olf query`
     does; None when the contract gives people no query route."""
     client = identity.get("clients", {}).get(CLI_CLIENT)
-    if "query_api" not in identity["roles"]["grants"] or "shared/query" not in routes or not client:
+    if "query_api" not in identity["roles"]["grants"] or not client:
         return None
-    url = f"{routes['shared/query'].rstrip('/')}/v1/statement"
     # RFC 8252 loopback redirect: Dex accepts any port, none is registered.
     loopback = f"http://127.0.0.1:{20000 + secrets.randbelow(40000)}/callback"
     tokens: dict[str, tuple[float, str]] = {}
@@ -162,6 +161,7 @@ def person_runner(
 
     def run(role: str, stage: str, sql: str) -> Outcome:
         user = str(session.claims(bearer(role))["email"])
+        url = f"{routes[f'stage/{stage}/query'].rstrip('/')}/v1/statement"
 
         def statement() -> object:
             with user_trust_environment(route):
