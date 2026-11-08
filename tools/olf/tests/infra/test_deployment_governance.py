@@ -85,8 +85,7 @@ def test_the_platform_phase_bootstraps_openmetadata_after_the_apply_from_the_con
     assert given["seed"] == CatalogSeed(
         service="polaris",
         display_name="Lakehouse catalogs (Trino)",
-        trino_namespace="trino://trino.olf-system:8080",
-        trino_tls_namespace="trino://trino.olf-system:8443",
+        trino_namespaces=("trino://trino.olf-system:8080", "trino://trino.olf-system:8443"),
         pipeline_service="dagster_dev",
         databases=("lakehouse_dev", "lakehouse_prod"),
     )
@@ -161,3 +160,16 @@ def test_a_failed_polaris_bootstrap_stops_the_platform_phase_before_openmetadata
         DeploymentEngine(_Provider(cluster["calls"])).deploy(DeploymentPhase.PLATFORM)
 
     assert cluster["calls"] == ["platform_up"]
+
+
+def test_every_governed_stage_trino_is_mapped_canonical_first_and_a_shared_one_once() -> None:
+    contracts = _parsed()
+    prod_query = {**contracts.stages[StageName.PROD].query, "endpoint": "http://trino-prod.olf-prod:8080"}
+    split = _with(contracts, prod={"query": prod_query})
+
+    shared_seed, _ = _platform.bootstrap_inputs(contracts)  # type: ignore[misc]
+    split_seed, _ = _platform.bootstrap_inputs(split)  # type: ignore[misc]
+
+    assert len(set(shared_seed.trino_namespaces)) == len(shared_seed.trino_namespaces)
+    assert split_seed.trino_namespaces[: len(shared_seed.trino_namespaces)] == shared_seed.trino_namespaces
+    assert "trino://trino-prod.olf-prod:8080" in split_seed.trino_namespaces
