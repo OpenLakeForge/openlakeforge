@@ -132,7 +132,10 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     team = identity["role_mapping"][team_role]
     reason = f"{REASON} {secrets.token_hex(3)}"
     issuer_host = urlsplit(identity["issuer_url"]).hostname
-    tls_port = break_glass.trino_tls_port(contracts, next(iter(contracts["stages"])))
+    stage = next(iter(contracts["stages"]))
+    tls_port = break_glass.trino_tls_port(contracts, stage)
+    # The stage's own coordinator (#976), as `olf infra break-glass trino` opens it.
+    trino_service = trino.contract_service(contracts, stage, namespace=namespace)
     cluster = break_glass.Cluster(
         Toolkit.default(environ=cfg.environ).kubectl, cfg.kube_context, None, namespace, cfg.namespace, cfg.environ
     )
@@ -233,7 +236,15 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             path = "/v1/info" if service == "trino" else "/server_info"
             url = f"{'https' if https else 'http'}://{HOST}:{PORTS[service]}{path}"
             verify = str(ca) if https else True
-            return probe(url, verify=verify, service=service, cluster=cluster, tls_port=tls_port, reason=reason)
+            return probe(
+                url,
+                verify=verify,
+                service=service,
+                cluster=cluster,
+                tls_port=tls_port,
+                reason=reason,
+                trino_service=trino_service,
+            )
 
         def records() -> list[dict[str, str]]:
             return break_glass.recent(cluster.kubectl, namespace, limit=20, **cluster.kw) or []
@@ -278,7 +289,14 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
 
 
 def probe(
-    url: str, *, verify: str | bool, service: str, cluster: break_glass.Cluster, tls_port: int | None, reason: str
+    url: str,
+    *,
+    verify: str | bool,
+    service: str,
+    cluster: break_glass.Cluster,
+    tls_port: int | None,
+    reason: str,
+    trino_service: tuple[str, str] | None = None,
 ) -> int | None:
     """Open a recorded break-glass session to `service` and GET `url` through it once it answers."""
     answered: list[int] = []
@@ -301,7 +319,16 @@ def probe(
             process.terminate()
             process.wait(timeout=10)
 
-    break_glass.open_session(cluster, service, reason, 1, local_port=PORTS[service], tls_port=tls_port, run=reach)
+    break_glass.open_session(
+        cluster,
+        service,
+        reason,
+        1,
+        local_port=PORTS[service],
+        tls_port=tls_port,
+        run=reach,
+        trino_service=trino_service,
+    )
     return answered[0] if answered else None
 
 
