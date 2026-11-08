@@ -35,8 +35,9 @@ unauthenticated, and the row in `docs/technical-debt.md` stays open for them.
 
 ## Context
 
-One Trino 480 coordinator (chart 1.42.2) in `olf-system` serves every stage's
-catalog (`lakehouse_<stage>`). Access is decided by file-based rules
+One Trino 480 coordinator (chart 1.42.2) serves every stage's catalog
+(`lakehouse_<stage>`), in `olf-system` when this record was written and, on the local root, in each stage's
+namespace since #976 (see History). Access is decided by file-based rules
 (`modules/query/trino`, `catalog_access_rules`) keyed on the **user name**,
 which is whatever the client sends in `X-Trino-User`; Trino accepts it
 unauthenticated, so any pod that reaches the Service can claim
@@ -100,10 +101,10 @@ Created by an in-cluster Job owned by `modules/query/trino`, never by Terraform
 
 | Secret | Namespace | Content | Created |
 | --- | --- | --- | --- |
-| `trino-credential-<principal>` | `olf-system` | `username`, `password` (32 random alphanumeric) | only if missing |
+| `trino-credential-<principal>` | the coordinator's namespace (`olf-system`; the stage's own since #976) | `username`, `password` (32 random alphanumeric) | only if missing |
 | `trino-credential` | that principal's stage namespace only | copy of its `username`, `password` | by the Job, like the Polaris credential replication |
-| `trino-password-file` | `olf-system` | `password.db`, derived from the principal Secrets on every run | rebuilt; never the source of truth |
-| `trino-internal-secret` | `olf-system` | `internal-communication.shared-secret` | only if missing |
+| `trino-password-file` | the coordinator's namespace | `password.db`, derived from the principal Secrets on every run | rebuilt; never the source of truth |
+| `trino-internal-secret` | the coordinator's namespace | `internal-communication.shared-secret` | only if missing |
 
 The bootstrap image (`alpine/k8s:1.30.0`) has `python3` but no `openssl` or
 `htpasswd`, so the Job writes PBKDF2 entries with `hashlib.pbkdf2_hmac`
@@ -116,9 +117,9 @@ bcrypt). A stage namespace never receives another stage's Secret. Chart wiring:
 
 | Piece | Decision |
 | --- | --- |
-| Certificate | cert-manager `Certificate` from the `local-ca` ClusterIssuer (ADR 0013), SANs `trino`, `trino.olf-system`, `trino.olf-system.svc`, the cluster-local FQDN and `localhost` (the in-pod CLI), PKCS8 key |
+| Certificate | cert-manager `Certificate` from the `local-ca` ClusterIssuer (ADR 0013), SANs `trino`, `trino.olf-<stage>`, `trino.olf-<stage>.svc`, the cluster-local FQDN and `localhost` (the in-pod CLI), PKCS8 key |
 | Keystore | Trino reads a PEM file of the PKCS8 key then the certificate chain. The `Certificate` asks cert-manager for `CombinedPEM` (key `tls-combined.pem`, a GA output format in the pinned v1.21.2: no feature gate); the Secret is mounted as a directory at `/etc/trino/tls`. Case k1 serves from a file in that layout. **Not followed on renewal**: with the file replaced by the symlink swap a Secret volume uses, the served certificate was unchanged 90 seconds later (run by hand, not in the script), so renewal needs a coordinator restart; the certificate lasts a year (`renewBefore` 30 days) |
-| Workload trust | callers use `trino.olf-system.svc.cluster.local:8443` and mount ConfigMap `olf-local-ca` (`ca.crt`, already in `olf-system` and every stage namespace, ADR 0013 decision 8) |
+| Workload trust | callers use their own stage's `trino.olf-<stage>.svc.cluster.local:8443` and mount ConfigMap `olf-local-ca` (`ca.crt`, already in `olf-system` and every stage namespace, ADR 0013 decision 8) |
 | HTTP port | **Disabled** (`http-server.http.enabled=false`) when authentication is on, so no cleartext listener exists (k2). Without that, the HTTP port refuses a password only until a pod spoofs `X-Forwarded-Proto: https` (k0). The server then reaches itself at `https://localhost:8443` (a name in the certificate) with the CA as its internal truststore, `node.internal-address=localhost` and `internal-communication.https.required=true`; without those the node's calls to itself fail the handshake on its pod IP, which the certificate cannot name. That is single-node only, as local is (`workers: 0`) |
 | Probes | The image's `health-check`, which the chart runs for readiness and startup, uses HTTPS once HTTP is disabled, and `GET /v1/info` on HTTPS needs no credential (h2). The chart's **liveness** probe is hardwired to the named HTTP port and takes only timings, so with HTTP off it can only fail; the module sets it to once an hour with 1000 failures, which makes it inert. A hung coordinator is therefore pulled from service by readiness but not restarted. A chart that lets the liveness probe be replaced would restore it |
 | Ingress hop | Traefik re-encrypts to Trino's HTTPS port and verifies it against the local CA. `http-server.process-forwarded=true` stays, since the forwarded headers Traefik adds are otherwise refused with `406`; with no HTTP listener a spoofed `X-Forwarded-Proto` has nothing to downgrade (k0 against k2). The Trino Service carries `traefik.ingress.kubernetes.io/service.serversscheme: https` and `...service.serverstransport: trino@file`; the transport is in Traefik's file provider with `rootCAs` and `serverName` (the Service FQDN), and the CA comes from a Secret that cert-manager issues for that purpose (`trino-ca-bundle`) so that Traefik does not mount Trino's private key. Cases t1 and t2 run the pinned Traefik image with that transport against the proof server; the Kubernetes annotations that select it were not run. The Web UI sign-in is below (it is `web-ui.authentication.type`, not an addition to `PASSWORD`) |
@@ -149,7 +150,7 @@ query submitter. Data access for people is #179. Rendered config is tested in
 
 | Caller | Change in the migration |
 | --- | --- |
-| Superset (per stage) | `olf infra report import` writes `trino://<principal>:XXXXXXXXXX@trino.olf-system.svc.cluster.local:8443/lakehouse_<stage>` and the CA as `server_cert`; it reads the password from `trino-credential` through RBAC and sends it only in the import request's `passwords` field. The `XXXXXXXXXX` placeholder is Superset's own: without it `set_sqlalchemy_uri` overwrites the imported password. Superset stores the password encrypted in its metadata DB; it is in neither the zip nor the URI. The connection uuid is unchanged |
+| Superset (per stage) | `olf infra report import` writes `trino://<principal>:XXXXXXXXXX@trino.olf-<stage>.svc.cluster.local:8443/lakehouse_<stage>` and the CA as `server_cert`; it reads the password from `trino-credential` through RBAC and sends it only in the import request's `passwords` field. The `XXXXXXXXXX` placeholder is Superset's own: without it `set_sqlalchemy_uri` overwrites the imported password. Superset stores the password encrypted in its metadata DB; it is in neither the zip nor the URI. The connection uuid is unchanged |
 | dbt in Dagster run pods | `openlakeforge_runtime/dbt/profiles/*.yml`: `method: ldap`, `password: env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD')` from a `secretKeyRef` on `trino-credential`, `cert:` the mounted CA, FQDN host, port 8443. `impersonation_user` is there for #179 |
 | OpenMetadata | the metadata crawl is the OLF-owned Job `openmetadata-trino-ingestion` (`olf infra openmetadata deploy-metadata`; pinned `ingestion-base` image, `metadata ingest`), which mounts `olf-local-ca` and sets `verify`, not the OpenMetadata pipeline client, whose pods accept no volumes in 1.13.6. The Job's config carries `authType: {password}` (from `trino-credential-openmetadata`) when the query contract names a credential; the service the bootstrap registers carries no password |
 | `olf e2e` | the CLI in the coordinator pod: `--server https://localhost:8443 --truststore-path <CA> --user <principal>`, password in `TRINO_PASSWORD`, never on a command line. `_isolation.py` gains the direct-request cases below |
@@ -290,6 +291,10 @@ platform.
 
 ## History
 
+One coordinator per stage on the local root (#976): the certificate, the credential Job, the password file and
+the internal secret are per stage namespace, and a coordinator knows only its own stage's principal and
+`openmetadata`. Traefik's CA trust Secret stays in `olf-system`, where it can be mounted.
+
 New record (#26 decision gate): mechanism selected and proven; nothing built.
 Credential Job and the default-off switch landed (migration step 2, first half).
 HTTPS-only listener, certificate, `PASSWORD` authentication, `principals` rules
@@ -338,7 +343,7 @@ Step 4, clients: the query contract carries `credential_secret_name`
 the stage Secret (the Dagster module and the activation both set them);
 `olf report import` reads the stage Secret and sends it in the `passwords`
 form field of the Superset import, so it is in neither the zip nor the URI; the
-OpenMetadata crawl Job reads `trino-credential-openmetadata` from `olf-system`
+OpenMetadata crawl Job reads `trino-credential-openmetadata` from the coordinator's namespace
 into `authType.password`; `olf e2e` and `olf query` read
 `trino-credential-olf-<stage>-runtime` and pass it to the in-pod CLI on stdin,
 which exports `TRINO_PASSWORD` only when the pod mounts `password.db`. The

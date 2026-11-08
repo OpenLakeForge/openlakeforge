@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from olf.common import log
 from olf.common.provider_contracts import ProviderContracts, StageContract
-from olf.infra import k8s
+from olf.infra import k8s, trino
 from olf.infra.polaris import PolarisClient, PolarisConfig, PolarisError
 
 # The catalog module's Secret holding the root principal's credentials, beside Polaris.
@@ -418,8 +418,10 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
         )
 
 
-def _credential(principal: str, secret: str, keys: str, namespace: str) -> Credential:
-    return Credential(principal, secret, f"{keys}_CLIENT_ID", f"{keys}_CLIENT_SECRET", namespace)
+def _credential(principal: str, secret: str, keys: str, namespace: str, *, recreatable: bool = False) -> Credential:
+    return Credential(
+        principal, secret, f"{keys}_CLIENT_ID", f"{keys}_CLIENT_SECRET", namespace, recreatable=recreatable
+    )
 
 
 def _stage_credential(stage: StageContract, role: str) -> Credential:
@@ -434,7 +436,9 @@ def _stage_credential(stage: StageContract, role: str) -> Credential:
     )
 
 
-def _person_access(contracts: ProviderContracts, stages: Mapping[str, str], shared: str) -> PersonAccess | None:
+def _person_access(
+    contracts: ProviderContracts, stages: Mapping[str, str], namespaces: Mapping[str, str], shared: str
+) -> PersonAccess | None:
     """data_access as Polaris roles and grants, for the Dex that GitHub sign-in deploys (ADR 0019)."""
     identity = contracts.shared.values.get("identity") or {}
     if identity.get("adapter") != "dex":
@@ -450,7 +454,13 @@ def _person_access(contracts: ProviderContracts, stages: Mapping[str, str], shar
             stages[stage]: catalog_role(layers) for stage, layers in rows.items() if stage in stages
         }
     people = tuple(
-        _credential(f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", shared)
+        _credential(
+            f"trino-people-{stage}",
+            f"polaris-{stage}-trino-people-creds",
+            "POLARIS",
+            namespaces[stage],
+            recreatable=namespaces[stage] != shared,
+        )
         for stage in sorted(stages)
     )
     return PersonAccess(DEX_CONNECTOR, assigned, people)
@@ -478,6 +488,14 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
         else None
     )
     catalogs = {stage.name.value: stage.catalog["catalog_name"] for stage in stages}
+    # Trino reads these Secrets from its own namespace: the stage's, or the shared one where AWS and Azure keep a
+    # single coordinator. The stage's query endpoint host says which.
+    trino_namespaces = {
+        stage.name.value: trino.service_namespace(
+            {"OPENLAKEFORGE_QUERY_TRINO_HOST": urllib.parse.urlparse(stage.query["endpoint"]).hostname or ""}, shared
+        )
+        for stage in stages
+    }
     return BootstrapPlan(
         shared_namespace=shared,
         stages=tuple(
@@ -488,7 +506,11 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
                 stage.storage["silver"]["bucket_name"],
                 stage.storage["gold"]["bucket_name"],
                 trino=_credential(
-                    f"trino-{stage.name.value}", f"polaris-{stage.name.value}-trino-creds", "POLARIS_TRINO", shared
+                    f"trino-{stage.name.value}",
+                    f"polaris-{stage.name.value}-trino-creds",
+                    "POLARIS_TRINO",
+                    trino_namespaces[stage.name.value],
+                    recreatable=trino_namespaces[stage.name.value] != shared,
                 ),
                 floe=_stage_credential(stage, "floe"),
                 deployer=_stage_credential(stage, "deployer"),
@@ -497,7 +519,7 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
         ),
         openmetadata=_credential("openmetadata", "polaris-om-creds", "POLARIS_OM", shared),
         sts=sts,
-        person_access=_person_access(contracts, catalogs, shared),
+        person_access=_person_access(contracts, catalogs, trino_namespaces, shared),
     )
 
 
@@ -532,7 +554,8 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
     _roll_trino_onto_its_credentials(plan, environ=environ)
     # Helm does not wait for Trino while it reads a Polaris credential, which exists only from here on
     # (modules/query/trino), so this is where a deploy finds out that Trino does not come up.
-    k8s.wait_for_deployments(TRINO_SELECTOR, plan.shared_namespace, environ=environ)
+    for namespace in sorted({credential.namespace for credential in trino_credentials(plan)}):
+        k8s.wait_for_deployments(TRINO_SELECTOR, namespace, environ=environ)
 
 
 def trino_credentials(plan: BootstrapPlan) -> set[Credential]:
@@ -548,15 +571,17 @@ def _roll_trino_onto_its_credentials(plan: BootstrapPlan, *, environ: Mapping[st
     the pods restart. The pod template carries a digest of the credential Secrets: a run that changed none leaves
     it, and so Trino, alone, and a run that failed after storing one is followed by a rerun that still restarts.
     """
-    digest = hashlib.sha256()
-    for credential in sorted(trino_credentials(plan), key=lambda c: (c.namespace, c.secret)):
-        data = k8s.secret_data(credential.secret, credential.namespace, environ=environ)
-        digest.update(json.dumps([credential.namespace, credential.secret, data], sort_keys=True).encode())
-    namespace = plan.shared_namespace
-    changed = k8s.annotate_pod_templates(
-        TRINO_SELECTOR, namespace, TRINO_CREDENTIALS_ANNOTATION, digest.hexdigest(), environ=environ
-    )
-    if changed:
-        log.step(f"Restarting Trino in '{namespace}': its Polaris credentials changed...")
-    for deployment in changed:
-        k8s.wait_for_rollout(deployment, namespace, environ=environ)
+    # Each coordinator reads the Secrets of its own namespace, so each namespace has its own digest.
+    for namespace in sorted({credential.namespace for credential in trino_credentials(plan)}):
+        digest = hashlib.sha256()
+        for credential in sorted(trino_credentials(plan), key=lambda c: (c.namespace, c.secret)):
+            if credential.namespace == namespace:
+                data = k8s.secret_data(credential.secret, credential.namespace, environ=environ)
+                digest.update(json.dumps([credential.namespace, credential.secret, data], sort_keys=True).encode())
+        changed = k8s.annotate_pod_templates(
+            TRINO_SELECTOR, namespace, TRINO_CREDENTIALS_ANNOTATION, digest.hexdigest(), environ=environ
+        )
+        if changed:
+            log.step(f"Restarting Trino in '{namespace}': its Polaris credentials changed...")
+        for deployment in changed:
+            k8s.wait_for_rollout(deployment, namespace, environ=environ)

@@ -103,17 +103,19 @@ def test_a_missing_mapping_is_refused(tmp_path: Path) -> None:
 def _topology(size: Size):  # noqa: ANN202
     # The profile still accepts only `small` (#324), so the larger tiers are set on the resolved topology.
     document = yaml.safe_load((E2E_REPO_ROOT / "openlakeforge.yaml").read_text())
-    return dataclasses.replace(resolve_topology(validate_deployment_profile(document)), query_size=size)
+    topology = resolve_topology(validate_deployment_profile(document))
+    stages = tuple(dataclasses.replace(stage, query_size=size) for stage in topology.stages)
+    return dataclasses.replace(topology, stages=stages, query_size=size)
 
 
 def _context(tmp_path: Path, size: Size) -> DeploymentContext:
     return DeploymentContext.local(repo_root=tmp_path, distribution_root=E2E_REPO_ROOT, topology=_topology(size))
 
 
-def test_the_root_receives_the_size_as_one_typed_variable(tmp_path: Path) -> None:
+def test_the_root_receives_each_stages_size_as_one_typed_variable(tmp_path: Path) -> None:
     variables = query_variables(_context(tmp_path, Size.MEDIUM))
 
-    sizing = json.loads(variables["query_sizing"])
+    sizing = json.loads(variables["query_sizing"])["dev"]
     assert (sizing["size"], sizing["workers"]) == ("medium", 2)
     assert sizing["max_stage_count"] == 300
     assert sizing["worker"] == {"heap": "2G", "cpu_request": "500m", "memory_request": "2Gi", "memory_limit": "3Gi"}
@@ -163,3 +165,20 @@ def _local_config(tmp_path: Path, topology):  # noqa: ANN001, ANN202
 
     context = DeploymentContext.local(repo_root=tmp_path, distribution_root=E2E_REPO_ROOT, topology=topology)
     return LocalDeploymentConfig.from_environment({}, context=context)
+
+
+def test_a_stage_override_reaches_only_its_own_coordinator(tmp_path: Path) -> None:
+    # The profile still accepts only `small` (#324), so the override is set on the resolved topology.
+    document = yaml.safe_load((E2E_REPO_ROOT / "openlakeforge.conformance.yaml").read_text())
+    topology = resolve_topology(validate_deployment_profile(document))
+    stages = tuple(
+        dataclasses.replace(stage, query_size=Size.MEDIUM) if stage.name.value == "prod" else stage
+        for stage in topology.stages
+    )
+    context = DeploymentContext.local(
+        repo_root=tmp_path, distribution_root=E2E_REPO_ROOT, topology=dataclasses.replace(topology, stages=stages)
+    )
+
+    sizing = json.loads(query_variables(context)["query_sizing"])
+
+    assert {stage: value["size"] for stage, value in sizing.items()} == {"dev": "small", "prod": "medium"}

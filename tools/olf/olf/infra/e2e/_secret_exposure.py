@@ -155,6 +155,7 @@ def migrated_credentials(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[st
     platform_names = {name for name, _ in MIGRATED_PLATFORM_SECRETS}
     for namespace in namespaces:
         refs += [(namespace, name, key) for name, key in MIGRATED_SCANNED_SECRETS]
+        refs += [(namespace, name, key) for name, key in _trino_secret_refs(cfg, namespace)]
         refs += [
             (namespace, name, "postgresql-password")
             for name in _secret_names(cfg, namespace)
@@ -202,11 +203,12 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
     return found
 
 
-def _trino_secret_refs(cfg: E2EConfig) -> list[tuple[str, str]]:
+def _trino_secret_refs(cfg: E2EConfig, namespace: str | None = None) -> list[tuple[str, str]]:
     """The Trino workload credentials (ADR 0016) are named by principal, and which
     principals exist is the Job's call, so the Secrets themselves are listed. None
-    exist until the credential Job has run, which is not an error."""
-    names = _secret_names(cfg, cfg.platform_namespace)
+    exist until the credential Job has run, which is not an error. Each stage's
+    coordinator keeps its own in the stage namespace."""
+    names = _secret_names(cfg, namespace or cfg.platform_namespace)
     return [(name, "password") for name in names if name.startswith(TRINO_CREDENTIAL_PREFIX)] + [
         TRINO_INTERNAL_SECRET
     ]

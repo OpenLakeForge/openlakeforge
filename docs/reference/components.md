@@ -44,7 +44,7 @@ Routes exist on the local provider when the Deployment Profile declares
 | Portal | `<scheme>://<base>` | always |
 | Dagster | `<scheme>://dagster-<stage>.<base>` | one per enabled stage |
 | Superset | `<scheme>://superset-<stage>.<base>` | one per stage with `analytics` on |
-| Trino UI | `<scheme>://trino.<base>` | always |
+| Trino UI | `<scheme>://trino-<stage>.<base>` | one per enabled stage |
 | OpenMetadata | `<scheme>://openmetadata.<base>` | a stage has `governance` on |
 | Sign-in (Dex) | `<scheme>://auth.<base>` | `spec.identity.issuer` is `github` |
 

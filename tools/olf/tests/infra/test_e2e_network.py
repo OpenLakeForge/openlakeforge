@@ -24,7 +24,6 @@ def test_every_protected_backend_has_a_port() -> None:
     assert {workload: workload_ports(FLOWS, workload) for workload in PROTECTED} == {
         "postgresql": [5432],
         "polaris": [8181],
-        "trino": [8080, 8443],
         "openmetadata": [8585],
         "dex": [5556],
     }
@@ -37,8 +36,8 @@ def test_rbac_denials_exempt_only_documented_cluster_secret_readers() -> None:
     assert ("escalate", "clusterroles") in rbac_denials("olf-system", "traefik")
 
 
-def test_stage_wide_backends_are_the_f6_f9_f10_f12_destinations() -> None:
-    assert stage_wide(FLOWS) == {"postgresql", "polaris", "trino", "openmetadata"}
+def test_stage_wide_backends_are_the_f6_f9_f12_destinations() -> None:
+    assert stage_wide(FLOWS) == {"postgresql", "polaris", "openmetadata"}
 
 
 @pytest.mark.parametrize(
@@ -179,13 +178,10 @@ def test_cert_manager_documented_grants_pass() -> None:
     assert not _grants([_rule(["secrets"], ["create"])], wh, "Role", "cert-manager-webhook:dynamic-serving")
 
 
-def test_trino_is_found_in_the_stage_endpoint_namespace_and_the_rest_in_the_platform(tmp_path: Path) -> None:
-    from conftest import e2e_cfg
-
-    cfg = e2e_cfg(tmp_path)
-    cfg = type(cfg)(**{**cfg.__dict__, "environ": {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-dev.olf-dev"}})
-
-    assert _network._workload_namespace(cfg, "trino") == "olf-dev"
-    assert _network._workload_namespace(cfg, "polaris") == cfg.platform_namespace
-    trino_pods = FLOWS["workloads"]["trino"]
-    assert _network._destination_namespace(cfg, FLOWS, trino_pods) == "olf-dev"
+def test_no_flow_row_names_the_stage_coordinators_as_a_shared_workload() -> None:
+    assert "trino" not in FLOWS["workloads"]
+    assert "trino-credentials" not in FLOWS["workloads"]
+    assert all(
+        "trino" not in str(row["to"].get("pods", {}).get("app.kubernetes.io/name"))
+        for row in FLOWS["flows"]
+    )

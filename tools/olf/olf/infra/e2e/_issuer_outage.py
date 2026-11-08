@@ -165,7 +165,8 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
 
     def person_path_closed() -> None:
         # No person can sign in, so no query reaches Trino as a person; `olf infra query`'s path still answers.
-        query_route = contracts["shared"]["access"]["routes"].get("shared/query")
+        run_stage = trino.stage_from_catalog(stage_catalog_name(cfg))
+        query_route = contracts["shared"]["access"]["routes"].get(f"stage/{run_stage}/query")
         if "query_api" in identity["roles"]["grants"] and query_route:
             reply = route.session().post(
                 f"{query_route['url'].rstrip('/')}/v1/statement",

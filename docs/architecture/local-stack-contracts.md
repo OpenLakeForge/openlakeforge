@@ -133,8 +133,11 @@ runtime variable names.
 Trino exposes SQL over HTTP at:
 
 ```text
-http://trino.olf-system:8080
+http://trino.olf-<stage>:8080
 ```
+
+Each stage runs its own coordinator in its own namespace; the stage's
+`query.endpoint` in the provider contract names it.
 
 The Trino Iceberg catalog uses environment-variable secret substitution for all
 credentials. The mounted catalog file must contain placeholders such as

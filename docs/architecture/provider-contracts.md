@@ -70,8 +70,10 @@ reference PROD's. Query follows the same rule. `stages.<name>.query` carries
 either its own `stage/<name>/query` service and endpoint (one Trino per stage)
 or `shared/query` and the shared endpoint (AWS and Azure, until the cloud
 milestone). A reference to another stage's query service is rejected, and
-stage-scoped endpoints must differ between stages. No Terraform root emits
-the stage-scoped shape yet (#965).
+stage-scoped endpoints must differ between stages. The local root emits the
+stage-scoped shape (#976); `shared.query` stays in the document until AWS and
+Azure leave the shared one, and the local root points it at the selected
+stage's coordinator.
 
 `stages.<name>.orchestration.code_locations` carries the stage's Dagster
 user-code deployments as `{name, definitions_module}` entries — the same list

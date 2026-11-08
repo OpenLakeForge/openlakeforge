@@ -113,9 +113,9 @@ states its capabilities keeps its own values.
 Each takes one optional field, `size`, which defaults to `small`.
 `spec.storage.size` is one size for the whole platform. `spec.query.size` is
 the default for every stage, and `stages.<stage>.query.size` overrides it for
-one stage (a small DEV beside a larger PROD). Today one shared Trino is still
-rendered, at the largest enabled stage's size; a coordinator per stage lands
-with #965.
+one stage (a small DEV beside a larger PROD). On the local provider each
+stage runs its own coordinator at its own size; AWS and Azure still render one
+shared Trino, at the largest enabled stage's size.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |

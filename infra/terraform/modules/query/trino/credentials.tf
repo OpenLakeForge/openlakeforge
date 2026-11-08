@@ -12,7 +12,12 @@ locals {
     "openlakeforge.io/component"   = "query"
   }
   password_file_secret = "trino-password-file"
+  # The Web UI client Secret, copied here when the issuer made it elsewhere.
+  oidc_source = try(var.web_ui_oidc.secret_namespace, null) == null || try(var.web_ui_oidc.secret_namespace, null) == var.namespace ? "" : var.web_ui_oidc.secret_namespace
+  oidc_secret = try(var.web_ui_oidc.secret_ref.name, "")
   credentials_script = templatefile("${path.module}/templates/credentials.sh.tftpl", {
+    oidc_source          = local.oidc_source
+    oidc_secret          = local.oidc_secret
     principals           = join(" ", local.credential_principals)
     stage_namespaces     = join(" ", [for stage in sort(keys(var.stage_namespaces)) : "${stage}=${var.stage_namespaces[stage]}"])
     password_file_script = file("${path.module}/templates/password-file.py")
@@ -50,15 +55,16 @@ resource "kubernetes_role_v1" "credentials" {
     resources  = ["secrets"]
     resource_names = concat(
       [for principal in local.credential_principals : "trino-credential-${principal}"],
-      ["trino-internal-secret", local.password_file_secret],
+      ["trino-internal-secret", local.password_file_secret, "trino-credential"],
+      compact([local.oidc_source == "" ? "" : local.oidc_secret]),
     )
     verbs = ["get"]
   }
   rule {
     api_groups     = [""]
     resources      = ["secrets"]
-    resource_names = [local.password_file_secret]
-    verbs          = ["update"]
+    resource_names = concat([local.password_file_secret, "trino-credential"], compact([local.oidc_source == "" ? "" : local.oidc_secret]))
+    verbs          = ["update", "patch"]
   }
 }
 
@@ -82,9 +88,48 @@ resource "kubernetes_role_binding_v1" "credentials" {
   }
 }
 
+# Reading the one Web UI client Secret where the issuer created it.
+resource "kubernetes_role_v1" "oidc_source" {
+  count = local.credentials_enabled && local.oidc_source != "" ? 1 : 0
+
+  metadata {
+    name      = "trino-credentials-${var.namespace}"
+    namespace = local.oidc_source
+    labels    = local.credential_labels
+  }
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = [local.oidc_secret]
+    verbs          = ["get"]
+  }
+}
+
+resource "kubernetes_role_binding_v1" "oidc_source" {
+  count = length(kubernetes_role_v1.oidc_source)
+
+  metadata {
+    name      = kubernetes_role_v1.oidc_source[0].metadata[0].name
+    namespace = local.oidc_source
+    labels    = local.credential_labels
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role_v1.oidc_source[0].metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account_v1.credentials[0].metadata[0].name
+    namespace = var.namespace
+  }
+}
+
 # A stage namespace takes `trino-credential` and nothing else from this Job.
+# The Job's own namespace is covered by the Role above, which a coordinator
+# running in its stage namespace needs for the same Secret.
 resource "kubernetes_role_v1" "credentials_stage" {
-  for_each = local.credentials_enabled ? toset(values(var.stage_namespaces)) : toset([])
+  for_each = local.credentials_enabled ? toset([for namespace in values(var.stage_namespaces) : namespace if namespace != var.namespace]) : toset([])
 
   metadata {
     name      = "trino-credentials"
@@ -187,5 +232,6 @@ resource "kubernetes_job_v1" "credentials" {
   depends_on = [
     kubernetes_role_binding_v1.credentials,
     kubernetes_role_binding_v1.credentials_stage,
+    kubernetes_role_binding_v1.oidc_source,
   ]
 }

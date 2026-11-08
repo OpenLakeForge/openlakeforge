@@ -152,7 +152,7 @@ olf login
 ## Query as yourself
 
 `olf query` runs SQL against a stage's data as the signed-in person, through
-Trino at `https://trino.<base_domain>/v1`. It needs `spec.identity.issuer:
+the stage's Trino at `https://trino-<stage>.<base_domain>/v1`. It needs `spec.identity.issuer:
 github` and `olf login` first. What you may read or write on each stage and
 layer is your role's `data_access` row in `release/identity-roles.yaml`, which
 Polaris enforces ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md)).

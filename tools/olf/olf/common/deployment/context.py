@@ -69,11 +69,15 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
 
 
 def query_variables(context: DeploymentContext) -> dict[str, str]:
-    """`spec.query.size` as its row of `release/query-sizes.yaml`.
+    """Each enabled stage's query size as its row of `release/query-sizes.yaml`, keyed by stage.
 
     Local only so far: AWS and Azure take it in their own adapter changes.
     """
-    sizing = load_query_sizing(context.paths.distribution_root, context.topology.query_size).terraform_value()
+    sizing = {
+        stage.name.value: load_query_sizing(context.paths.distribution_root, stage.query_size).terraform_value()
+        for stage in context.topology.stages
+        if stage.enabled
+    }
     return {"query_sizing": json.dumps(sizing, sort_keys=True, separators=(",", ":"))}
 
 

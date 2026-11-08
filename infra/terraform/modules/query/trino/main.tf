@@ -208,8 +208,8 @@ locals {
       }
     },
   ] : []
-  tls_ca_secret_name = "trino-ca-bundle"
-  traefik_transport  = "trino"
+  tls_ca_secret_name = "${var.traefik_transport}-ca-bundle"
+  traefik_transport  = var.traefik_transport
   # The tls level: an HTTPS listener beside the HTTP one, no authentication, so
   # callers can move to HTTPS and prove the CA while still sending only a user
   # name (ADR 0016 migration step 2-3).
@@ -345,8 +345,26 @@ resource "helm_release" "certificate" {
 
   values = [yamlencode({
     secretName      = local.tls_secret_name
+    trust           = var.traefik_ca_namespace == null
     trustSecretName = local.tls_ca_secret_name
     issuerName      = var.tls_issuer_name
     dnsNames        = local.tls_dns_names
+  })]
+}
+
+# Traefik re-encrypts to a coordinator in another namespace and can mount only
+# a Secret of its own, so the trust Certificate is issued there (same chart,
+# without the serving certificate).
+resource "helm_release" "traefik_trust" {
+  count = local.tls_enabled && var.traefik_ca_namespace != null ? 1 : 0
+
+  name      = "${local.traefik_transport}-trust"
+  chart     = "${path.module}/certificate"
+  namespace = var.traefik_ca_namespace
+
+  values = [yamlencode({
+    serving         = false
+    trustSecretName = local.tls_ca_secret_name
+    issuerName      = var.tls_issuer_name
   })]
 }
