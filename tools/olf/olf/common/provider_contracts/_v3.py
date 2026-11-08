@@ -669,11 +669,25 @@ def _parse_stage(
         if not is_secret_name(query["ca_configmap_name"]):
             raise ProviderContractError(f"stages.{name.value}.query.ca_configmap_name must be a valid name")
     _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
-    _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
-    if query["service_ref"] not in shared_refs:
-        raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")
-    if query["service_ref"] != shared.values["query"]["ref"]:
-        raise ProviderContractError(f"stages.{name.value}.query.service_ref must reference the shared query service")
+    # Both shapes are accepted while AWS and Azure keep one shared Trino and the
+    # local root moves to one Trino per stage (#965).
+    own_query_ref = f"stage/{name.value}/query"
+    query_ref = _reference(
+        query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/", "stage/")
+    )
+    if query_ref.startswith("stage/"):
+        if query_ref != own_query_ref:
+            raise ProviderContractError(
+                f"stages.{name.value}.query.service_ref cannot reference another stage's query service: "
+                f"use {own_query_ref!r} or the shared query service"
+            )
+    else:
+        if query_ref not in shared_refs:
+            raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")
+        if query_ref != shared.values["query"]["ref"]:
+            raise ProviderContractError(
+                f"stages.{name.value}.query.service_ref must reference the shared query service"
+            )
     if query["catalog_ref"] != f"stage/{name.value}/catalog":
         raise ProviderContractError(f"stages.{name.value}.query.catalog_ref cannot reference another stage")
     if query["catalog_name"] != expected_catalog:
@@ -884,6 +898,7 @@ def _parse_v3(
     # otherwise every stage could agree on a value that still diverges from the
     # one shared Trino service the binding actually names.
     shared_query_endpoint: str | None = shared.values["query"].get("endpoint")
+    stage_query_endpoints: set[str] = set()
     for raw_name, stage_value in stages_document.items():
         name = _stage_name(raw_name)
         stage = _parse_stage(name, stage_value, shared=shared, topology=topology)
@@ -892,7 +907,13 @@ def _parse_v3(
             raise ProviderContractError(f"namespace {stage.namespace!r} is shared between stages")
         namespaces.add(stage.namespace)
         query_endpoint = stage.query["endpoint"]
-        if shared_query_endpoint is None:
+        if stage.query["service_ref"] == f"stage/{name.value}/query":
+            if query_endpoint in stage_query_endpoints:
+                raise ProviderContractError(
+                    f"stages.{name.value}.query.endpoint is shared with another stage's query service"
+                )
+            stage_query_endpoints.add(query_endpoint)
+        elif shared_query_endpoint is None:
             shared_query_endpoint = query_endpoint
         elif query_endpoint != shared_query_endpoint:
             raise ProviderContractError(f"stages.{name.value}.query.endpoint must match the shared query service")
