@@ -75,10 +75,27 @@ def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return _topology_variables(config.context)
 
 
-def access_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+# kind's containers sit in Docker's address pool, so a proxy running on the host
+# reaches Traefik from an address in this range. A customer's edge is somewhere
+# else: OLF_ACCESS_TRUSTED_PROXIES names its range as comma-separated CIDRs.
+DEFAULT_TRUSTED_PROXIES = ("172.16.0.0/12",)
+TRUSTED_PROXIES_ENV = "OLF_ACCESS_TRUSTED_PROXIES"
+# Deploys the TLS-terminating proxy that plays the customer's edge (the tls: external e2e variant).
+TEST_EDGE_ENV = "OLF_E2E_TEST_EDGE"
+
+
+def access_variables(config: LocalDeploymentConfig, environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """`spec.access` as the local root's inputs; absent, the root deploys no ingress."""
     access = config.context.topology.access
-    return {} if access is None else {"access_base_domain": access.base_domain, "access_tls": access.tls}
+    if access is None:
+        return {}
+    variables = {"access_base_domain": access.base_domain, "access_tls": access.tls}
+    if access.tls == "external":
+        env = os.environ if environ is None else environ
+        proxies = [cidr.strip() for cidr in env.get(TRUSTED_PROXIES_ENV, "").split(",") if cidr.strip()]
+        variables["access_trusted_proxies"] = json.dumps(proxies or list(DEFAULT_TRUSTED_PROXIES))
+        variables["access_test_edge"] = "true" if env.get(TEST_EDGE_ENV) == "1" else "false"
+    return variables
 
 
 def source_egress_variables(config: LocalDeploymentConfig) -> dict[str, str]:

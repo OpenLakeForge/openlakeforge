@@ -155,6 +155,35 @@ def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_iss
     assert "identity_external" not in variables
 
 
+def test_tls_external_names_the_trusted_upstream_and_only_the_e2e_deploys_an_edge(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.common.profile import AccessSpec
+
+    topology = replace(_topology(), access=AccessSpec(base_domain="olf.example.test", tls="external"))
+    config = _config(tmp_path, topology=topology)
+
+    default = platform.access_variables(config, {})
+    assert json.loads(default["access_trusted_proxies"]) == list(platform.DEFAULT_TRUSTED_PROXIES)
+    assert default["access_test_edge"] == "false"
+
+    named = platform.access_variables(
+        config, {platform.TRUSTED_PROXIES_ENV: "203.0.113.0/24, 198.51.100.7/32", platform.TEST_EDGE_ENV: "1"}
+    )
+    assert json.loads(named["access_trusted_proxies"]) == ["203.0.113.0/24", "198.51.100.7/32"]
+    assert named["access_test_edge"] == "true"
+
+
+def test_a_tls_none_or_local_ca_root_gets_no_edge_inputs(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.common.profile import AccessSpec
+
+    topology = replace(_topology(), access=AccessSpec(tls="local-ca"))
+    variables = platform.access_variables(_config(tmp_path, topology=topology), {platform.TEST_EDGE_ENV: "1"})
+    assert "access_trusted_proxies" not in variables and "access_test_edge" not in variables
+
+
 def test_an_external_issuer_carries_its_claim_mapping_into_the_root(tmp_path: Path) -> None:
     from dataclasses import replace
 

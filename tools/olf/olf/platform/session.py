@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import requests
 
 from olf.common.distribution import runtime_layout
+from olf.common.edge import pinned_address
 from olf.common.profile import load_deployment_profile
 from olf.common.toolchain.manager import default_home
 
@@ -82,11 +83,13 @@ def send(method: str, url: str, **kwargs: Any) -> requests.Response:
     """A request that reaches `*.localhost` issuers: RFC 6761 says loopback, but glibc and macOS often answer
     NXDOMAIN, and a proxy chosen from the hostname would carry the request away from loopback."""
     host = urlsplit(url).hostname or ""
-    local = host.endswith(".localhost")
+    # `tls: external` e2e: the fixture's edge listens on this machine (olf.common.edge).
+    address = "127.0.0.1" if host.endswith(".localhost") else pinned_address(host)
+    local = address is not None
     resolver = socket.getaddrinfo
 
     def getaddrinfo(name: Any, *args: Any, **rest: Any) -> Any:
-        return resolver("127.0.0.1" if local and name == host else name, *args, **rest)
+        return resolver(address if local and name == host else name, *args, **rest)
 
     if local:
         # `proxies["no_proxy"]` overrides the environment's NO_PROXY for this request only.

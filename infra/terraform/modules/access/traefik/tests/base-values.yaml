@@ -1,0 +1,6 @@
+# Stand-in for infra/helm/values/local/traefik.yaml: the module test only reads the values the module adds.
+ports:
+  web:
+    hostPort: 80
+  websecure:
+    hostPort: 443

@@ -63,6 +63,17 @@ variable "route_tls" {
   default     = true
 }
 
+variable "trusted_proxies" {
+  description = "CIDRs of the upstream proxy whose X-Forwarded-Proto and X-Forwarded-Host the web entrypoint trusts (spec.access.tls external: the customer's edge address range). Empty trusts no peer, and Traefik discards forwarded headers from every client."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for cidr in var.trusted_proxies : can(cidrhost(cidr, 0))])
+    error_message = "trusted_proxies entries must be CIDR blocks such as 10.0.0.0/8."
+  }
+}
+
 variable "cluster_issuer_name" {
   description = "cert-manager ClusterIssuer that signs the one wildcard route certificate. Null when route_tls is false."
   type        = string
@@ -76,4 +87,13 @@ variable "backend_transports" {
     server_name = string
   }))
   default = {}
+}
+
+variable "test_edge" {
+  description = "End-to-end fixture for spec.access.tls external: a second Traefik from the same chart, standing in for the customer's HTTPS edge. It terminates TLS for base_domain with a certificate from cluster_issuer_name and forwards plain HTTP here. Null (always, outside the e2e) deploys nothing."
+  type = object({
+    base_domain         = string
+    cluster_issuer_name = string
+  })
+  default = null
 }

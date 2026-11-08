@@ -340,11 +340,17 @@ module "traefik" {
   source = "../../modules/access/traefik"
   count  = local.access_enabled ? 1 : 0
 
-  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file    = "${path.root}/../../../helm/values/local/traefik.yaml"
-  chart_package_path  = var.traefik_chart_package_path
-  routes              = local.ingress_routes
-  route_tls           = local.route_tls
+  namespace          = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file   = "${path.root}/../../../helm/values/local/traefik.yaml"
+  chart_package_path = var.traefik_chart_package_path
+  routes             = local.ingress_routes
+  route_tls          = local.route_tls
+  trusted_proxies    = var.access_tls == "external" ? var.access_trusted_proxies : []
+  # e2e fixture only: the customer's edge, in front of this Traefik.
+  test_edge = var.access_tls == "external" && var.access_test_edge ? {
+    base_domain         = local.base_domain
+    cluster_issuer_name = module.cert_manager[0].cluster_issuer_name
+  } : null
   cluster_issuer_name = local.route_tls ? module.cert_manager[0].cluster_issuer_name : null
   group_middlewares   = local.identity_enabled ? module.perimeter[0].group_middlewares : {}
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
@@ -392,6 +398,10 @@ module "in_cluster_resolution" {
   namespace        = kubernetes_namespace_v1.shared.metadata[0].name
   base_domain      = local.base_domain
   trust_namespaces = values(local.stage_namespaces)
+  # `external`: the public name belongs to the customer's edge (and, under the
+  # e2e fixture, to test_edge), not to Traefik, which serves no TLS.
+  rewrite_to_ingress   = var.access_tls != "external" || var.access_test_edge
+  ingress_service_name = var.access_tls == "external" && var.access_test_edge ? module.traefik[0].test_edge_service_name : "traefik"
   trust_namespace_uids = concat(
     [kubernetes_namespace_v1.shared.metadata[0].uid],
     [for ns in kubernetes_namespace_v1.stage : ns.metadata[0].uid],
@@ -500,11 +510,11 @@ module "trino" {
   tls_issuer_name         = try(module.cert_manager[0].cluster_issuer_name, null)
   # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
-  web_ui_fixed_user = local.route_tls ? null : "olf-web"
+  web_ui_fixed_user = local.public_https ? null : "olf-web"
   # Trino refuses OAuth2 on a request that is not secure, so a plain-HTTP route
   # (`tls: none`) keeps the UI's own login. Dex only: the module sets Dex's
   # endpoints rather than discovering them (modules/query/trino/oidc.tf).
-  web_ui_oidc = local.identity_dex && local.route_tls && var.trino_workload_authentication != "off" ? {
+  web_ui_oidc = local.identity_dex && local.public_https && var.trino_workload_authentication != "off" ? {
     issuer_url = local.identity_oidc.issuer_url
     client_id  = local.identity_oidc.clients.trino.client_id
     secret_ref = local.identity_oidc.clients.trino.secret_ref

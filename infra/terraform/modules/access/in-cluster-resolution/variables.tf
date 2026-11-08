@@ -36,3 +36,9 @@ variable "trust_namespace_uids" {
   type        = list(string)
   default     = []
 }
+
+variable "rewrite_to_ingress" {
+  description = "Whether CoreDNS rewrites base_domain to ingress_service_name. False for spec.access.tls external: the customer's edge answers the public name, and Traefik behind it serves no TLS for a pod to reach."
+  type        = bool
+  default     = true
+}

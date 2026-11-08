@@ -28,6 +28,7 @@ import requests.utils
 from openlakeforge_services.base import JsonHttpClient
 
 from olf.common import config
+from olf.common.edge import pinned_address
 from olf.infra import k8s
 
 ACCESS_ENV = "OPENLAKEFORGE_ACCESS_JSON"
@@ -94,8 +95,13 @@ class _RouteSession(requests.Session):
 def _resolve_localhost(host: Any) -> Any:
     # RFC 6761: *.localhost is loopback. Browsers honour that; glibc and macOS
     # often answer NXDOMAIN, and Traefik's host ports bind 127.0.0.1 only.
-    if isinstance(host, str) and host.lower().rstrip(".").endswith(".localhost"):
-        return "127.0.0.1"
+    if isinstance(host, str):
+        name = host.lower().rstrip(".")
+        if name.endswith(".localhost"):
+            return "127.0.0.1"
+        pinned = pinned_address(name)
+        if pinned:
+            return pinned
     return host
 
 
@@ -178,6 +184,7 @@ def service_route(
     # Both spellings: requests honours `no_proxy` and `NO_PROXY`, and an operator may set either.
     no_proxy = ",".join(filter(None, [host, env.get("no_proxy"), env.get("NO_PROXY")]))
     verify: bool | str = True
-    if access.get("tls") == LOCAL_CA_ISSUER:
+    # The e2e edge's certificate is signed by the same local CA; a real edge's is publicly trusted.
+    if access.get("tls") == LOCAL_CA_ISSUER or (access.get("tls") == "external" and pinned_address(host, env)):
         verify = _ca_bundle(shared_namespace, kube_context, environ)
     yield Route(url, {"no_proxy": no_proxy}, verify)

@@ -236,8 +236,32 @@ variable "access_tls" {
   default     = "none"
 
   validation {
-    condition     = contains(["local-ca", "none"], var.access_tls)
-    error_message = "The local provider implements tls local-ca and, for plain HTTP on *.localhost, none; external arrives with #990."
+    condition     = contains(["local-ca", "none", "external"], var.access_tls)
+    error_message = "access_tls must be none, local-ca or external."
+  }
+}
+
+variable "access_trusted_proxies" {
+  description = "CIDRs of the upstream proxy whose X-Forwarded-Proto and X-Forwarded-Host Traefik trusts when access_tls is external: the customer's edge address range. Required then, because the local default depends on the Docker network."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for cidr in var.access_trusted_proxies : can(cidrhost(cidr, 0))])
+    error_message = "access_trusted_proxies entries must be CIDR blocks such as 172.16.0.0/12."
+  }
+}
+
+variable "access_test_edge" {
+  description = "Deploy a TLS-terminating proxy in front of Traefik, standing in for the customer's edge, and point in-cluster resolution of the public name at it. End-to-end fixture for access_tls external; never for a real deployment."
+  type        = bool
+  default     = false
+}
+
+check "external_names_its_edge" {
+  assert {
+    condition     = var.access_tls != "external" || length(var.access_trusted_proxies) > 0
+    error_message = "access_tls external needs access_trusted_proxies: without the edge's address range Traefik trusts no forwarded header and every request reads as plain HTTP."
   }
 }
 
