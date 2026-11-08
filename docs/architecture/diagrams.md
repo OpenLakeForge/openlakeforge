@@ -230,13 +230,12 @@ release readiness; pull requests also run the bounded slim kind smoke.
 
 | Principal | Secret | Roles |
 | --- | --- | --- |
-| trino | `polaris-trino-creds` | data-engineer / catalog-admin |
-| floe | `polaris-floe-creds` | data-writer / catalog-writer |
+| olf-\<stage\>-processing (Trino and Floe) | `polaris-<stage>-processing-creds` | processing-\<stage\> / catalog-processing |
 | openmetadata | `polaris-om-creds` | data-reader / catalog-reader |
 | (root) | `polaris-bootstrap-credentials` | the metastore Job and `olf`'s bootstrap only |
 
 dbt has **no** Polaris principal — the bootstrap deletes the old `polaris-dbt-creds`;
-Gold SQL runs in Trino, so Gold catalog access uses `polaris-trino-creds`. Plus
+Gold SQL runs in Trino, so Gold catalog access uses the processing credential. Plus
 `seaweedfs-s3-creds` for object storage. A leaked writer credential cannot
 administer the catalog. Delivery is Terraform → Kubernetes Secret →
 `envSecrets`/`envFrom` into long-lived pods *and* ephemeral Jobs; the Trino catalog file

@@ -344,10 +344,16 @@ holds a storage key", is extended from the person path to every path.
    stage's catalogs and is reachable only from its stage namespace, the
    OpenMetadata crawl Job and Traefik (ADR 0017). Stage isolation no longer
    depends on Trino rules.
-2. **Processing principals** (#966). One writer per stage replaces the
-   per-stage `trino` and `floe` principals. It never manages grants and has no
-   grant on another stage, so DEV's pipeline cannot write PROD. It is not an
-   administrator.
+2. **Processing principals** (#966, built in #978). One writer per stage,
+   `olf-<stage>-processing`, replaces the per-stage `trino` and `floe`
+   principals; the bootstrap deletes those, their Secrets and their roles. It
+   never manages grants and has no grant on another stage, so DEV's pipeline
+   cannot write PROD. It is not an administrator. Its one Secret
+   (`polaris-<stage>-processing-creds`) lives in the stage namespace, where
+   the stage's Trino and its Floe Jobs both read it. The deployer is not a
+   data writer: it keeps `CATALOG_MANAGE_METADATA` and, with people's access,
+   `CATALOG_MANAGE_ACCESS` to grant `olf-gold-read`. `--allow-stage-removal`
+   deletes a removed stage's processing, deployer and people principals.
 3. **Keyless engine** (#967). Every Trino catalog takes the people-catalog
    shape of section 4 step 7: `session=USER`, vended credentials, no static S3
    key, and a catalog credential with no grant. Every caller sends its own
@@ -667,7 +673,9 @@ Superset per user, OpenMetadata governing its own users, and Bronze out of
 dropped and the metadata-only crawler replaced by a reading one. Built so
 far (#979): the `openmetadata` catalog role is read-only, with a converged
 stack losing `CATALOG_MANAGE_CONTENT`, and `bronze` is out of `data_access`, its
-validator and published schema. The rest is not built.
+validator and published schema. Per-stage processing principals (#978): one
+`olf-<stage>-processing` replaces the Trino and Floe principals, and a stage
+removal revokes its principals. The rest is not built.
 
 People catalog (#1011): the Iceberg client copies the catalog's OAuth2
 credential into every session it builds from a person's token and reads that

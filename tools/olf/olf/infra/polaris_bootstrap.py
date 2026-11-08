@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -58,6 +59,11 @@ PERSON_CATALOG_ROLES: Mapping[str, tuple[str, ...]] = {
 # Removed on every run: Gold writes through Trino, and pre-migration deployments had a dbt principal.
 LEGACY_DBT_PRINCIPAL = "dbt"
 LEGACY_DBT_SECRET = "polaris-dbt-creds"
+# A stage's principals before `olf-<stage>-processing` (ADR 0019, section 9): a Trino one and a Floe one, each with
+# its own principal role and catalog role. A stage keeps none of them.
+LEGACY_ROLES = (("data-engineer", "catalog-admin"), ("data-writer", "catalog-writer"))
+# What a removed stage leaves in Polaris, which `--allow-stage-removal` revokes: the principal name of each kind.
+STAGE_PRINCIPALS = re.compile(r"olf-(.+)-processing|deployer-(.+)|trino-people-(.+)")
 
 
 @dataclass(frozen=True)
@@ -103,9 +109,11 @@ class StageCatalog:
     bronze_bucket: str
     silver_bucket: str
     gold_bucket: str
-    trino: Credential
-    floe: Credential
+    # The one data writer of the stage: Floe's Silver and Trino's Gold (dbt runs through it), on this catalog only.
+    processing: Credential
     deployer: Credential
+    # The Trino and Floe credentials of earlier deployments, removed once the stage has `processing`.
+    legacy: tuple[Credential, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -368,23 +376,41 @@ def reconcile_person_access(
         ensure_credential(client, person, environ=environ)
 
 
-def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mapping[str, str] | None = None) -> None:
+def revoke_removed_stages(client: PolarisClient, stages: tuple[str, ...]) -> None:
+    """Delete the principals of every stage the plan no longer names. Their Secrets went with the stage's namespace."""
+    body = _call(client, "GET", "/principals") or {}
+    for entry in body.get("principals") or ():
+        match = STAGE_PRINCIPALS.fullmatch(entry.get("name", ""))
+        if match and next(group for group in match.groups() if group) not in stages:
+            _call(client, "DELETE", f"/principals/{_q(entry['name'])}", ok=(204,), absent=(404,))
+
+
+def run_bootstrap(
+    client: PolarisClient, plan: BootstrapPlan, *, environ: Mapping[str, str] | None = None, remove_stages: bool = False
+) -> None:
     """Every step, in order. `client` is logged in as the root principal."""
     for stage in plan.stages:
         ensure_catalog(client, stage, plan.sts)
     for stage in plan.stages:
-        ensure_credential(client, stage.trino, environ=environ)
+        ensure_credential(client, stage.processing, environ=environ)
+        # No CATALOG_MANAGE_ACCESS and no grant on another stage's catalog: a stage's writer cannot reach PROD from DEV.
         grant_catalog_access(
             client,
-            Grant(stage.trino.principal, f"data-engineer-{stage.stage}", "catalog-admin", MANAGE_CONTENT),
+            Grant(stage.processing.principal, f"processing-{stage.stage}", "catalog-processing", MANAGE_CONTENT),
             stage.catalog_name,
         )
-        ensure_credential(client, stage.floe, environ=environ)
-        grant_catalog_access(
-            client,
-            Grant(stage.floe.principal, f"data-writer-{stage.stage}", "catalog-writer", MANAGE_CONTENT),
-            stage.catalog_name,
-        )
+        for old in stage.legacy:
+            _call(client, "DELETE", f"/principals/{_q(old.principal)}", ok=(204,), absent=(404,))
+            k8s.delete_secret(old.secret, old.namespace, environ=environ)
+        for role, catalog_role in LEGACY_ROLES:
+            _call(client, "DELETE", f"/principal-roles/{role}-{stage.stage}", ok=(204,), absent=(404,))
+            _call(
+                client,
+                "DELETE",
+                f"/catalogs/{_q(stage.catalog_name)}/catalog-roles/{catalog_role}",
+                ok=(204,),
+                absent=(404,),
+            )
 
     _call(client, "DELETE", f"/principals/{LEGACY_DBT_PRINCIPAL}", ok=(204,), absent=(404,))
     k8s.delete_secret(LEGACY_DBT_SECRET, plan.shared_namespace, environ=environ)
@@ -399,7 +425,9 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
         revoke_catalog_privilege(client, stage.catalog_name, reader, MANAGE_CONTENT)
 
     # Namespace lifecycle belongs to the artifacts phase (ADR 0002): this stops at handing
-    # `olf infra catalog sync-namespaces` a principal that can create and drop namespaces.
+    # `olf infra catalog sync-namespaces` a principal that can create and drop namespaces. The deployer is not
+    # a data writer: it holds CATALOG_MANAGE_METADATA, and with people's access CATALOG_MANAGE_ACCESS to grant
+    # `olf-gold-read` on each Gold namespace, and no CATALOG_MANAGE_CONTENT.
     for stage in plan.stages:
         deployer = stage.deployer
         ensure_credential(client, deployer, environ=environ)
@@ -416,6 +444,8 @@ def run_bootstrap(client: PolarisClient, plan: BootstrapPlan, *, environ: Mappin
         reconcile_person_access(
             client, plan.person_access, tuple(stage.catalog_name for stage in plan.stages), environ=environ
         )
+    if remove_stages:
+        revoke_removed_stages(client, tuple(stage.stage for stage in plan.stages))
 
 
 def _credential(principal: str, secret: str, keys: str, namespace: str, *, recreatable: bool = False) -> Credential:
@@ -424,10 +454,10 @@ def _credential(principal: str, secret: str, keys: str, namespace: str, *, recre
     )
 
 
-def _stage_credential(stage: StageContract, role: str) -> Credential:
+def _stage_credential(stage: StageContract, role: str, principal: str | None = None) -> Credential:
     catalog = stage.catalog
     return Credential(
-        f"{role}-{stage.name.value}",
+        principal or f"{role}-{stage.name.value}",
         catalog[f"{role}_credentials_secret_name"],
         catalog[f"{role}_client_id_key"],
         catalog[f"{role}_client_secret_key"],
@@ -505,15 +535,24 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
                 stage.storage["bronze"]["bucket_name"],
                 stage.storage["silver"]["bucket_name"],
                 stage.storage["gold"]["bucket_name"],
-                trino=_credential(
-                    f"trino-{stage.name.value}",
-                    f"polaris-{stage.name.value}-trino-creds",
-                    "POLARIS_TRINO",
-                    trino_namespaces[stage.name.value],
-                    recreatable=trino_namespaces[stage.name.value] != shared,
-                ),
-                floe=_stage_credential(stage, "floe"),
+                # The contract names one Secret for Trino and Floe (`trino_*` and `floe_*` are the same), in the
+                # namespace both run in.
+                processing=_stage_credential(stage, "floe", f"olf-{stage.name.value}-processing"),
                 deployer=_stage_credential(stage, "deployer"),
+                legacy=(
+                    _credential(
+                        f"trino-{stage.name.value}",
+                        f"polaris-{stage.name.value}-trino-creds",
+                        "POLARIS_TRINO",
+                        trino_namespaces[stage.name.value],
+                    ),
+                    _credential(
+                        f"floe-{stage.name.value}",
+                        f"polaris-{stage.name.value}-floe-creds",
+                        "POLARIS_FLOE",
+                        stage.namespace,
+                    ),
+                ),
             )
             for stage in stages
         ),
@@ -531,7 +570,9 @@ def polaris_service(contracts: ProviderContracts) -> tuple[str, int, str]:
     return service, parsed.port or 8181, namespace
 
 
-def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[str, str]) -> None:
+def bootstrap_from_contract(
+    contracts: ProviderContracts, *, environ: Mapping[str, str], remove_stages: bool = False
+) -> None:
     """Bootstrap Polaris as root through a port-forward, from the applied contract. Nothing to do without it."""
     plan = bootstrap_plan(contracts)
     if plan is None:
@@ -550,7 +591,7 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
         )
         client = PolarisClient(root)
         client.login()
-        run_bootstrap(client, plan, environ=environ)
+        run_bootstrap(client, plan, environ=environ, remove_stages=remove_stages)
     _roll_trino_onto_its_credentials(plan, environ=environ)
     # Helm does not wait for Trino while it reads a Polaris credential, which exists only from here on
     # (modules/query/trino), so this is where a deploy finds out that Trino does not come up.
@@ -561,7 +602,7 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
 def trino_credentials(plan: BootstrapPlan) -> set[Credential]:
     """The credentials Trino's pods read from their environment, so only at start: each stage's workload
     catalog and, with people's access, each stage's people catalog."""
-    return {stage.trino for stage in plan.stages} | set(plan.person_access.people if plan.person_access else ())
+    return {stage.processing for stage in plan.stages} | set(plan.person_access.people if plan.person_access else ())
 
 
 def _roll_trino_onto_its_credentials(plan: BootstrapPlan, *, environ: Mapping[str, str]) -> None:

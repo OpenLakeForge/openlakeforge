@@ -42,7 +42,7 @@ def bootstrap_polaris(provider: DeploymentProvider) -> None:
     context = provider.context
     try:
         contracts = parse_provider_contracts(raw, context.topology, distribution_root=context.paths.distribution_root)
-        polaris_bootstrap.bootstrap_from_contract(contracts, environ=environ)
+        polaris_bootstrap.bootstrap_from_contract(contracts, environ=environ, remove_stages=context.allow_stage_removal)
     except (ProviderContractError, PolarisError, k8s.KubectlError) as exc:
         raise DeploymentPreconditionError(f"Polaris bootstrap: {exc}") from exc
 
