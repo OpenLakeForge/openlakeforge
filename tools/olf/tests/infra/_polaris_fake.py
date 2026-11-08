@@ -45,9 +45,9 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
         pb.StageCatalog(
             stage,
             f"lakehouse_{stage}",
-            f"lakehouse-{stage}-bronze",
-            f"lakehouse-{stage}-silver",
-            f"lakehouse-{stage}-gold",
+            f"olf-conformance-{stage}-bronze",
+            f"olf-conformance-{stage}-silver",
+            f"olf-conformance-{stage}-gold",
             trino=credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", "olf-system"),
             floe=credential(
                 f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}", recreatable=True
@@ -145,6 +145,9 @@ class FakePolaris:
                 return 200, {"grants": [{"type": "catalog", "privilege": privilege} for privilege in grants]}
             case "PUT", ["catalogs", catalog, "catalog-roles", role, "grants"]:
                 return self._add(self.catalog_roles[catalog][role], body["grant"]["privilege"])
+            case "POST", ["catalogs", catalog, "catalog-roles", role, "grants"]:
+                self.catalog_roles[catalog][role].remove(body["grant"]["privilege"])
+                return 201, {}
             case "GET", ["principal-roles", role, "catalog-roles", catalog]:
                 if role not in self.principal_roles:
                     return 404, {}

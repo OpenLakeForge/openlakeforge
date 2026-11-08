@@ -191,8 +191,13 @@ def openmetadata_bootstrap(
         "", "--catalog-service", help="Also seed OpenLineage, this lakehouse database service and its databases."
     ),
     catalog_display: str = typer.Option("", "--catalog-display", help="Display name of the catalog service."),
-    trino_namespace: str = typer.Option("", "--trino-namespace", help="Trino's `trino://host:port` namespace."),
-    trino_tls_namespace: str = typer.Option("", "--trino-tls-namespace", help="Trino's HTTPS namespace, if any."),
+    trino_namespace: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--trino-namespace",
+            help="A `trino://host:port` namespace, per stage and port; repeatable, first is the address.",
+        ),
+    ] = None,
     pipeline_service: str = typer.Option("", "--pipeline-service", help="OpenLineage's default pipeline service."),
     database: Annotated[
         list[str] | None, typer.Option("--database", help="A governed stage's catalog database; repeatable.")
@@ -233,8 +238,7 @@ def openmetadata_bootstrap(
         CatalogSeed(
             service=catalog_service,
             display_name=catalog_display or catalog_service,
-            trino_namespace=trino_namespace,
-            trino_tls_namespace=trino_tls_namespace,
+            trino_namespaces=tuple(trino_namespace or ()),
             pipeline_service=pipeline_service,
             databases=tuple(database or ()),
             schemas=tuple(schema or ()),

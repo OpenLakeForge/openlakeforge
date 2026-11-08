@@ -78,11 +78,9 @@ locals {
   stage_service_accounts   = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
-      # Same fixed prefix as the local environment, so the buckets match
-      # the `lakehouse_<stage>` catalogs rather than the profile name.
-      bronze_bucket_name      = "lakehouse-${name}-bronze",
-      silver_bucket_name      = "lakehouse-${name}-silver",
-      gold_bucket_name        = "lakehouse-${name}-gold",
+      bronze_bucket_name      = var.bucket_names[name].bronze,
+      silver_bucket_name      = var.bucket_names[name].silver,
+      gold_bucket_name        = var.bucket_names[name].gold,
       credentials_secret_name = "seaweedfs-${name}-s3-creds"
     }
   }

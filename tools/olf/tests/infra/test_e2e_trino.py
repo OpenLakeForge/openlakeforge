@@ -236,3 +236,26 @@ def test_trino_query_reads_no_credential_unless_the_contract_names_one(
 
     assert all(args[:2] != ["get", "secret"] for args, _ in calls)
     assert calls[-1][1]["input_text"] is None
+
+
+@pytest.mark.parametrize(("stage", "namespace"), [("dev", "olf-dev"), ("prod", "olf-prod")])
+def test_trino_query_execs_into_the_stage_coordinator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, namespace: str
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(_trino, "kubectl", lambda _cfg, args, **_kw: calls.append(args) or "1")
+    cfg = e2e_cfg(tmp_path)
+    cfg = type(cfg)(
+        **{
+            **cfg.__dict__,
+            "environ": {
+                "OPENLAKEFORGE_QUERY_TRINO_HOST": f"trino-{stage}.{namespace}",
+                "OPENLAKEFORGE_QUERY_TRINO_CATALOG": f"lakehouse_{stage}",
+            },
+        }
+    )
+
+    _trino.trino_query(cfg, "SELECT 1")
+
+    exec_args = calls[-1]
+    assert exec_args[exec_args.index("-n") + 1] == namespace

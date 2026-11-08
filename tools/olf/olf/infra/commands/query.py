@@ -62,7 +62,7 @@ def query(
             target = trino.TrinoTarget(
                 provider=provider,
                 kube_context=contract.kube_context,
-                namespace=context.shared_namespace or context.namespace,
+                namespace=trino.service_namespace(contract, context.shared_namespace or context.namespace),
                 catalog=catalog,
                 stage=context.stage.value,
             )

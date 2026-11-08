@@ -57,29 +57,33 @@ def om() -> Iterator[FakeServer]:
 SEED = CatalogSeed(
     service="polaris",
     display_name="Polaris Lakehouse",
-    trino_namespace="trino://trino.olf-shared:8080",
-    trino_tls_namespace="trino://trino.olf-shared:8443",
+    trino_namespaces=(
+        "trino://trino-dev.olf-dev:8080",
+        "trino://trino-dev.olf-dev:8443",
+        "trino://trino-prod.olf-prod:8080",
+    ),
     pipeline_service="dagster_dev",
     databases=("lakehouse_dev", "lakehouse_prod"),
     schemas=("silver", "gold"),
 )
 
 
-def test_writes_openlineage_the_trino_service_and_every_stage_database(om: FakeServer) -> None:
+def test_maps_every_stage_trino_onto_one_service_with_a_database_per_stage(om: FakeServer) -> None:
     _catalog_seed.bootstrap_catalog(OpenMetadataClient(om.url), SEED)
 
     settings = om.entities["/api/v1/system/settings/openLineageSettings"]["config_value"]
     assert settings["defaultPipelineService"] == "dagster_dev"
     assert settings["namespaceToServiceMapping"] == {
-        "trino://trino.olf-shared:8080": "polaris",
+        "trino://trino-dev.olf-dev:8080": "polaris",
+        "trino://trino-dev.olf-dev:8443": "polaris",
+        "trino://trino-prod.olf-prod:8080": "polaris",
         "polaris": "polaris",
-        "trino://trino.olf-shared:8443": "polaris",
     }
     service = om.entities["/api/v1/services/databaseServices/polaris"]
     assert service["displayName"] == "Polaris Lakehouse"
     assert service["connection"]["config"] == {
         "type": "Trino",
-        "hostPort": "trino.olf-shared:8080",
+        "hostPort": "trino-dev.olf-dev:8080",
         "username": "openmetadata",
     }
     assert om.entities["/api/v1/databases/lakehouse_prod"] == {"name": "lakehouse_prod", "service": "polaris"}
@@ -96,7 +100,7 @@ def _schemas(om: FakeServer) -> list[tuple[str, dict]]:
 
 
 def test_without_a_tls_listener_only_the_plain_namespace_is_mapped(om: FakeServer) -> None:
-    seed = CatalogSeed(**{**SEED.__dict__, "trino_tls_namespace": ""})
+    seed = CatalogSeed(**{**SEED.__dict__, "trino_namespaces": ("trino://trino.olf-shared:8080",)})
 
     _catalog_seed.enable_openlineage(OpenMetadataClient(om.url), seed)
 
@@ -155,7 +159,7 @@ def test_the_command_seeds_the_catalog_after_the_auth_steps(monkeypatch: pytest.
             CatalogSeed(
                 service="polaris",
                 display_name="polaris",
-                trino_namespace="trino://t:8080",
+                trino_namespaces=("trino://t:8080",),
                 pipeline_service="dagster_dev",
                 databases=("lakehouse_dev",),
                 schemas=("silver",),

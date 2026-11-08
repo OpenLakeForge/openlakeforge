@@ -619,3 +619,24 @@ def test_check_floe_pins_requires_both_catalog_entries(tmp_path: Path, missing: 
 
     assert not result.ok
     assert f"components.floe.{missing} is missing" in result.detail
+
+
+def test_runtime_contract_check_passes_on_real_repo_catalog() -> None:
+    assert _readiness._check_runtime_contract(load_catalog(ROOT / "release" / "component-catalog.yaml")).ok
+
+
+def test_runtime_contract_check_fails_when_the_binding_surface_changed_without_a_decision() -> None:
+    catalog = load_catalog(ROOT / "release" / "component-catalog.yaml")
+    catalog["distribution"]["runtime_contract"]["binding_fingerprint"] = "sha256:" + "0" * 64
+
+    result = _readiness._check_runtime_contract(catalog)
+
+    assert not result.ok
+    assert "bump distribution.runtime_contract.version" in result.detail
+
+
+def test_runtime_contract_check_requires_the_current_version_to_be_accepted() -> None:
+    catalog = load_catalog(ROOT / "release" / "component-catalog.yaml")
+    catalog["distribution"]["runtime_contract"].update(version=2, accepts=[1])
+
+    assert not _readiness._check_runtime_contract(catalog).ok

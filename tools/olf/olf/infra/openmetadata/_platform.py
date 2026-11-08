@@ -7,6 +7,7 @@ the inputs given as flags. Every step is idempotent, so a rerun converges.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from olf.common.profile import StageName
 from olf.common.provider_contracts import ProviderContracts
@@ -52,6 +53,14 @@ def run_bootstrap(
         _search_reindex.ensure_search_indexed(client, seed)
 
 
+def _trino_namespaces(query: Mapping[str, Any]) -> list[str]:
+    host_port = query["endpoint"].removeprefix("http://").split("/", 1)[0]
+    namespaces = [f"trino://{host_port}"]
+    if tls_port := query.get("tls_port"):
+        namespaces.append(f"trino://{host_port.rsplit(':', 1)[0]}:{tls_port}")
+    return namespaces
+
+
 def bootstrap_inputs(contracts: ProviderContracts) -> tuple[CatalogSeed, tuple[StageServices, ...]] | None:
     """The catalog seed and stage services for the governed stages; None when no stage is governed."""
     governed = contracts.governed_stages
@@ -60,13 +69,15 @@ def bootstrap_inputs(contracts: ProviderContracts) -> tuple[CatalogSeed, tuple[S
     # The environment roots' governance_dagster_stage: the selected stage (DEV when enabled, else
     # the first by name) when it is governed, else the first governed stage by name.
     canonical = governed.get(StageName.DEV) or governed[min(governed)]
-    trino = canonical.query["endpoint"].removeprefix("http://").split("/", 1)[0]
-    tls_port = canonical.query.get("tls_port")
+    # Canonical stage first: its plain address is the service's connection address. A shared coordinator
+    # repeats across stages, hence the dict for ordered de-duplication.
+    namespaces = dict.fromkeys(
+        namespace for stage in (canonical, *governed.values()) for namespace in _trino_namespaces(stage.query)
+    )
     seed = CatalogSeed(
         service="aws_glue" if canonical.catalog.get("catalog_type") == "glue" else "polaris",
         display_name=CATALOG_DISPLAY,
-        trino_namespace=f"trino://{trino}",
-        trino_tls_namespace=f"trino://{trino.rsplit(':', 1)[0]}:{tls_port}" if tls_port else "",
+        trino_namespaces=tuple(namespaces),
         pipeline_service=canonical.orchestration.get("pipeline_service_name", f"dagster_{canonical.name.value}"),
         databases=tuple(stage.catalog["catalog_name"] for stage in governed.values()),
     )

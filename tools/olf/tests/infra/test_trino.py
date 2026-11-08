@@ -186,3 +186,16 @@ def test_default_runner_gives_the_kubectl_child_the_given_environ(tmp_path: Path
     )
 
     assert out == "kc=/given\n"
+
+
+def test_service_namespace_follows_the_stage_endpoint_host() -> None:
+    dev = {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-dev.olf-dev"}
+    prod = {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-prod.olf-prod.svc.cluster.local"}
+
+    assert trino.service_namespace(dev, "olf-system") == "olf-dev"
+    assert trino.service_namespace(prod, "olf-system") == "olf-prod"
+
+
+@pytest.mark.parametrize("environ", [{}, {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino"}])
+def test_service_namespace_falls_back_without_a_namespaced_host(environ: dict[str, str]) -> None:
+    assert trino.service_namespace(environ, "olf-system") == "olf-system"

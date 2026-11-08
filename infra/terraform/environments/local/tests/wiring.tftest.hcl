@@ -43,6 +43,10 @@ variables {
     dev  = { enabled = true, analytics = true, governance = false }
     prod = { enabled = true, analytics = true, governance = false }
   }
+  bucket_names = {
+    dev  = { bronze = "olf-dev-bronze", silver = "olf-dev-silver", gold = "olf-dev-gold" }
+    prod = { bronze = "olf-prod-bronze", silver = "olf-prod-silver", gold = "olf-prod-gold" }
+  }
   access_base_domain = "olf.localhost"
   platform_api_image = "platform-api:test"
   ops_bucket_name    = "olf-ops"
@@ -100,8 +104,15 @@ run "dex_with_password_authentication_serves_person_queries" {
   }
 
   assert {
-    condition     = jsonencode(module.dex[0].public_client_trusted_peers) == jsonencode({ "olf-cli" = ["perimeter"] })
-    error_message = "Dex lets the perimeter obtain tokens for olf-cli"
+    condition     = jsonencode(module.dex[0].public_client_trusted_peers) == jsonencode({ "olf-cli" = ["perimeter", "superset"] })
+    error_message = "Dex lets the perimeter and Superset obtain tokens for olf-cli"
+  }
+
+  assert {
+    condition = alltrue([for stage in keys(var.stages) :
+      contains(module.dex[0].client_redirect_uris["superset"], "https://superset-${stage}.olf.localhost/api/v1/database/oauth2/")
+    ])
+    error_message = "Dex must accept Superset's database OAuth2 redirect on every analytics stage"
   }
 
   assert {

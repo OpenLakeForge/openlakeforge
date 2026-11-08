@@ -43,3 +43,8 @@ output "public_client_trusted_peers" {
   description = "Public client id to the client ids Dex lets request a token for it, as rendered into its config."
   value       = { for client in local.config.staticClients : client.id => client.trustedPeers if try(client.public, false) && contains(keys(client), "trustedPeers") }
 }
+
+output "client_redirect_uris" {
+  description = "Client id to the redirect URIs Dex accepts for it, as rendered into its config."
+  value       = { for client in local.config.staticClients : client.id => client.redirectURIs if contains(keys(client), "redirectURIs") }
+}

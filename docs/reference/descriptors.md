@@ -19,7 +19,7 @@ provider.
 ## `source.yaml`
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: marketing_platform
 displayName: Marketing Platform
@@ -32,7 +32,7 @@ resources:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `apiVersion` | string | yes | `openlakeforge.io/v1alpha3` |
+| `apiVersion` | string | yes | `openlakeforge.io/v1beta1` |
 | `kind` | string | yes | `Source` |
 | `name` | identifier | yes | Must equal the directory name and be unique in the lakehouse. |
 | `displayName` | string, non-empty | yes | Human-readable name. |
@@ -46,6 +46,13 @@ resources:
 | `resources[].load.primary_key` | array of column names | with `incremental` | The row's identity, which Silver merges a changed row onto. |
 | `runtime.config` | array of key names | no | Names of the non-secret settings the loader reads, such as an API base URL. |
 | `runtime.secrets` | array of key names | no | Names of the credentials the loader reads, such as an API token. A name appears in at most one of the two lists. |
+
+`openlakeforge.io/v1alpha3` Source documents are the same document with the
+older version line and do not load as `v1beta1`. `olf project migrate` changes
+that line, in every `source.yaml` and in `governance.yml` together (see
+[`governance.yml`](#governanceyml)), and refuses, leaving all files as they
+were, if a document does not validate afterwards. No field was removed or
+renamed between the two versions.
 
 A resource has no schema here: its columns belong to the Floe contract of each
 domain that reads it.
@@ -185,22 +192,22 @@ Gold table itself.
 ## `governance.yml`
 
 ```yaml
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: marketing
     displayName: Marketing
     description: Marketing analytics data products.
     status: active
-products:
-  - id: campaign_performance
-    domain: marketing
-    displayName: Campaign Performance
-    description: Campaign spend and conversion performance.
-    status: active
+    products:
+      - id: campaign_performance
+        displayName: Campaign Performance
+        description: Campaign spend and conversion performance.
+        status: active
 ```
 
-The file names domains and data products and nothing else. Tables belong to a
+The file names domains and the data products nested under them, and nothing
+else. Tables belong to a
 domain or a product by the schema they live in, so no table is listed:
 
 | Schema | Owner |
@@ -216,10 +223,9 @@ serves the products whose `<product>_gold` schema its dataset files read.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `apiVersion` | string | yes | `openlakeforge.io/v1beta1` |
+| `apiVersion` | string | yes | `openlakeforge.io/v1beta2` |
 | `kind` | string | yes | `Governance` |
 | `domains` | array, at least one | yes | The business domains. |
-| `products` | array, may be empty | yes | The data products. At least one is needed to check or deploy a project. |
 
 ### `domains[]`
 
@@ -229,16 +235,34 @@ serves the products whose `<product>_gold` schema its dataset files read.
 | `displayName` | string, non-empty | yes | Human-readable name. |
 | `description` | string | no | |
 | `status` | string, non-empty | no | Free text. |
+| `products` | array, may be empty or omitted | no | The data products of this domain. A project needs at least one product across all its domains to be checked or deployed. |
 
-### `products[]`
+### `domains[].products[]`
+
+A product belongs to the domain it is nested under, so it carries no `domain`
+field. Moving a product to another domain changes which Silver tables it may
+read, so it is a deliberate edit of the directory layout as well as the file.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `id` | identifier | yes | Unique across the whole lakehouse; also the directory `gold/<id>/`. |
-| `domain` | identifier | yes | Must name a domain in the file. |
+| `id` | identifier | yes | Unique across the whole lakehouse, not only within its domain; also the directory `gold/<id>/`. |
 | `displayName` | string, non-empty | yes | Human-readable name. |
 | `description` | string | no | |
 | `status` | string, non-empty | no | Free text. |
+
+A root `products:` list, a `domain` inside a product, or the same `id` under
+two domains is rejected, with the location written as
+`domains[sales].products[order_revenue]`.
+
+`openlakeforge.io/v1beta1` documents declared the products in a root
+`products:` list that named their domain. They do not load as `v1beta2`. Run
+`olf project migrate --dry-run` to see the rewrite as a diff, then
+`olf project migrate` to apply it. The command keeps comments with the entry they sit above, and the order, and
+refuses, leaving the file as it was, on an unknown domain, a duplicate `id`, a
+file that already nests products, or a layout it cannot rewrite safely. The
+migration changes the project revision digest and no asset name: schemas,
+jobs, buckets and catalog entries derive from the same domain and product
+names (see [ADR 0012](../adr/0012-project-revisions-and-promotion.md)).
 
 `olf check contracts` also requires one `silver/<domain>/` directory per
 domain and one `gold/<product>/` directory per product, and rejects a dbt

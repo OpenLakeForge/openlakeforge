@@ -245,7 +245,7 @@ def commit_plan(
     `allow_transitional` is for the steps that legitimately leave an
     `olf init --empty` project short of a runnable product -- `source new` and
     `domain new`. `product new` always verifies strictly, so the first product
-    is what converts a transitional project into a schema-valid v1alpha3 one."""
+    is what converts a transitional project into a schema-valid one."""
     check_no_existing_targets(repo_root, plan.files)
     _verify(repo_root, plan, schema_root=schema_root, allow_transitional=allow_transitional)
     _write(repo_root, plan)

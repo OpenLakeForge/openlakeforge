@@ -68,7 +68,7 @@ spec:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. |
+| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. It is also the prefix of the local and Azure buckets (`<name>-<stage>-<layer>`, `<name>-ops`, ADR 0004), so it is at most 51 characters and cannot start with `xn--`. Changing it on a deployed local or Azure platform renames the buckets: see "Renaming buckets" in [Back up and restore](../guides/backup-and-restore.md). |
 
 ---
 
@@ -82,15 +82,21 @@ spec:
 | `access` | object | no | absent: no ingress | How user-facing services are published. |
 | `identity` | object | no | absent: sign-in off | Who may sign in and which roles they hold. |
 | `project` | object | no | absent: the public example image | Your project's source repository and image registry. |
-| `query` | object | no | `size: small` | Size of the shared Trino. |
+| `query` | object | no | `size: small` | Default Trino size for every stage. |
 | `storage` | object | no | `size: small` | Size of self-hosted object storage (SeaweedFS). Rejected on `aws`. |
 
 ### `spec.provider`
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `type` | `local`, `aws` or `azure` | yes | The deployment target. `local` is a kind cluster on this machine. |
+| `type` | `local`, `aws` or `azure` | yes | The deployment target. `local` is a kind cluster on this machine. `aws` and `azure` are preview: the schema accepts them, but the beta compatibility promise covers `local` only (see [releasing.md](../release/releasing.md#lifecycle-stages)). `olf profile validate` prints a notice for them. |
 | `region` | string, non-empty | no | Cloud region. Rejected when `type` is `local`. Used for `aws`; when unset, `AWS_REGION` and then `eu-west-1` apply. For `azure` the region comes from the foundation tfvars (`AZURE_TFVARS_FILE`). |
+
+`type` selects the deployment target and the default adapter for each
+capability: object storage, metadata database and catalog. Later releases add
+per-capability fields that override one default (an existing cluster, an
+external S3 bucket, an external PostgreSQL) without changing what `type`
+means.
 
 ### `spec.preset`
 
@@ -104,13 +110,17 @@ states its capabilities keeps its own values.
 
 ### `spec.query` and `spec.storage`
 
-Each takes one optional field, `size`, which defaults to `small`. There is one
-size for the whole platform, not one per stage: a single Trino serves every
-stage.
+Each takes one optional field, `size`, which defaults to `small`.
+`spec.storage.size` is one size for the whole platform. `spec.query.size` is
+the default for every stage, and `stages.<stage>.query.size` overrides it for
+one stage (a small DEV beside a larger PROD). Today one shared Trino is still
+rendered, at the largest enabled stage's size; a coordinator per stage lands
+with #965.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `spec.query.size` | `small` | `small` | The shared Trino. `small` is coordinator only, no workers. |
+| `spec.query.size` | `small` | `small` | Default Trino size for every stage. `small` is coordinator only, no workers. |
+| `spec.stages.<stage>.query.size` | `small` | `spec.query.size` | That stage's Trino size; same values and rejections as `spec.query.size`. |
 | `spec.storage.size` | `small`, `medium`, `large` | `small` | The SeaweedFS object storage volumes. Not valid on `aws`. |
 
 `query.size` accepts only `small`: `medium` and `large` fail validation with a
@@ -118,8 +128,8 @@ message naming the issue that will implement them (#324), so a profile never
 asks for capacity the deployment does not provide. Any other value, and any
 CPU, memory, worker or volume field, is rejected as an unknown value or field.
 A profile that omits both fields deploys exactly as it did before they existed,
-and `olf profile resolve` prints the effective sizes (`sizes: query=small
-storage=small`; `query` and `storage` in `--json`).
+and `olf profile resolve` prints `sizes: storage=small` and each enabled
+stage's `query=` size (`query` and `storage` in `--json`, `query` per stage).
 
 `query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
 workers, heap, memory, per-query limits and `query.max-stage-count`. It changes only the Trino Helm

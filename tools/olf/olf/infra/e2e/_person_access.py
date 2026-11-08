@@ -21,7 +21,7 @@ from olf.infra.e2e._trino import PROBE_SCHEMA, list_tables, stage_catalog_name
 from olf.platform import query, session
 
 Outcome = Literal["ok", "refused", "read-only"]
-LAYERS = ("bronze", "silver", "gold")
+LAYERS = ("silver", "gold")
 PROBE_TABLE = f"{PROBE_SCHEMA}.person_probe"
 SCOPE = "openid email profile groups federated:id"
 # Dex's ID tokens last five minutes; a fresh one leaves the slowest query room to finish.

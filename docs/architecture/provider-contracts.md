@@ -66,10 +66,12 @@ governance bindings, runtime identity, activation prefix, and endpoint
 references. Stage-scoped bindings (storage identity, orchestration, reporting,
 governance endpoints, and the stage's own catalog endpoint) may reference only
 `shared/*` or the issuing stage's own `stage/<name>/*`; a DEV binding cannot
-reference PROD's. Trino query connectivity is the one deliberate exception:
-`shared.query` is a single service used by every stage, isolated by catalog
-rather than by endpoint, so `stages.<name>.query.endpoint` and `service_ref`
-are not stage-scoped.
+reference PROD's. Query follows the same rule. `stages.<name>.query` carries
+either its own `stage/<name>/query` service and endpoint (one Trino per stage)
+or `shared/query` and the shared endpoint (AWS and Azure, until the cloud
+milestone). A reference to another stage's query service is rejected, and
+stage-scoped endpoints must differ between stages. No Terraform root emits
+the stage-scoped shape yet (#965).
 
 `stages.<name>.orchestration.code_locations` carries the stage's Dagster
 user-code deployments as `{name, definitions_module}` entries — the same list
@@ -172,7 +174,7 @@ ADRs and the release file.)
 | every role named in `grants` is in `precedence` | the role vocabulary is closed |
 | every `grants` key is a service a route can publish (`orchestration`, `reporting`, `governance_service`, `query`) | the perimeter resolves route ref, to service, to roles |
 | grants are monotonic across `precedence` | multi-role union equals the highest role |
-| `data_access` names only roles in `precedence`, stages `dev`, `uat`, `prod`, layers `bronze`, `silver`, `gold`, and `read` or `write` | the same closed vocabulary; an absent role, stage or layer is no access |
+| `data_access` names only roles in `precedence`, stages `dev`, `uat`, `prod`, layers `silver`, `gold`, and `read` or `write` | the same closed vocabulary; an absent role, stage or layer is no access |
 | each `data_access` stage row is every layer `write`, every layer `read`, or `gold: read` alone | the only rows Polaris catalog roles express ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md), section 5) |
 | `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`; nothing enforces it yet: Polaris grants arrive in a later build step |
 

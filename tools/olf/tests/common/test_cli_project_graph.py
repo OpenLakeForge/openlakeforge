@@ -15,23 +15,22 @@ ROOT = Path(__file__).parents[4]
 runner = CliRunner()
 
 _GOVERNANCE = """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: revenue
-    domain: sales
-    displayName: Revenue
-    description: Revenue product.
-    status: planned
+    products:
+      - id: revenue
+        displayName: Revenue
+        description: Revenue product.
+        status: planned
 """
 
 _SOURCE = """\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM

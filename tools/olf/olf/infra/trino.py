@@ -70,6 +70,18 @@ def stage_catalog_name(environ: Mapping[str, str] | None = None) -> str:
     return source.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG") or LEGACY_CATALOG
 
 
+def service_namespace(environ: Mapping[str, str] | None, fallback: str) -> str:
+    """Namespace of the stage's Trino Service, read from its contract endpoint host.
+
+    The host is `<service>.<namespace>[.svc...]`. `fallback` covers a contract
+    that was never applied (no `OPENLAKEFORGE_QUERY_TRINO_HOST`) or a bare
+    in-namespace name; callers pass the namespace the old shared topology used.
+    """
+    host = (os.environ if environ is None else environ).get("OPENLAKEFORGE_QUERY_TRINO_HOST", "")
+    parts = host.split(".")
+    return parts[1] if len(parts) > 1 and parts[1] else fallback
+
+
 def stage_from_catalog(catalog: str) -> str:
     return catalog.removeprefix(STAGE_CATALOG_PREFIX)
 

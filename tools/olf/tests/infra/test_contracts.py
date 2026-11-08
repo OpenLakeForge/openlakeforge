@@ -212,7 +212,7 @@ def test_caller_environment_wins_for_user_settable_variables() -> None:
 def test_contract_values_override_inherited_environment() -> None:
     base = {"OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "stale-bucket"}
     exports, _ = build_contract_env(base, load_fixture("aws-provider-contracts-v3.json"), repo_root=REPO_ROOT)
-    assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-dev-bronze"
+    assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "acme-data-dev-bronze"
 
 
 def test_namespace_env_feeds_kube_namespace_default() -> None:
@@ -266,3 +266,16 @@ def test_a_contract_without_a_credential_secret_unsets_a_stale_one() -> None:
 
     assert "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET" not in exports
     assert "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET" in unsets
+
+
+def test_each_stage_reads_its_own_query_endpoint() -> None:
+    contract = load_fixture("local-provider-contracts-v3.json")
+    for name, stage in contract["stages"].items():
+        stage["query"]["service_ref"] = f"stage/{name}/query"
+        stage["query"]["endpoint"] = f"http://trino-{name}.olf-{name}:8080"
+        stage["endpoints"]["query"] = f"stage/{name}/query"
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT)
+
+    assert exports["OPENLAKEFORGE_QUERY_TRINO_HOST"] == "trino-dev.olf-dev"
+    assert "trino-dev.olf-dev" in exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"]

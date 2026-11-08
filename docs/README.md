@@ -22,7 +22,7 @@ run the [Quickstart](get-started/quickstart.md), then follow the
 | Control who can sign in | [Connect GitHub](guides/identity/connect-github.md) |
 | Promote from DEV to PROD in CI | [CI/CD and environment promotion](guides/promote-dev-to-prod.md) |
 | Fix a failing deployment | [Troubleshooting](guides/troubleshooting.md) |
-| Look up a command or field | [CLI](reference/cli.md), [Deployment Profile](reference/deployment-profile.md), [Descriptors](reference/descriptors.md) |
+| Look up a command or field | [CLI](reference/cli.md), [Deployment Profile](reference/deployment-profile.md), [Descriptors](reference/descriptors.md), [Runtime API](reference/runtime-api.md) |
 | Understand how it works | [Architecture](architecture/overview.md) |
 
 To change OpenLakeForge itself, start with the contributor guide,

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from olf.common.project import ProjectSpec
+from olf.common.runtime_contract import RuntimeContract
 from olf.infra import project_revision
 from olf.infra.artifact_store import FilesystemRevisionStore
 
@@ -180,6 +181,82 @@ def test_verify_fails_closed_on_an_incompatible_distribution(external_project: P
 
     with pytest.raises(project_revision.ProjectRevisionError, match="incompatible"):
         project_revision.verify(store, manifest.revision, running_distribution_version="9.9.9-alpha.1")
+
+
+def _contract_revision(root: Path, tmp_path: Path, *, contract: int) -> tuple[FilesystemRevisionStore, str]:
+    manifest = project_revision.build_project_revision(
+        _spec(root), image=_DIGEST_IMAGE, distribution_version=_DISTRIBUTION_VERSION, runtime_contract_version=contract
+    )
+    store = FilesystemRevisionStore(tmp_path / "store")
+    project_revision.publish(store, manifest, _spec(root))
+    return store, manifest.revision
+
+
+def test_a_revision_runs_on_a_patch_release_that_accepts_its_contract(external_project: Path, tmp_path: Path) -> None:
+    store, revision = _contract_revision(external_project, tmp_path, contract=1)
+
+    verified = project_revision.verify(
+        store,
+        revision,
+        running_distribution_version="0.2.1-alpha.1",
+        running_contract=RuntimeContract(version=2, accepts=(1, 2)),
+    )
+
+    assert verified.runtime_contract_version == 1
+    assert verified.distribution_version == _DISTRIBUTION_VERSION
+
+
+def test_a_revision_for_a_contract_outside_the_accepted_range_is_refused_with_the_remedy(
+    external_project: Path, tmp_path: Path
+) -> None:
+    store, revision = _contract_revision(external_project, tmp_path, contract=1)
+
+    with pytest.raises(project_revision.ProjectRevisionError) as raised:
+        project_revision.verify(
+            store,
+            revision,
+            running_distribution_version="0.4.0-alpha.1",
+            running_contract=RuntimeContract(version=3, accepts=(2, 3)),
+        )
+
+    message = str(raised.value)
+    assert "contract 1" in message and "2, 3" in message and "0.4.0-alpha.1" in message
+    assert "Rebuild" in message
+
+
+def test_a_revision_without_a_contract_version_still_needs_the_exact_distribution(
+    external_project: Path, tmp_path: Path
+) -> None:
+    manifest = _build(external_project)
+    store = FilesystemRevisionStore(tmp_path / "store")
+    project_revision.publish(store, manifest, _spec(external_project))
+    contract = RuntimeContract(version=1, accepts=(1,))
+
+    project_revision.verify(
+        store, manifest.revision, running_distribution_version=_DISTRIBUTION_VERSION, running_contract=contract
+    )
+    with pytest.raises(project_revision.ProjectRevisionError, match="incompatible"):
+        project_revision.verify(
+            store, manifest.revision, running_distribution_version="0.2.1-alpha.1", running_contract=contract
+        )
+
+
+def test_the_contract_version_is_bound_into_the_revision_digest(external_project: Path, tmp_path: Path) -> None:
+    first = _contract_revision(external_project, tmp_path / "a", contract=1)[1]
+    second = _contract_revision(external_project, tmp_path / "b", contract=2)[1]
+
+    assert first != second
+
+
+def test_a_sidecar_edited_to_claim_another_contract_version_is_rejected(external_project: Path, tmp_path: Path) -> None:
+    store, revision = _contract_revision(external_project, tmp_path, contract=1)
+    sidecar = project_revision.sidecar_key(revision)
+    payload = json.loads(store.read(sidecar))
+    payload["runtime_contract_version"] = 2
+    store.write(sidecar, json.dumps(payload).encode(), content_type="application/json")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="runtime_contract_version"):
+        project_revision.inspect(store, revision)
 
 
 def test_inspect_rejects_a_sidecar_declaring_a_different_revision(external_project: Path, tmp_path: Path) -> None:
@@ -793,7 +870,7 @@ def test_a_schema_1_manifest_still_loads(external_project: Path) -> None:
 
 def test_an_unknown_schema_version_is_refused(external_project: Path) -> None:
     payload = json.loads(_build(external_project).to_json())
-    payload["schema_version"] = 3
+    payload["schema_version"] = 4
 
     with pytest.raises(project_revision.ProjectRevisionError, match="unsupported .* schema_version"):
         project_revision.ProjectRevisionManifest.from_json(json.dumps(payload))

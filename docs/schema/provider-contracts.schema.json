@@ -157,7 +157,7 @@
                 "additionalProperties": {
                   "type": "object",
                   "minProperties": 1,
-                  "propertyNames": {"enum": ["bronze", "silver", "gold"]},
+                  "propertyNames": {"enum": ["silver", "gold"]},
                   "additionalProperties": {"enum": ["read", "write"]}
                 }
               }

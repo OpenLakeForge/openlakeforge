@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+import olf.common.profile as profile_module
 from olf.common.profile import (
+    BUCKET_LAYERS,
+    BUCKET_PREFIX_MAX_LENGTH,
     AccessSpec,
     DeploymentProfileError,
     Preset,
@@ -14,6 +17,7 @@ from olf.common.profile import (
     ResolvedProject,
     Size,
     StageName,
+    bucket_name,
     legacy_single_stage_topology,
     load_deployment_profile,
     resolve_project,
@@ -197,12 +201,37 @@ def test_validate_deployment_profile_rejects_names_kubernetes_cannot_label_with(
         validate_deployment_profile(document)
 
 
-@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 62])
+@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 50])
 def test_validate_deployment_profile_accepts_label_safe_names(name: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["metadata"]["name"] = name
 
     assert validate_deployment_profile(document).name == name
+
+
+def test_bucket_names_follow_prefix_stage_layer_for_enabled_stages_only() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = "acme-data"
+    topology = resolve_topology(validate_deployment_profile(document))
+
+    assert topology.bucket_names() == {
+        "dev": {"bronze": "acme-data-dev-bronze", "silver": "acme-data-dev-silver", "gold": "acme-data-dev-gold"}
+    }
+
+
+@pytest.mark.parametrize("name", ["a" * 52, "xn--acme"])
+def test_validate_deployment_profile_rejects_names_that_cannot_prefix_a_bucket(name: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = name
+
+    with pytest.raises(DeploymentProfileError, match="metadata.name"):
+        validate_deployment_profile(document)
+
+
+def test_longest_bucket_name_fits_the_provider_limit() -> None:
+    prefix = "a" * BUCKET_PREFIX_MAX_LENGTH
+
+    assert max(len(bucket_name(prefix, stage, layer)) for stage in StageName for layer in BUCKET_LAYERS) == 63
 
 
 def test_no_access_or_identity_block_means_a_quickstart_with_neither() -> None:
@@ -852,8 +881,17 @@ def test_a_disabled_stage_opens_no_source_egress() -> None:
 
 @pytest.mark.parametrize(
     "source_egress",
-    [[443], {}, {"ports": []}, {"ports": [0]}, {"ports": [65536]}, {"ports": ["443"]}, {"ports": [True]},
-     {"ports": [443, 443]}, {"ports": [443], "hosts": ["example.com"]}],
+    [
+        [443],
+        {},
+        {"ports": []},
+        {"ports": [0]},
+        {"ports": [65536]},
+        {"ports": ["443"]},
+        {"ports": [True]},
+        {"ports": [443, 443]},
+        {"ports": [443], "hosts": ["example.com"]},
+    ],
 )
 def test_malformed_source_egress_is_rejected_by_the_validator_and_the_schema(source_egress, tmp_path) -> None:
     document = _with_source_egress(source_egress)
@@ -873,3 +911,46 @@ def test_the_local_provider_defaults_to_plain_http_and_the_clouds_keep_a_real_is
     cloud["spec"]["access"] = {}
     cloud["spec"]["identity"] = _github_identity()
     assert resolve_topology(validate_deployment_profile(cloud)).access.tls == "local-ca"
+
+
+def _with_stage_query(**stage_sizes: str | None) -> dict:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["stages"] = {
+        name: {} if size is None else {"query": {"size": size}} for name, size in stage_sizes.items()
+    }
+    return document
+
+
+def test_stage_query_size_inherits_spec_then_defaults_to_small(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(profile_module._IMPLEMENTED_SIZES, "query", (Size.SMALL, Size.LARGE))
+    plain = _with_stage_query(dev=None, prod=None)
+    assert {
+        s.name.value: s.query_size for s in resolve_topology(validate_deployment_profile(plain)).stages if s.enabled
+    } == {
+        "dev": Size.SMALL,
+        "prod": Size.SMALL,
+    }
+
+    plain["spec"]["query"] = {"size": "large"}
+    topology = resolve_topology(validate_deployment_profile(plain))
+    assert [s.query_size for s in topology.stages if s.enabled] == [Size.LARGE, Size.LARGE]
+
+
+def test_stage_query_override_applies_to_that_stage_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(profile_module._IMPLEMENTED_SIZES, "query", (Size.SMALL, Size.LARGE))
+    document = _with_stage_query(dev=None, prod="large")
+    topology = resolve_topology(validate_deployment_profile(document))
+
+    assert topology.stage(StageName.DEV).query_size == Size.SMALL
+    assert topology.stage(StageName.PROD).query_size == Size.LARGE
+    assert topology.query_size == Size.LARGE  # the one shared Trino is fed the largest stage size
+
+
+@pytest.mark.parametrize("size", ["medium", "huge"])
+def test_stage_query_size_is_rejected_like_the_spec_level_one(size: str) -> None:
+    with pytest.raises(DeploymentProfileError) as spec_exc:
+        validate_deployment_profile(_with_sizes(query={"size": size}))
+    with pytest.raises(DeploymentProfileError) as stage_exc:
+        validate_deployment_profile(_with_stage_query(dev=size))
+
+    assert str(stage_exc.value).replace("spec.stages.dev.query", "spec.query") == str(spec_exc.value)

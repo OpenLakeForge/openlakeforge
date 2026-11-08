@@ -114,6 +114,11 @@ variable "oidc" {
     secret_ref        = object({ name = string, key = string })
     secret_namespace  = string
     ca_configmap_name = string
+
+    # Superset's /api/v1/database/oauth2/ for this stage, and the stage's people
+    # catalog in Trino, named after the stage (ADR 0019).
+    database_redirect_uri = string
+    people_catalog        = string
   })
   default = null
 }

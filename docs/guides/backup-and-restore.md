@@ -165,6 +165,26 @@ the platform is deployed again. The entities are in the restored database. The
 OpenMetadata bootstrap of the reconcile (step 7) finds the empty index and runs
 the reindex, so search returns hits once it finishes (#909).
 
+## Renaming buckets
+
+On the local and Azure providers, bucket names are `<metadata.name>-<stage>-<layer>` and `<metadata.name>-ops` (ADR 0004).
+A deployment made before that rule has `lakehouse-<stage>-<layer>` stage buckets and an
+`openlakeforge-ops` bucket, and changing `metadata.name` renames them too.
+
+No step copies objects from an old bucket to a new one, and Polaris keeps pointing at the old names,
+so `olf infra deploy` refuses and lists each bucket it would rename:
+
+```text
+applying would rename already-deployed bucket(s): lakehouse-dev-bronze -> openlakeforge-dev-bronze, ...
+```
+
+A backup taken under the old names cannot be restored under the new ones: restore refuses a different
+release or profile. To move to the new names without the data, run `olf infra destroy`, then
+`olf infra deploy`, and run the pipelines again. To apply the rename over the existing platform and start
+with empty buckets, pass `--allow-stage-removal`.
+
+AWS bucket names did not change (they keep their suffix), and the guard does not apply to them.
+
 ## Check the result
 
 Record a stage before the backup and compare it after the restore. Neither

@@ -190,7 +190,7 @@ def test_discovered_dashboards_checks_every_dashboard_declared_for_a_product(tmp
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -203,19 +203,18 @@ resources:
     )
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: orders
-    domain: sales
-    displayName: Orders
-    description: Orders product.
-    status: planned
+    products:
+      - id: orders
+        displayName: Orders
+        description: Orders product.
+        status: planned
 """,
         encoding="utf-8",
     )
@@ -261,7 +260,7 @@ def test_discovered_dashboards_skips_a_canonical_product_with_no_declared_dashbo
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
     (source_dir / "source.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM
@@ -274,24 +273,22 @@ resources:
     )
     (lakehouse_dir / "governance.yml").write_text(
         """\
-apiVersion: openlakeforge.io/v1beta1
+apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
     status: planned
-products:
-  - id: orders
-    domain: sales
-    displayName: Orders
-    description: Orders product.
-    status: planned
-  - id: internal_only
-    domain: sales
-    displayName: Internal Only
-    description: Product with no dashboard.
-    status: planned
+    products:
+      - id: orders
+        displayName: Orders
+        description: Orders product.
+        status: planned
+      - id: internal_only
+        displayName: Internal Only
+        description: Product with no dashboard.
+        status: planned
 """,
         encoding="utf-8",
     )
