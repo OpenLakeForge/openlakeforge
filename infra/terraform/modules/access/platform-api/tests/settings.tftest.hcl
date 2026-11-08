@@ -105,3 +105,26 @@ run "query_endpoints_and_signing_key_are_wired_with_person_query" {
     error_message = "no output may carry the signing key"
   }
 }
+
+# #991: keys come from the issuer's Service when one is given.
+run "internal_issuer_url_sets_the_jwks_url" {
+  command = plan
+
+  variables {
+    internal_issuer_url = "http://dex.olf-system.svc.cluster.local:5556"
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).jwks_url == "http://dex.olf-system.svc.cluster.local:5556/keys"
+    error_message = "jwks_url must be the internal URL's /keys"
+  }
+}
+
+run "no_internal_issuer_url_keeps_discovery" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).jwks_url == null
+    error_message = "jwks_url must be unset without an internal issuer URL"
+  }
+}

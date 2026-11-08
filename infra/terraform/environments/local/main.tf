@@ -268,18 +268,22 @@ module "platform_api" {
   source = "../../modules/access/platform-api"
   count  = local.platform_api_enabled ? 1 : 0
 
-  namespace         = kubernetes_namespace_v1.shared.metadata[0].name
-  image             = var.platform_api_image
-  image_pull_policy = "Never"
-  issuer_url        = local.identity_oidc.issuer_url
+  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
+  image               = var.platform_api_image
+  image_pull_policy   = "Never"
+  issuer_url          = local.identity_oidc.issuer_url
+  internal_issuer_url = local.identity_oidc.internal_url
   # Only olf-cli's audience, which a browser session's ID token carries too
   # (Dex trustedPeers, ADR 0014); the perimeter client is never listed.
-  audiences         = [local.identity_oidc.clients["olf-cli"].client_id]
-  role_claim        = local.identity_oidc.role_claim
-  role_mapping      = local.identity_oidc.role_mapping
-  precedence        = local.identity_roles.precedence
-  stages            = sort(keys(local.enabled_stages))
-  ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
+  audiences    = [local.identity_oidc.clients["olf-cli"].client_id]
+  role_claim   = local.identity_oidc.role_claim
+  role_mapping = local.identity_oidc.role_mapping
+  precedence   = local.identity_roles.precedence
+  stages       = sort(keys(local.enabled_stages))
+  # Only Trino's certificate needs the CA now: the issuer is reached over HTTP at
+  # its Service (internal_url), so an issuer, external or not, adds no mount.
+  # Referencing the publisher orders the pod after the ConfigMap exists.
+  ca_configmap_name = module.trino.tls_port == null || !local.access_enabled ? null : module.in_cluster_resolution[0].ca_configmap_name
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the people catalogs, which exist only with Dex.
@@ -347,9 +351,9 @@ module "traefik" {
   backend_transports  = module.trino.traefik_backends
 }
 
-# ADR 0014 seam 3. The proxy discovers the issuer at its public URL when it
-# starts, so it waits for the in-cluster resolution and the CA (through
-# ca_configmap_name) and for the realm Job (through identity_oidc). The auth
+# ADR 0014 seam 3. The proxy fetches the issuer's keys and exchanges codes at
+# its Service (internal_url), so it needs neither the in-cluster resolution nor
+# the CA, and waits only for the realm Job (through identity_oidc). The auth
 # route's Ingress is not ordered before it: Traefik takes the middlewares from
 # this module, so a module-level depends_on would be a cycle, and the proxy
 # restarts until the route answers.
@@ -362,7 +366,7 @@ module "perimeter" {
   callback_host     = local.perimeter_callback_host
   portal_url        = "${local.route_scheme}://${local.base_domain}"
   route_scheme      = local.route_scheme
-  ca_configmap_name = local.identity_deployed ? module.in_cluster_resolution[0].ca_configmap_name : null
+  internal_url      = local.identity_oidc.internal_url
   identity_roles    = local.identity_roles
   role_mapping      = local.identity_oidc.role_mapping
   role_claim        = local.identity_oidc.role_claim
@@ -458,12 +462,12 @@ module "polaris" {
   # People's Dex tokens (ADR 0019): the GitHub connector's id names the one
   # principal every person's token maps to.
   person_access = local.identity_dex ? {
-    issuer_url        = local.identity_oidc.issuer_url
-    client_id         = local.identity_oidc.clients["olf-cli"].client_id
-    principal_name    = module.dex[0].connector_id
-    role_mapping      = local.identity_oidc.role_mapping
-    data_access       = local.identity_roles.data_access
-    ca_configmap_name = module.in_cluster_resolution[0].ca_configmap_name
+    issuer_url     = local.identity_oidc.issuer_url
+    client_id      = local.identity_oidc.clients["olf-cli"].client_id
+    principal_name = module.dex[0].connector_id
+    role_mapping   = local.identity_oidc.role_mapping
+    data_access    = local.identity_roles.data_access
+    internal_url   = local.identity_oidc.internal_url
   } : null
   stage_catalogs = {
     for name in keys(local.stage_storage) : name => {
@@ -477,8 +481,6 @@ module "polaris" {
   depends_on = [
     module.seaweedfs,
     kubernetes_namespace_v1.stage,
-    # The pod mounts the CA ConfigMap this module publishes.
-    module.in_cluster_resolution,
   ]
 }
 
@@ -551,6 +553,7 @@ module "openmetadata" {
     secret_ref        = local.identity_oidc.clients.openmetadata.secret_ref
     base_url          = "${local.route_scheme}://openmetadata.${local.base_domain}"
     ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
+    internal_url      = local.identity_oidc.internal_url
   }
 
   depends_on = [

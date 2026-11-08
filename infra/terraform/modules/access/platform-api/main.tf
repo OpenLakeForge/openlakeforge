@@ -5,6 +5,7 @@ locals {
   # The API reads this once at startup (packages/platform-api/README.md).
   settings = {
     issuer_url   = var.issuer_url
+    jwks_url     = var.internal_issuer_url == null ? null : "${trimsuffix(var.internal_issuer_url, "/")}/keys"
     audiences    = var.audiences
     role_claim   = var.role_claim
     role_mapping = var.role_mapping

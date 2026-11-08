@@ -19,6 +19,7 @@ output "contract" {
   description = "identity.oidc contract fields. Available once Dex has rolled out."
   value = {
     issuer_url   = local.issuer
+    internal_url = "http://${kubernetes_service_v1.dex.metadata[0].name}.${var.namespace}.svc.cluster.local:5556"
     role_claim   = "groups"
     role_mapping = local.role_mapping
     clients = merge(

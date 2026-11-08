@@ -219,3 +219,26 @@ def _raw(settings: Settings) -> dict[str, object]:
         "precedence": list(settings.precedence),
         "stages": list(settings.stages),
     }
+
+
+PUBLIC_ISSUER = "https://auth.example.test"
+
+
+def _with_internal_keys(issuer: FakeIssuer, settings: Settings) -> TestClient:
+    internal = Settings.from_mapping({**_raw(settings), "issuer_url": PUBLIC_ISSUER, "jwks_url": f"{issuer.url}/keys"})
+    return TestClient(create_app(internal))
+
+
+def test_a_jwks_url_validates_tokens_without_reaching_the_public_issuer(issuer: FakeIssuer, settings: Settings) -> None:
+    client = _with_internal_keys(issuer, settings)
+
+    token = issuer.mint(iss=PUBLIC_ISSUER)
+
+    assert client.get(WHOAMI, headers=bearer(token)).status_code == 200
+    assert all("openid-configuration" not in path for path in issuer.paths)
+
+
+def test_a_jwks_url_still_compares_iss_with_the_public_issuer(issuer: FakeIssuer, settings: Settings) -> None:
+    client = _with_internal_keys(issuer, settings)
+
+    assert client.get(WHOAMI, headers=bearer(issuer.mint(iss=issuer.url))).status_code == 401

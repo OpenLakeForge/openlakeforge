@@ -33,6 +33,7 @@ class FakeIssuer:
     def __init__(self) -> None:
         self.key = ISSUER_KEY
         self.requests = 0
+        self.paths: list[str] = []
         self.down = False
         # The issuer the discovery document claims; None claims the real URL.
         self.advertised: str | None = None
@@ -50,6 +51,7 @@ class FakeIssuer:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 - http.server's handler name
                 issuer.requests += 1
+                issuer.paths.append(self.path)
                 if issuer.down:
                     self.send_error(503)
                     return

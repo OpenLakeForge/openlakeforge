@@ -371,6 +371,7 @@ locals {
   identity_oidc        = try({ for key, value in local.identity_oidc_source : key => value }, {})
   identity_oidc_external = {
     issuer_url   = try(var.identity_external.issuer_url, null)
+    internal_url = null
     role_claim   = try(var.identity_external.role_claim, null)
     role_mapping = try(var.identity_external.role_mapping, null)
     clients = merge(

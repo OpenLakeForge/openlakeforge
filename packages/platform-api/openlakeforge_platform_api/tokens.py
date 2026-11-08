@@ -66,8 +66,8 @@ class TokenValidator:
         self._timeout = timeout
         self._jwks_lifespan = jwks_lifespan
         self._ssl_context = ssl.create_default_context()
-        # Added to the system roots, not instead of them: a local CA signs
-        # Dex's route, a public CA an external issuer's.
+        # Added to the system roots, not instead of them. Only an issuer
+        # reached by discovery over HTTPS can need it.
         if settings.ca_file:
             self._ssl_context.load_verify_locations(cafile=settings.ca_file)
         self._lock = threading.Lock()
@@ -76,6 +76,14 @@ class TokenValidator:
     def _discover(self) -> jwt.PyJWKClient:
         with self._lock:
             if self._jwks is not None:
+                return self._jwks
+            if self._settings.jwks_url:
+                self._jwks = jwt.PyJWKClient(
+                    self._settings.jwks_url,
+                    lifespan=self._jwks_lifespan,
+                    timeout=self._timeout,
+                    ssl_context=self._ssl_context,
+                )
                 return self._jwks
             url = f"{self._settings.issuer_url.rstrip('/')}/.well-known/openid-configuration"
             try:

@@ -54,8 +54,8 @@ variable "route_scheme" {
   default     = "https"
 }
 
-variable "ca_configmap_name" {
-  description = "ConfigMap in `namespace` whose ca.crt signs the issuer's certificate (modules/access/in-cluster-resolution). Null when the issuer's certificate chains to a public root."
+variable "internal_url" {
+  description = "identity.oidc internal_url: the in-cluster base URL of a deployed issuer, from which keys and codes are fetched (issuer_url stays the token's iss and the login page). Null for an external issuer, reached at issuer_url by discovery."
   type        = string
   default     = null
 }

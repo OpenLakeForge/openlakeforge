@@ -130,7 +130,8 @@ Two conditions bind every caller on the OpenMetadata path:
 - **Someone in front of OpenMetadata checks the audience.** OpenMetadata
   checks signature and expiry, not `aud` (see Context). On a direct call that
   is the perimeter: it admits a bearer token only if it was issued to
-  `olf-cli` (`--extra-jwt-issuers=<issuer>=olf-cli`,
+  `olf-cli` (an extra audience on the proxy's own verifier with Dex's `internal_url`,
+  `--extra-jwt-issuers=<issuer>=olf-cli` for an external issuer;
   `infra/terraform/modules/access/perimeter/main.tf`) or, per the #536 spike,
   to the perimeter's own client, and enforces the route's role floor on it.
   The platform API reaches OpenMetadata over in-cluster Service DNS

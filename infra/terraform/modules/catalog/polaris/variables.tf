@@ -119,14 +119,14 @@ variable "deployer_credentials_secret_name" {
 }
 
 variable "person_access" {
-  description = "Accept people's Dex tokens (ADR 0019): issuer_url, the client_id tokens are issued to, principal_name (the Dex connector id every token names), role_mapping (canonical role -> claim values of the groups claim), data_access (release/identity-roles.yaml) and the ConfigMap holding the CA of an HTTPS issuer. null keeps internal authentication only."
+  description = "Accept people's Dex tokens (ADR 0019): issuer_url, the client_id tokens are issued to, principal_name (the Dex connector id every token names), role_mapping (canonical role -> claim values of the groups claim), data_access (release/identity-roles.yaml) and internal_url, the issuer's in-cluster base URL where Polaris fetches keys (issuer_url is compared with the token's iss as a string). null keeps internal authentication only."
   type = object({
-    issuer_url        = string
-    client_id         = string
-    principal_name    = string
-    role_mapping      = map(list(string))
-    data_access       = map(map(map(string)))
-    ca_configmap_name = string
+    issuer_url     = string
+    client_id      = string
+    principal_name = string
+    role_mapping   = map(list(string))
+    data_access    = map(map(map(string)))
+    internal_url   = string
   })
   default = null
 

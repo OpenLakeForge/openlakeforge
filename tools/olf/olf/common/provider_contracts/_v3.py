@@ -179,7 +179,7 @@ _OIDC_IMPLEMENTATION = "identity.oidc"
 _OIDC_FIELDS = {"issuer_url", "role_claim", "role_mapping", "clients"}
 # Optional: `adapter` is provenance only, `capabilities` declares what this
 # issuer lacks so consumers degrade.
-_OIDC_OPTIONAL = {"adapter", "capabilities"}
+_OIDC_OPTIONAL = {"adapter", "capabilities", "internal_url"}
 # email_delivery: the issuer can send account recovery mail.
 _OIDC_CAPABILITIES = frozenset({"email_delivery", "groups_in_token", "logout_endpoint"})
 # The adapter OpenLakeForge deploys for each issuer it deploys; `external` has none.
@@ -234,6 +234,12 @@ def _check_identity_oidc(
         where=f"{where}.issuer_url",
         allow_http=allow_http,
     )
+    internal_url = identity.get("internal_url")
+    if internal_url is not None:
+        # In-cluster plain HTTP to the issuer's Service: the public URL is only the token's `iss`.
+        _oidc_issuer_url(internal_url, where=f"{where}.internal_url", allow_http=True)
+        if selected.issuer == "external":
+            raise ProviderContractError(f"{where}.internal_url is only for an issuer OpenLakeForge deploys")
     _string(identity["role_claim"], where=f"{where}.role_claim")
     roles = identity["roles"]["precedence"]
     mapping = _mapping(identity["role_mapping"], where=f"{where}.role_mapping")

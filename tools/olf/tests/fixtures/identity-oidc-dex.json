@@ -1,6 +1,7 @@
 {
   "implementation": "identity.oidc",
   "issuer_url": "https://auth.olf.localhost",
+  "internal_url": "http://dex.olf-system.svc.cluster.local:5556",
   "role_claim": "groups",
   "role_mapping": {
     "platform-admin": ["OpenLakeForge:olf-platform-admins"],
