@@ -7,6 +7,7 @@ and straight at the Superset Service. The difference is the perimeter's cost.
 
 from __future__ import annotations
 
+import functools
 import secrets
 import statistics
 import time
@@ -39,6 +40,13 @@ CHARTS_PER_LOAD = 3
 # which a shared runner can spike on its own, so it is reported, not enforced.
 MAX_ADDED_MEDIAN_MS = 100.0
 
+# Superset 6.1.0 ships `RATELIMIT_APPLICATION = "50 per second"` (superset/config.py), on when SUPERSET_ENV is
+# production, and this stack does not override it. A load sends four requests back to back and a fast stack
+# (cached results, plain HTTP) answers them quickly enough to cross it, so requests are spaced well under 50/s.
+REQUESTS_PER_SECOND = 20
+RATE_LIMIT_RETRIES = 3
+MAX_RETRY_WAIT_SECONDS = 2.0
+
 
 def summarize(seconds: Sequence[float]) -> tuple[float, float]:
     """Median and p95 in milliseconds."""
@@ -56,15 +64,58 @@ def require_acceptable(direct: tuple[float, float], via: tuple[float, float]) ->
     return added_median, added_p95
 
 
-def _timed_loads(load: Callable[[], None]) -> list[float]:
+class _Pacer:
+    """Spaces requests under Superset's rate limit and times only the requests.
+
+    Waits (the gap between requests, the pause before a retry) are not part of the measured seconds, so pacing
+    does not move the added latency. A 429 is retried a bounded number of times after its Retry-After; if it
+    persists the drill fails, so a real rate-limit regression still surfaces.
+    """
+
+    def __init__(
+        self,
+        *,
+        requests_per_second: float = REQUESTS_PER_SECOND,
+        retries: int = RATE_LIMIT_RETRIES,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        self._gap = 1 / requests_per_second
+        self._retries = retries
+        self._sleep = sleep
+        self._clock = clock
+        self._last_start: float | None = None
+
+    def send(self, request: Callable[[], Any]) -> tuple[Any, float]:
+        """The reply and the seconds the request that produced it took."""
+        for attempt in range(self._retries + 1):
+            if self._last_start is not None:
+                self._sleep(max(0.0, self._gap - (self._clock() - self._last_start)))
+            self._last_start = start = self._clock()
+            reply = request()
+            elapsed = self._clock() - start
+            if reply.status_code != 429:
+                return reply, elapsed
+            if attempt < self._retries:
+                self._sleep(_retry_after(reply))
+        raise E2EError(
+            f"{reply.url}: HTTP 429 after {self._retries} retries while measuring latency: "
+            f"{reply.text[:200]} (Superset's rate limit, RATELIMIT_APPLICATION, is being hit)"
+        )
+
+
+def _retry_after(reply: Any) -> float:
+    try:
+        wait = float(reply.headers.get("Retry-After", 1.0))
+    except ValueError:  # an HTTP-date, which Flask-Limiter does not send
+        wait = 1.0
+    return min(max(wait, 0.0), MAX_RETRY_WAIT_SECONDS)
+
+
+def _timed_loads(load: Callable[[], float]) -> list[float]:
     for _ in range(WARMUP):
         load()
-    samples = []
-    for _ in range(SAMPLES):
-        start = time.perf_counter()
-        load()
-        samples.append(time.perf_counter() - start)
-    return samples
+    return [load() for _ in range(SAMPLES)]
 
 
 def _dashboard_load(
@@ -74,14 +125,28 @@ def _dashboard_load(
     headers: Mapping[str, str],
     cookies: MutableMapping[str, str],
     session: requests.Session,
-) -> Callable[[], None]:
+    pacer: _Pacer | None = None,
+) -> Callable[[], float]:
+    """One dashboard load; returns the seconds its requests took, not counting pacing waits."""
+    pacer = pacer or _Pacer()
     session.cookies.update(cookies)
-    csrf = session.get(f"{base}/api/v1/security/csrf_token/", headers=headers, timeout=REQUEST_TIMEOUT)
+    csrf, _ = pacer.send(
+        lambda: session.get(f"{base}/api/v1/security/csrf_token/", headers=headers, timeout=REQUEST_TIMEOUT)
+    )
     csrf.raise_for_status()
     post_headers = {**headers, "X-CSRFToken": csrf.json()["result"], "Referer": base}
 
-    def load() -> None:
-        replies = [session.get(f"{base}/api/v1/dashboard/{slug}", headers=headers, timeout=REQUEST_TIMEOUT)]
+    def load() -> float:
+        total = 0.0
+
+        def send(request: Callable[[], Any]) -> None:
+            nonlocal total
+            reply, elapsed = pacer.send(request)
+            total += elapsed
+            if reply.status_code >= 400:
+                raise E2EError(f"{reply.url}: HTTP {reply.status_code} {reply.text[:200]} while measuring latency")
+
+        send(lambda: session.get(f"{base}/api/v1/dashboard/{slug}", headers=headers, timeout=REQUEST_TIMEOUT))
         for dataset in datasets:
             # Imported charts carry no saved query context, so each is queried as a count over its dataset.
             body = {
@@ -90,12 +155,12 @@ def _dashboard_load(
                 "result_format": "json",
                 "result_type": "full",
             }
-            replies.append(
-                session.post(f"{base}/api/v1/chart/data", json=body, headers=post_headers, timeout=REQUEST_TIMEOUT)
+            send(
+                functools.partial(
+                    session.post, f"{base}/api/v1/chart/data", json=body, headers=post_headers, timeout=REQUEST_TIMEOUT
+                )
             )
-        for reply in replies:
-            if reply.status_code >= 400:
-                raise E2EError(f"{reply.url}: HTTP {reply.status_code} {reply.text[:200]} while measuring latency")
+        return total
 
     return load
 
