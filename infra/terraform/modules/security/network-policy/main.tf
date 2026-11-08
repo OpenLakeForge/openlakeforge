@@ -166,8 +166,23 @@ resource "kubernetes_network_policy_v1" "stage_pods" {
     policy_types = ["Egress"]
 
     egress {
+      # A namespace's pods (F31: the stage's Trino coordinator to Dex), or addresses.
       dynamic "to" {
-        for_each = local.cidrs[each.value.flow.to.scope]
+        for_each = contains(keys(local.cidrs), each.value.flow.to.scope) ? [] : [each.value.flow.to]
+        content {
+          namespace_selector {
+            match_labels = local.scope_labels[to.value.scope]
+          }
+          dynamic "pod_selector" {
+            for_each = length(try(to.value.pods, {})) > 0 ? [to.value.pods] : []
+            content {
+              match_labels = pod_selector.value
+            }
+          }
+        }
+      }
+      dynamic "to" {
+        for_each = try(local.cidrs[each.value.flow.to.scope], [])
         content {
           ip_block {
             cidr   = to.value

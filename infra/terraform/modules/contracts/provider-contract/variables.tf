@@ -172,6 +172,8 @@ variable "stages" {
     catalog_endpoint_ref   = string
     query_catalog_name     = string
     query_extra            = optional(map(string), {})
+    query_service_ref      = optional(string, "shared/query")
+    query_endpoint         = optional(string)
     pipeline_service_name  = optional(string)
     dashboard_service_name = optional(string)
     storage                = any

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -93,8 +94,10 @@ def _run_job(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     kubectl.write_text(f"#!{sys.executable}\n{FAKE_KUBECTL}")
     kubectl.chmod(0o755)
     # What templatefile renders: the three variables and the `$${` escapes.
+    # The Web UI client Secret copy is rendered only with an issuer in another namespace, which this fake cannot run.
+    without_copy = re.sub(r'%\{ if oidc_source != "" ~\}.*?%\{ endif ~\}\n', "", TEMPLATE.read_text(), flags=re.S)
     script = (
-        TEMPLATE.read_text()
+        without_copy
         .replace("${principals}", "olf-dev-runtime openmetadata")
         .replace("${stage_namespaces}", "dev=olf-dev")
         .replace("${password_file_script}", SCRIPT.read_text())

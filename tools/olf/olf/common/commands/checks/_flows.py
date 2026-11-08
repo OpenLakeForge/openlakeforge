@@ -14,7 +14,8 @@ from olf.common.log import fail
 FLOWS_PATH = "release/network-flows.yaml"
 ADR_PATH = "docs/adr/0017-local-network-policy-and-rbac.md"
 SCOPES = {"stage", "shared", "kube-system", "apiserver", "node", "any"}
-UNNARROWABLE = SCOPES - {"shared", "kube-system"}
+# A stage source may name pods: user code sets stage labels, so it narrows a grant, it does not isolate (ADR 0017).
+UNNARROWABLE = SCOPES - {"shared", "kube-system", "stage"}
 PROTOCOLS = {"TCP", "UDP"}
 
 

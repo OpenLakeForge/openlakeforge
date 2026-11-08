@@ -511,6 +511,28 @@ def test_stage_scoped_query_binding_parses_with_its_own_endpoint() -> None:
         assert stage.query["endpoint"] == f"http://trino-{name.value}:8080"
 
 
+def test_each_stages_query_service_has_a_route_of_its_own() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    _stage_scoped_query(contract)
+    access = contract["shared"]["access"]
+    access["routes"].pop("shared/query")
+    protected = access["perimeter"]["protected_routes"]
+    protected.remove("shared/query")
+    for name in contract["stages"]:
+        ref = f"stage/{name}/query"
+        url = f"https://trino-{name}.olf.localhost"
+        access["routes"][ref] = {"url": url, "enabled": True, "exposure": "user-facing"}
+        protected.append(ref)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    routes = parsed.shared.values["access"]["routes"]
+    assert {ref: route["url"] for ref, route in routes.items() if ref.endswith("/query")} == {
+        f"stage/{name}/query": f"https://trino-{name}.olf.localhost" for name in ("dev", "prod")
+    }
+
+
 def test_stage_may_keep_the_shared_query_while_another_is_stage_scoped() -> None:
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)

@@ -33,8 +33,8 @@ variable "stages" {
 }
 
 variable "query_sizing" {
-  description = "Trino capacity for spec.query.size, rendered by olf from release/query-sizes.yaml. Null deploys the base values file unchanged."
-  type = object({
+  description = "Stage -> that stage's Trino capacity (spec.query.size, or its stages.<stage>.query.size), rendered by olf from release/query-sizes.yaml. A stage without an entry deploys the base values file unchanged."
+  type = map(object({
     size                    = string
     workers                 = number
     schedule_on_coordinator = bool
@@ -53,8 +53,8 @@ variable "query_sizing" {
       memory_request = string
       memory_limit   = string
     }))
-  })
-  default = null
+  }))
+  default = {}
 }
 
 variable "kubeconfig_path" {

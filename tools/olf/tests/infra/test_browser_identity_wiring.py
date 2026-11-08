@@ -16,6 +16,7 @@ def test_the_platform_api_may_reach_the_trino_coordinator_on_its_tls_port() -> N
 
     flows = yaml.safe_load((TERRAFORM.parents[1] / "release/network-flows.yaml").read_text())["flows"]
     rows = [f for f in flows if f["id"] == "F36"]
-    assert [(r["from"]["pods"], r["to"]["pods"]["app.kubernetes.io/component"], r["ports"]) for r in rows] == [
-        ({"app.kubernetes.io/name": "platform-api"}, "coordinator", [8443])
+    # Each stage's coordinator sits in the stage namespace, which the stage scope names.
+    assert [(r["from"]["pods"], r["to"], r["ports"]) for r in rows] == [
+        ({"app.kubernetes.io/name": "platform-api"}, {"scope": "stage"}, [8443])
     ]

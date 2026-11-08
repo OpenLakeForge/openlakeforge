@@ -22,11 +22,14 @@
 # `from` may be a list of endpoints: one row, several sources.
 # scope any is every address outside the pod and Service ranges; node is the
 # cluster nodes. A pod reaches a destination only through a row on both sides.
+#
+# Trino is not a workload here: each stage runs its own coordinator inside its stage
+# namespace (one trust domain), so a stage pod reaches its own and no other stage's,
+# and the rows that reach it name `scope: stage`.
 workloads:
   postgresql: {app.kubernetes.io/name: postgresql, app.kubernetes.io/instance: postgresql}
   seaweedfs: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}
   polaris: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}
-  trino: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}
   traefik: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}
   oauth2-proxy: {openlakeforge.io/workload: oauth2-proxy} # a pod label the perimeter module sets; the floors differ in name
   portal: {app.kubernetes.io/name: portal}
@@ -43,9 +46,7 @@ workloads:
   dex-credentials: {openlakeforge.io/job: dex-credentials}
   perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
-  trino-credentials: {openlakeforge.io/job: trino-credentials}
   postgresql-credentials: {openlakeforge.io/job: postgresql-credentials}
-  openmetadata-trino-ingestion: {openlakeforge.io/job: openmetadata-trino-ingestion}
   openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
   - id: F3
@@ -79,18 +80,13 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
     ports: [8333]
     tag: T
-  - id: F10
-    from: {scope: stage}
-    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080, 8443] # 8443 is the contract's tls_port once workload authentication is on
-    tag: V
   - id: F12
     from: {scope: stage}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
     tag: V
   - id: F14
-    from: [{scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: stage}
     ports: [8088]
     tag: T # whether OpenMetadata ingestion reaches Superset today is unconfirmed; the Job labels are ours, the server's are not read
@@ -129,31 +125,16 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
     ports: [8333]
     tag: T
-  - id: F8
-    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
-    ports: [8181]
-    tag: V
-  - id: F8
-    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
-    ports: [8333]
-    tag: V
   - id: F33
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
     ports: [8333] # the archived-logs route, with the read-only key for the log prefixes
     tag: T # needs a log read on a running cluster
-  - id: F10
-    from: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080, 8443]
-    tag: T # discovery through the Service address, if the CNI hairpins it
   - id: F11
-    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
-    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
-    ports: [8080, 8443]
-    tag: T # openmetadata-trino-ingestion is the label of the OLF-owned ingestion Job (#410); the OpenMetadata pipeline client's pods are not read and are denied
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}]
+    to: {scope: stage}
+    ports: [8080, 8443] # a stage's coordinator (modules/query/trino); the stage rule is namespace-wide, and a stage pod reaches only its own namespace
+    tag: T # the OLF-owned ingestion Job (#410) runs beside the stage's coordinator, so it needs no row; the OpenMetadata pipeline client's pods are not read and are denied
   - id: F17
     from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
@@ -200,17 +181,15 @@ flows:
     ports: [8585]
     tag: V
   - id: F4
-    from:
-      - {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
-      - {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443, 8000] # OpenMetadata's and the Trino Web UI's OIDC calls to the issuer's public URL (discovery, token), rewritten to Traefik: websecure, or web with tls none (Trino's UI is HTTPS only)
+    ports: [8443, 8000] # OpenMetadata's OIDC calls to the issuer's public URL (discovery, token), rewritten to Traefik: websecure, or web with tls none. A stage coordinator's Web UI makes the same calls through the stage-wide row above
     tag: T # needs a sign-in on a running cluster
   - id: F13
-    from: [{scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}]
+    from: {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
-    tag: T # openmetadata-trino-ingestion and openmetadata-role-sync: the OLF-owned CronJobs (#410, #25)
+    tag: T # openmetadata-role-sync: the OLF-owned CronJob (#25); the ingestion Job runs in the stage namespace under F12
   - id: F13
     from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
@@ -222,7 +201,7 @@ flows:
     ports: [9200]
     tag: V
   - id: F20
-    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: trino-credentials}}, {scope: shared, pods: {openlakeforge.io/job: postgresql-credentials}}]
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: postgresql-credentials}}]
     to: {scope: apiserver}
     ports: [443, 6443]
     tag: T # Service port and endpoint port; DNAT order is unconfirmed
@@ -248,7 +227,7 @@ flows:
     tag: T # api.github.com (or the Enterprise host) every 5 min; NetworkPolicy cannot name a host
   - id: F31
     from:
-      - {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+      - {scope: stage, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/component: coordinator}} # the stage's coordinator; other stage pods stay off Dex
       - {scope: shared, pods: {openlakeforge.io/workload: oauth2-proxy}}
       - {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
       - {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
@@ -273,6 +252,6 @@ flows:
     tag: T # needs a report import through the platform API on a running cluster
   - id: F36
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
-    to: {scope: shared, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/instance: trino, app.kubernetes.io/component: coordinator}}
+    to: {scope: stage}
     ports: [8443] # a person's queries (query_endpoints), over the TLS port, with that person's token
     tag: T # needs a query through the platform API on a running cluster

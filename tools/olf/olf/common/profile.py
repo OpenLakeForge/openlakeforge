@@ -326,8 +326,7 @@ class DeploymentTopology:
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
     project: ProjectSpec | None = None
-    # The largest enabled stage's size. The local root still renders one shared Trino, so it is fed this value
-    # until the per-stage coordinators (#965 slice 1.5) read `ResolvedStage.query_size` instead.
+    # The largest enabled stage's size, for the roots that still render one shared Trino (AWS, Azure).
     query_size: Size = Size.SMALL
     storage_size: Size = Size.SMALL
 

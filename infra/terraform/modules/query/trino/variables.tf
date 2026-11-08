@@ -182,6 +182,18 @@ variable "workload_authentication" {
   }
 }
 
+variable "traefik_transport" {
+  description = "Name of the Traefik backend transport for this coordinator, and the prefix of the CA trust Secret Traefik mounts. One per instance, since Traefik is the only reader of either."
+  type        = string
+  default     = "trino"
+}
+
+variable "traefik_ca_namespace" {
+  description = "Namespace of Traefik, where its CA trust Secret must live because a Secret cannot be mounted across namespaces. null creates it beside this coordinator (Traefik in the same namespace)."
+  type        = string
+  default     = null
+}
+
 variable "tls_issuer_name" {
   description = "cert-manager ClusterIssuer that signs the Trino serving certificate. Only read when workload_authentication is not off."
   type        = string
@@ -195,11 +207,12 @@ variable "web_ui_fixed_user" {
 }
 
 variable "web_ui_oidc" {
-  description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret, in this namespace). null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication tls or password."
+  description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret). secret_namespace is where that Secret lives when it is not this namespace; the credentials Job copies it here. null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication tls or password."
   type = object({
-    issuer_url = string
-    client_id  = string
-    secret_ref = object({ name = string, key = string })
+    issuer_url       = string
+    client_id        = string
+    secret_ref       = object({ name = string, key = string })
+    secret_namespace = optional(string)
   })
   default = null
 

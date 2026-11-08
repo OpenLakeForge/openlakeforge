@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from olf.common import config
-from olf.infra import k8s
+from olf.infra import k8s, trino
 
 JOB_NAME = "openmetadata-trino-ingestion"
 REFRESH_SCHEDULE = "0 * * * *"
@@ -25,7 +25,7 @@ _CA_DIR = "/etc/olf/query-ca"
 _TOKEN_ENV = "OM_BOT_JWT"
 _TOKEN_PLACEHOLDER = "__OM_BOT_JWT__"
 # The `openmetadata` principal's password (ADR 0016) travels the same way. Its
-# Secret is in the namespace Trino runs in, named from the stage credential's.
+# Secret is in the namespace Trino runs in, named from the stage credential's, so the Job runs there too.
 _PASSWORD_ENV = "TRINO_PASSWORD"
 _PASSWORD_PLACEHOLDER = "__TRINO_PASSWORD__"
 
@@ -164,14 +164,16 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
 
 def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: str) -> None:
     catalog = yaml.safe_load((config.distribution_root(environ=environ) / "release/component-catalog.yaml").read_text())
+    # `namespace` is OpenMetadata's. The Job runs beside the stage's coordinator, where the `openmetadata`
+    # principal's Secret is (a secretKeyRef cannot cross namespaces), so OpenMetadata is addressed with its own.
     om_host = (
-        f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}:"
+        f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}.{namespace}:"
         f"{config.env('OPENMETADATA_SERVICE_PORT', '8585', environ=environ)}"
     )
     job = ingestion_job(
         environ,
         image=catalog["components"]["images"]["openmetadata_ingestion"],
-        namespace=namespace,
+        namespace=trino.service_namespace(environ, namespace),
         service=service,
         om_api=f"http://{om_host}/api",
     )

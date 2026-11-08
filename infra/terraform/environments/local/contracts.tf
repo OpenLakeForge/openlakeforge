@@ -200,17 +200,23 @@ locals {
     local_only   = true
   })
 
+  # Each stage runs its own coordinator in its own namespace (ADR 0019
+  # section 9). Namespace-qualified: stage-scoped Dagster and Superset resolve
+  # this from their own namespace, where a bare service name would not resolve.
+  stage_query_endpoints = { for name, namespace in local.stage_namespaces : name => "http://trino.${namespace}:8080" }
+  trino_tls_port        = local.trino_workload_authentication == "off" ? null : 8443
+
+  # The contract's shared.query binding is required by the parser until AWS
+  # and Azure stop sharing one Trino; here it names the selected stage's.
   query_contract = {
-    provider          = local.local_provider_name
-    implementation    = "query.trino"
-    adapter           = "query.trino"
-    logical_name      = "sql_query"
-    service_name      = "trino"
-    service_namespace = var.shared_namespace
-    http_port         = 8080
-    # Namespace-qualified: stage-scoped Dagster and Superset resolve this
-    # from their own namespace, where a bare service name would not resolve.
-    endpoint            = "http://trino.${var.shared_namespace}:8080"
+    provider            = local.local_provider_name
+    implementation      = "query.trino"
+    adapter             = "query.trino"
+    logical_name        = "sql_query"
+    service_name        = "trino"
+    service_namespace   = local.selected_stage_namespace
+    http_port           = 8080
+    endpoint            = local.stage_query_endpoints[local.selected_stage]
     catalog_name        = local.catalog_contract.trino_catalog_name
     supported_catalogs  = ["rest", "glue"]
     active_catalog_type = local.catalog_contract.catalog_type
@@ -352,7 +358,7 @@ locals {
       "${local.route_scheme}://superset-${name}.${local.base_domain}/api/v1/database/oauth2/",
     ]])
     openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/callback"] : [] # OpenMetadata's code-flow callback
-    trino        = ["${local.route_scheme}://trino.${local.base_domain}/oauth2/callback"]
+    trino        = [for name in keys(local.enabled_stages) : "${local.route_scheme}://trino-${name}.${local.base_domain}/oauth2/callback"]
   }
   identity_client_redirects = {
     for name in ["perimeter", "superset", "openmetadata", "trino"] : name => {
@@ -423,12 +429,12 @@ locals {
       }
     },
     {
-      "shared/query" = {
-        host         = "trino.${local.base_domain}"
+      for name in keys(local.enabled_stages) : "stage/${name}/query" => {
+        host         = "trino-${name}.${local.base_domain}"
         tls_host     = "*.${local.base_domain}"
-        namespace    = kubernetes_namespace_v1.shared.metadata[0].name
-        service_name = module.trino.service_name
-        service_port = module.trino.route_port
+        namespace    = local.stage_namespaces[name]
+        service_name = module.trino[name].service_name
+        service_port = module.trino[name].route_port
       }
     },
     local.identity_deployed ? {
@@ -477,7 +483,7 @@ locals {
   # behind the perimeter, so a new route is protected without being listed.
   perimeter_protected_refs = [for ref in keys(local.access_routes) : ref if ref != "shared/identity"]
 
-  # Trino's /v1 for a person's own queries (ADR 0019): the query service's host
+  # Trino's /v1 for a person's own queries (ADR 0019): each stage's query host
   # with its own floor, every role, where the Web UI keeps the data-engineer one.
   # Only when people sign in with GitHub and Trino authenticates their tokens.
   query_api_enabled = local.identity_dex && local.trino_workload_authentication == "password"
@@ -509,10 +515,10 @@ locals {
       }
     },
     !local.query_api_enabled ? {} : {
-      # Longer than the host-only rule of shared/query, so Traefik ranks it first.
-      "shared/query_api" = merge(local.access_routes["shared/query"], {
+      # Longer than the host-only rule of stage/<s>/query, so Traefik ranks it first.
+      for name in keys(local.enabled_stages) : "stage/${name}/query_api" => merge(local.access_routes["stage/${name}/query"], {
         path  = "/v1"
-        group = module.perimeter[0].route_group["shared/query_api"]
+        group = module.perimeter[0].route_group["stage/${name}/query_api"]
       })
     },
     length(module.platform_api) == 0 ? {} : {
@@ -655,12 +661,14 @@ module "provider_contract" {
       # is an empty map of the same type. The ConfigMap name is a literal
       # because module.in_cluster_resolution waits on Traefik, which waits on
       # routes built from this contract: a cycle.
+      query_service_ref = "stage/${name}/query"
+      query_endpoint    = local.stage_query_endpoints[name]
       query_extra = {
         for key, value in tomap({
           # Present only when Trino requires a password; the Secret is in the stage namespace.
-          credential_secret_name = module.trino.credential_secret_name,
-          tls_port               = module.trino.tls_port == null ? null : tostring(module.trino.tls_port),
-          ca_configmap_name      = module.trino.tls_port == null ? null : "olf-local-ca",
+          credential_secret_name = module.trino[name].credential_secret_name,
+          tls_port               = local.trino_tls_port == null ? null : tostring(local.trino_tls_port),
+          ca_configmap_name      = local.trino_tls_port == null ? null : "olf-local-ca",
         }) : key => value if value != null
       }
       # Deterministic OpenMetadata pipeline- and dashboard-service roots (#131).

@@ -27,7 +27,7 @@ import yaml
 from olf.common import log
 from olf.common.deployment.context import stage_namespace
 from olf.common.profile import StageName
-from olf.infra import k8s, trino
+from olf.infra import k8s
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 FLOWS_FILE = "release/network-flows.yaml"
@@ -37,7 +37,10 @@ CONNECT_TIMEOUT = 5
 # curl: 6 no DNS, 7 refused, 28 timed out. Only a timeout proves a drop; 6 and 7 prove a broken probe.
 NOT_REACHED = {6, 7, 28}
 # Targets of the negatives: the protected backends (workload name in the flow file).
-PROTECTED = ("postgresql", "polaris", "trino", "openmetadata", "dex")
+PROTECTED = ("postgresql", "polaris", "openmetadata", "dex")
+# Each stage's coordinator is not a workload of the flow file: it runs in the stage namespace (ADR 0017).
+TRINO_LABELS = {"app.kubernetes.io/name": "trino", "app.kubernetes.io/component": "coordinator"}
+TRINO_PORTS = [8080, 8443]  # 8443 once workload authentication is on
 # ADR 0017 exceptions E4 and E5 read Secrets cluster-wide by design.
 CLUSTER_SECRET_READERS = ("traefik", "cert-manager")
 SERVICE_ACCOUNT_GROUP = "system:serviceaccounts"
@@ -50,7 +53,8 @@ WORKLOADS = {
 # ADR 0017 E1: these ServiceAccounts may `create` Secrets namespace-wide and touch only the Secrets named here
 # (fnmatch, first matching subject wins). The one place to change when the ADR's pins change.
 E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file")),
+    # A stage coordinator's Job also copies the Web UI's Dex client Secret from olf-system (#976).
+    ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file", "dex-client-trino")),
     ("postgresql-credentials", ("postgresql-*-creds",)),
     ("superset-credentials", ("superset-credentials", "superset-env")),
     (
@@ -137,18 +141,6 @@ def workload_ports(document: dict[str, Any], workload: str) -> list[int]:
     raise E2EError(f"no flow row reaches workload {workload}")
 
 
-def _workload_namespace(cfg: E2EConfig, workload: str) -> str:
-    """Trino follows the selected stage's contract endpoint; every other protected workload is shared."""
-    if workload == "trino":
-        return trino.service_namespace(cfg.environ, cfg.platform_namespace)
-    return cfg.platform_namespace
-
-
-def _destination_namespace(cfg: E2EConfig, document: dict[str, Any], labels: dict[str, str]) -> str:
-    named = [name for name, pods in document["workloads"].items() if pods == labels]
-    return _workload_namespace(cfg, named[0]) if named else cfg.platform_namespace
-
-
 def _pod_ip(cfg: E2EConfig, namespace: str, labels: dict[str, str]) -> str | None:
     out = kubectl(
         cfg,
@@ -205,7 +197,7 @@ def check_positive_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
                 ip = (
                     _apiserver(cfg)
                     if destination["scope"] == "apiserver"
-                    else _pod_ip(cfg, _destination_namespace(cfg, document, destination["pods"]), destination["pods"])
+                    else _pod_ip(cfg, cfg.platform_namespace, destination["pods"])
                 )
                 if ip is None:
                     log.info(f"Skipping {scope}[{selector}] -> {destination}:{port}: no such pod or endpoint.")
@@ -220,11 +212,16 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
     log.step("Checking that pods with no allowed flow cannot reach the protected backends...")
     targets = {}
     for workload in PROTECTED:
-        ip = _pod_ip(cfg, _workload_namespace(cfg, workload), document["workloads"][workload])
+        ip = _pod_ip(cfg, cfg.platform_namespace, document["workloads"][workload])
         if ip is None:
             log.info(f"Skipping {workload}: not deployed.")
             continue
         targets[workload] = (ip, workload_ports(document, workload))
+    # A coordinator is reached from its own stage namespace alone: from no other stage's, the platform's or an
+    # untrusted one.
+    stage_namespaces = [ns for ns in _olf_namespaces(cfg) if ns != cfg.platform_namespace]
+    coordinators = {ns: _pod_ip(cfg, ns, TRINO_LABELS) for ns in stage_namespaces}
+    targets |= {f"trino@{ns}": (ip, TRINO_PORTS) for ns, ip in coordinators.items() if ip is not None}
     if not targets:
         raise E2EError("no protected backend is running, so the negative flows prove nothing")
     # An interrupted run leaves the namespace behind, possibly terminating; wait for it to go.
@@ -232,11 +229,17 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
     kubectl(cfg, ["create", "namespace", UNTRUSTED_NAMESPACE])
     problems: list[str] = []
     try:
-        # (namespace, name, allowed): the probes are unlabelled, so only the stage-wide rows (F6, F9, F10, F12) apply.
+        # (namespace, name, allowed): the probes are unlabelled, so only the stage-wide rows (F6, F9, F12) apply,
+        # and a stage namespace reaches its own coordinator.
         cases = [
             (UNTRUSTED_NAMESPACE, "outside", set()),
-            (cfg.namespace, "stage", stage_wide(document)),
+            (cfg.namespace, "stage", stage_wide(document) | {f"trino@{cfg.namespace}"}),
             (cfg.platform_namespace, "platform", set()),
+            *(
+                (ns, f"stage-{ns}", stage_wide(document) | {f"trino@{ns}"})
+                for ns in stage_namespaces
+                if ns != cfg.namespace
+            ),
         ]
         for namespace, name, allowed in cases:
             with _probe_pod(cfg, namespace, {}, f"olf-e2e-deny-{name}") as pod:

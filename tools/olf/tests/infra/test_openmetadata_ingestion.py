@@ -107,3 +107,22 @@ def test_each_stage_is_crawled_against_its_own_coordinator_and_catalog():
         {"includes": ["^lakehouse_prod$"]},
     ]
     assert {s["serviceName"] for s in sources} == {"polaris"}
+
+
+def test_the_crawl_runs_beside_the_stage_coordinator_and_addresses_openmetadata_by_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf.infra import k8s
+    from olf.infra.openmetadata import _ingestion
+
+    applied: list[dict] = []
+    monkeypatch.setattr(k8s, "apply_manifest", lambda manifest, **_: applied.append(manifest))
+    monkeypatch.setattr(k8s, "run_job", lambda job, **_: applied.append(job))
+    environ = {**BASE, "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-dev"}
+
+    _ingestion.run_trino_ingestion(environ, namespace="olf-system", service="polaris")
+
+    cronjob, job = applied
+    assert (cronjob["metadata"]["namespace"], job["metadata"]["namespace"]) == ("olf-dev", "olf-dev")
+    workflow = yaml.safe_load(job["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"])
+    assert workflow["workflowConfig"]["openMetadataServerConfig"]["hostPort"] == "http://openmetadata.olf-system:8585/api"

@@ -39,10 +39,10 @@ STAGES = ("dev", "uat", "prod")
 SOURCE = "olf-query"
 
 
-def statement_url(instance: sessions.Instance) -> str:
-    """Trino's /v1 on the query host, with the issuer's scheme (plain HTTP when the routes are)."""
+def statement_url(instance: sessions.Instance, stage: str) -> str:
+    """Trino's /v1 on the stage's query host, with the issuer's scheme (plain HTTP when the routes are)."""
     scheme = urlsplit(instance.issuer).scheme or "https"
-    return f"{scheme}://trino.{instance.base_domain}/v1/statement"
+    return f"{scheme}://trino-{stage}.{instance.base_domain}/v1/statement"
 
 
 def person_token(instance: sessions.Instance) -> tuple[str, dict[str, Any]]:
@@ -178,7 +178,7 @@ def query(
             )
         _, claims = person_token(instance)
         result = run_statement(
-            statement_url(instance),
+            statement_url(instance, stage),
             sql,
             bearer=lambda: sessions.active_session(instance).id_token,
             user=str(claims["email"]),

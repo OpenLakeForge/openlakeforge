@@ -339,7 +339,8 @@ holds a storage key", is extended from the person path to every path.
 | OpenMetadata crawler | `openmetadata` | read on every stage catalog |
 | Superset cache warm-up, alerts, thumbnails | none: they stay disabled | none |
 
-1. **One Trino per stage** (#965). Each stage's coordinator holds only its own
+1. **One Trino per stage** (#965, built for the local root in #976; AWS and Azure keep one shared
+   coordinator until their cloud milestone). Each stage's coordinator holds only its own
    stage's catalogs and is reachable only from its stage namespace, the
    OpenMetadata crawl Job and Traefik (ADR 0017). Stage isolation no longer
    depends on Trino rules.

@@ -1,3 +1,4 @@
+{{- if .Values.serving }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -27,6 +28,8 @@ spec:
     name: {{ .Values.issuerName }}
     kind: ClusterIssuer
     group: cert-manager.io
+{{- end }}
+{{- if .Values.trust }}
 ---
 # Traefik re-encrypts to Trino and needs the CA that signed the certificate
 # above. Every cert-manager Secret carries ca.crt, so this one exists to give
@@ -45,3 +48,4 @@ spec:
     name: {{ .Values.issuerName }}
     kind: ClusterIssuer
     group: cert-manager.io
+{{- end }}

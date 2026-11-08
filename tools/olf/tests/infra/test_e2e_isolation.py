@@ -80,8 +80,24 @@ def test_trino_isolation_probe_rejects_a_non_denial_failure(monkeypatch: pytest.
 
     with pytest.raises(E2EError, match="reason other than an access-control rejection"):
         _isolation._expect_trino_denied(
-            cfg, user="olf-dev-runtime", sql="SELECT 1 FROM lakehouse_prod.x", what="read access"
+            cfg, user="olf-dev-runtime", sql="SELECT 1 FROM lakehouse_prod.x", what="read access", sibling="prod"
         )
+
+
+def test_a_coordinator_that_has_no_sibling_catalog_counts_as_isolated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """DEV's own Trino holds no PROD catalog (ADR 0019 section 9), so Trino answers 'not found'."""
+    cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
+
+    def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003
+        raise E2EError("Query failed: line 1:15: Catalog 'lakehouse_prod' not found")
+
+    monkeypatch.setattr(_isolation, "trino_query", _trino_query)
+
+    _isolation._expect_trino_denied(
+        cfg, user="olf-dev-runtime", sql="SELECT 1 FROM lakehouse_prod.x", what="read access", sibling="prod"
+    )
 
 
 def test_s3_isolation_probe_rejects_a_not_found_response() -> None:

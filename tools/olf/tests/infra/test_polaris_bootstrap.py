@@ -451,6 +451,24 @@ def test_the_plan_from_the_contract_names_every_stage_principal_and_secret() -> 
     assert bootstrap_plan(_contracts()) == conformance_plan()
 
 
+def test_a_stage_coordinators_credentials_are_written_beside_it() -> None:
+    base = _contracts()
+
+    def own(stage: str) -> dict[str, Any]:
+        query = {**base.stages[StageName(stage)].query, "endpoint": f"http://trino.olf-{stage}:8080"}
+        return {"query": query}
+
+    plan = bootstrap_plan(_contracts(dev=own("dev"), prod=own("prod")))
+
+    assert plan is not None and plan.person_access is not None
+    assert {stage.stage: stage.trino.namespace for stage in plan.stages} == {"dev": "olf-dev", "prod": "olf-prod"}
+    assert {c.principal: c.namespace for c in plan.person_access.people} == {
+        "trino-people-dev": "olf-dev",
+        "trino-people-prod": "olf-prod",
+    }
+    assert all(credential.recreatable for credential in (stage.trino for stage in plan.stages))
+
+
 def test_people_get_no_access_without_github_sign_in() -> None:
     contracts = _contracts()
     identity = {k: v for k, v in contracts.shared.values["identity"].items() if k != "adapter"}
