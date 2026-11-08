@@ -18,6 +18,8 @@ That tags the build `ghcr.io/openlakeforge/superset:local-<image id>` and loads
 it into kind, so a changed image rolls the pods. `olf images build superset`
 and `olf infra images load superset` do the same two steps without a deploy.
 
+The local full e2e workflow sets `BUILD_SUPERSET_IMAGE`, so the nightly and manual runs test the image built from the checkout rather than the pin.
+
 After a release publishes the change, copy the `superset` digest from that
 release's `component-manifest.json` (`resolved_images`) into the catalog and
 the values file.
