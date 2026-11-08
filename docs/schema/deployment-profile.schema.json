@@ -102,8 +102,17 @@
               "enum": ["none", "local-ca", "external"],
               "default": "none",
               "description": "none: plain HTTP on *.localhost (local only). local-ca: the platform CA, evaluation only. external: the customer terminates HTTPS in front of OpenLakeForge; not valid on *.localhost. The olf validator also reads the v1alpha1 name `issuer` as `tls`; it is not part of this schema."
+            },
+            "trusted_proxies": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string"},
+              "description": "CIDR blocks of the customer's proxy as Traefik sees it. Required with tls external and refused with any other tls: only these peers' X-Forwarded-Proto and X-Forwarded-Host are trusted. 0.0.0.0/0 and ::/0 are refused."
             }
-          }
+          },
+          "if": {"required": ["tls"], "properties": {"tls": {"const": "external"}}},
+          "then": {"required": ["trusted_proxies"]},
+          "else": {"not": {"required": ["trusted_proxies"]}}
         },
         "identity": {
           "type": "object",

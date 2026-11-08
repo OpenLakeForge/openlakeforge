@@ -75,11 +75,6 @@ def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     return _topology_variables(config.context)
 
 
-# kind's containers sit in Docker's address pool, so a proxy running on the host
-# reaches Traefik from an address in this range. A customer's edge is somewhere
-# else: OLF_ACCESS_TRUSTED_PROXIES names its range as comma-separated CIDRs.
-DEFAULT_TRUSTED_PROXIES = ("172.16.0.0/12",)
-TRUSTED_PROXIES_ENV = "OLF_ACCESS_TRUSTED_PROXIES"
 # Deploys the TLS-terminating proxy that plays the customer's edge (the tls: external e2e variant).
 TEST_EDGE_ENV = "OLF_E2E_TEST_EDGE"
 
@@ -92,8 +87,7 @@ def access_variables(config: LocalDeploymentConfig, environ: Mapping[str, str] |
     variables = {"access_base_domain": access.base_domain, "access_tls": access.tls}
     if access.tls == "external":
         env = os.environ if environ is None else environ
-        proxies = [cidr.strip() for cidr in env.get(TRUSTED_PROXIES_ENV, "").split(",") if cidr.strip()]
-        variables["access_trusted_proxies"] = json.dumps(proxies or list(DEFAULT_TRUSTED_PROXIES))
+        variables["access_trusted_proxies"] = json.dumps(list(access.trusted_proxies))
         variables["access_test_edge"] = "true" if env.get(TEST_EDGE_ENV) == "1" else "false"
     return variables
 
@@ -242,24 +236,33 @@ def require_github_oauth_secret(
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
-    return topology_variables(config) | query_variables(config.context) | storage_variables(config.context) | {
-        "kube_context": config.kube_context,
-        "kubeconfig_path": str(config.paths.kubeconfig_path),
-        # The Terraform helm provider (not the `helm` CLI olf's own tooling
-        # wraps) writes its own repository cache/config from these two
-        # variables. Its computed default lives beneath the Terraform root,
-        # which for an installed distribution is the read-only payload -
-        # always pass the writable paths olf already resolved.
-        "helm_repository_cache_path": str(config.paths.helm_repository_cache),
-        "helm_repository_config_path": str(config.paths.helm_repository_config),
-        "foundation_state_path": str(config.paths.foundation_state_path),
-        "project_code_image_repository": images.project_code_repository,
-        "project_code_image_tag": images.project_code_tag,
-        "project_code_image_pull_policy": images.project_code_pull_policy,
-        "project_code_image_revision": images.project_code_revision,
-    } | access_variables(config) | identity_variables(config) | cached_chart_variables(config) | {
-        TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
-    } | platform_api_variables(config) | source_egress_variables(config)
+    return (
+        topology_variables(config)
+        | query_variables(config.context)
+        | storage_variables(config.context)
+        | {
+            "kube_context": config.kube_context,
+            "kubeconfig_path": str(config.paths.kubeconfig_path),
+            # The Terraform helm provider (not the `helm` CLI olf's own tooling
+            # wraps) writes its own repository cache/config from these two
+            # variables. Its computed default lives beneath the Terraform root,
+            # which for an installed distribution is the read-only payload -
+            # always pass the writable paths olf already resolved.
+            "helm_repository_cache_path": str(config.paths.helm_repository_cache),
+            "helm_repository_config_path": str(config.paths.helm_repository_config),
+            "foundation_state_path": str(config.paths.foundation_state_path),
+            "project_code_image_repository": images.project_code_repository,
+            "project_code_image_tag": images.project_code_tag,
+            "project_code_image_pull_policy": images.project_code_pull_policy,
+            "project_code_image_revision": images.project_code_revision,
+        }
+        | access_variables(config)
+        | identity_variables(config)
+        | cached_chart_variables(config)
+        | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
+        | platform_api_variables(config)
+        | source_egress_variables(config)
+    )
 
 
 def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -699,6 +702,7 @@ def restore_stock_corefile(config: LocalDeploymentConfig, tools: Toolkit, *, env
         kubeconfig=config.paths.kubeconfig_path,
         env=env,
     )
+
 
 def platform_up(
     config: LocalDeploymentConfig,

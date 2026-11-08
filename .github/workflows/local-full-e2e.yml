@@ -276,8 +276,9 @@ jobs:
             grep -qx '    tls: none' openlakeforge.yaml
           fi
           if [ "${{ inputs.access_tls || 'local-ca' }}" = "external" ]; then
-            sed -i 's/^    tls: local-ca$/    tls: external\n    base_domain: olf.example.test/' openlakeforge.yaml
+            sed -i 's/^    tls: local-ca$/    tls: external\n    base_domain: olf.example.test\n    trusted_proxies: [10.244.0.0\/16]/' openlakeforge.yaml
             grep -qx '    tls: external' openlakeforge.yaml
+            # The fixture edge is a pod, so Traefik sees it from kind's default pod CIDR.
             # The fixture edge listens on this runner (hostPort 443) and the
             # clients resolve the public name to it; it is signed by the local CA.
             echo "OLF_E2E_TEST_EDGE=1" >> "${GITHUB_ENV}"

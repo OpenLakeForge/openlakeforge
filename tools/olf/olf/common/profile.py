@@ -11,6 +11,7 @@ resolver (#153) and the stage-aware platform root (#133).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from collections.abc import Mapping
@@ -42,7 +43,7 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project", "query", "storage"}
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
-_ACCESS_FIELDS = {"base_domain", "tls"}
+_ACCESS_FIELDS = {"base_domain", "tls", "trusted_proxies"}
 # v1alpha1 spelled the TLS mode `issuer`; it is read as `tls` (see _validate_access).
 _ACCESS_FIELDS_V1ALPHA1 = _ACCESS_FIELDS | {"issuer"}
 _TLS_MODES = ("none", "local-ca", "external")
@@ -160,6 +161,9 @@ class AccessSpec:
 
     base_domain: str = "olf.localhost"
     tls: str = "none"
+    # The customer's edge as Traefik sees it (`tls: external` only): the one peer whose
+    # X-Forwarded-Proto and -Host are believed. A deployment setting, so it lives in the profile.
+    trusted_proxies: tuple[str, ...] = ()
 
 
 def is_secret_name(value: object) -> bool:
@@ -526,7 +530,33 @@ def _validate_access(document: object, *, source: str, provider: Provider) -> Ac
             f"{source}: spec.access.tls 'external' needs a public base_domain; "
             f"'{base_domain}' ends in '.localhost', where no upstream proxy can terminate TLS"
         )
-    return AccessSpec(base_domain=base_domain, tls=tls)
+    proxies = _validate_trusted_proxies(document.get("trusted_proxies"), tls=tls, source=source)
+    return AccessSpec(base_domain=base_domain, tls=tls, trusted_proxies=proxies)
+
+
+def _validate_trusted_proxies(value: object, *, tls: str, source: str) -> tuple[str, ...]:
+    where = f"{source}: spec.access.trusted_proxies"
+    if tls != "external":
+        if value is not None:
+            raise DeploymentProfileError(f"{where} is only valid with tls 'external', got tls {tls!r}")
+        return ()
+    if not isinstance(value, list) or not value:
+        raise DeploymentProfileError(
+            f"{where} is required with tls 'external': list the CIDR blocks of your proxy or load balancer, "
+            "the only peers whose X-Forwarded-Proto and X-Forwarded-Host are trusted"
+        )
+    networks: list[str] = []
+    for entry in value:
+        try:
+            network = ipaddress.ip_network(entry, strict=True) if isinstance(entry, str) else None
+        except ValueError:
+            network = None
+        if network is None:
+            raise DeploymentProfileError(f"{where} entries must be CIDR blocks such as 203.0.113.0/24, got {entry!r}")
+        if network.prefixlen == 0:
+            raise DeploymentProfileError(f"{where} may not trust every address ({entry!r})")
+        networks.append(str(network))
+    return tuple(networks)
 
 
 def _known_roles(*, where: str, distribution_root: Path | None) -> list[str]:

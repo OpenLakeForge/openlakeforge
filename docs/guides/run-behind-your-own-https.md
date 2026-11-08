@@ -8,25 +8,27 @@ This guide puts OpenLakeForge behind a reverse proxy, tunnel or load balancer th
 | --- | --- |
 | A public name, `base_domain`, and a wildcard record `*.<base_domain>` plus the bare name pointing at your edge | Serves plain HTTP on Traefik's `web` entrypoint, with no TLS store and no host port 443 |
 | A certificate your browsers trust for both names, installed on the edge | Generates every route URL, OIDC redirect URI and the sign-in cookie as `https://`, the cookie `Secure` |
-| A proxy that forwards to Traefik and sets `X-Forwarded-Proto: https` and `X-Forwarded-Host` | Trusts those two headers from the address range you name, and from no one else |
+| A proxy that forwards to Traefik and sets `X-Forwarded-Proto: https` and `X-Forwarded-Host` | Trusts those two headers from `trusted_proxies`, and from no one else |
 
 Examples of an edge: Caddy or nginx on the host, a Cloudflare Tunnel, a cloud load balancer. A request that reaches Traefik from an address outside the range you name is handled as plain HTTP, whatever `X-Forwarded-Proto` it carries.
 
 ## Configure
 
-1. Set the access block in `openlakeforge.yaml`. `external` is refused on a `.localhost` name:
+1. Set the access block in `openlakeforge.yaml`. `external` is refused on a `.localhost` name, and `trusted_proxies` is required with it (and refused with any other `tls`): the CIDR blocks your proxy connects to Traefik from. `0.0.0.0/0` is refused. Only those peers' `X-Forwarded-Proto` and `X-Forwarded-Host` are believed.
 
    ```yaml
    spec:
      access:
        base_domain: olf.example.com
        tls: external
+       trusted_proxies: [203.0.113.0/24]
    ```
 
-2. Name the address range of your edge as Traefik sees it, as comma-separated CIDRs, before you apply. Without it the default is `172.16.0.0/12`, Docker's address pool, which covers a proxy running on the machine that hosts kind:
+   List the range as Traefik sees it, not your proxy's public address. For a proxy on the machine that hosts kind, start from the subnet of Docker's `kind` network (`docker network inspect kind`), and confirm with the sign-in check below: if the range is wrong, redirects stay `http://`.
+
+2. Apply the profile:
 
    ```bash
-   export OLF_ACCESS_TRUSTED_PROXIES=203.0.113.0/24
    uv run --project tools/olf olf infra platform apply -f openlakeforge.yaml
    ```
 

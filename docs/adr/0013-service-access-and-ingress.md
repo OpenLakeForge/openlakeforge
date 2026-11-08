@@ -24,6 +24,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | --- | --- | --- |
    | `base_domain` | `olf.localhost` | e.g. `olf.example.com` |
    | `tls` | `none` (plain HTTP) | `external`: your reverse proxy, tunnel or load balancer terminates HTTPS |
+   | `trusted_proxies` | none | with `external`: the CIDR blocks of that proxy, the only peers whose `X-Forwarded-*` headers are believed |
 
    The defaults need neither a purchased domain nor a public server, nor a
    certificate. `local-ca`, a CA the platform creates, is opt-in HTTPS for an
@@ -89,8 +90,9 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated` for `tls: local-ca`
    (`none` for plain HTTP, `edge-terminated` for `external`: Traefik serves only
    `web`, with no TLS store, no certificate and no host port 443, and trusts
-   `X-Forwarded-Proto` and `-Host` only from `forwardedHeaders.trustedIPs`, the
-   customer's edge range; Traefik discards those headers from any other peer, so
+   `X-Forwarded-Proto` and `-Host` only from `forwardedHeaders.trustedIPs`, set
+   from the profile's `spec.access.trusted_proxies` (required with `external`,
+   refused otherwise, never `0.0.0.0/0`); Traefik discards those headers from any other peer, so
    a forged one is never read as HTTPS). One wildcard
    certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
    does not match the apex), is issued in the shared namespace by
@@ -209,7 +211,7 @@ read the same way.
 
 #990 built the local adapter for `external` (decisions 1, 6, 8): Traefik serves
 HTTP behind the customer's HTTPS and trusts forwarded headers only from a
-configured range, and every URL, callback and cookie is `https://`. The
+range the profile names (`spec.access.trusted_proxies`), and every URL, callback and cookie is `https://`. The
 end-to-end variant runs a TLS-terminating proxy in front of Traefik.
 
 Decision 8 (#991): the perimeter proxy, Polaris and the platform API reach
