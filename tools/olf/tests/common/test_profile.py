@@ -8,6 +8,8 @@ import yaml
 
 import olf.common.profile as profile_module
 from olf.common.profile import (
+    BUCKET_LAYERS,
+    BUCKET_PREFIX_MAX_LENGTH,
     AccessSpec,
     DeploymentProfileError,
     Preset,
@@ -15,6 +17,7 @@ from olf.common.profile import (
     ResolvedProject,
     Size,
     StageName,
+    bucket_name,
     legacy_single_stage_topology,
     load_deployment_profile,
     resolve_project,
@@ -198,12 +201,37 @@ def test_validate_deployment_profile_rejects_names_kubernetes_cannot_label_with(
         validate_deployment_profile(document)
 
 
-@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 62])
+@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 50])
 def test_validate_deployment_profile_accepts_label_safe_names(name: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["metadata"]["name"] = name
 
     assert validate_deployment_profile(document).name == name
+
+
+def test_bucket_names_follow_prefix_stage_layer_for_enabled_stages_only() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = "acme-data"
+    topology = resolve_topology(validate_deployment_profile(document))
+
+    assert topology.bucket_names() == {
+        "dev": {"bronze": "acme-data-dev-bronze", "silver": "acme-data-dev-silver", "gold": "acme-data-dev-gold"}
+    }
+
+
+@pytest.mark.parametrize("name", ["a" * 52, "xn--acme"])
+def test_validate_deployment_profile_rejects_names_that_cannot_prefix_a_bucket(name: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = name
+
+    with pytest.raises(DeploymentProfileError, match="metadata.name"):
+        validate_deployment_profile(document)
+
+
+def test_longest_bucket_name_fits_the_provider_limit() -> None:
+    prefix = "a" * BUCKET_PREFIX_MAX_LENGTH
+
+    assert max(len(bucket_name(prefix, stage, layer)) for stage in StageName for layer in BUCKET_LAYERS) == 63
 
 
 def test_no_access_or_identity_block_means_a_quickstart_with_neither() -> None:
@@ -241,7 +269,7 @@ def test_an_empty_access_block_asks_for_the_defaults_and_identity_may_follow() -
 def test_access_accepts_a_real_domain() -> None:
     document = _load_fixture("valid_slim_local.yaml")
 
-    document["spec"]["access"] = {"base_domain": "olf.example.com", "issuer": "letsencrypt"}
+    document["spec"]["access"] = {"base_domain": "olf.example.com", "tls": "external"}
     document["spec"]["identity"] = {
         "issuer": "external",
         "issuer_url": "https://login.example.com/",
@@ -249,7 +277,7 @@ def test_access_accepts_a_real_domain() -> None:
         "role_mapping": {"platform-admin": ["olf-admins"]},
     }
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
-        "olf.example.com", "letsencrypt"
+        "olf.example.com", "external"
     )
 
 
@@ -258,11 +286,13 @@ def test_access_accepts_a_real_domain() -> None:
     [
         ({"base_domain": "localhost"}, "base_domain must be"),
         ({"base_domain": "OLF.example.com"}, "base_domain must be"),
-        ({"issuer": "Let's Encrypt"}, "issuer must match"),
-        ({"tls": "none"}, "must not contain"),
+        ({"tls": "letsencrypt"}, "tls must be one of"),
+        ({"issuer": "letsencrypt"}, "issuer must be one of"),
+        ({"tls": "none", "issuer": "none"}, "both 'tls' and its v1alpha1 name 'issuer'"),
+        ({"gateway": "x"}, "must not contain"),
     ],
 )
-def test_access_rejects_names_a_route_host_or_issuer_cannot_use(access: dict, match: str) -> None:
+def test_access_rejects_names_a_route_host_or_tls_mode_cannot_use(access: dict, match: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["access"] = access
 
@@ -549,9 +579,9 @@ def test_github_team_slugs_must_be_canonical(slug: str) -> None:
         validate_deployment_profile(_github_profile(github=github))
 
 
-def test_plain_http_issuer_is_accepted_on_a_localhost_domain_of_the_local_provider() -> None:
+def test_plain_http_tls_is_accepted_on_a_localhost_domain_of_the_local_provider() -> None:
     document = _load_fixture("valid_slim_local.yaml")
-    document["spec"]["access"] = {"issuer": "none"}
+    document["spec"]["access"] = {"tls": "none"}
 
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "none")
 
@@ -566,13 +596,44 @@ def test_plain_http_issuer_is_accepted_on_a_localhost_domain_of_the_local_provid
         ("azure", "olf.localhost"),
     ],
 )
-def test_plain_http_issuer_is_rejected_outside_local_localhost(provider: str, base_domain: str) -> None:
+def test_plain_http_tls_is_rejected_outside_local_localhost(provider: str, base_domain: str) -> None:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["provider"] = {"type": provider, **({"region": "x"} if provider != "local" else {})}
-    document["spec"]["access"] = {"issuer": "none", "base_domain": base_domain}
+    document["spec"]["access"] = {"tls": "none", "base_domain": base_domain}
 
-    with pytest.raises(DeploymentProfileError, match="issuer 'none' .* requires provider 'local'"):
+    with pytest.raises(DeploymentProfileError, match="tls 'none' .* requires provider 'local'"):
         validate_deployment_profile(document)
+
+
+def test_a_v1alpha1_issuer_is_read_as_tls() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = {"issuer": "local-ca"}
+
+    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "local-ca")
+
+
+def test_external_tls_is_accepted_on_a_public_domain() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = {"tls": "external", "base_domain": "olf.example.com"}
+    document["spec"]["identity"] = _github_identity()
+
+    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.example.com", "external")
+
+
+def test_external_tls_is_refused_on_localhost() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = {"tls": "external"}
+
+    with pytest.raises(DeploymentProfileError, match="'external' needs a public base_domain"):
+        validate_deployment_profile(document)
+
+
+def test_local_ca_is_accepted_on_every_provider() -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = {"tls": "local-ca", "base_domain": "olf.example.com"}
+    document["spec"]["identity"] = _github_identity()
+
+    assert resolve_topology(validate_deployment_profile(document)).access.tls == "local-ca"
 
 
 def test_github_host_is_optional_and_must_be_a_bare_hostname() -> None:
@@ -588,7 +649,7 @@ def test_github_host_is_optional_and_must_be_a_bare_hostname() -> None:
     [
         ("aws", {}),
         ("azure", {"base_domain": "olf.example.com"}),
-        ("local", {"base_domain": "olf.example.com", "issuer": "letsencrypt"}),
+        ("local", {"base_domain": "olf.example.com", "tls": "external"}),
     ],
 )
 def test_authentication_off_is_rejected_when_routes_would_leave_the_machine(provider: str, access: dict) -> None:
@@ -843,13 +904,13 @@ def test_malformed_source_egress_is_rejected_by_the_validator_and_the_schema(sou
 def test_the_local_provider_defaults_to_plain_http_and_the_clouds_keep_a_real_issuer() -> None:
     local = _load_fixture("valid_slim_local.yaml")
     local["spec"]["access"] = {}
-    assert resolve_topology(validate_deployment_profile(local)).access.issuer == "none"
+    assert resolve_topology(validate_deployment_profile(local)).access.tls == "none"
 
     cloud = _load_fixture("valid_slim_local.yaml")
     cloud["spec"]["provider"] = {"type": "aws", "region": "eu-west-1"}
     cloud["spec"]["access"] = {}
     cloud["spec"]["identity"] = _github_identity()
-    assert resolve_topology(validate_deployment_profile(cloud)).access.issuer == "local-ca"
+    assert resolve_topology(validate_deployment_profile(cloud)).access.tls == "local-ca"
 
 
 def _with_stage_query(**stage_sizes: str | None) -> dict:

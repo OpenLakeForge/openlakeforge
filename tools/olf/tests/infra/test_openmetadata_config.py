@@ -24,24 +24,23 @@ def _write_lakehouse(root: Path, domain: str = "sales", product_id: str = "widge
     source_path = root / "bronze" / "crm" / "source.yaml"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     lakehouse_path.write_text(
-        f"""apiVersion: openlakeforge.io/v1beta1
+        f"""apiVersion: openlakeforge.io/v1beta2
 kind: Governance
 domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
     status: planned
-products:
-  - id: {product_id}
-    domain: {domain}
-    displayName: {product_id.replace('_', ' ').title()}
-    description: {product_id} product.
-    status: planned
+    products:
+      - id: {product_id}
+        displayName: {product_id.replace('_', ' ').title()}
+        description: {product_id} product.
+        status: planned
 """,
         encoding="utf-8",
     )
     source_path.write_text(
-        """apiVersion: openlakeforge.io/v1alpha3
+        """apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: crm
 displayName: CRM

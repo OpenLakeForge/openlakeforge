@@ -132,7 +132,7 @@ Trino 480 (docs: <https://trino.io/docs/480/security/oauth2.html>,
 | Question | Finding |
 | --- | --- |
 | Coexistence with workloads | `web-ui.authentication.type=oauth2` is chosen apart from `http-server.authentication.type`: `OAuth2WebUiModule` installs the OAuth2 service itself, and Trino's own `TestOAuth2WebUiAuthenticationFilterWithJwt` sets no `http-server.authentication.type`. `/v1` stays `PASSWORD` (or none at `off`/`tls`); dbt, Superset, the ingestion Job and `olf e2e` do not touch the UI. No `PASSWORD,OAUTH2` list is needed, and none is used, because that would also let API clients present Dex bearer tokens |
-| Secure request | The filter redirects any request whose `isSecure()` is false to the "UI disabled" page. Behind Traefik, `isSecure()` is true when `process-forwarded` is on and the request carries `X-Forwarded-Proto: https`. So the ingress must be HTTPS (`spec.access.issuer` not `none`); the coordinator's own listener may be either. **With `issuer: none` the UI cannot sign in through Dex: it keeps its own login** (the module receives no `web_ui_oidc`) |
+| Secure request | The filter redirects any request whose `isSecure()` is false to the "UI disabled" page. Behind Traefik, `isSecure()` is true when `process-forwarded` is on and the request carries `X-Forwarded-Proto: https`. So the ingress must be HTTPS (`spec.access.tls` not `none`); the coordinator's own listener may be either. **With `tls: none` the UI cannot sign in through Dex: it keeps its own login** (the module receives no `web_ui_oidc`) |
 | Redirect URI | `request.getUriInfo().getBaseUri().resolve("/oauth2/callback")`; with `process-forwarded` that is `https://trino.<base_domain>/oauth2/callback` from `X-Forwarded-Host` and `-Proto`. The `trino` static Dex client carried `https://trino.<base_domain>/*` (a Keycloak leftover; Dex matches exactly), now the exact callback. Not run: whether Jetty adds `:443` to the URI from `X-Forwarded-Port` |
 | Issuer reachability | Trino loads the issuer's metadata at startup and fails after 30 seconds, and `https://auth.<base_domain>` is served by Traefik, which is created after Trino (it takes Trino's backend transport). So the module turns discovery off and sets `auth-url`, `token-url`, `jwks-url` from Dex's fixed paths (`/auth`, `/token`, `/keys`): **Dex only**; an `issuer: external` issuer needs discovery and an egress flow, and is not wired. Trino reaches Dex by the public URL through the CoreDNS rewrite (flow F4) and trusts the local CA through `oauth2-jwk.http-client.trust-store-path` (the file already mounted for the internal truststore) |
 | Principal | `principal-field=email` with `scopes=openid,email` (Dex adds `email` to the token only when asked; Trino requires the field in the access token). The Trino user is the e-mail address, with the default user mapping |
@@ -325,7 +325,7 @@ The hourly catalog refresh is the same pod as a CronJob per governed stage
 (`openmetadata-trino-ingestion-<catalog>`), applied by `deploy-metadata` from
 the same builder. The pipeline-client CronJob and the
 `<service>-metadata-ingestion` pipeline registration are gone.
-Plain-HTTP mode (`issuer: none`): the Trino Web UI uses
+Plain-HTTP mode (`tls: none`): the Trino Web UI uses
 `web-ui.authentication.type=fixed` with user `olf-web` instead of its form;
 `/v1` workload authentication is unchanged.
 

@@ -42,7 +42,10 @@ _METADATA_FIELDS = {"name"}
 _SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project", "query", "storage"}
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
-_ACCESS_FIELDS = {"base_domain", "issuer"}
+_ACCESS_FIELDS = {"base_domain", "tls"}
+# v1alpha1 spelled the TLS mode `issuer`; it is read as `tls` (see _validate_access).
+_ACCESS_FIELDS_V1ALPHA1 = _ACCESS_FIELDS | {"issuer"}
+_TLS_MODES = ("none", "local-ca", "external")
 _IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "github"}
 _IDENTITY_ISSUERS = ("external", "github")
 _GITHUB_FIELDS = {"organization", "teams", "oauth_app_secret_ref", "host"}
@@ -91,6 +94,35 @@ class StageName(StrEnum):
     PROD = "prod"
 
 
+# Object-store bucket names are `<prefix>-<stage>-<layer>` on every provider (ADR 0004) and the prefix is
+# `metadata.name`. S3 and Azure cap a bucket name at 63 characters, so the prefix budget is what remains after the
+# longest suffix, `-prod-bronze`.
+BUCKET_LAYERS = ("bronze", "silver", "gold")
+_BUCKET_NAME_LIMIT = 63
+BUCKET_PREFIX_MAX_LENGTH = _BUCKET_NAME_LIMIT - max(
+    len(f"-{stage.value}-{layer}") for stage in StageName for layer in BUCKET_LAYERS
+)
+
+
+def bucket_name(prefix: str, stage: StageName | str, layer: str) -> str:
+    """The one bucket naming rule: `<prefix>-<stage>-<layer>`. Every provider's Terraform root receives these names
+    from the resolver rather than rebuilding them."""
+    if layer not in BUCKET_LAYERS:
+        raise ValueError(f"unknown bucket layer {layer!r}")
+    return f"{prefix}-{StageName(stage).value}-{layer}"
+
+
+def validate_bucket_prefix(prefix: str, *, field: str, source: str) -> str:
+    if len(prefix) > BUCKET_PREFIX_MAX_LENGTH:
+        raise DeploymentProfileError(
+            f"{source}: {field} is {len(prefix)} characters; at most {BUCKET_PREFIX_MAX_LENGTH} so the longest "
+            f"bucket name '{prefix}-prod-bronze' stays within {_BUCKET_NAME_LIMIT} characters"
+        )
+    if prefix.startswith("xn--"):
+        raise DeploymentProfileError(f"{source}: {field} cannot start with 'xn--' (reserved in S3 bucket names)")
+    return prefix
+
+
 class Preset(StrEnum):
     SLIM = "slim"
     FULL = "full"
@@ -127,7 +159,7 @@ class AccessSpec:
     names over plain HTTP. Without the block there is no ingress at all."""
 
     base_domain: str = "olf.localhost"
-    issuer: str = "none"
+    tls: str = "none"
 
 
 def is_secret_name(value: object) -> bool:
@@ -298,6 +330,17 @@ class DeploymentTopology:
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
 
+    def bucket_names(self) -> dict[str, dict[str, str]]:
+        """Stage name to layer to bucket name, for every enabled stage."""
+        return {
+            stage.name.value: {layer: bucket_name(self.profile_name, stage.name, layer) for layer in BUCKET_LAYERS}
+            for stage in self.stages
+            if stage.enabled
+        }
+
+    def ops_bucket_name(self) -> str:
+        return f"{self.profile_name}-ops"
+
     def render_json(self) -> str:
         return json.dumps(
             {
@@ -454,23 +497,36 @@ def _size_block(document: object, block: str, *, where: str) -> Size | None:
 def _validate_access(document: object, *, source: str, provider: Provider) -> AccessSpec:
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: spec.access must be an object")
-    _forbid_unexpected(document, _ACCESS_FIELDS, where=f"{source}: spec.access")
+    _forbid_unexpected(document, _ACCESS_FIELDS_V1ALPHA1, where=f"{source}: spec.access")
+    if "issuer" in document and "tls" in document:
+        raise DeploymentProfileError(
+            f"{source}: spec.access sets both 'tls' and its v1alpha1 name 'issuer'; keep 'tls' only"
+        )
     defaults = AccessSpec()
     base_domain = document.get("base_domain", defaults.base_domain)
     if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
         raise DeploymentProfileError(f"{source}: spec.access.base_domain must be a lowercase DNS name with a dot")
     # Plain HTTP is only valid on the local provider, so the other providers (whose roots do not read the
-    # block) keep the issuer a real install would name.
-    default_issuer = defaults.issuer if provider == Provider.LOCAL else "local-ca"
-    issuer = _identifier(document.get("issuer", default_issuer), field="spec.access.issuer", source=source)
+    # block) default to the mode a real install would name.
+    default_tls = defaults.tls if provider == Provider.LOCAL else "local-ca"
+    field = "issuer" if "issuer" in document else "tls"
+    tls = document.get(field, default_tls)
+    if tls not in _TLS_MODES:
+        raise DeploymentProfileError(f"{source}: spec.access.{field} must be one of {list(_TLS_MODES)!r}, got {tls!r}")
     # Plain HTTP is safe only where the browser treats the host as loopback and a
     # secure context: *.localhost, on the local kind cluster (ADR 0013).
-    if issuer == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
+    if tls == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
         raise DeploymentProfileError(
-            f"{source}: spec.access.issuer 'none' (plain HTTP) requires provider 'local' "
+            f"{source}: spec.access.tls 'none' (plain HTTP) requires provider 'local' "
             "and a base_domain ending in '.localhost'"
         )
-    return AccessSpec(base_domain=base_domain, issuer=issuer)
+    # The customer's edge terminates HTTPS for a public name; nothing upstream can do that for *.localhost.
+    if tls == "external" and base_domain.endswith(".localhost"):
+        raise DeploymentProfileError(
+            f"{source}: spec.access.tls 'external' needs a public base_domain; "
+            f"'{base_domain}' ends in '.localhost', where no upstream proxy can terminate TLS"
+        )
+    return AccessSpec(base_domain=base_domain, tls=tls)
 
 
 def _known_roles(*, where: str, distribution_root: Path | None) -> list[str]:
@@ -707,6 +763,7 @@ def validate_deployment_profile(
     if "name" not in metadata:
         raise DeploymentProfileError(f"{source}: metadata: missing required field 'name'")
     name = _identifier(metadata["name"], field="metadata.name", source=source)
+    validate_bucket_prefix(name, field="metadata.name", source=source)
 
     spec = document["spec"]
     if not isinstance(spec, Mapping):

@@ -42,7 +42,7 @@ LOCAL_CA_KEY = "tls\\.crt"
 
 
 def contract_access(contracts: Mapping[str, Any] | None, *, stage: str | None = None) -> dict[str, Any]:
-    """The issuer and enabled routes of a raw provider contract, or {} without an ingress.
+    """The TLS mode and enabled routes of a raw provider contract, or {} without an ingress.
 
     With `stage`, another stage's routes are dropped: a stage's environment
     never names another stage's services.
@@ -57,7 +57,11 @@ def contract_access(contracts: Mapping[str, Any] | None, *, stage: str | None = 
     }
     perimeter = access.get("perimeter") or {}
     protected = sorted(set(perimeter.get("protected_routes", [])) & set(routes)) if perimeter.get("enabled") else []
-    return {"issuer": access["issuer"], "routes": routes, **({"protected": protected} if protected else {})}
+    return {
+        "tls": access.get("tls", access.get("issuer")),
+        "routes": routes,
+        **({"protected": protected} if protected else {}),
+    }
 
 
 @dataclass(frozen=True)
@@ -174,6 +178,6 @@ def service_route(
     # Both spellings: requests honours `no_proxy` and `NO_PROXY`, and an operator may set either.
     no_proxy = ",".join(filter(None, [host, env.get("no_proxy"), env.get("NO_PROXY")]))
     verify: bool | str = True
-    if access.get("issuer") == LOCAL_CA_ISSUER:
+    if access.get("tls") == LOCAL_CA_ISSUER:
         verify = _ca_bundle(shared_namespace, kube_context, environ)
     yield Route(url, {"no_proxy": no_proxy}, verify)

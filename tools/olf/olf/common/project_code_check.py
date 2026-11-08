@@ -7,6 +7,7 @@ does not depend on a checkout script or shell interpolation.
 
 from __future__ import annotations
 
+import ast
 import os
 import sys
 import tempfile
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 
     from openlakeforge_core import FloeEntity, LakehouseInventory, Product
 
@@ -57,12 +58,45 @@ def _asset_keys(definitions: object) -> list[tuple[str, ...]]:
 
 
 def _product_inputs(product: Product) -> tuple[str, ...]:
+    """The Silver tables the product reads: the module's own list when it keeps one, else what the project declares."""
     module = import_module(f"lakehouse_code.pipelines.dagster.{product.id}")
-    name = f"{product.id.upper()}_SILVER_INPUTS"
-    values = getattr(module, name, getattr(module, f"{product.id.upper()}_ENTITIES", None))
-    if values is None:
-        _fail(f"{module.__name__} does not define {name}")
-    return tuple(values)
+    prefix = product.id.upper()
+    values = getattr(module, f"{prefix}_SILVER_INPUTS", getattr(module, f"{prefix}_ENTITIES", None))
+    if values is not None:
+        return tuple(values)
+    spec_class = import_module("openlakeforge_runtime.product_dagster").ProductDefinitionSpec
+    return tuple(spec_class(domain=product.domain_name, product=product.id).resolve().silver_inputs)
+
+
+def private_runtime_imports(root: Path, public: Mapping[str, Collection[str]]) -> list[str]:
+    """`file:line: name` for every import of a runtime module or name outside the public API.
+
+    `public` maps each public module to its `__all__`; project code is held to it so a runtime refactor
+    cannot break a customer project (docs/reference/runtime-api.md).
+    """
+    package = "openlakeforge_runtime"
+    found: list[str] = []
+    for path in sorted((root / "lakehouse_code").rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            targets: list[tuple[str, str | None]]
+            if isinstance(node, ast.Import):
+                targets = [(alias.name, None) for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                targets = [(node.module, alias.name) for alias in node.names]
+            else:
+                continue
+            for module, name in targets:
+                if module != package and not module.startswith(f"{package}."):
+                    continue
+                where = f"{path.relative_to(root)}:{node.lineno}"
+                if module == package and name is not None:
+                    module, name = f"{package}.{name}", None
+                if module not in public:
+                    found.append(f"{where}: {module} is not a public runtime module")
+                elif name is not None and name not in public[module]:
+                    found.append(f"{where}: {module}.{name} is not in the module's public API")
+    return found
 
 
 def validate(root: Path) -> None:
@@ -81,6 +115,10 @@ def validate(root: Path) -> None:
     job_concurrency = _floe_job_concurrency(execution.get("orchestration"))
     if runner.get("type") != "kubernetes_job" or runner.get("job_scope") != "domain":
         _fail(f"Floe must run one Kubernetes Job per domain; the stage profile renders {runner.get('type')!r}")
+    runtime = import_module("openlakeforge_runtime")
+    public = {name: import_module(name).__all__ for name in runtime.PUBLIC_MODULES}
+    for finding in private_runtime_imports(root, public):
+        print(f"warning: {finding}", file=sys.stderr)
     inventory = load_lakehouse_inventory(root / "lakehouse_code")
     products = tuple(inventory.products)
     if not products:
@@ -241,13 +279,7 @@ def _verify_stage_schedules(inventory: LakehouseInventory, library: _ProductDags
     appearing in DEV.
     """
     for product in inventory.products:
-        spec = library.ProductDefinitionSpec(
-            domain=product.domain_name,
-            product=product.id,
-            silver_inputs=(),
-            bronze_inputs=(),
-            gold_assets=(),
-        )
+        spec = library.ProductDefinitionSpec(domain=product.domain_name, product=product.id)
         for stage in ("dev", "uat", ""):
             if library.build_stage_schedules(spec, stage=stage):
                 _fail(f"stage {stage!r} must define no schedule for {product.job_name}")
@@ -375,7 +407,7 @@ def _verify_bronze_dlt_stage_state() -> None:
 
 
 _LOAD_MODES_SOURCE = """\
-apiVersion: openlakeforge.io/v1alpha3
+apiVersion: openlakeforge.io/v1beta1
 kind: Source
 name: mock_api
 displayName: Mock API

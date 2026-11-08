@@ -20,8 +20,8 @@ Ownership follows the medallion layer:
 | Gold | A data product | `lakehouse_code/gold/<product>/` | dbt-trino |
 | Dashboards | A dashboard | `lakehouse_code/dashboards/superset/<dashboard>/` | Superset |
 
-`lakehouse_code/governance.yml` names the domains and products; each source has
-a `source.yaml`, and each dashboard is a bundle directory. OpenLakeForge
+`lakehouse_code/governance.yml` names the domains and, nested under each, its
+products; each source has a `source.yaml`, and each dashboard is a bundle directory. OpenLakeForge
 derives every platform name from these, so you never create catalog namespaces
 or edit Terraform to register a product:
 
@@ -125,22 +125,15 @@ hand:
 | --- | --- |
 | `silver/marketing/contracts/floe/ad_groups.yml` | An entity file, copied from an existing one, with `source: { ref: marketing_platform, resource: ad_groups }` |
 | `gold/<product>/dbt/models/sources.yml` | `- name: ad_groups` under the `silver` source |
-| `pipelines/dagster/<product>.py` | `"ad_groups"` in the Silver inputs tuple and `("marketing_platform", "ad_groups")` in `bronze_inputs` |
 | `gold/<product>/dbt/models/gold/<mart>.sql` | A read of `{{ source('silver', 'ad_groups') }}` |
 
 ## Add a Gold model to an existing product
 
 1. Add `models/gold/<mart>.sql` and describe it in `models/gold/schema.yml`.
    No descriptor lists it: a table in `<product>_gold` belongs to the product.
-2. Add its name to the Gold assets tuple in
-   `pipelines/dagster/<product>.py`:
 
-   ```python
-   CAMPAIGN_PERFORMANCE_GOLD_ASSETS = (
-       "mart_campaign_performance",
-       "mart_campaign_daily",
-   )
-   ```
+   The product's Dagster job picks the model up from the dbt project; nothing in
+   `pipelines/dagster/<product>.py` lists it.
 
 Keep one model's reads to about 150 tables or fewer. Trino counts about two
 stages per table a query reads and stops at `max_stage_count` (300 in every

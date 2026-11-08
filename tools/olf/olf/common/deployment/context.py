@@ -77,9 +77,23 @@ def query_variables(context: DeploymentContext) -> dict[str, str]:
     return {"query_sizing": json.dumps(sizing, sort_keys=True, separators=(",", ":"))}
 
 
+def bucket_variables(context: DeploymentContext) -> dict[str, str]:
+    """The resolver's bucket names, for the roots that self-host object storage (local, azure).
+
+    AWS buckets keep their generated, suffixed names (and DEV its v0.2 names) until the global-uniqueness question
+    on S3 bucket names is settled (#993): `<metadata.name>-<stage>-<layer>` could collide with another account's
+    bucket, which a self-hosted SeaweedFS cannot."""
+    topology = context.topology
+    return {
+        "bucket_names": json.dumps(topology.bucket_names(), sort_keys=True, separators=(",", ":")),
+        "ops_bucket_name": topology.ops_bucket_name(),
+    }
+
+
 def storage_variables(context: DeploymentContext) -> dict[str, str]:
-    """`spec.storage.size`, for the roots that self-host object storage (local, azure). AWS has none to size."""
-    return {"storage_size": context.topology.storage_size.value}
+    """`spec.storage.size` and the bucket names, for the roots that self-host object storage (local, azure). AWS has
+    none to size."""
+    return {"storage_size": context.topology.storage_size.value} | bucket_variables(context)
 
 
 def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:

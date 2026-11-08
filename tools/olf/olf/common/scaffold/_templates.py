@@ -63,7 +63,7 @@ def render_source_yaml(
     load: IncrementalLoad | None = None,
 ) -> str:
     lines = [
-        "apiVersion: openlakeforge.io/v1alpha3",
+        "apiVersion: openlakeforge.io/v1beta1",
         "kind: Source",
         f"name: {source}",
         f"displayName: {yaml_dq(display_name)}",
@@ -450,41 +450,14 @@ def render_gold_schema_yml(*, gold_tables: tuple[tuple[str, str], ...]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_dagster_product_module(
-    *,
-    domain: str,
-    product: str,
-    silver_inputs: tuple[str, ...],
-    bronze_inputs: tuple[tuple[str, str], ...],
-    gold_assets: tuple[str, ...],
-) -> str:
-    const_prefix = product.upper()
-    silver_tuple = ", ".join(f'"{name}"' for name in silver_inputs)
-    if len(silver_inputs) == 1:
-        silver_tuple += ","
-    bronze_tuple = ", ".join(f'("{source}", "{resource}")' for source, resource in bronze_inputs)
-    if len(bronze_inputs) == 1:
-        bronze_tuple += ","
-    gold_tuple = ", ".join(f'"{name}"' for name in gold_assets)
-    if len(gold_assets) == 1:
-        gold_tuple += ","
+def render_dagster_product_module(*, domain: str, product: str) -> str:
     return f'''from __future__ import annotations
 
 from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-{const_prefix}_SILVER_INPUTS = ({silver_tuple})
-
-{const_prefix}_GOLD_ASSETS = ({gold_tuple})
-
-defs = build_product_definitions(
-    ProductDefinitionSpec(
-        domain="{domain}",
-        product="{product}",
-        silver_inputs={const_prefix}_SILVER_INPUTS,
-        bronze_inputs=({bronze_tuple}),
-        gold_assets={const_prefix}_GOLD_ASSETS,
-    )
-)
+# No input lists: the dbt and Floe projects already declare them, and a second copy drifts.
+# Pass gold_assets, silver_inputs or bronze_inputs only to override what they declare.
+defs = build_product_definitions(ProductDefinitionSpec(domain="{domain}", product="{product}"))
 '''
 
 

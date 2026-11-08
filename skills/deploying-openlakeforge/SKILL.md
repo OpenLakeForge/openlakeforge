@@ -87,7 +87,7 @@ Profile fields an agent most often changes, all under `spec`:
 | `provider.type` | `local`, `aws`, `azure` |
 | `preset` | `slim` or `full`; change it and deploy again, it applies in place |
 | `stages` | `dev`, `uat`, `prod`, each `{enabled: true}`; a stage left out is disabled |
-| `access.issuer` | `none` for plain HTTP; absent means HTTPS from a local CA |
+| `access.tls` | `none` for plain HTTP; absent means HTTPS from a local CA |
 | `identity` | absent means sign-in off; `issuer: github` needs a GitHub App |
 
 ## Deploy

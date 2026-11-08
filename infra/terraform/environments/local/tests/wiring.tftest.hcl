@@ -43,6 +43,10 @@ variables {
     dev  = { enabled = true, analytics = true, governance = false }
     prod = { enabled = true, analytics = true, governance = false }
   }
+  bucket_names = {
+    dev  = { bronze = "olf-dev-bronze", silver = "olf-dev-silver", gold = "olf-dev-gold" }
+    prod = { bronze = "olf-prod-bronze", silver = "olf-prod-silver", gold = "olf-prod-gold" }
+  }
   access_base_domain = "olf.localhost"
   platform_api_image = "platform-api:test"
   ops_bucket_name    = "olf-ops"
@@ -63,7 +67,7 @@ run "dex_with_password_authentication_serves_person_queries" {
 
   variables {
     trino_workload_authentication = "password"
-    access_issuer                 = "local-ca"
+    access_tls                    = "local-ca"
   }
 
   assert {
@@ -176,7 +180,7 @@ run "plain_http_without_identity_has_no_api" {
 
   variables {
     identity_issuer = null
-    access_issuer   = "none"
+    access_tls      = "none"
   }
 
   assert {

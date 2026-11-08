@@ -110,12 +110,11 @@ def _require_ingress_preconditions(config: LocalDeploymentConfig, tools: Toolkit
     inside kind's create.
     """
     access = config.context.topology.access
-    issuer = access.issuer if access is not None else LOCAL_CA_ISSUER
-    if issuer not in (LOCAL_CA_ISSUER, "none"):
+    tls = access.tls if access is not None else LOCAL_CA_ISSUER
+    if tls not in (LOCAL_CA_ISSUER, "none"):
         raise DeploymentPreconditionError(
-            f"spec.access.issuer is {issuer!r}, but the local provider ships only the {LOCAL_CA_ISSUER!r} issuer "
-            f"(or 'none', plain HTTP on *.localhost). Set spec.access.issuer to {LOCAL_CA_ISSUER} (ACME issuers "
-            "arrive with #274)."
+            f"spec.access.tls is {tls!r}, but the local provider implements only {LOCAL_CA_ISSUER!r} "
+            "(or 'none', plain HTTP on *.localhost); 'external' arrives with #990."
         )
     # Every local profile: kind-cluster.yaml maps 80/443 whether or not spec.access
     # is declared. Make this depend on access once the mappings do.

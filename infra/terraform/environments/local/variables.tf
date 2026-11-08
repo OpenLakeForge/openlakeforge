@@ -10,6 +10,12 @@ variable "shared_namespace" {
   default     = "olf-system"
 }
 
+variable "bucket_names" {
+  description = "Object-store bucket names per enabled stage and layer, derived once by the resolver as <metadata.name>-<stage>-<layer> (ADR 0004). Roots take them as given and never rebuild a name."
+  type        = map(object({ bronze = string, silver = string, gold = string }))
+  default     = {}
+}
+
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({
@@ -82,7 +88,7 @@ variable "foundation_state_path" {
 }
 
 variable "ops_bucket_name" {
-  description = "S3 bucket used for local operational artifacts: manifests, logs, reports, and run artifacts."
+  description = "S3 bucket used for local operational artifacts: manifests, logs, reports, and run artifacts. `olf` passes <metadata.name>-ops; the default only serves a root applied by hand."
   type        = string
   default     = "openlakeforge-ops"
 }
@@ -224,14 +230,14 @@ variable "access_base_domain" {
   default     = null
 }
 
-variable "access_issuer" {
-  description = "Deployment Profile spec.access.issuer (ADR 0013). `none` (the local default) serves every route over plain HTTP: no route certificates and no browser-facing CA. `local-ca` terminates TLS at Traefik with the local CA. Trino's own certificate (ADR 0016) needs cert-manager either way."
+variable "access_tls" {
+  description = "Deployment Profile spec.access.tls (ADR 0013). `none` (the local default) serves every route over plain HTTP: no route certificates and no browser-facing CA. `local-ca` terminates TLS at Traefik with the local CA. Trino's own certificate (ADR 0016) needs cert-manager either way."
   type        = string
   default     = "none"
 
   validation {
-    condition     = contains(["local-ca", "none"], var.access_issuer)
-    error_message = "The local provider ships the local-ca issuer and, for plain HTTP on *.localhost, none; set spec.access.issuer to one of them."
+    condition     = contains(["local-ca", "none"], var.access_tls)
+    error_message = "The local provider implements tls local-ca and, for plain HTTP on *.localhost, none; external arrives with #990."
   }
 }
 

@@ -11,6 +11,7 @@ import typer
 from olf.common.profile import (
     DeploymentProfile,
     DeploymentProfileError,
+    Provider,
     load_deployment_profile,
     resolve_project,
     resolve_topology,
@@ -34,11 +35,16 @@ def validate(
 ) -> None:
     """Validate the Deployment Profile at `<project>/openlakeforge.yaml`."""
     try:
-        _load(project)
+        profile = _load(project)
     except (DeploymentProfileError, OSError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     typer.echo("Deployment Profile is valid.")
+    if profile.provider.type is not Provider.LOCAL:
+        typer.echo(
+            f"Notice: provider '{profile.provider.type.value}' is preview. "
+            "The beta compatibility promise covers 'local' only."
+        )
 
 
 @app.command("resolve")

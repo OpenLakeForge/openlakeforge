@@ -90,12 +90,9 @@ locals {
   stage_service_accounts   = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
-      # The prefix is fixed rather than taken from var.profile_name so the
-      # buckets match the `lakehouse_<stage>` catalogs: the default profile
-      # name would give `openlakeforge-dev-bronze` next to `lakehouse_dev`.
-      bronze_bucket_name      = "lakehouse-${name}-bronze",
-      silver_bucket_name      = "lakehouse-${name}-silver",
-      gold_bucket_name        = "lakehouse-${name}-gold",
+      bronze_bucket_name      = var.bucket_names[name].bronze,
+      silver_bucket_name      = var.bucket_names[name].silver,
+      gold_bucket_name        = var.bucket_names[name].gold,
       credentials_secret_name = "seaweedfs-${name}-s3-creds"
     }
   }
@@ -501,7 +498,7 @@ module "trino" {
   # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
   web_ui_fixed_user = local.route_tls ? null : "olf-web"
   # Trino refuses OAuth2 on a request that is not secure, so a plain-HTTP route
-  # (`issuer: none`) keeps the UI's own login. Dex only: the module sets Dex's
+  # (`tls: none`) keeps the UI's own login. Dex only: the module sets Dex's
   # endpoints rather than discovering them (modules/query/trino/oidc.tf).
   web_ui_oidc = local.identity_dex && local.route_tls && var.trino_workload_authentication != "off" ? {
     issuer_url = local.identity_oidc.issuer_url

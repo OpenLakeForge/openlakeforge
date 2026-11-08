@@ -13,7 +13,7 @@
       "additionalProperties": false,
       "required": ["name"],
       "properties": {
-        "name": {"type": "string", "pattern": "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"}
+        "name": {"type": "string", "maxLength": 51, "pattern": "^(?!xn--)[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", "description": "Also the prefix of the local and Azure buckets: <name>-<stage>-<layer> and <name>-ops. At most 51 characters so <name>-prod-bronze stays within the 63 an S3 or Azure bucket name allows."}
       }
     },
     "spec": {
@@ -34,7 +34,10 @@
           "additionalProperties": false,
           "required": ["type"],
           "properties": {
-            "type": {"enum": ["local", "aws", "azure"]},
+            "type": {
+              "enum": ["local", "aws", "azure"],
+              "description": "The deployment target, and the default adapter for each capability (storage, metadata database, catalog). Only `local` is covered by the v1beta1 compatibility promise; `aws` and `azure` are accepted as preview."
+            },
             "region": {"type": "string", "minLength": 1}
           }
         },
@@ -95,10 +98,10 @@
               "default": "olf.localhost",
               "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
             },
-            "issuer": {
-              "type": "string",
+            "tls": {
+              "enum": ["none", "local-ca", "external"],
               "default": "none",
-              "pattern": "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"
+              "description": "none: plain HTTP on *.localhost (local only). local-ca: the platform CA, evaluation only. external: the customer terminates HTTPS in front of OpenLakeForge; not valid on *.localhost. The olf validator also reads the v1alpha1 name `issuer` as `tls`; it is not part of this schema."
             }
           }
         },

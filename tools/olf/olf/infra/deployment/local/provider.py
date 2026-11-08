@@ -179,7 +179,7 @@ class LocalProvider:
         topology = self.context.topology
         if topology.access is None:
             return
-        scheme = "http" if topology.access.issuer == "none" else "https"
+        scheme = "http" if topology.access.tls == "none" else "https"
         log.step(f"OpenLakeForge is ready: {scheme}://{topology.access.base_domain}")
         if topology.identity and topology.identity.github:
             self._log_github_install(topology.identity.github)

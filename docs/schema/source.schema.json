@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openlakeforge.io/schemas/source/v1alpha3",
+  "$id": "https://openlakeforge.io/schemas/source/v1beta1",
   "title": "OpenLakeForge Source",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "kind", "name", "displayName", "description", "status", "resources"],
   "properties": {
-    "apiVersion": {"const": "openlakeforge.io/v1alpha3"},
+    "apiVersion": {"const": "openlakeforge.io/v1beta1"},
     "kind": {"const": "Source"},
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
     "displayName": {"type": "string", "minLength": 1},
