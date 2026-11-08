@@ -41,7 +41,7 @@ c.icon(177, 530, "deploy", "worker", size=42)
 c.icon(249, 530, "sts", "redis", size=42)
 
 c.box(322, 470, 250, 170, "Trino", color="platform", fill="#FFFFFF")
-svc_tag(322, 470, 250, "trino.olf-system:8080")
+svc_tag(322, 470, 250, "trino.olf-<stage>:8080")
 c.icon(447, 525, "deploy", "coordinator", size=48, label2="workers: 0")
 
 c.box(592, 470, 250, 170, "Polaris", color="platform", fill="#FFFFFF")

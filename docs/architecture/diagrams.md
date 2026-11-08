@@ -9,9 +9,9 @@ They use the official Kubernetes icon language and complement the
 [Architecture](overview.md) page, which shows *what* the platform does; these
 show *how* it runs.
 
-| **30** | **1+N** | **3** | **0** |
+| **31** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — Full preset, DEV + PROD, identity on: 23 Deployments, 7 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — Full preset, DEV + PROD, identity on: 24 Deployments, 7 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per domain | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
@@ -53,9 +53,12 @@ code server loading `lakehouse_code.definitions`) and Superset runs three (node,
 worker and Redis); the Dagster and Superset modules are instantiated once per
 enabled stage and per stage with analytics (`for_each` in
 `infra/terraform/environments/local/main.tf`), so DEV and PROD give 6 + 6.
-Shared, SeaweedFS runs four (three StatefulSets and an S3-gateway Deployment),
-OpenMetadata two, and PostgreSQL, Polaris and Trino one each. Trino is
-deliberately coordinator-only at the default `spec.query.size`. The ingress adds
+Trino runs one coordinator per stage (`olf-<stage>`, #965), so DEV and PROD give 2;
+it is deliberately coordinator-only at the default `spec.query.size`, and each
+`small` coordinator requests 500m CPU and 2Gi (limit 4Gi, `release/query-sizes.yaml`),
+so the second one adds that much to the stack's requests. Shared, SeaweedFS runs
+four (three StatefulSets and an S3-gateway Deployment), OpenMetadata two, and
+PostgreSQL and Polaris one each. The ingress adds
 five single-replica Deployments in `olf-system`: Traefik, the cert-manager
 controller, cainjector, and webhook, and the portal, which serves the landing
 page at the base domain. With `spec.identity` the identity row adds four more:
