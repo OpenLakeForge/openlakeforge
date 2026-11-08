@@ -8,12 +8,13 @@ RUN uv pip install --python /app/.venv/bin/python --no-cache \
     "certifi>=2026.10.19" \
     "authlib>=1.3,<2" \
     "psycopg2-binary>=2.9,<3" \
-    "trino>=0.336,<1"
+    # olf_trino.py depends on its http_session and extra_credential handling.
+    "trino==0.340.0"
 
 COPY patches/patch_trino_iceberg_partitions.py /tmp/openlakeforge/patch_trino_iceberg_partitions.py
 RUN /app/.venv/bin/python /tmp/openlakeforge/patch_trino_iceberg_partitions.py \
     && rm /tmp/openlakeforge/patch_trino_iceberg_partitions.py
 
-COPY olf_oidc.py olf_security.py /app/olf/
+COPY olf_oidc.py olf_security.py olf_trino.py /app/olf/
 
 USER superset
