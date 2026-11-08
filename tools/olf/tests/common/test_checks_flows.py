@@ -35,8 +35,8 @@ def test_rejects_unknown_flow_id_port_scope_and_tag(tmp_path: Path) -> None:
     assert "ADR 0017" in joined and "ports" in joined and "scope" in joined and "tag" in joined
 
 
-def test_rejects_pods_on_a_stage_endpoint(tmp_path: Path) -> None:
-    assert _errors(tmp_path, VALID.replace("from: {scope: stage}", "from: {scope: stage, pods: {a: b}}"))
+def test_accepts_pods_narrowing_a_stage_source(tmp_path: Path) -> None:
+    assert _errors(tmp_path, VALID.replace("from: {scope: stage}", "from: {scope: stage, pods: {a: b}}")) == []
 
 
 def test_rejects_missing_or_empty_workloads(tmp_path: Path) -> None:
