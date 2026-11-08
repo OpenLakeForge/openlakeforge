@@ -369,7 +369,10 @@ and F14 no longer name them.
 F8, F10, F11, F31 and F36 (#976): Trino runs once per stage in the stage namespace, so it is no
 longer a `workloads` entry of `release/network-flows.yaml`. Its egress (F8, F31) and its ingress from a
 stage's own pods (F10) are the stage-wide rows, F11 and F36 name the stage namespaces, and the
-`trino-credentials` Job is under the stage-wide F20.
+`trino-credentials` Job is under the stage-wide F20. F31 names only the coordinator's pods (a narrowing,
+not isolation: stage labels are user-set), so other stage pods stay off Dex. Exception E1's pin for
+`trino-credentials` adds `dex-client-trino`: the Job reads it in `olf-system` and copies it beside the
+coordinator.
 
 F4 and F31 (#991): oauth2-proxy, Polaris and the platform API reach Dex's Service (F31) instead of the public URL through Traefik (F4); OpenMetadata fetches its keys the same way.
 

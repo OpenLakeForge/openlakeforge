@@ -53,7 +53,8 @@ WORKLOADS = {
 # ADR 0017 E1: these ServiceAccounts may `create` Secrets namespace-wide and touch only the Secrets named here
 # (fnmatch, first matching subject wins). The one place to change when the ADR's pins change.
 E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file")),
+    # A stage coordinator's Job also copies the Web UI's Dex client Secret from olf-system (#976).
+    ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file", "dex-client-trino")),
     ("postgresql-credentials", ("postgresql-*-creds",)),
     ("superset-credentials", ("superset-credentials", "superset-env")),
     (
