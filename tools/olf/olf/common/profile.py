@@ -76,7 +76,7 @@ _IMAGE_REPOSITORY_PATTERN_SOURCE = (
 _IMAGE_REPOSITORY_PATTERN = re.compile(_IMAGE_REPOSITORY_PATTERN_SOURCE)
 # The package the release publishes: `<IMAGE_NAMESPACE>/project-code` in release.yml, namespaced by the repository.
 PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/openlakeforge/project-code"
-_STAGE_FIELDS = {"enabled", "capabilities", "source_egress"}
+_STAGE_FIELDS = {"enabled", "capabilities", "source_egress", "query"}
 _SOURCE_EGRESS_FIELDS = {"ports"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
 
@@ -265,6 +265,8 @@ class StageSpec:
     enabled: bool = True
     capabilities: StageCapabilities | None = None
     source_egress_ports: tuple[int, ...] = ()
+    # None: the stage inherits `spec.query.size`.
+    query_size: Size | None = None
 
 
 @dataclass(frozen=True)
@@ -290,6 +292,7 @@ class ResolvedStage:
     capabilities: StageCapabilities
     # TCP ports the stage's run pods may open to hosts outside the cluster (ADR 0017 F34); empty is closed.
     source_egress_ports: tuple[int, ...] = ()
+    query_size: Size = Size.SMALL
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -300,6 +303,7 @@ class ResolvedStage:
                 "governance": self.capabilities.governance,
             },
             "source_egress": {"ports": list(self.source_egress_ports)},
+            "query": {"size": self.query_size.value},
         }
 
 
@@ -318,6 +322,8 @@ class DeploymentTopology:
     access: AccessSpec | None = None
     identity: IdentitySpec | None = None
     project: ProjectSpec | None = None
+    # The largest enabled stage's size. The local root still renders one shared Trino, so it is fed this value
+    # until the per-stage coordinators (#965 slice 1.5) read `ResolvedStage.query_size` instead.
     query_size: Size = Size.SMALL
     storage_size: Size = Size.SMALL
 
@@ -426,8 +432,17 @@ def _validate_stage(name: str, document: object, *, source: str) -> StageSpec:
         source_egress_ports = _validate_source_egress(
             document["source_egress"], field=f"spec.stages.{name}.source_egress", source=source
         )
+    query_size = (
+        _size_block(document["query"], "query", where=f"{source}: spec.stages.{name}.query")
+        if "query" in document
+        else None
+    )
     return StageSpec(
-        name=stage_name, enabled=enabled, capabilities=capabilities, source_egress_ports=source_egress_ports
+        name=stage_name,
+        enabled=enabled,
+        capabilities=capabilities,
+        source_egress_ports=source_egress_ports,
+        query_size=query_size,
     )
 
 
@@ -457,13 +472,18 @@ def _validate_size(spec: Mapping[str, Any], block: str, *, source: str) -> Size:
     """`spec.query.size` / `spec.storage.size`: optional, `small` by default, and only tiers with a tested backend."""
     if block not in spec:
         return Size.SMALL
-    document = spec[block]
-    where = f"{source}: spec.{block}"
+    return _size_block(spec[block], block, where=f"{source}: spec.{block}") or Size.SMALL
+
+
+def _size_block(document: object, block: str, *, where: str) -> Size | None:
+    """One `{size}` object; None when it names no size, so a stage can fall back to `spec.query.size`."""
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{where} must be an object")
     _forbid_unexpected(document, _SIZE_BLOCK_FIELDS, where=where)
+    if "size" not in document:
+        return None
     try:
-        size = Size(document.get("size", Size.SMALL))
+        size = Size(document["size"])
     except ValueError as exc:
         raise DeploymentProfileError(f"{where}.size must be one of {[member.value for member in Size]!r}") from exc
     if size not in _IMPLEMENTED_SIZES[block]:
@@ -860,6 +880,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
                 enabled=True,
                 capabilities=capabilities,
                 source_egress_ports=stage.source_egress_ports,
+                query_size=stage.query_size or profile.query_size,
             )
         )
 
@@ -872,7 +893,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         access=profile.access,
         identity=profile.identity,
         project=profile.project,
-        query_size=profile.query_size,
+        query_size=max((stage.query_size for stage in resolved if stage.enabled), key=list(Size).index),
         storage_size=profile.storage_size,
     )
 
