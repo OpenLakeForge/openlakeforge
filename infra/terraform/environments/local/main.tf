@@ -702,7 +702,7 @@ locals {
     { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
     { "platform-api" = length(module.platform_api) > 0 },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
-    { for name in ["openmetadata", "opensearch", "openmetadata-trino-ingestion"] : name => local.governance_enabled },
+    { for name in ["openmetadata", "opensearch"] : name => local.governance_enabled },
   )
 
   # ipBlock cannot name a host, so profile-driven egress is any address on the

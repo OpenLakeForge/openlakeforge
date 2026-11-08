@@ -185,10 +185,10 @@ port [D]).
 | F8 | a stage's Trino coordinator, which runs in the stage namespace and so takes the stage rows F9 | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
 | F10 | a stage's own pods | its own Trino coordinator, in the same namespace (no row: a stage namespace is one trust domain, and no other stage's pod reaches it) | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
-| F11 | Traefik (the Trino UI), OpenMetadata, and the OLF-owned ingestion Job and its hourly CronJob pods (`openlakeforge.io/job=openmetadata-trino-ingestion`, #410) | the stage namespaces (a stage's Trino 8080, 8443) | 8080, 8443 | OpenMetadata to Trino row | V (the Job and its label exist since #410; its pods on a cluster **T**) |
+| F11 | Traefik (the Trino UI), OpenMetadata | the stage namespaces (a stage's Trino 8080, 8443) | 8080, 8443 | OpenMetadata to Trino row | V |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
-| F13 | OpenMetadata ingestion Jobs (the hourly refresh included), the role-sync CronJob | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
-| F14 | OpenMetadata ingestion Jobs | Superset (stage) | 8088 | `superset_url` registered by `olf`'s bootstrap | V; whether ingestion runs today **T** |
+| F13 | the role-sync CronJob | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
+| F14 | OpenMetadata | Superset (stage) | 8088 | `superset_url` registered by `olf`'s bootstrap | V; whether ingestion runs today **T** |
 | F15 | OpenMetadata | OpenSearch | 9200 | `elasticsearch.host` in `openmetadata.yaml` | V |
 | F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |
 | F17 | SeaweedFS pods among themselves; bucket Job | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; `bucket` Job waits on 9333 and 8888 | V |
@@ -361,6 +361,10 @@ each as an edit to the flow file in that PR.
    can reach everything that namespace may reach.
 
 ## History
+
+The OLF-owned Trino ingestion Job and its CronJob run in the stage namespace beside the coordinator (#976), which is where
+the `openmetadata` principal's Secret is: they reach OpenMetadata under F12 and Trino inside the namespace, so F11, F13
+and F14 no longer name them.
 
 F8, F10, F11, F31 and F36 (#976): Trino runs once per stage in the stage namespace, so it is no
 longer a `workloads` entry of `release/network-flows.yaml`. Its egress (F8, F31) and its ingress from a

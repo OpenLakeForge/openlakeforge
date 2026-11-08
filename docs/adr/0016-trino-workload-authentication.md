@@ -320,7 +320,7 @@ ingestion itself as a Kubernetes Job. Rejected: an image carrying the CA (the
 CA is per cluster), an OpenMetadata upgrade (an unknown, larger change) and
 `verify: false`.
 Step 3 for OpenMetadata: `olf openmetadata deploy-metadata` runs the crawl once
-per artifacts deploy as the Job `openmetadata-trino-ingestion` in `olf-system`:
+per artifacts deploy as the Job `openmetadata-trino-ingestion` in the stage namespace (#976), beside the coordinator and the `openmetadata` principal Secret:
 the same pinned `ingestion-base` image, `metadata ingest -c`, the bot JWT from
 a `secretKeyRef`, and with a TLS query contract the HTTPS port with `verify` on
 the mounted `olf-local-ca`. The OpenMetadata bootstrap no longer deploys or

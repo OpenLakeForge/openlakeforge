@@ -249,7 +249,7 @@ def test_deploy_flow_seeds_the_catalog_and_crawls_trino_for_the_contract_environ
     workflow = yaml.safe_load(next(item["value"] for item in pod["env"] if item["name"] == "OM_WORKFLOW"))
     assert workflow["source"]["serviceName"] == "polaris-contract"
     assert workflow["source"]["serviceConnection"]["config"]["hostPort"] == "trino.contract:9090"
-    assert workflow["workflowConfig"]["openMetadataServerConfig"]["hostPort"] == "http://om-contract:9191/api"
+    assert workflow["workflowConfig"]["openMetadataServerConfig"]["hostPort"] == "http://om-contract.shared-ns:9191/api"
     token_ref = next(item for item in pod["env"] if item["name"] == "OM_BOT_JWT")["valueFrom"]["secretKeyRef"]
     assert token_ref == {"name": "ingestion-bot-contract", "key": "JWT_CONTRACT"}
 

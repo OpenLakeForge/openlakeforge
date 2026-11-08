@@ -47,7 +47,6 @@ workloads:
   perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
   postgresql-credentials: {openlakeforge.io/job: postgresql-credentials}
-  openmetadata-trino-ingestion: {openlakeforge.io/job: openmetadata-trino-ingestion}
   openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
   - id: F3
@@ -87,7 +86,7 @@ flows:
     ports: [8585]
     tag: V
   - id: F14
-    from: [{scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
+    from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: stage}
     ports: [8088]
     tag: T # whether OpenMetadata ingestion reaches Superset today is unconfirmed; the Job labels are ours, the server's are not read
@@ -132,10 +131,10 @@ flows:
     ports: [8333] # the archived-logs route, with the read-only key for the log prefixes
     tag: T # needs a log read on a running cluster
   - id: F11
-    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}]
+    from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}]
     to: {scope: stage}
     ports: [8080, 8443] # a stage's coordinator (modules/query/trino); the stage rule is namespace-wide, and a stage pod reaches only its own namespace
-    tag: T # openmetadata-trino-ingestion is the label of the OLF-owned ingestion Job (#410); the OpenMetadata pipeline client's pods are not read and are denied
+    tag: T # the OLF-owned ingestion Job (#410) runs beside the stage's coordinator, so it needs no row; the OpenMetadata pipeline client's pods are not read and are denied
   - id: F17
     from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
@@ -187,10 +186,10 @@ flows:
     ports: [8443, 8000] # OpenMetadata's OIDC calls to the issuer's public URL (discovery, token), rewritten to Traefik: websecure, or web with tls none. A stage coordinator's Web UI makes the same calls through the stage-wide row above
     tag: T # needs a sign-in on a running cluster
   - id: F13
-    from: [{scope: shared, pods: {openlakeforge.io/job: openmetadata-trino-ingestion}}, {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}]
+    from: {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585]
-    tag: T # openmetadata-trino-ingestion and openmetadata-role-sync: the OLF-owned CronJobs (#410, #25)
+    tag: T # openmetadata-role-sync: the OLF-owned CronJob (#25); the ingestion Job runs in the stage namespace under F12
   - id: F13
     from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
