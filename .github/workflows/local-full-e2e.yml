@@ -152,6 +152,10 @@ concurrency:
 # sets it itself, scoped to only the steps that share a cluster.
 env:
   PROJECT_CODE_IMAGE_TAG: local
+  # The release-pinned Superset image is the last published one, so a branch that changes images/superset (or the
+  # Superset config that imports from it) cannot run on it: the pods crash on the missing symbol and the Helm
+  # release times out. Build the image from this checkout, as a maintainer does (images/superset/README.md).
+  BUILD_SUPERSET_IMAGE: "true"
   # The full suite's external project: created by `olf init`, outside the
   # checkout, the way a consumer's project is (#119).
   PROJECT_DIR: ${{ github.workspace }}/../lakehouse-project
