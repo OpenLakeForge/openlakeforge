@@ -19,18 +19,17 @@ class CatalogSeed:
 
     service: str
     display_name: str
-    trino_namespace: str  # `trino://host:port`, which is also the service's connection address
+    # Every `trino://host:port` a governed stage's dbt-trino can name datasets by (each stage's coordinator, plain
+    # and TLS port): all map to the one service or Gold lineage splits. The first is the service's connection address.
+    trino_namespaces: tuple[str, ...]
     pipeline_service: str  # OpenLineage's default pipeline service for the canonical stage
     databases: tuple[str, ...] = ()
     schemas: tuple[str, ...] = ()
-    trino_tls_namespace: str = ""  # mapped too when Trino serves TLS: dbt names datasets by the port it uses
 
 
 def enable_openlineage(client: OpenMetadataClient, seed: CatalogSeed) -> None:
     """Native OpenLineage ingestion for dbt-trino and Floe, both mapped onto the catalog service."""
-    mapping = {seed.trino_namespace: seed.service, seed.service: seed.service}
-    if seed.trino_tls_namespace:
-        mapping[seed.trino_tls_namespace] = seed.service
+    mapping = {namespace: seed.service for namespace in seed.trino_namespaces} | {seed.service: seed.service}
     client.request(
         "PUT",
         "/api/v1/system/settings",
@@ -50,7 +49,7 @@ def enable_openlineage(client: OpenMetadataClient, seed: CatalogSeed) -> None:
 
 def ensure_lakehouse_service(client: OpenMetadataClient, seed: CatalogSeed) -> None:
     """The database service crawls through Trino as the `openmetadata` user (1.13 removed the Iceberg connector)."""
-    host_port = seed.trino_namespace.removeprefix("trino://")
+    host_port = seed.trino_namespaces[0].removeprefix("trino://")
     client.request(
         "PUT",
         "/api/v1/services/databaseServices",
