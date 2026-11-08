@@ -60,6 +60,13 @@ locals {
       # Zero rebuilds the session from the token each query carries; the
       # default hour would keep presenting the first one.
       iceberg.rest-catalog.session-timeout=0s
+      # Iceberg builds the person's session from a copy of the catalog's
+      # config, credential included, and reads the token's `exp`. A token
+      # already expired when the session is built is "refreshed" with that
+      # credential (OAuth2Util.AuthSession.refresh, refreshExpiredToken),
+      # which swaps the person for trino-people-<stage>. Off, an expired token
+      # reaches Polaris as itself and is refused as that person.
+      iceberg.rest-catalog.oauth2.token-refresh-enabled=false
       iceberg.rest-catalog.vended-credentials-enabled=true
       iceberg.rest-catalog.nested-namespace-enabled=true
       ${local.people_s3_properties}

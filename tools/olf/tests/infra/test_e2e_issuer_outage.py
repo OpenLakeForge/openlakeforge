@@ -30,6 +30,8 @@ class Cluster:
         self.ingress_after = overrides.get("ingress_after", "same")
         self.protected_error = overrides.get("protected_error", False)
         self.person_open = overrides.get("person_open", False)
+        self.person_error = overrides.get("person_error", False)
+        self.person_queried_with_dex = None
         self.person_checked_while_down = False
         self.ingress_reads = 0
 
@@ -56,6 +58,11 @@ class Cluster:
         if self.person_open:
             raise E2EError("a query without a token got HTTP 200")
 
+    def person_query(self) -> None:
+        self.person_queried_with_dex = self.dex
+        if self.person_error:
+            raise E2EError("A person's query after the Dex restart was refused, expected ok.")
+
     def reach(self, service: str) -> int | None:
         if self.dex == 0:
             self.reached_while_down.append(service)
@@ -73,6 +80,7 @@ class Cluster:
             ingresses=self.ingresses,
             still_protected=self.protected,
             person_path_closed=self.person_path_closed,
+            person_query=self.person_query,
             replicas=2,
             reason=REASON,
             pause=lambda _s: None,
@@ -87,6 +95,24 @@ def test_the_drill_reaches_both_services_during_the_outage_and_restores_dex() ->
     assert cluster.person_checked_while_down
     assert cluster.dex == 2
     assert cluster.waited_up
+
+
+def test_the_drill_ends_with_a_person_query_after_dex_is_back() -> None:
+    cluster = Cluster()
+    cluster.run()
+    assert cluster.person_queried_with_dex == 2
+
+
+def test_a_person_query_that_fails_after_the_restart_fails_the_drill() -> None:
+    with pytest.raises(E2EError, match="after the Dex restart"):
+        Cluster(person_error=True).run()
+
+
+def test_no_person_query_runs_when_sign_in_never_returns() -> None:
+    cluster = Cluster(sign_ins=[False] * 30)
+    with pytest.raises(E2EError, match="Sign-in did not work"):
+        cluster.run()
+    assert cluster.person_queried_with_dex is None
 
 
 @pytest.mark.parametrize(

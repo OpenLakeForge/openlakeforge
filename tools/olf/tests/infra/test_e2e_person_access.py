@@ -155,3 +155,10 @@ def test_a_trino_rule_denial_is_not_read_as_a_read_only_credential() -> None:
 def test_any_other_failure_is_not_read_as_a_decision() -> None:
     with pytest.raises(E2EError, match="other than an access decision"):
         person.outcome(_fails("cannot reach Trino at trino.olf.localhost: ConnectionError"))
+
+
+def test_a_contract_without_a_people_query_route_gets_no_runner() -> None:
+    identity = {"roles": {"grants": {"query_api": ["viewer"]}}, "clients": {}}
+    assert person.person_runner(None, None, identity, {"shared/query": "https://t"}, {}) is None  # type: ignore[arg-type]
+    identity = {"roles": {"grants": {}}, "clients": {person.CLI_CLIENT: {"client_id": "x"}}}
+    assert person.person_runner(None, None, identity, {"shared/query": "https://t"}, {}) is None  # type: ignore[arg-type]

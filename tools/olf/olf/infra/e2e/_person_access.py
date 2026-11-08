@@ -123,21 +123,40 @@ def check_person_access(
 ) -> None:
     """Needs the stub users already running, one per mapped role (`logins`). `stages` are the contract's."""
     data_access = identity["roles"].get("data_access") or {}
-    client = identity.get("clients", {}).get(CLI_CLIENT)
-    if "query_api" not in identity["roles"]["grants"] or "shared/query" not in routes or not client:
+    run = person_runner(route, cfg, identity, routes, logins)
+    if run is None:
         log.info("Skipping the person-access checks: the contract has no query route for people.")
         return
-    roles = {role: login for role, login in logins.items() if role is not None and role in data_access}
-    url = f"{routes['shared/query'].rstrip('/')}/v1/statement"
+    roles = {role for role in logins if role is not None and role in data_access}
     run_stage = trino.stage_from_catalog(stage_catalog_name(cfg))
     ordered = [run_stage, *(stage for stage in stages if stage != run_stage)]
+    check_person_decisions(ordered, {role: data_access[role] for role in roles}, layer_tables(cfg), run)
+    log.info(
+        "Not checking a vended credential against another table's location: SQL cannot address a path, and "
+        "SeaweedFS enforcing the session policy is verification item 1."
+    )
+
+
+def person_runner(
+    route: access.Route,
+    cfg: E2EConfig,
+    identity: Mapping[str, Any],
+    routes: Mapping[str, str],
+    logins: Mapping[str | None, str],
+) -> Callable[[str, str, str], Outcome] | None:
+    """`run(role, stage, sql)` sends `sql` to Trino's query route as the stub user of `role`, the way `olf query`
+    does; None when the contract gives people no query route."""
+    client = identity.get("clients", {}).get(CLI_CLIENT)
+    if "query_api" not in identity["roles"]["grants"] or "shared/query" not in routes or not client:
+        return None
+    url = f"{routes['shared/query'].rstrip('/')}/v1/statement"
     # RFC 8252 loopback redirect: Dex accepts any port, none is registered.
     loopback = f"http://127.0.0.1:{20000 + secrets.randbelow(40000)}/callback"
     tokens: dict[str, tuple[float, str]] = {}
 
     def bearer(role: str) -> str:
         if role not in tokens or time.monotonic() - tokens[role][0] > TOKEN_REUSE_SECONDS:
-            token = issue_id_token(route, cfg, identity, roles[role], client["client_id"], loopback, scope=SCOPE)
+            token = issue_id_token(route, cfg, identity, logins[role], client["client_id"], loopback, scope=SCOPE)
             tokens[role] = (time.monotonic(), token)
         return tokens[role][1]
 
@@ -150,8 +169,4 @@ def check_person_access(
 
         return outcome(statement)
 
-    check_person_decisions(ordered, {role: data_access[role] for role in roles}, layer_tables(cfg), run)
-    log.info(
-        "Not checking a vended credential against another table's location: SQL cannot address a path, and "
-        "SeaweedFS enforcing the session policy is verification item 1."
-    )
+    return run

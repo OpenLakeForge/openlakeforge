@@ -3,7 +3,8 @@
 Dex is scaled to zero, a fresh perimeter sign-in must fail, Trino and Dagster
 must answer through recorded break-glass sessions, a person's query is refused
 while the workload path still answers (ADR 0019), and after Dex is restored a
-fresh sign-in must work again. Dex is always restored, even when a step fails.
+fresh sign-in must work again and a person's query must run as that person
+(#1011: Trino keeps running through the outage). Dex is always restored, even when a step fails.
 The two timings it logs are the ones recorded in
 docs/architecture/identity/identity-sessions-and-recovery.md.
 """
@@ -25,7 +26,7 @@ import requests
 from olf.common import config, log
 from olf.common.tooling.process import PIPE, Popen, ProcessRunner, unsets_of
 from olf.common.tooling.toolkit import Toolkit
-from olf.infra import access, break_glass
+from olf.infra import access, break_glass, trino
 from olf.infra.e2e._identity_github import (
     REQUEST_TIMEOUT,
     dex_points_at_stub,
@@ -34,8 +35,9 @@ from olf.infra.e2e._identity_github import (
     stub_host,
 )
 from olf.infra.e2e._perimeter import check_unauthenticated_requests
+from olf.infra.e2e._person_access import person_runner
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
-from olf.infra.e2e._trino import trino_scalar
+from olf.infra.e2e._trino import stage_catalog_name, trino_scalar
 
 REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
 PORTS = {"trino": 15558, "dagster": 15557}
@@ -62,6 +64,7 @@ def run_drill(
     ingresses: Callable[[], str],
     still_protected: Callable[[], None],
     person_path_closed: Callable[[], None],
+    person_query: Callable[[], None],
     replicas: int,
     reason: str = REASON,
     clock: Callable[[], float] = time.monotonic,
@@ -103,6 +106,7 @@ def run_drill(
         if signed_in():
             elapsed = clock() - restored
             still_protected()
+            person_query()
             return Timings(first_answer, elapsed)
         pause(2)
     raise E2EError("Sign-in did not work again after Dex was restored.")
@@ -124,7 +128,8 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     namespace = cfg.platform_namespace
     portal = contracts["shared"]["access"]["routes"]["shared/portal"]["url"]
     login = "olf-e2e-outage"
-    team = next(identity["role_mapping"][r] for r in identity["roles"]["precedence"] if r in identity["role_mapping"])
+    team_role = next(r for r in identity["roles"]["precedence"] if r in identity["role_mapping"])
+    team = identity["role_mapping"][team_role]
     reason = f"{REASON} {secrets.token_hex(3)}"
     issuer_host = urlsplit(identity["issuer_url"]).hostname
     tls_port = break_glass.trino_tls_port(contracts, next(iter(contracts["stages"])))
@@ -173,6 +178,19 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                 raise E2EError(f"A query without a token got HTTP {reply.status_code} with Dex down, expected 401.")
         if trino_scalar(cfg, "SELECT 1") != "1":
             raise E2EError("The workload path did not answer SELECT 1 with Dex down.")
+
+    def person_query() -> None:
+        # Trino outlived the outage. A people catalog that kept presenting its own credential instead of the
+        # person's token fails here with Polaris's refusal of `trino-people-<stage>`, not in the next run.
+        urls = {ref: r["url"] for ref, r in contracts["shared"]["access"]["routes"].items()}
+        run = person_runner(route, cfg, identity, urls, {team_role: login})
+        if run is None:
+            log.info("Skipping the post-outage person query: the contract has no query route for people.")
+            return
+        log.step("Running a person query through the people catalog after the Dex restart...")
+        got = run(team_role, trino.stage_from_catalog(stage_catalog_name(cfg)), "SHOW SCHEMAS")
+        if got != "ok":
+            raise E2EError(f"A person's query after the Dex restart was {got}, expected ok.")
 
     def walk() -> requests.Response:
         landing = sign_in_with_stub(route, portal, login, stub_host(cfg))[1]
@@ -242,6 +260,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
                     ingresses=ingresses,
                     still_protected=still_protected,
                     person_path_closed=person_path_closed,
+                    person_query=person_query,
                     refused=refused,
                     reach=reach,
                     records=records,
