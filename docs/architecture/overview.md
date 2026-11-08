@@ -19,7 +19,7 @@ Everything runs on one Kubernetes cluster that `olf infra deploy` creates.
 | Ingestion | dlt | Lands source data in Bronze |
 | Validation | Floe | Checks Bronze against the domain's contract and writes Silver |
 | Transformation | dbt-trino | Builds Gold marts in SQL |
-| Compute | Trino | Runs queries and the dbt SQL; the only query engine |
+| Compute | Trino | Runs queries and the dbt SQL (one coordinator per stage on local); the only query engine |
 | Table format | Apache Iceberg | Silver and Gold tables |
 | Catalog | Polaris, or AWS Glue | Registers every Iceberg table |
 | Storage | SeaweedFS, or Amazon S3 | Holds Bronze files, Iceberg data and run artifacts |
