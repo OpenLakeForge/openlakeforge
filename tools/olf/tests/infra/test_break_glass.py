@@ -12,7 +12,7 @@ from _tooling_support import RecordingRunner
 from olf.common.tooling.kubectl import Kubectl
 from olf.common.tooling.process import CommandResult
 from olf.common.tooling.resolver import PathExecutableResolver
-from olf.infra import break_glass
+from olf.infra import break_glass, trino
 
 
 def _cluster(stdout: str = "alice\n") -> tuple[break_glass.Cluster, RecordingRunner]:
@@ -145,3 +145,15 @@ def test_default_attach_kills_the_child_when_the_ttl_passes(tmp_path: Path) -> N
 
     with pytest.raises(ProcessLookupError):
         os.kill(int(pidfile.read_text()), 0)
+
+
+def test_trino_opens_the_stages_own_service_and_namespace() -> None:
+    cluster, _ = _cluster()
+    argvs: list[list[str]] = []
+    contracts = {"stages": {"prod": {"query": {"endpoint": "http://trino-prod.olf-prod:8080"}}}}
+    service = trino.contract_service(contracts, "prod", namespace="olf-system")
+
+    break_glass.open_session(cluster, "trino", "r", 1, trino_service=service, run=lambda argv, **_: argvs.append(argv))
+
+    assert "svc/trino-prod" in argvs[0]
+    assert argvs[0][argvs[0].index("-n") + 1] == "olf-prod"

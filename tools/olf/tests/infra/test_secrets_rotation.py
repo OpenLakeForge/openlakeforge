@@ -96,8 +96,20 @@ def test_a_client_is_deleted_regenerated_by_a_targeted_apply_and_its_consumers_r
 
 def test_trino_restarts_the_coordinator(tmp_path: Path) -> None:
     kubectl = FakeKubectl()
-    rotate(tmp_path, kubectl, "dex-client-trino")
+    rotate(tmp_path, kubectl, "dex-client-trino", coordinators=lambda _ctx: (secrets_rotation.SHARED_COORDINATOR,))
     assert ("restart", "deployment/trino-coordinator", None) in kubectl.calls
+
+
+def test_trino_restarts_every_stages_coordinator(tmp_path: Path) -> None:
+    kubectl = FakeKubectl()
+    each = tuple(
+        secrets_rotation.Restart(f"deployment/trino-{stage}-coordinator", namespace=f"olf-{stage}")
+        for stage in ("dev", "prod")
+    )
+
+    rotation = rotate(tmp_path, kubectl, "dex-client-trino", coordinators=lambda _ctx: each)
+
+    assert rotation.restarted == (secrets_rotation.DEX, *each)
 
 
 def test_a_drifted_platform_state_refuses_before_anything_is_deleted(tmp_path: Path) -> None:

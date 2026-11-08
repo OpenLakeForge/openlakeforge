@@ -11,7 +11,9 @@ from pathlib import Path
 import typer
 
 from olf.common import config
+from olf.common.contract_state import load_provider_contracts
 from olf.common.tooling.toolkit import Toolkit
+from olf.infra import trino
 
 app = typer.Typer(help="Collect bounded deployment diagnostics.")
 _OUTPUT_ARGUMENT = typer.Argument(..., help="Directory to receive text diagnostics.")
@@ -48,6 +50,20 @@ def _capture(tools: Toolkit, output: Path, name: str, argv_factory: Callable[[],
 _TRINO_CONFIG = (
     'for f in config.properties password-authenticator.properties; do echo "--- $f ---"; cat "/etc/trino/$f" 2>&1; done'
 )
+
+
+def _coordinator_namespaces(selected: str) -> list[str]:
+    """The namespaces holding a stage's Trino coordinator, from the contract endpoints; `selected` without one."""
+    directory = config.env("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR")
+    if not directory:
+        return [selected]
+    try:
+        contracts = load_provider_contracts(directory)
+    except Exception:  # Diagnostics must preserve partial evidence.
+        return [selected]
+    stages = (contracts or {}).get("stages") or {}
+    found = [trino.contract_service(contracts, stage, namespace=selected)[1] for stage in stages]
+    return list(dict.fromkeys(found)) or [selected]
 
 
 @app.command("collect")
@@ -107,7 +123,32 @@ def collect(
             pod = item.removeprefix("pod/")
             logs = ["logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"]
             _capture(tools, output_dir, f"{pod}.log", partial(command, "kubectl", *context, *logs))
-            if pod.startswith("trino-coordinator"):
-                exec_args = ["exec", "-n", selected_namespace, pod, "--", "sh", "-c", _TRINO_CONFIG]
-                _capture(tools, output_dir, "trino-config.txt", partial(command, "kubectl", *context, *exec_args))
+    coordinator_namespaces = _coordinator_namespaces(selected_namespace)
+    for coordinator_namespace in coordinator_namespaces:
+        listed = (
+            pods
+            if coordinator_namespace == selected_namespace
+            else _capture(
+                tools,
+                output_dir,
+                f"pod-names-{coordinator_namespace}.txt",
+                partial(command, "kubectl", *context, "get", "pods", "-n", coordinator_namespace, "-o", "name"),
+            )
+        )
+        suffix = "" if len(coordinator_namespaces) == 1 else f"-{coordinator_namespace}"
+        for item in listed.splitlines():
+            if item.removeprefix("pod/").startswith("trino-coordinator"):
+                exec_args = [
+                    "exec",
+                    "-n",
+                    coordinator_namespace,
+                    item.removeprefix("pod/"),
+                    "--",
+                    "sh",
+                    "-c",
+                    _TRINO_CONFIG,
+                ]
+                _capture(
+                    tools, output_dir, f"trino-config{suffix}.txt", partial(command, "kubectl", *context, *exec_args)
+                )
     typer.echo(f"Diagnostics written to {output_dir}")
