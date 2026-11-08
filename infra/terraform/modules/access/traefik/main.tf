@@ -34,7 +34,9 @@ locals {
   secret_name = "openlakeforge-routes-tls"
   edge_name   = "edge"
   cert_secret = "${local.edge_name}-tls"
-  cert_dir    = "/etc/traefik/edge-tls/${local.cert_secret}"
+  # The chart mounts the Secret at mountPath itself, so its files sit directly under it. A path that
+  # does not exist is read by Traefik as inline PEM and fails with "no PEM data".
+  cert_dir = "/etc/traefik/edge-tls"
   edge_config = {
     http = {
       routers = {
