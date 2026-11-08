@@ -114,3 +114,13 @@ def test_shared_and_stage_targets_forward_from_their_own_namespaces(tmp_path: Pa
     assert namespaces["openmetadata"] == "olf-system"
     assert namespaces["superset"] == "olf-dev"
     assert namespaces["dagster"] == "olf-dev"
+
+
+def test_trino_is_forwarded_from_the_stage_endpoint_host(tmp_path: Path) -> None:
+    tools = _toolkit("dagster-dagster-webserver-abc123\n")
+    env = {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-prod.olf-prod"}
+
+    spec = forward.local_forward_spec(_config(tmp_path), tools, env=env)
+
+    trino = next(t for t in spec.targets if t.label == "trino")
+    assert (trino.resource, trino.namespace) == ("svc/trino-prod", "olf-prod")

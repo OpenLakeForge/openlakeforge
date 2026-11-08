@@ -13,6 +13,8 @@ import base64
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
+from urllib.parse import urlsplit
 
 from olf.common.deployment.errors import ExecutableNotFoundError
 from olf.common.tooling.process import CommandResult, ProcessRunner, unsets_of
@@ -46,6 +48,7 @@ class TrinoTarget:
     namespace: str
     catalog: str
     stage: str
+    service: str = "trino"  # the coordinator Deployment is `<service>-coordinator`
 
     @property
     def user(self) -> str:
@@ -68,6 +71,33 @@ def stage_catalog_name(environ: Mapping[str, str] | None = None) -> str:
     """
     source = os.environ if environ is None else environ
     return source.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG") or LEGACY_CATALOG
+
+
+def service_namespace(environ: Mapping[str, str] | None, fallback: str) -> str:
+    """Namespace of the stage's Trino Service, read from its contract endpoint host.
+
+    The host is `<service>.<namespace>[.svc...]`. `fallback` covers a contract
+    that was never applied (no `OPENLAKEFORGE_QUERY_TRINO_HOST`) or a bare
+    in-namespace name; callers pass the namespace the old shared topology used.
+    """
+    host = (os.environ if environ is None else environ).get("OPENLAKEFORGE_QUERY_TRINO_HOST", "")
+    parts = host.split(".")
+    return parts[1] if len(parts) > 1 and parts[1] else fallback
+
+
+def service_name(environ: Mapping[str, str] | None, fallback: str) -> str:
+    """Name of the stage's Trino Service, the `<service>` part of the same endpoint host."""
+    host = (os.environ if environ is None else environ).get("OPENLAKEFORGE_QUERY_TRINO_HOST", "")
+    return host.split(".")[0] or fallback
+
+
+def contract_service(
+    contracts: Mapping[str, Any] | None, stage: str, *, service: str = "trino", namespace: str
+) -> tuple[str, str]:
+    """(Service, namespace) of `stage`'s Trino, from the raw contracts."""
+    endpoint = ((((contracts or {}).get("stages") or {}).get(stage) or {}).get("query") or {}).get("endpoint", "")
+    host = {"OPENLAKEFORGE_QUERY_TRINO_HOST": urlsplit(endpoint).hostname or ""}
+    return service_name(host, service), service_namespace(host, namespace)
 
 
 def stage_from_catalog(catalog: str) -> str:
@@ -141,7 +171,7 @@ def exec_args(
         "-i",
         "-n",
         target.namespace,
-        "deploy/trino-coordinator",
+        f"deploy/{target.service}-coordinator",
         "--",
         "sh",
         "-c",

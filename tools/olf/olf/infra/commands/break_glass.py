@@ -7,7 +7,7 @@ import os
 import typer
 
 from olf.common.log import fail
-from olf.infra import break_glass
+from olf.infra import break_glass, trino
 from olf.infra.commands._shared import deployment_context
 
 
@@ -50,6 +50,7 @@ def break_glass_command(
         env=env,
     )
     tls_port = None
+    trino_service = None
     if service == "trino":
         from pathlib import Path
 
@@ -58,8 +59,11 @@ def break_glass_command(
         contract_dir = Path(env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir))
         contracts = load_provider_contracts(str(contract_dir.resolve()), environ=env, resolver=tools.resolver)
         tls_port = break_glass.trino_tls_port(contracts, context.stage.value)
+        trino_service = trino.contract_service(contracts, context.stage.value, namespace=context.shared_namespace)
     port = break_glass.remote_port(service, tls_port)
     where = f"127.0.0.1:{local_port or port}, {break_glass.scheme(service, tls_port)}" if port else "a shell in the pod"
     typer.echo(f"break-glass: {service} on {where}; at most {ttl_minutes} min; recorded in {cluster.shared_namespace}.")
-    name = break_glass.open_session(cluster, service, reason, ttl_minutes, local_port=local_port, tls_port=tls_port)
+    name = break_glass.open_session(
+        cluster, service, reason, ttl_minutes, local_port=local_port, tls_port=tls_port, trino_service=trino_service
+    )
     typer.echo(f"break-glass: ended; record {cluster.shared_namespace}/{name}")

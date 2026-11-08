@@ -103,6 +103,7 @@ def open_session(
     *,
     local_port: int = 0,
     tls_port: int | None = None,
+    trino_service: tuple[str, str] | None = None,
     run: Callable[..., Any] = _attach,
 ) -> str:
     """Record the use, open the path until it exits or the TTL passes, then complete the record."""
@@ -110,6 +111,10 @@ def open_session(
     started = datetime.now(UTC)
     name = f"break-glass-{started:%Y%m%d%H%M%S}-{secrets.token_hex(2)}"
     namespace = cluster.shared_namespace if target.shared else cluster.namespace
+    resource = target.resource
+    if service == "trino" and trino_service:
+        # The stage's own Service and namespace, from its contract endpoint (trino.contract_service).
+        resource, namespace = f"svc/{trino_service[0]}", trino_service[1]
     user = cluster.kubectl.config_user(**cluster.kw).stdout.strip() or "unknown"
     record = {
         "apiVersion": "v1",
@@ -126,10 +131,10 @@ def open_session(
     cluster.kubectl.create_from_manifest(json.dumps(record), **cluster.kw)
     port = remote_port(service, tls_port)
     if port is None:
-        argv = cluster.kubectl.exec_shell_argv(target.resource, namespace=namespace, context=cluster.context)
+        argv = cluster.kubectl.exec_shell_argv(resource, namespace=namespace, context=cluster.context)
     else:
         ports = [f"{local_port or port}:{port}"]
-        argv = cluster.kubectl.port_forward_argv(target.resource, ports, namespace=namespace, context=cluster.context)
+        argv = cluster.kubectl.port_forward_argv(resource, ports, namespace=namespace, context=cluster.context)
     try:
         run(argv, timeout=ttl_minutes * 60, env=_env(cluster))
     except (TimeoutExpired, KeyboardInterrupt):

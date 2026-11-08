@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import olf.common.profile as profile_module
 from olf.common.profile import (
     BUCKET_LAYERS,
     BUCKET_PREFIX_MAX_LENGTH,
@@ -880,8 +881,17 @@ def test_a_disabled_stage_opens_no_source_egress() -> None:
 
 @pytest.mark.parametrize(
     "source_egress",
-    [[443], {}, {"ports": []}, {"ports": [0]}, {"ports": [65536]}, {"ports": ["443"]}, {"ports": [True]},
-     {"ports": [443, 443]}, {"ports": [443], "hosts": ["example.com"]}],
+    [
+        [443],
+        {},
+        {"ports": []},
+        {"ports": [0]},
+        {"ports": [65536]},
+        {"ports": ["443"]},
+        {"ports": [True]},
+        {"ports": [443, 443]},
+        {"ports": [443], "hosts": ["example.com"]},
+    ],
 )
 def test_malformed_source_egress_is_rejected_by_the_validator_and_the_schema(source_egress, tmp_path) -> None:
     document = _with_source_egress(source_egress)
@@ -901,3 +911,46 @@ def test_the_local_provider_defaults_to_plain_http_and_the_clouds_keep_a_real_is
     cloud["spec"]["access"] = {}
     cloud["spec"]["identity"] = _github_identity()
     assert resolve_topology(validate_deployment_profile(cloud)).access.tls == "local-ca"
+
+
+def _with_stage_query(**stage_sizes: str | None) -> dict:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["stages"] = {
+        name: {} if size is None else {"query": {"size": size}} for name, size in stage_sizes.items()
+    }
+    return document
+
+
+def test_stage_query_size_inherits_spec_then_defaults_to_small(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(profile_module._IMPLEMENTED_SIZES, "query", (Size.SMALL, Size.LARGE))
+    plain = _with_stage_query(dev=None, prod=None)
+    assert {
+        s.name.value: s.query_size for s in resolve_topology(validate_deployment_profile(plain)).stages if s.enabled
+    } == {
+        "dev": Size.SMALL,
+        "prod": Size.SMALL,
+    }
+
+    plain["spec"]["query"] = {"size": "large"}
+    topology = resolve_topology(validate_deployment_profile(plain))
+    assert [s.query_size for s in topology.stages if s.enabled] == [Size.LARGE, Size.LARGE]
+
+
+def test_stage_query_override_applies_to_that_stage_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(profile_module._IMPLEMENTED_SIZES, "query", (Size.SMALL, Size.LARGE))
+    document = _with_stage_query(dev=None, prod="large")
+    topology = resolve_topology(validate_deployment_profile(document))
+
+    assert topology.stage(StageName.DEV).query_size == Size.SMALL
+    assert topology.stage(StageName.PROD).query_size == Size.LARGE
+    assert topology.query_size == Size.LARGE  # the one shared Trino is fed the largest stage size
+
+
+@pytest.mark.parametrize("size", ["medium", "huge"])
+def test_stage_query_size_is_rejected_like_the_spec_level_one(size: str) -> None:
+    with pytest.raises(DeploymentProfileError) as spec_exc:
+        validate_deployment_profile(_with_sizes(query={"size": size}))
+    with pytest.raises(DeploymentProfileError) as stage_exc:
+        validate_deployment_profile(_with_stage_query(dev=size))
+
+    assert str(stage_exc.value).replace("spec.stages.dev.query", "spec.query") == str(spec_exc.value)

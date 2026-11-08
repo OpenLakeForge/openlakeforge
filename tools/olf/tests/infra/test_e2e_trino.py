@@ -236,3 +236,54 @@ def test_trino_query_reads_no_credential_unless_the_contract_names_one(
 
     assert all(args[:2] != ["get", "secret"] for args, _ in calls)
     assert calls[-1][1]["input_text"] is None
+
+
+@pytest.mark.parametrize(("stage", "namespace"), [("dev", "olf-dev"), ("prod", "olf-prod")])
+def test_trino_query_execs_into_the_stage_coordinator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str, namespace: str
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(_trino, "kubectl", lambda _cfg, args, **_kw: calls.append(args) or "1")
+    cfg = e2e_cfg(tmp_path)
+    cfg = type(cfg)(
+        **{
+            **cfg.__dict__,
+            "environ": {
+                "OPENLAKEFORGE_QUERY_TRINO_HOST": f"trino-{stage}.{namespace}",
+                "OPENLAKEFORGE_QUERY_TRINO_CATALOG": f"lakehouse_{stage}",
+            },
+        }
+    )
+
+    _trino.trino_query(cfg, "SELECT 1")
+
+    exec_args = calls[-1]
+    assert exec_args[exec_args.index("-n") + 1] == namespace
+
+
+def test_each_stage_is_probed_against_its_own_coordinator(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = e2e_cfg(tmp_path)
+    cfg = type(cfg)(**{**cfg.__dict__, "environ": {
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
+        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-dev.olf-dev",
+    }})
+    contracts = {
+        "stages": {
+            "dev": {"query": {"endpoint": "http://trino-dev.olf-dev:8080"}},
+            "prod": {"query": {"endpoint": "http://trino-prod.olf-prod:8080"}},
+        }
+    }
+    monkeypatch.setattr(_trino, "load_provider_contracts_or_raise", lambda _cfg: contracts)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(_trino, "kubectl", lambda _cfg, args, **_: calls.append(args) or "")
+
+    _trino.trino_query(cfg, "select 1")
+    _trino.trino_query(cfg, "select 1", stage="prod", password="")
+
+    def exec_target(args: list[str]) -> tuple[str, str, str]:
+        return args[args.index("-n") + 1], args[args.index("-n") + 2], args[args.index("--catalog") + 1]
+
+    assert [exec_target(c) for c in calls] == [
+        ("olf-dev", "deploy/trino-dev-coordinator", "lakehouse_dev"),
+        ("olf-prod", "deploy/trino-prod-coordinator", "lakehouse_prod"),
+    ]

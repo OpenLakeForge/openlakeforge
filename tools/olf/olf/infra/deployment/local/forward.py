@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from olf.common import log
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.tooling.toolkit import Toolkit
+from olf.infra import trino
 from olf.infra.deployment.portforward import ForwardSpec, ForwardTarget
 
 
@@ -40,10 +41,12 @@ def resolve_dagster_webserver_pod(
 
 def local_forward_spec(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> ForwardSpec:
     shared = config.context.shared_namespace
+    trino_service = trino.service_name(env, "trino")
+    trino_namespace = trino.service_namespace(env, shared)
     targets: list[ForwardTarget] = [
         ForwardTarget("seaweedfs-s3", "svc/seaweedfs-s3", 9000, 8333, namespace=shared),
         ForwardTarget("polaris", "svc/polaris", 8181, 8181, namespace=shared),
-        ForwardTarget("trino", "svc/trino", 8080, 8080, namespace=shared),
+        ForwardTarget("trino", f"svc/{trino_service}", 8080, 8080, namespace=trino_namespace),
     ]
 
     dagster_pod = resolve_dagster_webserver_pod(

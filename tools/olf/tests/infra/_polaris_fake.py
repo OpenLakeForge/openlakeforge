@@ -145,6 +145,9 @@ class FakePolaris:
                 return 200, {"grants": [{"type": "catalog", "privilege": privilege} for privilege in grants]}
             case "PUT", ["catalogs", catalog, "catalog-roles", role, "grants"]:
                 return self._add(self.catalog_roles[catalog][role], body["grant"]["privilege"])
+            case "POST", ["catalogs", catalog, "catalog-roles", role, "grants"]:
+                self.catalog_roles[catalog][role].remove(body["grant"]["privilege"])
+                return 201, {}
             case "GET", ["principal-roles", role, "catalog-roles", catalog]:
                 if role not in self.principal_roles:
                     return 404, {}

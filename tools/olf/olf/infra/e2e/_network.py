@@ -27,7 +27,7 @@ import yaml
 from olf.common import log
 from olf.common.deployment.context import stage_namespace
 from olf.common.profile import StageName
-from olf.infra import k8s
+from olf.infra import k8s, trino
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 FLOWS_FILE = "release/network-flows.yaml"
@@ -74,6 +74,8 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("publish-local-ca", ("local-ca",)),
     # The platform API's Superset service-user passwords: the source in olf-system, the copy in each stage namespace.
     ("platform-api-superset-users", ("platform-api-superset-*", "platform-api-superset")),
+    # ADR 0017 F36 (#800): the Job that mints the query signing key reads only that Secret.
+    ("platform-api-query-signing-key", ("platform-api-query-signing-key",)),
 )
 # ADR 0017 E2 to E5: (role kind, role glob, subject glob, the only resources a risky rule may name).
 EXCEPTIONS: tuple[tuple[str, str, str, frozenset[str]], ...] = (
@@ -135,6 +137,18 @@ def workload_ports(document: dict[str, Any], workload: str) -> list[int]:
     raise E2EError(f"no flow row reaches workload {workload}")
 
 
+def _workload_namespace(cfg: E2EConfig, workload: str) -> str:
+    """Trino follows the selected stage's contract endpoint; every other protected workload is shared."""
+    if workload == "trino":
+        return trino.service_namespace(cfg.environ, cfg.platform_namespace)
+    return cfg.platform_namespace
+
+
+def _destination_namespace(cfg: E2EConfig, document: dict[str, Any], labels: dict[str, str]) -> str:
+    named = [name for name, pods in document["workloads"].items() if pods == labels]
+    return _workload_namespace(cfg, named[0]) if named else cfg.platform_namespace
+
+
 def _pod_ip(cfg: E2EConfig, namespace: str, labels: dict[str, str]) -> str | None:
     out = kubectl(
         cfg,
@@ -191,7 +205,7 @@ def check_positive_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
                 ip = (
                     _apiserver(cfg)
                     if destination["scope"] == "apiserver"
-                    else _pod_ip(cfg, cfg.platform_namespace, destination["pods"])
+                    else _pod_ip(cfg, _destination_namespace(cfg, document, destination["pods"]), destination["pods"])
                 )
                 if ip is None:
                     log.info(f"Skipping {scope}[{selector}] -> {destination}:{port}: no such pod or endpoint.")
@@ -206,7 +220,7 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
     log.step("Checking that pods with no allowed flow cannot reach the protected backends...")
     targets = {}
     for workload in PROTECTED:
-        ip = _pod_ip(cfg, cfg.platform_namespace, document["workloads"][workload])
+        ip = _pod_ip(cfg, _workload_namespace(cfg, workload), document["workloads"][workload])
         if ip is None:
             log.info(f"Skipping {workload}: not deployed.")
             continue

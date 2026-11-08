@@ -9,7 +9,7 @@ from openlakeforge_core import Domain, Product
 
 from olf.common import config, log
 from olf.infra import trino
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
@@ -182,9 +182,20 @@ def check_trino_write(cfg: E2EConfig) -> None:
         trino_query(cfg, f"DROP VIEW {schema}.probe__dbt_tmp")
     except E2EError as exc:
         # The CLI's own stderr does not survive `kubectl exec`; the coordinator log names the cause.
-        args = ["logs", "-n", cfg.platform_namespace, "deploy/trino-coordinator", "--tail=200"]
+        service, namespace = _trino_service(cfg)
+        args = ["logs", "-n", namespace, f"deploy/{service}-coordinator", "--tail=200"]
         tail = kubectl(cfg, args, capture=True)
         raise E2EError(f"{exc}\nTrino coordinator log tail:\n{tail}") from exc
+
+
+def _trino_service(cfg: E2EConfig, stage: str | None = None) -> tuple[str, str]:
+    """(Service, namespace) of the coordinator that serves `stage`, or the selected stage's by default.
+
+    The environment carries only the selected stage's endpoint, so another stage's comes from the contracts.
+    """
+    if stage and stage != trino.stage_from_catalog(stage_catalog_name(cfg)):
+        return trino.contract_service(load_provider_contracts_or_raise(cfg), stage, namespace=cfg.platform_namespace)
+    return trino.service_name(cfg.environ, "trino"), trino.service_namespace(cfg.environ, cfg.platform_namespace)
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:
@@ -206,12 +217,16 @@ def trino_query(
     session user apart from the authenticated principal.
     """
     catalog = stage_catalog_name(cfg)
+    service, namespace = _trino_service(cfg, stage)
+    if stage and stage != trino.stage_from_catalog(catalog):
+        catalog = f"{trino.STAGE_CATALOG_PREFIX}{stage}"  # another stage's coordinator serves only its own catalog
     target = trino.TrinoTarget(
         provider=cfg.env,
         kube_context=cfg.kube_context,
-        namespace=cfg.platform_namespace,
+        namespace=namespace,
         catalog=catalog,
         stage=stage or trino.stage_from_catalog(catalog),
+        service=service,
     )
     # Only a contract that carries the credential name is at the password level; the principal
     # Secrets exist at `off` and `tls` too, but nothing there asks for them.

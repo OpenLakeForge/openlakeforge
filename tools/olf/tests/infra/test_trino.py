@@ -186,3 +186,37 @@ def test_default_runner_gives_the_kubectl_child_the_given_environ(tmp_path: Path
     )
 
     assert out == "kc=/given\n"
+
+
+def test_service_namespace_follows_the_stage_endpoint_host() -> None:
+    dev = {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-dev.olf-dev"}
+    prod = {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-prod.olf-prod.svc.cluster.local"}
+
+    assert trino.service_namespace(dev, "olf-system") == "olf-dev"
+    assert trino.service_namespace(prod, "olf-system") == "olf-prod"
+
+
+@pytest.mark.parametrize("environ", [{}, {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino"}])
+def test_service_namespace_falls_back_without_a_namespaced_host(environ: dict[str, str]) -> None:
+    assert trino.service_namespace(environ, "olf-system") == "olf-system"
+
+
+def test_service_and_namespace_come_from_each_stages_contract_endpoint() -> None:
+    contracts = {
+        "stages": {
+            "dev": {"query": {"endpoint": "http://trino-dev.olf-dev:8080"}},
+            "prod": {"query": {"endpoint": "http://trino-prod.olf-prod.svc.cluster.local:8080"}},
+        }
+    }
+
+    assert trino.contract_service(contracts, "dev", namespace="olf-system") == ("trino-dev", "olf-dev")
+    assert trino.contract_service(contracts, "prod", namespace="olf-system") == ("trino-prod", "olf-prod")
+    assert trino.contract_service(None, "dev", namespace="olf-system") == ("trino", "olf-system")
+
+
+def test_exec_runs_in_the_coordinator_of_the_targets_service() -> None:
+    target = trino.TrinoTarget("local", "ctx", "olf-prod", "lakehouse_prod", "prod", service="trino-prod")
+
+    args = trino.exec_args(target, "select 1", output_format="CSV")
+
+    assert args[args.index("-n") + 1 : args.index("--")] == ["olf-prod", "deploy/trino-prod-coordinator"]

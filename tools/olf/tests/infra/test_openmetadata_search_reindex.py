@@ -14,7 +14,7 @@ from olf.infra.openmetadata._catalog_seed import CatalogSeed
 SEED = CatalogSeed(
     service="polaris",
     display_name="x",
-    trino_namespace="trino://t:8080",
+    trino_namespaces=("trino://t:8080",),
     pipeline_service="p",
     databases=("lakehouse_dev",),
 )

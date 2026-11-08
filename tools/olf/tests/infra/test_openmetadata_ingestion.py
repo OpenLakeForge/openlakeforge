@@ -87,3 +87,23 @@ def test_without_a_password_contract_the_crawl_carries_no_credential():
 
     assert "authType" not in workflow["source"]["serviceConnection"]["config"]
     assert "TRINO_PASSWORD" not in env
+
+
+def test_each_stage_is_crawled_against_its_own_coordinator_and_catalog():
+    prod = {
+        **BASE,
+        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-prod.olf-prod",
+        "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_prod",
+    }
+
+    sources = [_build(environ)[2]["source"] for environ in (BASE, prod)]
+
+    assert [s["serviceConnection"]["config"]["hostPort"] for s in sources] == [
+        "trino.olf-system:8080",
+        "trino-prod.olf-prod:8080",
+    ]
+    assert [s["sourceConfig"]["config"]["databaseFilterPattern"] for s in sources] == [
+        {"includes": ["^lakehouse_dev$"]},
+        {"includes": ["^lakehouse_prod$"]},
+    ]
+    assert {s["serviceName"] for s in sources} == {"polaris"}

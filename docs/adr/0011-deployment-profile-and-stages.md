@@ -102,16 +102,18 @@ exercised by `olf check contracts`.
 Two optional fields choose a size for the shared Trino (`query`) and for
 self-hosted object storage (`storage`, SeaweedFS). The vocabulary is
 `small | medium | large`; the profile never carries CPU, memory, worker, heap or
-volume quantities, and there is no per-stage size, because one Trino serves
-every stage. Both default to `small`, which is today's footprint, so a profile
+volume quantities. `spec.query.size` is the default for every stage and
+`stages.<stage>.query.size` overrides it (#972); `storage` has one platform-wide
+size. Both default to `small`, which is today's footprint, so a profile
 without the fields resolves and renders exactly as before.
 
+The per-stage size lets a small DEV sit beside a larger PROD. It landed before
+the v1beta1 freeze (#532) because a platform-wide query size frozen in the beta
+could not become per stage without a breaking change.
+
 **Decided, not built (#965):** each stage gets its own Trino (ADR 0019
-section 9), so `spec.query.size` becomes the default for every stage and
-`stages.<stage>.query.size` overrides it, letting a small DEV sit beside a
-larger PROD. It lands before the v1beta1 freeze (#532), because a
-platform-wide query size frozen in the beta could not become per stage without
-a breaking change.
+section 9). Until then one shared Trino is rendered, at the largest enabled
+stage's size.
 
 Only tiers with a tested backend are accepted. For `query`, `medium` and
 `large` are part of the vocabulary but fail validation, naming the issue that
@@ -304,3 +306,6 @@ v1beta1 freeze; nothing built.
 2026-11-07 (#996): recorded what `provider.type` promises (target plus
 per-capability defaults, overridable by later additive fields) and that `aws`
 and `azure` are preview in v1beta1; `olf profile validate` prints a notice.
+
+2026-11-07: `stages.<stage>.query.size` added (#972); the resolver carries one
+query size per stage. Rendering a coordinator per stage is still #965.

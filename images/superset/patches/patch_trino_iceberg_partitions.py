@@ -15,7 +15,10 @@ class_patch = """\
 
     @classmethod
     def _is_iceberg_database(cls, database: Database) -> bool:
-        return str(database.sqlalchemy_uri).rstrip("/").endswith("/iceberg")
+        # The people database (ADR 0019 section 9) names the stage catalog,
+        # which Superset's config lists beside the shared `iceberg` one.
+        catalogs = app.config.get("OLF_ICEBERG_CATALOGS", ["iceberg"])
+        return str(database.sqlalchemy_uri).rstrip("/").rsplit("/", 1)[-1] in catalogs
 
     @classmethod
     def _filter_iceberg_partition_indexes(

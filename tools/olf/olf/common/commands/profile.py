@@ -66,11 +66,12 @@ def resolve(
         return
 
     typer.echo(f"provider={topology.provider.value} region={topology.region} preset={topology.preset.value}")
-    typer.echo(f"sizes: query={topology.query_size.value} storage={topology.storage_size.value}")
+    typer.echo(f"sizes: storage={topology.storage_size.value}")
     for stage in topology.stages:
         typer.echo(
             f"  {stage.name.value}: enabled={stage.enabled} "
             f"analytics={stage.capabilities.analytics} governance={stage.capabilities.governance}"
+            + (f" query={stage.query_size.value}" if stage.enabled else "")
             + (f" source_egress={','.join(map(str, stage.source_egress_ports))}" if stage.source_egress_ports else "")
         )
     typer.echo(

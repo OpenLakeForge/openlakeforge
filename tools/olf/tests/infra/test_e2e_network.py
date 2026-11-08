@@ -132,7 +132,7 @@ def test_service_accounts_cover_every_deployed_stage(monkeypatch: pytest.MonkeyP
         return json.dumps({"items": [{"metadata": {"name": f"sa-{argv[argv.index('-n') + 1]}"}}]})
 
     monkeypatch.setattr(_network, "kubectl", fake)
-    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system", environ={})
     found = {ns for ns, _ in _network._service_accounts(cfg)}  # type: ignore[arg-type]
     assert "olf-uat" in found
     assert "olf-prod" not in found
@@ -152,7 +152,7 @@ def test_untrusted_namespace_is_deleted_and_awaited_before_create(monkeypatch: p
     monkeypatch.setattr(_network, "_pod_ip", lambda *_a: "10.0.0.1")
     monkeypatch.setattr(_network, "workload_ports", lambda *_a: [80])
     monkeypatch.setattr(_network, "_probe_pod", stop)
-    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system", environ={})
     with pytest.raises(RuntimeError):
         _network.check_negative_flows(cfg, FLOWS)  # type: ignore[arg-type]
     delete = next(i for i, c in enumerate(calls) if c[:3] == ["delete", "namespace", _network.UNTRUSTED_NAMESPACE])
@@ -177,3 +177,15 @@ def test_cert_manager_documented_grants_pass() -> None:
     pods = [_rule(["pods", "services"], ["create"])]
     assert not _grants(pods, cm, "ClusterRole", "cert-manager-controller-challenges")
     assert not _grants([_rule(["secrets"], ["create"])], wh, "Role", "cert-manager-webhook:dynamic-serving")
+
+
+def test_trino_is_found_in_the_stage_endpoint_namespace_and_the_rest_in_the_platform(tmp_path: Path) -> None:
+    from conftest import e2e_cfg
+
+    cfg = e2e_cfg(tmp_path)
+    cfg = type(cfg)(**{**cfg.__dict__, "environ": {"OPENLAKEFORGE_QUERY_TRINO_HOST": "trino-dev.olf-dev"}})
+
+    assert _network._workload_namespace(cfg, "trino") == "olf-dev"
+    assert _network._workload_namespace(cfg, "polaris") == cfg.platform_namespace
+    trino_pods = FLOWS["workloads"]["trino"]
+    assert _network._destination_namespace(cfg, FLOWS, trino_pods) == "olf-dev"
