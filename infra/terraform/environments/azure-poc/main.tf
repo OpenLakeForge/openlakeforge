@@ -101,6 +101,8 @@ locals {
         db_user                 = "dagster_${name}"
         credentials_secret_name = "postgresql-dagster-${name}-creds"
         namespaces              = [local.stage_namespaces[name]]
+        # See environments/local/main.tf: run events only, no lakehouse data.
+        async_commit = true
       }
     },
     {

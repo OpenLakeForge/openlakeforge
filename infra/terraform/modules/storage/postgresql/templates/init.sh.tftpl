@@ -61,6 +61,11 @@ create_or_update_role "$${${prefix}_USER}" "$${${prefix}_PASSWORD}"
 create_database_if_missing "$${${prefix}_NAME}" "$${${prefix}_USER}"
 
 %{ endfor ~}
+%{ for prefix in async_commit_prefixes ~}
+# Applies to new sessions only: a service that is already connected keeps
+# synchronous commits until it reconnects.
+psql_base -c "ALTER DATABASE \"$${${prefix}_NAME}\" SET synchronous_commit = off;"
+%{ endfor ~}
 create_or_update_role "$POLARIS_DB_USER" "$POLARIS_DB_PASSWORD"
 create_database_if_missing "$POLARIS_DB_NAME" "$POLARIS_DB_USER"
 # Polaris 1.8's admin tool no longer creates its schema and connects with

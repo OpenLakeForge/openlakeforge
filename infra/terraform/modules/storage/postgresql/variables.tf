@@ -29,6 +29,10 @@ variable "databases" {
     db_user                 = string
     credentials_secret_name = string
     namespaces              = list(string)
+    # Commits return before the WAL is flushed to disk. A server crash can lose
+    # the last few hundred ms of committed transactions; the database stays
+    # consistent. Only for databases that are not the system of record.
+    async_commit = optional(bool, false)
   }))
   default = []
 }

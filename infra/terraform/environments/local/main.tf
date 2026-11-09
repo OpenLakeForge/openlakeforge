@@ -113,6 +113,10 @@ locals {
         db_user                 = "dagster_${name}"
         credentials_secret_name = "postgresql-dagster-${name}-creds"
         namespaces              = [local.stage_namespaces[name]]
+        # Dagster commits each run event in its own transaction, so a 25-table Floe
+        # step waits on hundreds of fsyncs. A Postgres crash can lose the last few
+        # hundred ms of run events; no lakehouse data is stored here.
+        async_commit = true
       }
     },
     {

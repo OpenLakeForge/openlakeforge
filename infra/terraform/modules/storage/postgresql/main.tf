@@ -44,6 +44,7 @@ locals {
 
   bootstrap_script = templatefile("${path.module}/templates/init.sh.tftpl", {
     database_env_prefixes = [for database in var.databases : local.database_env_prefixes[database.key]]
+    async_commit_prefixes = [for database in var.databases : local.database_env_prefixes[database.key] if database.async_commit]
   })
 
   bootstrap_hash = substr(sha256(jsonencode({
