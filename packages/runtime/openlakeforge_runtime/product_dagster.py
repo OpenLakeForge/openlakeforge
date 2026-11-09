@@ -33,6 +33,7 @@ import lakehouse_code
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
+from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
 from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
@@ -422,8 +423,10 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         # would otherwise keep rows its rebuilt inputs no longer hold.
         full_refresh = full_refresh_scope(context.run.tags) is not None
         try:
-            invocation = dbt.cli(["build", *(["--full-refresh"] if full_refresh else [])], context=context)
-            yield from invocation.stream()
+            # Minted per invocation: the token is frozen for the run and lives about an hour.
+            with polaris_token_env():
+                invocation = dbt.cli(["build", *(["--full-refresh"] if full_refresh else [])], context=context)
+                yield from invocation.stream()
         finally:
             if previous_job_name is None:
                 os.environ.pop("OPENLINEAGE_DBT_JOB_NAME", None)

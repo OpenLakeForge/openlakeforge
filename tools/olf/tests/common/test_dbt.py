@@ -166,3 +166,45 @@ def test_all_gold_models_use_explicit_join_keys_for_trino() -> None:
     for model in gold_models:
         sql = model.read_text(encoding="utf-8")
         assert not re.search(r"\busing\s*\(", sql, flags=re.IGNORECASE), model
+
+
+def _manifest_project(tmp_path: Path, view_security: str | None) -> Path:
+    import json
+    import shutil
+
+    shutil.copytree(REPO_ROOT / "lakehouse_code", tmp_path / "lakehouse_code", ignore=shutil.ignore_patterns("target"))
+    project = tmp_path / "lakehouse_code/gold/order_revenue/dbt"
+    (project / "target").mkdir()
+    config = {} if view_security is None else {"view_security": view_security}
+    schema = "order_revenue_gold"
+    node = {"resource_type": "model", "name": "mart", "database": "cat", "schema": schema, "config": config}
+    (project / "target/manifest.json").write_text(json.dumps({"nodes": {"m": node}, "sources": {}}), encoding="utf-8")
+    return project
+
+
+@pytest.mark.parametrize(("view_security", "passes"), [("invoker", True), ("definer", False), (None, False)])
+def test_check_dbt_requires_invoker_views_on_gold_models(
+    tmp_path: Path, view_security: str | None, passes: bool
+) -> None:
+    import typer
+
+    from olf.common.commands.checks import _dbt
+
+    project = _manifest_project(tmp_path, view_security)
+    if passes:
+        _dbt._validate_dbt_relation_contract(project, root=tmp_path, catalog="cat")
+    else:
+        with pytest.raises(typer.Exit):
+            _dbt._validate_dbt_relation_contract(project, root=tmp_path, catalog="cat")
+
+
+def test_every_product_profile_forwards_the_polaris_token_and_builds_invoker_views() -> None:
+    from openlakeforge_runtime.dbt.render_profiles import render_profile
+
+    output = yaml.safe_load(render_profile(PROJECTS[0]))[PROJECTS[0].parent.name]["outputs"]["runtime"]
+
+    header = "token={{ env_var('OPENLAKEFORGE_POLARIS_TOKEN', '') }}"
+    assert output["http_headers"] == {"X-Trino-Extra-Credential": header}
+    for project in PROJECTS:
+        config = yaml.safe_load((project / "dbt_project.yml").read_text(encoding="utf-8"))
+        assert config["models"][project.parent.name]["+view_security"] == "invoker"

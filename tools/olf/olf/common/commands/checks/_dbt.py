@@ -125,9 +125,16 @@ def _validate_dbt_relation_contract(project: Path, *, root: Path, catalog: str) 
         for source in manifest.get("sources", {}).values()
         if (source.get("database"), source.get("schema")) != (catalog, expected_silver)
     ]
-    if models or sources:
+    # Polaris re-reads a definer view without the caller's token, which breaks a keyless catalog (#967).
+    non_invoker = [
+        node.get("name")
+        for node in manifest.get("nodes", {}).values()
+        if node.get("resource_type") == "model" and node.get("config", {}).get("view_security") != "invoker"
+    ]
+    if models or sources or non_invoker:
         details = [
             *(f"Gold models must use {catalog}.{expected_gold}: {item}" for item in models),
             *(f"Silver sources must use {catalog}.{expected_silver}: {item}" for item in sources),
+            *(f"Gold models must set view_security: invoker: {name}" for name in non_invoker),
         ]
         raise typer.Exit(code=fail("\n".join(details)))
