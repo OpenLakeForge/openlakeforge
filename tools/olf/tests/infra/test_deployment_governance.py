@@ -56,7 +56,7 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["calls"].append("replicate")
         seen["replicated"] = (shared, tuple(governed), tuple(revoked))
 
-    def bootstrap_polaris(contracts: ProviderContracts, *, environ: Any) -> None:
+    def bootstrap_polaris(contracts: ProviderContracts, *, environ: Any, remove_stages: bool = False) -> None:
         seen["calls"].append("polaris")
         seen["polaris"] = (sorted(contracts.stages), environ["KUBECONFIG"])
 

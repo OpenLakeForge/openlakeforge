@@ -66,7 +66,7 @@ def plan_from_contract(
         secrets.append((shared_namespace, ROOT_CREDENTIALS_SECRET))
         credentials = [polaris.openmetadata]
         for stage in polaris.stages:
-            credentials += [stage.trino, stage.floe, stage.deployer]
+            credentials += [stage.processing, stage.deployer]
         if polaris.person_access is not None:
             credentials += polaris.person_access.people
         secrets += [(credential.namespace, credential.secret) for credential in credentials]
