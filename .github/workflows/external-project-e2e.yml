@@ -56,7 +56,7 @@ concurrency:
 
 env:
   # Outside the checkout, the way a consumer's project is.
-  PROJECT_DIR: ${{ runner.temp }}/acme-lakehouse
+  PROJECT_DIR: ${{ github.workspace }}/../acme-lakehouse
   # Logs; inside the workspace because upload-artifact rejects '..'.
   E2E_DIR: ${{ github.workspace }}/.tmp/external-project-e2e
   PRODUCT: food_quality
