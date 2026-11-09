@@ -35,14 +35,15 @@ def roles_mapping(role_mapping: dict[str, list[str]], grants: dict[str, str]) ->
 
 
 def _sign_in_scope(cfg: dict) -> str:
-    """The sign-in token is reused for Trino (`olf_trino.store_login_token`), so it must name Trino's audience.
+    """The sign-in token is reused for Trino (`olf_trino.store_login_token`), so it must be one Trino and Polaris take.
 
+    Trino requires its audience; Polaris names the person from `federated_claims`.
     Naming any audience replaces the default one in Dex, so Superset's own is
     named too, or the login's id_token fails its audience check.
     """
     if not cfg.get("people_catalog"):
         return cfg["scope"]
-    return f"{cfg['scope']} {TRINO_AUDIENCE} audience:server:client_id:{cfg['client_id']}"
+    return f"{cfg['scope']} federated:id {TRINO_AUDIENCE} audience:server:client_id:{cfg['client_id']}"
 
 
 def settings(cfg: dict, client_secret: str) -> dict:

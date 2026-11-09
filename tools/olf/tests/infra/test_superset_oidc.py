@@ -246,4 +246,4 @@ def test_the_sign_in_token_names_trino_only_with_a_people_catalog() -> None:
     assert olf_oidc._sign_in_scope(plain) == "openid offline_access"
 
     scopes = olf_oidc._sign_in_scope({**plain, "people_catalog": "dev"}).split()
-    assert {"audience:server:client_id:olf-cli", "audience:server:client_id:superset"} <= set(scopes)
+    assert {"federated:id", "audience:server:client_id:olf-cli", "audience:server:client_id:superset"} <= set(scopes)
