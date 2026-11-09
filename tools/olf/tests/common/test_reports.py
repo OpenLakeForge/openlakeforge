@@ -180,7 +180,9 @@ def test_import_reports_grants_the_platform_api_its_schemas_and_hands_each_dashb
     assert fake_superset.roles[reports.DATA_ACCESS_ROLE] == {1}
     # Every owner is kept; the dataset that already had the user is left alone.
     assert fake_superset.owner_puts == [("dashboard", 4, [1, 9]), ("chart", 5, [1, 2, 9])]
-    assert progress.messages[-1] == ("info", "Made olf-platform-api a co-owner of 2 report asset(s)")
+    made, granted = ("info", "Made olf-platform-api a co-owner of 2 report asset(s)"), progress.messages[-1]
+    # The handover comes first: it is what makes Superset create the catalog-qualified permission.
+    assert progress.messages.index(made) < progress.messages.index(granted)
 
 
 def test_a_second_import_hands_nothing_over_again(tmp_path: Path, fake_superset: FakeSuperset) -> None:
