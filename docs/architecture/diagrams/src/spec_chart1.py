@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Chart 1 — Cluster Pod Census. Verified via `helm template` with the
-project's own values files and Terraform modules: 30 pods at rest for the
-Full preset with DEV and PROD and identity on (23 Deployments, 7 StatefulSets).
-Dagster and Superset repeat per stage; the icons show one stage's pods."""
+project's own values files and Terraform modules: 31 pods at rest for the
+Full preset with DEV and PROD and identity on (24 Deployments, 7 StatefulSets).
+Dagster, Superset and Trino repeat per stage; the icons show one stage's pods."""
 from pathlib import Path
 from k8ssvg import Chart
 
@@ -43,11 +43,11 @@ c.icon(506, ROW2 + IY1, "sts", "shared db", label2="metadata + catalog")
 c.box(606, ROW2, 168, 180, "Polaris — 1", color="platform", fill="#FFFFFF")
 c.icon(690, ROW2 + IY1, "deploy", "catalog", label2=":8181 · JDBC")
 
-c.box(790, ROW2, 168, 180, "Trino — 1", color="platform", fill="#FFFFFF")
+c.box(790, ROW2, 168, 180, "Trino — 2 (1 per stage)", color="platform", fill="#FFFFFF")
 c.icon(874, ROW2 + IY1, "deploy", "coordinator", label2="workers: 0 · 2G heap")
 
 c.badge(978, ROW2, 164, 380,
-        ["30 pods", "at steady state", "", "23 Deployments", "7 StatefulSets"],
+        ["31 pods", "at steady state", "", "24 Deployments", "7 StatefulSets"],
         color="control")
 
 # --- Ingress row: olf-system only; routes are Ingress objects ---

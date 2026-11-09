@@ -1,7 +1,7 @@
 # Trino sizes for spec.query.size and stages.<stage>.query.size (deployment
-# profile, #323, #972). Each stage resolves its own size; until the per-stage
-# coordinators land (#965) the local root renders one Trino at the largest
-# enabled stage's size. One mapping for every provider: `olf` renders the chosen entry into the `query_sizing`
+# profile, #323, #972). Each stage resolves its own size; the local root renders
+# one Trino per stage at that size (#965), AWS and Azure one shared Trino at the
+# largest enabled stage's size. One mapping for every provider: `olf` renders the chosen entry into the `query_sizing`
 # Terraform variable (the local root today; AWS and Azure in their own
 # changes), and modules/query/trino turns it into Helm values. The
 # profile carries no worker, CPU or memory field of its own.
