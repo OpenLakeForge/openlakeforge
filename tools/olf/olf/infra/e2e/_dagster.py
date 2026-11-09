@@ -15,6 +15,7 @@ from openlakeforge_services.dagster import (  # noqa: F401 - re-exported
     DagsterHTTPError,
     DagsterTransientError,
 )
+from urllib3.exceptions import NewConnectionError
 
 from olf.common import log
 from olf.infra import access, k8s
@@ -29,6 +30,23 @@ DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 # would tie e2e to platform state a contract-file run does not have (#278).
 DAGSTER_RELEASE_NAME = "dagster"
 DAGSTER_WEBSERVER_SERVICE_NAME = f"{DAGSTER_RELEASE_NAME}-dagster-webserver"
+
+
+def _never_reached_server(exc: BaseException) -> bool:
+    """Whether `exc` is a connection-establishment failure, found anywhere in its cause/args chain."""
+    pending: list[Any] = [exc]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, NewConnectionError | ConnectionRefusedError):
+            return True
+        if isinstance(current, BaseException):
+            pending += [current.__cause__, current.__context__, *current.args]
+            pending.append(getattr(current, "reason", None))
+    return False
 
 
 def _graphql_over(route: access.Route) -> Callable[[str, Mapping[str, Any] | None], Mapping[str, Any]]:
@@ -47,10 +65,12 @@ def _graphql_over(route: access.Route) -> Callable[[str, Mapping[str, Any] | Non
         try:
             try:
                 response = post(query, variables)
-            except requests.ConnectionError:
+            except requests.ConnectionError as exc:
                 # The webserver pod is Ready but the kubectl forward in front of it can die mid-suite; a plain
-                # retry against the dead local port would only repeat "connection refused".
-                if route.revive is None:
+                # retry against the dead local port would only repeat "connection refused". Only a request that
+                # never reached the server is replayed: after a reset mid-flight Dagster may already have acted
+                # on it, and replaying `launchPipelineExecution` would start the run twice.
+                if route.revive is None or not _never_reached_server(exc):
                     raise
                 route.revive()
                 response = post(query, variables)

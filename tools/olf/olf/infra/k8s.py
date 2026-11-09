@@ -554,8 +554,15 @@ def supervised_port_forward(
         environ=environ,
     )
 
+    launched = False
+
     def launch() -> Popen[bytes]:
-        with open(log_path, "w", encoding="utf-8") as log_file:
+        # Relaunches append: the dead forward's last lines are the diagnostic a give-up error needs to show.
+        nonlocal launched
+        with open(log_path, "a" if launched else "w", encoding="utf-8") as log_file:
+            if launched:
+                log_file.write("--- port-forward relaunched ---\n")
+            launched = True
             return ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT, env=environ, unset=unsets_of(environ))
 
     handle = PortForwardHandle(launch, port, log_path, label=f"{namespace}/{service}")

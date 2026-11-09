@@ -1,13 +1,16 @@
 import json
+from http.client import RemoteDisconnected
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import requests
 from conftest import E2E_INVENTORY, e2e_cfg
 from openlakeforge_services import dagster as dagster_client_module
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterTransientError
+from urllib3.exceptions import ProtocolError
 
 from olf.common.contract_state import PROVIDER_CONTRACTS_FILE_ENV
 from olf.infra.contracts import CONTRACT_STAGE_ENV
@@ -658,8 +661,13 @@ def test_dagster_launch_sends_the_run_config() -> None:
     assert [call["executionParams"]["runConfigData"] for call in calls] == [run_config, {}]
 
 
-def _dead_then_alive_session(route_url: str, failures: int):  # noqa: ANN202
+def _dead_then_alive_session(route_url: str, failures: int, error: Exception | None = None):  # noqa: ANN202
     import requests
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    refused = requests.ConnectionError(
+        MaxRetryError(None, "/graphql", NewConnectionError(None, "[Errno 111] Connection refused"))  # type: ignore[arg-type]  # urllib3 pool unused
+    )
 
     class Session:
         def __init__(self) -> None:
@@ -668,7 +676,7 @@ def _dead_then_alive_session(route_url: str, failures: int):  # noqa: ANN202
         def post(self, *_args: object, **_kwargs: object) -> Any:
             self.calls += 1
             if self.calls <= failures:
-                raise requests.ConnectionError("Connection refused")
+                raise error or refused
             return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": {"ok": True}})
 
     return Session()
@@ -710,3 +718,28 @@ def test_graphql_transport_without_a_forward_reports_the_refusal_as_transient() 
 
     with pytest.raises(DagsterTransientError, match="Connection refused"):
         _dagster._graphql_over(route)("{ ok }", None)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.ConnectionError(ConnectionResetError("Connection reset by peer")),
+        requests.ConnectionError(
+            ProtocolError("Connection aborted.", RemoteDisconnected("Remote end closed connection without response"))
+        ),
+    ],
+    ids=["reset", "remote-disconnected"],
+)
+def test_graphql_transport_never_replays_a_request_the_server_may_have_received(error: Exception) -> None:
+    from olf.infra import access
+
+    revived: list[bool] = []
+    session = _dead_then_alive_session("http://127.0.0.1:13000", failures=5, error=error)
+    route = access.Route("http://127.0.0.1:13000", revive=lambda: revived.append(True))
+    object.__setattr__(route, "session", lambda: session)
+
+    with pytest.raises(DagsterTransientError):
+        _dagster._graphql_over(route)("mutation { launchPipelineExecution }", None)
+
+    assert revived == []
+    assert session.calls == 1

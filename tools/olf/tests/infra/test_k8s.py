@@ -554,3 +554,16 @@ def test_revive_gives_up_with_a_clear_error_after_the_bounded_number_of_attempts
         with pytest.raises(k8s.KubectlError, match=r"lakehouse/dagster-webserver.*died again after 3"):
             handle.revive()
     assert len(forwarder.processes) == 1 + k8s.PORT_FORWARD_MAX_REVIVALS
+
+
+def test_a_relaunch_keeps_the_dead_forwards_log_for_the_give_up_error(
+    forwarder: _FakeForwarder, tmp_path: Path
+) -> None:
+    log = tmp_path / "pf.log"
+    with _forward(tmp_path) as handle:
+        log.write_text("error: lost connection to pod\n")
+        forwarder.die()
+        handle.revive()
+    text = log.read_text()
+    assert "lost connection to pod" in text
+    assert "relaunched" in text
