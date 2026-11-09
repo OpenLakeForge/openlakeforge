@@ -138,6 +138,8 @@ class Cluster:
         self.cri_keeps_import_ref = False
         self.ghost: set[str] = set()
         self.ghost_survives_rmi = False
+        self.restart_clears_ghost = True
+        self.restarts: list[str] = []
         self.purge_works = purge_works
         self.pods: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
@@ -161,6 +163,11 @@ class Cluster:
 
     def docker(self, args: list[str]) -> str:
         node = args[1]
+        if args[2] == "systemctl":
+            self.restarts.append(node)
+            if self.restart_clears_ghost:
+                self.ghost.discard(node)
+            return ""
         if args[2] == "ctr":
             return self.ctr(node, args[5:])
         if args[3] == "images":
@@ -421,9 +428,28 @@ def test_a_cri_record_left_with_only_an_import_name_is_removed_by_its_id(cluster
     assert cluster.ghost == set()
 
 
-def test_a_cri_record_that_survives_removal_fails_the_purge_naming_node_and_id(cluster: Cluster) -> None:
+def test_a_cri_record_that_rmi_cannot_drop_is_rebuilt_by_restarting_containerd(cluster: Cluster) -> None:
     cluster.cri_keeps_import_ref = True
     cluster.ghost_survives_rmi = True
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.ghost == set()
+    assert cluster.restarts == ["w1", "w2"]
+
+
+def test_containerd_is_left_alone_when_rmi_by_id_is_enough(cluster: Cluster) -> None:
+    cluster.cri_keeps_import_ref = True
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.restarts == []
+
+
+def test_a_cri_record_that_survives_a_restart_fails_the_purge_naming_node_id_and_names(cluster: Cluster) -> None:
+    cluster.cri_keeps_import_ref = True
+    cluster.ghost_survives_rmi = True
+    cluster.restart_clears_ghost = False
 
     with pytest.raises(E2EError, match=r"w1: the CRI image record survived.*sha256:1.*import-2026-11-09"):
         registry_pull.purge_image(_cfg(), IMAGE)
