@@ -226,12 +226,17 @@ def records_with_ids(listing: str, ids: Sequence[str]) -> dict[str, list[str]]:
     }
 
 
-def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[str], image: str) -> list[str]:
-    """Pods with no `Successfully pulled` event for `image`, or one that found it already on the node."""
+def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[Mapping[str, Any]], image: str) -> list[str]:
+    """Nodes where no pod pulled `image` for real, naming the pods there and whether they found it in the cache.
+
+    Judged per node, not per pod: the image was removed from every node first, so the first pod a node runs must pull
+    it, and the next pod on that node (a run launches several) rightly finds the image that pull left behind. A node
+    where no pod pulled means the removal left a cache, so the Secret was not what made the pods start.
+    """
     repository = image.split("@", 1)[0]
-    problems = []
-    for pod in pods:
-        messages = [
+
+    def messages(pod: str) -> list[str]:
+        return [
             str(event.get("message", ""))
             for event in events
             if event.get("involvedObject", {}).get("kind") == "Pod"
@@ -239,10 +244,20 @@ def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[str], imag
             and event.get("reason") in ("Pulled", "Pulling")
             and repository in str(event.get("message", ""))
         ]
-        if any("already present on machine" in message for message in messages):
-            problems.append(f"{pod}: reported the image already present on the node")
-        elif not any("Successfully pulled" in message for message in messages):
-            problems.append(f"{pod}: no 'Successfully pulled' event")
+
+    by_node: dict[str, list[str]] = {}
+    for pod in pods:
+        by_node.setdefault(str(pod.get("spec", {}).get("nodeName")), []).append(pod["metadata"]["name"])
+    problems = []
+    for node, names in by_node.items():
+        found = {name: messages(name) for name in names}
+        if any("Successfully pulled" in message for texts in found.values() for message in texts):
+            continue
+        cached = [name for name, texts in found.items() if any("already present on machine" in t for t in texts)]
+        if cached:
+            problems.append(f"{', '.join(cached)} (node {node}): reported the image already present on the node")
+        else:
+            problems.append(f"{', '.join(names)} (node {node}): no 'Successfully pulled' event")
     return problems
 
 
@@ -412,7 +427,7 @@ def _replace_pods(cfg: E2EConfig, doomed: Sequence[str]) -> list[dict[str, Any]]
     return _code_location_pods(cfg)
 
 
-def _require_pulled(cfg: E2EConfig, pods: Sequence[str], image: str, *, what: str) -> None:
+def _require_pulled(cfg: E2EConfig, pods: Sequence[Mapping[str, Any]], image: str, *, what: str) -> None:
     events = json.loads(kubectl(cfg, ["get", "events", "-n", cfg.namespace, "-o", "json"], capture=True)).get(
         "items", []
     )
@@ -430,7 +445,7 @@ def _check_restart(cfg: E2EConfig, image: str) -> None:
     log.step("Removing the image from every node and restarting the code locations...")
     purge_image(cfg, image)
     replacements = _replace_pods(cfg, _names(_code_location_pods(cfg)))
-    _require_pulled(cfg, _names(replacements), image, what="code locations")
+    _require_pulled(cfg, replacements, image, what="code locations")
 
 
 def _check_run(cfg: E2EConfig, image: str) -> None:
@@ -451,7 +466,7 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
     ]
     if not run_pods:
         raise E2EError(f"run {run_id} left no pod running {image} to inspect.")
-    _require_pulled(cfg, _names(run_pods), image, what=f"run {run_id}")
+    _require_pulled(cfg, run_pods, image, what=f"run {run_id}")
     # Floe Jobs exist only while a run is in flight, so the pods this run left are the only live look at them.
     fresh = created_since(_workloads(cfg), before)
     missing, users = workloads_missing_entry(fresh, image, _pull_secret_name(cfg))
@@ -480,7 +495,7 @@ def _check_fresh_node(cfg: E2EConfig, image: str) -> None:
     moved = [pod for pod in replacements if pod["spec"]["nodeName"] == cordoned]
     if moved:
         raise E2EError(f"{', '.join(_names(moved))} were scheduled back onto cordoned node {cordoned}.")
-    _require_pulled(cfg, _names(replacements), image, what=f"code locations rescheduled off {cordoned}")
+    _require_pulled(cfg, replacements, image, what=f"code locations rescheduled off {cordoned}")
 
 
 def check(cfg: E2EConfig, *, allow_public: bool = False, static_only: bool = False) -> None:

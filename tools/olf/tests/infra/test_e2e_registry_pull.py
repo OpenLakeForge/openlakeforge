@@ -115,16 +115,25 @@ def _event(pod: str, message: str, reason: str = "Pulled") -> dict[str, Any]:
     return {"involvedObject": {"kind": "Pod", "name": pod}, "reason": reason, "message": message}
 
 
-def test_a_pod_must_show_a_real_pull_and_no_cache_hit() -> None:
+def _pod(name: str, node: str) -> dict[str, Any]:
+    return {"metadata": {"name": name}, "spec": {"nodeName": node}}
+
+
+def test_each_node_must_show_a_real_pull_and_a_later_pod_there_may_use_the_cache() -> None:
     events = [
-        _event("fresh", f'Successfully pulled image "{IMAGE}" in 2s'),
+        _event("run-pod", f'Successfully pulled image "{IMAGE}" in 2s'),
+        _event("floe-job", f'Container image "{IMAGE}" already present on machine'),
         _event("cached", f'Container image "{IMAGE}" already present on machine'),
         _event("silent", "Started container"),
     ]
+    pods = [_pod("run-pod", "w1"), _pod("floe-job", "w1"), _pod("cached", "w2"), _pod("silent", "w3")]
 
-    problems = registry_pull.pull_failures(events, ["fresh", "cached", "silent"], IMAGE)
+    problems = registry_pull.pull_failures(events, pods, IMAGE)
 
-    assert [problem.split(":")[0] for problem in problems] == ["cached", "silent"]
+    assert problems == [
+        "cached (node w2): reported the image already present on the node",
+        "silent (node w3): no 'Successfully pulled' event",
+    ]
 
 
 class Cluster:
@@ -415,3 +424,31 @@ def test_containerd_is_restarted_only_when_a_record_still_lists_and_that_rebuild
 
     assert cluster.restarts == ["w1"]
     assert cluster.ghost == {}
+
+
+def test_a_run_that_launches_several_pods_on_one_node_passes_when_the_first_pulled(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def launch(_cfg: object, _client: object, job: str) -> str:
+        cluster._start_pod("run", "w1", run="run-1")
+        cluster._start_pod("floe", "w1", run="run-1")
+        return "run-1"
+
+    monkeypatch.setattr(registry_pull, "launch_and_poll", launch)
+
+    registry_pull.check(_cfg())
+
+
+def test_a_run_whose_pods_all_found_a_cache_fails_even_with_several_pods(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def launch(_cfg: object, _client: object, job: str) -> str:
+        cluster.cache["w1"].add(IMAGE)
+        cluster._start_pod("run", "w1", run="run-1")
+        cluster._start_pod("floe", "w1", run="run-1")
+        return "run-1"
+
+    monkeypatch.setattr(registry_pull, "launch_and_poll", launch)
+
+    with pytest.raises(E2EError, match=r"node w1\): reported the image already present on the node"):
+        registry_pull.check(_cfg())
