@@ -82,3 +82,40 @@ def test_an_oauth2_redirect_instead_of_rows_fails() -> None:
 
 def test_a_stage_no_role_reads_is_skipped() -> None:
     assert _run(_Reply(500, {}), stage="uat") == []
+
+
+ROWS = _Reply(200, {"result": [{"data": [{"count": 12}]}]})
+
+
+def _run_on_dev(denied: _Reply) -> list[str]:
+    """DEV: the analyst reads Gold, then the viewer, whose grants read none of it, asks for the same chart."""
+    replies = {"b": ROWS, "c": denied}
+    asked: list[str] = []
+
+    def sign_in(url: str, login: str) -> tuple[Any, Any]:
+        asked.append(login)
+        return _Browser(replies[login]), None
+
+    sp.check_person_chart_data(IDENTITY, ROUTES, "dev", LOGINS, sign_in)
+    return asked
+
+
+def test_the_role_that_reads_no_gold_on_the_stage_is_the_refused_one() -> None:
+    assert sp.refused_role(IDENTITY, "dev") == "viewer"
+    assert sp.refused_role(IDENTITY, "prod") is None
+
+
+def test_a_reader_without_gold_is_refused_the_chart_another_reader_just_read() -> None:
+    refused = _Reply(400, {"errors": [{"message": "Forbidden: Principal 'github' is not authorized"}]})
+
+    assert _run_on_dev(refused) == ["b", "c"]
+
+
+def test_rows_for_the_reader_without_gold_are_an_isolation_breach() -> None:
+    with pytest.raises(E2EError, match="isolation breach: viewer read orders on dev"):
+        _run_on_dev(ROWS)
+
+
+def test_a_refusal_that_is_a_lost_sign_in_token_does_not_count() -> None:
+    with pytest.raises(E2EError, match="asked to sign in to the database again"):
+        _run_on_dev(_Reply(500, {"errors": [{"error_type": "OAUTH2_REDIRECT"}]}))

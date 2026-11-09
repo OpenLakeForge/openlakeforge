@@ -162,3 +162,25 @@ def test_a_contract_without_a_people_query_route_gets_no_runner() -> None:
     assert person.person_runner(None, None, identity, {"stage/dev/query": "https://t"}, {}) is None  # type: ignore[arg-type]
     identity = {"roles": {"grants": {}}, "clients": {person.CLI_CLIENT: {"client_id": "x"}}}
     assert person.person_runner(None, None, identity, {"stage/dev/query": "https://t"}, {}) is None  # type: ignore[arg-type]
+
+
+def test_naming_another_persons_user_keeps_the_token_owners_access() -> None:
+    polaris = Polaris()
+
+    def run(role: str, stage: str, sql: str, claim: str | None = None) -> person.Outcome:
+        return polaris.run(role, stage, sql)  # Polaris decides from the token alone; the claim changes nothing
+
+    person.check_claimed_user("dev", DATA_ACCESS, run)
+
+    # The first pair that differs on DEV: platform-admin's token naming viewer, who reads nothing there.
+    assert polaris.calls == [("platform-admin", "dev", "SHOW SCHEMAS")]
+
+
+def test_a_claim_that_lends_another_persons_access_fails_the_check() -> None:
+    polaris = Polaris()
+
+    def run(role: str, stage: str, sql: str, claim: str | None = None) -> person.Outcome:
+        return polaris.run(claim or role, stage, sql)
+
+    with pytest.raises(E2EError, match="platform-admin claiming viewer on dev"):
+        person.check_claimed_user("dev", DATA_ACCESS, run)
