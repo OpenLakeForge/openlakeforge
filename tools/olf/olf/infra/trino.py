@@ -31,6 +31,23 @@ STAGE_CATALOG_PREFIX = "lakehouse_"
 # on (the chart's auth.passwordAuthSecret), which is how the pod says so.
 TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
 
+# Where the chart writes the coordinator's catalog properties; the Polaris token endpoint and scope are read from them.
+TRINO_CATALOG_DIR = "/etc/trino/catalog"
+
+# Mints the stage processing principal's Polaris token inside the coordinator, from the credential its pod already
+# holds. The token then exists only in the pod's shell and the CLI's argv there, never in a `kubectl` argument,
+# a stdin of ours or a log. Silent on failure: a catalog without a REST token endpoint has no token to send.
+# Double quotes only, so the shell can single-quote it.
+_MINT_TOKEN = (
+    "import json,os,re,urllib.parse as u,urllib.request as r;"
+    'p=open("{props}").read();'
+    'g=lambda k:re.search("^"+re.escape(k)+"=(.*)$",p,re.M).group(1);'
+    'e=lambda k:os.environ["OPENLAKEFORGE_CATALOG_{stage}_"+k];'
+    'b=u.urlencode(dict(grant_type="client_credentials",client_id=e("CLIENT_ID"),client_secret=e("CLIENT_SECRET"),'
+    'scope=g("iceberg.rest-catalog.oauth2.scope"))).encode();'
+    'print(json.load(r.urlopen(g("iceberg.rest-catalog.oauth2.server-uri"),b,30))["access_token"])'
+)
+
 # Called with the argv and the text for the process's stdin.
 Runner = Callable[[Sequence[str], str], CommandResult]
 
@@ -116,15 +133,27 @@ def glue_namespace_prefix(provider: str, catalog: str) -> str:
     return f"{catalog}_" if provider == "aws" else ""
 
 
-def cli_script(ca_path: str | None = None) -> str:
+def cli_script(ca_path: str | None = None, *, stage: str | None = None, catalog: str | None = None) -> str:
     """The shell the coordinator pod runs, choosing the listener the pod itself offers.
 
     With password authentication on, the password arrives on stdin and goes to
     the CLI as TRINO_PASSWORD, so it is on no command line. An empty line sends
     no password at all, which is what the header-only isolation probe needs.
+
+    With a `stage` and `catalog`, the CLI also carries the stage's Polaris token as the `token` extra credential
+    (#967), which a keyless catalog reads and a keyed one ignores.
     """
     ca = ca_path or TRINO_CA
+    props = f"{TRINO_CATALOG_DIR}/{catalog}.properties"
+    mint = ""
+    if stage and catalog:
+        code = _MINT_TOKEN.format(props=props, stage=stage.upper())
+        mint = (
+            f"if [ -f {props} ]; then T=$(python3 -c '{code}' 2>/dev/null); "
+            'if [ -n "$T" ]; then set -- --extra-credential "token=$T" "$@"; fi; unset T; fi; '
+        )
     return (
+        f"{mint}"
         f"if [ -f {TRINO_PASSWORD_FILE} ]; then "
         'IFS= read -r TRINO_PASSWORD; export TRINO_PASSWORD; '
         'if [ -n "$TRINO_PASSWORD" ]; then set -- --password "$@"; fi; fi; '
@@ -175,7 +204,7 @@ def exec_args(
         "--",
         "sh",
         "-c",
-        cli_script(),
+        cli_script(stage=target.stage, catalog=target.catalog),
         "trino",
         "--catalog",
         target.catalog,

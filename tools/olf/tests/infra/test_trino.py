@@ -220,3 +220,29 @@ def test_exec_runs_in_the_coordinator_of_the_targets_service() -> None:
     args = trino.exec_args(target, "select 1", output_format="CSV")
 
     assert args[args.index("-n") + 1 : args.index("--")] == ["olf-prod", "deploy/trino-prod-coordinator"]
+
+
+def test_the_pod_mints_the_stage_token_and_it_reaches_no_argument_of_ours(tmp_path: Path) -> None:
+    import subprocess as sp
+
+    (tmp_path / "trino").write_text('#!/bin/sh\nprintf "%s\\n" "$*"\n')
+    (tmp_path / "python3").write_text("#!/bin/sh\necho polaris-token\n")
+    for tool in ("trino", "python3"):
+        (tmp_path / tool).chmod(0o755)
+    (tmp_path / "lakehouse_dev.properties").write_text("iceberg.rest-catalog.oauth2.scope=S\n")
+
+    def run(catalog: str) -> str:
+        script = trino.cli_script(str(tmp_path / "absent-ca"), stage="dev", catalog=catalog)
+        script = script.replace(trino.TRINO_CATALOG_DIR, str(tmp_path))
+        return sp.run(
+            ["sh", "-c", script, "trino", "--user", "u"],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        ).stdout.strip()
+
+    assert run("lakehouse_dev") == "--extra-credential token=polaris-token --user u"
+    assert run("keyed_elsewhere") == "--user u"  # no catalog file, so no token endpoint: nothing to send
+    argv = trino.exec_args(_target(stage="dev", catalog="lakehouse_dev"), "SELECT 1", output_format="CSV")
+    assert "polaris-token" not in " ".join(argv)
