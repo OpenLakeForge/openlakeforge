@@ -34,8 +34,7 @@ class FloeProfileError(RuntimeError):
 # Floe 0.8.8 runs up to this many of a domain Job's entities at once. It never
 # runs two that write the same table, and every merge entity shares one slot,
 # so at most one DuckDB merge (capped at 4 GB) runs in the 6 GiB Job; the
-# others overwrite or append. dagster-floe also uses it as each product job's
-# step concurrency. 4 is the Slim host's core count.
+# others overwrite or append. 4 is the Slim host's core count.
 FLOE_ORCHESTRATION = {"strategy": "parallel", "max_concurrent_entities": 4}
 
 

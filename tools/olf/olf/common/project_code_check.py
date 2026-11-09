@@ -25,8 +25,13 @@ if TYPE_CHECKING:
 
 # Dagster, Floe and the project's `openlakeforge_runtime` package are untyped or not importable
 # from the CLI package, so these protocols name the surface this check relies on.
+class _Executor(Protocol):
+    name: str
+
+
 class _Job(Protocol):
-    run_config: Mapping[str, Any]
+    run_config: Mapping[str, Any] | None
+    executor_def: _Executor
 
 
 class _Schedule(Protocol):
@@ -112,7 +117,7 @@ def validate(root: Path) -> None:
     floe_profile = import_module("openlakeforge_runtime.floe_profile")
     execution = floe_profile.render_profile(os.environ)["execution"]
     runner = execution["runner"]
-    job_concurrency = _floe_job_concurrency(execution.get("orchestration"))
+    _verify_floe_orchestration(execution.get("orchestration"))
     if runner.get("type") != "kubernetes_job" or runner.get("job_scope") != "domain":
         _fail(f"Floe must run one Kubernetes Job per domain; the stage profile renders {runner.get('type')!r}")
     runtime = import_module("openlakeforge_runtime")
@@ -163,7 +168,7 @@ def validate(root: Path) -> None:
             _fail(f"{product.id} definitions load another product's assets")
 
         job = merged_defs.resolve_job_def(product.job_name)
-        _verify_floe_orchestration(product, job, job_concurrency)
+        _verify_in_process_execution(product, job)
         selected = {tuple(key.path) for key in job.asset_layer.selected_asset_keys}
         expected_silver = {(domain, item) for item in inputs}
         expected_bronze = {(entities[key].source, entities[key].resource) for key in expected_silver}
@@ -251,24 +256,26 @@ def _verify_silver_assets(inventory: LakehouseInventory, definitions: object) ->
             _fail(f"Silver asset {'/'.join(key)} must depend on its Bronze resource {'/'.join(bronze)}")
 
 
-def _floe_job_concurrency(orchestration: Any) -> int:
-    """The step concurrency dagster-floe derives from the profile's orchestration: 1 when sequential, else its limit."""
+def _verify_floe_orchestration(orchestration: Any) -> None:
+    """Require a parallel Floe orchestration to bound how many of a domain Job's entities run at once."""
     if not isinstance(orchestration, dict) or orchestration.get("strategy") == "sequential":
-        return 1
+        return
     limit = orchestration.get("max_concurrent_entities")
     if not isinstance(limit, int) or limit < 1:
         _fail("the stage profile's parallel Floe orchestration must set max_concurrent_entities")
-    return limit
 
 
-def _verify_floe_orchestration(product: Product, job: _Job, expected: int) -> None:
-    """Require the Dagster run config dagster-floe derives from the stage profile's Floe orchestration."""
-    try:
-        max_concurrent = job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"]
-    except (AttributeError, KeyError, TypeError):
-        _fail(f"{product.job_name} is missing Floe orchestration concurrency")
-    if max_concurrent != expected:
-        _fail(f"{product.job_name} did not inherit Floe orchestration concurrency ({max_concurrent} != {expected})")
+def _verify_in_process_execution(product: Product, job: _Job) -> None:
+    """Require the product job to run its steps in the run's own process.
+
+    A process per step re-imports the code location before each one, about a
+    third of a product run. Any `execution` run config is a multiprocess
+    setting, which the in-process executor refuses when the run starts.
+    """
+    if job.executor_def.name != "in_process":
+        _fail(f"{product.job_name} must use the in-process executor; it uses {job.executor_def.name!r}")
+    if "execution" in (job.run_config or {}):
+        _fail(f"{product.job_name} run config must not set execution; the in-process executor takes none")
 
 
 def _verify_stage_schedules(inventory: LakehouseInventory, library: _ProductDagsterLibrary) -> None:

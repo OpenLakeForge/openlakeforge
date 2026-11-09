@@ -505,3 +505,18 @@ def test_a_missing_manifest_names_the_product(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="product 'order_revenue': no dbt manifest"):
         spec.resolve(tmp_path / "absent.json")
+
+
+@pytest.mark.parametrize(("domain", "product"), sorted(_EXAMPLES))
+def test_a_product_job_runs_its_steps_in_the_runs_own_process(
+    domain: str, product: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+    spec = ProductDefinitionSpec(domain=domain, product=product)
+
+    # Unresolved: the job's Bronze and Silver assets come from the merged code location, not these definitions.
+    (job,) = product_dagster.build_product_definitions(spec).jobs
+
+    assert job.name == spec.job_name
+    assert job.executor_def.name == "in_process"
+    assert "execution" not in (job.config or {})

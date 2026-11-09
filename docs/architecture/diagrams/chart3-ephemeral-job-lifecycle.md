@@ -67,10 +67,10 @@ sequenceDiagram
 
 The exact values live in the Terraform module and the stage's rendered Floe profile: the
 run pod uses `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`, carries the
-contract-derived environment variables plus `envFrom` secrets, and runs each product job
-with `max_concurrent: 4` because the profile's Floe orchestration is `parallel` with
-`max_concurrent_entities: 4`. Each
-Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the run pod's
+contract-derived environment variables plus `envFrom` secrets, and runs a product job's
+steps one after another in its own process (Dagster's in-process executor). Each
+Floe Job runs up to four entities at once, because the profile's Floe orchestration is
+`parallel` with `max_concurrent_entities: 4`. Each Floe Job uses the same TTL and ServiceAccount, the run pod's image digest, the run pod's
 rendered profile as text in `FLOE_PROFILE_CONTENT`, the Dagster run id and job name
 (the parent run of its lineage events), a 6 GiB memory limit, and only the Secrets the
 runner references: the Polaris Floe client, the storage keys, and the

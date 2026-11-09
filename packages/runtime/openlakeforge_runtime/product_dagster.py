@@ -20,13 +20,14 @@ from dagster import (
     Output,
     ScheduleDefinition,
     define_asset_job,
+    in_process_executor,
     job,
     multi_asset,
     op,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
-from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
+from floe_dagster.definitions import build_runner_from_env
 from floe_dagster.manifest import ManifestEntity
 
 import lakehouse_code
@@ -442,6 +443,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         dagster_dbt_translator=ProductDbtTranslator(),
     )(_dbt_gold_assets)
 
+    # The steps run one after another, and the heavy work is elsewhere: Silver's in a Floe Kubernetes Job, Gold's
+    # in the dbt CLI. Dagster's default multiprocess executor would start a Python process per step, each
+    # re-importing the whole code location (about 6 s) before its first line. Floe's own entity concurrency is
+    # unaffected: the Job reads it from the profile. dagster-floe's job run config would only carry it as a
+    # multiprocess setting, which the in-process executor rejects, so the job takes none.
     product_pipeline = define_asset_job(
         name=spec.job_name,
         selection=(
@@ -451,9 +457,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 *[AssetKey([spec.product, asset_name]) for asset_name in inputs.gold_assets],
             ).required_multi_asset_neighbors()
         ),
-        config=build_job_run_config_from_manifest(
-            config_path=str(FLOE_PROJECT), profile_path=_floe_profile(), manifest_name=_FLOE_MANIFEST_NAME
-        ),
+        executor_def=in_process_executor,
         tags=_bronze_source_binding_tags(inputs) or None,
     )
 
