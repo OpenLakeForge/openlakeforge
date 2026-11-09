@@ -42,33 +42,48 @@ def test_bronze_subsetability_rejects_non_subsettable_or_required_outputs(
         project_code_check._verify_bronze_subsetability(inventory, definitions)
 
 
-def test_floe_orchestration_requires_the_job_config_dagster_floe_derives() -> None:
+def _job(executor: str, run_config: dict | None = None) -> SimpleNamespace:
+    return SimpleNamespace(executor_def=SimpleNamespace(name=executor), run_config=run_config)
+
+
+def test_a_product_job_runs_its_steps_in_process() -> None:
     product = SimpleNamespace(id="order_revenue", job_name="order_revenue_job")
-    job = SimpleNamespace(run_config={"execution": {"config": {"multiprocess": {"max_concurrent": 4}}}})
 
-    project_code_check._verify_floe_orchestration(product, job, 4)
+    project_code_check._verify_in_process_execution(product, _job("in_process"))
+    project_code_check._verify_in_process_execution(product, _job("in_process", {"ops": {}}))
 
-    job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] = 1
-    with pytest.raises(RuntimeError, match=r"did not inherit Floe orchestration concurrency \(1 != 4\)"):
-        project_code_check._verify_floe_orchestration(product, job, 4)
+
+def test_a_product_job_on_the_multiprocess_executor_is_refused() -> None:
+    product = SimpleNamespace(id="order_revenue", job_name="order_revenue_job")
+
+    with pytest.raises(RuntimeError, match="order_revenue_job must use the in-process executor; it uses 'multi"):
+        project_code_check._verify_in_process_execution(product, _job("multi_or_in_process_executor"))
+
+
+def test_a_product_job_with_execution_run_config_is_refused() -> None:
+    product = SimpleNamespace(id="order_revenue", job_name="order_revenue_job")
+    job = _job("in_process", {"execution": {"config": {"multiprocess": {"max_concurrent": 4}}}})
+
+    with pytest.raises(RuntimeError, match="run config must not set execution"):
+        project_code_check._verify_in_process_execution(product, job)
 
 
 @pytest.mark.parametrize(
-    ("orchestration", "expected"),
+    "orchestration",
     [
-        ({"strategy": "sequential"}, 1),
-        ({"strategy": "sequential", "max_concurrent_entities": 4}, 1),
-        ({"strategy": "parallel", "max_concurrent_entities": 4}, 4),
-        (None, 1),
+        {"strategy": "sequential"},
+        {"strategy": "sequential", "max_concurrent_entities": 4},
+        {"strategy": "parallel", "max_concurrent_entities": 4},
+        None,
     ],
 )
-def test_floe_job_concurrency_follows_the_profile(orchestration: dict | None, expected: int) -> None:
-    assert project_code_check._floe_job_concurrency(orchestration) == expected
+def test_a_bounded_or_sequential_floe_orchestration_is_accepted(orchestration: dict | None) -> None:
+    project_code_check._verify_floe_orchestration(orchestration)
 
 
 def test_parallel_floe_orchestration_without_a_limit_is_refused() -> None:
     with pytest.raises(RuntimeError, match="must set max_concurrent_entities"):
-        project_code_check._floe_job_concurrency({"strategy": "parallel"})
+        project_code_check._verify_floe_orchestration({"strategy": "parallel"})
 
 
 @dataclass(frozen=True)
