@@ -9,7 +9,7 @@ from __future__ import annotations
 import io
 import json
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -103,8 +103,12 @@ class SupersetClient(JsonHttpClient):
     def _csrf_token(self) -> str:
         return str(self.request("GET", "/api/v1/security/csrf_token/")["result"])
 
-    def grant_permissions(self, role: str, permission: str, view_menus: Sequence[str]) -> bool:
+    def grant_permissions(
+        self, role: str, permission: str, view_menus: Sequence[str], optional: Collection[str] = ()
+    ) -> bool:
         """Add `permission` on each view menu to `role`, keeping what the role already holds.
+
+        A name in `optional` is granted only if Superset has created it.
 
         Superset's role-permission endpoint replaces the whole set, so the
         grant is the union with the current set: repeating it changes nothing,
@@ -135,7 +139,7 @@ class SupersetClient(JsonHttpClient):
         missing = [v for v in view_menus if v not in found_ids]
         if missing:
             raise ServiceClientError(f"Superset has no {permission} permission on {missing[0]!r}; was it imported?")
-        wanted = {found_ids[v] for v in view_menus}
+        wanted = {found_ids[v] for v in (*view_menus, *optional) if v in found_ids}
         held = self.request("GET", f"/api/v1/security/roles/{role_id}/permissions/").get("result", [])
         self.send(
             "POST",

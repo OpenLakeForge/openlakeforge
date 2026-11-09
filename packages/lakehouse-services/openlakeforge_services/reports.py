@@ -323,11 +323,12 @@ def canonical_uuid(value: object) -> str | None:
         return None
 
 
-def bundle_schema_perms(bundle_path: Path) -> set[str]:
-    """The schema-access view menus of every dataset the bundle imports.
+def bundle_schema_perms(bundle_path: Path, *, with_catalog: bool = False) -> set[str]:
+    """The `[database].[schema]` view menus of every dataset the bundle imports.
 
-    Superset names a schema `[database].[catalog].[schema]` when the database's
-    URI sets a default catalog, and `[database].[schema]` otherwise.
+    `with_catalog` gives `[database].[catalog].[schema]` instead, the catalog
+    being the database URI's: Superset creates the plain name on a dataset's
+    first import and moves the dataset to this one on a later import.
 
     Report datasets are the Gold marts a dashboard reads, so the bundle (after
     `build_report_bundle` applied any schema prefix) is the source of truth for
@@ -349,8 +350,9 @@ def bundle_schema_perms(bundle_path: Path) -> set[str]:
                 continue
             if parts[1] == "databases":
                 catalog = urlsplit(str(document.get("sqlalchemy_uri", ""))).path.strip("/")
-                name_parts = [str(document["database_name"]), *([catalog] if catalog else [])]
-                databases[canonical_uuid(document["uuid"]) or ""] = "].[".join(name_parts)
+                qualified = with_catalog and catalog
+                name = f"{document['database_name']}].[{catalog}" if qualified else str(document["database_name"])
+                databases[canonical_uuid(document["uuid"]) or ""] = name
             else:
                 datasets.append(document)
     return {
@@ -389,6 +391,7 @@ def import_reports(
     """Build and import each report bundle, then grant the data-access role its schemas."""
     work_dir.mkdir(parents=True, exist_ok=True)
     schema_perms: set[str] = set()
+    catalog_perms: set[str] = set()
     dashboards: list[str] = []
     for report_dir in report_dirs:
         source_dir = repo_root / report_dir
@@ -405,12 +408,16 @@ def import_reports(
         client.import_assets(bundle_path)
         progress.info(f"Deployed Superset report assets from {report_dir}")
         schema_perms |= bundle_schema_perms(bundle_path)
+        catalog_perms |= bundle_schema_perms(bundle_path, with_catalog=True)
         dashboards += bundle_dashboard_uuids(bundle_path)
     if schema_perms:
         # The role exists only when Superset runs with sign-in (identity.oidc).
-        if not client.grant_permissions(DATA_ACCESS_ROLE, "schema_access", sorted(schema_perms)):
+        def grant(role: str) -> bool:
+            return client.grant_permissions(role, "schema_access", sorted(schema_perms), optional=catalog_perms)
+
+        if not grant(DATA_ACCESS_ROLE):
             progress.info("Superset sign-in is off; no data-access role to grant")
-        if client.grant_permissions(PLATFORM_API_ROLE, "schema_access", sorted(schema_perms)):
+        if grant(PLATFORM_API_ROLE):
             progress.info(f"Granted {PLATFORM_API_ROLE} the report schemas, so the platform API can export them")
     _hand_over(client, dashboards, progress)
 

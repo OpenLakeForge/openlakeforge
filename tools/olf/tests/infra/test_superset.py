@@ -180,7 +180,7 @@ def test_deploy_reports_imports_each_declared_bundle_through_the_api(
 ) -> None:
     write_report_bundle(tmp_path)
     _serve(monkeypatch, fake_superset)
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
 
     superset.deploy_reports(
         tmp_path,
@@ -549,7 +549,7 @@ def test_bundle_schema_perms_lists_only_the_schemas_datasets_read(tmp_path: Path
         tmp_path / REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg", schema_prefix="lakehouse_dev_"
     )
 
-    assert reports.bundle_schema_perms(bundle_path) == {"[Trino].[iceberg].[lakehouse_dev_order_revenue_gold]"}
+    assert reports.bundle_schema_perms(bundle_path) == {"[Trino].[lakehouse_dev_order_revenue_gold]"}
 
 
 def test_deploy_reports_grants_imported_schemas_once_and_keeps_other_grants(
@@ -558,10 +558,7 @@ def test_deploy_reports_grants_imported_schemas_once_and_keeps_other_grants(
     write_report_bundle(tmp_path)
     _serve(monkeypatch, fake_superset)
     fake_superset.permissions.update(
-        {
-            1: ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]"),
-            2: ("schema_access", "[Trino].[other_silver]"),
-        }
+        {1: ("schema_access", "[Trino].[order_revenue_gold]"), 2: ("schema_access", "[Trino].[other_silver]")}
     )
     fake_superset.roles["olf_data_access"] = {7}
     fake_superset.roles["Gamma"] = {8}
@@ -610,7 +607,8 @@ def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_
     bundle_path = tmp_path / "bundle.zip"
     reports.build_report_bundle(tmp_path / REPORT_DIR, bundle_path, "b", "trino://x@trino:8080/iceberg")
 
-    assert reports.bundle_schema_perms(bundle_path) == {"[Trino].[iceberg].[order_revenue_gold]"}
+    assert reports.bundle_schema_perms(bundle_path) == {"[Trino].[order_revenue_gold]"}
+    assert reports.bundle_schema_perms(bundle_path, with_catalog=True) == {"[Trino].[iceberg].[order_revenue_gold]"}
 
 
 def test_the_target_names_no_trino_user_and_no_password() -> None:

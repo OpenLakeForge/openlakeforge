@@ -179,7 +179,7 @@ def test_report_import_targets_the_stage_and_credentials_of_the_contract_environ
     contract = _report_contract(tmp_path, kubectl_log, REPO_ROOT)
     schemas = ("customer_health_gold", "inventory_reliability_gold", "order_revenue_gold")
     for permission_id, schema in enumerate(schemas, start=1):
-        fake_superset.permissions[permission_id] = ("schema_access", f"[OpenLakeForge Trino].[dev].[{schema}]")
+        fake_superset.permissions[permission_id] = ("schema_access", f"[OpenLakeForge Trino].[{schema}]")
 
     entry(contract, monkeypatch)
 

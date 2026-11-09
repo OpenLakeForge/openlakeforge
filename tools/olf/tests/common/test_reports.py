@@ -45,7 +45,7 @@ def _write_bundle(root: Path) -> None:
 
 def test_import_reports_imports_each_bundle_and_grants_its_schemas(tmp_path: Path, fake_superset: FakeSuperset) -> None:
     _write_bundle(tmp_path)
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[lakehouse_dev_order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev_order_revenue_gold]")
     progress = _Recorder()
 
     reports.import_reports(
@@ -163,7 +163,7 @@ def test_import_reports_grants_the_platform_api_its_schemas_and_hands_each_dashb
     (tmp_path / _REPORT_DIR / "dashboards" / "dash.yaml").write_text(
         f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n"
     )
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
     _platform_api_superset(fake_superset)
     progress = _Recorder()
 
@@ -198,7 +198,7 @@ def test_without_the_platform_api_user_nothing_is_handed_over(tmp_path: Path, fa
         f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n"
     )
     fake_superset.dashboards[_DASHBOARD_UUID] = 4
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
     progress = _Recorder()
 
     reports.import_reports(

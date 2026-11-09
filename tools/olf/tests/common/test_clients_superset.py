@@ -75,6 +75,17 @@ def test_grant_permissions_fails_when_the_schema_was_not_imported(fake_superset:
         client.grant_permissions("olf_data_access", "schema_access", ["[Trino].[missing]"])
 
 
+def test_grant_permissions_adds_an_optional_name_only_if_it_exists(fake_superset: FakeSuperset) -> None:
+    fake_superset.permissions.update({1: ("schema_access", "[T].[gold]"), 2: ("schema_access", "[T].[dev].[gold]")})
+    client = _client(fake_superset)
+    client.login()
+
+    assert client.grant_permissions("olf_data_access", "schema_access", ["[T].[gold]"], optional={"[T].[prod].[gold]"})
+    assert fake_superset.roles["olf_data_access"] == {1}
+    assert client.grant_permissions("olf_data_access", "schema_access", ["[T].[gold]"], optional={"[T].[dev].[gold]"})
+    assert fake_superset.roles["olf_data_access"] == {1, 2}
+
+
 def test_grant_permissions_skips_a_role_superset_never_created(fake_superset: FakeSuperset) -> None:
     client = _client(fake_superset)
     client.login()
