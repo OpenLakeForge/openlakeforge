@@ -334,22 +334,38 @@ def test_run_jobs_from_before_the_secret_was_configured_are_not_judged(cluster: 
     registry_pull.check(_cfg())
 
 
-def test_a_run_job_created_after_activation_without_the_secret_fails(
+def test_a_run_pod_created_after_activation_without_the_secret_fails(
     cluster: Cluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pod = {"containers": [{"image": IMAGE}]}
+    bare = {"containers": [{"image": IMAGE}]}
+
+    def launch(_cfg: object, _client: object, job: str) -> str:
+        cluster._start_pod("run", run="run-1")
+        cluster.history.append({"kind": "Pod", "metadata": {"name": "floe-fresh"}, "spec": bare})
+        return "run-1"
+
+    monkeypatch.setattr(registry_pull, "launch_and_poll", launch)
+
+    with pytest.raises(E2EError, match=r"Pod/floe-fresh"):
+        registry_pull.check(_cfg())
+
+
+def test_a_floe_job_template_without_the_secret_is_fine_when_its_pods_carry_it(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The Secret reaches a Floe Pod through the dagster ServiceAccount, so the Job template never lists it.
+    bare = {"containers": [{"image": IMAGE}]}
 
     def launch(_cfg: object, _client: object, job: str) -> str:
         cluster._start_pod("run", run="run-1")
         cluster.history.append(
-            {"kind": "Job", "metadata": {"name": "dagster-run-fresh"}, "spec": {"template": {"spec": pod}}}
+            {"kind": "Job", "metadata": {"name": "floe-sales-fresh"}, "spec": {"template": {"spec": bare}}}
         )
         return "run-1"
 
     monkeypatch.setattr(registry_pull, "launch_and_poll", launch)
 
-    with pytest.raises(E2EError, match=r"Job/dagster-run-fresh"):
-        registry_pull.check(_cfg())
+    registry_pull.check(_cfg())
 
 
 def test_containerd_names_are_matched_to_digests_by_column() -> None:

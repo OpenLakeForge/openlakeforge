@@ -6,8 +6,9 @@ node (`load_digest_image_into_kind`), so a missing or wrong `imagePullSecrets` e
 gone. This check removes the cache and proves the kubelet pulls again, with the Secret.
 
 Static: every Deployment, StatefulSet and CronJob that runs the active project image lists the Secret, and the
-`dagster` ServiceAccount does too (Floe Jobs are created at run time and can only inherit it from there). Run Jobs and
-Pods are judged only when created after the check starts: earlier ones are immutable history. Live: remove the image
+`dagster` ServiceAccount does too (Floe Jobs are created at run time and can only inherit it from there). Of what a
+run creates, the Pods are judged, not the Jobs (a Floe Job's template cannot list an inherited Secret), and only those
+created after the check starts: earlier ones are immutable history. Live: remove the image
 from every node, restart the code locations, launch a run, and require a real pull event for each new pod. The check is
 meaningless for a public image, so it refuses one unless told otherwise. It never reads a Secret's data.
 """
@@ -467,12 +468,14 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
     if not run_pods:
         raise E2EError(f"run {run_id} left no pod running {image} to inspect.")
     _require_pulled(cfg, run_pods, image, what=f"run {run_id}")
-    # Floe Jobs exist only while a run is in flight, so the pods this run left are the only live look at them.
-    fresh = created_since(_workloads(cfg), before)
+    # Pods, not Jobs: a Floe Job never lists the Secret in its template, it inherits it from the dagster ServiceAccount
+    # (activation links it there), and the ServiceAccount controller injects it into each Pod. The Pod is the spec the
+    # kubelet pulls with, whichever way it got the Secret.
+    fresh = [item for item in created_since(_workloads(cfg), before) if item.get("kind") == "Pod"]
     missing, users = workloads_missing_entry(fresh, image, _pull_secret_name(cfg))
     if missing:
         raise E2EError(f"after the run, {', '.join(missing)} run {image} without the pull Secret.")
-    log.info(f"{users} workload(s) created by the run list the pull Secret.")
+    log.info(f"{users} pod(s) created by the run list the pull Secret.")
 
 
 def _check_fresh_node(cfg: E2EConfig, image: str) -> None:
