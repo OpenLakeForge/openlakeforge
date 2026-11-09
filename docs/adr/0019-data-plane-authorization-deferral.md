@@ -366,6 +366,13 @@ holds a storage key", is extended from the person path to every path.
    send it as the `token` extra credential; Gold models are `view_security: invoker`,
    enforced by `olf check dbt`. Today's keyed catalogs ignore the credential;
    Floe and the keyless Trino catalogs are not yet built.
+   Built so far (#981): `olf infra query` and every `olf e2e` Trino call run
+   the CLI in the coordinator, which mints the stage processing principal's
+   token from the credential its pod holds and passes it as the `token` extra
+   credential with curl (`cli_script` in `olf/infra/trino.py`); a failed mint fails the query. The token is on no
+   `kubectl` argument and in no log. `olf query` and the platform API already
+   send the person's token on every call, discovery included. Today's keyed
+   catalogs ignore it.
 4. **Superset per user** (#968). The viewer's dashboard returns what the
    viewer's role reaches in Polaris. Results are cached per user.
 5. **OpenMetadata governs its own users** (#969). OpenMetadata never

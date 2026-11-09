@@ -31,6 +31,26 @@ STAGE_CATALOG_PREFIX = "lakehouse_"
 # on (the chart's auth.passwordAuthSecret), which is how the pod says so.
 TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
 
+# Where the chart writes the coordinator's catalog properties; the Polaris token endpoint and scope are read from them.
+TRINO_CATALOG_DIR = "/etc/trino/catalog"
+
+# Mints the stage processing principal's Polaris token inside the coordinator, with the curl and sed its image has
+# (no python, jq or wget), from the credential its pod already holds. The credential goes to curl as a config on stdin
+# and the token lands only in the pod's shell and the CLI's argv there, never in a `kubectl` argument, a stdin of
+# ours or a log. A catalog with no token endpoint has no token to send; a mint that fails fails the query.
+_MINT_TOKEN = (
+    r"""U=$(sed -n 's/^iceberg.rest-catalog.oauth2.server-uri=//p' {props}); if [ -n "$U" ]; then """
+    r"""S=$(sed -n 's/^iceberg.rest-catalog.oauth2.scope=//p' {props}); """
+    r"""T=$(printf 'url = "%s"\ndata-urlencode = "grant_type=client_credentials"\ndata-urlencode = "client_id=%s"\n"""
+    r"""data-urlencode = "client_secret=%s"\ndata-urlencode = "scope=%s"\n' "$U" """
+    r""""$OPENLAKEFORGE_CATALOG_{stage}_CLIENT_ID" "$OPENLAKEFORGE_CATALOG_{stage}_CLIENT_SECRET" "$S" """
+    r"""| curl -sf -m 30 -K - 2>/dev/null """
+    r"""| sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p'); """
+    r"""if [ -z "$T" ]; then echo "olf: cannot mint the Polaris token for catalog {catalog} from $U: """
+    r"""the endpoint is unreachable or refused the stage's credential" >&2; exit 1; fi; """
+    r"""set -- --extra-credential "token=$T" "$@"; unset T; fi; """
+)
+
 # Called with the argv and the text for the process's stdin.
 Runner = Callable[[Sequence[str], str], CommandResult]
 
@@ -116,17 +136,26 @@ def glue_namespace_prefix(provider: str, catalog: str) -> str:
     return f"{catalog}_" if provider == "aws" else ""
 
 
-def cli_script(ca_path: str | None = None) -> str:
+def cli_script(ca_path: str | None = None, *, stage: str | None = None, catalog: str | None = None) -> str:
     """The shell the coordinator pod runs, choosing the listener the pod itself offers.
 
     With password authentication on, the password arrives on stdin and goes to
     the CLI as TRINO_PASSWORD, so it is on no command line. An empty line sends
     no password at all, which is what the header-only isolation probe needs.
+
+    With a `stage` and `catalog`, the CLI also carries the stage's Polaris token as the `token` extra credential
+    (#967), which a keyless catalog reads and a keyed one ignores.
     """
     ca = ca_path or TRINO_CA
+    props = f"{TRINO_CATALOG_DIR}/{catalog}.properties"
+    mint = ""
+    if stage and catalog:
+        code = _MINT_TOKEN.format(props=props, stage=stage.upper(), catalog=catalog)
+        mint = f"if [ -f {props} ]; then {code}fi; "
     return (
+        f"{mint}"
         f"if [ -f {TRINO_PASSWORD_FILE} ]; then "
-        'IFS= read -r TRINO_PASSWORD; export TRINO_PASSWORD; '
+        "IFS= read -r TRINO_PASSWORD; export TRINO_PASSWORD; "
         'if [ -n "$TRINO_PASSWORD" ]; then set -- --password "$@"; fi; fi; '
         f"if [ -f {ca} ]; then "
         f'exec trino --server https://localhost:8443 --truststore-path {ca} "$@"; '
@@ -157,9 +186,7 @@ def decode_password(raw: str) -> str:
     return base64.b64decode(raw).decode("utf-8") if raw.strip() else ""
 
 
-def exec_args(
-    target: TrinoTarget, sql: str, *, output_format: str, session_user: str | None = None
-) -> list[str]:
+def exec_args(target: TrinoTarget, sql: str, *, output_format: str, session_user: str | None = None) -> list[str]:
     """Arguments for `kubectl` (after `--context`) that run `sql` as the stage's runtime user.
 
     The stage catalog is the session default, so SQL can name `<schema>.<table>`.
@@ -175,7 +202,7 @@ def exec_args(
         "--",
         "sh",
         "-c",
-        cli_script(),
+        cli_script(stage=target.stage, catalog=target.catalog),
         "trino",
         "--catalog",
         target.catalog,
