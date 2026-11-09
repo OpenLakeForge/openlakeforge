@@ -364,7 +364,7 @@ holds a storage key", is extended from the person path to every path.
    Built so far (#981): `olf infra query` and every `olf e2e` Trino call run
    the CLI in the coordinator, which mints the stage processing principal's
    token from the credential its pod holds and passes it as the `token` extra
-   credential (`cli_script` in `olf/infra/trino.py`); the token is on no
+   credential with curl (`cli_script` in `olf/infra/trino.py`); a failed mint fails the query. The token is on no
    `kubectl` argument and in no log. `olf query` and the platform API already
    send the person's token on every call, discovery included. Today's keyed
    catalogs ignore it.
