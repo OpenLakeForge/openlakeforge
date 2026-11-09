@@ -177,6 +177,42 @@ def image_ids(listing: str, repository: str) -> list[str]:
     return ids
 
 
+def containerd_refs(listing: str) -> dict[str, str]:
+    """Image name to target digest from `ctr images ls` (columns REF TYPE DIGEST SIZE ...); the header is skipped."""
+    refs = {}
+    for line in listing.splitlines()[1:]:
+        columns = line.split()
+        if len(columns) >= 3:
+            refs[columns[0]] = columns[2]
+    return refs
+
+
+def stale_refs(refs: Mapping[str, str], digests: set[str]) -> list[str]:
+    """Names in containerd that still point at one of `digests`, whatever they are called."""
+    return sorted(name for name, digest in refs.items() if digest in digests)
+
+
+def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]) -> list[str]:
+    """One line per container that is not running (waiting reason and message), then each pod's recent events."""
+    lines = []
+    for pod in pods:
+        name = pod.get("metadata", {}).get("name")
+        status = pod.get("status") or {}
+        for container in [*(status.get("initContainerStatuses") or []), *(status.get("containerStatuses") or [])]:
+            waiting = (container.get("state") or {}).get("waiting")
+            if waiting:
+                lines.append(f"{name}/{container.get('name')}: {waiting.get('reason')}: {waiting.get('message', '')}")
+        pod_events = [
+            event
+            for event in events
+            if event.get("involvedObject", {}).get("kind") == "Pod"
+            and event.get("involvedObject", {}).get("name") == name
+        ]
+        pod_events.sort(key=lambda event: str(event.get("lastTimestamp") or event.get("eventTime") or ""))
+        lines.extend(f"{name} event {event.get('reason')}: {event.get('message')}" for event in pod_events[-8:])
+    return lines
+
+
 def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[str], image: str) -> list[str]:
     """Pods with no `Successfully pulled` event for `image`, or one that found it already on the node."""
     repository = image.split("@", 1)[0]
@@ -245,14 +281,28 @@ def _without_host_credentials(cfg: E2EConfig) -> Iterator[Callable[[list[str]], 
 
 
 def purge_image(cfg: E2EConfig, image: str) -> None:
-    """Remove `image` (every tag and digest name of it) from every node's containerd."""
+    """Remove `image` (every tag and digest name of it) from every node's containerd.
+
+    `kind load` also leaves an `import-<date>@sha256:...` name on the same target. `crictl rmi` does not remove it, and
+    kubelet's next pull then reuses the image ID but CreateContainer resolves the stale name, whose manifest is gone:
+    `CreateContainerError ... image "docker.io/library/import-...@sha256:..." not found`. So every name on the same
+    target as a name under the repository goes too.
+    """
     repository = image.split("@", 1)[0]
+    ctr = ["ctr", "--namespace=k8s.io", "images"]
     with _without_host_credentials(cfg) as docker:
         for node in _nodes(cfg):
             ids = image_ids(docker(["exec", node.name, "crictl", "images", "-o", "json"]), repository)
+            before = containerd_refs(docker(["exec", node.name, *ctr, "ls"]))
+            targets = {
+                digest for name, digest in before.items() if name.startswith((f"{repository}:", f"{repository}@"))
+            }
             if ids:
                 docker(["exec", node.name, "crictl", "rmi", *ids])
-            log.info(f"{node.name}: removed {len(ids)} cached image(s).")
+            left = stale_refs(containerd_refs(docker(["exec", node.name, *ctr, "ls"])), targets)
+            if left:
+                docker(["exec", node.name, *ctr, "rm", "--sync", *left])
+            log.info(f"{node.name}: removed {len(ids)} cached image(s) and {len(left)} leftover name(s).")
 
 
 def _code_location_pods(cfg: E2EConfig) -> list[dict[str, Any]]:
@@ -260,6 +310,19 @@ def _code_location_pods(cfg: E2EConfig) -> list[dict[str, Any]]:
         kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-l", CODE_LOCATION_SELECTOR, "-o", "json"], capture=True)
     )
     return [pod for pod in payload.get("items", []) if not pod["metadata"].get("deletionTimestamp")]
+
+
+def _explain_pods(cfg: E2EConfig) -> str:
+    """Why the code-location pods are not Ready, from their container statuses and events; never raises."""
+    try:
+        pods = _code_location_pods(cfg)
+        events = json.loads(kubectl(cfg, ["get", "events", "-n", cfg.namespace, "-o", "json"], capture=True)).get(
+            "items", []
+        )
+        lines = pod_diagnostics(pods, events)
+    except (E2EError, ValueError, KeyError) as exc:
+        return f"(could not collect pod diagnostics: {exc})"
+    return "\n".join(lines) if lines else "(no waiting container and no event on the code-location pods)"
 
 
 def _replace_pods(cfg: E2EConfig, doomed: Sequence[str]) -> list[dict[str, Any]]:
@@ -285,7 +348,9 @@ def _replace_pods(cfg: E2EConfig, doomed: Sequence[str]) -> list[dict[str, Any]]
             ],
         )
     except E2EError as exc:
-        raise E2EError(f"the code location did not become Ready after its image was removed: {exc}") from exc
+        raise E2EError(
+            f"the code location did not become Ready after its image was removed: {exc}\n{_explain_pods(cfg)}"
+        ) from exc
     return _code_location_pods(cfg)
 
 
