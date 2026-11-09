@@ -54,6 +54,7 @@ MANIFEST_ACCEPT = ", ".join(
     )
 )
 ANONYMOUS_PROBE_TIMEOUT_SECONDS = 20
+KIND_IMPORT_PREFIX = "docker.io/library/import-"
 
 
 def _pod_spec(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -187,9 +188,21 @@ def containerd_refs(listing: str) -> dict[str, str]:
     return refs
 
 
-def stale_refs(refs: Mapping[str, str], digests: set[str]) -> list[str]:
-    """Names in containerd that still point at one of `digests`, whatever they are called."""
-    return sorted(name for name, digest in refs.items() if digest in digests)
+def config_digest(manifest: str, read_blob: Callable[[str], str]) -> str | None:
+    """Config digest (the image ID) of an image manifest, or of the first manifest in an index that has one."""
+    document = json.loads(manifest)
+    if "config" in document:
+        return str(document["config"]["digest"])
+    for child in document.get("manifests") or []:
+        found = config_digest(read_blob(child["digest"]), read_blob)
+        if found:
+            return found
+    return None
+
+
+def names_of_images(refs: Mapping[str, str], repository: str) -> list[str]:
+    """Containerd names that can belong to the project image: under `repository`, or left by `kind load`."""
+    return sorted(name for name in refs if name.startswith((f"{repository}:", f"{repository}@", KIND_IMPORT_PREFIX)))
 
 
 def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -283,26 +296,37 @@ def _without_host_credentials(cfg: E2EConfig) -> Iterator[Callable[[list[str]], 
 def purge_image(cfg: E2EConfig, image: str) -> None:
     """Remove `image` (every tag and digest name of it) from every node's containerd.
 
-    `kind load` also leaves an `import-<date>@sha256:...` name on the same target. `crictl rmi` does not remove it, and
-    kubelet's next pull then reuses the image ID but CreateContainer resolves the stale name, whose manifest is gone:
-    `CreateContainerError ... image "docker.io/library/import-...@sha256:..." not found`. So every name on the same
-    target as a name under the repository goes too.
+    `kind load` also leaves an `import-<date>@sha256:...` name that carries the image ID (config digest) but a
+    different manifest digest than the registry's, so it matches neither by name nor by target. `crictl rmi` leaves it,
+    and kubelet's next pull reuses the image ID while CreateContainer resolves the stale name, whose manifest is gone:
+    `CreateContainerError ... image "docker.io/library/import-...@sha256:..." not found`. So every name whose config
+    digest is one of the image's IDs goes too, before `crictl rmi` so the CRI store sees each name deleted.
     """
     repository = image.split("@", 1)[0]
-    ctr = ["ctr", "--namespace=k8s.io", "images"]
+    ctr = ["ctr", "--namespace=k8s.io"]
     with _without_host_credentials(cfg) as docker:
         for node in _nodes(cfg):
-            ids = image_ids(docker(["exec", node.name, "crictl", "images", "-o", "json"]), repository)
-            before = containerd_refs(docker(["exec", node.name, *ctr, "ls"]))
-            targets = {
-                digest for name, digest in before.items() if name.startswith((f"{repository}:", f"{repository}@"))
-            }
-            if ids:
-                docker(["exec", node.name, "crictl", "rmi", *ids])
-            left = stale_refs(containerd_refs(docker(["exec", node.name, *ctr, "ls"])), targets)
-            if left:
-                docker(["exec", node.name, *ctr, "rm", "--sync", *left])
-            log.info(f"{node.name}: removed {len(ids)} cached image(s) and {len(left)} leftover name(s).")
+            exec_ = ["exec", node.name]
+            ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
+            refs = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
+
+            def read_blob(digest: str, exec_: list[str] = exec_) -> str:
+                return docker([*exec_, *ctr, "content", "get", digest])
+
+            doomed = []
+            for name in names_of_images(refs, repository):
+                try:
+                    config = config_digest(read_blob(refs[name]), read_blob)
+                except (E2EError, ValueError, KeyError):
+                    config = None
+                if name.startswith((f"{repository}:", f"{repository}@")) or config in ids:
+                    doomed.append(name)
+            if doomed:
+                docker([*exec_, *ctr, "images", "rm", "--sync", *doomed])
+            remaining = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
+            if remaining:
+                docker([*exec_, "crictl", "rmi", *remaining])
+            log.info(f"{node.name}: removed {len(ids)} cached image(s) and {len(doomed)} containerd name(s).")
 
 
 def _code_location_pods(cfg: E2EConfig) -> list[dict[str, Any]]:
