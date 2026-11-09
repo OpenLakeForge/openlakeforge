@@ -361,6 +361,11 @@ holds a storage key", is extended from the person path to every path.
    rules and no credential worth stealing, and needs no authentication of its
    own. A query engine added later (DuckDB, #888) follows the same adapter
    rules with nothing to configure in policy.
+   Built so far (#980): dbt and Gold maintenance mint the processing principal's
+   token (`openlakeforge_runtime/polaris_token.py`, once per dbt invocation) and
+   send it as the `token` extra credential; Gold models are `view_security: invoker`,
+   enforced by `olf check dbt`. Today's keyed catalogs ignore the credential;
+   Floe and the keyless Trino catalogs are not yet built.
 4. **Superset per user** (#968, import and sign-in token built in #987; the
    shared credential is removed in #983). The imported database points at the
    stage's people catalog on the stage's Trino with no user and no password,
