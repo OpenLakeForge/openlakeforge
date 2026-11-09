@@ -85,7 +85,13 @@ def test_the_platform_phase_bootstraps_openmetadata_after_the_apply_from_the_con
     assert given["seed"] == CatalogSeed(
         service="polaris",
         display_name="Lakehouse catalogs (Trino)",
-        trino_namespaces=("trino://trino.olf-system:8080", "trino://trino.olf-system:8443"),
+        # Each stage's own coordinator (#1021), DEV (the canonical stage) first.
+        trino_namespaces=(
+            "trino://trino.olf-dev:8080",
+            "trino://trino.olf-dev:8443",
+            "trino://trino.olf-prod:8080",
+            "trino://trino.olf-prod:8443",
+        ),
         pipeline_service="dagster_dev",
         databases=("lakehouse_dev", "lakehouse_prod"),
     )
@@ -162,14 +168,26 @@ def test_a_failed_polaris_bootstrap_stops_the_platform_phase_before_openmetadata
     assert cluster["calls"] == ["platform_up"]
 
 
-def test_every_governed_stage_trino_is_mapped_canonical_first_and_a_shared_one_once() -> None:
+def test_every_governed_stage_trino_is_mapped_canonical_first() -> None:
+    seed, _ = _platform.bootstrap_inputs(_parsed())  # type: ignore[misc]
+
+    # One coordinator per stage (#1021): each is mapped, plain and TLS port, and the canonical stage's comes first.
+    assert seed.trino_namespaces == (
+        "trino://trino.olf-dev:8080",
+        "trino://trino.olf-dev:8443",
+        "trino://trino.olf-prod:8080",
+        "trino://trino.olf-prod:8443",
+    )
+
+
+def test_a_coordinator_two_stages_share_is_mapped_once() -> None:
+    # AWS and Azure still serve every stage from one coordinator: both stages name the same endpoint.
     contracts = _parsed()
-    prod_query = {**contracts.stages[StageName.PROD].query, "endpoint": "http://trino-prod.olf-prod:8080"}
-    split = _with(contracts, prod={"query": prod_query})
+    dev_query = contracts.stages[StageName.DEV].query
+    shared = _with(
+        contracts, prod={"query": {**contracts.stages[StageName.PROD].query, "endpoint": dev_query["endpoint"]}}
+    )
 
-    shared_seed, _ = _platform.bootstrap_inputs(contracts)  # type: ignore[misc]
-    split_seed, _ = _platform.bootstrap_inputs(split)  # type: ignore[misc]
+    seed, _ = _platform.bootstrap_inputs(shared)  # type: ignore[misc]
 
-    assert len(set(shared_seed.trino_namespaces)) == len(shared_seed.trino_namespaces)
-    assert split_seed.trino_namespaces[: len(shared_seed.trino_namespaces)] == shared_seed.trino_namespaces
-    assert "trino://trino-prod.olf-prod:8080" in split_seed.trino_namespaces
+    assert seed.trino_namespaces == ("trino://trino.olf-dev:8080", "trino://trino.olf-dev:8443")

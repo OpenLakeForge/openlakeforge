@@ -50,8 +50,9 @@ def test_a_full_contract_plans_the_data_bound_secrets_and_the_local_ca() -> None
     assert {(ref.namespace, ref.name) for ref in plan.secrets} == {
         ("olf-system", "polaris-bootstrap-credentials"),
         ("olf-system", "polaris-om-creds"),
-        ("olf-system", "polaris-dev-trino-people-creds"),
-        ("olf-system", "polaris-prod-trino-people-creds"),
+        # Beside each stage's own Trino (#1021), which reads them through a namespace-local secretKeyRef.
+        ("olf-dev", "polaris-dev-trino-people-creds"),
+        ("olf-prod", "polaris-prod-trino-people-creds"),
         ("olf-dev", "polaris-dev-processing-creds"),
         ("olf-dev", "polaris-dev-deployer-creds"),
         ("olf-prod", "polaris-prod-processing-creds"),
