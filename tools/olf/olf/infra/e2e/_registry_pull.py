@@ -226,6 +226,16 @@ def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[
     return lines
 
 
+def records_with_ids(listing: str, ids: Sequence[str]) -> dict[str, list[str]]:
+    """Image ID to its remaining names for each of `ids` that `crictl images -o json` lists, whatever the names."""
+    wanted = set(ids)
+    return {
+        image["id"]: [*(image.get("repoTags") or []), *(image.get("repoDigests") or [])]
+        for image in json.loads(listing).get("images", [])
+        if image["id"] in wanted
+    }
+
+
 def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[str], image: str) -> list[str]:
     """Pods with no `Successfully pulled` event for `image`, or one that found it already on the node."""
     repository = image.split("@", 1)[0]
@@ -300,7 +310,8 @@ def purge_image(cfg: E2EConfig, image: str) -> None:
     different manifest digest than the registry's, so it matches neither by name nor by target. `crictl rmi` leaves it,
     and kubelet's next pull reuses the image ID while CreateContainer resolves the stale name, whose manifest is gone:
     `CreateContainerError ... image "docker.io/library/import-...@sha256:..." not found`. So every name whose config
-    digest is one of the image's IDs goes too, before `crictl rmi` so the CRI store sees each name deleted.
+    digest is one of the image's IDs goes too, before `crictl rmi` so the CRI store sees each name deleted, and the CRI
+    record of each ID is then removed whatever names it still carries.
     """
     repository = image.split("@", 1)[0]
     ctr = ["ctr", "--namespace=k8s.io"]
@@ -323,9 +334,15 @@ def purge_image(cfg: E2EConfig, image: str) -> None:
                     doomed.append(name)
             if doomed:
                 docker([*exec_, *ctr, "images", "rm", "--sync", *doomed])
-            remaining = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
+            # By ID, not by name: once the containerd names are gone the CRI record can be left with only the
+            # `import-*` reference, which no repository filter matches, and CreateContainer then resolves that.
+            remaining = records_with_ids(docker([*exec_, "crictl", "images", "-o", "json"]), ids)
             if remaining:
                 docker([*exec_, "crictl", "rmi", *remaining])
+                left = records_with_ids(docker([*exec_, "crictl", "images", "-o", "json"]), ids)
+                if left:
+                    detail = "; ".join(f"{image_id} ({', '.join(names)})" for image_id, names in left.items())
+                    raise E2EError(f"{node.name}: the CRI image record survived crictl rmi: {detail}.")
             log.info(f"{node.name}: removed {len(ids)} cached image(s) and {len(doomed)} containerd name(s).")
 
 

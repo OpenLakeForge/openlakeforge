@@ -135,6 +135,9 @@ class Cluster:
         self.cordoned: set[str] = set()
         self.stale: dict[str, list[str]] = {}
         self.config_digest = "sha256:1"
+        self.cri_keeps_import_ref = False
+        self.ghost: set[str] = set()
+        self.ghost_survives_rmi = False
         self.purge_works = purge_works
         self.pods: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
@@ -162,9 +165,13 @@ class Cluster:
             return self.ctr(node, args[5:])
         if args[3] == "images":
             images = [{"id": "sha256:1", "repoDigests": [IMAGE]}] if IMAGE in self.cache[node] else []
+            if node in self.ghost:
+                images = [{"id": "sha256:1", "repoDigests": ["docker.io/library/import-2026-11-09@sha256:0836"]}]
             return json.dumps({"images": images})
         if self.purge_works:
             self.cache[node].discard(IMAGE)
+            if not self.ghost_survives_rmi:
+                self.ghost.discard(node)
         return ""
 
     def ctr(self, node: str, args: list[str]) -> str:
@@ -178,6 +185,9 @@ class Cluster:
                 return json.dumps(config)
             return json.dumps({"manifests": [{"digest": "sha256:child"}]})
         if args[0] == "rm":
+            if self.cri_keeps_import_ref and IMAGE in self.cache[node]:
+                self.cache[node].discard(IMAGE)
+                self.ghost.add(node)
             self.stale[node] = [n for n in self.stale.get(node, []) if n not in args]
             return ""
         header = "REF TYPE DIGEST SIZE PLATFORMS LABELS"
@@ -269,10 +279,10 @@ def test_pods_pull_through_the_secret_once_the_node_cache_is_gone(cluster: Clust
     assert cluster.cache["cp"] == set()
 
 
-def test_a_cache_that_cannot_be_removed_is_reported_as_a_pull_that_never_happened(cluster: Cluster) -> None:
+def test_a_cache_that_cannot_be_removed_fails_the_purge_before_any_pod_is_judged(cluster: Cluster) -> None:
     cluster.purge_works = False
 
-    with pytest.raises(E2EError, match="already present on the node"):
+    with pytest.raises(E2EError, match="CRI image record survived"):
         registry_pull.check(_cfg())
 
 
@@ -401,3 +411,19 @@ def test_a_code_location_that_never_becomes_ready_names_the_cause(
 
     with pytest.raises(E2EError, match="Failed: image not found"):
         registry_pull.check(_cfg())
+
+
+def test_a_cri_record_left_with_only_an_import_name_is_removed_by_its_id(cluster: Cluster) -> None:
+    cluster.cri_keeps_import_ref = True
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.ghost == set()
+
+
+def test_a_cri_record_that_survives_removal_fails_the_purge_naming_node_and_id(cluster: Cluster) -> None:
+    cluster.cri_keeps_import_ref = True
+    cluster.ghost_survives_rmi = True
+
+    with pytest.raises(E2EError, match=r"w1: the CRI image record survived.*sha256:1.*import-2026-11-09"):
+        registry_pull.purge_image(_cfg(), IMAGE)
