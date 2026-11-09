@@ -133,6 +133,7 @@ class Cluster:
     def __init__(self, *, secret_on_deployment: bool = True, purge_works: bool = True) -> None:
         self.cache: dict[str, set[str]] = {"cp": set(), "w1": {IMAGE}, "w2": {IMAGE}}
         self.cordoned: set[str] = set()
+        self.stale: dict[str, list[str]] = {}
         self.purge_works = purge_works
         self.pods: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
@@ -156,12 +157,25 @@ class Cluster:
 
     def docker(self, args: list[str]) -> str:
         node = args[1]
+        if args[2] == "ctr":
+            return self.ctr(node, args[5:])
         if args[3] == "images":
             images = [{"id": "sha256:1", "repoDigests": [IMAGE]}] if IMAGE in self.cache[node] else []
             return json.dumps({"images": images})
         if self.purge_works:
             self.cache[node].discard(IMAGE)
         return ""
+
+    def ctr(self, node: str, args: list[str]) -> str:
+        names = [f"{REPOSITORY}@sha256:reg"] if IMAGE in self.cache[node] else []
+        names += self.stale.get(node, [])
+        if args[0] == "rm":
+            self.stale[node] = [n for n in self.stale.get(node, []) if n not in args]
+            return ""
+        header = "REF TYPE DIGEST SIZE PLATFORMS LABELS"
+        return "\n".join(
+            [header, *(f"{n} application/vnd.oci.image.index.v1+json sha256:7e4d 360MiB - -" for n in names)]
+        )
 
     def kubectl(self, cfg: object, args: list[str], *, capture: bool = False, **_: object) -> str:
         verb = args[0]
@@ -302,4 +316,55 @@ def test_a_run_job_created_after_activation_without_the_secret_fails(
     monkeypatch.setattr(registry_pull, "launch_and_poll", launch)
 
     with pytest.raises(E2EError, match=r"Job/dagster-run-fresh"):
+        registry_pull.check(_cfg())
+
+
+def test_names_left_by_kind_load_on_the_same_target_are_removed_with_the_image(cluster: Cluster) -> None:
+    stale = "docker.io/library/import-2026-11-09@sha256:7e4d"
+    cluster.stale = {"w1": [stale], "w2": [stale]}
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.stale["w1"] == [] and cluster.stale["w2"] == []
+
+
+def test_containerd_names_are_matched_to_digests_by_column() -> None:
+    listing = "REF TYPE DIGEST SIZE\na t sha256:1 1MiB\nb t sha256:2 1MiB\nc t sha256:1 1MiB\n"
+
+    refs = registry_pull.containerd_refs(listing)
+
+    assert registry_pull.stale_refs(refs, {"sha256:1"}) == ["a", "c"]
+
+
+def test_a_pod_that_cannot_start_is_explained_by_its_waiting_reason_and_events() -> None:
+    pod = {
+        "metadata": {"name": "code-1"},
+        "status": {
+            "containerStatuses": [
+                {"name": "dagster", "state": {"waiting": {"reason": "ErrImagePull", "message": "403 Forbidden"}}}
+            ]
+        },
+    }
+    events = [_event("code-1", "pull denied", reason="Failed"), _event("other", "noise")]
+
+    lines = registry_pull.pod_diagnostics([pod], events)
+
+    assert lines == ["code-1/dagster: ErrImagePull: 403 Forbidden", "code-1 event Failed: pull denied"]
+
+
+def test_a_code_location_that_never_becomes_ready_names_the_cause(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = cluster.kubectl
+
+    def kubectl(cfg: object, args: list[str], **kwargs: object) -> str:
+        if args[0] == "wait":
+            for pod in cluster.pods:
+                cluster.events.append(_event(pod, "image not found", reason="Failed"))
+            raise E2EError("timed out waiting for the condition")
+        return real(cfg, args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(registry_pull, "kubectl", kubectl)
+
+    with pytest.raises(E2EError, match="Failed: image not found"):
         registry_pull.check(_cfg())
