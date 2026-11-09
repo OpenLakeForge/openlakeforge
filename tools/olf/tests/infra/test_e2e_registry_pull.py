@@ -135,11 +135,11 @@ class Cluster:
         self.cordoned: set[str] = set()
         self.stale: dict[str, list[str]] = {}
         self.config_digest = "sha256:1"
-        self.cri_keeps_import_ref = False
+        self.cri_cache_stale = False
         self.ghost: set[str] = set()
-        self.ghost_survives_rmi = False
         self.restart_clears_ghost = True
         self.restarts: list[str] = []
+        self.calls: list[tuple[str, str]] = []
         self.purge_works = purge_works
         self.pods: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
@@ -165,20 +165,24 @@ class Cluster:
         node = args[1]
         if args[2] == "systemctl":
             self.restarts.append(node)
+            self.calls.append(("restart", node))
             if self.restart_clears_ghost:
                 self.ghost.discard(node)
             return ""
         if args[2] == "ctr":
             return self.ctr(node, args[5:])
+        if args[3] == "info":
+            return ""
         if args[3] == "images":
             images = [{"id": "sha256:1", "repoDigests": [IMAGE]}] if IMAGE in self.cache[node] else []
             if node in self.ghost:
                 images = [{"id": "sha256:1", "repoDigests": ["docker.io/library/import-2026-11-09@sha256:0836"]}]
             return json.dumps({"images": images})
+        self.calls.append(("rmi", node))
         if self.purge_works:
             self.cache[node].discard(IMAGE)
-            if not self.ghost_survives_rmi:
-                self.ghost.discard(node)
+            if self.cri_cache_stale:
+                self.ghost.add(node)
         return ""
 
     def ctr(self, node: str, args: list[str]) -> str:
@@ -192,9 +196,7 @@ class Cluster:
                 return json.dumps(config)
             return json.dumps({"manifests": [{"digest": "sha256:child"}]})
         if args[0] == "rm":
-            if self.cri_keeps_import_ref and IMAGE in self.cache[node]:
-                self.cache[node].discard(IMAGE)
-                self.ghost.add(node)
+            self.calls.append(("ctr-rm", node))
             self.stale[node] = [n for n in self.stale.get(node, []) if n not in args]
             return ""
         header = "REF TYPE DIGEST SIZE PLATFORMS LABELS"
@@ -408,7 +410,7 @@ def test_a_code_location_that_never_becomes_ready_names_the_cause(
     real = cluster.kubectl
 
     def kubectl(cfg: object, args: list[str], **kwargs: object) -> str:
-        if args[0] == "wait":
+        if args[0] == "wait" and "pod" in args:
             for pod in cluster.pods:
                 cluster.events.append(_event(pod, "image not found", reason="Failed"))
             raise E2EError("timed out waiting for the condition")
@@ -420,17 +422,17 @@ def test_a_code_location_that_never_becomes_ready_names_the_cause(
         registry_pull.check(_cfg())
 
 
-def test_a_cri_record_left_with_only_an_import_name_is_removed_by_its_id(cluster: Cluster) -> None:
-    cluster.cri_keeps_import_ref = True
+def test_the_cri_record_is_removed_by_id_before_ctr_and_containerd_is_restarted_after(cluster: Cluster) -> None:
+    cluster.stale = {"w1": ["docker.io/library/import-2026-11-09@sha256:0836"]}
 
     registry_pull.purge_image(_cfg(), IMAGE)
 
-    assert cluster.ghost == set()
+    w1 = [call for call in cluster.calls if call[1] == "w1"]
+    assert w1 == [("rmi", "w1"), ("ctr-rm", "w1"), ("restart", "w1")]
 
 
-def test_a_cri_record_that_rmi_cannot_drop_is_rebuilt_by_restarting_containerd(cluster: Cluster) -> None:
-    cluster.cri_keeps_import_ref = True
-    cluster.ghost_survives_rmi = True
+def test_a_stale_cri_record_is_rebuilt_by_the_restart_on_each_node_that_had_the_image(cluster: Cluster) -> None:
+    cluster.cri_cache_stale = True
 
     registry_pull.purge_image(_cfg(), IMAGE)
 
@@ -438,17 +440,8 @@ def test_a_cri_record_that_rmi_cannot_drop_is_rebuilt_by_restarting_containerd(c
     assert cluster.restarts == ["w1", "w2"]
 
 
-def test_containerd_is_left_alone_when_rmi_by_id_is_enough(cluster: Cluster) -> None:
-    cluster.cri_keeps_import_ref = True
-
-    registry_pull.purge_image(_cfg(), IMAGE)
-
-    assert cluster.restarts == []
-
-
-def test_a_cri_record_that_survives_a_restart_fails_the_purge_naming_node_id_and_names(cluster: Cluster) -> None:
-    cluster.cri_keeps_import_ref = True
-    cluster.ghost_survives_rmi = True
+def test_a_cri_record_that_survives_the_restart_fails_the_purge_naming_node_id_and_names(cluster: Cluster) -> None:
+    cluster.cri_cache_stale = True
     cluster.restart_clears_ghost = False
 
     with pytest.raises(E2EError, match=r"w1: the CRI image record survived.*sha256:1.*import-2026-11-09"):
