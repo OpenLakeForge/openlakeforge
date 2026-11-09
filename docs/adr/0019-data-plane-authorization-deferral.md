@@ -375,7 +375,7 @@ holds a storage key", is extended from the person path to every path.
    catalogs ignore it.
 4. **Superset per user** (#968). The viewer's dashboard returns what the
    viewer's role reaches in Polaris. Results are cached per user.
-5. **OpenMetadata governs its own users** (#969). OpenMetadata never
+5. **OpenMetadata governs its own users** (#969, built). OpenMetadata never
    queries data for the person signed in to it: it shows what its crawler
    collected, and its own roles, mapped from Dex groups, decide what a person
    sees there (ADR 0014). Its crawler presents the `openmetadata` token and
@@ -383,6 +383,9 @@ holds a storage key", is extended from the person path to every path.
    was tested and rejected: on a catalog that asks for vended credentials,
    Polaris 1.8.0 refuses `LOAD_TABLE` to a principal without `TABLE_READ_DATA`,
    even for its columns (#963), so the crawler would see no table.
+   The crawl Job mints the token from the `openmetadata` principal's Secret (copied into the stage
+   namespace) when it starts and passes it as the `token` extra credential; the workflow enables
+   no profiler, sampler, data-quality or usage feature that would read rows.
 6. **Bronze leaves the matrix** (#966). Bronze is raw files with no catalog
    namespace (#950), so no Polaris grant can reach it; the `bronze` column of
    `data_access` is removed and Bronze isolation stays the stage's own object
