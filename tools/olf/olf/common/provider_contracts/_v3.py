@@ -521,6 +521,7 @@ def _parse_stage(
             "s3_service_name",
             "s3_service_namespace",
             "s3_service_port",
+            "sts_endpoint",
         },
     )
     if storage["provider"] != topology.provider.value:
@@ -536,6 +537,8 @@ def _parse_stage(
         _tcp_port(storage["s3_service_port"], where=f"stages.{name.value}.storage.s3_service_port")
     if "endpoint" in storage:
         _absolute_http_uri(storage["endpoint"], where=f"stages.{name.value}.storage.endpoint")
+    if "sts_endpoint" in storage:
+        _absolute_http_uri(storage["sts_endpoint"], where=f"stages.{name.value}.storage.sts_endpoint")
     _reference(storage["identity_ref"], where=f"stages.{name.value}.storage.identity_ref", allowed=("stage/",))
     physical_storage: set[str] = set()
     for layer in ("bronze", "silver", "gold"):
@@ -604,6 +607,14 @@ def _parse_stage(
         raise ProviderContractError(
             f"stages.{name.value}.catalog.catalog_provider {catalog_provider!r} does not match "
             f"DeploymentTopology.provider {topology.provider.value!r}"
+        )
+    # Polaris catalogs are keyless: Trino reads only with the credentials Polaris vends through the store's STS
+    # AssumeRole (ADR 0019 section 9), so a store without one cannot serve them.
+    if catalog_provider == "polaris" and "sts_endpoint" not in storage:
+        raise ProviderContractError(
+            f"stages.{name.value}.storage has no sts_endpoint, and its Polaris catalog reads only with the "
+            "credentials Polaris vends through the object store's STS: use an object store whose adapter offers "
+            "STS. A generic S3-compatible store (#803) and AWS on Polaris (#681) are not qualified yet."
         )
     expected_catalog = f"lakehouse_{name.value}"
     if catalog["catalog_name"] != expected_catalog:

@@ -60,6 +60,13 @@ Every v3 document has these top-level fields:
 - `stages`: one entry for every enabled DEV/UAT/PROD stage, and no disabled
   stages.
 
+A stage whose catalog is Polaris must name its object store's STS endpoint in
+`stages.<name>.storage.sts_endpoint`: Trino's catalogs hold no storage key and
+read only with the credentials Polaris vends through STS `AssumeRole` (ADR 0019
+section 9), so the parser refuses a Polaris stage on a store without one.
+SeaweedFS serves STS on its S3 port (local and Azure). A generic S3-compatible
+store (#803) and AWS on Polaris (#681) are not qualified yet.
+
 Each stage owns its namespace, distinct Bronze/Silver/Gold storage bindings,
 catalog and query bindings, orchestration, capability-dependent reporting and
 governance bindings, runtime identity, activation prefix, and endpoint

@@ -290,6 +290,7 @@
         "secret_access_key_key": {"type": "string"},
         "s3_service_name": {"type": "string"},
         "s3_service_port": {"type": ["integer", "string"]},
+        "sts_endpoint": {"type": "string"},
         "bronze": {"$ref": "#/definitions/layerStorage"},
         "silver": {"$ref": "#/definitions/layerStorage"},
         "gold": {"$ref": "#/definitions/layerStorage"}
