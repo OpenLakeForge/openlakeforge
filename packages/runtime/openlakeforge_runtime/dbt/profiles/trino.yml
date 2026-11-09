@@ -12,7 +12,11 @@
       cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
       schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
-      threads: 1
+      # One model at a time unless the stage says otherwise. Slim's Trino has a 2G heap whose usable 70% (1.4G)
+      # is smaller than two queries at the 1GB query.max-memory-per-node cap, and a single 41M-row Gold
+      # rebuild already OOM-killed its coordinator (#755); see release/query-sizes.yaml. Raising it trades
+      # concurrent query memory for wall time, so it is set per stage once a benchmark shows the Trino fits.
+      threads: "{{ env_var('OPENLAKEFORGE_DBT_THREADS', '1') | int }}"
       # The stage's Polaris token for a keyless catalog (#967); a keyed catalog ignores it, and it
       # is empty where the catalog has no token endpoint.
       http_headers:
