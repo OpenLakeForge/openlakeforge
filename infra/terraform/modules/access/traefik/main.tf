@@ -168,6 +168,7 @@ resource "helm_release" "edge" {
       # Otherwise the chart names the Service edge-traefik, and the CoreDNS rewrite would point at nothing.
       fullnameOverride = local.edge_name
       ingressClass     = { enabled = false }
+      logs             = { access = { enabled = true } } # the only record of what the fixture forwarded
       providers = {
         kubernetesIngress = { enabled = false }
         kubernetesCRD     = { enabled = false }

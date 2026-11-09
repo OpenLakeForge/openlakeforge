@@ -717,6 +717,7 @@ locals {
 
   # ipBlock cannot name a host, so profile-driven egress is any address on the
   # port the profile names (F23).
+  test_edge_pods = { "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "edge-olf-system" }
   profile_flows = concat(
     var.identity_issuer == "external" ? [{
       id = "F23"
@@ -728,6 +729,32 @@ locals {
       ports = [try(tonumber(regex("^(?i:https)://(?:\\[[^]]*\\]|[^/:?#]+):([0-9]+)", var.identity_external.issuer_url)[0]), 443)] # the issuer URL may name a port
       tag   = "T"
     }] : [],
+    # The e2e edge is not a workload, so it has no policy of its own; the rows below
+    # let callers of the public name reach it (the CoreDNS rewrite points the name
+    # at it) and let it reach Traefik, as F4/F9 do for Traefik itself.
+    var.access_tls == "external" && var.access_test_edge ? [
+      {
+        id    = "F-edge-stage"
+        from  = { scope = "stage" }
+        to    = { scope = "shared", pods = local.test_edge_pods }
+        ports = [8443]
+        tag   = "T"
+      },
+      {
+        id    = "F-edge-governance"
+        from  = { scope = "shared", pods = { "app.kubernetes.io/name" = "openmetadata", "app.kubernetes.io/instance" = "openmetadata" } }
+        to    = { scope = "shared", pods = local.test_edge_pods }
+        ports = [8443]
+        tag   = "T"
+      },
+      {
+        id    = "F-edge-ingress"
+        from  = { scope = "shared", pods = local.test_edge_pods }
+        to    = { scope = "shared", pods = { "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "traefik-olf-system" } }
+        ports = [8000]
+        tag   = "T"
+      },
+    ] : [],
     # F34: a stage's run pods reach the external sources the profile declares
     # for it (spec.stages.<stage>.source_egress.ports); nothing when it
     # declares none.
