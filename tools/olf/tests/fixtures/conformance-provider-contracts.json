@@ -17,10 +17,11 @@
         "protected_routes": [
           "shared/governance_service",
           "shared/portal",
-          "shared/query",
           "stage/dev/orchestration",
+          "stage/dev/query",
           "stage/dev/reporting",
           "stage/prod/orchestration",
+          "stage/prod/query",
           "stage/prod/reporting"
         ]
       },
@@ -41,11 +42,6 @@
           "exposure": "user-facing",
           "url": "https://olf.localhost"
         },
-        "shared/query": {
-          "enabled": true,
-          "exposure": "user-facing",
-          "url": "https://trino.olf.localhost"
-        },
         "stage/dev/orchestration": {
           "enabled": true,
           "exposure": "user-facing",
@@ -65,6 +61,16 @@
           "enabled": true,
           "exposure": "user-facing",
           "url": "https://superset-prod.olf.localhost"
+        },
+        "stage/dev/query": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://trino-dev.olf.localhost"
+        },
+        "stage/prod/query": {
+          "enabled": true,
+          "exposure": "user-facing",
+          "url": "https://trino-prod.olf.localhost"
         }
       },
       "tls_mode": "ingress-terminated"
@@ -260,7 +266,7 @@
       "ref": "shared/portal"
     },
     "query": {
-      "endpoint": "http://trino.olf-system:8080",
+      "endpoint": "http://trino.olf-dev:8080",
       "implementation": "query.trino",
       "ref": "shared/query"
     },
@@ -300,7 +306,7 @@
         "catalog": "shared/catalog_service",
         "governance": "stage/dev/endpoints/governance",
         "orchestration": "stage/dev/endpoints/orchestration",
-        "query": "shared/query",
+        "query": "stage/dev/query",
         "reporting": "stage/dev/endpoints/reporting"
       },
       "governance": {
@@ -324,9 +330,9 @@
         "catalog_name": "lakehouse_dev",
         "catalog_ref": "stage/dev/catalog",
         "credential_secret_name": "trino-credential",
-        "endpoint": "http://trino.olf-system:8080",
+        "endpoint": "http://trino.olf-dev:8080",
         "runtime_identity_ref": "stage/dev/runtime_identity",
-        "service_ref": "shared/query",
+        "service_ref": "stage/dev/query",
         "tls_port": "8443"
       },
       "reporting": {
@@ -400,7 +406,7 @@
         "catalog": "shared/catalog_service",
         "governance": "stage/prod/endpoints/governance",
         "orchestration": "stage/prod/endpoints/orchestration",
-        "query": "shared/query",
+        "query": "stage/prod/query",
         "reporting": "stage/prod/endpoints/reporting"
       },
       "governance": {
@@ -424,9 +430,9 @@
         "catalog_name": "lakehouse_prod",
         "catalog_ref": "stage/prod/catalog",
         "credential_secret_name": "trino-credential",
-        "endpoint": "http://trino.olf-system:8080",
+        "endpoint": "http://trino.olf-prod:8080",
         "runtime_identity_ref": "stage/prod/runtime_identity",
-        "service_ref": "shared/query",
+        "service_ref": "stage/prod/query",
         "tls_port": "8443"
       },
       "reporting": {

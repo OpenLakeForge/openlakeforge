@@ -342,7 +342,8 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
     for s in STAGES:
         expected |= _secret(f"olf-{s}", f"polaris-{s}-processing-creds", "POLARIS_PROCESSING", f"olf-{s}-processing")
         expected |= _secret(f"olf-{s}", f"polaris-{s}-deployer-creds", "POLARIS_DEPLOYER", f"deployer-{s}")
-        expected |= _secret("olf-system", f"polaris-{s}-trino-people-creds", "POLARIS", f"trino-people-{s}")
+        # Beside the stage's own Trino, which reads it (#1021).
+        expected |= _secret(f"olf-{s}", f"polaris-{s}-trino-people-creds", "POLARIS", f"trino-people-{s}")
     expected |= _secret("olf-system", "polaris-om-creds", "POLARIS_OM", "openmetadata")
     assert cluster.state(fake) == expected
 
@@ -542,12 +543,17 @@ def forwarded(polaris: tuple[FakePolaris, PolarisClient], monkeypatch: pytest.Mo
     return calls
 
 
-_TRINO = ("deployment/olf-system/trino-coordinator", "deployment/olf-system/trino-worker")
+# Each stage runs its own Trino in its own namespace (#1021), reading that namespace's Polaris credentials.
+_TRINO_DEV = ("deployment/olf-dev/trino-coordinator", "deployment/olf-dev/trino-worker")
+_TRINO_PROD = ("deployment/olf-prod/trino-coordinator", "deployment/olf-prod/trino-worker")
+_TRINO = (*_TRINO_DEV, *_TRINO_PROD)
 
 
 def _trino_restarts(cluster: Cluster) -> list[str]:
-    """The Trino Deployments a run patched, which rolls them out."""
-    return [argv[1] for argv in cluster.argv if argv[0] == "patch"]
+    """The Trino Deployments a run patched, which rolls them out, as `deployment/<namespace>/<name>`."""
+    return [
+        f"deployment/{argv[3]}/{argv[1].removeprefix('deployment/')}" for argv in cluster.argv if argv[0] == "patch"
+    ]
 
 
 def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
@@ -568,21 +574,23 @@ def test_trino_restarts_when_a_credential_it_reads_changes(
     for deployment in _TRINO:
         cluster.put(*deployment.split("/"), {})
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
-    restarted = ["deployment/trino-coordinator", "deployment/trino-worker"]
-    assert _trino_restarts(cluster) == restarted
-    assert ["rollout", "status", "deployment/trino-worker", "-n", "olf-system", "--timeout=300s"] in cluster.argv
+    assert _trino_restarts(cluster) == list(_TRINO)
+    for namespace in ("olf-dev", "olf-prod"):
+        assert ["rollout", "status", "deployment/trino-worker", "-n", namespace, "--timeout=300s"] in cluster.argv
     cluster.argv.clear()
-    # The window the pending marker exists for: Trino's credential is rotated on the next run.
+    # The window the pending marker exists for: PROD's people credential is rotated on the next run. The marker
+    # sits beside the credential, in the namespace of the Trino that reads it.
     cluster.put(
         "configmap",
-        "olf-system",
+        "olf-prod",
         "polaris-prod-trino-people-creds-bootstrap-pending",
         {"principal": "trino-people-prod"},
     )
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    assert _trino_restarts(cluster) == restarted
+    # Only the stage whose credential changed restarts its Trino; DEV's reads nothing that changed.
+    assert _trino_restarts(cluster) == list(_TRINO_PROD)
 
 
 def test_a_rerun_restarts_trino_when_the_run_that_rotated_its_credential_failed(
@@ -596,7 +604,7 @@ def test_a_rerun_restarts_trino_when_the_run_that_rotated_its_credential_failed(
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
     cluster.put(
         "configmap",
-        "olf-system",
+        "olf-prod",
         "polaris-prod-trino-people-creds-bootstrap-pending",
         {"principal": "trino-people-prod"},
     )
@@ -609,7 +617,7 @@ def test_a_rerun_restarts_trino_when_the_run_that_rotated_its_credential_failed(
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    assert _trino_restarts(cluster) == ["deployment/trino-coordinator", "deployment/trino-worker"]
+    assert _trino_restarts(cluster) == list(_TRINO_PROD)
 
 
 def test_trino_keeps_running_when_nothing_it_reads_changed(
@@ -621,12 +629,25 @@ def test_trino_keeps_running_when_nothing_it_reads_changed(
     cluster.argv.clear()
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
-    # A removed-then-re-enabled DEV: its namespace's own credentials rotate, and Trino reads none of them.
+
+    assert _trino_restarts(cluster) == []
+
+
+def test_a_re_enabled_stage_restarts_only_its_own_trino(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster, forwarded: list[tuple[str, ...]]
+) -> None:
+    for deployment in _TRINO:
+        cluster.put(*deployment.split("/"), {})
+    bootstrap_from_contract(_contracts(), environ=_ENVIRON)
+    cluster.argv.clear()
+
+    # A removed-then-re-enabled DEV: its namespace's credentials rotate, and DEV's Trino reads them (its workload
+    # catalog's is `olf-dev-processing`). PROD's Trino reads none of them.
     cluster.save({k: v for k, v in cluster.load().items() if not k.startswith("secret/olf-dev/")})
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
     assert "secret/olf-dev/polaris-dev-processing-creds" in cluster.load()
-    assert _trino_restarts(cluster) == []
+    assert _trino_restarts(cluster) == list(_TRINO_DEV)
 
 
 def test_every_deploy_waits_for_trino_which_helm_no_longer_waits_for(
@@ -637,9 +658,9 @@ def test_every_deploy_waits_for_trino_which_helm_no_longer_waits_for(
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    # The conformance contract keeps one coordinator in olf-system; the stages' processing credentials sit in theirs.
+    # Each stage runs its own Trino in its own namespace (#1021): the deploy waits for each, and for none in olf-system.
     waited = [argv[6] for argv in cluster.argv if argv[0] == "rollout"]
-    assert sorted(waited) == ["olf-dev", "olf-prod", "olf-system"]
+    assert sorted(waited) == ["olf-dev", "olf-prod"]
 
 
 def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

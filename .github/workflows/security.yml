@@ -68,7 +68,18 @@ jobs:
       - name: Check suppressions are owned and unexpired
         run: uv run --project tools/olf --locked olf check security
 
+      # setup-trivy's install.sh exits 1 without a message when a release download is
+      # not HTTP 200 and has no retry, so one bad download failed this job at setup.
+      # The second attempt is the same pinned action; a failure there still fails the job.
       - name: Setup Trivy
+        id: setup-trivy
+        continue-on-error: true
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.76.1
+
+      - name: Setup Trivy (retry)
+        if: steps.setup-trivy.outcome == 'failure'
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
         with:
           version: v0.76.1

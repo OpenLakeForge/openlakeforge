@@ -15,6 +15,7 @@ from openlakeforge_services.dagster import (  # noqa: F401 - re-exported
     DagsterHTTPError,
     DagsterTransientError,
 )
+from urllib3.exceptions import NewConnectionError
 
 from olf.common import log
 from olf.infra import access, k8s
@@ -31,18 +32,48 @@ DAGSTER_RELEASE_NAME = "dagster"
 DAGSTER_WEBSERVER_SERVICE_NAME = f"{DAGSTER_RELEASE_NAME}-dagster-webserver"
 
 
+def _never_reached_server(exc: BaseException) -> bool:
+    """Whether `exc` is a connection-establishment failure, found anywhere in its cause/args chain."""
+    pending: list[Any] = [exc]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, NewConnectionError | ConnectionRefusedError):
+            return True
+        if isinstance(current, BaseException):
+            pending += [current.__cause__, current.__context__, *current.args]
+            pending.append(getattr(current, "reason", None))
+    return False
+
+
 def _graphql_over(route: access.Route) -> Callable[[str, Mapping[str, Any] | None], Mapping[str, Any]]:
     """DagsterClient's GraphQL transport, sent through the route's proxy exemption and CA."""
     session = route.session()
 
+    def post(query: str, variables: Mapping[str, Any] | None) -> requests.Response:
+        return session.post(
+            f"{route.url}/graphql",
+            json={"query": query, "variables": variables or {}},
+            headers={"Accept": "application/json"},
+            timeout=30,
+        )
+
     def request_json(query: str, variables: Mapping[str, Any] | None) -> Mapping[str, Any]:
         try:
-            response = session.post(
-                f"{route.url}/graphql",
-                json={"query": query, "variables": variables or {}},
-                headers={"Accept": "application/json"},
-                timeout=30,
-            )
+            try:
+                response = post(query, variables)
+            except requests.ConnectionError as exc:
+                # The webserver pod is Ready but the kubectl forward in front of it can die mid-suite; a plain
+                # retry against the dead local port would only repeat "connection refused". Only a request that
+                # never reached the server is replayed: after a reset mid-flight Dagster may already have acted
+                # on it, and replaying `launchPipelineExecution` would start the run twice.
+                if route.revive is None or not _never_reached_server(exc):
+                    raise
+                route.revive()
+                response = post(query, variables)
             response.raise_for_status()
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
@@ -77,6 +108,7 @@ def dagster_client(cfg: E2EConfig) -> Iterator[DagsterClient]:
         namespace=cfg.namespace,
         local_port=cfg.dagster_local_port,
         log_path=log_path,
+        revivable=True,
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
         environ=cfg_environ(cfg),
