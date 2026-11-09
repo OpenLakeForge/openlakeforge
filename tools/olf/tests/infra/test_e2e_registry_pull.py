@@ -134,6 +134,7 @@ class Cluster:
         self.cache: dict[str, set[str]] = {"cp": set(), "w1": {IMAGE}, "w2": {IMAGE}}
         self.cordoned: set[str] = set()
         self.stale: dict[str, list[str]] = {}
+        self.config_digest = "sha256:1"
         self.purge_works = purge_works
         self.pods: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
@@ -167,14 +168,21 @@ class Cluster:
         return ""
 
     def ctr(self, node: str, args: list[str]) -> str:
-        names = [f"{REPOSITORY}@sha256:reg"] if IMAGE in self.cache[node] else []
-        names += self.stale.get(node, [])
+        names = {f"{REPOSITORY}@sha256:reg": "sha256:reg"} if IMAGE in self.cache[node] else {}
+        names |= {name: "sha256:imp" for name in self.stale.get(node, [])}
+        if args[0] == "get":
+            # The registry manifest names the config directly; the kind import is an index over a different
+            # manifest, so its manifest digest differs while the config digest (the image ID) is the same.
+            config = {"config": {"digest": self.config_digest}}
+            if args[1] == "sha256:reg" or args[1] == "sha256:child":
+                return json.dumps(config)
+            return json.dumps({"manifests": [{"digest": "sha256:child"}]})
         if args[0] == "rm":
             self.stale[node] = [n for n in self.stale.get(node, []) if n not in args]
             return ""
         header = "REF TYPE DIGEST SIZE PLATFORMS LABELS"
         return "\n".join(
-            [header, *(f"{n} application/vnd.oci.image.index.v1+json sha256:7e4d 360MiB - -" for n in names)]
+            [header, *(f"{n} application/vnd.oci.image.index.v1+json {d} 360MiB - -" for n, d in names.items())]
         )
 
     def kubectl(self, cfg: object, args: list[str], *, capture: bool = False, **_: object) -> str:
@@ -319,8 +327,8 @@ def test_a_run_job_created_after_activation_without_the_secret_fails(
         registry_pull.check(_cfg())
 
 
-def test_names_left_by_kind_load_on_the_same_target_are_removed_with_the_image(cluster: Cluster) -> None:
-    stale = "docker.io/library/import-2026-11-09@sha256:7e4d"
+def test_a_kind_import_name_with_another_manifest_digest_but_the_same_image_id_is_removed(cluster: Cluster) -> None:
+    stale = "docker.io/library/import-2026-11-09@sha256:0836"
     cluster.stale = {"w1": [stale], "w2": [stale]}
 
     registry_pull.purge_image(_cfg(), IMAGE)
@@ -328,12 +336,37 @@ def test_names_left_by_kind_load_on_the_same_target_are_removed_with_the_image(c
     assert cluster.stale["w1"] == [] and cluster.stale["w2"] == []
 
 
+def test_an_import_name_for_another_image_is_left_alone(cluster: Cluster) -> None:
+    stale = "docker.io/library/import-2026-11-09@sha256:0836"
+    cluster.stale = {"w1": [stale], "w2": [stale]}
+    cluster.config_digest = "sha256:other"
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.stale["w1"] == [stale]
+
+
+def test_the_config_digest_is_found_through_an_index() -> None:
+    blobs = {"sha256:child": json.dumps({"config": {"digest": "sha256:cfg"}})}
+
+    found = registry_pull.config_digest(json.dumps({"manifests": [{"digest": "sha256:child"}]}), blobs.__getitem__)
+
+    assert found == "sha256:cfg"
+
+
+def test_only_names_under_the_repository_or_left_by_kind_load_are_candidates() -> None:
+    refs = {f"{REPOSITORY}@sha256:a": "x", "docker.io/library/import-1@sha256:b": "y", "registry.k8s.io/pause:3.9": "z"}
+
+    assert registry_pull.names_of_images(refs, REPOSITORY) == [
+        "docker.io/library/import-1@sha256:b",
+        f"{REPOSITORY}@sha256:a",
+    ]
+
+
 def test_containerd_names_are_matched_to_digests_by_column() -> None:
-    listing = "REF TYPE DIGEST SIZE\na t sha256:1 1MiB\nb t sha256:2 1MiB\nc t sha256:1 1MiB\n"
+    listing = "REF TYPE DIGEST SIZE\na t sha256:1 1MiB\nb t sha256:2 1MiB\n"
 
-    refs = registry_pull.containerd_refs(listing)
-
-    assert registry_pull.stale_refs(refs, {"sha256:1"}) == ["a", "c"]
+    assert registry_pull.containerd_refs(listing) == {"a": "sha256:1", "b": "sha256:2"}
 
 
 def test_a_pod_that_cannot_start_is_explained_by_its_waiting_reason_and_events() -> None:
