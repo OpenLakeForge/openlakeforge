@@ -93,7 +93,10 @@ locals {
         # keeps the old one and the idle timeout never slides. The
         # session is split over several cookies when it outgrows one.
         addAuthCookiesToResponse = concat([local.cookie_name], [for index in range(6) : "${local.cookie_name}_${index}"])
-        trustForwardHeader       = false
+        # Without this the middleware rebuilds X-Forwarded-Proto/Host from its own plain-HTTP connection, so
+        # behind the customer's edge the proxy would send people back to http://. The web entrypoint has
+        # already dropped those headers from any peer outside its trusted upstream (modules/access/traefik).
+        trustForwardHeader = var.trust_forward_header
       }
     }
   }

@@ -257,3 +257,25 @@ def test_the_local_ca_is_read_from_the_cluster_the_supplied_environ_names(
     with _reach(environ=environ) as route:
         assert isinstance(route.verify, str)
         assert Path(route.verify).read_text().endswith("CONTRACT-CA-PEM\n")
+
+
+def test_an_external_route_resolves_through_the_customers_dns_unless_the_e2e_edge_is_named(
+    monkeypatch: pytest.MonkeyPatch, forwarded: list[str]
+) -> None:
+    monkeypatch.setenv(
+        access.ACCESS_ENV,
+        json.dumps({"tls": "external", "routes": {"stage/dev/reporting": "https://superset-dev.example.test"}}),
+    )
+    monkeypatch.delenv("OLF_EDGE_RESOLVE", raising=False)
+
+    with _reach() as route:
+        assert route.verify is True
+
+    monkeypatch.setenv("OLF_EDGE_RESOLVE", "example.test=127.0.0.1")
+    with _reach() as route:
+        assert isinstance(route.verify, str) and "LOCAL-CA-PEM" in Path(route.verify).read_text()
+        pinned = socket.getaddrinfo("superset-dev.example.test", 443, type=socket.SOCK_STREAM)
+        other = socket.getaddrinfo("localhost", 443, type=socket.SOCK_STREAM)
+
+    assert {info[4][0] for info in pinned} == {"127.0.0.1"}
+    assert other

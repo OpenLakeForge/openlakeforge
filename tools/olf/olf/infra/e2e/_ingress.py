@@ -210,9 +210,11 @@ def _no_ingress(cfg: E2EConfig) -> bool:
 
 
 def _no_route_tls(cfg: E2EConfig) -> bool:
-    # spec.access.tls none serves plain HTTP: there is no route certificate to renew.
-    if load_provider_contracts_or_raise(cfg)["shared"]["access"].get("tls_mode") == "none":
-        log.info("Skipping the certificate renewal drill: routes are served over plain HTTP.")
+    # Only `ingress-terminated` has a route certificate to renew: `none` serves plain HTTP, and under
+    # `edge-terminated` the customer's proxy owns the certificate.
+    mode = load_provider_contracts_or_raise(cfg)["shared"]["access"].get("tls_mode")
+    if mode in ("none", "edge-terminated"):
+        log.info(f"Skipping the certificate renewal drill: Traefik holds no route certificate (tls_mode {mode}).")
         return True
     return False
 

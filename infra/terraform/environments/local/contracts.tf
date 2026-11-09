@@ -322,12 +322,15 @@ locals {
   # spec.access stays unauthenticated unless the level is set explicitly.
   trino_workload_authentication = coalesce(var.trino_workload_authentication, local.access_enabled ? "password" : "off")
   identity_enabled              = var.identity_issuer != null
-  # Route TLS (route certificates) is the one TLS-specific switch; `tls:
-  # none` is plain HTTP on *.localhost. cert-manager and the local CA stay
-  # deployed with spec.access: pods still mount the CA ConfigMap, and Trino's
+  # `tls: none` is plain HTTP on *.localhost; `local-ca` terminates HTTPS at
+  # Traefik with a route certificate; `external` has the customer's edge
+  # terminate it, so Traefik serves HTTP but every URL, callback and cookie is
+  # https. cert-manager and the local CA stay deployed with spec.access: Trino's
   # internal certificate (ADR 0016) needs the issuer.
-  route_tls    = local.access_enabled && var.access_tls != "none"
-  route_scheme = local.route_tls ? "https" : "http"
+  route_tls    = local.access_enabled && var.access_tls == "local-ca"
+  public_https = local.access_enabled && var.access_tls != "none"
+  route_scheme = local.public_https ? "https" : "http"
+  tls_mode     = local.route_tls ? "ingress-terminated" : (local.public_https ? "edge-terminated" : "none")
   # coalesce() skips "" too, so it fails on a null quickstart domain.
   base_domain = var.access_base_domain == null ? "" : var.access_base_domain
 
@@ -543,7 +546,7 @@ locals {
     cluster_issuer_name  = try(module.cert_manager[0].cluster_issuer_name, null)
     base_domain          = var.access_base_domain
     tls                  = var.access_tls
-    tls_mode             = local.route_tls ? "ingress-terminated" : "none"
+    tls_mode             = local.tls_mode
     internal_access_mode = "cluster-dns"
     routes = {
       for ref, route in local.access_routes : ref => { url = "${local.route_scheme}://${route.host}", enabled = true, exposure = "user-facing" }

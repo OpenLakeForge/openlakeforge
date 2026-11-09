@@ -104,12 +104,17 @@ on:
           keeps the conformance profile's HTTPS routes. 'none' switches
           spec.access.tls to plain HTTP, the local default since #948, so
           a run with restore_drill proves a backup without local-ca restores
-          (#958). The provider-contract fixture describes local-ca, so a
-          'none' run skips that comparison.
+          (#958). 'external' (#990) sets spec.access.tls to external on
+          base_domain olf.example.test and deploys a TLS-terminating proxy in
+          front of Traefik that plays the customer's edge; the run signs in,
+          queries and opens every route through it. The provider-contract
+          fixture describes local-ca, so a 'none' or 'external' run skips
+          that comparison.
         type: choice
         options:
           - local-ca
           - none
+          - external
         default: local-ca
       debug_fail_after_deploy:
         description: >
@@ -269,6 +274,15 @@ jobs:
           if [ "${{ inputs.access_tls || 'local-ca' }}" = "none" ]; then
             sed -i 's/^    tls: local-ca$/    tls: none/' openlakeforge.yaml
             grep -qx '    tls: none' openlakeforge.yaml
+          fi
+          if [ "${{ inputs.access_tls || 'local-ca' }}" = "external" ]; then
+            sed -i 's/^    tls: local-ca$/    tls: external\n    base_domain: olf.example.test\n    trusted_proxies: [10.244.0.0\/16]/' openlakeforge.yaml
+            grep -qx '    tls: external' openlakeforge.yaml
+            # The fixture edge is a pod, so Traefik sees it from kind's default pod CIDR.
+            # The fixture edge listens on this runner (hostPort 443) and the
+            # clients resolve the public name to it; it is signed by the local CA.
+            echo "OLF_E2E_TEST_EDGE=1" >> "${GITHUB_ENV}"
+            echo "OLF_EDGE_RESOLVE=olf.example.test=127.0.0.1" >> "${GITHUB_ENV}"
           fi
           olf profile validate --project .
           olf project validate --project . > /dev/null

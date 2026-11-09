@@ -191,11 +191,14 @@ def test_a_route_behind_the_perimeter_answers_only_with_a_redirect_to_login_from
             server.server_close()
 
 
-def test_renewal_drill_skips_when_routes_are_plain_http(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("tls_mode", ["none", "edge-terminated"])
+def test_renewal_drill_skips_when_traefik_holds_no_route_certificate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tls_mode: str
+) -> None:
     commands = _drill(monkeypatch, [])
     monkeypatch.setattr(_ingress, "_no_route_tls", _REAL_NO_ROUTE_TLS)
     monkeypatch.setattr(
-        _ingress, "load_provider_contracts_or_raise", lambda _cfg: {"shared": {"access": {"tls_mode": "none"}}}
+        _ingress, "load_provider_contracts_or_raise", lambda _cfg: {"shared": {"access": {"tls_mode": tls_mode}}}
     )
 
     _ingress.check_certificate_renewal(e2e_cfg(tmp_path))

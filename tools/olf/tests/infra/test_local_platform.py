@@ -155,6 +155,32 @@ def test_access_and_identity_blocks_are_the_switches_for_the_ingress_and_the_iss
     assert "identity_external" not in variables
 
 
+def test_tls_external_carries_the_profiles_trusted_proxies_and_only_the_e2e_deploys_an_edge(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.common.profile import AccessSpec
+
+    access = AccessSpec(
+        base_domain="olf.example.test", tls="external", trusted_proxies=("203.0.113.0/24", "198.51.100.7/32")
+    )
+    config = _config(tmp_path, topology=replace(_topology(), access=access))
+
+    default = platform.access_variables(config, {})
+    assert json.loads(default["access_trusted_proxies"]) == ["203.0.113.0/24", "198.51.100.7/32"]
+    assert default["access_test_edge"] == "false"
+    assert platform.access_variables(config, {platform.TEST_EDGE_ENV: "1"})["access_test_edge"] == "true"
+
+
+def test_a_tls_none_or_local_ca_root_gets_no_edge_inputs(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from olf.common.profile import AccessSpec
+
+    topology = replace(_topology(), access=AccessSpec(tls="local-ca"))
+    variables = platform.access_variables(_config(tmp_path, topology=topology), {platform.TEST_EDGE_ENV: "1"})
+    assert "access_trusted_proxies" not in variables and "access_test_edge" not in variables
+
+
 def test_an_external_issuer_carries_its_claim_mapping_into_the_root(tmp_path: Path) -> None:
     from dataclasses import replace
 
@@ -668,9 +694,7 @@ def test_an_unreadable_state_does_not_read_as_no_stages(tmp_path: Path) -> None:
             return _ok()
 
     with pytest.raises(CommandExecutionError):
-        platform.require_no_stage_removal(
-            config, _toolkit(_Runner()), kube_context=config.kube_context, env={}
-        )
+        platform.require_no_stage_removal(config, _toolkit(_Runner()), kube_context=config.kube_context, env={})
 
 
 def test_a_dropped_stage_still_in_the_cluster_fails_closed_without_state(tmp_path: Path) -> None:
@@ -764,9 +788,9 @@ def test_a_stage_named_by_both_signals_is_reported_once(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True))
     tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
 
-    assert platform.deployed_stages_the_topology_dropped(
-        config, tools, kube_context=config.kube_context, env={}
-    ) == ("prod",)
+    assert platform.deployed_stages_the_topology_dropped(config, tools, kube_context=config.kube_context, env={}) == (
+        "prod",
+    )
 
 
 class _SecretRunner(RecordingRunner):
@@ -878,7 +902,14 @@ def _needed(tmp_path: Path, runner: RecordingRunner, *, cluster: bool, flag: boo
     ids=["no-cluster", "no-secret", "secret", "piped", "ci", "flag"],
 )
 def test_github_connect_is_needed_only_when_interactive_and_the_secret_is_absent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cluster, runner, tty, ci, flag, expected  # noqa: ANN001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cluster,
+    runner,
+    tty,
+    ci,
+    flag,
+    expected,  # noqa: ANN001
 ) -> None:
     _interactive(monkeypatch, tty=tty, ci=ci)
     assert _needed(tmp_path, runner, cluster=cluster, flag=flag) is expected
@@ -1059,9 +1090,10 @@ def test_source_egress_reaches_the_root_only_for_enabled_stages_that_declare_por
     from dataclasses import replace
 
     topology = _topology(dev=True, prod=True)
-    assert json.loads(platform.platform_apply_variables(_config(tmp_path, topology=topology))[
-        "stage_source_egress_ports"
-    ]) == {}
+    assert (
+        json.loads(platform.platform_apply_variables(_config(tmp_path, topology=topology))["stage_source_egress_ports"])
+        == {}
+    )
 
     stages = tuple(
         replace(stage, source_egress_ports=(443, 5432)) if stage.name.value in {"dev", "uat"} else stage

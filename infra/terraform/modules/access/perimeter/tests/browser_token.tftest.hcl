@@ -115,3 +115,30 @@ run "no_internal_url_discovers_the_issuer" {
     error_message = "an external issuer is discovered at its public URL"
   }
 }
+
+run "forward_auth_trusts_forwarded_headers_only_when_asked" {
+  command = plan
+
+  variables {
+    login_audience = "olf-cli"
+  }
+
+  assert {
+    condition     = alltrue([for name, middleware in output.traefik_dynamic_config.http.middlewares : middleware.forwardAuth.trustForwardHeader == false if contains(keys(middleware), "forwardAuth")])
+    error_message = "by default no forward-auth middleware may trust the request's X-Forwarded-* headers"
+  }
+}
+
+run "forward_auth_keeps_the_edges_scheme_for_tls_external" {
+  command = plan
+
+  variables {
+    login_audience       = "olf-cli"
+    trust_forward_header = true
+  }
+
+  assert {
+    condition     = alltrue([for name, middleware in output.traefik_dynamic_config.http.middlewares : middleware.forwardAuth.trustForwardHeader == true if contains(keys(middleware), "forwardAuth")])
+    error_message = "behind the customer's edge every forward-auth middleware must keep X-Forwarded-Proto and -Host"
+  }
+}

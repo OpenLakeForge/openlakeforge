@@ -24,6 +24,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    | --- | --- | --- |
    | `base_domain` | `olf.localhost` | e.g. `olf.example.com` |
    | `tls` | `none` (plain HTTP) | `external`: your reverse proxy, tunnel or load balancer terminates HTTPS |
+   | `trusted_proxies` | none | with `external`: the CIDR blocks of that proxy, the only peers whose `X-Forwarded-*` headers are believed |
 
    The defaults need neither a purchased domain nor a public server, nor a
    certificate. `local-ca`, a CA the platform creates, is opt-in HTTPS for an
@@ -87,8 +88,15 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    node. cert-manager signs from a `local-ca` ClusterIssuer whose root is
    self-signed once and never rotated by a re-deploy; `olf infra deploy` waits for
    a probe certificate from it. `tls_mode` is therefore `ingress-terminated` for `tls: local-ca`
-   (`none` for plain HTTP, `edge-terminated` for `external`, which the local
-   adapter does not build yet: #990). One wildcard
+   (`none` for plain HTTP, `edge-terminated` for `external`: Traefik serves only
+   `web`, with no TLS store, no certificate and no host port 443, and trusts
+   `X-Forwarded-Proto` and `-Host` only from `forwardedHeaders.trustedIPs`, set
+   from the profile's `spec.access.trusted_proxies` (required with `external`,
+   refused otherwise, never `0.0.0.0/0`); Traefik discards those headers from any other peer, so
+   a forged one is never read as HTTPS; the perimeter's forward-auth middleware
+   keeps them (`trustForwardHeader`) only in this mode, since otherwise it
+   rebuilds them from its own HTTP connection and oauth2-proxy would send
+   the browser back to `http://`). One wildcard
    certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
    does not match the apex), is issued in the shared namespace by
    cert-manager's ingress-shim and is Traefik's default certificate
@@ -128,6 +136,11 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    (`http://dex.olf-system.svc.cluster.local:5556`), over plain HTTP: the
    perimeter proxy, Polaris and the platform API do. An `external` issuer has
    no `internal_url` and is reached at its public, publicly trusted URL.
+   With `tls: external` the rewrite is not applied: the public name belongs to
+   the customer's edge, and Traefik behind it serves no TLS. The three callers
+   below then reach the public name through the customer's DNS and need a
+   publicly trusted certificate; the e2e fixture keeps the rewrite, pointed at a
+   TLS-terminating proxy that stands in for the edge.
    Three callers cannot yet follow the contract and still call the public URL
    from inside the cluster: OpenMetadata (its code exchange follows the
    discovery document, whose endpoints are public URLs), Superset (Authlib
@@ -153,7 +166,9 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
    certificate (ADR 0016) and the CA ConfigMap the pods mount are
    independent of the routes. Once the keyless engine of ADR 0019 section 9 lands
    (#967), Trino no longer has a certificate, and whether cert-manager is
-   still needed with this mode is settled in #391. With this mode the CA is disposable: nothing
+   still needed with this mode is settled in #391; `tls: external` deploys
+   cert-manager and the CA on the same terms (no route certificate, only
+   Trino's). With this mode the CA is disposable: nothing
    outside the cluster trusts it and the pods mount it by path, so it is not
    backed up and a restore or rebuild keeps the platform's own CA. Not for any other provider or a public domain;
    the validator rejects both, and public exposure (#340) must reject it too.
@@ -195,7 +210,12 @@ terminates HTTPS in front of OpenLakeForge, Traefik serves HTTP, and
 `shared.access.tls_mode` is `edge-terminated` while every route URL is
 `https://`. `external` is refused on `*.localhost`. v1alpha1 profiles that say
 `issuer` are read as `tls`; contracts already in state keep the old key and are
-read the same way. The local adapter for `external` is #990.
+read the same way.
+
+#990 built the local adapter for `external` (decisions 1, 6, 8): Traefik serves
+HTTP behind the customer's HTTPS and trusts forwarded headers only from a
+range the profile names (`spec.access.trusted_proxies`), and every URL, callback and cookie is `https://`. The
+end-to-end variant runs a TLS-terminating proxy in front of Traefik.
 
 Decision 8 (#991): the perimeter proxy, Polaris and the platform API reach
 Dex at its Service (`internal_url`) instead of through Traefik and the local

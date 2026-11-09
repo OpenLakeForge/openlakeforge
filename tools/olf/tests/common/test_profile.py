@@ -266,10 +266,55 @@ def test_an_empty_access_block_asks_for_the_defaults_and_identity_may_follow() -
     assert resolve_topology(validate_deployment_profile(document)).identity.issuer == "github"
 
 
+def _access(**fields: object) -> dict:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["access"] = {"base_domain": "olf.example.com", **fields}
+    document["spec"]["identity"] = _github_identity()
+    return document
+
+
+def test_tls_external_carries_its_trusted_proxies_normalised() -> None:
+    document = _access(tls="external", trusted_proxies=["203.0.113.0/24", "198.51.100.7", "2001:db8::/32"])
+    access = validate_deployment_profile(document).access
+    assert access is not None and access.trusted_proxies == ("203.0.113.0/24", "198.51.100.7/32", "2001:db8::/32")
+
+
+@pytest.mark.parametrize("missing", [{}, {"trusted_proxies": []}, {"trusted_proxies": "203.0.113.0/24"}])
+def test_tls_external_requires_trusted_proxies(missing: dict) -> None:
+    with pytest.raises(DeploymentProfileError, match="trusted_proxies is required with tls 'external'"):
+        validate_deployment_profile(_access(tls="external", **missing))
+
+
+@pytest.mark.parametrize("tls", ["none", "local-ca"])
+def test_trusted_proxies_is_refused_with_any_other_tls(tls: str) -> None:
+    document = _access(tls=tls, trusted_proxies=["203.0.113.0/24"])
+    if tls == "none":
+        document["spec"]["access"]["base_domain"] = "olf.localhost"
+    with pytest.raises(DeploymentProfileError, match="only valid with tls 'external'"):
+        validate_deployment_profile(document)
+
+
+@pytest.mark.parametrize("entry", ["not-a-cidr", "203.0.113.1/24", "10.0.0.0/33", 7, "0.0.0.0/0", "::/0"])
+def test_trusted_proxies_entries_must_be_cidr_blocks_that_trust_a_bounded_range(entry: object) -> None:
+    with pytest.raises(DeploymentProfileError, match="trusted_proxies"):
+        validate_deployment_profile(_access(tls="external", trusted_proxies=[entry]))
+
+
+def test_the_schema_requires_trusted_proxies_exactly_with_tls_external(tmp_path: Path) -> None:
+    assert not _schema_errors(_access(tls="external", trusted_proxies=["203.0.113.0/24"]), tmp_path)
+    assert _schema_errors(_access(tls="external"), tmp_path)
+    assert _schema_errors(_access(tls="local-ca", trusted_proxies=["203.0.113.0/24"]), tmp_path)
+    assert _schema_errors(_access(trusted_proxies=["203.0.113.0/24"]), tmp_path)
+
+
 def test_access_accepts_a_real_domain() -> None:
     document = _load_fixture("valid_slim_local.yaml")
 
-    document["spec"]["access"] = {"base_domain": "olf.example.com", "tls": "external"}
+    document["spec"]["access"] = {
+        "base_domain": "olf.example.com",
+        "tls": "external",
+        "trusted_proxies": ["203.0.113.0/24"],
+    }
     document["spec"]["identity"] = {
         "issuer": "external",
         "issuer_url": "https://login.example.com/",
@@ -277,7 +322,7 @@ def test_access_accepts_a_real_domain() -> None:
         "role_mapping": {"platform-admin": ["olf-admins"]},
     }
     assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
-        "olf.example.com", "external"
+        "olf.example.com", "external", ("203.0.113.0/24",)
     )
 
 
@@ -614,10 +659,16 @@ def test_a_v1alpha1_issuer_is_read_as_tls() -> None:
 
 def test_external_tls_is_accepted_on_a_public_domain() -> None:
     document = _load_fixture("valid_slim_local.yaml")
-    document["spec"]["access"] = {"tls": "external", "base_domain": "olf.example.com"}
+    document["spec"]["access"] = {
+        "tls": "external",
+        "base_domain": "olf.example.com",
+        "trusted_proxies": ["203.0.113.0/24"],
+    }
     document["spec"]["identity"] = _github_identity()
 
-    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.example.com", "external")
+    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec(
+        "olf.example.com", "external", ("203.0.113.0/24",)
+    )
 
 
 def test_external_tls_is_refused_on_localhost() -> None:
@@ -649,7 +700,7 @@ def test_github_host_is_optional_and_must_be_a_bare_hostname() -> None:
     [
         ("aws", {}),
         ("azure", {"base_domain": "olf.example.com"}),
-        ("local", {"base_domain": "olf.example.com", "tls": "external"}),
+        ("local", {"base_domain": "olf.example.com", "tls": "external", "trusted_proxies": ["203.0.113.0/24"]}),
     ],
 )
 def test_authentication_off_is_rejected_when_routes_would_leave_the_machine(provider: str, access: dict) -> None:

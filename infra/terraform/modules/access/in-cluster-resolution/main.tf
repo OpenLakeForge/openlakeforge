@@ -28,6 +28,8 @@ locals {
 # Owns the whole Corefile key and removes it on destroy; platform teardown
 # (deployment/local/teardown.py) restores the stock Corefile afterwards.
 resource "kubernetes_config_map_v1_data" "corefile" {
+  count = var.rewrite_to_ingress ? 1 : 0
+
   metadata {
     name      = "coredns"
     namespace = "kube-system"
@@ -195,4 +197,9 @@ resource "kubernetes_job_v1" "publish_ca" {
   }
 
   depends_on = [kubernetes_role_binding_v1.publish_ca]
+}
+
+moved {
+  from = kubernetes_config_map_v1_data.corefile
+  to   = kubernetes_config_map_v1_data.corefile[0]
 }
