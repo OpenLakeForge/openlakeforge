@@ -117,3 +117,9 @@ variable "github_organization" {
   type        = string
   default     = null
 }
+
+variable "trust_forward_header" {
+  description = "Whether the forward-auth middleware keeps the X-Forwarded-Proto and -Host it received. True only with spec.access.tls external, where the customer's edge sets them and the web entrypoint trusts that edge alone; false otherwise, so a client cannot choose the scheme the proxy redirects back to."
+  type        = bool
+  default     = false
+}

@@ -367,23 +367,25 @@ module "perimeter" {
   source = "../../modules/access/perimeter"
   count  = local.identity_enabled ? 1 : 0
 
-  namespace         = kubernetes_namespace_v1.shared.metadata[0].name
-  base_domain       = local.base_domain
-  callback_host     = local.perimeter_callback_host
-  portal_url        = "${local.route_scheme}://${local.base_domain}"
-  route_scheme      = local.route_scheme
-  internal_url      = local.identity_oidc.internal_url
-  identity_roles    = local.identity_roles
-  role_mapping      = local.identity_oidc.role_mapping
-  role_claim        = local.identity_oidc.role_claim
-  issuer_url        = local.identity_oidc.issuer_url
-  client_id         = local.identity_oidc.clients.perimeter.client_id
-  client_secret_ref = local.identity_oidc.clients.perimeter.secret_ref
-  cli_client_id     = local.identity_oidc.clients["olf-cli"].client_id
-  protected_refs    = local.perimeter_protected_refs
-  path_refs         = local.query_api_enabled ? [for name in keys(local.enabled_stages) : "stage/${name}/query_api"] : []
-  scope             = local.identity_scope
-  login_audience    = local.identity_dex ? local.identity_oidc.clients["olf-cli"].client_id : null
+  namespace     = kubernetes_namespace_v1.shared.metadata[0].name
+  base_domain   = local.base_domain
+  callback_host = local.perimeter_callback_host
+  portal_url    = "${local.route_scheme}://${local.base_domain}"
+  route_scheme  = local.route_scheme
+  # Behind the customer's edge the original scheme and host arrive in forwarded headers.
+  trust_forward_header = var.access_tls == "external"
+  internal_url         = local.identity_oidc.internal_url
+  identity_roles       = local.identity_roles
+  role_mapping         = local.identity_oidc.role_mapping
+  role_claim           = local.identity_oidc.role_claim
+  issuer_url           = local.identity_oidc.issuer_url
+  client_id            = local.identity_oidc.clients.perimeter.client_id
+  client_secret_ref    = local.identity_oidc.clients.perimeter.secret_ref
+  cli_client_id        = local.identity_oidc.clients["olf-cli"].client_id
+  protected_refs       = local.perimeter_protected_refs
+  path_refs            = local.query_api_enabled ? [for name in keys(local.enabled_stages) : "stage/${name}/query_api"] : []
+  scope                = local.identity_scope
+  login_audience       = local.identity_dex ? local.identity_oidc.clients["olf-cli"].client_id : null
 
   github_organization = try(var.identity_github.organization, null)
 }
