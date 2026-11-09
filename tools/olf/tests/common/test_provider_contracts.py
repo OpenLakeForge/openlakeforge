@@ -1985,3 +1985,14 @@ def test_artifact_registry_rejects_an_ambiguous_or_credentialed_repository(repos
 
     with pytest.raises(ProviderContractError, match="artifact_registry.image_repository"):
         parse_provider_contracts(document, _topology(document))
+
+
+@pytest.mark.parametrize("fixture", ["local-provider-contracts-v3.json", "azure-provider-contracts-v3.json"])
+def test_a_polaris_stage_on_a_store_without_sts_is_refused(fixture: str) -> None:
+    """Keyless catalogs read only with credentials Polaris vends through the store's STS (#984)."""
+    contract = _fixture(fixture)
+    topology = _topology(contract)
+    del contract["stages"]["dev"]["storage"]["sts_endpoint"]
+
+    with pytest.raises(ProviderContractError, match=r"stages\.dev\.storage has no sts_endpoint.*#803.*#681"):
+        parse_provider_contracts(contract, topology)

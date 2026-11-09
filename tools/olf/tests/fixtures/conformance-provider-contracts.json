@@ -363,6 +363,7 @@
           "uri": "s3://olf-conformance-dev-silver"
         },
         "ssl_mode": "disabled",
+        "sts_endpoint": "http://seaweedfs-s3.olf-system:8333",
         "virtual_host_endpoint": "http://olf-system.svc.cluster.local:8333"
       }
     },
@@ -460,6 +461,7 @@
           "uri": "s3://olf-conformance-prod-silver"
         },
         "ssl_mode": "disabled",
+        "sts_endpoint": "http://seaweedfs-s3.olf-system:8333",
         "virtual_host_endpoint": "http://olf-system.svc.cluster.local:8333"
       }
     }

@@ -160,11 +160,18 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append("")
     lines.append("| Target | Kubernetes foundation | Object storage | Catalog | Managed database |")
     lines.append("| --- | --- | --- | --- | --- |")
-    lines.append("| Local | kind | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |")
+    lines.append("| Local | kind | SeaweedFS (in-cluster), STS on | Polaris (in-cluster) | PostgreSQL (in-cluster) |")
     lines.append(
-        "| Azure POC (preview) | AKS | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |"
+        "| Azure POC (preview) | AKS | SeaweedFS (in-cluster), STS on | Polaris (in-cluster) "
+        "| PostgreSQL (in-cluster) |"
     )
     lines.append("| AWS POC (preview) | EKS | S3 | AWS Glue | RDS PostgreSQL |")
+    lines.append("")
+    lines.append(
+        "A Polaris catalog reads only with the credentials Polaris vends through the object store's STS, so its "
+        "store must offer one (provider contract `stages.<stage>.storage.sts_endpoint`). A generic S3-compatible "
+        "store (#803) and AWS on Polaris (#681) are not qualified yet."
+    )
     lines.append("")
 
     lines.append("## Supported upgrade paths")

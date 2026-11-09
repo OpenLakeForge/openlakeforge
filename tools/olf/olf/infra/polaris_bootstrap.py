@@ -498,11 +498,11 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
         return None
     shared = polaris_service(contracts)[2]
     storage = stages[0].storage
-    # A catalog vends credentials when the storage adapter offers an STS, and SeaweedFS, the only storage
-    # behind Polaris, always does, on its S3 port.
+    # A catalog vends credentials through the STS the storage contract names, which the parser requires
+    # beside a Polaris catalog (#984). SeaweedFS, the only storage behind Polaris, serves it on its S3 port.
     sts = (
-        CatalogSts(SEAWEEDFS_VENDING_ROLE, storage["region"], storage["endpoint"], storage["endpoint"])
-        if str(storage.get("implementation", "")).startswith("storage.s3_compatible.seaweedfs")
+        CatalogSts(SEAWEEDFS_VENDING_ROLE, storage["region"], storage["endpoint"], storage["sts_endpoint"])
+        if storage.get("sts_endpoint")
         else None
     )
     catalogs = {stage.name.value: stage.catalog["catalog_name"] for stage in stages}

@@ -441,6 +441,7 @@ module "provider_contract" {
         secret_access_key_key   = local.stage_storage_contracts[name].secret_access_key_key
         s3_service_name         = local.stage_storage_contracts[name].s3_service_name
         s3_service_port         = local.stage_storage_contracts[name].s3_service_port
+        sts_endpoint            = local.stage_storage_contracts[name].sts_endpoint
         identity_ref            = "stage/${name}/runtime_identity"
         bronze = {
           physical_id = local.stage_storage[name].bronze_bucket_name

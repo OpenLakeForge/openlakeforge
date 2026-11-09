@@ -442,7 +442,7 @@ them.
 
 | Accepted cost | Why |
 | --- | --- |
-| Vended credentials make STS a requirement of the object-store adapter | Proven on SeaweedFS (section 3, finding 3). An on-premises S3-compatible store without STS (#803) cannot run the keyless engine; AWS waits for Polaris instead of Glue (#681) |
+| Vended credentials make STS a requirement of the object-store adapter | Proven on SeaweedFS (section 3, finding 3). The provider contract names the store's `sts_endpoint` and the parser refuses a Polaris stage without one (#984). An on-premises S3-compatible store without STS (#803) cannot run the keyless engine; AWS waits for Polaris instead of Glue (#681) |
 | Without Trino authentication, the user in Trino's query log is a claim | Access is decided by the token alone (#964 ran it). Polaris still records the principal `github`, not the person, so per-person audit is weaker than with Trino authentication |
 | One coordinator per stage | About 2 Gi of memory requested per extra stage at `small`. A single-stage Slim deployment is unchanged |
 

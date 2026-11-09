@@ -114,9 +114,11 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 
 | Target | Kubernetes foundation | Object storage | Catalog | Managed database |
 | --- | --- | --- | --- | --- |
-| Local | kind | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |
-| Azure POC (preview) | AKS | SeaweedFS (in-cluster) | Polaris (in-cluster) | PostgreSQL (in-cluster) |
+| Local | kind | SeaweedFS (in-cluster), STS on | Polaris (in-cluster) | PostgreSQL (in-cluster) |
+| Azure POC (preview) | AKS | SeaweedFS (in-cluster), STS on | Polaris (in-cluster) | PostgreSQL (in-cluster) |
 | AWS POC (preview) | EKS | S3 | AWS Glue | RDS PostgreSQL |
+
+A Polaris catalog reads only with the credentials Polaris vends through the object store's STS, so its store must offer one (provider contract `stages.<stage>.storage.sts_endpoint`). A generic S3-compatible store (#803) and AWS on Polaris (#681) are not qualified yet.
 
 ## Supported upgrade paths
 
