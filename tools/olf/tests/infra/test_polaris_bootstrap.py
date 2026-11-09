@@ -39,14 +39,13 @@ from olf.infra.polaris_bootstrap import (
 _ENVIRON = {"KUBE_CONTEXT": "kind-test"}
 _SHARED = Credential("trino-dev", "polaris-dev-trino-creds", "TRINO_ID", "TRINO_SECRET", "olf-system")
 # Stage namespaces are deleted by `--allow-stage-removal` and recreated empty.
-_STAGE = Credential("floe-dev", "polaris-dev-floe-creds", "FLOE_ID", "FLOE_SECRET", "olf-dev", recreatable=True)
+_STAGE = Credential("olf-dev-processing", "polaris-dev-processing-creds", "ID", "SECRET", "olf-dev", recreatable=True)
 _DEV = StageCatalog(
     "dev",
     "lakehouse_dev",
     "lakehouse-dev-bronze",
     "lakehouse-dev-silver",
     "lakehouse-dev-gold",
-    _SHARED,
     _STAGE,
     _STAGE,
 )
@@ -224,7 +223,7 @@ def test_a_re_enabled_stage_namespace_gets_fresh_credentials(
     _ensure(client, _STAGE)
 
     assert cluster.state(fake) == _current(_STAGE)
-    assert "Polaris principal 'floe-dev' exists but 'olf-dev' has no Secret" in capsys.readouterr().err
+    assert "Polaris principal 'olf-dev-processing' exists but 'olf-dev' has no Secret" in capsys.readouterr().err
 
 
 def test_a_shared_secret_deleted_by_hand_fails_without_rotating_the_client_using_it(
@@ -312,16 +311,14 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
     state = fake.state()
     assert sorted(state["catalogs"]) == ["lakehouse_dev", "lakehouse_prod"]
     assert state["principals"] == {
-        **{f"trino-{s}": [f"data-engineer-{s}"] for s in STAGES},
-        **{f"floe-{s}": [f"data-writer-{s}"] for s in STAGES},
+        **{f"olf-{s}-processing": [f"processing-{s}"] for s in STAGES},
         **{f"deployer-{s}": [f"namespace-admin-{s}"] for s in STAGES},
         "openmetadata": ["data-reader"],
         "github": sorted(ASSIGNED),
         **{f"trino-people-{s}": [] for s in STAGES},
     }
     assert state["catalog_roles"]["lakehouse_dev"] == {
-        "catalog-admin": ["CATALOG_MANAGE_CONTENT"],
-        "catalog-writer": ["CATALOG_MANAGE_CONTENT"],
+        "catalog-processing": ["CATALOG_MANAGE_CONTENT"],
         "catalog-reader-dev": [
             "NAMESPACE_READ_PROPERTIES",
             "TABLE_READ_DATA",
@@ -334,10 +331,8 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
         "olf-gold-read": ["NAMESPACE_LIST"],
     }
     assert state["principal_roles"] == {
-        "data-engineer-dev": {"lakehouse_dev": ["catalog-admin"]},
-        "data-engineer-prod": {"lakehouse_prod": ["catalog-admin"]},
-        "data-writer-dev": {"lakehouse_dev": ["catalog-writer"]},
-        "data-writer-prod": {"lakehouse_prod": ["catalog-writer"]},
+        "processing-dev": {"lakehouse_dev": ["catalog-processing"]},
+        "processing-prod": {"lakehouse_prod": ["catalog-processing"]},
         "data-reader": {"lakehouse_dev": ["catalog-reader-dev"], "lakehouse_prod": ["catalog-reader-prod"]},
         "namespace-admin-dev": {"lakehouse_dev": ["catalog-namespace-admin"]},
         "namespace-admin-prod": {"lakehouse_prod": ["catalog-namespace-admin"]},
@@ -345,8 +340,7 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
     }
     expected: dict[str, dict[str, str]] = {}
     for s in STAGES:
-        expected |= _secret("olf-system", f"polaris-{s}-trino-creds", "POLARIS_TRINO", f"trino-{s}")
-        expected |= _secret(f"olf-{s}", f"polaris-{s}-floe-creds", "POLARIS_FLOE", f"floe-{s}")
+        expected |= _secret(f"olf-{s}", f"polaris-{s}-processing-creds", "POLARIS_PROCESSING", f"olf-{s}-processing")
         expected |= _secret(f"olf-{s}", f"polaris-{s}-deployer-creds", "POLARIS_DEPLOYER", f"deployer-{s}")
         expected |= _secret("olf-system", f"polaris-{s}-trino-people-creds", "POLARIS", f"trino-people-{s}")
     expected |= _secret("olf-system", "polaris-om-creds", "POLARIS_OM", "openmetadata")
@@ -365,10 +359,13 @@ def test_a_rerun_of_the_whole_bootstrap_changes_nothing(
     _bootstrap(client)
 
     assert (fake.state(), cluster.state(fake), fake.issued) == (*before, issued)
-    # Only creates Polaris answers with 409, and the legacy dbt principal's removal.
-    assert [w for w in fake.writes if not w.startswith("POST")] == ["DELETE /api/management/v1/principals/dbt"]
+    # Only creates Polaris answers with 409, and the removal of what earlier deployments left (each answers 404).
+    assert all(w.startswith(("POST", "DELETE")) for w in fake.writes)
     assert [argv for argv in cluster.argv if argv[0] in {"create", "apply"}] == []
-    assert {argv[2] for argv in cluster.argv if argv[0] == "delete"} == {"polaris-dbt-creds"}
+    assert {argv[2] for argv in cluster.argv if argv[0] == "delete"} == {
+        "polaris-dbt-creds",
+        *(f"polaris-{s}-{kind}-creds" for s in STAGES for kind in ("trino", "floe")),
+    }
 
 
 def test_openmetadata_holds_no_write_privilege_and_a_converged_stack_loses_the_old_one(
@@ -403,6 +400,45 @@ def test_the_legacy_dbt_principal_and_its_secret_are_removed(
 
     assert "dbt" not in fake.principals
     assert "secret/olf-system/polaris-dbt-creds" not in cluster.load()
+
+
+def test_the_trino_and_floe_principals_of_an_earlier_deployment_give_way_to_processing(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    for stage in conformance_plan().stages:
+        for old in stage.legacy:
+            fake.principals[old.principal] = {"roles": []}
+            cluster.put("secret", old.namespace, old.secret, {"x": "y"})
+    _bootstrap(client)
+    fake.principal_roles["data-engineer-dev"] = {}
+    fake.catalog_roles["lakehouse_dev"]["catalog-writer"] = ["CATALOG_MANAGE_CONTENT"]
+
+    _bootstrap(client)
+
+    state = fake.state()
+    assert not {"trino-dev", "floe-dev", "trino-prod", "floe-prod"} & set(state["principals"])
+    assert "data-engineer-dev" not in state["principal_roles"]
+    assert "catalog-writer" not in state["catalog_roles"]["lakehouse_dev"]
+    assert not [key for key in cluster.load() if key.endswith(("-trino-creds", "-floe-creds"))]
+
+
+def test_a_stage_removal_revokes_the_principals_of_the_stage_that_left(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    _bootstrap(client)
+    full = conformance_plan()
+    left = replace(full, stages=full.stages[:1], person_access=None)
+    gone = {"olf-prod-processing", "deployer-prod", "trino-people-prod"}
+
+    run_bootstrap(client, left, environ=_ENVIRON)
+    assert gone <= set(fake.principals)
+
+    run_bootstrap(client, left, environ=_ENVIRON, remove_stages=True)
+
+    assert not gone & set(fake.principals)
+    assert {"olf-dev-processing", "deployer-dev", "openmetadata"} <= set(fake.principals)
 
 
 def test_without_people_the_deployer_keeps_its_narrower_privilege(
@@ -461,12 +497,12 @@ def test_a_stage_coordinators_credentials_are_written_beside_it() -> None:
     plan = bootstrap_plan(_contracts(dev=own("dev"), prod=own("prod")))
 
     assert plan is not None and plan.person_access is not None
-    assert {stage.stage: stage.trino.namespace for stage in plan.stages} == {"dev": "olf-dev", "prod": "olf-prod"}
+    assert {stage.stage: stage.processing.namespace for stage in plan.stages} == {"dev": "olf-dev", "prod": "olf-prod"}
     assert {c.principal: c.namespace for c in plan.person_access.people} == {
         "trino-people-dev": "olf-dev",
         "trino-people-prod": "olf-prod",
     }
-    assert all(credential.recreatable for credential in (stage.trino for stage in plan.stages))
+    assert all(credential.recreatable for credential in (stage.processing for stage in plan.stages))
 
 
 def test_people_get_no_access_without_github_sign_in() -> None:
@@ -523,7 +559,7 @@ def test_the_deploy_bootstraps_polaris_as_root_through_a_port_forward(
 
     assert set(forwarded) == {("polaris", "8181", "olf-system"), ("polaris-bootstrap-credentials", "olf-system")}
     assert set(fake.catalogs) == {"lakehouse_dev", "lakehouse_prod"}
-    assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
+    assert "secret/olf-dev/polaris-dev-processing-creds" in cluster.load()
 
 
 def test_trino_restarts_when_a_credential_it_reads_changes(
@@ -537,7 +573,12 @@ def test_trino_restarts_when_a_credential_it_reads_changes(
     assert ["rollout", "status", "deployment/trino-worker", "-n", "olf-system", "--timeout=300s"] in cluster.argv
     cluster.argv.clear()
     # The window the pending marker exists for: Trino's credential is rotated on the next run.
-    cluster.put("configmap", "olf-system", "polaris-prod-trino-creds-bootstrap-pending", {"principal": "trino-prod"})
+    cluster.put(
+        "configmap",
+        "olf-system",
+        "polaris-prod-trino-people-creds-bootstrap-pending",
+        {"principal": "trino-people-prod"},
+    )
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
@@ -553,7 +594,12 @@ def test_a_rerun_restarts_trino_when_the_run_that_rotated_its_credential_failed(
     for deployment in _TRINO:
         cluster.put(*deployment.split("/"), {})
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
-    cluster.put("configmap", "olf-system", "polaris-prod-trino-creds-bootstrap-pending", {"principal": "trino-prod"})
+    cluster.put(
+        "configmap",
+        "olf-system",
+        "polaris-prod-trino-people-creds-bootstrap-pending",
+        {"principal": "trino-people-prod"},
+    )
     # The run stores Trino's new credential, then fails before Trino restarts.
     with monkeypatch.context() as failing:
         failing.setattr(k8s, "annotate_pod_templates", Mock(side_effect=RuntimeError("API server gone")))
@@ -579,7 +625,7 @@ def test_trino_keeps_running_when_nothing_it_reads_changed(
     cluster.save({k: v for k, v in cluster.load().items() if not k.startswith("secret/olf-dev/")})
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    assert "secret/olf-dev/polaris-dev-floe-creds" in cluster.load()
+    assert "secret/olf-dev/polaris-dev-processing-creds" in cluster.load()
     assert _trino_restarts(cluster) == []
 
 
@@ -591,10 +637,9 @@ def test_every_deploy_waits_for_trino_which_helm_no_longer_waits_for(
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
 
-    selector = ["deployment", "-l", "app.kubernetes.io/name=trino", "-n", "olf-system"]
-    assert [argv for argv in cluster.argv if argv[0] == "rollout"] == [
-        ["rollout", "status", *selector, "--timeout=300s"]
-    ]
+    # The conformance contract keeps one coordinator in olf-system; the stages' processing credentials sit in theirs.
+    waited = [argv[6] for argv in cluster.argv if argv[0] == "rollout"]
+    assert sorted(waited) == ["olf-dev", "olf-prod", "olf-system"]
 
 
 def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

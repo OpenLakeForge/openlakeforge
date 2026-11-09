@@ -43,11 +43,11 @@ output "stage_contracts" {
       token_uri                        = local.token_uri
       oauth_scope                      = local.oauth_scope
       trino_credentials_secret_name    = binding.trino_credentials_secret_name
-      trino_client_id_key              = "POLARIS_TRINO_CLIENT_ID"
-      trino_client_secret_key          = "POLARIS_TRINO_CLIENT_SECRET"
+      trino_client_id_key              = "POLARIS_PROCESSING_CLIENT_ID"
+      trino_client_secret_key          = "POLARIS_PROCESSING_CLIENT_SECRET"
       floe_credentials_secret_name     = binding.floe_credentials_secret_name
-      floe_client_id_key               = "POLARIS_FLOE_CLIENT_ID"
-      floe_client_secret_key           = "POLARIS_FLOE_CLIENT_SECRET"
+      floe_client_id_key               = "POLARIS_PROCESSING_CLIENT_ID"
+      floe_client_secret_key           = "POLARIS_PROCESSING_CLIENT_SECRET"
       deployer_credentials_secret_name = binding.deployer_credentials_secret_name
       deployer_client_id_key           = "POLARIS_DEPLOYER_CLIENT_ID"
       deployer_client_secret_key       = "POLARIS_DEPLOYER_CLIENT_SECRET"

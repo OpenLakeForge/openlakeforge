@@ -48,9 +48,12 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
             f"olf-conformance-{stage}-bronze",
             f"olf-conformance-{stage}-silver",
             f"olf-conformance-{stage}-gold",
-            trino=credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", "olf-system"),
-            floe=credential(
-                f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}", recreatable=True
+            processing=credential(
+                f"olf-{stage}-processing",
+                f"polaris-{stage}-processing-creds",
+                "POLARIS_PROCESSING",
+                f"olf-{stage}",
+                recreatable=True,
             ),
             deployer=credential(
                 f"deployer-{stage}",
@@ -58,6 +61,10 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
                 "POLARIS_DEPLOYER",
                 f"olf-{stage}",
                 recreatable=True,
+            ),
+            legacy=(
+                credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", "olf-system"),
+                credential(f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}"),
             ),
         )
         for stage in STAGES
@@ -113,6 +120,12 @@ class FakePolaris:
                 catalog["properties"] = body["properties"]
                 catalog["entityVersion"] += 1
                 return 200, catalog
+            case "GET", ["principals"]:
+                return 200, {"principals": [{"name": name} for name in self.principals]}
+            case "DELETE", ["principal-roles", role]:
+                return (204, {}) if self.principal_roles.pop(role, None) is not None else (404, {})
+            case "DELETE", ["catalogs", catalog, "catalog-roles", role]:
+                return (204, {}) if self.catalog_roles[catalog].pop(role, None) is not None else (404, {})
             case "POST", ["principals"]:
                 name = body["principal"]["name"] if "principal" in body else body["name"]
                 if name in self.principals:

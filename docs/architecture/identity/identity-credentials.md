@@ -103,7 +103,7 @@ here, not migrated. All are in the debt register
 | OpenMetadata admin password (#400) | `olf`'s OpenMetadata bootstrap (`tools/olf/olf/infra/openmetadata/_bootstrap.py`), run by `olf infra deploy` after the platform apply, creates the Secret if missing, 24 random alphanumeric characters plus `Aa1!` to meet OpenMetadata's password policy, then changes the built-in `admin` password through `PUT /api/v1/users/changePassword`; a run logs in with the Secret and falls back to the default only on the first run | `openmetadata-admin` (`admin-password`) in the OpenMetadata namespace; `olf` reads it unless `OPENMETADATA_ADMIN_PASSWORD` is set | No |
 | Polaris token-signing key | Polaris module Job, in-cluster, create-if-absent | `<release>-token-broker` (`symmetric.key`) | No |
 | OpenMetadata Fernet key (encrypts stored credentials, ADR 0016) | OpenMetadata module Job, in-cluster, create-if-absent | `<release>-fernet-key` (`fernet-key`) | No |
-| Polaris per-stage principals (Trino, Floe, OpenMetadata, deployer) | Polaris, written by its bootstrap Job | `trino_credentials_secret_name` and siblings in the catalog contract | No |
+| Polaris per-stage principals (processing, OpenMetadata, deployer) | Polaris, written by its bootstrap Job | `trino_credentials_secret_name` and siblings in the catalog contract | No |
 | OpenMetadata ingestion-bot JWT | OpenMetadata, written by `olf`'s bootstrap after the platform apply | `openmetadata-ingestion-bot`, copied by `olf` to governed stage namespaces and deleted from the others (`tools/olf/olf/infra/openmetadata/_replication.py`) | No |
 
 `olf`'s bootstrap keeps a stored ingestion-bot token that OpenMetadata still

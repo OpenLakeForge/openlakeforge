@@ -85,7 +85,7 @@ ingestion-bot JWT when governance is on.
 | Version | `floe-python`, pinned in `project-code` | `dbt-trino`, pinned in `project-code`; Trino via Helm |
 | Upgrade path | Bump `floe-python` and `dagster-floe`; rebuild `project-code` | Bump dbt in `project-code`; Trino via Helm |
 | Storage access | S3 directly + catalog commits | Trino reads/writes S3; the run pod touches no data |
-| Credentials | `polaris-floe-creds`, a `secretKeyRef` on the Floe Job | none — dbt reaches the catalog through Trino, which holds `polaris-trino-creds` (the bootstrap deletes the old `polaris-dbt-creds`) |
+| Credentials | `polaris-<stage>-processing-creds`, a `secretKeyRef` on the Floe Job | none — dbt reaches the catalog through Trino, which holds the same processing credential (the bootstrap deletes the old `polaris-dbt-creds`) |
 
 Floe holds an entity's frames in its domain Job's memory while it validates them, so that
 Job, not the run pod, is what bounds Silver; dbt is a thin client whose transformations execute inside

@@ -100,10 +100,9 @@ The catalog module owns:
 - allowed S3 locations `s3://<prefix>-dev-silver/` and `s3://<prefix>-dev-gold/`
 - `polaris.config.drop-with-purge.enabled=true` on the warehouse, so Trino can
   drop tables and dbt's temporary views (ADR 0004)
-- the Trino service principal and role grants
-- Trino OAuth credentials in `polaris-trino-creds`
-- the Floe service principal and role grants
-- Floe OAuth credentials in `polaris-floe-creds`
+- each stage's processing principal (`olf-<stage>-processing`, used by Trino
+  and Floe), its role grant on that stage's catalog only, and its OAuth
+  credentials in `polaris-<stage>-processing-creds` in the stage namespace
 - each stage's deployer principal, which `olf infra catalog sync-namespaces`
   uses, and its OAuth credentials in the stage namespace
 - the removal of the legacy dbt principal and `polaris-dbt-creds`: Gold
