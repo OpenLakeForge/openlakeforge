@@ -1,6 +1,6 @@
 """Added latency of the perimeter (#176) on an interactive dashboard load.
 
-The same dashboard load (the dashboard, then the data of its charts) is timed
+The same dashboard load (the dashboard, then each chart's dataset) is timed
 through Traefik + forwardAuth + oauth2-proxy with a signed-in session cookie,
 and straight at the Superset Service. The difference is the perimeter's cost.
 """
@@ -130,11 +130,6 @@ def _dashboard_load(
     """One dashboard load; returns the seconds its requests took, not counting pacing waits."""
     pacer = pacer or _Pacer()
     session.cookies.update(cookies)
-    csrf, _ = pacer.send(
-        lambda: session.get(f"{base}/api/v1/security/csrf_token/", headers=headers, timeout=REQUEST_TIMEOUT)
-    )
-    csrf.raise_for_status()
-    post_headers = {**headers, "X-CSRFToken": csrf.json()["result"], "Referer": base}
 
     def load() -> float:
         total = 0.0
@@ -148,16 +143,11 @@ def _dashboard_load(
 
         send(lambda: session.get(f"{base}/api/v1/dashboard/{slug}", headers=headers, timeout=REQUEST_TIMEOUT))
         for dataset in datasets:
-            # Imported charts carry no saved query context, so each is queried as a count over its dataset.
-            body = {
-                "datasource": dataset,
-                "queries": [{"metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "count"}]}],
-                "result_format": "json",
-                "result_type": "full",
-            }
+            # Each chart's dataset, not its data: `admin` is a local account with no Trino token of its own, and
+            # Superset now queries Trino as the signed-in person (#987). The perimeter cost is per request either way.
             send(
                 functools.partial(
-                    session.post, f"{base}/api/v1/chart/data", json=body, headers=post_headers, timeout=REQUEST_TIMEOUT
+                    session.get, f"{base}/api/v1/dataset/{dataset['id']}", headers=headers, timeout=REQUEST_TIMEOUT
                 )
             )
         return total
