@@ -732,7 +732,7 @@ locals {
     # The e2e edge is not a workload, so it has no policy of its own; the rows below
     # let callers of the public name reach it (the CoreDNS rewrite points the name
     # at it) and let it reach Traefik, as F4/F9 do for Traefik itself.
-    var.access_tls == "external" && var.access_test_edge ? [
+    [for row in [
       {
         id    = "F-edge-stage"
         from  = { scope = "stage" }
@@ -754,7 +754,7 @@ locals {
         ports = [8000]
         tag   = "T"
       },
-    ] : [],
+    ] : row if var.access_tls == "external" && var.access_test_edge],
     # F34: a stage's run pods reach the external sources the profile declares
     # for it (spec.stages.<stage>.source_egress.ports); nothing when it
     # declares none.
