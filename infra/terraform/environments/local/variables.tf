@@ -164,12 +164,6 @@ variable "trino_chart_package_path" {
   default     = null
 }
 
-variable "trino_workload_authentication" {
-  description = "off, tls or password (ADR 0016): tls adds Trino's HTTPS listener while callers stay unauthenticated; password requires a verified password from every caller. Null selects password when the profile has spec.access (it publishes the CA ConfigMap callers verify against) and off otherwise."
-  type        = string
-  default     = null
-}
-
 variable "dagster_chart_package_path" {
   description = "Optional local Dagster Helm chart package used by local-up to avoid transient GitHub chart download failures."
   type        = string

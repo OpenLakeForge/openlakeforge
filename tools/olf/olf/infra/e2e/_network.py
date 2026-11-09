@@ -40,7 +40,7 @@ NOT_REACHED = {6, 7, 28}
 PROTECTED = ("postgresql", "polaris", "openmetadata", "dex")
 # Each stage's coordinator is not a workload of the flow file: it runs in the stage namespace (ADR 0017).
 TRINO_LABELS = {"app.kubernetes.io/name": "trino", "app.kubernetes.io/component": "coordinator"}
-TRINO_PORTS = [8080, 8443]  # 8443 once workload authentication is on
+TRINO_PORTS = [8080]
 # ADR 0017 exceptions E4 and E5 read Secrets cluster-wide by design.
 CLUSTER_SECRET_READERS = ("traefik", "cert-manager")
 SERVICE_ACCOUNT_GROUP = "system:serviceaccounts"
@@ -53,8 +53,6 @@ WORKLOADS = {
 # ADR 0017 E1: these ServiceAccounts may `create` Secrets namespace-wide and touch only the Secrets named here
 # (fnmatch, first matching subject wins). The one place to change when the ADR's pins change.
 E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # A stage coordinator's Job also copies the Web UI's Dex client Secret from olf-system (#976).
-    ("trino-credentials", ("trino-credential*", "trino-internal-secret", "trino-password-file", "dex-client-trino")),
     ("postgresql-credentials", ("postgresql-*-creds",)),
     ("superset-credentials", ("superset-credentials", "superset-env")),
     (

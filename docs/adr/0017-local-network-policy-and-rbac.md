@@ -178,14 +178,14 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `tls: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
-| F4 | a stage's Trino coordinator, under the stage rule (8443 only: its Web UI sign-in is HTTPS routes only); OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: Trino's token request and OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
+| F4 | OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
 | F8 | a stage's Trino coordinator, which runs in the stage namespace and so takes the stage rows F9 | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
 | F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
-| F10 | a stage's own pods | its own Trino coordinator, in the same namespace (no row: a stage namespace is one trust domain, and no other stage's pod reaches it) | 8080 now; 8443 at ADR 0016 step 4 | Superset, dbt rows. The 8080 allow is removed in the same change that enables `PASSWORD`; kubelet probes use 8080 from the node and are unaffected | V |
-| F11 | Traefik (the Trino UI), OpenMetadata | the stage namespaces (a stage's Trino 8080, 8443) | 8080, 8443 | OpenMetadata to Trino row | V |
+| F10 | a stage's own pods | its own Trino coordinator, in the same namespace (no row: a stage namespace is one trust domain, and no other stage's pod reaches it) | 8080 | Superset, dbt rows; Trino has no authentication of its own (ADR 0019 section 9) | V |
+| F11 | Traefik (the Trino UI), OpenMetadata | the stage namespaces (a stage's Trino 8080) | 8080 | OpenMetadata to Trino row | V |
 | F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
 | F13 | the role-sync CronJob | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
 | F14 | OpenMetadata | Superset (stage) | 8088 | `superset_url` registered by `olf`'s bootstrap | V; whether ingestion runs today **T** |
@@ -193,7 +193,7 @@ port [D]).
 | F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |
 | F17 | SeaweedFS pods among themselves; bucket Job | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; `bucket` Job waits on 9333 and 8888 | V |
 | F19 | Polaris metastore bootstrap Job | Polaris | 8181 | `metastore-bootstrap.sh.tftpl`: its first step probes the token endpoint | V |
-| F20 | Jobs: `dex-credentials`, `trino-credentials`, `postgresql-credentials`, `perimeter-cookie-secret`, `publish-local-ca`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `openlakeforge_runtime/k8s_log_archive.py`]) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
+| F20 | Jobs: `dex-credentials`, `postgresql-credentials`, `perimeter-cookie-secret`, `publish-local-ca`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `openlakeforge_runtime/k8s_log_archive.py`]) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
 | F21 | API server (control-plane node) | cert-manager webhook | 10250 | admission webhook | node-sourced traffic **T** |
 | F23 | oauth2-proxy, the platform API | an `issuer: external` host | 443 | profile-driven, same rendering; the platform API reads the issuer's discovery document and keys | T |
 | F24 | kubelet (node) | any pod | probes | not a policy flow: node-to-local-pod traffic is not blocked [D] | T |
@@ -201,12 +201,12 @@ port [D]).
 | F28 | Dex | any address outside the pod and Service ranges | 443 | Dex calls `github.com` and `api.github.com` at every login and refresh ([ADR 0014](0014-identity-and-authorization.md), "Network"); NetworkPolicy has no FQDN selector, so the rule is the port on any address, on the Dex pods only | T |
 | F29 | Dex | the Dex e2e's stub GitHub pod (`olf-system`, label `openlakeforge.io/e2e=github-stub`, #405) | 8443 | the connector `hostName` is `olf-e2e-github.olf-system.svc`; F28 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port) | T; a flow-file row keyed on the label the e2e sets |
 | F30 | OpenMetadata role-sync CronJob (`openlakeforge.io/job=openmetadata-role-sync`) | any address outside the pod and Service ranges | 443 | the sync reads team members from `api.github.com` ([ADR 0014](0014-identity-and-authorization.md), "OpenMetadata role sync"); no FQDN selector, so the port on any address, on that Job's pods only. Its calls to OpenMetadata ride F13 | T |
-| F31 | a stage's Trino coordinator (its pods only, not the whole stage namespace); oauth2-proxy; Polaris; the platform API; OpenMetadata | Dex (`olf-system`) | 5556 | the signing keys for people's tokens ([ADR 0019](0019-data-plane-authorization-deferral.md)), which Trino fetches at startup and cannot start without; Traefik is created after Trino, so F4 is not yet usable then. The Web UI's sign-in stays on F4 | T |
+| F31 | oauth2-proxy; Polaris; the platform API; OpenMetadata | Dex (`olf-system`) | 5556 | the signing keys for people's tokens and the perimeter's code exchange, over Dex's Service (ADR 0013, decision 8). Trino no longer fetches them: it has no authentication of its own (#983) | T |
 | F32 | the platform API | Dagster webserver 80 (stage); OpenMetadata 8585 | 80, 8585 | its read endpoints ([ADR 0021](0021-platform-api.md)): each stage's GraphQL URL (`dagster_graphql_urls`), and OpenMetadata with the caller's token forwarded (`openmetadata_url`), both rendered by `modules/access/platform-api` | T |
 | F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and nothing else | T |
 | F34 | Dagster run pods (`app.kubernetes.io/component=run_worker`) of a stage whose profile declares `spec.stages.<stage>.source_egress.ports` | any address outside the pod and Service ranges | the declared ports, TCP | Bronze sources that read an external API or database (#660); their host and port are stage bindings (`olf-source-<id>` ConfigMaps) that reach the run pod only. No FQDN selector, so the ports on any address, as F28 and F30; rendered from the profile, as F23, as its own policy `olf-flows-f34` in that stage's namespace only. A stage that declares nothing gets no row | T |
 | F35 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
-| F36 | the platform API | the stage namespaces (a stage's Trino coordinator) 8443 | 8443 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), over HTTPS, carrying that person's own token; the API holds no Trino credential. Rendered with `person_query` only | T |
+| F36 | the platform API | the stage namespaces (a stage's Trino coordinator) 8080 | 8080 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), carrying that person's own token for Polaris; the API holds no Trino credential. Rendered with `person_query` only | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -361,6 +361,10 @@ each as an edit to the flow file in that PR.
    can reach everything that namespace may reach.
 
 ## History
+
+F4, F10, F11, F20, F31 and F36 (#983): Trino has no authentication of its own and no HTTPS listener
+(ADR 0019 section 9), so its rows name port 8080 only, the coordinator no longer reaches Dex (F31) or
+the issuer's public URL (F4), and the `trino-credentials` Job and its E1 pin are gone.
 
 The OLF-owned Trino ingestion Job and its CronJob run in the stage namespace beside the coordinator (#976), which is where
 the `openmetadata` principal's Secret is: they reach OpenMetadata under F12 and Trino inside the namespace, so F11, F13

@@ -19,52 +19,26 @@ MODULE = Path(__file__).resolve().parents[4] / "infra/terraform/modules/query/tr
 
 pytestmark = pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform is not installed")
 
-# Stands in for what main.tf, ui.tf, oidc.tf and people.tf define, so config.tf is evaluated alone.
+# Stands in for what main.tf and ui.tf define, so config.tf is evaluated alone.
 HARNESS = """
 variable "query_sizing" {
   type    = object({ max_stage_count = number })
   default = null
 }
-variable "auth_enabled" { type = bool }
 variable "ui_properties" { type = list(string) }
-variable "oidc_properties" { type = list(string) }
 locals {
-  auth_enabled          = var.auth_enabled
-  ui_properties         = var.ui_properties
-  oidc_enabled          = length(var.oidc_properties) > 0
-  oidc_properties       = var.oidc_properties
-  people_jwt_properties = []
+  ui_properties = var.ui_properties
 }
 output "properties" { value = local.config_properties }
 """
 
-AUTH = [
-    "http-server.process-forwarded=true",
-    "http-server.http.enabled=false",
-    "discovery.uri=https://localhost:8443",
-    "internal-communication.https.required=true",
-    "internal-communication.https.truststore.path=/etc/trino/tls/ca.crt",
-    "internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SECRET}",
-]
 STAGES = "query.max-stage-count=300"
 
 
-def render(
-    tmp_path: Path,
-    *,
-    sizing: bool = True,
-    auth: bool = False,
-    ui: list[str] | None = None,
-    oidc: list[str] | None = None,
-) -> list[str]:
+def render(tmp_path: Path, *, sizing: bool = True, ui: list[str] | None = None) -> list[str]:
     (tmp_path / "config.tf").write_text((MODULE / "config.tf").read_text())
     (tmp_path / "harness.tf").write_text(HARNESS)
-    variables = {
-        "query_sizing": {"max_stage_count": 300} if sizing else None,
-        "auth_enabled": auth,
-        "ui_properties": ui or [],
-        "oidc_properties": oidc or [],
-    }
+    variables = {"query_sizing": {"max_stage_count": 300} if sizing else None, "ui_properties": ui or []}
     (tmp_path / "vars.tfvars.json").write_text(json.dumps(variables))
     # A module with no provider needs no download, so this runs offline.
     for args in (["init", "-backend=false", "-input=false"], ["apply", "-auto-approve", "-var-file=vars.tfvars.json"]):
@@ -73,24 +47,14 @@ def render(
     return list(json.loads(out.stdout)["properties"]["value"])
 
 
-def test_the_stage_count_reaches_the_top_level_list_without_authentication(tmp_path: Path) -> None:
+def test_the_stage_count_reaches_the_top_level_list(tmp_path: Path) -> None:
     assert render(tmp_path) == ["http-server.process-forwarded=true", STAGES]
-
-
-def test_the_stage_count_follows_the_password_level_lines(tmp_path: Path) -> None:
-    assert render(tmp_path, auth=True) == [*AUTH, STAGES]
 
 
 def test_the_stage_count_follows_a_fixed_web_ui_user(tmp_path: Path) -> None:
     ui = ["web-ui.authentication.type=fixed", "web-ui.user=olf-web"]
 
     assert render(tmp_path, ui=ui) == ["http-server.process-forwarded=true", *ui, STAGES]
-
-
-def test_the_stage_count_follows_the_sign_in_properties(tmp_path: Path) -> None:
-    oidc = ["web-ui.authentication.type=oauth2"]
-
-    assert render(tmp_path, auth=True, oidc=oidc) == [*AUTH, *oidc, STAGES]
 
 
 def test_without_a_query_size_only_the_base_line_is_rendered(tmp_path: Path) -> None:

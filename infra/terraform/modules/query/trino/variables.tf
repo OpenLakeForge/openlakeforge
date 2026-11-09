@@ -149,91 +149,9 @@ variable "stage_catalog_contracts" {
   default = {}
 }
 
-variable "stage_namespaces" {
-  description = "Stage name to stage namespace. When non-empty, a bootstrap Job creates the Trino workload credentials (ADR 0016) and copies each stage's own principal into its namespace. Empty creates nothing."
-  type        = map(string)
-  default     = {}
-}
-
-variable "bootstrap_job_image" {
-  description = "Image of the Job that creates the Trino workload credentials when missing, pinned by digest (release/component-catalog.yaml)."
-  type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
-}
-
-variable "workload_authentication" {
-  description = "How far ADR 0016 is applied. off: nothing changes. tls: an HTTPS listener and certificate beside the HTTP one, callers still unauthenticated, so they can move to HTTPS and prove the CA first. password: PASSWORD authentication on an HTTPS-only coordinator with the principals rules; every caller must already hold its credential."
-  type        = string
-  default     = "off"
-
-  validation {
-    condition     = contains(["off", "tls", "password"], var.workload_authentication)
-    error_message = "workload_authentication must be off, tls or password."
-  }
-
-  validation {
-    condition     = var.workload_authentication == "off" || var.tls_issuer_name != null
-    error_message = "workload_authentication tls and password need tls_issuer_name."
-  }
-
-  validation {
-    condition     = var.workload_authentication != "password" || length(var.stage_namespaces) > 0
-    error_message = "workload_authentication password needs stage_namespaces: without the credential Job there is no password for any caller."
-  }
-}
-
-variable "traefik_transport" {
-  description = "Name of the Traefik backend transport for this coordinator, and the prefix of the CA trust Secret Traefik mounts. One per instance, since Traefik is the only reader of either."
-  type        = string
-  default     = "trino"
-}
-
-variable "traefik_ca_namespace" {
-  description = "Namespace of Traefik, where its CA trust Secret must live because a Secret cannot be mounted across namespaces. null creates it beside this coordinator (Traefik in the same namespace)."
-  type        = string
-  default     = null
-}
-
-variable "tls_issuer_name" {
-  description = "cert-manager ClusterIssuer that signs the Trino serving certificate. Only read when workload_authentication is not off."
-  type        = string
-  default     = null
-}
-
 variable "web_ui_fixed_user" {
-  description = "When set, the Web UI signs in as this user (web-ui.authentication.type=fixed) instead of showing its form. For a plain-HTTP route, where OAuth2 is unavailable."
+  description = "When set, the Web UI signs in as this user (web-ui.authentication.type=fixed) instead of showing its form: Trino has no authentication of its own, and the perimeter guards the route."
   type        = string
   default     = null
 }
 
-variable "web_ui_oidc" {
-  description = "Sign the Web UI in through this Dex issuer (identity.oidc contract fields: issuer_url, the trino client_id and the Secret reference of its secret). secret_namespace is where that Secret lives when it is not this namespace; the credentials Job copies it here. null keeps the UI's own login. Needs HTTPS at the ingress and workload_authentication tls or password."
-  type = object({
-    issuer_url       = string
-    client_id        = string
-    secret_ref       = object({ name = string, key = string })
-    secret_namespace = optional(string)
-  })
-  default = null
-
-  validation {
-    condition     = var.web_ui_oidc == null || var.workload_authentication != "off"
-    error_message = "web_ui_oidc needs workload_authentication tls or password: Trino OAuth2 needs the HTTPS listener and its CA."
-  }
-}
-
-variable "people_access" {
-  description = "People's queries (ADR 0019): issuer_url and client_id of the Dex tokens Trino accepts by JWT, keys_url where Trino fetches the issuer's signing keys at startup (an address that answers before the ingress exists), and stages, each of which gets a people catalog named after it: its keyless catalog under a second name. null adds nothing."
-  type = object({
-    issuer_url = string
-    client_id  = string
-    keys_url   = string
-    stages     = list(string)
-  })
-  default = null
-
-  validation {
-    condition     = var.people_access == null || var.workload_authentication == "password"
-    error_message = "people_access needs workload_authentication password: JWT is added beside PASSWORD on the HTTPS-only coordinator."
-  }
-}

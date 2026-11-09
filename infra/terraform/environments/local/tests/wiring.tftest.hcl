@@ -62,17 +62,16 @@ variables {
   }
 }
 
-run "dex_with_password_authentication_serves_person_queries" {
+run "dex_serves_person_queries" {
   command = plan
 
   variables {
-    trino_workload_authentication = "password"
-    access_tls                    = "local-ca"
+    access_tls = "local-ca"
   }
 
   assert {
     condition     = jsondecode(module.platform_api[0].settings_json).person_query == true
-    error_message = "person_query must be on with Dex and Trino password authentication"
+    error_message = "person_query must be on with Dex"
   }
 
   assert {
@@ -83,9 +82,9 @@ run "dex_with_password_authentication_serves_person_queries" {
   assert {
     condition = alltrue([
       for stage, endpoint in jsondecode(module.platform_api[0].settings_json).query_endpoints :
-      endpoint.catalog == stage && endpoint.statement_url == "https://trino.olf-${stage}.svc.cluster.local:8443/v1/statement"
+      endpoint.catalog == stage && endpoint.statement_url == "http://trino.olf-${stage}.svc.cluster.local:8080/v1/statement"
     ])
-    error_message = "each endpoint names its stage as catalog and its own coordinator's https URL on the TLS port"
+    error_message = "each endpoint names its stage as catalog and its own coordinator's plain HTTP URL: Trino has no authentication of its own"
   }
 
   assert {
@@ -182,24 +181,6 @@ run "external_issuer_leaves_person_queries_off" {
   }
 }
 
-run "dex_without_password_authentication_leaves_person_queries_off" {
-  command = plan
-
-  variables {
-    trino_workload_authentication = "tls"
-  }
-
-  assert {
-    condition     = jsondecode(module.platform_api[0].settings_json).person_query == false
-    error_message = "person_query needs Trino password authentication as well as Dex"
-  }
-
-  assert {
-    condition     = jsondecode(module.platform_api[0].settings_json).query_endpoints == {}
-    error_message = "no query endpoints without person queries"
-  }
-}
-
 run "plain_http_without_identity_has_no_api" {
   command = plan
 
@@ -246,21 +227,12 @@ run "portal_image_must_be_pinned_by_digest" {
   expect_failures = [var.portal_image]
 }
 
-run "the_default_issuer_serves_plain_http_and_keeps_cert_manager_for_trino" {
+run "the_default_issuer_serves_plain_http" {
   command = plan
-
-  variables {
-    trino_workload_authentication = "password"
-  }
 
   assert {
     condition     = jsondecode(module.platform_api[0].settings_json).public_origin == "http://olf.localhost"
     error_message = "the default issuer is none: routes, and the origin the portal reports, are plain HTTP"
-  }
-
-  assert {
-    condition     = length(module.cert_manager) == 1
-    error_message = "Trino's certificate (ADR 0016) needs cert-manager even when no route is TLS-terminated"
   }
 }
 
@@ -274,7 +246,6 @@ run "a_single_stage_deployment_renders_exactly_one_coordinator" {
     bucket_names = {
       dev = { bronze = "olf-dev-bronze", silver = "olf-dev-silver", gold = "olf-dev-gold" }
     }
-    trino_workload_authentication = "password"
   }
 
   assert {

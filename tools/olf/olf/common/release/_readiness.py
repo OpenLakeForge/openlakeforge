@@ -250,7 +250,6 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource | tuple[_ImageDeploy
             "infra/terraform/modules/access/in-cluster-resolution/variables.tf",
             "infra/terraform/modules/identity/dex/variables.tf",
             "infra/terraform/modules/access/perimeter/variables.tf",
-            "infra/terraform/modules/query/trino/variables.tf",
             "infra/terraform/modules/storage/postgresql/variables.tf",
             "infra/terraform/modules/storage/seaweedfs/variables.tf",
         ),

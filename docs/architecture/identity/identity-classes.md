@@ -53,7 +53,7 @@ in.
 | Examples | `olf infra deploy`, `olf infra e2e` and CI (RBAC, port-forward or in-cluster exec); Superset, dbt and OpenMetadata ingestion to Trino; Trino and Floe to Polaris; pods to PostgreSQL and object storage |
 | Authorization | Kubernetes RBAC for operators and CI. For pods, a per-service credential from a Secret that a bootstrap Job generates once and reuses |
 | Network | Reachability between pods is decided by default-deny NetworkPolicy ([identity-network-policy-and-rbac.md](identity-network-policy-and-rbac.md)) |
-| Trino | Callers authenticate to Trino with a password per principal over HTTPS when `trino_workload_authentication` is `password`. The local root defaults to `password` when the profile has `spec.access`, and to `off` otherwise ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) |
+| Trino | No authentication of its own: every caller sends its own Polaris token, and Polaris decides what each query reads ([ADR 0016](../../adr/0016-trino-workload-authentication.md), [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9) |
 | Rotation | `olf infra secrets rotate` for `dex-client-perimeter`, `dex-client-trino` and `github-app`; the Superset and OpenMetadata clients are rotated by hand ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
 
 Workstation and CI automation reaches services by an RBAC-authorized

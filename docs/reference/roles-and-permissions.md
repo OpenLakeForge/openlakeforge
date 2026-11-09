@@ -136,8 +136,7 @@ is on.
 role; the platform commands `olf login`, `olf whoami` and `olf query` are the
 exception and act as you, with your role. The others authenticate with
 Kubernetes RBAC (your kubeconfig) or with a service credential from a Secret (to
-Trino, a password per principal: with `spec.access` declared, Trino workload
-authentication defaults to `password`, and to `off` without it), and reach
+Trino's catalogs, the stage's processing principal's Polaris token), and reach
 services through port-forwards or their in-cluster addresses, never through the
 sign-in perimeter. Whoever holds the kubeconfig can therefore reach every
 service; a role limits people, not cluster access. `olf infra break-glass` is

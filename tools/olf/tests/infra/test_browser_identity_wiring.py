@@ -11,12 +11,12 @@ from pathlib import Path
 TERRAFORM = Path(__file__).resolve().parents[4] / "infra/terraform"
 
 
-def test_the_platform_api_may_reach_the_trino_coordinator_on_its_tls_port() -> None:
+def test_the_platform_api_may_reach_the_trino_coordinator_on_its_http_port() -> None:
     import yaml
 
     flows = yaml.safe_load((TERRAFORM.parents[1] / "release/network-flows.yaml").read_text())["flows"]
     rows = [f for f in flows if f["id"] == "F36"]
     # Each stage's coordinator sits in the stage namespace, which the stage scope names.
     assert [(r["from"]["pods"], r["to"], r["ports"]) for r in rows] == [
-        ({"app.kubernetes.io/name": "platform-api"}, {"scope": "stage"}, [8443])
+        ({"app.kubernetes.io/name": "platform-api"}, {"scope": "stage"}, [8080])
     ]
