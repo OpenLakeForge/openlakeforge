@@ -126,3 +126,63 @@ def test_the_crawl_runs_beside_the_stage_coordinator_and_addresses_openmetadata_
     assert (cronjob["metadata"]["namespace"], job["metadata"]["namespace"]) == ("olf-dev", "olf-dev")
     workflow = yaml.safe_load(job["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"])
     assert workflow["workflowConfig"]["openMetadataServerConfig"]["hostPort"] == "http://openmetadata.olf-system:8585/api"
+
+
+POLARIS = {
+    **TLS,
+    "OPENLAKEFORGE_CATALOG_TOKEN_URI": "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens",
+    "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE": "PRINCIPAL_ROLE:ALL",
+}
+
+
+def test_the_polaris_token_is_minted_in_the_pod_and_never_stored():
+    job, pod, workflow, env = _build(POLARIS)
+    container = pod["containers"][0]
+
+    arguments = workflow["source"]["serviceConnection"]["config"]["connectionArguments"]
+    assert arguments["extra_credential"] == [["token", "__POLARIS_TOKEN__"]]
+    assert arguments["verify"] == "/etc/olf/query-ca/ca.crt"
+    assert 'POLARIS_JWT=$(python -c "$OM_POLARIS_MINT")' in container["command"][2]
+    assert "s|__POLARIS_TOKEN__|$POLARIS_JWT|" in container["command"][2]
+    assert {n: e["valueFrom"]["secretKeyRef"] for n, e in env.items() if n.startswith("POLARIS_CLIENT")} == {
+        "POLARIS_CLIENT_ID": {"name": "polaris-om-creds", "key": "POLARIS_OM_CLIENT_ID"},
+        "POLARIS_CLIENT_SECRET": {"name": "polaris-om-creds", "key": "POLARIS_OM_CLIENT_SECRET"},
+    }
+    assert "eyJ" not in json.dumps(job)
+
+
+def test_without_a_polaris_contract_the_crawl_mints_nothing():
+    _, pod, workflow, env = _build(TLS)
+
+    assert "extra_credential" not in workflow["source"]["serviceConnection"]["config"]["connectionArguments"]
+    assert "POLARIS" not in pod["containers"][0]["command"][2]
+    assert "POLARIS_CLIENT_ID" not in env
+
+
+def test_the_workflow_reads_no_rows():
+    workflow = _build(POLARIS)[2]
+    text = json.dumps(workflow).lower()
+
+    assert set(workflow) == {"source", "sink", "workflowConfig"}  # no processor: no profiler, sampler or DQ
+    for feature in ("profiler", "sample", "extractjsonschema", "usage", "dataquality", "testsuite"):
+        assert feature not in text
+
+
+def test_the_polaris_secret_is_copied_into_the_crawl_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
+    import base64
+
+    from olf.infra import k8s
+    from olf.infra.openmetadata import _ingestion
+
+    written: list[tuple] = []
+    monkeypatch.setattr(k8s, "secret_data", lambda *a, **k: {"POLARIS_OM_CLIENT_ID": base64.b64encode(b"id").decode()})
+    monkeypatch.setattr(k8s, "delete_secret", lambda *a, **k: None)
+    monkeypatch.setattr(k8s, "write_secret", lambda name, ns, data, **k: written.append((name, ns, data)))
+    monkeypatch.setattr(k8s, "apply_manifest", lambda *a, **k: None)
+    monkeypatch.setattr(k8s, "run_job", lambda *a, **k: None)
+
+    _ingestion.run_trino_ingestion(
+        {**POLARIS, "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-dev"}, namespace="olf-system", service="polaris"
+    )
+
+    assert written == [("polaris-om-creds", "olf-dev", {"POLARIS_OM_CLIENT_ID": "id"})]

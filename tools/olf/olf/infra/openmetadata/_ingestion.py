@@ -8,6 +8,7 @@ ingest` entry point.
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Mapping
 from typing import Any
 
@@ -28,11 +29,27 @@ _TOKEN_PLACEHOLDER = "__OM_BOT_JWT__"
 # Secret is in the namespace Trino runs in, named from the stage credential's, so the Job runs there too.
 _PASSWORD_ENV = "TRINO_PASSWORD"
 _PASSWORD_PLACEHOLDER = "__TRINO_PASSWORD__"
+# Trino carries no policy of its own: the crawl presents the `openmetadata` Polaris principal's token as the `token`
+# extra credential (ADR 0019 section 9). The pod mints it from the principal's client credentials just before the
+# crawl, so the token is in neither the Job spec nor the stored service; the 3600 s deadline fits its one hour.
+POLARIS_SECRET = "polaris-om-creds"
+_POLARIS_TOKEN_PLACEHOLDER = "__POLARIS_TOKEN__"
+_MINT_ENV = "OM_POLARIS_MINT"
+_MINT = (
+    "import json,os,urllib.parse as p,urllib.request as r;"
+    'e=os.environ;d=p.urlencode({"grant_type":"client_credentials","client_id":e["POLARIS_CLIENT_ID"],'
+    '"client_secret":e["POLARIS_CLIENT_SECRET"],"scope":e["POLARIS_SCOPE"]}).encode();'
+    'print(json.load(r.urlopen(e["POLARIS_TOKEN_URI"],d,timeout=30))["access_token"])'
+)
 
 
 def _password_secret(environ: Mapping[str, str]) -> str:
     credential = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
     return f"{credential}-openmetadata" if credential else ""
+
+
+def _polaris(environ: Mapping[str, str]) -> bool:
+    return bool(environ.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
 
 
 def _tls(environ: Mapping[str, str]) -> bool:
@@ -49,8 +66,13 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
         "hostPort": f"{environ['OPENLAKEFORGE_QUERY_TRINO_HOST']}:{port}",
         "username": "openmetadata",
     }
+    arguments: dict[str, Any] = {}
     if tls:
-        connection["connectionArguments"] = {"http_scheme": "https", "verify": f"{_CA_DIR}/ca.crt"}
+        arguments = {"http_scheme": "https", "verify": f"{_CA_DIR}/ca.crt"}
+    if _polaris(environ):
+        arguments["extra_credential"] = [["token", _POLARIS_TOKEN_PLACEHOLDER]]
+    if arguments:
+        connection["connectionArguments"] = arguments
     if _password_secret(environ):
         connection["authType"] = {"password": _PASSWORD_PLACEHOLDER}
     return {
@@ -88,6 +110,7 @@ def ingestion_job(
     environ: Mapping[str, str], *, image: str, namespace: str, service: str, om_api: str
 ) -> dict[str, Any]:
     workflow = ingestion_config(environ, service=service, om_api=om_api)
+    mint = f'POLARIS_JWT=$(python -c "${_MINT_ENV}") && ' if _polaris(environ) else ""
     container: dict[str, Any] = {
         "name": "ingest",
         "image": image,
@@ -96,7 +119,9 @@ def ingestion_job(
         "command": [
             "sh",
             "-c",
-            f'printf \'%s\' "$OM_WORKFLOW" | sed -e "s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|"'
+            f'{mint}printf \'%s\' "$OM_WORKFLOW" | sed -e "s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|"'
+            + (f' -e "s|{_POLARIS_TOKEN_PLACEHOLDER}|$POLARIS_JWT|"' if mint else "")
+            +
             f' -e "s|{_PASSWORD_PLACEHOLDER}|${{{_PASSWORD_ENV}:-}}|" > /tmp/workflow.yaml'
             " && metadata ingest -c /tmp/workflow.yaml",
         ],
@@ -113,6 +138,16 @@ def ingestion_job(
             },
         ],
     }
+    if mint:
+        scope = environ.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE") or "PRINCIPAL_ROLE:ALL"
+        container["env"] += [
+            {"name": _MINT_ENV, "value": _MINT},
+            {"name": "POLARIS_TOKEN_URI", "value": environ["OPENLAKEFORGE_CATALOG_TOKEN_URI"]},
+            {"name": "POLARIS_SCOPE", "value": scope},
+        ]
+        for name in ("CLIENT_ID", "CLIENT_SECRET"):
+            ref = {"secretKeyRef": {"name": POLARIS_SECRET, "key": f"POLARIS_OM_{name}"}}
+            container["env"].append({"name": f"POLARIS_{name}", "valueFrom": ref})
     if password_secret := _password_secret(environ):
         container["env"].append(
             {
@@ -162,6 +197,18 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     }
 
 
+def _copy_polaris_secret(source: str, target: str, *, environ: Mapping[str, str]) -> None:
+    """The `openmetadata` principal's Secret lives with Polaris; a secretKeyRef cannot cross namespaces."""
+    if source == target:
+        return
+    data = k8s.secret_data(POLARIS_SECRET, source, environ=environ)
+    if data is None:
+        raise k8s.KubectlError(f"Secret '{POLARIS_SECRET}' is missing in '{source}'.")
+    k8s.delete_secret(POLARIS_SECRET, target, environ=environ)
+    values = {key: base64.b64decode(value).decode("utf-8") for key, value in data.items()}
+    k8s.write_secret(POLARIS_SECRET, target, values, overwrite=False, environ=environ)
+
+
 def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: str) -> None:
     catalog = yaml.safe_load((config.distribution_root(environ=environ) / "release/component-catalog.yaml").read_text())
     # `namespace` is OpenMetadata's. The Job runs beside the stage's coordinator, where the `openmetadata`
@@ -170,10 +217,13 @@ def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: 
         f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}.{namespace}:"
         f"{config.env('OPENMETADATA_SERVICE_PORT', '8585', environ=environ)}"
     )
+    job_namespace = trino.service_namespace(environ, namespace)
+    if _polaris(environ):
+        _copy_polaris_secret(namespace, job_namespace, environ=environ)
     job = ingestion_job(
         environ,
         image=catalog["components"]["images"]["openmetadata_ingestion"],
-        namespace=trino.service_namespace(environ, namespace),
+        namespace=job_namespace,
         service=service,
         om_api=f"http://{om_host}/api",
     )
