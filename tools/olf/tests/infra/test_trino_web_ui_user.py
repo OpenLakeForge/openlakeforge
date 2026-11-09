@@ -29,9 +29,9 @@ def render(tmp_path: Path, user: str | None) -> list[str]:
     return list(json.loads(out.stdout)["properties"]["value"])
 
 
-def test_plain_http_route_renders_a_fixed_web_ui_user(tmp_path: Path) -> None:
+def test_a_fixed_web_ui_user_is_rendered(tmp_path: Path) -> None:
     assert render(tmp_path, "olf-web") == ["web-ui.authentication.type=fixed", "web-ui.user=olf-web"]
 
 
-def test_https_route_renders_nothing(tmp_path: Path) -> None:
+def test_no_fixed_user_renders_nothing(tmp_path: Path) -> None:
     assert render(tmp_path, None) == []

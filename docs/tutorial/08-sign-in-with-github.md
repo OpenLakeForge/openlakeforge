@@ -177,12 +177,9 @@ olf infra access trust
 It writes the CA certificate and prints the commands for your platform. Skip
 it and the browser warns on every host.
 
-Trino's workload authentication follows `spec.access`: with the block
-declared, as here, Superset, dbt and OpenMetadata ingestion authenticate to
-Trino with their own passwords (`trino_workload_authentication` defaults to
-`password`); without it, it defaults to `off`. The Trino UI sign-in follows
-the scheme: on plain HTTP the UI opens as a fixed user behind the perimeter,
-and on HTTPS it signs in through Dex.
+Trino has no sign-in of its own: every caller sends its own token, and Polaris
+decides what each query reads. The Trino UI opens as a fixed user behind the
+perimeter, which admits data engineers and platform admins.
 
 The GitHub App records the callback URL for the scheme it was created with.
 After switching scheme, run `olf infra secrets rotate github-app` to register an app

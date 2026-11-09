@@ -108,14 +108,12 @@ locals {
       : local.rest_catalog_properties[stage]
     )
   }
-  # Every stage-scoped client (dbt, Dagster, Superset, and the e2e suite)
-  # authenticates to Trino as its own stage's runtime identity
-  # (`olf-<stage>-runtime`, see `runtime_identity_principal` in
-  # olf/infra/contracts.py) - Trino has no authentication configured, so this
-  # string match is the only thing that keeps a DEV client from resolving
-  # PROD's catalog. `system` stays read-only for cluster metadata; every
-  # other catalog is denied unless explicitly listed above.
-  catalog_access_rules = jsonencode(merge({
+  # Polaris decides every access on a keyless catalog (ADR 0019 section 9),
+  # so Trino carries no rules there. A Glue catalog is not keyless: until AWS
+  # moves to Polaris (#681) its stages share one coordinator, and these rules
+  # by claimed user name are the only thing keeping one stage's catalog from
+  # another's (#983 keeps them for Glue only).
+  catalog_access_rules = jsonencode({
     catalogs = concat(
       [
         for stage, contract in local.stage_catalog_contracts : {
@@ -124,16 +122,6 @@ locals {
           allow   = "all"
         }
       ],
-      # OpenMetadata crawls every stage's catalog into that stage's own
-      # root through its Trino service (modules/governance/openmetadata).
-      [
-        for contract in values(local.stage_catalog_contracts) : {
-          user    = "openmetadata"
-          catalog = contract.catalog_name
-          allow   = "read-only"
-        }
-      ],
-      local.people_catalog_rules,
       [
         { catalog = "system", allow = "read-only" },
         { catalog = ".*", allow = "none" },
@@ -172,7 +160,7 @@ locals {
       ]),
       [{ privileges = ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"] }],
     )
-  }, local.principal_rules, local.people_query_rules))
+  })
 
   # Overlay on the base values file. For `small` it restates what the file
   # already sets (plus the chart's own query.max-memory), so the rendered
@@ -200,95 +188,6 @@ locals {
     }
   }))]
 
-  tls_enabled  = var.workload_authentication != "off"
-  auth_enabled = var.workload_authentication == "password"
-  # Each verified principal may become exactly its own user, so a DEV password
-  # cannot claim `olf-prod-runtime` through X-Trino-User; the last rule denies
-  # every other principal (ADR 0016). A for expression, not a conditional, so
-  # the disabled case is an empty object of the same type.
-  principal_rules = {
-    for key, rules in {
-      principals = concat(
-        [for principal in local.credential_principals : { principal = principal, user = principal, allow = true }],
-        local.people_principal_rules,
-        [{ principal = ".*", user = ".*", allow = false }],
-      )
-    } : key => rules if local.auth_enabled
-  }
-  tls_secret_name = "trino-tls"
-  tls_dns_names = [
-    var.release_name,
-    "${var.release_name}.${var.namespace}",
-    "${var.release_name}.${var.namespace}.svc",
-    "${var.release_name}.${var.namespace}.svc.cluster.local",
-    "localhost", # the Trino CLI inside the coordinator pod (olf e2e)
-  ]
-  # The shared secret that authenticated nodes need for internal requests comes
-  # from the environment because config.properties accepts ${ENV:...}.
-  internal_secret_env = local.auth_enabled ? [
-    {
-      name = "TRINO_INTERNAL_SECRET"
-      valueFrom = {
-        secretKeyRef = {
-          name = "trino-internal-secret"
-          key  = "internal-communication.shared-secret"
-        }
-      }
-    },
-  ] : []
-  tls_ca_secret_name = "${var.traefik_transport}-ca-bundle"
-  traefik_transport  = var.traefik_transport
-  # The tls level: an HTTPS listener beside the HTTP one, no authentication, so
-  # callers can move to HTTPS and prove the CA while still sending only a user
-  # name (ADR 0016 migration step 2-3).
-  tls_values = {
-    server = {
-      config = {
-        https = {
-          enabled  = true
-          port     = 8443
-          keystore = { path = "/etc/trino/tls/tls-combined.pem" }
-        }
-      }
-    }
-    coordinator = {
-      # Mounted as a directory so a renewed Secret reaches the pod; Trino does
-      # not reload it, so the coordinator restarts to pick it up.
-      secretMounts = [{ name = "tls", secretName = local.tls_secret_name, path = "/etc/trino/tls" }]
-    }
-  }
-  # Password authentication on an HTTPS-only coordinator (ADR 0016). There is
-  # no HTTP listener, so nothing can downgrade a password to cleartext, and
-  # `process-forwarded` stays on for the requests Traefik re-encrypts to 8443.
-  # A node reaches itself at https://localhost:8443, a name in the certificate,
-  # with the CA as its truststore; the chart's own discovery.uri comes first and
-  # the later line wins (proof k1).
-  auth_values = {
-    server = {
-      config = {
-        authenticationType = local.people_enabled ? "PASSWORD,JWT" : "PASSWORD"
-      }
-    }
-    auth                       = { passwordAuthSecret = "trino-password-file" }
-    additionalConfigProperties = local.auth_config_properties
-    additionalNodeProperties   = ["node.internal-address=localhost"]
-    # Traefik reaches Trino over HTTPS, trusting the CA through the file-provider
-    # transport of the same name (modules/access/traefik).
-    service = {
-      annotations = {
-        "traefik.ingress.kubernetes.io/service.serversscheme"    = "https"
-        "traefik.ingress.kubernetes.io/service.serverstransport" = "${local.traefik_transport}@file"
-      }
-    }
-    coordinator = {
-      # The chart hardwires the liveness probe to the HTTP port, which no longer
-      # exists, and takes only its timings. The readiness and startup probes run
-      # the image's health-check, which uses HTTPS when HTTP is disabled, so
-      # these values only make the liveness failure effectively inert: it fires
-      # once an hour and would restart the pod after 1000 failures.
-      livenessProbe = { periodSeconds = 3600, failureThreshold = 1000 }
-    }
-  }
   # Create a named service account when one is explicitly requested (EKS Pod Identity
   # binds credentials by SA name and needs no annotation) or, IRSA-style, when
   # annotations are supplied. Otherwise Trino runs under the namespace default SA.
@@ -313,26 +212,30 @@ resource "helm_release" "trino" {
   values = concat([
     file(var.base_values_file),
     ], local.sizing_values, [
-    yamlencode({
-      env = concat(local.storage_secret_env, local.catalog_secret_env, local.internal_secret_env, local.oidc_env)
+    yamlencode(merge({
+      env = concat(local.storage_secret_env, local.catalog_secret_env)
 
-      catalogs = merge(local.iceberg_catalog_properties, local.people_catalog_properties)
-
-      accessControl = {
-        type       = "configmap"
-        configFile = "rules.json"
-        rules = {
-          "rules.json" = local.catalog_access_rules
-        }
-      }
+      # The stage's REST catalog is served under its own name too: Superset,
+      # `olf query` and the platform API name the catalog after the stage.
+      catalogs = merge(local.iceberg_catalog_properties, local.rest_catalog_properties)
 
       serviceAccount = {
         create      = local.create_service_account
         name        = local.create_service_account ? local.service_account_name : ""
         annotations = var.service_account_annotations
       }
-    }),
-    ], local.tls_enabled ? [yamlencode(local.tls_values)] : [], local.auth_enabled ? [yamlencode(local.auth_values)] : [],
+      }, {
+      # A for expression, not a conditional: without a Glue catalog there is no
+      # access control at all, and the two branches would not share a type.
+      for key, value in {
+        accessControl = {
+          type       = "configmap"
+          configFile = "rules.json"
+          rules      = { "rules.json" = local.catalog_access_rules }
+        }
+      } : key => value if local.glue_enabled
+    })),
+    ],
     # Last, because Helm replaces a list wholesale (config.tf).
     [yamlencode({ additionalConfigProperties = local.config_properties })],
   )
@@ -344,61 +247,5 @@ resource "helm_release" "trino" {
       condition     = length(local.rest_catalog_properties) == 0 || (length(var.service_account_annotations) == 0 && var.service_account_name == "")
       error_message = "A keyless (Polaris) Trino catalog runs with no cloud workload identity: unset service_account_annotations and service_account_name."
     }
-    # The TLS and password values (below) point every node at the coordinator
-    # as localhost and mount the certificate on the coordinator only, so a
-    # worker would register with itself. Multi-node with authentication is #367.
-    precondition {
-      # A conditional, not ||: Terraform evaluates both operands, and .workers on null fails the plan.
-      condition     = var.query_sizing == null ? true : (var.query_sizing.workers == 0 || !local.tls_enabled)
-      error_message = "spec.query.size medium and large add Trino workers, which are not supported with Trino workload authentication (tls or password): deploy without spec.access, or use size small."
-    }
-    # The principals rule is built from stage_namespaces and the catalog rules
-    # from the catalog contracts; a stage in only one would be locked out.
-    precondition {
-      condition     = !local.auth_enabled || toset(keys(var.stage_namespaces)) == toset(keys(local.stage_catalog_contracts))
-      error_message = "With workload authentication on, stage_namespaces must name exactly the stages in the catalog contracts."
-    }
   }
-
-  # The password file, internal secret and certificate must exist before the
-  # coordinator starts with authentication on. Nothing here when it is off.
-  depends_on = [
-    kubernetes_job_v1.credentials,
-    helm_release.certificate,
-  ]
-}
-
-# A release of its own: Certificate is a cert-manager CRD kind, which Helm
-# cannot map until cert-manager has installed it (same reason as local-ca).
-resource "helm_release" "certificate" {
-  count = local.tls_enabled ? 1 : 0
-
-  name      = "${var.release_name}-certificate"
-  chart     = "${path.module}/certificate"
-  namespace = var.namespace
-
-  values = [yamlencode({
-    secretName      = local.tls_secret_name
-    trust           = var.traefik_ca_namespace == null
-    trustSecretName = local.tls_ca_secret_name
-    issuerName      = var.tls_issuer_name
-    dnsNames        = local.tls_dns_names
-  })]
-}
-
-# Traefik re-encrypts to a coordinator in another namespace and can mount only
-# a Secret of its own, so the trust Certificate is issued there (same chart,
-# without the serving certificate).
-resource "helm_release" "traefik_trust" {
-  count = local.tls_enabled && var.traefik_ca_namespace != null ? 1 : 0
-
-  name      = "${local.traefik_transport}-trust"
-  chart     = "${path.module}/certificate"
-  namespace = var.traefik_ca_namespace
-
-  values = [yamlencode({
-    serving         = false
-    trustSecretName = local.tls_ca_secret_name
-    issuerName      = var.tls_issuer_name
-  })]
 }

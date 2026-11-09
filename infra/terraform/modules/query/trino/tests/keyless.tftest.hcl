@@ -28,7 +28,6 @@ variables {
       trino_credentials_secret_name = "polaris-dev-trino-catalog-creds"
     }
   }
-  stage_namespaces = { dev = "olf-dev" }
 }
 
 run "the_coordinator_carries_no_ambient_cloud_credential" {
@@ -54,17 +53,6 @@ run "the_coordinator_carries_no_ambient_cloud_credential" {
 run "every_rest_catalog_is_keyless" {
   command = plan
 
-  variables {
-    people_access = {
-      issuer_url = "https://dex.example"
-      client_id  = "olf-cli"
-      keys_url   = "http://dex.olf-system:5556/keys"
-      stages     = ["dev"]
-    }
-    workload_authentication = "password"
-    tls_issuer_name         = "olf-local-ca"
-  }
-
   assert {
     condition = alltrue(flatten([
       for doc in helm_release.trino.values : [
@@ -84,6 +72,13 @@ run "every_rest_catalog_is_keyless" {
     condition = toset(flatten([
       for doc in helm_release.trino.values : keys(try(yamldecode(doc).catalogs, {}))
     ])) == toset(["lakehouse_dev", "dev"])
-    error_message = "the stage serves its workload catalog and its people catalog"
+    error_message = "the stage serves its catalog under the catalog's name and the stage's"
+  }
+
+  assert {
+    condition = alltrue([
+      for doc in helm_release.trino.values : !can(yamldecode(doc).accessControl)
+    ])
+    error_message = "Polaris decides every access to a keyless catalog: Trino carries no rules"
   }
 }

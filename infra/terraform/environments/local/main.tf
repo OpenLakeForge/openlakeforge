@@ -240,7 +240,7 @@ module "cert_manager" {
   source = "../../modules/access/cert-manager"
   # Also for Trino's internal certificate (ADR 0016), which needs an issuer
   # even when no route is TLS-terminated.
-  count = local.access_enabled || local.trino_workload_authentication != "off" ? 1 : 0
+  count = local.access_enabled ? 1 : 0
 
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/cert-manager.yaml"
@@ -280,22 +280,17 @@ module "platform_api" {
   role_mapping = local.identity_oidc.role_mapping
   precedence   = local.identity_roles.precedence
   stages       = sort(keys(local.enabled_stages))
-  # Only Trino's certificate needs the CA now: the issuer is reached over HTTP at
-  # its Service (internal_url), so an issuer, external or not, adds no mount.
-  # Referencing the publisher orders the pod after the ConfigMap exists.
-  ca_configmap_name = local.trino_tls_port == null || !local.access_enabled ? null : module.in_cluster_resolution[0].ca_configmap_name
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the people catalogs, which exist only with Dex.
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.query_api_enabled
-  # Trino serves in-cluster clients HTTPS only once password authentication is
-  # on (ADR 0016), so the URL names the TLS port and a name in its certificate;
-  # the caller verifies it against ca_file. Each stage's people catalog is named
-  # after the stage (modules/query/trino/people.tf). Read server-side only.
+  # Trino's plain HTTP port: it has no authentication of its own, and the
+  # person's token rides each request for Polaris (ADR 0019 section 9). Each
+  # stage's catalog is also served under the stage's name. Read server-side only.
   query_endpoints = {
     for stage in keys(local.enabled_stages) : stage => {
-      statement_url = "https://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${local.trino_tls_port}/v1/statement"
+      statement_url = "http://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${module.trino[stage].http_port}/v1/statement"
       catalog       = stage
     }
     if local.query_api_enabled
@@ -354,7 +349,6 @@ module "traefik" {
   cluster_issuer_name = local.route_tls ? module.cert_manager[0].cluster_issuer_name : null
   group_middlewares   = local.identity_enabled ? module.perimeter[0].group_middlewares : {}
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
-  backend_transports  = merge([for instance in module.trino : instance.traefik_backends]...)
 }
 
 # ADR 0014 seam 3. The proxy fetches the issuer's keys and exchanges codes at
@@ -502,43 +496,18 @@ module "trino" {
   source   = "../../modules/query/trino"
   for_each = local.enabled_stages
 
-  namespace            = kubernetes_namespace_v1.stage[each.key].metadata[0].name
-  base_values_file     = "${path.root}/../../../helm/values/local/trino.yaml"
-  chart_package_path   = var.trino_chart_package_path
-  query_sizing         = try(var.query_sizing[each.key], null)
-  storage_contract     = local.stage_storage_contracts[each.key]
-  catalog_contract     = local.stage_catalog_contracts[each.key]
-  traefik_transport    = "trino-${each.key}"
-  traefik_ca_namespace = kubernetes_namespace_v1.shared.metadata[0].name
+  namespace          = kubernetes_namespace_v1.stage[each.key].metadata[0].name
+  base_values_file   = "${path.root}/../../../helm/values/local/trino.yaml"
+  chart_package_path = var.trino_chart_package_path
+  query_sizing       = try(var.query_sizing[each.key], null)
+  storage_contract   = local.stage_storage_contracts[each.key]
+  catalog_contract   = local.stage_catalog_contracts[each.key]
   # The module takes maps because AWS and Azure still serve every stage from
   # one coordinator; here each names only its own stage.
   stage_catalog_contracts = { (each.key) = local.stage_catalog_contracts[each.key] }
-
-  stage_namespaces        = { (each.key) = local.stage_namespaces[each.key] }
-  workload_authentication = local.trino_workload_authentication
-  tls_issuer_name         = try(module.cert_manager[0].cluster_issuer_name, null)
-  # Trino's OAuth2 UI sign-in needs HTTPS (#425), so a plain-HTTP route shows no
-  # login form: the UI is a fixed user and the perimeter (or no auth) gates it.
-  web_ui_fixed_user = local.public_https ? null : "olf-web"
-  # Trino refuses OAuth2 on a request that is not secure, so a plain-HTTP route
-  # (`tls: none`) keeps the UI's own login. Dex only: the module sets Dex's
-  # endpoints rather than discovering them (modules/query/trino/oidc.tf).
-  web_ui_oidc = local.identity_dex && local.public_https && var.trino_workload_authentication != "off" ? {
-    issuer_url       = local.identity_oidc.issuer_url
-    client_id        = local.identity_oidc.clients.trino.client_id
-    secret_ref       = local.identity_oidc.clients.trino.secret_ref
-    secret_namespace = kubernetes_namespace_v1.shared.metadata[0].name
-  } : null
-  # People's queries (ADR 0019): Dex tokens issued to olf-cli, and the stage's
-  # people catalog.
-  people_access = local.identity_dex && local.trino_workload_authentication == "password" ? {
-    issuer_url = local.identity_oidc.issuer_url
-    client_id  = local.identity_oidc.clients["olf-cli"].client_id
-    # Dex's own Service, not the ingress: Traefik takes Trino's route, so it
-    # is created after Trino, which needs the keys to start (flow F31).
-    keys_url = "http://${one(module.dex[*].service_name)}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${one(module.dex[*].http_port)}/keys"
-    stages   = [each.key]
-  } : null
+  # Trino has no authentication of its own (ADR 0019 section 9): the UI signs
+  # in as a fixed user and the perimeter (or no access) gates its route.
+  web_ui_fixed_user = "olf-web"
 
   depends_on = [
     module.polaris,
@@ -599,8 +568,6 @@ module "superset" {
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
   postgresql_contract = local.stage_metadata_database_contracts[each.key]
-  # The literal name, as in the query contract: see contracts.tf.
-  trino_ca_configmap_name = local.trino_tls_port == null ? null : "olf-local-ca"
   # Only with an issuer deployed (spec.identity); without one Superset keeps
   # its local login. Nothing here names an issuer product.
   bootstrap_job_image = local.bootstrap_job_image
@@ -662,11 +629,6 @@ module "dagster" {
     endpoint                   = local.stage_query_endpoints[each.key]
     catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
     runtime_identity_principal = local.stage_service_accounts[each.key]
-    tls_port                   = module.trino[each.key].tls_port
-    # A fixed name like the CA ConfigMap; the credential Job writes it to the stage namespace.
-    credential_secret_name = module.trino[each.key].credential_secret_name
-    # The fixed name in_cluster_resolution publishes (count-gated, so not referenced).
-    ca_configmap_name = module.trino[each.key].tls_port == null ? null : "olf-local-ca"
   })
   postgresql_contract   = local.stage_metadata_database_contracts[each.key]
   code_locations        = local.orchestration_contract.code_locations

@@ -86,12 +86,7 @@ def test_the_platform_phase_bootstraps_openmetadata_after_the_apply_from_the_con
         service="polaris",
         display_name="Lakehouse catalogs (Trino)",
         # Each stage's own coordinator (#1021), DEV (the canonical stage) first.
-        trino_namespaces=(
-            "trino://trino.olf-dev:8080",
-            "trino://trino.olf-dev:8443",
-            "trino://trino.olf-prod:8080",
-            "trino://trino.olf-prod:8443",
-        ),
+        trino_namespaces=("trino://trino.olf-dev:8080", "trino://trino.olf-prod:8080"),
         pipeline_service="dagster_dev",
         databases=("lakehouse_dev", "lakehouse_prod"),
     )
@@ -171,13 +166,8 @@ def test_a_failed_polaris_bootstrap_stops_the_platform_phase_before_openmetadata
 def test_every_governed_stage_trino_is_mapped_canonical_first() -> None:
     seed, _ = _platform.bootstrap_inputs(_parsed())  # type: ignore[misc]
 
-    # One coordinator per stage (#1021): each is mapped, plain and TLS port, and the canonical stage's comes first.
-    assert seed.trino_namespaces == (
-        "trino://trino.olf-dev:8080",
-        "trino://trino.olf-dev:8443",
-        "trino://trino.olf-prod:8080",
-        "trino://trino.olf-prod:8443",
-    )
+    # One coordinator per stage (#1021): each is mapped, and the canonical stage's comes first.
+    assert seed.trino_namespaces == ("trino://trino.olf-dev:8080", "trino://trino.olf-prod:8080")
 
 
 def test_a_coordinator_two_stages_share_is_mapped_once() -> None:
@@ -190,4 +180,4 @@ def test_a_coordinator_two_stages_share_is_mapped_once() -> None:
 
     seed, _ = _platform.bootstrap_inputs(shared)  # type: ignore[misc]
 
-    assert seed.trino_namespaces == ("trino://trino.olf-dev:8080", "trino://trino.olf-dev:8443")
+    assert seed.trino_namespaces == ("trino://trino.olf-dev:8080",)

@@ -133,7 +133,7 @@ flows:
   - id: F11
     from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}]
     to: {scope: stage}
-    ports: [8080, 8443] # a stage's coordinator (modules/query/trino); the stage rule is namespace-wide, and a stage pod reaches only its own namespace
+    ports: [8080] # a stage's coordinator (modules/query/trino), plain HTTP: it has no authentication of its own; the stage rule is namespace-wide, and a stage pod reaches only its own namespace
     tag: T # the OLF-owned ingestion Job (#410) runs beside the stage's coordinator, so it needs no row; the OpenMetadata pipeline client's pods are not read and are denied
   - id: F17
     from: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
@@ -183,7 +183,7 @@ flows:
   - id: F4
     from: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443, 8000] # OpenMetadata's OIDC calls to the issuer's public URL (discovery, token), rewritten to Traefik: websecure, or web with tls none. A stage coordinator's Web UI makes the same calls through the stage-wide row above
+    ports: [8443, 8000] # OpenMetadata's OIDC calls to the issuer's public URL (discovery, token), rewritten to Traefik: websecure, or web with tls none
     tag: T # needs a sign-in on a running cluster
   - id: F13
     from: {scope: shared, pods: {openlakeforge.io/job: openmetadata-role-sync}}
@@ -227,14 +227,13 @@ flows:
     tag: T # api.github.com (or the Enterprise host) every 5 min; NetworkPolicy cannot name a host
   - id: F31
     from:
-      - {scope: stage, pods: {app.kubernetes.io/name: trino, app.kubernetes.io/component: coordinator}} # the stage's coordinator; other stage pods stay off Dex
       - {scope: shared, pods: {openlakeforge.io/workload: oauth2-proxy}}
       - {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
       - {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
       - {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     ports: [5556]
-    tag: T # keys for people's tokens (ADR 0019) and the perimeter's code exchange, over the Dex Service (ADR 0013, decision 8), before Traefik exists; OpenMetadata fetches only its keys
+    tag: T # keys for people's tokens and the perimeter's code exchange, over the Dex Service (ADR 0013, decision 8), before Traefik exists; OpenMetadata fetches only its keys
   - id: F32
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: stage}
@@ -253,5 +252,5 @@ flows:
   - id: F36
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: stage}
-    ports: [8443] # a person's queries (query_endpoints), over the TLS port, with that person's token
+    ports: [8080] # a person's queries (query_endpoints), with that person's token for Polaris
     tag: T # needs a query through the platform API on a running cluster

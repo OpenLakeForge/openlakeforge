@@ -56,8 +56,6 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/adr/0017-local-network-policy-and-rbac.md",
     "docs/architecture/identity/identity-service-permissions.md",
     "docs/testing/trino_workload_auth_proof.py",
-    "infra/terraform/modules/query/trino/certificate/Chart.yaml",
-    "infra/terraform/modules/query/trino/certificate/templates/certificate.yaml",
     "release/identity-roles.yaml",
     "release/query-sizes.yaml",
     "release/network-flows.yaml",
@@ -334,9 +332,6 @@ _CREDENTIALS_JOB = (
 SHELL_TEMPLATES = {
     "infra/terraform/modules/identity/dex/templates/credentials.sh.tftpl": (
         _CREDENTIALS_JOB.removesuffix("tested by ") + "no unit test of its own yet; `helm_release.dex` depends on it"
-    ),
-    "infra/terraform/modules/query/trino/templates/credentials.sh.tftpl": (
-        _CREDENTIALS_JOB + "`tests/infra/test_trino_credentials_job.py`; `helm_release.trino` depends on it"
     ),
     "infra/terraform/modules/storage/seaweedfs/templates/credentials.sh.tftpl": (
         _CREDENTIALS_JOB + "`tests/infra/test_seaweedfs_credentials_job.py`; SeaweedFS and every S3 consumer "

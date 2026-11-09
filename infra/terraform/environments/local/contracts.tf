@@ -204,7 +204,6 @@ locals {
   # section 9). Namespace-qualified: stage-scoped Dagster and Superset resolve
   # this from their own namespace, where a bare service name would not resolve.
   stage_query_endpoints = { for name, namespace in local.stage_namespaces : name => "http://trino.${namespace}:8080" }
-  trino_tls_port        = local.trino_workload_authentication == "off" ? null : 8443
 
   # The contract's shared.query binding is required by the parser until AWS
   # and Azure stop sharing one Trino; here it names the selected stage's.
@@ -316,17 +315,12 @@ locals {
 
   # Block presence in the profile is the switch (ADR 0013/0014): no spec.access,
   # no ingress; no spec.identity, no issuer and no perimeter.
-  access_enabled = var.access_base_domain != null
-  # Callers verify Trino against the olf-local-ca ConfigMap, which only the
-  # access module publishes (in_cluster_resolution), so a profile without
-  # spec.access stays unauthenticated unless the level is set explicitly.
-  trino_workload_authentication = coalesce(var.trino_workload_authentication, local.access_enabled ? "password" : "off")
-  identity_enabled              = var.identity_issuer != null
+  access_enabled   = var.access_base_domain != null
+  identity_enabled = var.identity_issuer != null
   # `tls: none` is plain HTTP on *.localhost; `local-ca` terminates HTTPS at
   # Traefik with a route certificate; `external` has the customer's edge
   # terminate it, so Traefik serves HTTP but every URL, callback and cookie is
-  # https. cert-manager and the local CA stay deployed with spec.access: Trino's
-  # internal certificate (ADR 0016) needs the issuer.
+  # https. cert-manager and the local CA stay deployed with spec.access.
   route_tls    = local.access_enabled && var.access_tls == "local-ca"
   public_https = local.access_enabled && var.access_tls != "none"
   route_scheme = local.public_https ? "https" : "http"
@@ -434,7 +428,7 @@ locals {
         tls_host     = "*.${local.base_domain}"
         namespace    = local.stage_namespaces[name]
         service_name = module.trino[name].service_name
-        service_port = module.trino[name].route_port
+        service_port = module.trino[name].http_port
       }
     },
     local.identity_deployed ? {
@@ -485,8 +479,9 @@ locals {
 
   # Trino's /v1 for a person's own queries (ADR 0019): each stage's query host
   # with its own floor, every role, where the Web UI keeps the data-engineer one.
-  # Only when people sign in with GitHub and Trino authenticates their tokens.
-  query_api_enabled = local.identity_dex && local.trino_workload_authentication == "password"
+  # Only when people sign in with GitHub: the perimeter checks their token,
+  # and Polaris decides what it reads.
+  query_api_enabled = local.identity_dex
 
   # What Traefik routes: the contract's routes, each tagged with the access
   # group that gates it, plus the perimeter's own login callback.
@@ -656,21 +651,8 @@ module "provider_contract" {
       service_account      = local.stage_service_accounts[name]
       catalog_endpoint_ref = "shared/catalog_service"
       query_catalog_name   = local.stage_catalog_contracts[name].catalog_name
-      # tls_port and ca_configmap_name appear only while Trino serves HTTPS
-      # (ADR 0016): strings, filtered by a for expression so the absent case
-      # is an empty map of the same type. The ConfigMap name is a literal
-      # because module.in_cluster_resolution waits on Traefik, which waits on
-      # routes built from this contract: a cycle.
-      query_service_ref = "stage/${name}/query"
-      query_endpoint    = local.stage_query_endpoints[name]
-      query_extra = {
-        for key, value in tomap({
-          # Present only when Trino requires a password; the Secret is in the stage namespace.
-          credential_secret_name = module.trino[name].credential_secret_name,
-          tls_port               = local.trino_tls_port == null ? null : tostring(local.trino_tls_port),
-          ca_configmap_name      = local.trino_tls_port == null ? null : "olf-local-ca",
-        }) : key => value if value != null
-      }
+      query_service_ref    = "stage/${name}/query"
+      query_endpoint       = local.stage_query_endpoints[name]
       # Deterministic OpenMetadata pipeline- and dashboard-service roots (#131).
       # Present for every enabled stage, not just governed ones: the name itself
       # is a stage property, independent of whether anything registers it.

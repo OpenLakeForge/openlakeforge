@@ -141,10 +141,10 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    below then reach the public name through the customer's DNS and need a
    publicly trusted certificate; the e2e fixture keeps the rewrite, pointed at a
    TLS-terminating proxy that stands in for the edge.
-   Three callers cannot yet follow the contract and still call the public URL
+   Two callers cannot yet follow the contract and still call the public URL
    from inside the cluster: OpenMetadata (its code exchange follows the
-   discovery document, whose endpoints are public URLs), Superset (Authlib
-   discovery) and Trino's Web UI (token URL). For them the local root keeps a
+   discovery document, whose endpoints are public URLs) and Superset (Authlib
+   discovery). For them the local root keeps a
    CoreDNS `rewrite` sending `<base_domain>` and every name under it to the
    Traefik Service, and publishes the local CA root as ConfigMap
    `olf-local-ca` (key `ca.crt`) in `olf-system` and every stage namespace.
@@ -162,13 +162,11 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
    `127.0.0.1:80` mapping is the only exposure. Routes and the contract use
    `http://`, `tls_mode` is `none` (accepted exactly with this mode), Traefik
    serves the `web` entrypoint with no `tls` block and publishes no host port
-   443. cert-manager and the local CA stay deployed: Trino's internal
-   certificate (ADR 0016) and the CA ConfigMap the pods mount are
-   independent of the routes. Once the keyless engine of ADR 0019 section 9 lands
-   (#967), Trino no longer has a certificate, and whether cert-manager is
-   still needed with this mode is settled in #391; `tls: external` deploys
-   cert-manager and the CA on the same terms (no route certificate, only
-   Trino's). With this mode the CA is disposable: nothing
+   443. cert-manager and the local CA stay deployed: the CA ConfigMap the
+   pods mount is independent of the routes. Trino has no certificate since
+   #983 (ADR 0016), and whether cert-manager is still needed with this mode
+   is settled in #391; `tls: external` deploys cert-manager and the CA on the
+   same terms (no route certificate). With this mode the CA is disposable: nothing
    outside the cluster trusts it and the pods mount it by path, so it is not
    backed up and a restore or rebuild keeps the platform's own CA. Not for any other provider or a public domain;
    the validator rejects both, and public exposure (#340) must reject it too.
@@ -223,8 +221,8 @@ CA. OpenMetadata, Superset and Trino's Web UI still use the public URL, so the
 CoreDNS rewrite and `olf-local-ca` stay for them.
 
 Decisions 2 and 9 (#960): Trino moved to a per-stage route with one Trino per
-stage (#965, built for the local root in #976). Its certificate goes with the
-keyless engine (#967), decided, not built.
+stage (#965, built for the local root in #976). Its certificate and its Web
+UI's OAuth2 sign-in were removed with its authentication (#983, ADR 0016).
 
 The local CA is backed up only with `tls: local-ca`; with `none` it is disposable (decision 9).
 
