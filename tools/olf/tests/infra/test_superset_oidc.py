@@ -100,6 +100,13 @@ def test_the_superset_client_redirects_to_the_exact_callback() -> None:
     assert '/api/v1/database/oauth2/",' in contracts
 
 
+class _Globals:
+    """Flask's `g`: attributes set during one request, with `pop`."""
+
+    def pop(self, name: str, default: Any = None) -> Any:
+        return self.__dict__.pop(name, default)
+
+
 def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
     """Load olf_security with Superset and Flask stubbed out."""
     import sys
@@ -108,6 +115,7 @@ def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[
     session: dict[str, Any] = {}
     flask = types.ModuleType("flask")
     flask.session = session  # type: ignore[attr-defined]
+    flask.g = _Globals()  # type: ignore[attr-defined]
     flask.redirect = lambda url: ("redirect", url)  # type: ignore[attr-defined]
     flask.current_app = types.SimpleNamespace(config={"OLF_SIGN_OUT_URL": SIGN_OUT})  # type: ignore[attr-defined]
     base = types.ModuleType("superset.security")
@@ -128,9 +136,17 @@ def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[
     monkeypatch.setitem(sys.modules, "flask_appbuilder.security", types.ModuleType("flask_appbuilder.security"))
     monkeypatch.setitem(sys.modules, "flask_appbuilder.security.views", views)
 
+    stored: list[tuple[int, dict[str, Any]]] = []
+    trino = types.ModuleType("olf_trino")
+    trino.store_login_token = lambda user_id, token: stored.append((user_id, token))  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "olf_trino", trino)
+
     class SupersetSecurityManager:
-        def auth_user_oauth(self, userinfo: dict[str, Any]) -> str:
-            return str(userinfo["username"])
+        def set_oauth_session(self, provider: str, response: dict[str, Any]) -> None:
+            session["oauth"] = (response["access_token"], "")
+
+        def auth_user_oauth(self, userinfo: dict[str, Any]) -> Any:
+            return types.SimpleNamespace(id=7) if userinfo["username"] == "oidc-ann" else userinfo["username"]
 
     base.SupersetSecurityManager = SupersetSecurityManager  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "flask", flask)
@@ -146,6 +162,7 @@ def _security(monkeypatch: pytest.MonkeyPatch, claims: dict[str, Any]) -> tuple[
     config = {"OLF_ROLE_CLAIM": "groups", "AUTH_ROLES_MAPPING": {"acme:admins": ["Admin"]}}
     manager.appbuilder = types.SimpleNamespace(app=types.SimpleNamespace(config=config))
     manager.oauth_remotes = {"olf": types.SimpleNamespace(userinfo=lambda: claims)}
+    manager.stored = stored  # type: ignore[attr-defined]
     return manager, session
 
 
@@ -160,7 +177,7 @@ def test_a_user_with_no_mapped_role_is_refused(monkeypatch: pytest.MonkeyPatch) 
 def test_a_mapped_user_signs_in_and_starts_the_session_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     manager, session = _security(monkeypatch, {})
 
-    assert manager.auth_user_oauth({"username": "oidc-ann", "role_keys": ["acme:admins"]}) == "oidc-ann"
+    assert manager.auth_user_oauth({"username": "oidc-ann", "role_keys": ["acme:admins"]}).id == 7
     assert isinstance(session["olf_login_at"], float)
 
 
@@ -210,3 +227,23 @@ def test_the_login_page_goes_straight_to_the_only_provider(monkeypatch: pytest.M
     assert view.login() == "olf"
     session["_flashes"] = [("warning", "refused")]  # a refused user must not loop
     assert view.login() is None
+
+
+def test_the_sign_in_token_seeds_the_trino_row_and_leaves_the_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, session = _security(monkeypatch, {})
+    response = {"access_token": "at", "refresh_token": "rt", "expires_in": 3600}
+
+    manager.set_oauth_session("olf", response)
+    assert session["oauth"] == ("at", "")  # FAB needs it for userinfo()
+    manager.auth_user_oauth({"username": "oidc-ann", "role_keys": ["acme:admins"]})
+
+    assert "oauth" not in session
+    assert manager.stored == [(7, response)]
+
+
+def test_the_sign_in_token_names_trino_only_with_a_people_catalog() -> None:
+    plain = {"scope": "openid offline_access", "client_id": "superset"}
+    assert olf_oidc._sign_in_scope(plain) == "openid offline_access"
+
+    scopes = olf_oidc._sign_in_scope({**plain, "people_catalog": "dev"}).split()
+    assert {"federated:id", "audience:server:client_id:olf-cli", "audience:server:client_id:superset"} <= set(scopes)

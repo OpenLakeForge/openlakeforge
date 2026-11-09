@@ -300,7 +300,7 @@ called `--as-workload`.
 | Polaris records the principal `github` and the active roles, not the person | Trino's query log records the person (user = e-mail). Per-person principals would need GitHub membership synced into Polaris (rejected below) |
 | The extra credential is the bearer: a client that holds another person's token gets that person's grants | Possession of a bearer token is the authority, as on every OIDC path. Trino keeps extra credentials out of the session it serialises into query information (V, `SessionRepresentation`), so the token is not shown in the UI or `system.runtime.queries` |
 | Gold-only roles see Bronze and Silver namespace names | Section 5 |
-| Superset users keep the shared stage principal | The Context paragraph stays true for Superset. A later step can point a Superset database at the people catalog with Superset's per-database OAuth2 (Superset table below, claims 6 and 7) |
+| Superset users keep the shared stage principal until #983 removes it | Section 9 point 4 points the imported database at the people catalog; the shared credential is removed with the rest of the workload credentials |
 | Vended credentials outlive the 5-minute Dex token: Polaris issues them for one hour by default (verification item 2), and SeaweedFS will not issue less than 15 minutes. A person removed from a team keeps reading the tables already loaded until they expire. Build step 2 sets `STORAGE_CREDENTIAL_DURATION_SECONDS` to 900 and the cache to 300, so a cached credential has at least 10 minutes left; Polaris 1.4.0 then vends 15-minute credentials (V, run) | Revocation still ends new table loads within 5 minutes; the credentials cover only tables the person could read when they were issued |
 | A stage catalog created before build step 2 vends nothing. Polaris accepts a role ARN only when the catalog is created: an update that adds one is refused (`Cannot modify Role ARN`, V, run against Polaris 1.4.0) | The bootstrap leaves such a catalog as it is and says so; the person path needs the stack redeployed from scratch. No migration is built |
 | Nothing for AWS or Azure yet | AWS uses Glue today; it is to move to Polaris, which brings this path with it, because Glue saves little as a managed catalog (#681). Azure runs Polaris but has no Dex adapter yet (ADR 0014); it gains the path when it does |
@@ -373,8 +373,21 @@ holds a storage key", is extended from the person path to every path.
    `kubectl` argument and in no log. `olf query` and the platform API already
    send the person's token on every call, discovery included. Today's keyed
    catalogs ignore it.
-4. **Superset per user** (#968). The viewer's dashboard returns what the
-   viewer's role reaches in Polaris. Results are cached per user.
+4. **Superset per user** (#968, import and sign-in token built in #987; the
+   shared credential is removed in #983). The imported database points at the
+   stage's people catalog on the stage's Trino with no user and no password,
+   `impersonate_user`, `per_user_caching` and no background queries. The
+   sign-in token response seeds one `database_user_oauth2_tokens` row for that
+   database (one only: Dex rotates refresh tokens), so a viewer needs no second
+   consent, and the access token is dropped from FAB's signed session cookie.
+   The viewer's dashboard returns what the viewer's role reaches in Polaris.
+   Results are cached per user. The local `admin` and the platform API's
+   service user hold no Dex token and cannot query the database: they
+   administer, import and export only, and the import never queries Trino.
+   Polaris denials reach a chart as Trino's generic error; Superset has no
+   hook for a custom message, so this is a limit. AWS and Azure keep a shared
+   coordinator with no people catalog, so their reports get no per-user
+   connection until their cloud milestone.
 5. **OpenMetadata governs its own users** (#969, built). OpenMetadata never
    queries data for the person signed in to it: it shows what its crawler
    collected, and its own roles, mapped from Dex groups, decide what a person

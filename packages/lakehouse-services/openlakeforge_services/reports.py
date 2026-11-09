@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 
@@ -29,6 +30,10 @@ SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
 # Superset's per-database `extra` while Trino serves HTTPS (ADR 0016). Export
 # strips exactly these keys, so they live beside the code that adds them.
 TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
+# What every imported database carries (ADR 0019 section 9): the viewer's own token reaches Trino, cached
+# per user, with no shared credential. A background query has no request to take a token from.
+PER_USER_DATABASE = {"impersonate_user": True, "allow_run_async": False}
+PER_USER_EXTRA = {"per_user_caching": True, "metadata_cache_timeout": {}}
 # The placeholder a checked-in database YAML carries. `build_report_bundle`
 # replaces it with the target stage's connection, and `unpack_export_bundle`
 # puts it back so an exported bundle promotes unchanged.
@@ -106,8 +111,8 @@ def build_report_bundle(
                 raise ValueError(f"{relative}: is not a YAML mapping")
             if rewrite_database:
                 document["sqlalchemy_uri"] = sqlalchemy_uri
-                if extra:
-                    document["extra"] = {**(document.get("extra") or {}), **extra}
+                document.update(PER_USER_DATABASE)
+                document["extra"] = {**(document.get("extra") or {}), **PER_USER_EXTRA, **(extra or {})}
             else:
                 schema = document.get("schema")
                 if not isinstance(schema, str) or not schema:
@@ -318,8 +323,12 @@ def canonical_uuid(value: object) -> str | None:
         return None
 
 
-def bundle_schema_perms(bundle_path: Path) -> set[str]:
+def bundle_schema_perms(bundle_path: Path, *, with_catalog: bool = False) -> set[str]:
     """The `[database].[schema]` view menus of every dataset the bundle imports.
+
+    `with_catalog` gives `[database].[catalog].[schema]` instead, the catalog
+    being the database URI's: Superset creates the plain name on a dataset's
+    first import and moves the dataset to this one on a later import.
 
     Report datasets are the Gold marts a dashboard reads, so the bundle (after
     `build_report_bundle` applied any schema prefix) is the source of truth for
@@ -340,7 +349,10 @@ def bundle_schema_perms(bundle_path: Path) -> set[str]:
             if not isinstance(document, dict):
                 continue
             if parts[1] == "databases":
-                databases[canonical_uuid(document["uuid"]) or ""] = str(document["database_name"])
+                catalog = urlsplit(str(document.get("sqlalchemy_uri", ""))).path.strip("/")
+                qualified = with_catalog and catalog
+                name = f"{document['database_name']}].[{catalog}" if qualified else str(document["database_name"])
+                databases[canonical_uuid(document["uuid"]) or ""] = name
             else:
                 datasets.append(document)
     return {
@@ -374,12 +386,12 @@ def import_reports(
     sqlalchemy_uri: str,
     schema_prefix: str = "",
     extra: dict[str, Any] | None = None,
-    database_password: str = "",
     progress: Progress = SILENT,
 ) -> None:
     """Build and import each report bundle, then grant the data-access role its schemas."""
     work_dir.mkdir(parents=True, exist_ok=True)
     schema_perms: set[str] = set()
+    catalog_perms: set[str] = set()
     dashboards: list[str] = []
     for report_dir in report_dirs:
         source_dir = repo_root / report_dir
@@ -393,17 +405,23 @@ def import_reports(
         )
 
         progress.step(f"Importing Superset report assets from {bundle_path}")
-        client.import_assets(bundle_path, database_password=database_password)
+        client.import_assets(bundle_path)
         progress.info(f"Deployed Superset report assets from {report_dir}")
         schema_perms |= bundle_schema_perms(bundle_path)
+        catalog_perms |= bundle_schema_perms(bundle_path, with_catalog=True)
         dashboards += bundle_dashboard_uuids(bundle_path)
+    # First: the handover updates the datasets, which is when Superset 6.1.0 gives them the connection's catalog
+    # and creates the `[database].[catalog].[schema]` permission the grant below needs.
+    _hand_over(client, dashboards, progress)
     if schema_perms:
         # The role exists only when Superset runs with sign-in (identity.oidc).
-        if not client.grant_permissions(DATA_ACCESS_ROLE, "schema_access", sorted(schema_perms)):
+        def grant(role: str) -> bool:
+            return client.grant_permissions(role, "schema_access", sorted(schema_perms), optional=catalog_perms)
+
+        if not grant(DATA_ACCESS_ROLE):
             progress.info("Superset sign-in is off; no data-access role to grant")
-        if client.grant_permissions(PLATFORM_API_ROLE, "schema_access", sorted(schema_perms)):
+        if grant(PLATFORM_API_ROLE):
             progress.info(f"Granted {PLATFORM_API_ROLE} the report schemas, so the platform API can export them")
-    _hand_over(client, dashboards, progress)
 
 
 def _hand_over(client: SupersetClient, dashboards: Sequence[str], progress: Progress) -> None:

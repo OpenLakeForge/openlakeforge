@@ -18,6 +18,7 @@ import requests
 
 from olf.common import config, log
 from olf.infra import access
+from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._browser_session import check_browser_session
 from olf.infra.e2e._cli_session import CLI_CLIENT, check_cli_session
 from olf.infra.e2e._identity_github import (
@@ -31,6 +32,7 @@ from olf.infra.e2e._identity_github import (
 from olf.infra.e2e._perimeter_bearer import PLATFORM_API_HOST_REF, check_bearer_tokens
 from olf.infra.e2e._person_access import check_person_access
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
+from olf.infra.e2e._superset_person import check_person_chart_data
 
 PORTAL_REF = "shared/portal"
 DENIAL_HEADING = "Access is role-restricted"
@@ -121,6 +123,8 @@ def _check_dex_perimeter(
                 browser, _ = sign_in(routes[PORTAL_REF], logins[role])
                 check_browser_session(identity, api, role, browser)
         check_person_access(route, cfg, identity, stages, routes, logins)
+        stage = cfg_environ(cfg).get(CONTRACT_STAGE_ENV, "dev")
+        check_person_chart_data(identity, routes, stage, logins, sign_in)
 
 
 def check_unauthenticated_requests(

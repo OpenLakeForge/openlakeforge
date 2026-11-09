@@ -119,7 +119,7 @@ def test_a_load_measures_its_requests_and_surfaces_other_errors() -> None:
     datasets = [{"id": 1, "type": "table"}, {"id": 2, "type": "table"}]
     load = lat._dashboard_load("http://s", "1", datasets, {}, {}, Session([200]), _pacer(time))  # type: ignore[arg-type]
     assert load() == pytest.approx(0.03)  # the dashboard and two charts, not the pacing waits between them
-    assert len(calls) == 4  # the csrf token, then the load
+    assert len(calls) == 3  # the dashboard, then each chart's dataset
 
     broken = lat._dashboard_load("http://s", "1", datasets, {}, {}, Session([200, 500]), _pacer(time))  # type: ignore[arg-type]
     with pytest.raises(E2EError, match="HTTP 500"):

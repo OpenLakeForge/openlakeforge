@@ -2,8 +2,8 @@
 
 The operations themselves are `openlakeforge_services.reports`; this module
 resolves what they need from the deployment: the stage's connection from the
-applied contract, Superset's URL through a port-forward, and the admin and
-Trino passwords from Kubernetes Secrets.
+applied contract, Superset's URL through a port-forward, and the admin
+password from a Kubernetes Secret.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ class ReportStageError(RuntimeError):
     """A stage cannot serve a report import or export."""
 
 
-SUPERSET_PASSWORD_MASK = "XXXXXXXXXX"
 # Created in-cluster by the Superset module, release "superset".
 ADMIN_SECRET = "superset-credentials"
 
@@ -44,9 +43,6 @@ class StageReportTarget:
     # Superset's per-database `extra`: the HTTPS scheme and the CA to verify
     # against, set only while Trino serves HTTPS (ADR 0016).
     extra: dict[str, Any] | None = None
-    # Secret in `namespace` holding this stage's Trino password; empty while
-    # Trino takes no password.
-    credential_secret: str = ""
 
 
 def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
@@ -71,12 +67,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     namespace = environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "")
     connection = {
         name: environ.get(name, "")
-        for name in (
-            "OPENLAKEFORGE_DBT_TRINO_USER",
-            "OPENLAKEFORGE_QUERY_TRINO_HOST",
-            "OPENLAKEFORGE_QUERY_TRINO_PORT",
-            "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
-        )
+        for name in ("OPENLAKEFORGE_QUERY_TRINO_HOST", "OPENLAKEFORGE_QUERY_TRINO_PORT")
     }
     missing = [name for name, value in (("OPENLAKEFORGE_KUBE_NAMESPACE", namespace), *connection.items()) if not value]
     if missing:
@@ -98,23 +89,15 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         )
     # Built here from the contract's own fields rather than read from
     # OPENLAKEFORGE_QUERY_SQLALCHEMY_URI, which `build_contract_env` keeps
-    # when the caller exported one. Any component of a kept URI can belong to
-    # another stage or deployment -- the endpoint, the catalog, or the Trino
-    # user whose catalog rules decide what SQL Lab on this connection can
-    # read -- so none of it is trusted. Same shape `build_contract_env` uses.
+    # when the caller exported one and which can belong to another stage.
+    # No user and no password: each viewer's own token reaches the stage's
+    # people catalog, named after the stage (ADR 0019 section 9).
     tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
     tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
-    credential_secret = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "") if tls else ""
-    # Superset's own placeholder, not a secret. The import's `passwords` field
-    # fills the real value, but Database.set_sqlalchemy_uri then overwrites it
-    # with the URI's password unless that is the placeholder (6.1.0), so a URI
-    # without one wipes the password and the import's first Trino call gets 401.
-    sqlalchemy_uri = "trino://{user}{mask}@{host}:{port}/{catalog}".format(
-        mask=f":{SUPERSET_PASSWORD_MASK}" if credential_secret else "",
-        user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
+    sqlalchemy_uri = "trino://{host}:{port}/{catalog}".format(
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
         port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
-        catalog=connection["OPENLAKEFORGE_QUERY_TRINO_CATALOG"],
+        catalog=resolved_stage,
     )
     return StageReportTarget(
         stage=resolved_stage,
@@ -122,7 +105,6 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
         extra=TLS_EXTRA if tls else None,
-        credential_secret=credential_secret,
     )
 
 
@@ -165,7 +147,6 @@ def deploy_reports(
     admin_password: str,
     schema_prefix: str = "",
     extra: dict[str, Any] | None = None,
-    credential_secret: str = "",
     environ: Mapping[str, str] | None = None,
 ) -> None:
     # Computed before touching the cluster: a declared-but-unmounted bundle
@@ -188,9 +169,6 @@ def deploy_reports(
         log.step("No Superset report bundles are declared; nothing to import.")
         return
 
-    trino_password = (
-        k8s.secret_value(credential_secret, "password", namespace, environ=environ) if credential_secret else ""
-    )
     with superset_base_url(namespace, environ=environ) as route:
         password = admin_password_for(namespace, admin_password, environ=environ)
         client = route.client(SupersetClient, username=admin_username, password=password)
@@ -203,7 +181,6 @@ def deploy_reports(
             sqlalchemy_uri=sqlalchemy_uri,
             schema_prefix=schema_prefix,
             extra=extra,
-            database_password=trino_password,
             progress=log,
         )
 
