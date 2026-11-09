@@ -43,8 +43,8 @@ are discarded.
 | Reuse | An existing Secret with the expected key is kept. Redeploy is not rotation. |
 | Commit point | `kubectl create secret` is the only write, one API call per Secret, and fails if the Secret exists, so a Job never overwrites a value a consumer may already hold and no partial Secret exists. |
 | Direction | The Secret is the source of truth; Dex reads the client secrets through `secretEnv` at start. Nothing is read back out of Dex. |
-| Rotation | Explicit: `olf infra secrets rotate dex-client-perimeter` (or `-trino`) deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers; `superset` and `openmetadata` stay manual ([runbook](../../guides/identity/rotate-secrets.md)). |
-| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../../adr/0017-local-network-policy-and-rbac.md)); `get` only on the four consumer client Secrets it owns. The Trino Job has the same shape: `create` per namespace, `get` and `update` only on its own Secrets (`trino-password-file`, and `trino-credential` in a stage namespace). |
+| Rotation | Explicit: `olf infra secrets rotate dex-client-perimeter` deletes the Secret, replaces the bootstrap Job, and restarts Dex and the consumers; `superset` and `openmetadata` stay manual ([runbook](../../guides/identity/rotate-secrets.md)). |
+| Job RBAC | `create` on Secrets in its own namespace (cannot be limited by `resourceNames`; #46 inventories this exception as E1 in [ADR 0017](../../adr/0017-local-network-policy-and-rbac.md)); `get` only on the three consumer client Secrets it owns. |
 
 ### Missing-secret recovery
 
@@ -75,11 +75,9 @@ Terraform state.
 
 | Credential | Purpose | Generator | Secret reference | Consumer | Rotation / recovery (owner: platform operator) | Terraform observes value |
 | --- | --- | --- | --- | --- | --- | --- |
-| OIDC client `perimeter`, `superset`, `openmetadata`, `trino` (exists); `olf-cli` is a public client with no credential and no row | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `dex-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Dex; oauth2-proxy, Superset, OpenMetadata and Trino | [Rotate secrets](../../guides/identity/rotate-secrets.md) | No |
+| OIDC client `perimeter`, `superset`, `openmetadata` (exists); `olf-cli` is a public client with no credential and no row | Client authentication to the token endpoint | Bootstrap Job, 32 random alphanumeric characters | `dex-client-<consumer>`, key `client-secret`; with `issuer: external`, operator-provided `oidc-client-<consumer>` | Dex; oauth2-proxy, Superset and OpenMetadata | [Rotate secrets](../../guides/identity/rotate-secrets.md) | No |
 | Perimeter cookie secret (exists) | Signs and encrypts oauth2-proxy session cookies | In-cluster Job `oauth2-proxy-cookie-<hash>`, 32 random characters, create-if-missing | `oauth2-proxy-cookie`, key `cookie-secret` | oauth2-proxy | Delete the Secret, replace the Job, restart the proxies; signs out every user once | No |
-| Trino workload credentials (#26) | Authenticate Superset, dbt and OpenMetadata ingestion to Trino, one principal each: `olf-<stage>-runtime` per stage and `openmetadata` | In-cluster Job `trino-credentials-<hash>` (`modules/query/trino/credentials.tf`), create-if-missing, 32 random alphanumeric characters; local root only | `trino-credential-<principal>` in `olf-system`, keys `username`, `password`; each stage's own principal replicated as `trino-credential` into that stage namespace only ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | Superset, dbt run pods, OpenMetadata ingestion, `olf e2e` and `olf infra query`, each from its Secret by reference; Trino authenticates them when `trino_workload_authentication` is `password`, the local default with `spec.access` | Delete the Secret, replace the Job, re-sync consumers (ADR 0016) | No |
 | GitHub OAuth App (exists) | Dex's GitHub connector authenticates to GitHub | Operator, issued by GitHub | `spec.identity.github.oauth_app_secret_ref`: name, `client_id_key` (default `client-id`), `client_secret_key` (default `client-secret`); a Secret in `olf-system` the operator creates ([how](../../guides/identity/connect-github.md)) | Dex, through `secretKeyRef` | Rotated in GitHub, then the Secret, then a Dex restart | No |
-| Trino password file and internal secret (exists, not yet used, #26) | `password.db` is the PBKDF2 derivation of the principal Secrets, rebuilt on every Job run and never a source of truth; the internal secret is Trino's `internal-communication.shared-secret` | Same Job; the file is derived, the internal secret is create-if-missing | `trino-password-file` (key `password.db`) and `trino-internal-secret` (key `internal-communication.shared-secret`) in `olf-system` | Trino, once authentication is on | The file follows its principal Secrets; the internal secret is rotated like a principal Secret | No |
 
 No row serves two classes (#178): the OIDC clients and the perimeter secret are
 class 1 plumbing, and the workload credentials below are class 2 and are never members
@@ -119,11 +117,11 @@ it differs from the source.
 workload secret rotation drill, which comes last so the scan checks the
 credentials that were live for the whole run. It reads the **current** values of
 the identity Secrets from the cluster and looks for those exact strings: the
-four OIDC client secrets (names from the identity contract), the perimeter
-cookie secret (`oauth2-proxy-cookie`), the Trino workload credentials and the
-credentials generated in-cluster since #400: the PostgreSQL admin, Polaris and
-per-database passwords, the Polaris root client secret, the OpenMetadata admin
-password and each stage's Superset `SECRET_KEY` and admin password. It
+three OIDC client secrets (names from the identity contract), the perimeter
+cookie secret (`oauth2-proxy-cookie`) and the credentials generated in-cluster
+since #400: the PostgreSQL admin, Polaris and per-database passwords, the
+Polaris root client secret, the OpenMetadata admin password and each stage's
+Superset `SECRET_KEY` and admin password. It
 also looks for each value base64-encoded (the form Kubernetes stores Secret data
 in) and JSON-escaped (the form in `-o json` and Terraform state). A failure names
 the surface and the Secret (`name/key`), never the value.

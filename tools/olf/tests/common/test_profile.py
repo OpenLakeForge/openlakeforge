@@ -440,11 +440,11 @@ def test_identity_client_ids_are_validated() -> None:
         "role_mapping": {"viewer": ["v"]},
     }
     document["spec"].setdefault("access", {})
-    document["spec"]["identity"] = base | {"client_ids": {"trino": "0oa1"}}
-    assert validate_deployment_profile(document).identity.client_ids == {"trino": "0oa1"}
+    document["spec"]["identity"] = base | {"client_ids": {"superset": "0oa1"}}
+    assert validate_deployment_profile(document).identity.client_ids == {"superset": "0oa1"}
     document["spec"]["identity"] = base | {"client_ids": {"olf-cli": "0oa2"}}
     assert validate_deployment_profile(document).identity.client_ids == {"olf-cli": "0oa2"}
-    for bad in ({"nope": "x"}, {"cli": "x"}, {"trino": ""}, {}):
+    for bad in ({"nope": "x"}, {"cli": "x"}, {"trino": "x"}, {"superset": ""}, {}):
         document["spec"].setdefault("access", {})
         document["spec"]["identity"] = base | {"client_ids": bad}
         with pytest.raises(DeploymentProfileError):
@@ -453,7 +453,7 @@ def test_identity_client_ids_are_validated() -> None:
 
 def test_identity_client_ids_require_external_issuer() -> None:
     with pytest.raises(DeploymentProfileError, match="client_ids requires issuer 'external'"):
-        validate_deployment_profile(_github_profile(client_ids={"trino": "0oa1"}))
+        validate_deployment_profile(_github_profile(client_ids={"superset": "0oa1"}))
 
 
 def test_render_json_carries_identity() -> None:
@@ -583,7 +583,7 @@ def test_github_fails_closed(change: dict, match: str) -> None:
         {"issuer_url": "https://login.example.com/"},
         {"role_claim": "groups"},
         {"role_mapping": {"viewer": ["v"]}},
-        {"client_ids": {"trino": "t"}},
+        {"client_ids": {"superset": "t"}},
         {"smtp": {"host": "smtp.example.com", "port": 587, "from_address": "noreply@example.com"}},
         {"bootstrap_admins": ["ada@example.org"]},
     ],

@@ -1639,7 +1639,7 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     # Conformance: every issuer satisfies the same consumer-facing surface.
     identity = parsed.shared.values["identity"]
     assert {"issuer_url", "role_claim", "role_mapping", "clients"} <= set(identity)
-    assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "trino", "olf-cli"}
+    assert set(identity["clients"]) == {"perimeter", "superset", "openmetadata", "olf-cli"}
     assert identity["role_claim"] == json.loads((FIXTURES / f"identity-oidc-{name}.json").read_text())["role_claim"]
     assert _hcl.secret_value_fields(contract) == []
     jsonschema.validate(contract, SCHEMA)
@@ -1698,7 +1698,7 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
 
     ids = external["client_ids"]
     with pytest.raises(ProviderContractError, match="client_id must match"):
-        parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": {**ids, "trino": "stale"}}))
+        parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": {**ids, "superset": "x"}}))
 
     with pytest.raises(ProviderContractError, match="olf-cli.client_id must match"):
         parse_provider_contracts(contract, _topology(contract, {**external, "client_ids": {**ids, "olf-cli": "stale"}}))
@@ -1723,13 +1723,13 @@ def test_identity_oidc_must_match_the_profiles_external_identity() -> None:
             "more than one role",
         ),
         (lambda i: i.__setitem__("issuer_url", "https://idp.example/[realm]"), "outside the host"),
-        (lambda i: i["clients"].pop("trino"), "missing required fields"),
+        (lambda i: i["clients"].pop("superset"), "missing required fields"),
         (lambda i: i["clients"].pop("olf-cli"), "missing required fields"),
         (lambda i: i["clients"]["olf-cli"].__setitem__("secret_ref", {"name": "s", "key": "k"}), "unsupported fields"),
         (lambda i: i["clients"].__setitem__("cli", {"client_id": "cli"}), "unsupported fields"),
-        (lambda i: i["clients"]["trino"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
-        (lambda i: i["clients"]["trino"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
-        (lambda i: i["clients"]["trino"]["secret_ref"].pop("key"), "missing required fields"),
+        (lambda i: i["clients"]["superset"].__setitem__("client_secret", "hunter2"), "unsupported fields"),
+        (lambda i: i["clients"]["superset"].__setitem__("secret_ref", "hunter2"), "secret_ref must be an object"),
+        (lambda i: i["clients"]["superset"]["secret_ref"].pop("key"), "missing required fields"),
         (lambda i: i.__setitem__("issuer_url", "http://auth.example.com"), "an https URL"),
         (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t?realm=x"), "no query or fragment"),
         (lambda i: i.__setitem__("issuer_url", "https://auth.example.com/t#f"), "no query or fragment"),
@@ -1790,7 +1790,7 @@ def test_secret_ref_name_rejects_label_over_63() -> None:
 )
 def test_identity_oidc_secret_ref_must_be_kubernetes_valid(field: str, value: str) -> None:
     contract = _oidc_contract("dex")
-    contract["shared"]["identity"]["clients"]["trino"]["secret_ref"][field] = value
+    contract["shared"]["identity"]["clients"]["superset"]["secret_ref"][field] = value
     with pytest.raises(ProviderContractError, match="valid Kubernetes Secret"):
         parse_provider_contracts(contract, _topology(contract))
     with pytest.raises(jsonschema.ValidationError):

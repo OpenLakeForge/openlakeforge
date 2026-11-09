@@ -120,12 +120,11 @@
         "clients": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["perimeter", "superset", "openmetadata", "trino", "olf-cli"],
+          "required": ["perimeter", "superset", "openmetadata", "olf-cli"],
           "properties": {
             "perimeter": {"$ref": "#/definitions/oidcClient"},
             "superset": {"$ref": "#/definitions/oidcClient"},
             "openmetadata": {"$ref": "#/definitions/oidcClient"},
-            "trino": {"$ref": "#/definitions/oidcClient"},
             "olf-cli": {"$ref": "#/definitions/oidcPublicClient"}
           }
         },

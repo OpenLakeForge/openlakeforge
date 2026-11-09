@@ -184,7 +184,7 @@ _OIDC_OPTIONAL = {"adapter", "capabilities", "internal_url"}
 _OIDC_CAPABILITIES = frozenset({"email_delivery", "groups_in_token", "logout_endpoint"})
 # The adapter OpenLakeForge deploys for each issuer it deploys; `external` has none.
 _DEPLOYED_ADAPTER = {"github": "dex"}
-_OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "trino", "olf-cli")
+_OIDC_CLIENTS = ("perimeter", "superset", "openmetadata", "olf-cli")
 # A public client authenticates with PKCE, so the contract holds no secret for it.
 _PUBLIC_OIDC_CLIENTS = frozenset({"olf-cli"})
 

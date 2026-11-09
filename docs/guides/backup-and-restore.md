@@ -153,8 +153,7 @@ olf infra access trust
 ```
 
 With the default plain-HTTP routes (`tls: none`) the CA signs only
-in-cluster certificates, such as Trino's (ADR 0016), and nothing outside the
-cluster trusts it. The pods mount it by path, and no database holds it, so it
+in-cluster certificates, and nothing outside the cluster trusts it. The pods mount it by path, and no database holds it, so it
 is disposable: the backup leaves it out, and a restore keeps the CA the
 platform already runs with, including a rebuilt cluster's new one.
 

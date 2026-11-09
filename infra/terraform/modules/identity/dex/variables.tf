@@ -41,7 +41,7 @@ variable "github" {
 }
 
 variable "clients" {
-  description = "OIDC clients keyed by consumer (perimeter, superset, openmetadata, trino) with the redirect URIs each may return to. The client id is the key."
+  description = "OIDC clients keyed by consumer (perimeter, superset, openmetadata) with the redirect URIs each may return to. The client id is the key."
   type = map(object({
     redirect_uris = list(string)
   }))

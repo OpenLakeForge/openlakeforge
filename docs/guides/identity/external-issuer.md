@@ -29,11 +29,11 @@ Every field is in the
 
 ## Register the clients
 
-Register four confidential OIDC clients in your issuer: `perimeter`,
-`superset`, `openmetadata` and `trino`, or the ids you set under `client_ids`. Store each
+Register three confidential OIDC clients in your issuer: `perimeter`,
+`superset` and `openmetadata`, or the ids you set under `client_ids`. Store each
 client secret in a Kubernetes Secret named `oidc-client-<consumer>` in
-`olf-system`, with the key `client-secret`. The contract names all four, so
-create all four; only the `perimeter` client is used by a deployed service
+`olf-system`, with the key `client-secret`. The contract names all three, so
+create all three; only the `perimeter` client is used by a deployed service
 today (see Limits).
 
 For the `perimeter` client, register this redirect URI, with the scheme you
@@ -59,9 +59,9 @@ export KUBECONFIG="$HOME/.openlakeforge/state/local/kubeconfig.yaml"
   --from-literal=client-secret="$PERIMETER_CLIENT_SECRET"
 ```
 
-Repeat for `superset`, `openmetadata` and `trino`.
+Repeat for `superset` and `openmetadata`.
 
-Also register a fifth, public client for the command line: `olf-cli`, or the id
+Also register a fourth, public client for the command line: `olf-cli`, or the id
 you set under `client_ids`. It has no secret and no Kubernetes Secret.
 
 | Setting | Value |
@@ -89,8 +89,7 @@ reads the roles of a bearer token from that claim name alone, so with another
   ends, which can be hours. Test removal before you rely on it.
 - **Only the perimeter uses your issuer.** With `external`, OpenMetadata and
   Superset are deployed with no OIDC configuration (`oidc = null`), so they
-  keep their own logins behind the perimeter, and the Trino UI's OAuth2
-  sign-in is not set up (it is Dex only). The OpenMetadata role sync, which
+  keep their own logins behind the perimeter. The OpenMetadata role sync, which
   reads GitHub teams, does not apply either. The per-service roles in
   [Roles and permissions](../../reference/roles-and-permissions.md) are
   therefore enforced by the perimeter only: which services a person opens.
