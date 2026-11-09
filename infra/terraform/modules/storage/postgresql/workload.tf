@@ -125,7 +125,7 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
 
           resources {
             requests = {
-              cpu    = "100m"
+              cpu    = "250m"
               memory = "256Mi"
             }
             limits = {
